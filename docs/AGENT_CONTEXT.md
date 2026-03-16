@@ -23,6 +23,9 @@ This repo keeps agent-facing context in the places that current agent tools expe
   - canonical project-local skill directory
   - includes both repo-owned skills and repo-local third-party stack skills
   - each skill is a normal `SKILL.md` folder and may include agent-specific metadata files when needed
+- `tsconfig.json`
+  - root TypeScript solution file for workspace-wide indexing
+  - helps editors and language servers see the monorepo as one project graph
 
 ## Repo Handoff Model
 

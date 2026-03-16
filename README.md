@@ -23,6 +23,7 @@ Agent-first desktop monorepo for:
 
 ```bash
 pnpm install
+pnpm lsp:typescript
 pnpm agents:sync
 pnpm verify
 pnpm --filter @unemployed/desktop dev

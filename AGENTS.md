@@ -35,6 +35,7 @@ Agent-first Electron monorepo for two modules:
 
 - `pnpm dev`
 - `pnpm lint`
+- `pnpm lsp:typescript`
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm agents:sync`

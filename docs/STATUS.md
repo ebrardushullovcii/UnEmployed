@@ -15,6 +15,7 @@ Foundation bootstrap
 - Standardized repo-local skills under `.agents/skills` with `.claude/skills` as a compatibility link
 - Removed unnecessary module-specific repo-owned skills and kept stack skills repo-local
 - Added repo-local stack skills for Electron, React, TypeScript, Zod, Vitest, SQLite, Playwright, and agent workflow docs
+- Added a workspace-local TypeScript language-server entrypoint and root solution `tsconfig.json`
 - Added minimal workspace layout and a runnable desktop shell scaffold
 - Verified `pnpm verify` and desktop production build
 

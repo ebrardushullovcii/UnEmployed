@@ -1,0 +1,16 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/desktop" },
+    { "path": "./packages/ai-providers" },
+    { "path": "./packages/browser-runtime" },
+    { "path": "./packages/contracts" },
+    { "path": "./packages/core" },
+    { "path": "./packages/db" },
+    { "path": "./packages/interview-helper" },
+    { "path": "./packages/job-finder" },
+    { "path": "./packages/knowledge-base" },
+    { "path": "./packages/os-integration" },
+    { "path": "./packages/testing" }
+  ]
+}
