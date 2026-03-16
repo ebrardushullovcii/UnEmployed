@@ -10,6 +10,7 @@ Foundation bootstrap
 - Chosen desktop baseline: `Electron + React`
 - Installed global skills for browser automation, docs, transcription, screenshots, and security
 - Added canonical repo docs, including a durable project plan
+- Expanded the durable project plan so the full big-picture product context lives in the repo
 - Added generated adapter pipeline for `CLAUDE.md` and Cursor rules
 - Standardized repo-local skills under `.agents/skills` with `.claude/skills` as a compatibility link
 - Removed unnecessary module-specific repo-owned skills and kept stack skills repo-local

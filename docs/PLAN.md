@@ -18,12 +18,23 @@ The long-term target is not a loose collection of tools. It is one cohesive syst
 
 The app shares one local profile, one document/context store, one applications database, and one global assistant/chat surface.
 
+The product should feel like one cohesive system, not two unrelated tools bundled together. The shared platform is part of the product, not just plumbing.
+
 ## Product Goals
 
 - Help manage end-to-end job search work instead of just surfacing listings.
 - Keep long-lived context in the app so each new application or interview session starts with the right documents and history.
 - Support both an explicit UI workflow and agent-driven actions.
 - Keep the repo maintainable for AI coding agents by making boundaries typed, validated, and testable.
+- Keep the app local-first so the user owns the core data, history, and context.
+
+## Operating Model
+
+- One desktop shell with two first-class modules.
+- Shared profile, shared knowledge base, shared application history, and shared assistant across both modules.
+- UI-first workflows with agent acceleration, not chat-only workflows.
+- Browser-driven job workflows rather than API-only assumptions.
+- Explicit module boundaries so `Job Finder` and `Interview Helper` can evolve independently without becoming separate repos.
 
 ## Tech Direction
 
@@ -35,6 +46,14 @@ The app shares one local profile, one document/context store, one applications d
 - Local storage: `SQLite`
 - Browser automation: `Playwright`
 - AI layer: pluggable provider interfaces for STT, chat, vision, and embeddings
+
+## Engineering Principles
+
+- Every important external boundary should be typed and schema-validated.
+- Workflow state should use explicit enums and discriminated unions rather than loose objects and booleans.
+- Package public APIs are the only supported import surface.
+- Renderer code should not directly own browser automation, persistence, or OS-specific behavior.
+- The repo is optimized for AI coding agents, so docs, contracts, and tests must make intent recoverable without rereading the whole codebase.
 
 ## Shared Platform
 
@@ -52,6 +71,32 @@ The app shares one local profile, one document/context store, one applications d
   - optional attach/import path for existing Chrome sessions later
 - `Desktop shell`
   - tray, hotkeys, module navigation, settings, and window management
+- `Global assistant`
+  - shared chat/search surface over profile, applications, documents, transcripts, and notes
+  - can answer questions, draft content, and open the right workflow with context preloaded
+
+## Shared Data Model
+
+- `Candidate profile`
+  - structured profile fields derived from imported source documents
+- `Documents`
+  - resumes, cover letters, job descriptions, recruiter emails, notes, and captures
+- `Knowledge items`
+  - indexed chunks for retrieval across both modules
+- `Applications`
+  - postings, statuses, generated assets, notes, reminders, and event history
+- `Interview workspaces`
+  - prep bundles tied to a target application or job
+- `Interview sessions`
+  - transcript chunks, captures, suggestions, and session timeline events
+
+## Shared Defaults
+
+- Local-first persistence is the source of truth.
+- Browser automation is managed-profile first.
+- Batch approval is the default for job submissions.
+- Full application history should be queryable from the same app that drafts and submits jobs.
+- Interview prep should reuse application history and stored documents instead of starting from scratch.
 
 ## Module Plan
 
@@ -64,6 +109,43 @@ The app shares one local profile, one document/context store, one applications d
 - Fill applications and queue them for batch approval by default.
 - Track every application in a first-class table with status history.
 
+#### Job Finder UX Defaults
+
+- `Profile`
+  - import CV/resume documents and supporting materials
+  - normalize them into reusable structured profile state
+- `Discovery`
+  - find jobs, score fit, and show the why behind each match
+- `Review Queue`
+  - inspect draft materials and approve, skip, or edit before submission
+- `Applications`
+  - first-class table for tracking status, notes, dates, and next actions
+- `Settings`
+  - preferences for targets, browser mode, generation rules, and defaults
+
+#### Job Finder Workflow Defaults
+
+- Discovery is browser-agent-first, with structured connectors added where clearly useful.
+- Submission mode defaults to batch approval.
+- Generated outputs should stay grounded in imported documents and saved preferences.
+- Long-form generated answers are allowed as part of the workflow, but they should still be source-backed.
+- Reminders and application event history are part of the core workflow, not an afterthought.
+
+#### Job Application Status Baseline
+
+- `discovered`
+- `shortlisted`
+- `drafting`
+- `ready_for_review`
+- `approved`
+- `submitted`
+- `assessment`
+- `interview`
+- `rejected`
+- `offer`
+- `withdrawn`
+- `archived`
+
 ### Interview Helper
 
 - Build a prep workspace from resume, job description, emails, notes, and application history.
@@ -71,6 +153,27 @@ The app shares one local profile, one document/context store, one applications d
 - Run a live session with transcript-aware context and capture support.
 - Show compact cues in a separate overlay window while preserving a full panel for deeper context.
 - Persist transcripts, captures, and generated suggestions locally for later review.
+
+#### Interview Helper UX Defaults
+
+- `Prep Workspace`
+  - assemble the target context before a live session
+- `Live Session Panel`
+  - full companion panel for deeper context and chat
+- `Overlay`
+  - compact cue surface for live use
+- `Session History`
+  - revisit prior transcripts, captures, and suggestions
+- `Settings`
+  - audio source, capture behavior, and model/provider defaults
+
+#### Interview Helper Workflow Defaults
+
+- Prep uses the selected application, resume variant, job description, emails, notes, and uploaded context.
+- Live sessions combine transcript stream, rolling context, and captures.
+- The overlay is a consumer of live session state, not the owner of it.
+- Hotkeys, tray controls, and window policy must stay behind OS adapters.
+- Platform-specific display and capture behavior should remain isolated behind adapters rather than leaking into module logic.
 
 ## Delivery Order
 
@@ -108,6 +211,13 @@ The app shares one local profile, one document/context store, one applications d
 - Windows parity
 - Native helper fill-ins where Electron is not enough
 - Performance, recovery flows, and packaging
+
+## Quality Bar
+
+- Unit, contract, integration, and end-to-end tests should exist for important public behavior as the implementation grows.
+- Deterministic fixtures and fake providers are preferred over live third-party dependencies in tests.
+- Docs should be updated as part of the same work when behavior, architecture, contracts, or delivery shape changes.
+- Durable knowledge belongs in repo docs, not in chat history.
 
 ## Agent Workflow Rules
 
