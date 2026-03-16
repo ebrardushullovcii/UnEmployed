@@ -1,0 +1,46 @@
+version: 1
+rootInstructions: AGENTS.md
+canonicalDocs:
+  - path: docs/README.md
+    purpose: entrypoint
+  - path: docs/PLAN.md
+    purpose: plan
+  - path: docs/AGENT_CONTEXT.md
+    purpose: agent-context
+  - path: docs/PRODUCT.md
+    purpose: product
+  - path: docs/ARCHITECTURE.md
+    purpose: architecture
+  - path: docs/CONTRACTS.md
+    purpose: contracts
+  - path: docs/TESTING.md
+    purpose: testing
+  - path: docs/STATUS.md
+    purpose: status
+  - path: docs/modules/JOB_FINDER.md
+    purpose: module
+  - path: docs/modules/INTERVIEW_HELPER.md
+    purpose: module
+requiredPackageGuides:
+  - apps/desktop/AGENTS.md
+  - packages/contracts/AGENTS.md
+  - packages/core/AGENTS.md
+  - packages/db/AGENTS.md
+  - packages/knowledge-base/AGENTS.md
+  - packages/browser-runtime/AGENTS.md
+  - packages/job-finder/AGENTS.md
+  - packages/interview-helper/AGENTS.md
+  - packages/ai-providers/AGENTS.md
+  - packages/os-integration/AGENTS.md
+  - packages/testing/AGENTS.md
+generatedAdapters:
+  - path: CLAUDE.md
+    kind: claude
+  - path: .cursor/rules/00-project.mdc
+    kind: cursor
+projectSkills:
+  canonicalDir: .agents/skills
+validation:
+  checkInternalLinks: true
+  checkGeneratedAdapters: true
+  checkPackageGuides: true

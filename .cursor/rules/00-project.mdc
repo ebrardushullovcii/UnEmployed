@@ -1,0 +1,15 @@
+---
+description: UnEmployed repository rules and navigation
+globs:
+alwaysApply: true
+---
+
+# UnEmployed
+
+- Start with `AGENTS.md`, `docs/README.md`, `docs/PLAN.md`, `docs/AGENT_CONTEXT.md`, and `docs/STATUS.md`.
+- Prefer package-local `AGENTS.md` files when working inside one workspace.
+- Shared contracts live in `packages/contracts`; do not introduce untyped cross-package boundaries.
+- Update docs in the same task when behavior, contracts, or architecture change.
+- If preparing work for commit or PR handoff, update the relevant docs proactively in the same task.
+- Never create a git commit or PR action unless the user explicitly asks for it.
+- Run `pnpm agents:sync`, `pnpm docs:check`, and the relevant lint/typecheck/test commands before closing work.

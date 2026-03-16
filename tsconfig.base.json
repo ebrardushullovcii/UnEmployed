@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@unemployed/contracts": [
+        "packages/contracts/src/index.ts"
+      ],
+      "@unemployed/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@unemployed/job-finder": [
+        "packages/job-finder/src/index.ts"
+      ],
+      "@unemployed/interview-helper": [
+        "packages/interview-helper/src/index.ts"
+      ]
+    }
+  }
+}
+

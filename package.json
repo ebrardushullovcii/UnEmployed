@@ -1,0 +1,31 @@
+{
+  "name": "unemployed",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.8.0",
+  "scripts": {
+    "dev": "turbo dev --parallel",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:smoke": "vitest run --dir packages/contracts/src",
+    "agents:sync": "node scripts/sync-agent-adapters.mjs",
+    "agents:check": "node scripts/check-agents.mjs",
+    "docs:check": "node scripts/check-docs.mjs",
+    "verify": "pnpm agents:check && pnpm docs:check && pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^3.1.4",
+    "eslint": "^9.22.0",
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.0",
+    "vitest": "^3.1.4",
+    "yaml": "^2.8.0"
+  }
+}
+

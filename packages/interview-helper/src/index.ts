@@ -1,0 +1,2 @@
+export const interviewHelperPackageReady = true
+
