@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "dependencies": {
+    "@unemployed/os-integration": "workspace:*"
+  },
   "scripts": {
     "build": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
@@ -10,4 +13,3 @@
     "test": "vitest run --passWithNoTests"
   }
 }
-

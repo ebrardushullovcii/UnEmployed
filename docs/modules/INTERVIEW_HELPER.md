@@ -19,3 +19,8 @@ Owns interview prep, live transcript context, screenshot capture, and suggestion
 - Retrieval from `packages/knowledge-base`
 - Provider abstractions from `packages/ai-providers`
 
+## Overlay Boundary
+
+- `packages/interview-helper` owns overlay content and state shape.
+- `packages/os-integration` owns the actual overlay window lifecycle and any platform-specific display/capture policy.
+- Keep these separate so future window-policy changes do not require rewrites through live session logic.

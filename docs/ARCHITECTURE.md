@@ -11,7 +11,7 @@
 - `packages/job-finder`: discovery, drafting, apply workflow orchestration
 - `packages/interview-helper`: prep, live session, transcript, cue generation
 - `packages/ai-providers`: provider interfaces and adapters
-- `packages/os-integration`: tray, hotkeys, window and capture policy adapters
+- `packages/os-integration`: tray, hotkeys, overlay window lifecycle, and window/capture policy adapters
 - `packages/testing`: fake providers, fixtures, and integration harnesses
 
 ## Architectural Rules
@@ -21,10 +21,10 @@
 - Package public APIs are the only supported import surface.
 - External IO must be schema-validated at the boundary.
 - Agent handoff state lives in docs, not in chat history.
+- Interview overlay state belongs to `packages/interview-helper`; platform window behavior belongs to `packages/os-integration`.
 
 ## Near-Term Foundation
 
 - Establish the monorepo, canonical docs, and validation commands
 - Keep module packages thin until real workflows land
 - Grow package internals behind stable contracts instead of letting the app become a direct-import mesh
-

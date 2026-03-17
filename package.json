@@ -12,9 +12,9 @@
     "test": "vitest run",
     "test:unit": "vitest run",
     "test:smoke": "vitest run --dir packages/contracts/src",
-    "agents:sync": "node scripts/sync-agent-adapters.mjs",
-    "agents:check": "node scripts/check-agents.mjs",
-    "docs:check": "node scripts/check-docs.mjs",
+    "agents:sync": "node scripts/repo-context.mjs sync",
+    "agents:check": "node scripts/repo-context.mjs check-agents",
+    "docs:check": "node scripts/repo-context.mjs check-docs",
     "verify": "pnpm agents:check && pnpm docs:check && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {

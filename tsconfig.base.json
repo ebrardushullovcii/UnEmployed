@@ -23,19 +23,36 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
+      "@unemployed/ai-providers": [
+        "packages/ai-providers/src/index.ts"
+      ],
+      "@unemployed/browser-runtime": [
+        "packages/browser-runtime/src/index.ts"
+      ],
       "@unemployed/contracts": [
         "packages/contracts/src/index.ts"
       ],
       "@unemployed/core": [
         "packages/core/src/index.ts"
       ],
+      "@unemployed/db": [
+        "packages/db/src/index.ts"
+      ],
+      "@unemployed/knowledge-base": [
+        "packages/knowledge-base/src/index.ts"
+      ],
       "@unemployed/job-finder": [
         "packages/job-finder/src/index.ts"
       ],
       "@unemployed/interview-helper": [
         "packages/interview-helper/src/index.ts"
+      ],
+      "@unemployed/os-integration": [
+        "packages/os-integration/src/index.ts"
+      ],
+      "@unemployed/testing": [
+        "packages/testing/src/index.ts"
       ]
     }
   }
 }
-

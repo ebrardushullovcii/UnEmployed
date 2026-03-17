@@ -84,7 +84,11 @@ importers:
 
   packages/db: {}
 
-  packages/interview-helper: {}
+  packages/interview-helper:
+    dependencies:
+      '@unemployed/os-integration':
+        specifier: workspace:*
+        version: link:../os-integration
 
   packages/job-finder: {}
 
