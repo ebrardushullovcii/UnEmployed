@@ -1,8 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
-import { copyFile, mkdir } from 'node:fs/promises'
+import { copyFile, mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
+import { createJobFinderAiClientFromEnvironment } from '@unemployed/ai-providers'
+import { createCatalogBrowserSessionRuntime, createLinkedInBrowserAgentRuntime } from '@unemployed/browser-runtime'
 import {
   CandidateProfileSchema,
   DesktopPlatformPingSchema,
@@ -15,16 +16,50 @@ import {
 import { createFileJobFinderRepository } from '@unemployed/db'
 import { createJobFinderWorkspaceService } from '@unemployed/job-finder'
 import {
+  createFreshJobFinderRepositorySeed,
   createJobFinderBrowserSessionSeed,
   createJobFinderRepositorySeed,
   createLinkedInDiscoveryCatalogSeed
 } from './job-finder-seed'
+import { createLocalJobFinderDocumentManager } from './job-finder-document-manager'
+import { loadDesktopEnvironment } from './env'
+import { extractResumeText } from './resume-document'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
+
+loadDesktopEnvironment()
 
 let jobFinderWorkspaceServicePromise:
   | ReturnType<typeof createJobFinderWorkspaceServiceAsync>
   | undefined
+
+interface ResumeImportPathPayload {
+  sourcePath: string
+}
+
+function isEnabled(value: string | undefined): boolean {
+  return value === '1' || value === 'true'
+}
+
+function isDesktopTestApiEnabled(): boolean {
+  return isEnabled(process.env.UNEMPLOYED_ENABLE_TEST_API)
+}
+
+function parseResumeImportPathPayload(payload: unknown): ResumeImportPathPayload {
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !('sourcePath' in payload) ||
+    typeof payload.sourcePath !== 'string' ||
+    payload.sourcePath.trim().length === 0
+  ) {
+    throw new Error('A non-empty sourcePath string is required for scripted resume import.')
+  }
+
+  return {
+    sourcePath: payload.sourcePath
+  }
+}
 
 function getJobFinderWorkspaceFilePath() {
   const userDataDirectory = process.env.UNEMPLOYED_USER_DATA_DIR ?? app.getPath('userData')
@@ -38,17 +73,45 @@ function getJobFinderDocumentsDirectory() {
   return path.join(userDataDirectory, 'documents', 'resumes')
 }
 
+function getGeneratedResumeDocumentsDirectory() {
+  return path.join(getJobFinderDocumentsDirectory(), 'generated')
+}
+
+function getLinkedInBrowserProfileDirectory() {
+  const userDataDirectory = process.env.UNEMPLOYED_USER_DATA_DIR ?? app.getPath('userData')
+
+  return path.join(userDataDirectory, 'browser-agent', 'linkedin')
+}
+
 async function createJobFinderWorkspaceServiceAsync() {
   const jobFinderRepository = await createFileJobFinderRepository({
     filePath: getJobFinderWorkspaceFilePath(),
     seed: createJobFinderRepositorySeed()
   })
-  const browserRuntime = createCatalogBrowserSessionRuntime({
-    sessions: createJobFinderBrowserSessionSeed(),
-    catalog: createLinkedInDiscoveryCatalogSeed()
+  const chromeDebugPort = process.env.UNEMPLOYED_CHROME_DEBUG_PORT
+    ? Number.parseInt(process.env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
+    : null
+  const browserRuntime = isEnabled(process.env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT)
+    ? createLinkedInBrowserAgentRuntime({
+        userDataDir: getLinkedInBrowserProfileDirectory(),
+        headless: isEnabled(process.env.UNEMPLOYED_BROWSER_HEADLESS),
+        ...(process.env.UNEMPLOYED_CHROME_PATH
+          ? { chromeExecutablePath: process.env.UNEMPLOYED_CHROME_PATH }
+          : {}),
+        ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {})
+      })
+    : createCatalogBrowserSessionRuntime({
+        sessions: createJobFinderBrowserSessionSeed(),
+        catalog: createLinkedInDiscoveryCatalogSeed()
+      })
+  const aiClient = createJobFinderAiClientFromEnvironment(process.env)
+  const documentManager = createLocalJobFinderDocumentManager({
+    outputDirectory: getGeneratedResumeDocumentsDirectory()
   })
 
   return createJobFinderWorkspaceService({
+    aiClient,
+    documentManager,
     repository: jobFinderRepository,
     browserRuntime
   })
@@ -87,6 +150,7 @@ function bindWindowControlsState(window: BrowserWindow) {
 function createMainWindow() {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL
   const isMac = process.platform === 'darwin'
+  const isWindows = process.platform === 'win32'
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -96,7 +160,7 @@ function createMainWindow() {
     title: 'UnEmployed',
     backgroundColor: '#0e1726',
     autoHideMenuBar: true,
-    frame: !isMac,
+    frame: !(isMac || isWindows),
     ...(isMac ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: path.join(currentDir, '../preload/index.mjs'),
@@ -138,6 +202,50 @@ ipcMain.handle('window:get-controls-state', (event) => {
 
   return getWindowControlsState(targetWindow)
 })
+
+async function importResumeFromSourcePath(sourcePath: string) {
+  const targetDirectory = getJobFinderDocumentsDirectory()
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+
+  await mkdir(targetDirectory, { recursive: true })
+
+  const extractedResume = await extractResumeText(sourcePath)
+  const timestamp = Date.now()
+  const fileName = path.basename(sourcePath)
+  const targetPath = path.join(targetDirectory, `${timestamp}_${fileName}`)
+
+  await copyFile(sourcePath, targetPath)
+
+  const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
+  const savedSnapshot = await jobFinderWorkspaceService.saveProfile({
+    ...currentSnapshot.profile,
+    baseResume: {
+      id: `resume_${timestamp}`,
+      fileName,
+      uploadedAt: new Date(timestamp).toISOString(),
+      storagePath: targetPath,
+      textContent: extractedResume.textContent,
+      textUpdatedAt: extractedResume.textContent ? new Date(timestamp).toISOString() : null,
+      extractionStatus: extractedResume.textContent ? 'not_started' : 'needs_text',
+      lastAnalyzedAt: null,
+      analysisProviderKind: null,
+      analysisProviderLabel: null,
+      analysisWarnings:
+        extractedResume.warnings.length > 0
+          ? extractedResume.warnings
+          : extractedResume.textContent
+            ? []
+            : ['Paste plain-text resume content below if you want the agent to extract profile details from this file.']
+    }
+  })
+
+  if (!extractedResume.textContent) {
+    return JobFinderWorkspaceSnapshotSchema.parse(savedSnapshot)
+  }
+
+  const analyzedSnapshot = await jobFinderWorkspaceService.analyzeProfileFromResume()
+  return JobFinderWorkspaceSnapshotSchema.parse(analyzedSnapshot)
+}
 
 ipcMain.handle('window:minimize', (event) => {
   const targetWindow = BrowserWindow.fromWebContents(event.sender)
@@ -190,10 +298,24 @@ ipcMain.handle('job-finder:get-workspace', async () => {
   return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
 })
 
+ipcMain.handle('job-finder:open-browser-session', async () => {
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const snapshot = await jobFinderWorkspaceService.openBrowserSession()
+
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+})
+
 ipcMain.handle('job-finder:save-profile', async (_event, payload: unknown) => {
   const profile = CandidateProfileSchema.parse(payload)
   const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
   const snapshot = await jobFinderWorkspaceService.saveProfile(profile)
+
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+})
+
+ipcMain.handle('job-finder:analyze-profile-from-resume', async () => {
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const snapshot = await jobFinderWorkspaceService.analyzeProfileFromResume()
 
   return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
 })
@@ -215,7 +337,6 @@ ipcMain.handle('job-finder:save-settings', async (_event, payload: unknown) => {
 })
 
 ipcMain.handle('job-finder:import-resume', async () => {
-  const targetDirectory = getJobFinderDocumentsDirectory()
   const selection = await dialog.showOpenDialog({
     properties: ['openFile'],
     filters: [
@@ -230,32 +351,22 @@ ipcMain.handle('job-finder:import-resume', async () => {
     return JobFinderWorkspaceSnapshotSchema.parse(await jobFinderWorkspaceService.getWorkspaceSnapshot())
   }
 
-  await mkdir(targetDirectory, { recursive: true })
-
   const sourcePath = selection.filePaths[0]
 
   if (!sourcePath) {
     return JobFinderWorkspaceSnapshotSchema.parse(await jobFinderWorkspaceService.getWorkspaceSnapshot())
   }
 
-  const timestamp = Date.now()
-  const fileName = path.basename(sourcePath)
-  const targetPath = path.join(targetDirectory, `${timestamp}_${fileName}`)
+  return importResumeFromSourcePath(sourcePath)
+})
 
-  await copyFile(sourcePath, targetPath)
+ipcMain.handle('job-finder:test-import-resume-from-path', async (_event, payload: unknown) => {
+  if (!isDesktopTestApiEnabled()) {
+    throw new Error('Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.')
+  }
 
-  const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
-  const nextSnapshot = await jobFinderWorkspaceService.saveProfile({
-    ...currentSnapshot.profile,
-    baseResume: {
-      id: `resume_${timestamp}`,
-      fileName,
-      uploadedAt: new Date(timestamp).toISOString(),
-      storagePath: targetPath
-    }
-  })
-
-  return JobFinderWorkspaceSnapshotSchema.parse(nextSnapshot)
+  const { sourcePath } = parseResumeImportPathPayload(payload)
+  return importResumeFromSourcePath(sourcePath)
 })
 
 ipcMain.handle('job-finder:run-discovery', async () => {
@@ -299,7 +410,13 @@ ipcMain.handle('job-finder:approve-apply', async (_event, payload: unknown) => {
 
 ipcMain.handle('job-finder:reset-workspace', async () => {
   const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
-  const snapshot = await jobFinderWorkspaceService.resetWorkspace(createJobFinderRepositorySeed())
+
+  await Promise.all([
+    rm(getJobFinderDocumentsDirectory(), { recursive: true, force: true }),
+    rm(getLinkedInBrowserProfileDirectory(), { recursive: true, force: true })
+  ])
+
+  const snapshot = await jobFinderWorkspaceService.resetWorkspace(createFreshJobFinderRepositorySeed())
 
   return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
 })

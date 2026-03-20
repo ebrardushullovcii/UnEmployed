@@ -8,8 +8,11 @@ Deliver the first real `Job Finder` vertical slice for `LinkedIn Easy Apply` wit
 
 ## Progress Snapshot
 
-- Milestone 1 is complete and Milestones 2-4 now have a functional local-first implementation: typed contracts, SQLite-backed persistence, a richer browser runtime interface, deterministic LinkedIn discovery runs, stored tailored resume content, and tracked Easy Apply attempts.
-- The next implementation focus is hardening the deterministic LinkedIn adapter into a live authenticated browser-driven path while preserving the current safe-stop behavior for unsupported flows.
+- Milestone 1 is complete and Milestones 2-4 now have a functional local-first implementation: typed contracts, SQLite-backed persistence, a richer browser runtime interface, deterministic LinkedIn discovery runs, stored tailored resume content, tracked Easy Apply attempts, and the first model-backed provider seam.
+- The current implementation now supports resume-text profile extraction, AI-assisted resume drafting, fixed template-driven HTML resume output, and an opt-in dedicated Chrome-profile LinkedIn browser agent while preserving deterministic fallbacks for tests and offline work.
+- Electron resume import now preloads a local `DOMMatrix` polyfill before `pdfjs-dist` initializes, which keeps real PDF uploads working inside the desktop runtime instead of crashing the IPC path.
+- Electron resume import now also points `pdfjs-dist` at the installed worker module explicitly, which avoids bundled-runtime failures caused by missing `out/main/pdf.worker.mjs`.
+- The next implementation focus is hardening the live authenticated LinkedIn path, improving selector coverage and resume artifact export, and keeping the current safe-stop behavior for unsupported flows.
 
 ## Why This Slice
 
@@ -125,6 +128,7 @@ Notes:
 
 - Keep auth-state handling explicit.
 - Do not put LinkedIn selectors or page branching in the generic runtime.
+- The live browser path is opt-in and should stay recoverable when auth expires or selectors drift.
 
 ### 4. Job Finder Orchestration
 
@@ -142,6 +146,7 @@ Notes:
 
 - Browser, persistence, and generation concerns should stay behind adapters.
 - Keep orchestration readable rather than prematurely abstract.
+- Agent outputs must stay schema-validated and grounded in stored resume text, profile state, and job data.
 
 ### 5. Desktop UI
 
@@ -163,6 +168,7 @@ Notes:
 
 - Start with practical workflow views, not polished design depth.
 - Expand preload and main-process IPC only through typed contracts.
+- Surface whether the app is using the deterministic fallback or the live agent/browser path so the user is never guessing what mode the app is in.
 
 ### 6. LinkedIn Adapter
 
@@ -181,6 +187,7 @@ Notes:
 
 - Do not try to handle every LinkedIn branch in v1.
 - Unsupported flows should stop with a useful recorded reason.
+- Managed browser sessions should be user-authenticated rather than relying on private APIs or silent credential replay.
 
 ### 7. Resume Tailoring
 
@@ -197,6 +204,7 @@ Notes:
 - Start with two templates at most.
 - Final rendering details can stay flexible until implementation makes the best path clearer.
 - Cover letters may be deferred if they slow down the first end-to-end slice.
+- Resume-text extraction can inform tailoring, but generated outputs still need exportable file artifacts before live upload flows are considered complete.
 
 ### 8. Testing
 

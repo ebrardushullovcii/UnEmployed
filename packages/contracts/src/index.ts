@@ -64,6 +64,31 @@ export const browserSessionStatusValues = ['unknown', 'ready', 'login_required',
 export const BrowserSessionStatusSchema = z.enum(browserSessionStatusValues)
 export type BrowserSessionStatus = z.infer<typeof BrowserSessionStatusSchema>
 
+export const browserDriverValues = ['catalog_seed', 'chrome_profile_agent'] as const
+
+export const BrowserDriverSchema = z.enum(browserDriverValues)
+export type BrowserDriver = z.infer<typeof BrowserDriverSchema>
+
+export const resumeExtractionStatusValues = ['not_started', 'needs_text', 'ready', 'failed'] as const
+
+export const ResumeExtractionStatusSchema = z.enum(resumeExtractionStatusValues)
+export type ResumeExtractionStatus = z.infer<typeof ResumeExtractionStatusSchema>
+
+export const jobDiscoveryMethodValues = ['catalog_seed', 'browser_agent'] as const
+
+export const JobDiscoveryMethodSchema = z.enum(jobDiscoveryMethodValues)
+export type JobDiscoveryMethod = z.infer<typeof JobDiscoveryMethodSchema>
+
+export const assetGenerationMethodValues = ['deterministic', 'ai_assisted'] as const
+
+export const AssetGenerationMethodSchema = z.enum(assetGenerationMethodValues)
+export type AssetGenerationMethod = z.infer<typeof AssetGenerationMethodSchema>
+
+export const aiProviderKindValues = ['deterministic', 'openai_compatible'] as const
+
+export const AiProviderKindSchema = z.enum(aiProviderKindValues)
+export type AiProviderKind = z.infer<typeof AiProviderKindSchema>
+
 export const applicationAttemptStateValues = [
   'not_started',
   'ready',
@@ -77,10 +102,15 @@ export const applicationAttemptStateValues = [
 export const ApplicationAttemptStateSchema = z.enum(applicationAttemptStateValues)
 export type ApplicationAttemptState = z.infer<typeof ApplicationAttemptStateSchema>
 
-export const documentFormatValues = ['pdf', 'docx'] as const
+export const documentFormatValues = ['html', 'pdf', 'docx'] as const
 
 export const DocumentFormatSchema = z.enum(documentFormatValues)
 export type DocumentFormat = z.infer<typeof DocumentFormatSchema>
+
+export const resumeTemplateIdValues = ['classic_ats', 'modern_split', 'compact_exec'] as const
+
+export const ResumeTemplateIdSchema = z.enum(resumeTemplateIdValues)
+export type ResumeTemplateId = z.infer<typeof ResumeTemplateIdSchema>
 
 export const documentFontPresetValues = ['inter_requisite', 'space_grotesk_display'] as const
 
@@ -96,17 +126,31 @@ export const ResumeSourceDocumentSchema = z.object({
   id: NonEmptyStringSchema,
   fileName: NonEmptyStringSchema,
   uploadedAt: IsoDateTimeSchema,
-  storagePath: NonEmptyStringSchema.nullable().default(null)
+  storagePath: NonEmptyStringSchema.nullable().default(null),
+  textContent: NonEmptyStringSchema.nullable().default(null),
+  textUpdatedAt: IsoDateTimeSchema.nullable().default(null),
+  extractionStatus: ResumeExtractionStatusSchema.default('not_started'),
+  lastAnalyzedAt: IsoDateTimeSchema.nullable().default(null),
+  analysisProviderKind: AiProviderKindSchema.nullable().default(null),
+  analysisProviderLabel: NonEmptyStringSchema.nullable().default(null),
+  analysisWarnings: z.array(NonEmptyStringSchema).default([])
 })
 export type ResumeSourceDocument = z.infer<typeof ResumeSourceDocumentSchema>
 
 export const CandidateProfileSchema = z.object({
   id: NonEmptyStringSchema,
+  firstName: NonEmptyStringSchema,
+  lastName: NonEmptyStringSchema,
+  middleName: NonEmptyStringSchema.nullable().default(null),
   fullName: NonEmptyStringSchema,
   headline: NonEmptyStringSchema,
   summary: NonEmptyStringSchema,
   currentLocation: NonEmptyStringSchema,
   yearsExperience: z.number().int().min(0),
+  email: NonEmptyStringSchema.nullable().default(null),
+  phone: NonEmptyStringSchema.nullable().default(null),
+  portfolioUrl: NonEmptyStringSchema.nullable().default(null),
+  linkedinUrl: NonEmptyStringSchema.nullable().default(null),
   baseResume: ResumeSourceDocumentSchema,
   targetRoles: z.array(NonEmptyStringSchema).default([]),
   locations: z.array(NonEmptyStringSchema).default([]),
@@ -137,6 +181,7 @@ export type MatchAssessment = z.infer<typeof MatchAssessmentSchema>
 export const JobPostingSchema = z.object({
   source: JobSourceSchema,
   sourceJobId: NonEmptyStringSchema,
+  discoveryMethod: JobDiscoveryMethodSchema.default('catalog_seed'),
   canonicalUrl: NonEmptyStringSchema,
   title: NonEmptyStringSchema,
   company: NonEmptyStringSchema,
@@ -179,7 +224,9 @@ export const TailoredAssetSchema = z.object({
   updatedAt: IsoDateTimeSchema,
   storagePath: NonEmptyStringSchema.nullable().default(null),
   contentText: NonEmptyStringSchema.nullable().default(null),
-  previewSections: z.array(TailoredAssetPreviewSectionSchema).default([])
+  previewSections: z.array(TailoredAssetPreviewSectionSchema).default([]),
+  generationMethod: AssetGenerationMethodSchema.default('deterministic'),
+  notes: z.array(NonEmptyStringSchema).default([])
 })
 export type TailoredAsset = z.infer<typeof TailoredAssetSchema>
 
@@ -273,14 +320,33 @@ export type JobFinderJobActionInput = z.infer<typeof JobFinderJobActionInputSche
 export const BrowserSessionStateSchema = z.object({
   source: JobSourceSchema,
   status: BrowserSessionStatusSchema,
+  driver: BrowserDriverSchema.default('catalog_seed'),
   label: NonEmptyStringSchema,
   detail: NonEmptyStringSchema.nullable(),
   lastCheckedAt: IsoDateTimeSchema
 })
 export type BrowserSessionState = z.infer<typeof BrowserSessionStateSchema>
 
+export const AgentProviderStatusSchema = z.object({
+  kind: AiProviderKindSchema,
+  ready: z.boolean(),
+  label: NonEmptyStringSchema,
+  model: NonEmptyStringSchema.nullable().default(null),
+  baseUrl: NonEmptyStringSchema.nullable().default(null),
+  detail: NonEmptyStringSchema.nullable().default(null)
+})
+export type AgentProviderStatus = z.infer<typeof AgentProviderStatusSchema>
+
+export const ResumeTemplateDefinitionSchema = z.object({
+  id: ResumeTemplateIdSchema,
+  label: NonEmptyStringSchema,
+  description: NonEmptyStringSchema
+})
+export type ResumeTemplateDefinition = z.infer<typeof ResumeTemplateDefinitionSchema>
+
 export const JobFinderSettingsSchema = z.object({
   resumeFormat: DocumentFormatSchema,
+  resumeTemplateId: ResumeTemplateIdSchema,
   fontPreset: DocumentFontPresetSchema,
   humanReviewRequired: z.boolean(),
   allowAutoSubmitOverride: z.boolean(),
@@ -302,6 +368,8 @@ export type JobFinderRepositoryState = z.infer<typeof JobFinderRepositoryStateSc
 export const JobFinderWorkspaceSnapshotSchema = z.object({
   module: z.literal('job-finder'),
   generatedAt: IsoDateTimeSchema,
+  agentProvider: AgentProviderStatusSchema,
+  availableResumeTemplates: z.array(ResumeTemplateDefinitionSchema).default([]),
   profile: CandidateProfileSchema,
   searchPreferences: JobSearchPreferencesSchema,
   browserSession: BrowserSessionStateSchema,

@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Job Finder vertical-slice implementation with SQLite persistence, local discovery orchestration, and review-gated apply tracking
+Job Finder agent-first foundation with SQLite persistence, resume-text extraction, optional live LinkedIn browser automation, and review-gated apply tracking
 
 ## Completed In This Repo
 
@@ -46,17 +46,40 @@ Job Finder vertical-slice implementation with SQLite persistence, local discover
 - Added a richer browser runtime contract plus a deterministic LinkedIn source adapter for discovery filtering and safe Easy Apply execution checkpoints
 - Added real Job Finder mutations for editable profile data, discovery preferences, settings, local discovery runs, tailored resume content generation, and tracked apply attempts
 - Added desktop UI controls for saving profile/preferences/settings and replacing the base resume through a native file picker
+- Activated `packages/ai-providers` with an OpenAI-compatible job-agent client plus deterministic fallbacks for tests and offline use
+- Expanded shared Job Finder contracts with agent-provider status, stored resume-text extraction state, browser driver metadata, live discovery provenance, and resume-generation metadata
+- Added an opt-in dedicated-Chrome LinkedIn browser agent that can open its own persistent profile, extract live job listings, and safely pause unsupported Easy Apply flows
+- Added resume-text-backed profile extraction and AI-assisted tailored resume generation so the desktop shell can derive candidate details from stored resume text instead of only manual entry
+- Added resume ingestion for `txt`, `md`, `pdf`, and `docx` inputs using file-type-specific text extraction before the profile agent runs
+- Added fixed template-driven resume output so generated resume text now renders into a small curated template set and saves a local HTML artifact instead of inventing document layout from scratch
+- Fixed Electron-side PDF resume import so `pdfjs-dist` gets a local `DOMMatrix` polyfill before extraction runs, which removes the `job-finder:import-resume` crash seen on real uploads
+- Fixed the bundled Electron PDF import path so `pdfjs-dist` resolves its worker from the installed package instead of looking for a missing `out/main/pdf.worker.mjs` file
+- Improved PDF text extraction to preserve line structure by grouping text items by Y position, enabling accurate name and headline parsing from resume headers
+- Added `firstName`, `lastName`, and optional `middleName` fields to `CandidateProfile` contract so parsed names are properly structured
+- Refined resume parsing heuristics to extract concise headlines (up to 8 words, 64 chars) and filter out job titles from experience sections
+- Fixed `inferName` and `inferHeadline` logic in deterministic parser to use word boundaries and stricter filters, avoiding false matches on skills/soft-skills sections
+- Added a scripted desktop resume-import capture harness so agents can import a real file, reload the Electron workspace, inspect the resulting UI, and save workspace JSON without relying on the native file picker manually
+- Improved deterministic resume analysis so imported resumes now produce a clean bio summary, normalized role headline, parsed location, cleaned phone format, cleared stale portfolio values, and fresh target-role/location state instead of leaking seeded profile data
+- Tightened resume section parsing for more varied source formats by recognizing alternate summary/skills headings, extracting cleaner atomic skills from mixed lines, and suppressing generic success notes when no review warning is needed
+- Polished the profile/settings layout by converting the profile surface to balanced column stacks, adding dedicated select styling for dropdowns, and exposing structured first/middle/last-name editing in the desktop UI
+- Clarified the AI-first extraction path so `UNEMPLOYED_AI_API_KEY` activates FelidaeAI-Pro-2.5 for generic resume parsing while deterministic extraction remains a fallback only when no model key is present or the model call fails
+- Changed workspace reset to a true fresh-start reset: it now clears saved jobs, tailored assets, application records, imported resume files, and the dedicated LinkedIn browser profile instead of restoring the Alex sample candidate
+- Added desktop env-file loading plus a root `.env.example`, so FelidaeAI credentials can be supplied through `.env.local` and picked up automatically by the Electron main process instead of relying only on an inherited shell environment
+- Added persisted resume-analysis provenance plus a visible profile badge so the UI now states whether the current resume was parsed by FelidaeAI or the deterministic fallback, and changed Settings reset to jump back to the fresh profile after clearing workspace state
 
 ## Active Work
 
-- Harden the new Job Finder functionality now that local persistence, discovery runs, profile/settings editing, and attempt tracking exist
-- Evolve the deterministic LinkedIn adapter into a real authenticated browser-driven LinkedIn path when live session work starts
+- Harden the new Job Finder agent workflow now that local persistence, resume-text extraction, optional live browser discovery, and attempt tracking exist
+- Keep improving the live authenticated LinkedIn browser path now that the managed Playwright runtime can open real discovery and Easy Apply sessions
 - Keep the durable project plan and commit-time doc workflow explicit for future agents
 - Keep the desktop capture workflow available for regression checks while functional work expands
 - Preserve safe-stop behavior for unsupported apply branches instead of widening automation blindly
+- Add real exportable tailored resume artifacts so live Easy Apply flows can upload generated documents without falling back to the stored base resume
+- Keep the new template pipeline stable while deciding whether downstream export should target browser-printed PDF, DOCX templating, or both
 
 ## Immediate Next Steps
 
-- Harden the browser runtime and deterministic LinkedIn adapter with richer fixtures and unsupported-branch coverage
-- Add richer document export and artifact storage for tailored resumes beyond preview-only rendering
+- Harden the live LinkedIn browser runtime with selector coverage, auth recovery, and broader supported field filling
+- Add richer document export and artifact storage for tailored resumes beyond the current saved HTML template output
 - Expand the Applications screen with filtering, retry helpers, and attempt-centric recovery flows
+- Add richer fallback extraction and cleanup for edge-case PDF and DOCX resumes that do not yield clean text on the first pass

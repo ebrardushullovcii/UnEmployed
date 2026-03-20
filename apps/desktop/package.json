@@ -10,13 +10,17 @@
     "lint": "eslint electron.vite.config.ts src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "ui:capture": "pnpm build && node ./scripts/capture-ui.mjs"
+    "ui:capture": "pnpm build && node ./scripts/capture-ui.mjs",
+    "ui:resume-import": "pnpm build && node ./scripts/capture-resume-import.mjs"
   },
   "dependencies": {
+    "@unemployed/ai-providers": "workspace:*",
     "@unemployed/browser-runtime": "workspace:*",
     "@unemployed/contracts": "workspace:*",
     "@unemployed/db": "workspace:*",
     "@unemployed/job-finder": "workspace:*",
+    "mammoth": "^1.8.0",
+    "pdfjs-dist": "^5.4.54",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

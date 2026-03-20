@@ -19,6 +19,9 @@ describe('contracts', () => {
   test('parses an expanded candidate profile', () => {
     const profile = CandidateProfileSchema.parse({
       id: 'candidate_1',
+      firstName: 'Alex',
+      lastName: 'Vanguard',
+      middleName: null,
       fullName: 'Alex Vanguard',
       headline: 'Full-stack engineer',
       summary: 'Builds reliable user-facing systems.',
@@ -34,6 +37,8 @@ describe('contracts', () => {
     })
 
     expect(profile.baseResume.storagePath).toBe('/tmp/alex-vanguard.pdf')
+    expect(profile.baseResume.extractionStatus).toBe('not_started')
+    expect(profile.email).toBeNull()
     expect(profile.locations).toEqual([])
     expect(profile.skills).toEqual([])
   })
@@ -129,18 +134,45 @@ describe('contracts', () => {
     const workspace = JobFinderWorkspaceSnapshotSchema.parse({
       module: 'job-finder',
       generatedAt: '2026-03-20T10:05:00.000Z',
+      agentProvider: {
+        kind: 'deterministic',
+        ready: true,
+        label: 'Built-in deterministic agent fallback',
+        model: null,
+        baseUrl: null,
+        detail: 'Tests'
+      },
+      availableResumeTemplates: [
+        {
+          id: 'classic_ats',
+          label: 'Classic ATS',
+          description: 'Single-column and ATS-friendly.'
+        }
+      ],
       profile: {
         id: 'candidate_1',
+        firstName: 'Alex',
+        lastName: 'Vanguard',
+        middleName: null,
         fullName: 'Alex Vanguard',
         headline: 'Senior systems designer',
         summary: 'Builds resilient workflows.',
         currentLocation: 'London, UK',
         yearsExperience: 10,
+        email: 'alex@example.com',
+        phone: null,
+        portfolioUrl: null,
+        linkedinUrl: null,
         baseResume: {
           id: 'resume_1',
           fileName: 'alex-vanguard.pdf',
           uploadedAt: '2026-03-20T10:00:00.000Z',
-          storagePath: '/tmp/alex-vanguard.pdf'
+          storagePath: '/tmp/alex-vanguard.pdf',
+          textContent: 'Resume text',
+          textUpdatedAt: '2026-03-20T10:00:00.000Z',
+          extractionStatus: 'ready',
+          lastAnalyzedAt: '2026-03-20T10:01:00.000Z',
+          analysisWarnings: []
         },
         targetRoles: ['Principal Designer'],
         locations: ['Remote'],
@@ -160,6 +192,7 @@ describe('contracts', () => {
       browserSession: {
         source: 'linkedin',
         status: 'ready',
+        driver: 'catalog_seed',
         label: 'Browser session ready',
         detail: 'Validated recently.',
         lastCheckedAt: '2026-03-20T10:04:00.000Z'
@@ -169,6 +202,7 @@ describe('contracts', () => {
           id: 'job_1',
           source: 'linkedin',
           sourceJobId: 'linkedin_job_1',
+          discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
           title: 'Senior Product Designer',
           company: 'Signal Systems',
@@ -220,6 +254,8 @@ describe('contracts', () => {
           updatedAt: '2026-03-20T10:03:00.000Z',
           storagePath: null,
           contentText: 'Tailored resume body',
+          generationMethod: 'ai_assisted',
+          notes: ['Generated from stored resume text.'],
           previewSections: [
             {
               heading: 'Summary',
@@ -253,7 +289,8 @@ describe('contracts', () => {
       applicationAttempts: [attempt],
       selectedApplicationRecordId: 'application_1',
       settings: {
-        resumeFormat: 'pdf',
+        resumeFormat: 'html',
+        resumeTemplateId: 'classic_ats',
         fontPreset: 'inter_requisite',
         humanReviewRequired: true,
         allowAutoSubmitOverride: false,

@@ -13,7 +13,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@unemployed/contracts": "workspace:*"
+    "@unemployed/contracts": "workspace:*",
+    "playwright": "^1.52.0"
   }
 }
 

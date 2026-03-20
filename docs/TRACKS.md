@@ -56,10 +56,10 @@ Use one track per meaningful workstream, not per person or per chat.
 - scope: build the generic browser primitives and the first LinkedIn discovery adapter boundary
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/browser-runtime`, `packages/job-finder`
-- current focus: browser-runtime now exposes discovery and apply execution methods, and the desktop shell can run deterministic LinkedIn discovery through saved preferences
-- next step: harden the adapter with live-session wiring, richer unsupported-branch coverage, and selector-level automation when authenticated browser work starts
-- blockers: live LinkedIn execution still depends on authenticated-session integration and selector hardening
-- notes: keep LinkedIn selectors and recovery logic out of the generic runtime; discovery already writes back through the repository boundary and now dedupes by source job identity
+- current focus: browser-runtime now supports both the deterministic catalog path and an opt-in dedicated Chrome-profile LinkedIn browser agent that can launch its own profile, prompt for login, and extract live jobs through that session
+- next step: harden selector coverage, add better auth recovery, and support broader search/result pagination without weakening the safe-stop behavior
+- blockers: live LinkedIn execution still depends on user-authenticated sessions and selector hardening against real page variation
+- notes: keep LinkedIn selectors and recovery logic out of the generic runtime; discovery already writes back through the repository boundary, dedupes by source job identity, and now records whether jobs came from the catalog seed or the live Chrome-profile agent
 
 ### `JF-04 Tailored Resume Path`
 
@@ -68,10 +68,10 @@ Use one track per meaningful workstream, not per person or per chat.
 - scope: create one solid custom-resume workflow for a selected job
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/job-finder`, `apps/desktop`
-- current focus: the app can generate and persist versioned tailored resume content from profile, preferences, and selected job data through the review flow
-- next step: add richer artifact export/storage and iterate on higher-fidelity resume rendering once the live LinkedIn path is hardened
-- blockers: no external model/provider dependency is wired yet for richer tailoring
-- notes: cover letters stay deferred unless the main slice lands cleanly first; current tailoring remains deterministic and source-backed
+- current focus: the app can now analyze stored resume text, derive profile details, and generate versioned tailored resume content through an AI-provider seam with deterministic fallback
+- next step: expand the template catalog, improve generated HTML output, and decide whether browser-print PDF or DOCX templating should be the next export target
+- blockers: live uploads still need a more final export format than the current saved HTML artifact
+- notes: cover letters stay deferred unless the main slice lands cleanly first; current tailoring keeps model output grounded in stored resume text, profile state, and job data, then renders that text through a fixed template set instead of freeform document layout generation
 
 ### `JF-05 Review-Gated Easy Apply Execution`
 
@@ -80,17 +80,29 @@ Use one track per meaningful workstream, not per person or per chat.
 - scope: automate a narrow LinkedIn `Easy Apply` submission path with tracked outcomes
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/job-finder`, `packages/browser-runtime`, `apps/desktop`
-- current focus: the app now records explicit apply attempts, checkpoints, submitted outcomes, and safe paused branches instead of assuming direct success
-- next step: connect the supported state machine to a live authenticated LinkedIn execution path and broaden recovery helpers in Applications
-- blockers: live browser execution still depends on authenticated-session integration and selector hardening
-- notes: stop on unsupported flows instead of guessing; paused attempts now persist locally with next-action guidance
+- current focus: the app now records explicit apply attempts, checkpoints, submitted outcomes, and safe paused branches across both deterministic and live-browser Easy Apply execution
+- next step: broaden supported field filling, add retry helpers in Applications, and QA real authenticated submit paths with exportable tailored assets
+- blockers: live browser execution still depends on authenticated-session integration, selector hardening, and generated artifact upload support
+- notes: stop on unsupported flows instead of guessing; paused attempts now persist locally with next-action guidance and field-level context from the browser agent
+
+### `JF-06 AI Provider And Resume Extraction`
+
+- status: `in_progress`
+- last updated: `2026-03-20`
+- scope: wire the first model-backed Job Finder agents for profile extraction, fit assessment, and resume tailoring
+- linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
+- code areas: `packages/ai-providers`, `packages/job-finder`, `apps/desktop`
+- current focus: OpenAI-compatible provider config is now supported through explicit env vars, deterministic fallbacks keep tests stable, and the Profile screen can analyze extracted resume text into structured candidate data
+- next step: improve provider-level observability, richer fit summaries, and better extraction cleanup for difficult PDF and DOCX resumes
+- blockers: model quality still depends on extracted text quality from the imported resume source
+- notes: current env surface is `UNEMPLOYED_AI_API_KEY`, optional `UNEMPLOYED_AI_BASE_URL`, and optional `UNEMPLOYED_AI_MODEL`; imported `pdf` resumes extract through `pdfjs-dist`, imported `docx` resumes extract through `mammoth`, and plain-text or markdown files pass straight through
 
 ## Ready Queue
 
-- Wire the deterministic LinkedIn adapter into a live authenticated browser session path.
 - Add richer tailored resume export/storage beyond persisted preview content.
 - Expand Applications with filters, retry controls, and attempt-centric recovery views.
-- Add broader runtime tests for unsupported Easy Apply branches and resume-import flows.
+- Add broader runtime tests for unsupported Easy Apply branches, live-browser extraction, and resume-import flows.
+- Improve cleanup and fallback extraction so difficult PDF and DOCX resumes yield cleaner structured text before the agent runs.
 
 ## Recently Completed
 
@@ -100,3 +112,14 @@ Use one track per meaningful workstream, not per person or per chat.
 - `2026-03-20`: implemented the first typed Job Finder workspace shell with contracts, in-memory repository seams, and desktop preload wiring
 - `2026-03-20`: switched the seeded Job Finder workspace to file-backed persistence and interactive desktop actions
 - `2026-03-20`: upgraded Job Finder to SQLite persistence, deterministic LinkedIn discovery/apply orchestration, editable profile/settings flows, and persisted application attempts
+- `2026-03-20`: added the first agent-first Job Finder foundation with an OpenAI-compatible provider seam, resume-text analysis, opt-in Playwright LinkedIn browser automation, and AI-assisted resume drafting
+- `2026-03-20`: added multi-format resume ingestion (`txt`, `md`, `pdf`, `docx`) plus fixed template-driven HTML resume output for generated assets
+- `2026-03-20`: fixed the Electron PDF import path by polyfilling `DOMMatrix` before `pdfjs-dist` loads, so real resume uploads no longer fail with `job-finder:import-resume`
+- `2026-03-20`: fixed bundled PDF worker resolution so desktop resume import uses the installed `pdfjs-dist` worker module instead of a missing `out/main/pdf.worker.mjs` file
+- `2026-03-20`: added a scripted Electron resume-import capture flow with a test-only preload bridge, so agents can validate real imported profile state and screenshots without touching the native picker manually
+- `2026-03-20`: tightened deterministic resume parsing and merge behavior so imported profile summaries, locations, contact fields, and targeting data update from the actual resume instead of preserving stale seeded values
+- `2026-03-20`: polished the imported-profile UI layout/dropdowns and expanded deterministic parsing for alternate summary/skills sections, with scripted screenshot validation for both settings dropdowns and resume-import output
+- `2026-03-20`: reinforced the AI-provider path so FelidaeAI-Pro-2.5 is the explicit generic resume extraction engine whenever `UNEMPLOYED_AI_API_KEY` is available, with deterministic parsing kept as a safety fallback rather than the primary path
+- `2026-03-20`: changed workspace reset to a true fresh-start reset that clears persisted resume/job/application data and the LinkedIn browser profile instead of reseeding the sample candidate
+- `2026-03-20`: added automatic desktop `.env` / `.env.local` loading and a root `.env.example` so FelidaeAI can be activated reliably for local resume extraction without manual shell export steps
+- `2026-03-20`: added persisted resume-analysis provenance in workspace state plus a visible profile badge for AI-vs-fallback parsing, and made Settings reset return the app to the cleared fresh-profile view

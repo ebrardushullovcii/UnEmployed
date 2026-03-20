@@ -91,6 +91,10 @@ export function App() {
   return (
     <JobFinderShell
       actions={{
+        analyzeProfileFromResume: () =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.analyzeProfileFromResume()),
+        openBrowserSession: () =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.openBrowserSession()),
         approveApply: (jobId) =>
           runWorkspaceAction(() => window.unemployed.jobFinder.approveApply(jobId)),
         dismissDiscoveryJob: (jobId) =>

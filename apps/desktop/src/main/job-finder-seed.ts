@@ -21,17 +21,30 @@ import type { JobFinderRepositorySeed } from '@unemployed/db'
 function createCandidateProfile(): CandidateProfile {
   return CandidateProfileSchema.parse({
     id: 'candidate_alex_vanguard',
+    firstName: 'Alex',
+    lastName: 'Vanguard',
+    middleName: null,
     fullName: 'Alex Vanguard',
     headline: 'Senior systems product designer',
     summary:
       'Designs dense workflow tools for high-trust operators and turns ambiguous platform requirements into practical, polished systems.',
     currentLocation: 'London, UK',
     yearsExperience: 12,
+    email: 'alex.vanguard@example.com',
+    phone: '+44 7700 900123',
+    portfolioUrl: 'https://alexvanguard.design',
+    linkedinUrl: 'https://www.linkedin.com/in/alex-vanguard',
     baseResume: {
       id: 'resume_alex_vanguard',
       fileName: 'alex-vanguard-resume.pdf',
       uploadedAt: '2026-03-20T09:30:00.000Z',
-      storagePath: null
+      storagePath: null,
+      textContent:
+        'Alex Vanguard\nSenior systems product designer\nLondon, UK\nalex.vanguard@example.com\n+44 7700 900123\nhttps://alexvanguard.design\nhttps://www.linkedin.com/in/alex-vanguard\n\nDesigns dense workflow tools for high-trust operators and turns ambiguous platform requirements into practical, polished systems.\n\n12 years of experience across product design, design systems, accessibility, prototyping, and React collaboration.\n\nSkills\nDesign Systems\nFigma\nReact\nPrototyping\nUX Strategy\nAccessibility',
+      textUpdatedAt: '2026-03-20T09:30:00.000Z',
+      extractionStatus: 'ready',
+      lastAnalyzedAt: '2026-03-20T09:31:00.000Z',
+      analysisWarnings: ['Seeded profile details were extracted from stored resume text.']
     },
     targetRoles: ['Product Design Director', 'Staff Product Designer', 'Design Systems Lead'],
     locations: ['Remote Global', 'London, UK'],
@@ -396,7 +409,8 @@ function createApplicationRecords(): ApplicationRecord[] {
 
 function createSettings(): JobFinderSettings {
   return JobFinderSettingsSchema.parse({
-    resumeFormat: 'pdf',
+    resumeFormat: 'html',
+    resumeTemplateId: 'classic_ats',
     fontPreset: 'inter_requisite',
     humanReviewRequired: true,
     allowAutoSubmitOverride: false,
@@ -423,6 +437,58 @@ export function createJobFinderRepositorySeed(): JobFinderRepositorySeed {
     applicationRecords: createApplicationRecords(),
     applicationAttempts: [],
     settings: createSettings()
+  }
+}
+
+export function createFreshJobFinderRepositorySeed(): JobFinderRepositorySeed {
+  const seeded = createJobFinderRepositorySeed()
+
+  return {
+    ...seeded,
+    profile: CandidateProfileSchema.parse({
+      id: 'candidate_fresh_start',
+      firstName: 'New',
+      lastName: 'Candidate',
+      middleName: null,
+      fullName: 'New Candidate',
+      headline: 'Import your resume to begin',
+      summary: 'Import a resume or paste resume text to build your profile, targeting, and tailored documents.',
+      currentLocation: 'Set your preferred location',
+      yearsExperience: 0,
+      email: null,
+      phone: null,
+      portfolioUrl: null,
+      linkedinUrl: null,
+      baseResume: {
+        id: 'resume_fresh_start',
+        fileName: 'No resume imported yet',
+        uploadedAt: new Date(0).toISOString(),
+        storagePath: null,
+        textContent: null,
+        textUpdatedAt: null,
+        extractionStatus: 'needs_text',
+        lastAnalyzedAt: null,
+        analysisWarnings: []
+      },
+      targetRoles: [],
+      locations: [],
+      skills: []
+    }),
+    searchPreferences: JobSearchPreferencesSchema.parse({
+      targetRoles: [],
+      locations: [],
+      workModes: [],
+      seniorityLevels: [],
+      minimumSalaryUsd: null,
+      approvalMode: 'review_before_submit',
+      tailoringMode: 'balanced',
+      companyBlacklist: [],
+      companyWhitelist: []
+    }),
+    savedJobs: [],
+    tailoredAssets: [],
+    applicationRecords: [],
+    applicationAttempts: []
   }
 }
 

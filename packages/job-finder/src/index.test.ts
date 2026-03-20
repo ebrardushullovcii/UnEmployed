@@ -1,3 +1,4 @@
+import { createDeterministicJobFinderAiClient } from '@unemployed/ai-providers'
 import { describe, expect, test } from 'vitest'
 import { createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import { createInMemoryJobFinderRepository } from '@unemployed/db'
@@ -8,16 +9,29 @@ function createSeed(): JobFinderRepositorySeed {
   return {
     profile: {
       id: 'candidate_1',
+      firstName: 'Alex',
+      lastName: 'Vanguard',
+      middleName: null,
       fullName: 'Alex Vanguard',
       headline: 'Senior systems designer',
       summary: 'Builds resilient workflows.',
       currentLocation: 'London, UK',
       yearsExperience: 10,
+      email: 'alex@example.com',
+      phone: '+44 7700 900123',
+      portfolioUrl: 'https://alex.example.com',
+      linkedinUrl: 'https://www.linkedin.com/in/alex-vanguard',
       baseResume: {
         id: 'resume_1',
         fileName: 'alex-vanguard.pdf',
         uploadedAt: '2026-03-20T10:00:00.000Z',
-        storagePath: '/tmp/alex-vanguard.pdf'
+        storagePath: '/tmp/alex-vanguard.pdf',
+        textContent:
+          'Alex Vanguard\nSenior systems designer\nLondon, UK\nalex@example.com\n+44 7700 900123\nhttps://alex.example.com\nhttps://www.linkedin.com/in/alex-vanguard\n\n10 years of experience building resilient workflow tools with Figma, React, and design systems.',
+        textUpdatedAt: '2026-03-20T10:00:00.000Z',
+        extractionStatus: 'ready',
+        lastAnalyzedAt: '2026-03-20T10:01:00.000Z',
+        analysisWarnings: []
       },
       targetRoles: ['Principal Designer'],
       locations: ['Remote'],
@@ -39,6 +53,7 @@ function createSeed(): JobFinderRepositorySeed {
         id: 'job_ready',
         source: 'linkedin',
         sourceJobId: 'linkedin_signal_ready',
+        discoveryMethod: 'catalog_seed',
         canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_ready',
         title: 'Senior Product Designer',
         company: 'Signal Systems',
@@ -63,6 +78,7 @@ function createSeed(): JobFinderRepositorySeed {
         id: 'job_generating',
         source: 'linkedin',
         sourceJobId: 'linkedin_northwind_generating',
+        discoveryMethod: 'catalog_seed',
         canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_northwind_generating',
         title: 'Principal UX Engineer',
         company: 'Northwind Labs',
@@ -98,7 +114,9 @@ function createSeed(): JobFinderRepositorySeed {
         updatedAt: '2026-03-20T10:01:00.000Z',
         storagePath: null,
         contentText: 'Resume text',
-        previewSections: []
+        previewSections: [],
+        generationMethod: 'deterministic',
+        notes: []
       },
       {
         id: 'asset_generating',
@@ -113,17 +131,20 @@ function createSeed(): JobFinderRepositorySeed {
         updatedAt: '2026-03-20T10:02:00.000Z',
         storagePath: null,
         contentText: null,
-        previewSections: []
+        previewSections: [],
+        generationMethod: 'deterministic',
+        notes: []
       }
     ],
     applicationRecords: [],
-    applicationAttempts: [],
-    settings: {
-      resumeFormat: 'pdf',
-      fontPreset: 'inter_requisite',
-      humanReviewRequired: true,
-      allowAutoSubmitOverride: false,
-      keepSessionAlive: true
+      applicationAttempts: [],
+      settings: {
+        resumeFormat: 'html',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true
     }
   }
 }
@@ -134,6 +155,7 @@ function createBrowserRuntime() {
       {
         source: 'linkedin',
         status: 'ready',
+        driver: 'catalog_seed',
         label: 'Browser session ready',
         detail: 'Validated recently.',
         lastCheckedAt: '2026-03-20T10:04:00.000Z'
@@ -143,6 +165,7 @@ function createBrowserRuntime() {
       {
         source: 'linkedin',
         sourceJobId: 'linkedin_signal_ready',
+        discoveryMethod: 'catalog_seed',
         canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_ready',
         title: 'Senior Product Designer',
         company: 'Signal Systems',
@@ -160,6 +183,7 @@ function createBrowserRuntime() {
       {
         source: 'linkedin',
         sourceJobId: 'linkedin_pause_case',
+        discoveryMethod: 'catalog_seed',
         canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_pause_case',
         title: 'Principal UX Engineer',
         company: 'Void Industries',
@@ -178,11 +202,40 @@ function createBrowserRuntime() {
   })
 }
 
+function createAiClient() {
+  return createDeterministicJobFinderAiClient('Tests use the deterministic fallback agent.')
+}
+
+function createDocumentManager() {
+  return {
+    listResumeTemplates() {
+      return [
+        {
+          id: 'classic_ats' as const,
+          label: 'Classic ATS',
+          description: 'Single-column and ATS-friendly.'
+        }
+      ]
+    },
+    renderResumeArtifact() {
+      return Promise.resolve({
+        fileName: 'generated-resume.html',
+        storagePath: '/tmp/generated-resume.html'
+      })
+    }
+  }
+}
+
 describe('createJobFinderWorkspaceService', () => {
   test('builds a snapshot with derived review queue ordering', async () => {
     const repository = createInMemoryJobFinderRepository(createSeed())
     const browserRuntime = createBrowserRuntime()
-    const workspaceService = createJobFinderWorkspaceService({ repository, browserRuntime })
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager()
+    })
 
     const snapshot = await workspaceService.getWorkspaceSnapshot()
 
@@ -201,7 +254,12 @@ describe('createJobFinderWorkspaceService', () => {
       applicationAttempts: []
     })
     const browserRuntime = createBrowserRuntime()
-    const workspaceService = createJobFinderWorkspaceService({ repository, browserRuntime })
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager()
+    })
 
     const snapshot = await workspaceService.runDiscovery()
 
@@ -213,21 +271,30 @@ describe('createJobFinderWorkspaceService', () => {
   test('generates a tailored resume and submits a supported Easy Apply attempt', async () => {
     const repository = createInMemoryJobFinderRepository(createSeed())
     const browserRuntime = createBrowserRuntime()
-    const workspaceService = createJobFinderWorkspaceService({ repository, browserRuntime })
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager()
+    })
 
+    await workspaceService.generateResume('job_ready')
     const snapshot = await workspaceService.approveApply('job_ready')
+    const tailoredAsset = snapshot.tailoredAssets.find((asset) => asset.jobId === 'job_ready')
 
     expect(snapshot.discoveryJobs.some((job) => job.id === 'job_ready')).toBe(false)
     expect(snapshot.applicationRecords.some((record) => record.jobId === 'job_ready')).toBe(true)
     expect(snapshot.applicationAttempts[0]?.state).toBe('submitted')
+    expect(tailoredAsset?.storagePath).toBe('/tmp/generated-resume.html')
   })
 
   test('pauses unsupported Easy Apply branches instead of submitting blindly', async () => {
     const seed = createSeed()
     seed.savedJobs.push({
-      source: 'linkedin',
-      sourceJobId: 'linkedin_pause_case',
-      canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_pause_case',
+        source: 'linkedin',
+        sourceJobId: 'linkedin_pause_case',
+        discoveryMethod: 'catalog_seed',
+        canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_pause_case',
       id: 'job_pause_case',
       title: 'Principal UX Engineer',
       company: 'Void Industries',
@@ -261,12 +328,19 @@ describe('createJobFinderWorkspaceService', () => {
       updatedAt: '2026-03-20T10:04:00.000Z',
       storagePath: null,
       contentText: 'Resume text',
-      previewSections: []
+      previewSections: [],
+      generationMethod: 'deterministic',
+      notes: []
     })
 
     const repository = createInMemoryJobFinderRepository(seed)
     const browserRuntime = createBrowserRuntime()
-    const workspaceService = createJobFinderWorkspaceService({ repository, browserRuntime })
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager()
+    })
 
     const snapshot = await workspaceService.approveApply('job_pause_case')
     const applicationRecord = snapshot.applicationRecords.find((record) => record.jobId === 'job_pause_case')
@@ -274,5 +348,41 @@ describe('createJobFinderWorkspaceService', () => {
     expect(applicationRecord?.lastAttemptState).toBe('paused')
     expect(applicationRecord?.status).toBe('approved')
     expect(snapshot.applicationAttempts.some((attempt) => attempt.state === 'paused')).toBe(true)
+  })
+
+  test('extracts profile details from stored resume text', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      profile: {
+        ...createSeed().profile,
+        fullName: 'Candidate',
+        headline: 'Placeholder headline',
+        email: null,
+        phone: null,
+        portfolioUrl: null,
+        linkedinUrl: null,
+        baseResume: {
+          ...createSeed().profile.baseResume,
+          extractionStatus: 'not_started',
+          lastAnalyzedAt: null,
+          textContent:
+            'Jamie Rivers\nStaff Frontend Engineer\nBerlin, Germany\njamie@example.com\n+49 555 1234\nhttps://jamie.dev\nhttps://www.linkedin.com/in/jamie-rivers\n\n12 years of experience building React, TypeScript, and design systems for product teams.'
+        }
+      }
+    })
+    const browserRuntime = createBrowserRuntime()
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.analyzeProfileFromResume()
+
+    expect(snapshot.profile.fullName).toBe('Jamie Rivers')
+    expect(snapshot.profile.headline).toContain('Engineer')
+    expect(snapshot.profile.email).toBe('jamie@example.com')
+    expect(snapshot.profile.baseResume.extractionStatus).toBe('ready')
   })
 })

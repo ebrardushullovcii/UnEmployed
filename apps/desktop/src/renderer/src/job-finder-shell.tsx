@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  type AgentProviderStatus,
   type ApprovalMode,
   type ApplicationAttempt,
   type ApplicationEvent,
@@ -12,6 +13,7 @@ import {
   type JobFinderSettings,
   type JobFinderWorkspaceSnapshot,
   type JobSearchPreferences,
+  type ResumeTemplateDefinition,
   type ReviewQueueItem,
   type SavedJob,
   type TailoredAsset,
@@ -22,6 +24,8 @@ type JobFinderScreen = 'profile' | 'discovery' | 'review-queue' | 'applications'
 
 interface JobFinderShellProps {
   actions: {
+    analyzeProfileFromResume: () => Promise<void>
+    openBrowserSession: () => Promise<void>
     refreshWorkspace: () => Promise<void>
     resetWorkspace: () => Promise<void>
     runDiscovery: () => Promise<void>
@@ -67,6 +71,17 @@ function formatApprovalMode(value: ApprovalMode): string {
 
 function formatStatusLabel(value: string): string {
   return value.replaceAll('_', ' ').replaceAll('-', ' ')
+}
+
+function formatResumeAnalysisSummary(profile: CandidateProfile): string | null {
+  const providerLabel = profile.baseResume.analysisProviderLabel
+  const analyzedAt = profile.baseResume.lastAnalyzedAt
+
+  if (!providerLabel || !analyzedAt) {
+    return null
+  }
+
+  return `${providerLabel} parsed this resume on ${formatTimestamp(analyzedAt)}.`
 }
 
 function formatCountLabel(value: number, noun: string): string {
@@ -153,6 +168,17 @@ function parseListInput(value: string): string[] {
     .split(/\r?\n/)
     .map((entry) => entry.trim())
     .filter(Boolean)
+}
+
+function buildFullName(parts: {
+  firstName: string
+  middleName: string
+  lastName: string
+}): string {
+  return [parts.firstName, parts.middleName, parts.lastName]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join(' ')
 }
 
 export function JobFinderShell(props: JobFinderShellProps) {
@@ -414,8 +440,16 @@ export function JobFinderShell(props: JobFinderShellProps) {
           <main className="screen-scroll-area">
           {activeScreen === 'profile' ? (
             <ProfileScreen
+              agentProvider={workspace.agentProvider}
               actionState={actionState}
               busy={actionState.busy}
+              onAnalyzeProfileFromResume={() =>
+                void runAction(
+                  actions.analyzeProfileFromResume,
+                  () => undefined,
+                  'Candidate details refreshed from the stored resume text.'
+                )
+              }
               onImportResume={() =>
                 void runAction(
                   actions.importResume,
@@ -453,6 +487,13 @@ export function JobFinderShell(props: JobFinderShellProps) {
                   () => actions.dismissDiscoveryJob(jobId),
                   () => undefined,
                   'Saved job archived from discovery.'
+                )
+              }
+              onOpenBrowserSession={() =>
+                void runAction(
+                  actions.openBrowserSession,
+                  () => undefined,
+                  'Dedicated Chrome profile opened for the LinkedIn agent.'
                 )
               }
               onQueueJob={(jobId) =>
@@ -518,13 +559,18 @@ export function JobFinderShell(props: JobFinderShellProps) {
 
           {activeScreen === 'settings' ? (
             <SettingsScreen
+              agentProvider={workspace.agentProvider}
+              availableResumeTemplates={workspace.availableResumeTemplates}
               actionState={actionState}
+              browserSession={workspace.browserSession}
               busy={actionState.busy}
               onResetWorkspace={() =>
                 void runAction(
                   actions.resetWorkspace,
-                  () => undefined,
-                  'Workspace reset to the seeded Job Finder baseline.'
+                  () => {
+                    setActiveScreen('profile')
+                  },
+                  'Workspace reset to a fresh profile, cleared resume state, and empty job history.'
                 )
               }
               onSaveSettings={(settings) =>
@@ -562,19 +608,38 @@ function PageHeader(props: { eyebrow: string; title: string; description: string
 }
 
 function ProfileScreen(props: {
+  agentProvider: AgentProviderStatus
   actionState: { busy: boolean; message: string | null }
   busy: boolean
+  onAnalyzeProfileFromResume: () => void
   onImportResume: () => void
   onSaveProfile: (profile: CandidateProfile) => void
   onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
   profile: CandidateProfile
   searchPreferences: JobSearchPreferences
 }) {
-  const { actionState, busy, onImportResume, onSaveProfile, onSaveSearchPreferences, profile, searchPreferences } = props
+  const {
+    agentProvider,
+    actionState,
+    busy,
+    onAnalyzeProfileFromResume,
+    onImportResume,
+    onSaveProfile,
+    onSaveSearchPreferences,
+    profile,
+    searchPreferences
+  } = props
   const [profileForm, setProfileForm] = useState({
     currentLocation: profile.currentLocation,
-    fullName: profile.fullName,
+    email: profile.email ?? '',
+    firstName: profile.firstName,
     headline: profile.headline,
+    linkedinUrl: profile.linkedinUrl ?? '',
+    lastName: profile.lastName,
+    middleName: profile.middleName ?? '',
+    phone: profile.phone ?? '',
+    portfolioUrl: profile.portfolioUrl ?? '',
+    resumeText: profile.baseResume.textContent ?? '',
     skills: joinListInput(profile.skills),
     summary: profile.summary,
     yearsExperience: String(profile.yearsExperience)
@@ -593,8 +658,15 @@ function ProfileScreen(props: {
   useEffect(() => {
     setProfileForm({
       currentLocation: profile.currentLocation,
-      fullName: profile.fullName,
+      email: profile.email ?? '',
+      firstName: profile.firstName,
       headline: profile.headline,
+      linkedinUrl: profile.linkedinUrl ?? '',
+      lastName: profile.lastName,
+      middleName: profile.middleName ?? '',
+      phone: profile.phone ?? '',
+      portfolioUrl: profile.portfolioUrl ?? '',
+      resumeText: profile.baseResume.textContent ?? '',
       skills: joinListInput(profile.skills),
       summary: profile.summary,
       yearsExperience: String(profile.yearsExperience)
@@ -623,23 +695,18 @@ function ProfileScreen(props: {
       />
 
       <div className="profile-layout">
-        <section className="panel panel-spacious profile-panel-resume">
-          <p className="section-label">Source resume</p>
-          <div className="resume-dropzone">
-            <strong>{profile.baseResume.fileName}</strong>
-            <span>Uploaded {formatDateOnly(profile.baseResume.uploadedAt)}</span>
-            <button className="secondary-action compact-action" disabled={busy} onClick={onImportResume} type="button">
-              Replace resume
-            </button>
-          </div>
-        </section>
-
         <section className="panel panel-spacious profile-panel-summary">
           <p className="section-label">Profile summary</p>
           <div className="two-up-grid">
             <div>
               <h2>{profile.fullName}</h2>
-              <p className="muted-copy">{profile.headline}</p>
+              <p className="profile-headline">{profile.headline}</p>
+              <div className="chip-row chip-row-compact">
+                {profile.email ? <span className="chip">{profile.email}</span> : null}
+                {profile.phone ? <span className="chip">{profile.phone}</span> : null}
+                {profile.linkedinUrl ? <span className="chip">LinkedIn on file</span> : null}
+                {profile.portfolioUrl ? <span className="chip">Portfolio on file</span> : null}
+              </div>
             </div>
             <div className="stat-grid">
               <div>
@@ -662,42 +729,106 @@ function ProfileScreen(props: {
           </div>
         </section>
 
-        <section className="panel panel-spacious profile-panel-targeting">
-          <p className="section-label">Targeting rules</p>
-          <div className="settings-grid">
-            <PreferenceList label="Target roles" values={searchPreferences.targetRoles} />
-            <PreferenceList label="Locations" values={searchPreferences.locations} />
-            <PreferenceList label="Work modes" values={searchPreferences.workModes.map(formatStatusLabel)} />
-            <PreferenceList label="Seniority" values={searchPreferences.seniorityLevels} />
+        <section className="panel panel-spacious profile-panel-resume">
+          <div className="panel-header-row">
+            <p className="section-label">Source resume</p>
+            <span className={`status-chip ${agentProvider.kind === 'openai_compatible' ? 'tone-positive' : 'tone-active'}`}>
+              {agentProvider.label}
+            </span>
           </div>
-        </section>
-
-        <section className="panel panel-spacious profile-panel-workflow">
-          <p className="section-label">Workflow defaults</p>
-          <div className="stat-grid">
-            <div>
-              <span>Tailoring mode</span>
-              <strong>{formatStatusLabel(searchPreferences.tailoringMode)}</strong>
-            </div>
-            <div>
-              <span>Approval mode</span>
-              <strong>{formatApprovalMode(searchPreferences.approvalMode)}</strong>
-            </div>
-            <div>
-              <span>Minimum salary</span>
-              <strong>
-                {searchPreferences.minimumSalaryUsd
-                  ? `$${searchPreferences.minimumSalaryUsd.toLocaleString('en-US')}`
-                  : 'Not set'}
-              </strong>
-            </div>
-            <div>
-              <span>Preferred companies</span>
-              <strong>{searchPreferences.companyWhitelist.length || 0}</strong>
+          <div className="resume-dropzone">
+            <strong>{profile.baseResume.fileName}</strong>
+            <span>Uploaded {formatDateOnly(profile.baseResume.uploadedAt)}</span>
+            <span className={`status-chip ${getAssetTone(profile.baseResume.extractionStatus === 'ready' ? 'ready' : profile.baseResume.extractionStatus === 'failed' ? 'failed' : profile.baseResume.extractionStatus === 'needs_text' ? 'queued' : 'generating')}`}>
+              {formatStatusLabel(profile.baseResume.extractionStatus)}
+            </span>
+            {profile.baseResume.lastAnalyzedAt && profile.baseResume.analysisProviderLabel ? (
+              <div className="resume-analysis-inline">
+                <span
+                  className={`status-chip ${profile.baseResume.analysisProviderKind === 'openai_compatible' ? 'tone-positive' : 'tone-active'}`}
+                >
+                  {profile.baseResume.analysisProviderKind === 'openai_compatible' ? 'AI parsed' : 'Fallback parsed'}
+                </span>
+                <span className="meta-copy">{profile.baseResume.analysisProviderLabel}</span>
+              </div>
+            ) : null}
+            <div className="button-row">
+              <button className="secondary-action compact-action" disabled={busy} onClick={onImportResume} type="button">
+                Replace resume
+              </button>
+              <button
+                className="primary-action compact-action"
+                disabled={
+                  busy ||
+                  !profileForm.resumeText.trim() ||
+                  profileForm.resumeText.trim() !== (profile.baseResume.textContent ?? '')
+                }
+                onClick={onAnalyzeProfileFromResume}
+                type="button"
+              >
+                Analyze saved resume text
+              </button>
             </div>
           </div>
+          <p className="muted-copy">
+            {profile.baseResume.textContent
+              ? 'Stored resume text is ready for profile extraction, tailoring, and validation.'
+              : 'PDF, DOCX, TXT, and Markdown resumes can be stored locally. If extraction misses key content, paste cleaned plain text below so the agent can continue.'}
+          </p>
+          {profile.baseResume.lastAnalyzedAt && profile.baseResume.analysisProviderLabel ? (
+            <div className="resume-analysis-summary">
+              <p className="body-copy body-copy-compact">{formatResumeAnalysisSummary(profile)}</p>
+            </div>
+          ) : null}
+          {profile.baseResume.analysisWarnings.length > 0 ? (
+            <PreferenceList label="Review notes" values={profile.baseResume.analysisWarnings} />
+          ) : null}
         </section>
       </div>
+
+      <section className="panel panel-spacious profile-panel-overview">
+        <div className="panel-header-row">
+          <p className="section-label">Job matching defaults</p>
+          <span className="section-badge">Targeting and workflow</span>
+        </div>
+        <div className="profile-secondary-grid">
+          <div className="panel-muted profile-subsection">
+            <p className="section-label">Targeting rules</p>
+            <div className="settings-grid preference-summary-grid">
+              <PreferenceList label="Target roles" values={searchPreferences.targetRoles} />
+              <PreferenceList label="Locations" values={searchPreferences.locations} />
+              <PreferenceList label="Work modes" values={searchPreferences.workModes.map(formatStatusLabel)} />
+              <PreferenceList label="Seniority" values={searchPreferences.seniorityLevels} />
+            </div>
+          </div>
+
+          <div className="panel-muted profile-subsection">
+            <p className="section-label">Workflow defaults</p>
+            <div className="stat-grid">
+              <div>
+                <span>Tailoring mode</span>
+                <strong>{formatStatusLabel(searchPreferences.tailoringMode)}</strong>
+              </div>
+              <div>
+                <span>Approval mode</span>
+                <strong>{formatApprovalMode(searchPreferences.approvalMode)}</strong>
+              </div>
+              <div>
+                <span>Minimum salary</span>
+                <strong>
+                  {searchPreferences.minimumSalaryUsd
+                    ? `$${searchPreferences.minimumSalaryUsd.toLocaleString('en-US')}`
+                    : 'Not set'}
+                </strong>
+              </div>
+              <div>
+                <span>Preferred companies</span>
+                <strong>{searchPreferences.companyWhitelist.length || 0}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="profile-edit-layout">
         <section className="panel panel-spacious">
@@ -705,55 +836,115 @@ function ProfileScreen(props: {
             <p className="section-label">Edit profile</p>
             <span className="section-badge">Persist locally</span>
           </div>
-          <div className="form-grid two-column-form-grid">
+          <div className="form-column-layout">
+            <div className="form-column">
+              <label className="field-stack">
+                <span className="section-label">First name</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) => setProfileForm((current) => ({ ...current, firstName: event.target.value }))}
+                  value={profileForm.firstName}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Middle name</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) => setProfileForm((current) => ({ ...current, middleName: event.target.value }))}
+                  value={profileForm.middleName}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Headline</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) => setProfileForm((current) => ({ ...current, headline: event.target.value }))}
+                  value={profileForm.headline}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Email</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))}
+                  value={profileForm.email}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Portfolio URL</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) =>
+                    setProfileForm((current) => ({ ...current, portfolioUrl: event.target.value }))
+                  }
+                  value={profileForm.portfolioUrl}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Skills</span>
+                <textarea
+                  className="textarea-shell compact-textarea"
+                  onChange={(event) => setProfileForm((current) => ({ ...current, skills: event.target.value }))}
+                  rows={3}
+                  value={profileForm.skills}
+                />
+              </label>
+            </div>
+
+            <div className="form-column">
+              <label className="field-stack">
+                <span className="section-label">Last name</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) => setProfileForm((current) => ({ ...current, lastName: event.target.value }))}
+                  value={profileForm.lastName}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Current location</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) =>
+                    setProfileForm((current) => ({ ...current, currentLocation: event.target.value }))
+                  }
+                  value={profileForm.currentLocation}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Years of experience</span>
+                <input
+                  className="input-shell"
+                  min="0"
+                  onChange={(event) =>
+                    setProfileForm((current) => ({ ...current, yearsExperience: event.target.value }))
+                  }
+                  type="number"
+                  value={profileForm.yearsExperience}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Phone</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))}
+                  value={profileForm.phone}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">LinkedIn URL</span>
+                <input
+                  className="input-shell"
+                  onChange={(event) =>
+                    setProfileForm((current) => ({ ...current, linkedinUrl: event.target.value }))
+                  }
+                  value={profileForm.linkedinUrl}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="form-grid">
             <label className="field-stack">
-              <span className="section-label">Full name</span>
-              <input
-                className="input-shell"
-                onChange={(event) => setProfileForm((current) => ({ ...current, fullName: event.target.value }))}
-                value={profileForm.fullName}
-              />
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Current location</span>
-              <input
-                className="input-shell"
-                onChange={(event) =>
-                  setProfileForm((current) => ({ ...current, currentLocation: event.target.value }))
-                }
-                value={profileForm.currentLocation}
-              />
-            </label>
-            <label className="field-stack two-column-span">
-              <span className="section-label">Headline</span>
-              <input
-                className="input-shell"
-                onChange={(event) => setProfileForm((current) => ({ ...current, headline: event.target.value }))}
-                value={profileForm.headline}
-              />
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Years of experience</span>
-              <input
-                className="input-shell"
-                min="0"
-                onChange={(event) =>
-                  setProfileForm((current) => ({ ...current, yearsExperience: event.target.value }))
-                }
-                type="number"
-                value={profileForm.yearsExperience}
-              />
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Skills</span>
-              <textarea
-                className="textarea-shell compact-textarea"
-                onChange={(event) => setProfileForm((current) => ({ ...current, skills: event.target.value }))}
-                rows={3}
-                value={profileForm.skills}
-              />
-            </label>
-            <label className="field-stack two-column-span">
               <span className="section-label">Summary</span>
               <textarea
                 className="textarea-shell"
@@ -762,19 +953,43 @@ function ProfileScreen(props: {
                 value={profileForm.summary}
               />
             </label>
+            <label className="field-stack">
+              <span className="section-label">Resume text for agents</span>
+              <textarea
+                className="textarea-shell"
+                onChange={(event) => setProfileForm((current) => ({ ...current, resumeText: event.target.value }))}
+                rows={8}
+                value={profileForm.resumeText}
+              />
+            </label>
           </div>
           <div className="button-row">
             <button
               className="primary-action"
               disabled={busy}
-              onClick={() =>
-                onSaveProfile({
-                  ...profile,
-                  currentLocation: profileForm.currentLocation.trim(),
-                  fullName: profileForm.fullName.trim(),
-                  headline: profileForm.headline.trim(),
-                  skills: parseListInput(profileForm.skills),
+                onClick={() =>
+                  onSaveProfile({
+                    ...profile,
+                    firstName: profileForm.firstName.trim(),
+                    email: profileForm.email.trim() || null,
+                    currentLocation: profileForm.currentLocation.trim(),
+                    fullName: buildFullName({
+                      firstName: profileForm.firstName,
+                      middleName: profileForm.middleName,
+                      lastName: profileForm.lastName
+                    }),
+                    headline: profileForm.headline.trim(),
+                    linkedinUrl: profileForm.linkedinUrl.trim() || null,
+                    lastName: profileForm.lastName.trim(),
+                    middleName: profileForm.middleName.trim() || null,
+                    phone: profileForm.phone.trim() || null,
+                    portfolioUrl: profileForm.portfolioUrl.trim() || null,
+                    skills: parseListInput(profileForm.skills),
                   summary: profileForm.summary.trim(),
+                  baseResume: {
+                    ...profile.baseResume,
+                    textContent: profileForm.resumeText.trim() || null
+                  },
                   yearsExperience: Number(profileForm.yearsExperience || '0')
                 })
               }
@@ -790,113 +1005,118 @@ function ProfileScreen(props: {
             <p className="section-label">Discovery preferences</p>
             <span className="section-badge">LinkedIn adapter</span>
           </div>
-          <div className="form-grid two-column-form-grid">
-            <label className="field-stack two-column-span">
-              <span className="section-label">Target roles</span>
-              <textarea
-                className="textarea-shell compact-textarea"
-                onChange={(event) =>
-                  setPreferenceForm((current) => ({ ...current, targetRoles: event.target.value }))
-                }
-                rows={3}
-                value={preferenceForm.targetRoles}
-              />
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Locations</span>
-              <textarea
-                className="textarea-shell compact-textarea"
-                onChange={(event) =>
-                  setPreferenceForm((current) => ({ ...current, locations: event.target.value }))
-                }
-                rows={3}
-                value={preferenceForm.locations}
-              />
-            </label>
-            <div className="field-stack">
-              <span className="section-label">Work modes</span>
-              <div className="checkbox-grid">
-                {(['remote', 'hybrid', 'onsite', 'flexible'] as const).map((workMode) => (
-                  <label key={workMode} className="checkbox-row">
-                    <input
-                      checked={preferenceForm.workModes.includes(workMode)}
-                      onChange={(event) =>
-                        setPreferenceForm((current) => ({
-                          ...current,
-                          workModes: event.target.checked
-                            ? [...current.workModes, workMode]
-                            : current.workModes.filter((value) => value !== workMode)
-                        }))
-                      }
-                      type="checkbox"
-                    />
-                    <span>{formatStatusLabel(workMode)}</span>
-                  </label>
-                ))}
-              </div>
+          <div className="form-column-layout">
+            <div className="form-column">
+              <label className="field-stack">
+                <span className="section-label">Target roles</span>
+                <textarea
+                  className="textarea-shell compact-textarea"
+                  onChange={(event) =>
+                    setPreferenceForm((current) => ({ ...current, targetRoles: event.target.value }))
+                  }
+                  rows={3}
+                  value={preferenceForm.targetRoles}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Locations</span>
+                <textarea
+                  className="textarea-shell compact-textarea"
+                  onChange={(event) =>
+                    setPreferenceForm((current) => ({ ...current, locations: event.target.value }))
+                  }
+                  rows={3}
+                  value={preferenceForm.locations}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Seniority</span>
+                <textarea
+                  className="textarea-shell compact-textarea"
+                  onChange={(event) =>
+                    setPreferenceForm((current) => ({ ...current, seniorityLevels: event.target.value }))
+                  }
+                  rows={3}
+                  value={preferenceForm.seniorityLevels}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Tailoring mode</span>
+                <select
+                  className="select-shell"
+                  onChange={(event) =>
+                    setPreferenceForm((current) => ({
+                      ...current,
+                      tailoringMode: event.target.value as JobSearchPreferences['tailoringMode']
+                    }))
+                  }
+                  value={preferenceForm.tailoringMode}
+                >
+                  <option value="conservative">Conservative</option>
+                  <option value="balanced">Balanced</option>
+                  <option value="aggressive">Aggressive</option>
+                </select>
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Blocked companies</span>
+                <textarea
+                  className="textarea-shell compact-textarea"
+                  onChange={(event) =>
+                    setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))
+                  }
+                  rows={3}
+                  value={preferenceForm.companyBlacklist}
+                />
+              </label>
             </div>
-            <label className="field-stack">
-              <span className="section-label">Seniority</span>
-              <textarea
-                className="textarea-shell compact-textarea"
-                onChange={(event) =>
-                  setPreferenceForm((current) => ({ ...current, seniorityLevels: event.target.value }))
-                }
-                rows={3}
-                value={preferenceForm.seniorityLevels}
-              />
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Minimum salary</span>
-              <input
-                className="input-shell"
-                min="0"
-                onChange={(event) =>
-                  setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value }))
-                }
-                type="number"
-                value={preferenceForm.minimumSalaryUsd}
-              />
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Tailoring mode</span>
-              <select
-                className="input-shell"
-                onChange={(event) =>
-                  setPreferenceForm((current) => ({
-                    ...current,
-                    tailoringMode: event.target.value as JobSearchPreferences['tailoringMode']
-                  }))
-                }
-                value={preferenceForm.tailoringMode}
-              >
-                <option value="conservative">Conservative</option>
-                <option value="balanced">Balanced</option>
-                <option value="aggressive">Aggressive</option>
-              </select>
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Preferred companies</span>
-              <textarea
-                className="textarea-shell compact-textarea"
-                onChange={(event) =>
-                  setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))
-                }
-                rows={3}
-                value={preferenceForm.companyWhitelist}
-              />
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Blocked companies</span>
-              <textarea
-                className="textarea-shell compact-textarea"
-                onChange={(event) =>
-                  setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))
-                }
-                rows={3}
-                value={preferenceForm.companyBlacklist}
-              />
-            </label>
+
+            <div className="form-column">
+              <div className="field-stack">
+                <span className="section-label">Work modes</span>
+                <div className="checkbox-grid">
+                  {(['remote', 'hybrid', 'onsite', 'flexible'] as const).map((workMode) => (
+                    <label key={workMode} className="checkbox-row">
+                      <input
+                        checked={preferenceForm.workModes.includes(workMode)}
+                        onChange={(event) =>
+                          setPreferenceForm((current) => ({
+                            ...current,
+                            workModes: event.target.checked
+                              ? [...current.workModes, workMode]
+                              : current.workModes.filter((value) => value !== workMode)
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                      <span>{formatStatusLabel(workMode)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <label className="field-stack">
+                <span className="section-label">Minimum salary</span>
+                <input
+                  className="input-shell"
+                  min="0"
+                  onChange={(event) =>
+                    setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value }))
+                  }
+                  type="number"
+                  value={preferenceForm.minimumSalaryUsd}
+                />
+              </label>
+              <label className="field-stack">
+                <span className="section-label">Preferred companies</span>
+                <textarea
+                  className="textarea-shell compact-textarea"
+                  onChange={(event) =>
+                    setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))
+                  }
+                  rows={3}
+                  value={preferenceForm.companyWhitelist}
+                />
+              </label>
+            </div>
           </div>
           <div className="button-row">
             <button
@@ -935,6 +1155,7 @@ function DiscoveryScreen(props: {
   browserSession: BrowserSessionState
   jobs: readonly SavedJob[]
   onDismissJob: (jobId: string) => void
+  onOpenBrowserSession: () => void
   onQueueJob: (jobId: string) => void
   onRefreshDiscovery: () => void
   searchPreferences: JobSearchPreferences
@@ -947,6 +1168,7 @@ function DiscoveryScreen(props: {
     busy,
     jobs,
     onDismissJob,
+    onOpenBrowserSession,
     onQueueJob,
     onRefreshDiscovery,
     onSelectJob,
@@ -977,6 +1199,11 @@ function DiscoveryScreen(props: {
             label="Work modes"
             values={searchPreferences.workModes.map(formatStatusLabel)}
           />
+          {browserSession.driver !== 'catalog_seed' ? (
+            <button className="secondary-action" disabled={busy} onClick={onOpenBrowserSession} type="button">
+              Open dedicated Chrome profile
+            </button>
+          ) : null}
           <button className="primary-action" disabled={busy} onClick={onRefreshDiscovery} type="button">
             Run LinkedIn discovery
           </button>
@@ -1052,6 +1279,7 @@ function DiscoveryScreen(props: {
                 </div>
               </div>
               <p className="body-copy">{selectedJob.summary}</p>
+              <PreferenceList label="Discovery mode" values={[formatStatusLabel(selectedJob.discoveryMethod)]} compact />
               <PreferenceList label="Key skills" values={selectedJob.keySkills} compact />
               <PreferenceList label="Fit reasons" values={selectedJob.matchAssessment.reasons} />
               <PreferenceList label="Watch-outs" values={selectedJob.matchAssessment.gaps} />
@@ -1230,9 +1458,15 @@ function ReviewQueueScreen(props: {
                   <span>Template</span>
                   <strong>{selectedAsset?.templateName ?? 'Pending'}</strong>
                 </div>
+                <div>
+                  <span>Generation</span>
+                  <strong>{selectedAsset ? formatStatusLabel(selectedAsset.generationMethod) : 'Pending'}</strong>
+                </div>
               </div>
               <p className="body-copy">{selectedJob.summary}</p>
+              {selectedAsset?.storagePath ? <p className="muted-copy">Template file: {selectedAsset.storagePath}</p> : null}
               <PreferenceList label="Role fit" values={selectedJob.matchAssessment.reasons} />
+              {selectedAsset?.notes.length ? <PreferenceList label="Agent notes" values={selectedAsset.notes} /> : null}
               {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
               <div className="button-row">
                 <button
@@ -1378,13 +1612,25 @@ function ApplicationsScreen(props: {
 }
 
 function SettingsScreen(props: {
+  agentProvider: AgentProviderStatus
+  availableResumeTemplates: readonly ResumeTemplateDefinition[]
   actionState: { busy: boolean; message: string | null }
+  browserSession: BrowserSessionState
   busy: boolean
   onResetWorkspace: () => void
   onSaveSettings: (settings: JobFinderSettings) => void
   settings: JobFinderSettings
 }) {
-  const { actionState, busy, onResetWorkspace, onSaveSettings, settings } = props
+  const {
+    agentProvider,
+    availableResumeTemplates,
+    actionState,
+    browserSession,
+    busy,
+    onResetWorkspace,
+    onSaveSettings,
+    settings
+  } = props
   const [settingsForm, setSettingsForm] = useState(settings)
 
   useEffect(() => {
@@ -1404,7 +1650,7 @@ function SettingsScreen(props: {
           <p className="section-label">Current profile</p>
           <h2>Workspace controls</h2>
           <p className="body-copy">
-            Keep the current seeded shell stable while iterating on real Job Finder workflows. Resetting restores the local baseline.
+            Resetting clears the current profile, imported resume data, saved jobs, generated assets, and browser session state so you can start fresh.
           </p>
         </div>
         <div className="settings-hero-actions">
@@ -1424,10 +1670,28 @@ function SettingsScreen(props: {
         </section>
 
         <section className="panel panel-spacious">
+          <p className="section-label">Automation runtime</p>
+          <div className="settings-grid compact-grid">
+            <SettingsStat label="Model provider" value={agentProvider.label} />
+            <SettingsStat label="Browser driver" value={formatStatusLabel(browserSession.driver)} />
+            <SettingsStat label="Session status" value={formatStatusLabel(browserSession.status)} />
+          </div>
+          {agentProvider.detail ? <p className="muted-copy">{agentProvider.detail}</p> : null}
+          {browserSession.detail ? <p className="muted-copy">{browserSession.detail}</p> : null}
+        </section>
+
+        <section className="panel panel-spacious">
           <p className="section-label">Document defaults</p>
           <div className="settings-grid compact-grid">
             <SettingsStat label="Export format" value={settings.resumeFormat.toUpperCase()} />
             <SettingsStat label="Font preset" value={formatStatusLabel(settings.fontPreset)} />
+            <SettingsStat
+              label="Template"
+              value={
+                availableResumeTemplates.find((template) => template.id === settings.resumeTemplateId)?.label ??
+                formatStatusLabel(settings.resumeTemplateId)
+              }
+            />
           </div>
         </section>
 
@@ -1455,7 +1719,7 @@ function SettingsScreen(props: {
           <label className="field-stack">
             <span className="section-label">Resume format</span>
             <select
-              className="input-shell"
+              className="select-shell"
               onChange={(event) =>
                 setSettingsForm((current) => ({
                   ...current,
@@ -1464,14 +1728,34 @@ function SettingsScreen(props: {
               }
               value={settingsForm.resumeFormat}
             >
+              <option value="html">HTML</option>
               <option value="pdf">PDF</option>
               <option value="docx">DOCX</option>
             </select>
           </label>
           <label className="field-stack">
+            <span className="section-label">Resume template</span>
+            <select
+              className="select-shell"
+              onChange={(event) =>
+                setSettingsForm((current) => ({
+                  ...current,
+                  resumeTemplateId: event.target.value as JobFinderSettings['resumeTemplateId']
+                }))
+              }
+              value={settingsForm.resumeTemplateId}
+            >
+              {availableResumeTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-stack">
             <span className="section-label">Font preset</span>
             <select
-              className="input-shell"
+              className="select-shell"
               onChange={(event) =>
                 setSettingsForm((current) => ({
                   ...current,
@@ -1515,6 +1799,12 @@ function SettingsScreen(props: {
             <span>Allow future adapter overrides to submit automatically when the flow is fully supported</span>
           </label>
         </div>
+        {availableResumeTemplates.length > 0 ? (
+          <PreferenceList
+            label="Template notes"
+            values={availableResumeTemplates.map((template) => `${template.label}: ${template.description}`)}
+          />
+        ) : null}
         <div className="button-row">
           <button className="primary-action" disabled={busy} onClick={() => onSaveSettings(settingsForm)} type="button">
             Save settings

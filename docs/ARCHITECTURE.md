@@ -28,3 +28,4 @@
 - Establish the monorepo, canonical docs, and validation commands
 - Keep module packages thin until real workflows land
 - Grow package internals behind stable contracts instead of letting the app become a direct-import mesh
+- Current Job Finder flow uses `packages/ai-providers` for structured resume extraction, fit assessment, and tailoring, `apps/desktop` for local resume ingestion/extraction plus template-file rendering, and `packages/browser-runtime` for switching between deterministic catalog fixtures and a dedicated Chrome-profile LinkedIn browser agent connected over CDP

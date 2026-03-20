@@ -20,7 +20,9 @@ declare global {
       }
       jobFinder: {
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
+        openBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>
         saveProfile: (profile: CandidateProfile) => Promise<JobFinderWorkspaceSnapshot>
+        analyzeProfileFromResume: () => Promise<JobFinderWorkspaceSnapshot>
         saveSearchPreferences: (searchPreferences: JobSearchPreferences) => Promise<JobFinderWorkspaceSnapshot>
         saveSettings: (settings: JobFinderSettings) => Promise<JobFinderWorkspaceSnapshot>
         importResume: () => Promise<JobFinderWorkspaceSnapshot>
@@ -30,6 +32,9 @@ declare global {
         dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
         generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
         approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
+        test?: {
+          importResumeFromPath: (sourcePath: string) => Promise<JobFinderWorkspaceSnapshot>
+        }
       }
     }
   }

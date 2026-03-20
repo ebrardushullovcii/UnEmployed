@@ -9,16 +9,28 @@ function createSeed(): JobFinderRepositorySeed {
   return {
     profile: {
       id: 'candidate_1',
+      firstName: 'Alex',
+      lastName: 'Vanguard',
+      middleName: null,
       fullName: 'Alex Vanguard',
       headline: 'Senior systems designer',
       summary: 'Builds resilient workflows.',
       currentLocation: 'London, UK',
       yearsExperience: 10,
+      email: 'alex@example.com',
+      phone: null,
+      portfolioUrl: null,
+      linkedinUrl: null,
       baseResume: {
         id: 'resume_1',
         fileName: 'alex-vanguard.pdf',
         uploadedAt: '2026-03-20T10:00:00.000Z',
-        storagePath: '/tmp/alex-vanguard.pdf'
+        storagePath: '/tmp/alex-vanguard.pdf',
+        textContent: 'Alex Vanguard\nSenior systems designer\nReact\nFigma',
+        textUpdatedAt: '2026-03-20T10:00:00.000Z',
+        extractionStatus: 'ready',
+        lastAnalyzedAt: '2026-03-20T10:01:00.000Z',
+        analysisWarnings: []
       },
       targetRoles: ['Principal Designer'],
       locations: ['Remote'],
@@ -37,14 +49,15 @@ function createSeed(): JobFinderRepositorySeed {
     },
     savedJobs: [],
     tailoredAssets: [],
-    applicationRecords: [],
-    applicationAttempts: [],
-    settings: {
-      resumeFormat: 'pdf' as const,
-      fontPreset: 'inter_requisite' as const,
-      humanReviewRequired: true,
-      allowAutoSubmitOverride: false,
-      keepSessionAlive: true
+      applicationRecords: [],
+      applicationAttempts: [],
+      settings: {
+        resumeFormat: 'html' as const,
+        resumeTemplateId: 'classic_ats' as const,
+        fontPreset: 'inter_requisite' as const,
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true
     }
   }
 }
@@ -73,7 +86,9 @@ describe('createInMemoryJobFinderRepository', () => {
       updatedAt: '2026-03-20T10:05:00.000Z',
       storagePath: null,
       contentText: 'Resume text',
-      previewSections: []
+      previewSections: [],
+      generationMethod: 'deterministic',
+      notes: []
     })
 
     await repository.upsertApplicationAttempt({
@@ -140,6 +155,7 @@ describe('createInMemoryJobFinderRepository', () => {
       const savedJobs = await repository.listSavedJobs()
 
       expect(savedJobs).toEqual([])
+      await repository.close()
     } finally {
       await rm(tempDirectory, { recursive: true, force: true })
     }
@@ -160,6 +176,7 @@ describe('createInMemoryJobFinderRepository', () => {
           id: 'job_1',
           source: 'linkedin',
           sourceJobId: 'linkedin_job_1',
+          discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
           title: 'Lead Designer',
           company: 'Signal Systems',
@@ -207,6 +224,8 @@ describe('createInMemoryJobFinderRepository', () => {
       expect(savedJobs[0]?.canonicalUrl).toContain('linkedin_job_1')
       expect(attempts).toHaveLength(1)
       expect(attempts[0]?.summary).toBe('Easy Apply submitted')
+      await firstRepository.close()
+      await secondRepository.close()
     } finally {
       await rm(tempDirectory, { recursive: true, force: true })
     }

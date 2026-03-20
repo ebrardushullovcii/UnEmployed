@@ -109,6 +109,7 @@ export interface ExecuteEasyApplyInput {
 
 export interface BrowserSessionRuntime {
   getSessionState(source: JobSource): Promise<BrowserSessionState>
+  openSession(source: JobSource): Promise<BrowserSessionState>
   runDiscovery(source: JobSource, searchPreferences: JobSearchPreferences): Promise<DiscoveryRunResult>
   executeEasyApply(source: JobSource, input: ExecuteEasyApplyInput): Promise<ApplyExecutionResult>
 }
@@ -146,6 +147,9 @@ export function createCatalogBrowserSessionRuntime(
 
   return {
     getSessionState(source) {
+      return Promise.resolve(getSession(source))
+    },
+    openSession(source) {
       return Promise.resolve(getSession(source))
     },
     runDiscovery(source, searchPreferences) {
@@ -326,3 +330,5 @@ export function createStubBrowserSessionRuntime(
 ): BrowserSessionRuntime {
   return createCatalogBrowserSessionRuntime(seed)
 }
+
+export { createLinkedInBrowserAgentRuntime } from './playwright-linkedin-runtime'

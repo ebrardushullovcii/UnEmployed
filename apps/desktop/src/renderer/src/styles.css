@@ -80,6 +80,11 @@ select {
   font: inherit;
 }
 
+option {
+  background: #141414;
+  color: #f3f1eb;
+}
+
 button {
   cursor: pointer;
 }
@@ -136,6 +141,36 @@ button {
 .table-cell-primary strong,
 .resume-preview-header strong {
   text-wrap: balance;
+}
+
+.profile-headline {
+  margin: 0.45rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+
+.resume-analysis-summary {
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+}
+
+.resume-analysis-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.resume-analysis-summary .status-chip {
+  justify-self: start;
+}
+
+.body-copy-compact {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
 }
 
 .boot-card p,
@@ -715,13 +750,48 @@ button {
 .profile-layout,
 .settings-layout {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.profile-layout-column {
+  min-width: 0;
+}
+
+.profile-layout > .panel {
+  height: 100%;
+}
+
+.profile-secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
   align-items: start;
+}
+
+.profile-subsection {
+  display: grid;
+  align-content: start;
+  gap: 0.95rem;
+  padding: 1rem;
 }
 
 .profile-edit-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.5rem;
+}
+
+.form-column-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.form-column {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
 }
 
 .form-grid {
@@ -739,7 +809,7 @@ button {
 
 .field-stack {
   display: grid;
-  gap: 0.32rem;
+  gap: 0.44rem;
   min-width: 0;
 }
 
@@ -754,8 +824,43 @@ button {
   font-size: 0.92rem;
 }
 
+.select-shell {
+  width: 100%;
+  min-height: 2.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.34rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+    rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  padding: 0.72rem 2.35rem 0.72rem 0.82rem;
+  font-size: 0.92rem;
+  line-height: 1.2;
+  appearance: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+    linear-gradient(45deg, transparent 50%, rgba(235, 233, 225, 0.85) 50%),
+    linear-gradient(135deg, rgba(235, 233, 225, 0.85) 50%, transparent 50%);
+  background-position:
+    0 0,
+    calc(100% - 1rem) calc(50% - 0.1rem),
+    calc(100% - 0.72rem) calc(50% - 0.1rem);
+  background-size:
+    auto,
+    0.42rem 0.42rem,
+    0.42rem 0.42rem;
+  background-repeat: no-repeat;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.select-shell:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
 .input-shell:focus,
-.textarea-shell:focus {
+.textarea-shell:focus,
+.select-shell:focus {
   outline: none;
   border-color: rgba(235, 233, 225, 0.42);
   box-shadow: inset 0 0 0 1px rgba(235, 233, 225, 0.08);
@@ -825,7 +930,14 @@ button {
 }
 
 .column-stack {
+  display: grid;
   align-content: start;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.preference-summary-grid {
+  align-items: start;
 }
 
 .resume-dropzone,
@@ -1395,6 +1507,8 @@ button {
   .profile-layout,
   .settings-layout,
   .profile-edit-layout,
+  .profile-secondary-grid,
+  .form-column-layout,
   .two-column-form-grid,
   .checkbox-grid {
     grid-template-columns: 1fr;

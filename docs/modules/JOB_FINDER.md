@@ -21,10 +21,28 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 
 ## Current Implementation Snapshot
 
-- Typed Job Finder contracts now cover profile, preferences, saved jobs, tailored assets, browser session state, application records, and the desktop workspace snapshot
-- The desktop app now renders an initial Job Finder shell with `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` surfaces
-- Current data is seeded through a file-backed local repository and a stub browser-session runtime so the vertical slice can move into real discovery next without losing interactive desktop state
-- Desktop actions can already move jobs into review, generate seeded resume previews, dismiss discovery jobs, and create submitted application records through typed preload flows
+- Typed Job Finder contracts now cover profile/contact fields, stored resume-text extraction state, saved jobs, tailored assets, browser session state, application records, agent-provider status, and the desktop workspace snapshot
+- The desktop app renders `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` surfaces with agent status visible in the workflow
+- Job Finder now supports an OpenAI-compatible provider seam for resume-text profile extraction, job-fit assessment, and resume tailoring, with deterministic fallbacks kept in place for tests and offline use
+- Browser discovery can run either through the deterministic catalog seed or an opt-in dedicated Chrome-profile LinkedIn browser agent backed by a user-authenticated local profile
+- Desktop actions can import `txt`, `md`, `pdf`, and `docx` resumes, extract resume text for the profile agent, analyze that text into structured candidate details, render generated resume text into a fixed template set, and create tracked apply attempts through typed preload flows
+
+## Agent Runtime Configuration
+
+- `UNEMPLOYED_AI_API_KEY`: enables the OpenAI-compatible provider path
+- `UNEMPLOYED_AI_BASE_URL`: optional override for the provider base URL; defaults to `https://ai.automatedpros.link/v1`
+- `UNEMPLOYED_AI_MODEL`: optional override for the provider model; defaults to `FelidaeAI-Pro-2.5`
+- `UNEMPLOYED_LINKEDIN_BROWSER_AGENT=1`: enables the dedicated Chrome-profile LinkedIn browser agent instead of the deterministic catalog runtime
+- `UNEMPLOYED_CHROME_PATH`: optional override for the local Chrome executable the agent should launch
+- `UNEMPLOYED_CHROME_DEBUG_PORT`: optional override for the dedicated Chrome remote-debugging port; defaults to `9333`
+- `UNEMPLOYED_BROWSER_HEADLESS=1`: optional headless mode for the dedicated browser agent when live browser UI is not required
+
+## Resume Document Strategy
+
+- Input sources: plain text, Markdown, PDF, and DOCX resumes are imported and normalized into stored text before the AI profile/tailoring agent runs
+- Extraction path: `pdfjs-dist` handles PDF text recovery, `mammoth` handles DOCX raw-text extraction, and plain-text sources pass through directly
+- Output path: the AI agent produces the resume text and section content, then Job Finder renders that content into a small fixed template set instead of asking the model to invent document layout from scratch
+- Current artifact shape: generated resumes save a local HTML template file plus the underlying generated text content so the formatting layer stays inspectable and replaceable later
 
 ## Package Boundaries
 

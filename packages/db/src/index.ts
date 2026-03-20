@@ -133,6 +133,7 @@ function runMigrations(database: DatabaseSync): void {
 export type JobFinderRepositorySeed = JobFinderRepositoryState
 
 export interface JobFinderRepository {
+  close(): Promise<void>
   reset(seed: JobFinderRepositorySeed): Promise<void>
   getProfile(): Promise<CandidateProfile>
   saveProfile(profile: CandidateProfile): Promise<void>
@@ -317,6 +318,9 @@ export function createInMemoryJobFinderRepository(seed: JobFinderRepositorySeed)
   const state: JobFinderRepositoryState = JobFinderRepositoryStateSchema.parse(cloneValue(seed))
 
   return {
+    close() {
+      return Promise.resolve()
+    },
     reset(nextSeed) {
       const normalizedSeed = JobFinderRepositoryStateSchema.parse(cloneValue(nextSeed))
 
@@ -434,6 +438,10 @@ export async function createFileJobFinderRepository(
   }
 
   return {
+    close() {
+      database.close()
+      return Promise.resolve()
+    },
     reset(nextSeed) {
       const nextState = JobFinderRepositoryStateSchema.parse(cloneValue(nextSeed))
       writeState(database, nextState)

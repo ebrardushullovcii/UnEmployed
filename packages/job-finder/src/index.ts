@@ -1,3 +1,8 @@
+import type {
+  JobFinderAiClient,
+  ResumeProfileExtraction,
+  TailoredResumeDraft
+} from '@unemployed/ai-providers'
 import type { BrowserSessionRuntime } from '@unemployed/browser-runtime'
 import {
   ApplicationAttemptSchema,
@@ -19,6 +24,7 @@ import {
   type JobPosting,
   type JobSearchPreferences,
   type MatchAssessment,
+  type ResumeTemplateDefinition,
   type ReviewQueueItem,
   type SavedJob,
   type TailoredAsset
@@ -51,6 +57,27 @@ function tokenize(value: string): string[] {
   return normalizeText(value)
     .split(/\s+/)
     .filter(Boolean)
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>()
+
+  return values.flatMap((value) => {
+    const trimmedValue = value.trim()
+
+    if (!trimmedValue) {
+      return []
+    }
+
+    const key = trimmedValue.toLowerCase()
+
+    if (seen.has(key)) {
+      return []
+    }
+
+    seen.add(key)
+    return [trimmedValue]
+  })
 }
 
 function clampScore(value: number): number {
@@ -245,6 +272,30 @@ function createMatchAssessment(
   }
 }
 
+async function createMatchAssessmentAsync(
+  aiClient: JobFinderAiClient,
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  posting: JobPosting
+): Promise<MatchAssessment> {
+  const fallbackAssessment = createMatchAssessment(profile, searchPreferences, posting)
+  const assistedAssessment = await aiClient.assessJobFit({
+    profile,
+    searchPreferences,
+    job: posting
+  })
+
+  if (!assistedAssessment) {
+    return fallbackAssessment
+  }
+
+  return {
+    score: clampScore(assistedAssessment.score),
+    reasons: assistedAssessment.reasons.slice(0, 3),
+    gaps: assistedAssessment.gaps.slice(0, 3)
+  }
+}
+
 function preserveJobStatus(existingJob: SavedJob | undefined): ApplicationStatus {
   if (!existingJob) {
     return 'discovered'
@@ -258,8 +309,7 @@ function preserveJobStatus(existingJob: SavedJob | undefined): ApplicationStatus
 }
 
 function mergeDiscoveredJob(
-  profile: CandidateProfile,
-  searchPreferences: JobSearchPreferences,
+  matchAssessment: MatchAssessment,
   posting: JobPosting,
   existingJob: SavedJob | undefined
 ): SavedJob {
@@ -267,53 +317,14 @@ function mergeDiscoveredJob(
     ...posting,
     id: existingJob?.id ?? toSavedJobId(posting),
     status: preserveJobStatus(existingJob),
-    matchAssessment: createMatchAssessment(profile, searchPreferences, posting)
+    matchAssessment
   })
-}
-
-function createPreviewSections(
-  profile: CandidateProfile,
-  searchPreferences: JobSearchPreferences,
-  job: SavedJob,
-  settings: JobFinderSettings
-) {
-  const summaryLine =
-    `${profile.headline} shaped for ${job.title} at ${job.company}, emphasizing ` +
-    `${job.keySkills.slice(0, 3).join(', ')} and ${formatWorkMode(job.workMode)} collaboration.`
-
-  const experienceLines = [
-    `${profile.yearsExperience}+ years of experience aligned to ${job.company}'s ${job.summary.toLowerCase()}`,
-    `Targeting ${searchPreferences.targetRoles.slice(0, 2).join(' and ')} roles with a ${searchPreferences.tailoringMode} tailoring mode and ${settings.fontPreset.replaceAll('_', ' ')} formatting preset.`
-  ]
-
-  return [
-    {
-      heading: 'Summary',
-      lines: [summaryLine]
-    },
-    {
-      heading: 'Experience Highlights',
-      lines: experienceLines
-    },
-    {
-      heading: 'Core Skills',
-      lines: [...profile.skills.slice(0, 6)]
-    },
-    {
-      heading: 'Targeted Keywords',
-      lines: [...job.keySkills.slice(0, 6)]
-    }
-  ]
-}
-
-function formatWorkMode(value: string): string {
-  return value.replaceAll('_', ' ')
 }
 
 function buildTailoredResumeText(
   profile: CandidateProfile,
   job: SavedJob,
-  previewSections: ReturnType<typeof createPreviewSections>
+  previewSections: Array<{ heading: string; lines: string[] }>
 ): string {
   const sections = previewSections
     .map((section) => `${section.heading}
@@ -321,6 +332,118 @@ ${section.lines.join('\n')}`)
     .join('\n\n')
 
   return `${profile.fullName}\n${profile.headline}\n${profile.currentLocation}\n\nTarget Role: ${job.title} at ${job.company}\n\n${sections}\n`
+}
+
+function buildPreviewSectionsFromDraft(draft: TailoredResumeDraft) {
+  return [
+    {
+      heading: 'Summary',
+      lines: [draft.summary]
+    },
+    {
+      heading: 'Experience Highlights',
+      lines: [...draft.experienceHighlights]
+    },
+    {
+      heading: 'Core Skills',
+      lines: [...draft.coreSkills]
+    },
+    {
+      heading: 'Targeted Keywords',
+      lines: [...draft.targetedKeywords]
+    }
+  ].filter((section) => section.lines.length > 0)
+}
+
+function normalizeProfileBeforeSave(
+  currentProfile: CandidateProfile,
+  nextProfile: CandidateProfile
+): CandidateProfile {
+  const resumeChanged =
+    currentProfile.baseResume.id !== nextProfile.baseResume.id ||
+    currentProfile.baseResume.storagePath !== nextProfile.baseResume.storagePath ||
+    currentProfile.baseResume.textContent !== nextProfile.baseResume.textContent
+
+  if (!resumeChanged) {
+    return CandidateProfileSchema.parse(nextProfile)
+  }
+
+  const nextResumeText = nextProfile.baseResume.textContent
+
+  return CandidateProfileSchema.parse({
+    ...nextProfile,
+    baseResume: {
+      ...nextProfile.baseResume,
+      textUpdatedAt: nextResumeText ? new Date().toISOString() : null,
+      extractionStatus: nextResumeText ? 'not_started' : 'needs_text',
+      lastAnalyzedAt: null,
+      analysisWarnings: []
+    }
+  })
+}
+
+function mergeResumeExtractionIntoWorkspace(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  extraction: ResumeProfileExtraction
+): {
+  profile: CandidateProfile
+  searchPreferences: JobSearchPreferences
+} {
+  const profileTargetRoles =
+    extraction.targetRoles.length > 0 ? uniqueStrings(extraction.targetRoles) : profile.targetRoles
+  const locationFallback = extraction.currentLocation ?? profile.currentLocation
+  const profileLocations =
+    extraction.preferredLocations.length > 0
+      ? uniqueStrings(extraction.preferredLocations)
+      : profile.locations.length > 0
+        ? profile.locations
+        : uniqueStrings([locationFallback])
+  const preferenceLocations =
+    extraction.preferredLocations.length > 0
+      ? uniqueStrings(extraction.preferredLocations)
+      : searchPreferences.locations.length > 0
+        ? searchPreferences.locations
+        : profileLocations
+
+  return {
+    profile: CandidateProfileSchema.parse({
+      ...profile,
+      firstName: extraction.firstName ?? profile.firstName,
+      lastName: extraction.lastName ?? profile.lastName,
+      middleName: extraction.middleName ?? profile.middleName,
+      fullName: extraction.fullName ?? profile.fullName,
+      headline: extraction.headline ?? profile.headline,
+      summary: extraction.summary ?? profile.summary,
+      currentLocation: extraction.currentLocation ?? profile.currentLocation,
+      yearsExperience: extraction.yearsExperience ?? profile.yearsExperience,
+      email: extraction.email,
+      phone: extraction.phone,
+      portfolioUrl: extraction.portfolioUrl,
+      linkedinUrl: extraction.linkedinUrl,
+      targetRoles: profileTargetRoles,
+      locations: profileLocations,
+      skills: extraction.skills.length > 0 ? uniqueStrings(extraction.skills) : profile.skills,
+      baseResume: {
+        ...profile.baseResume,
+        extractionStatus: 'ready',
+        lastAnalyzedAt: new Date().toISOString(),
+        analysisProviderKind: extraction.analysisProviderKind,
+        analysisProviderLabel: extraction.analysisProviderLabel,
+        analysisWarnings: uniqueStrings(extraction.notes)
+      }
+    }),
+    searchPreferences: JobSearchPreferencesSchema.parse({
+      ...searchPreferences,
+      targetRoles:
+        extraction.targetRoles.length > 0
+          ? uniqueStrings(extraction.targetRoles)
+          : searchPreferences.targetRoles.length > 0
+            ? searchPreferences.targetRoles
+            : profileTargetRoles,
+      locations: preferenceLocations
+    })
+  }
 }
 
 function nextAssetVersion(existingAsset: TailoredAsset | undefined): string {
@@ -387,8 +510,10 @@ function nextJobStatusFromAttempt(job: SavedJob, attemptState: ApplicationAttemp
 
 export interface JobFinderWorkspaceService {
   getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot>
+  openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>
   resetWorkspace(seed: JobFinderRepositorySeed): Promise<JobFinderWorkspaceSnapshot>
   saveProfile(profile: CandidateProfile): Promise<JobFinderWorkspaceSnapshot>
+  analyzeProfileFromResume(): Promise<JobFinderWorkspaceSnapshot>
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<JobFinderWorkspaceSnapshot>
   saveSettings(settings: JobFinderSettings): Promise<JobFinderWorkspaceSnapshot>
   runDiscovery(): Promise<JobFinderWorkspaceSnapshot>
@@ -398,7 +523,25 @@ export interface JobFinderWorkspaceService {
   approveApply(jobId: string): Promise<JobFinderWorkspaceSnapshot>
 }
 
+export interface RenderedResumeArtifact {
+  fileName: string | null
+  storagePath: string | null
+}
+
+export interface JobFinderDocumentManager {
+  listResumeTemplates(): readonly ResumeTemplateDefinition[]
+  renderResumeArtifact(input: {
+    job: SavedJob
+    profile: CandidateProfile
+    previewSections: Array<{ heading: string; lines: string[] }>
+    settings: JobFinderSettings
+    textContent: string
+  }): Promise<RenderedResumeArtifact>
+}
+
 export interface CreateJobFinderWorkspaceServiceOptions {
+  aiClient: JobFinderAiClient
+  documentManager: JobFinderDocumentManager
   repository: JobFinderRepository
   browserRuntime: BrowserSessionRuntime
 }
@@ -406,7 +549,7 @@ export interface CreateJobFinderWorkspaceServiceOptions {
 export function createJobFinderWorkspaceService(
   options: CreateJobFinderWorkspaceServiceOptions
 ): JobFinderWorkspaceService {
-  const { browserRuntime, repository } = options
+  const { aiClient, browserRuntime, documentManager, repository } = options
 
   async function getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot> {
     const [
@@ -436,6 +579,8 @@ export function createJobFinderWorkspaceService(
     return JobFinderWorkspaceSnapshotSchema.parse({
       module: 'job-finder',
       generatedAt: new Date().toISOString(),
+      agentProvider: aiClient.getStatus(),
+      availableResumeTemplates: documentManager.listResumeTemplates(),
       profile,
       searchPreferences,
       browserSession,
@@ -476,8 +621,49 @@ export function createJobFinderWorkspaceService(
       await repository.reset(seed)
       return getWorkspaceSnapshot()
     },
+    async openBrowserSession() {
+      await browserRuntime.openSession('linkedin')
+      return getWorkspaceSnapshot()
+    },
     async saveProfile(profile) {
-      await repository.saveProfile(CandidateProfileSchema.parse(profile))
+      const currentProfile = await repository.getProfile()
+      await repository.saveProfile(normalizeProfileBeforeSave(currentProfile, CandidateProfileSchema.parse(profile)))
+      return getWorkspaceSnapshot()
+    },
+    async analyzeProfileFromResume() {
+      const [profile, searchPreferences] = await Promise.all([
+        repository.getProfile(),
+        repository.getSearchPreferences()
+      ])
+
+      if (!profile.baseResume.textContent) {
+        await repository.saveProfile(
+          CandidateProfileSchema.parse({
+            ...profile,
+            baseResume: {
+              ...profile.baseResume,
+              extractionStatus: 'needs_text',
+              lastAnalyzedAt: null,
+              analysisWarnings: ['Paste plain-text resume content to let the agent extract candidate details.']
+            }
+          })
+        )
+
+        throw new Error('Resume text is required before the profile agent can extract candidate details.')
+      }
+
+      const extraction = await aiClient.extractProfileFromResume({
+        existingProfile: profile,
+        existingSearchPreferences: searchPreferences,
+        resumeText: profile.baseResume.textContent
+      })
+      const merged = mergeResumeExtractionIntoWorkspace(profile, searchPreferences, extraction)
+
+      await Promise.all([
+        repository.saveProfile(merged.profile),
+        repository.saveSearchPreferences(merged.searchPreferences)
+      ])
+
       return getWorkspaceSnapshot()
     },
     async saveSearchPreferences(searchPreferences) {
@@ -507,7 +693,13 @@ export function createJobFinderWorkspaceService(
       for (const posting of discoveryResult.jobs) {
         const postingKey = `${posting.source}:${posting.sourceJobId}:${posting.canonicalUrl}`
         const existingJob = savedJobsByPostingKey.get(postingKey)
-        const mergedJob = mergeDiscoveredJob(profile, searchPreferences, posting, existingJob)
+        const matchAssessment = await createMatchAssessmentAsync(
+          aiClient,
+          profile,
+          searchPreferences,
+          posting
+        )
+        const mergedJob = mergeDiscoveredJob(matchAssessment, posting, existingJob)
         nextJobsById.set(mergedJob.id, mergedJob)
       }
 
@@ -548,22 +740,49 @@ export function createJobFinderWorkspaceService(
       }
 
       const existingAsset = tailoredAssets.find((asset) => asset.jobId === jobId)
-      const previewSections = createPreviewSections(profile, searchPreferences, job, settings)
-      const contentText = buildTailoredResumeText(profile, job, previewSections)
+      const draft = await aiClient.tailorResume({
+        profile,
+        searchPreferences,
+        settings,
+        job,
+        resumeText: profile.baseResume.textContent
+      })
+      const generationMethod = draft.notes.some((note: string) => normalizeText(note).includes('deterministic'))
+        ? 'deterministic'
+        : aiClient.getStatus().kind === 'openai_compatible'
+          ? 'ai_assisted'
+          : 'deterministic'
+      const previewSections = buildPreviewSectionsFromDraft(draft)
+      const contentText = draft.fullText || buildTailoredResumeText(profile, job, previewSections)
+      const renderedArtifact = await documentManager.renderResumeArtifact({
+        job,
+        profile,
+        previewSections,
+        settings,
+        textContent: contentText
+      })
+      const selectedTemplate = documentManager
+        .listResumeTemplates()
+        .find((template) => template.id === settings.resumeTemplateId)
       const nextAsset = TailoredAssetSchema.parse({
         id: existingAsset?.id ?? `resume_${jobId}`,
         jobId,
         kind: 'resume',
         status: 'ready',
-        label: 'Tailored Resume',
+        label: draft.label ?? 'Tailored Resume',
         version: nextAssetVersion(existingAsset),
-        templateName: existingAsset?.templateName ?? 'Classic ATS',
-        compatibilityScore: Math.min(100, job.matchAssessment.score + 3),
+        templateName: selectedTemplate?.label ?? existingAsset?.templateName ?? 'Classic ATS',
+        compatibilityScore: draft.compatibilityScore ?? Math.min(100, job.matchAssessment.score + 3),
         progressPercent: 100,
         updatedAt: new Date().toISOString(),
-        storagePath: existingAsset?.storagePath ?? null,
+        storagePath: renderedArtifact.storagePath,
         contentText,
-        previewSections
+        previewSections,
+        generationMethod,
+        notes: uniqueStrings([
+          ...draft.notes,
+          ...(renderedArtifact.fileName ? [`Rendered into template file ${renderedArtifact.fileName}.`] : [])
+        ])
       })
 
       await repository.upsertTailoredAsset(nextAsset)
