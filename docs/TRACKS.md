@@ -97,6 +97,18 @@ Use one track per meaningful workstream, not per person or per chat.
 - blockers: model quality still depends on extracted text quality from the imported resume source
 - notes: current env surface is `UNEMPLOYED_AI_API_KEY`, optional `UNEMPLOYED_AI_BASE_URL`, and optional `UNEMPLOYED_AI_MODEL`; imported `pdf` resumes extract through `pdfjs-dist`, imported `docx` resumes extract through `mammoth`, and plain-text or markdown files pass straight through
 
+### `JF-07 Profile Information Architecture`
+
+- status: `in_progress`
+- last updated: `2026-03-20`
+- scope: redesign the candidate profile data model and Profile screen so hiring-relevant details are grouped more clearly for ATS alignment, resume tailoring, and browser automation
+- linked plan: `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`
+- code areas: `packages/contracts`, `packages/job-finder`, `apps/desktop`
+- current focus: document the recommended field taxonomy, top-level state split, ATS-critical data priorities, and UI grouping strategy before changing contracts or renderer state
+- next step: reshape the profile contracts into grouped identity/background/artifact objects and then rebuild the Profile screen around sectioned cards and repeatable records
+- blockers: none
+- notes: the current mixed `CandidateProfile` shape is still workable for resume import demos, but it now hides too much structure for reliable tailoring, future ATS form-fill, and user trust around what is raw, AI-generated, or confirmed
+
 ## Ready Queue
 
 - Add richer tailored resume export/storage beyond persisted preview content.
