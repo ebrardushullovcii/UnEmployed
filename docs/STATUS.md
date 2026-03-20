@@ -66,7 +66,7 @@ Job Finder agent-first foundation with SQLite persistence, resume-text extractio
 - Changed workspace reset to a true fresh-start reset: it now clears saved jobs, tailored assets, application records, imported resume files, and the dedicated LinkedIn browser profile instead of restoring the Alex sample candidate
 - Added desktop env-file loading plus a root `.env.example`, so FelidaeAI credentials can be supplied through `.env.local` and picked up automatically by the Electron main process instead of relying only on an inherited shell environment
 - Added persisted resume-analysis provenance plus a visible profile badge so the UI now states whether the current resume was parsed by FelidaeAI or the deterministic fallback, and changed Settings reset to jump back to the fresh profile after clearing workspace state
-- Added a dedicated profile-information-architecture plan that proposes splitting candidate identity, background, search preferences, and profile artifacts so the Profile page can evolve beyond the current mixed long-form layout
+- Added and then tightened a dedicated profile-information-architecture plan, now grounded in LinkedIn/Greenhouse/Workable/Ashby patterns with clearer priority tiers, a separate eligibility bucket, and explicit guidance on which sensitive fields not to collect by default
 
 ## Active Work
 

@@ -26,7 +26,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Job Finder now supports an OpenAI-compatible provider seam for resume-text profile extraction, job-fit assessment, and resume tailoring, with deterministic fallbacks kept in place for tests and offline use
 - Browser discovery can run either through the deterministic catalog seed or an opt-in dedicated Chrome-profile LinkedIn browser agent backed by a user-authenticated local profile
 - Desktop actions can import `txt`, `md`, `pdf`, and `docx` resumes, extract resume text for the profile agent, analyze that text into structured candidate details, render generated resume text into a fixed template set, and create tracked apply attempts through typed preload flows
-- The next profile-model redesign is documented in `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`, with a proposed split between candidate identity, background, job-search preferences, and profile artifacts so the UI can separate ATS-critical facts from AI-derived resume content
+- The next profile-model redesign is documented in `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`, now refined against current LinkedIn, Greenhouse, Workable, and Ashby patterns with a proposed split between candidate identity, eligibility, background, job-search preferences, and profile artifacts so the UI can separate ATS-critical facts from AI-derived resume content
 
 ## Agent Runtime Configuration
 

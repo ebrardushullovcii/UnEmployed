@@ -17,13 +17,22 @@ That creates four product problems:
 3. Browser automation and future application-form filling need more explicit field ownership.
 4. The UI currently feels like one long edit form instead of an intentional candidate workspace.
 
-## External Guidance Snapshot
+## Research Snapshot
 
-This plan is based on current public guidance from major hiring surfaces and profile systems:
+This plan was tightened against current public platform guidance from LinkedIn, Greenhouse, Workable, Ashby, and ATS-oriented resume guidance.
 
-- LinkedIn help and profile guidance emphasize structured profile basics, contact info, headline, summary/about, experience, skills, projects, and recommendations.
-- ATS-oriented resume guidance consistently favors machine-readable structure, standard section names, explicit dates, clear job titles, and plain text that maps cleanly into searchable fields.
-- Recruiting platforms commonly separate candidate identity, contact channels, work eligibility, experience, education, skills, preferences, and recruiter notes instead of storing everything as a single summary blob.
+### What the platforms consistently show
+
+- LinkedIn profile editing centers on structured sections such as name, headline, location, summary, experience, education, skills, accomplishments, and contact details.
+- Greenhouse exposes default candidate fields for first and last name, current company, current title, timezone, phone, email, social links, websites, address, and education, and its resume parsing specifically tries to pull name, email, phone, mailing address, current title, and current company from resumes.
+- Greenhouse, Workable, and Ashby all support linking application questions to candidate-profile fields so candidate answers become structured, searchable, and reportable instead of staying trapped in raw application text.
+- Workable already separates candidate information into sections like summary, education, skills, and contact details, and calls out salary, start date, and reference-check information as common custom fields.
+- Ashby application forms support first-class fields such as LinkedIn URL, phone, resume upload, and location, which is a strong signal about what candidate data needs to exist in structured form for future automation.
+- ATS-friendly resume guidance still rewards simple, machine-readable structure: standard section labels, explicit dates, role titles, and avoiding design tricks that break parsing.
+
+### Product implication
+
+The product should store the fields that are repeatedly used across profile display, ATS parsing, candidate search, application forms, and browser automation as explicit structured records. Anything that remains only inside a summary or raw resume blob will be weaker for search, automation, reporting, and user trust.
 
 ## Design Principles
 
@@ -65,15 +74,14 @@ Why it matters:
 - Gives browser automation explicit inputs for application forms.
 - Separates public-facing contact data from deeper profile details.
 
-### 2. Work Authorization And Logistics
+### 2. Work Eligibility And Logistics
 
 Purpose: fields commonly needed in applications, screening, and automation.
 
 Recommended fields:
 
-- current work authorization country list
+- authorized work countries
 - requires visa sponsorship
-- citizenship or work-right notes (optional and user-controlled)
 - willing to relocate
 - preferred relocation regions
 - willing to travel
@@ -86,6 +94,7 @@ Why it matters:
 
 - These are repeated screening questions in ATS and Easy Apply flows.
 - They should not live inside summary text or ad hoc notes.
+- They are more practical and lower-risk to store than broader personal-data fields such as date of birth or nationality.
 
 ### 3. Role Targeting
 
@@ -257,18 +266,20 @@ Why it matters:
 
 ## Recommended Separation In Product State
 
-Use four top-level buckets instead of one overloaded profile object:
+Use five top-level buckets instead of one overloaded profile object:
 
 1. `candidateIdentity`
    - stable human identity and contact channels
-2. `candidateBackground`
+2. `candidateEligibility`
+   - work authorization, sponsorship, relocation, travel, availability
+3. `candidateBackground`
    - experience, education, skills, projects, certifications, languages
-3. `jobSearchPreferences`
+4. `jobSearchPreferences`
    - targeting, location, compensation, workflow preferences, blocked/preferred companies
-4. `profileArtifacts`
+5. `profileArtifacts`
    - source resumes, extracted text, AI analyses, confirmations, generated summaries
 
-This split should make downstream tailoring and automation clearer than continuing to grow the current `CandidateProfile` shape indefinitely.
+This split should make downstream tailoring and automation clearer than continuing to grow the current `CandidateProfile` shape indefinitely. It also keeps legally or operationally sensitive application-logistics data separate from the user’s public-facing professional profile.
 
 ## Recommended Profile Page Structure
 
@@ -316,6 +327,80 @@ These fields should be treated as highest-priority because they are most reusabl
 - certifications
 - resume provenance and user confirmation state
 
+## Recommended Priority Tiers
+
+### P0: Must Have Now
+
+These should exist as first-class fields before deeper UI polish work:
+
+- legal or display name
+- primary email
+- primary phone
+- city, region, country
+- headline
+- LinkedIn URL
+- years of experience
+- target roles
+- preferred locations
+- work modes
+- work authorization and sponsorship
+- source resume provenance
+- parsed-by provider/model and analyzed-at timestamp
+
+### P1: High-Value Structured Data
+
+These unlock better ATS alignment and much better tailoring quality:
+
+- structured experience entries with dates, location, and achievements
+- structured skills grouped into role skills, tools, and soft skills
+- education entries
+- certifications and licenses
+- projects and portfolio links
+- start-date availability and notice period
+- compensation expectations
+
+### P2: Nice After Core Structure Lands
+
+These help ranking, targeting, and later product depth:
+
+- target industries
+- target company stage or size
+- preferred and blocked companies
+- people-management scope
+- budget ownership
+- language proficiency
+- highlighted proof links or case studies
+
+### P3: Optional Or Role-Specific
+
+These should be gated behind advanced fields and not shown to everyone by default:
+
+- security clearance
+- travel percentage
+- relocation detail by region
+- reference-check metadata
+- highly specialized compliance or license records
+
+## Data We Should Not Collect By Default
+
+Unless a specific workflow truly needs them, the profile model should avoid default collection of:
+
+- date of birth
+- photo
+- marital status
+- gender identity
+- ethnicity
+- religion
+- national ID numbers
+- passport details
+- broad freeform citizenship notes
+
+Rationale:
+
+- Most of this data is not needed for resume tailoring or early ATS automation.
+- Collecting extra sensitive data increases privacy and compliance burden without improving core job-finding outcomes.
+- If a future workflow needs one of these fields, it should be introduced intentionally with clear user consent and access rules.
+
 ## Proposed Rollout
 
 ### Phase 1: Contract Reshape
@@ -342,6 +427,27 @@ These fields should be treated as highest-priority because they are most reusabl
 - use identity/logistics fields for browser automation answers
 - use evidence-backed skills and achievements for tailored resume generation
 
+## Contract Guidance
+
+Recommended early contract shapes:
+
+- `CandidateIdentity`
+- `CandidateEligibility`
+- `CandidateExperienceItem`
+- `CandidateEducationItem`
+- `CandidateCertificationItem`
+- `CandidateProjectItem`
+- `CandidateSkillItem`
+- `ProfileArtifact`
+- `FieldConfirmationState`
+
+Practical guidance:
+
+- Keep repeatable resume sections as arrays of typed records instead of newline-delimited textareas.
+- Store normalized values separately from raw extracted strings where the AI parser may need revision later.
+- Track confirmation state at the section level first, then decide later whether per-field confirmation is worth the complexity.
+- Keep `jobSearchPreferences` separate from `candidateIdentity` and `candidateBackground` even if the first UI still shows them on the same page.
+
 ## Open Questions
 
 - How much of work-authorization data should be optional versus first-class in the MVP?
@@ -351,4 +457,12 @@ These fields should be treated as highest-priority because they are most reusabl
 
 ## Recommended Immediate Next Task
 
-Implement the data-model split first, then redesign the profile page around grouped sections. If the UI is redesigned before the contracts are cleaned up, the current mixed data model will keep leaking into the new layout.
+Implement the data-model split first, then redesign the profile page around grouped sections. Specifically: define `candidateIdentity`, `candidateEligibility`, `candidateBackground`, `jobSearchPreferences`, and `profileArtifacts`; add adapters from the current flat profile; then replace the current large freeform edit panels with section cards and repeatable records. If the UI is redesigned before the contracts are cleaned up, the current mixed data model will keep leaking into the new layout.
+
+## Research Anchors
+
+- LinkedIn Help: profile editing currently centers on name, headline, location, summary, experience, education, skills, accomplishments, and contact sections.
+- Greenhouse Support: default candidate fields and resume parsing emphasize identity, contact data, current title/company, links, address, timezone, and education; custom application answers can be linked into candidate fields so they are searchable and reportable.
+- Workable Help: candidate profiles are already sectioned into summary, education, skills, and contact details; common custom fields include salary information, available start date, and reference checks.
+- Ashby docs: application questions can be connected to candidate fields, and supported field types include resume upload, phone, LinkedIn URL, and location.
+- ATS resume guidance: keep exported resume artifacts machine-readable and structurally standard so candidate facts map cleanly into downstream systems.
