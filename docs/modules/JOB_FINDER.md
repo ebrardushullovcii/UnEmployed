@@ -19,6 +19,13 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - First submission path: `Easy Apply` only
 - First approval mode: `review-before-submit`
 
+## Current Implementation Snapshot
+
+- Typed Job Finder contracts now cover profile, preferences, saved jobs, tailored assets, browser session state, application records, and the desktop workspace snapshot
+- The desktop app now renders an initial Job Finder shell with `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` surfaces
+- Current data is seeded through a file-backed local repository and a stub browser-session runtime so the vertical slice can move into real discovery next without losing interactive desktop state
+- Desktop actions can already move jobs into review, generate seeded resume previews, dismiss discovery jobs, and create submitted application records through typed preload flows
+
 ## Package Boundaries
 
 - Contracts from `packages/contracts`

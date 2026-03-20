@@ -6,6 +6,11 @@ Status: active
 
 Deliver the first real `Job Finder` vertical slice for `LinkedIn Easy Apply` with custom per-job resumes, review-gated submission, and local tracking.
 
+## Progress Snapshot
+
+- Milestone 1 foundations are in place: typed contracts, a file-backed local Job Finder repository, a stub browser-session runtime, and an initial interactive desktop workspace shell.
+- The next implementation focus is replacing seeded data and seeded workflow mutations with real LinkedIn discovery and tailoring behavior.
+
 ## Why This Slice
 
 - It exercises the full `Job Finder` loop without spreading across multiple job sites too early.

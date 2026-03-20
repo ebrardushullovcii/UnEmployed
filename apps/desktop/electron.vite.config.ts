@@ -1,32 +1,36 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig } from 'electron-vite'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
+const browserRuntimePath = path.resolve(currentDir, '../../packages/browser-runtime/src/index.ts')
 const contractsPath = path.resolve(currentDir, '../../packages/contracts/src/index.ts')
+const dbPath = path.resolve(currentDir, '../../packages/db/src/index.ts')
+const jobFinderPath = path.resolve(currentDir, '../../packages/job-finder/src/index.ts')
+
+const workspaceAliases = {
+  '@unemployed/browser-runtime': browserRuntimePath,
+  '@unemployed/contracts': contractsPath,
+  '@unemployed/db': dbPath,
+  '@unemployed/job-finder': jobFinderPath
+}
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
     resolve: {
-      alias: {
-        '@unemployed/contracts': contractsPath
-      }
+      alias: workspaceAliases
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     resolve: {
-      alias: {
-        '@unemployed/contracts': contractsPath
-      }
+      alias: workspaceAliases
     }
   },
   renderer: {
     resolve: {
       alias: {
-        '@unemployed/contracts': contractsPath,
+        ...workspaceAliases,
         '@renderer': path.resolve(currentDir, 'src/renderer/src')
       }
     },

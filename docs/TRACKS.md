@@ -26,15 +26,15 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `JF-01 Contracts And Persistence`
 
-- status: `ready`
+- status: `done`
 - last updated: `2026-03-20`
 - scope: define the minimal Job Finder schemas and repository seams for the LinkedIn `Easy Apply` slice
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/contracts`, `packages/db`
-- current focus: not started
-- next step: define schemas for preferences, saved jobs, tailored assets, and application attempts
+- current focus: typed Job Finder contracts and file-backed local persistence are in place
+- next step: evolve the file-backed repository shape only when real discovery and tailoring data creates pressure
 - blockers: none
-- notes: keep storage design narrow and avoid over-modeling migrations this early
+- notes: current implementation persists seeded workspace data to a local JSON file so desktop actions survive restarts without locking the project into a heavier storage design too early
 
 ### `JF-02 Job Finder Screen Design`
 
@@ -44,10 +44,10 @@ Use one track per meaningful workstream, not per person or per chat.
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - linked brief: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply-ui-brief.md`
 - code areas: `docs/Design`, `apps/desktop`
-- current focus: finalized Job Finder MVP visual references and state screens
-- next step: implement the desktop surfaces from `docs/Design/README.md`
+- current focus: finalized visual references are implemented as a first interactive desktop shell with custom window chrome
+- next step: keep using the desktop UI capture workflow to tighten shell density, applications detail behavior, and compact-size usability before deeper functionality expands
 - blockers: none
-- notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete
+- notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete; use `pnpm --filter @unemployed/desktop ui:capture` for screenshot-based UI review and the reset action in Settings to restore the seeded workspace quickly
 
 ### `JF-03 Browser Runtime And LinkedIn Discovery`
 
@@ -56,10 +56,10 @@ Use one track per meaningful workstream, not per person or per chat.
 - scope: build the generic browser primitives and the first LinkedIn discovery adapter boundary
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/browser-runtime`, `packages/job-finder`
-- current focus: not started
-- next step: define browser session primitives and the LinkedIn discovery adapter seam
-- blockers: should align with the first saved-job contracts once they land
-- notes: keep LinkedIn selectors and recovery logic out of the generic runtime
+- current focus: a stub browser-session runtime exists and the desktop shell can model session readiness plus seeded discovery actions
+- next step: replace the session stub with real discovery primitives and the first LinkedIn adapter seam
+- blockers: none
+- notes: keep LinkedIn selectors and recovery logic out of the generic runtime; discovery should write back through the current repository boundary
 
 ### `JF-04 Tailored Resume Path`
 
@@ -68,9 +68,9 @@ Use one track per meaningful workstream, not per person or per chat.
 - scope: create one solid custom-resume workflow for a selected job
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/job-finder`
-- current focus: not started
-- next step: choose a simple internal resume representation and generate one stored variant per job
-- blockers: depends on the first profile and saved-job shapes from `JF-01`
+- current focus: the desktop shell can already generate seeded tailored resume previews and move them through review/apply transitions
+- next step: replace seeded asset generation with real resume-generation outputs and stored variants
+- blockers: depends on the first tailoring implementation, not on schema shape anymore
 - notes: cover letters stay deferred unless the main slice lands cleanly first
 
 ### `JF-05 Review-Gated Easy Apply Execution`
@@ -81,19 +81,22 @@ Use one track per meaningful workstream, not per person or per chat.
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/job-finder`, `packages/browser-runtime`, `apps/desktop`
 - current focus: waiting on discovery, tailoring, and workflow-state foundations
-- next step: implement the supported apply state machine after `JF-01`, `JF-03`, and `JF-04` exist
-- blockers: depends on contracts, saved jobs, tailored assets, and browser primitives
+- next step: implement the supported apply state machine after the real discovery adapter and real tailoring path exist
+- blockers: depends on real browser primitives and non-seeded workflow state
 - notes: stop on unsupported flows instead of guessing
 
 ## Ready Queue
 
-- Define the first Job Finder shared schemas in `packages/contracts`.
-- Implement the desktop information architecture from `docs/Design/README.md` and `docs/exec-plans/active/002-job-finder-linkedin-easy-apply-ui-brief.md`.
-- Add typed desktop-to-main seams for Job Finder actions.
-- Define the generic browser runtime actions the LinkedIn adapter will need.
+- Use the desktop capture workflow to iterate on shell polish, title bar behavior, and screen spacing.
+- Implement the first LinkedIn discovery adapter on top of the current browser-runtime stub.
+- Add real local persistence behind the existing Job Finder repository interface.
+- Replace seeded workspace data with real desktop mutations and workflow updates.
+- Start the first real tailoring flow that produces stored resume assets.
 
 ## Recently Completed
 
 - `2026-03-20`: added `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md` as the first active Job Finder delivery plan
 - `2026-03-20`: bootstrapped `docs/TRACKS.md` as the live workboard for parallel agent handoffs
 - `2026-03-20`: consolidated the current Job Finder design references and prototype policy under `docs/Design/`
+- `2026-03-20`: implemented the first typed Job Finder workspace shell with contracts, in-memory repository seams, and desktop preload wiring
+- `2026-03-20`: switched the seeded Job Finder workspace to file-backed persistence and interactive desktop actions

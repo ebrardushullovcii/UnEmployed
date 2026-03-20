@@ -1,55 +1,111 @@
 import { useEffect, useState } from 'react'
-import { applicationStatusValues, suiteModules } from '@unemployed/contracts'
+import type { JobFinderWorkspaceSnapshot } from '@unemployed/contracts'
+import { JobFinderShell } from './job-finder-shell'
+
+type AppLoadState =
+  | { status: 'loading' }
+  | {
+      status: 'ready'
+      platform: 'darwin' | 'win32' | 'linux'
+      workspace: JobFinderWorkspaceSnapshot
+    }
+  | { status: 'error'; message: string }
 
 export function App() {
-  const [platform, setPlatform] = useState('loading')
+  const [loadState, setLoadState] = useState<AppLoadState>({ status: 'loading' })
+
+  async function runWorkspaceAction(
+    action: () => Promise<JobFinderWorkspaceSnapshot>
+  ): Promise<void> {
+    const workspace = await action()
+
+    setLoadState((currentState) => {
+      if (currentState.status !== 'ready') {
+        return currentState
+      }
+
+      return {
+        ...currentState,
+        workspace
+      }
+    })
+  }
 
   useEffect(() => {
-    void window.unemployed.ping().then((response) => {
-      setPlatform(response.platform)
-    })
+    let cancelled = false
+
+    async function loadWorkspace() {
+      try {
+        const [platformResponse, workspace] = await Promise.all([
+          window.unemployed.ping(),
+          window.unemployed.jobFinder.getWorkspace()
+        ])
+
+        if (!cancelled) {
+          setLoadState({
+            status: 'ready',
+            platform: platformResponse.platform,
+            workspace
+          })
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to load the Job Finder workspace.'
+
+        if (!cancelled) {
+          setLoadState({ status: 'error', message })
+        }
+      }
+    }
+
+    void loadWorkspace()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  return (
-    <main className="shell">
-      <section className="hero">
-        <p className="eyebrow">Agent-first desktop suite</p>
-        <h1>UnEmployed</h1>
-        <p className="lede">
-          One Electron shell for job discovery, application workflows, interview prep,
-          live assistance, and shared context.
-        </p>
-        <div className="meta-row">
-          <span>Platform: {platform}</span>
-          <span>Statuses: {applicationStatusValues.length}</span>
-          <span>Modules: {suiteModules.join(' · ')}</span>
+  if (loadState.status === 'loading') {
+    return (
+      <main className="boot-screen">
+        <div className="boot-card">
+          <p className="boot-kicker">UnEmployed</p>
+          <h1>Booting Job Finder workspace</h1>
+          <p>Loading the first LinkedIn Easy Apply slice and typed desktop context.</p>
         </div>
-      </section>
+      </main>
+    )
+  }
 
-      <section className="grid">
-        <article className="card">
-          <h2>Job Finder</h2>
-          <p>
-            Profile import, browser runtime, draft generation, batch review, and the
-            application table start here.
-          </p>
-        </article>
-        <article className="card">
-          <h2>Interview Helper</h2>
-          <p>
-            Prep workspaces, transcript-aware suggestions, overlay cues, and session
-            history will plug into this shell next.
-          </p>
-        </article>
-        <article className="card">
-          <h2>Repo Contract</h2>
-          <p>
-            Canonical docs, package guides, and generated agent adapters are already
-            wired so the next agent can keep moving without starting cold.
-          </p>
-        </article>
-      </section>
-    </main>
+  if (loadState.status === 'error') {
+    return (
+      <main className="boot-screen">
+        <div className="boot-card boot-card-error">
+          <p className="boot-kicker">Workspace Error</p>
+          <h1>Job Finder failed to load</h1>
+          <p>{loadState.message}</p>
+        </div>
+      </main>
+    )
+  }
+
+  return (
+    <JobFinderShell
+      actions={{
+        approveApply: (jobId) =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.approveApply(jobId)),
+        dismissDiscoveryJob: (jobId) =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.dismissDiscoveryJob(jobId)),
+        generateResume: (jobId) =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.generateResume(jobId)),
+        queueJobForReview: (jobId) =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.queueJobForReview(jobId)),
+        resetWorkspace: () =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.resetWorkspace()),
+        refreshWorkspace: () =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.getWorkspace())
+      }}
+      platform={loadState.platform}
+      workspace={loadState.workspace}
+    />
   )
 }
-

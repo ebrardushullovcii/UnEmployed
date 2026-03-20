@@ -1,10 +1,62 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createStubBrowserSessionRuntime } from '@unemployed/browser-runtime'
+import {
+  DesktopPlatformPingSchema,
+  DesktopWindowControlsStateSchema,
+  JobFinderJobActionInputSchema,
+  JobFinderWorkspaceSnapshotSchema
+} from '@unemployed/contracts'
+import { createFileJobFinderRepository } from '@unemployed/db'
+import { createJobFinderWorkspaceService } from '@unemployed/job-finder'
+import {
+  createJobFinderBrowserSessionSeed,
+  createJobFinderRepositorySeed
+} from './job-finder-seed'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 
+let jobFinderWorkspaceServicePromise:
+  | ReturnType<typeof createJobFinderWorkspaceServiceAsync>
+  | undefined
+
+function getJobFinderWorkspaceFilePath() {
+  const userDataDirectory = process.env.UNEMPLOYED_USER_DATA_DIR ?? app.getPath('userData')
+
+  return path.join(userDataDirectory, 'job-finder-workspace.json')
+}
+
+async function createJobFinderWorkspaceServiceAsync() {
+  const jobFinderRepository = await createFileJobFinderRepository({
+    filePath: getJobFinderWorkspaceFilePath(),
+    seed: createJobFinderRepositorySeed()
+  })
+  const browserRuntime = createStubBrowserSessionRuntime({
+    sessions: createJobFinderBrowserSessionSeed()
+  })
+
+  return createJobFinderWorkspaceService({
+    repository: jobFinderRepository,
+    browserRuntime
+  })
+}
+
+function getJobFinderWorkspaceService() {
+  jobFinderWorkspaceServicePromise ??= createJobFinderWorkspaceServiceAsync()
+  return jobFinderWorkspaceServicePromise
+}
+
+function getWindowControlsState(window: BrowserWindow) {
+  return DesktopWindowControlsStateSchema.parse({
+    isMaximized: window.isMaximized(),
+    isMinimizable: window.isMinimizable(),
+    isClosable: window.isClosable()
+  })
+}
+
 function createMainWindow() {
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -13,10 +65,13 @@ function createMainWindow() {
     show: false,
     title: 'UnEmployed',
     backgroundColor: '#0e1726',
+    autoHideMenuBar: true,
+    frame: false,
     webPreferences: {
-      preload: path.join(currentDir, '../preload/index.js'),
+      preload: path.join(currentDir, '../preload/index.mjs'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   })
 
@@ -24,21 +79,121 @@ function createMainWindow() {
     mainWindow.show()
   })
 
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    void mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
+  mainWindow.removeMenu()
+
+  if (rendererUrl) {
+    void mainWindow.loadURL(rendererUrl)
   } else {
     void mainWindow.loadFile(path.join(currentDir, '../renderer/index.html'))
   }
 }
 
 ipcMain.handle('system:ping', () => {
-  return {
+  return DesktopPlatformPingSchema.parse({
     ok: true as const,
     platform: process.platform
+  })
+})
+
+ipcMain.handle('window:get-controls-state', (event) => {
+  const targetWindow = BrowserWindow.fromWebContents(event.sender)
+
+  if (!targetWindow) {
+    throw new Error('Unable to resolve the desktop window for controls state.')
   }
+
+  return getWindowControlsState(targetWindow)
+})
+
+ipcMain.handle('window:minimize', (event) => {
+  const targetWindow = BrowserWindow.fromWebContents(event.sender)
+
+  if (!targetWindow) {
+    throw new Error('Unable to resolve the desktop window for minimize action.')
+  }
+
+  targetWindow.minimize()
+
+  return getWindowControlsState(targetWindow)
+})
+
+ipcMain.handle('window:toggle-maximize', (event) => {
+  const targetWindow = BrowserWindow.fromWebContents(event.sender)
+
+  if (!targetWindow) {
+    throw new Error('Unable to resolve the desktop window for maximize action.')
+  }
+
+  if (targetWindow.isMaximized()) {
+    targetWindow.unmaximize()
+  } else {
+    targetWindow.maximize()
+  }
+
+  return getWindowControlsState(targetWindow)
+})
+
+ipcMain.handle('window:close', (event) => {
+  const targetWindow = BrowserWindow.fromWebContents(event.sender)
+
+  if (!targetWindow) {
+    throw new Error('Unable to resolve the desktop window for close action.')
+  }
+
+  targetWindow.close()
+
+  return { ok: true as const }
+})
+
+ipcMain.handle('job-finder:get-workspace', async () => {
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
+
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+})
+
+ipcMain.handle('job-finder:queue-job-for-review', async (_event, payload: unknown) => {
+  const { jobId } = JobFinderJobActionInputSchema.parse(payload)
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const snapshot = await jobFinderWorkspaceService.queueJobForReview(jobId)
+
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+})
+
+ipcMain.handle('job-finder:dismiss-discovery-job', async (_event, payload: unknown) => {
+  const { jobId } = JobFinderJobActionInputSchema.parse(payload)
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const snapshot = await jobFinderWorkspaceService.dismissDiscoveryJob(jobId)
+
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+})
+
+ipcMain.handle('job-finder:generate-resume', async (_event, payload: unknown) => {
+  const { jobId } = JobFinderJobActionInputSchema.parse(payload)
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const snapshot = await jobFinderWorkspaceService.generateResume(jobId)
+
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+})
+
+ipcMain.handle('job-finder:approve-apply', async (_event, payload: unknown) => {
+  const { jobId } = JobFinderJobActionInputSchema.parse(payload)
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const snapshot = await jobFinderWorkspaceService.approveApply(jobId)
+
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+})
+
+ipcMain.handle('job-finder:reset-workspace', async () => {
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const snapshot = await jobFinderWorkspaceService.resetWorkspace(createJobFinderRepositorySeed())
+
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
 })
 
 void app.whenReady().then(() => {
+  Menu.setApplicationMenu(null)
+  void getJobFinderWorkspaceService()
   createMainWindow()
 
   app.on('activate', () => {

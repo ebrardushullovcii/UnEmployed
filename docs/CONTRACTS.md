@@ -8,17 +8,16 @@
 - Keep IPC commands narrow and capability-based.
 - Avoid package-internal imports across workspace boundaries.
 
-## Initial Shared Domains
+## Current Shared Domains
 
-- Candidate profile
-- Resume variant
-- Job posting
-- Application record
-- Application status
-- Interview workspace
-- Interview session
-- Transcript chunk
-- Live suggestion
+- Candidate profile and resume source metadata
+- Job search preferences, approval mode, and tailoring mode
+- Job posting, fit assessment, and review queue items
+- Tailored resume asset metadata and preview sections
+- Application record, event timeline, and attempt state
+- Browser session state for source adapters
+- Job Finder workspace snapshot for typed desktop IPC
+- Interview workspace, transcript chunks, and live suggestions later in the roadmap
 
 ## Validation Policy
 

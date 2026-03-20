@@ -15,6 +15,7 @@ test-results/
 apps/desktop/dist/
 apps/desktop/out/
 apps/desktop/.vite/
+apps/desktop/test-artifacts/
 .cursor/*
 !.cursor/rules/
 !.cursor/rules/**
