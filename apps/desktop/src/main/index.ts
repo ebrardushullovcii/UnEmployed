@@ -49,24 +49,43 @@ function getJobFinderWorkspaceService() {
 
 function getWindowControlsState(window: BrowserWindow) {
   return DesktopWindowControlsStateSchema.parse({
-    isMaximized: window.isMaximized(),
+    isMaximized: window.isMaximized() || window.isFullScreen(),
     isMinimizable: window.isMinimizable(),
     isClosable: window.isClosable()
   })
 }
 
+function sendWindowControlsState(window: BrowserWindow) {
+  if (window.isDestroyed()) {
+    return
+  }
+
+  window.webContents.send('window:controls-state-changed', getWindowControlsState(window))
+}
+
+function bindWindowControlsState(window: BrowserWindow) {
+  const emitControlsState = () => sendWindowControlsState(window)
+
+  window.on('maximize', emitControlsState)
+  window.on('unmaximize', emitControlsState)
+  window.on('enter-full-screen', emitControlsState)
+  window.on('leave-full-screen', emitControlsState)
+}
+
 function createMainWindow() {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL
+  const isMac = process.platform === 'darwin'
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
-    minWidth: 1100,
+    minWidth: 1024,
     minHeight: 720,
     show: false,
     title: 'UnEmployed',
     backgroundColor: '#0e1726',
     autoHideMenuBar: true,
-    frame: false,
+    frame: !isMac,
+    ...(isMac ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: path.join(currentDir, '../preload/index.mjs'),
       contextIsolation: true,
@@ -75,8 +94,11 @@ function createMainWindow() {
     }
   })
 
+  bindWindowControlsState(mainWindow)
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+    sendWindowControlsState(mainWindow)
   })
 
   mainWindow.removeMenu()
@@ -124,10 +146,14 @@ ipcMain.handle('window:toggle-maximize', (event) => {
     throw new Error('Unable to resolve the desktop window for maximize action.')
   }
 
-  if (targetWindow.isMaximized()) {
-    targetWindow.unmaximize()
+  if (process.platform === 'darwin') {
+    targetWindow.setFullScreen(!targetWindow.isFullScreen())
   } else {
-    targetWindow.maximize()
+    if (targetWindow.isMaximized()) {
+      targetWindow.unmaximize()
+    } else {
+      targetWindow.maximize()
+    }
   }
 
   return getWindowControlsState(targetWindow)

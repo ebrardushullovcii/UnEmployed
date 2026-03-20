@@ -140,6 +140,7 @@ function useResettableSelection<TValue extends string | null>(initialValue: TVal
 
 export function JobFinderShell(props: JobFinderShellProps) {
   const { actions, workspace } = props
+  const isMac = props.platform === 'darwin'
   const [activeScreen, setActiveScreen] = useState<JobFinderScreen>('profile')
   const [actionState, setActionState] = useState<{ busy: boolean; message: string | null }>({
     busy: false,
@@ -159,6 +160,8 @@ export function JobFinderShell(props: JobFinderShellProps) {
   const [selectedApplicationRecordId, setSelectedApplicationRecordId] = useResettableSelection(
     workspace.selectedApplicationRecordId
   )
+
+  const isFullscreenWindow = isMac && windowControlsState.isMaximized
 
   const screenDefinitions = useMemo<ScreenDefinition[]>(
     () => [
@@ -208,6 +211,12 @@ export function JobFinderShell(props: JobFinderShellProps) {
   useEffect(() => {
     let cancelled = false
 
+    const unsubscribe = window.unemployed.window.onControlsStateChange((controlsState) => {
+      if (!cancelled) {
+        setWindowControlsState(controlsState)
+      }
+    })
+
     void window.unemployed.window
       .getControlsState()
       .then((controlsState) => {
@@ -221,6 +230,7 @@ export function JobFinderShell(props: JobFinderShellProps) {
 
     return () => {
       cancelled = true
+      unsubscribe()
     }
   }, [])
 
@@ -251,9 +261,23 @@ export function JobFinderShell(props: JobFinderShellProps) {
     }
   }
 
+  function minimizeWindow() {
+    void runWindowAction(() => window.unemployed.window.minimize())
+  }
+
+  function toggleWindowExpand() {
+    void runWindowAction(() => window.unemployed.window.toggleMaximize())
+  }
+
+  function closeWindow() {
+    void window.unemployed.window.close()
+  }
+
   return (
-    <div className="window-shell">
-      <header className="custom-titlebar">
+    <div
+      className={`window-shell platform-${props.platform} ${isFullscreenWindow ? 'window-shell-fullscreen' : ''}`}
+    >
+      <header className={`custom-titlebar ${isMac ? 'custom-titlebar-mac' : ''}`}>
         <div className="titlebar-drag-zone">
           <div className="titlebar-brand">
             <span className="titlebar-app-name">UnEmployed</span>
@@ -269,48 +293,38 @@ export function JobFinderShell(props: JobFinderShellProps) {
               </button>
             ))}
           </div>
-          <div className="topbar-meta">
-            <span className={`status-chip ${getSessionTone(workspace.browserSession)}`}>
-              {formatStatusLabel(workspace.browserSession.status)}
-            </span>
-            <span className="status-chip tone-muted">Updated {formatTimestamp(workspace.generatedAt)}</span>
-          </div>
         </div>
 
-        <div className="window-controls" role="group" aria-label="Window controls">
-          <button
-            aria-label="Minimize window"
-            className="window-control-button window-control-button-minimize"
-            disabled={!windowControlsState.isMinimizable}
-            onClick={() => {
-              void runWindowAction(() => window.unemployed.window.minimize())
-            }}
-            type="button"
-          >
-            <span aria-hidden="true" className="window-control-glyph" />
-          </button>
-          <button
-            aria-label={windowControlsState.isMaximized ? 'Restore window' : 'Maximize window'}
-            className={`window-control-button ${windowControlsState.isMaximized ? 'window-control-button-restore' : 'window-control-button-maximize'}`}
-            onClick={() => {
-              void runWindowAction(() => window.unemployed.window.toggleMaximize())
-            }}
-            type="button"
-          >
-            <span aria-hidden="true" className="window-control-glyph" />
-          </button>
-          <button
-            aria-label="Close window"
-            className="window-control-button window-control-button-critical"
-            disabled={!windowControlsState.isClosable}
-            onClick={() => {
-              void window.unemployed.window.close()
-            }}
-            type="button"
-          >
-            <span aria-hidden="true" className="window-control-glyph" />
-          </button>
-        </div>
+        {!isMac ? (
+          <div className="window-controls" role="group" aria-label="Window controls">
+            <button
+              aria-label="Minimize window"
+              className="window-control-button window-control-button-minimize"
+              disabled={!windowControlsState.isMinimizable}
+              onClick={minimizeWindow}
+              type="button"
+            >
+              <span aria-hidden="true" className="window-control-glyph" />
+            </button>
+            <button
+              aria-label={windowControlsState.isMaximized ? 'Restore window' : 'Maximize window'}
+              className={`window-control-button ${windowControlsState.isMaximized ? 'window-control-button-restore' : 'window-control-button-maximize'}`}
+              onClick={toggleWindowExpand}
+              type="button"
+            >
+              <span aria-hidden="true" className="window-control-glyph" />
+            </button>
+            <button
+              aria-label="Close window"
+              className="window-control-button window-control-button-critical"
+              disabled={!windowControlsState.isClosable}
+              onClick={closeWindow}
+              type="button"
+            >
+              <span aria-hidden="true" className="window-control-glyph" />
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <div className="app-shell">
@@ -348,16 +362,19 @@ export function JobFinderShell(props: JobFinderShellProps) {
           <div className="sidebar-footer panel">
             <div className="summary-metric-row">
               <div className="summary-metric-box">
-                <span>Saved</span>
-                <strong>{formatCountLabel(workspace.discoveryJobs.length, 'job')}</strong>
+                <span className="summary-metric-label">Saved</span>
+                <strong className="summary-metric-value">{workspace.discoveryJobs.length}</strong>
+                <span className="summary-metric-caption">jobs</span>
               </div>
               <div className="summary-metric-box">
-                <span>Queue</span>
-                <strong>{formatCountLabel(workspace.reviewQueue.length, 'item')}</strong>
+                <span className="summary-metric-label">Queue</span>
+                <strong className="summary-metric-value">{workspace.reviewQueue.length}</strong>
+                <span className="summary-metric-caption">items</span>
               </div>
               <div className="summary-metric-box summary-metric-box-wide">
-                <span>Tracked</span>
-                <strong>{formatCountLabel(workspace.applicationRecords.length, 'application')}</strong>
+                <span className="summary-metric-label">Tracked</span>
+                <strong className="summary-metric-value">{workspace.applicationRecords.length}</strong>
+                <span className="summary-metric-caption">applications</span>
               </div>
             </div>
           </div>
@@ -498,7 +515,7 @@ function ProfileScreen(props: {
       />
 
       <div className="profile-layout">
-        <section className="panel panel-spacious">
+        <section className="panel panel-spacious profile-panel-resume">
           <p className="section-label">Source resume</p>
           <div className="resume-dropzone">
             <strong>{profile.baseResume.fileName}</strong>
@@ -506,7 +523,7 @@ function ProfileScreen(props: {
           </div>
         </section>
 
-        <section className="panel panel-spacious">
+        <section className="panel panel-spacious profile-panel-summary">
           <p className="section-label">Profile summary</p>
           <div className="two-up-grid">
             <div>
@@ -534,7 +551,7 @@ function ProfileScreen(props: {
           </div>
         </section>
 
-        <section className="panel panel-spacious">
+        <section className="panel panel-spacious profile-panel-targeting">
           <p className="section-label">Targeting rules</p>
           <div className="settings-grid">
             <PreferenceList label="Target roles" values={searchPreferences.targetRoles} />
@@ -547,7 +564,7 @@ function ProfileScreen(props: {
           </div>
         </section>
 
-        <section className="panel panel-spacious">
+        <section className="panel panel-spacious profile-panel-workflow">
           <p className="section-label">Workflow defaults</p>
           <div className="stat-grid">
             <div>
@@ -634,7 +651,7 @@ function DiscoveryScreen(props: {
         <section className="panel panel-shell column-stack">
           <div className="panel-header-row">
             <p className="section-label">Saved results</p>
-            <span className="meta-copy">{jobs.length} jobs</span>
+            <span className="section-badge">{formatCountLabel(jobs.length, 'job')}</span>
           </div>
           {browserSession.status !== 'ready' ? (
             <EmptyState
@@ -777,7 +794,7 @@ function ReviewQueueScreen(props: {
         <section className="panel panel-shell column-stack">
           <div className="panel-header-row">
             <p className="section-label">Queued jobs</p>
-            <span className="meta-copy">{queue.length} items</span>
+            <span className="section-badge">{formatCountLabel(queue.length, 'item')}</span>
           </div>
           {queue.length === 0 ? (
             <EmptyState
@@ -934,7 +951,7 @@ function ApplicationsScreen(props: {
         <section className="panel panel-shell column-stack">
           <div className="panel-header-row">
             <p className="section-label">Tracked records</p>
-            <span className="meta-copy">{applicationRecords.length} records</span>
+            <span className="section-badge">{formatCountLabel(applicationRecords.length, 'record')}</span>
           </div>
           {applicationRecords.length === 0 ? (
             <EmptyState

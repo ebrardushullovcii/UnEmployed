@@ -44,10 +44,10 @@ Use one track per meaningful workstream, not per person or per chat.
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - linked brief: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply-ui-brief.md`
 - code areas: `docs/Design`, `apps/desktop`
-- current focus: finalized visual references are implemented as a first interactive desktop shell with custom window chrome
+- current focus: finalized visual references are implemented as a first interactive desktop shell with native mac traffic lights, tighter sidebar cards, clearer panel hierarchy, and page-level UI QA refinements
 - next step: keep using the desktop UI capture workflow to tighten shell density, applications detail behavior, and compact-size usability before deeper functionality expands
 - blockers: none
-- notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete; use `pnpm --filter @unemployed/desktop ui:capture` for screenshot-based UI review and the reset action in Settings to restore the seeded workspace quickly
+- notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete; use `pnpm --filter @unemployed/desktop ui:capture` for screenshot-based UI review and the reset action in Settings to restore the seeded workspace quickly; the current polish pass improved count-badge padding, stat label/value spacing, sidebar metric containment, native mac title-bar behavior, centered tabs, removed the ready and updated chips, reduced top-bar hover noise, tighter button sizing, fullscreen-state sync, oversized-panel balance, page-by-page active-state clarity, compact-height readability, real-window support for the documented `1024x768` review size, always-visible sidebar metrics on compact desktop layouts, shared centered top-tab styling across Mac and Windows, and a smaller typography scale across headlines, labels, chips, buttons, and list rows
 
 ### `JF-03 Browser Runtime And LinkedIn Discovery`
 

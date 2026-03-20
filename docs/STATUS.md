@@ -30,6 +30,18 @@ Job Finder UI-first iteration with custom window chrome and capture workflow
 - Added a Playwright-based desktop UI capture workflow so agents can launch the app, navigate screens, and review screenshots during polish work
 - Tightened the desktop shell breakpoints so large, medium, compact, and fullscreen sizes stay usable during UI-first iteration
 - Added a workspace reset action and temporary-user-data UI capture flow so repeat visual review starts from a stable seeded state
+- Documented the desktop UI capture workflow, standard screen sizes, and artifact locations so future agents can rerun the same visual checks reliably
+- Tightened sidebar metric cards, panel count badges, stat spacing, and heading hierarchy so dense screens read more cleanly during UI-first iteration
+- Refined the mac desktop chrome with traffic-light window controls and stronger button affordance while keeping sidebar cards contained inside the shell
+- Switched macOS from custom window buttons to native hidden-inset traffic lights and moved the top module switcher away from the centered layout
+- Ran a page-by-page desktop UI QA pass and tightened oversized panels, stat-card grouping, active states, and settings action layout across the current shell
+- Added a final compact-height polish pass so profile, discovery, review, applications, and settings stay tighter and more readable at smaller desktop sizes
+- Lowered the desktop minimum width to `1024` so the documented compact review size is reachable in the real app window, not just capture automation
+- Softened the sidebar cards, reduced top-bar hover treatment, tightened button sizing, and synced native fullscreen state back into the shell for macOS polish
+- Removed the top-bar ready chip and timestamp chip so the mac module tabs sit cleanly centered in the title bar
+- Kept the sidebar metric cards visible in compact desktop layouts instead of hiding them at smaller heights and widths
+- Unified the cross-platform top tab styling so Mac and Windows now share the same centered title-bar tabs, with only the native window buttons differing
+- Reduced headline, label, chip, button, sidebar, and list typography so the shell reads less oversized and more information-dense across desktop sizes
 
 ## Active Work
 

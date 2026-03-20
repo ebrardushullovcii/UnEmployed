@@ -11,6 +11,17 @@ const desktopApi = {
     close: () => ipcRenderer.invoke('window:close') as Promise<{ ok: true }>,
     getControlsState: () =>
       ipcRenderer.invoke('window:get-controls-state') as Promise<DesktopWindowControlsState>,
+    onControlsStateChange: (listener: (state: DesktopWindowControlsState) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: DesktopWindowControlsState) => {
+        listener(state)
+      }
+
+      ipcRenderer.on('window:controls-state-changed', handler)
+
+      return () => {
+        ipcRenderer.off('window:controls-state-changed', handler)
+      }
+    },
     minimize: () =>
       ipcRenderer.invoke('window:minimize') as Promise<DesktopWindowControlsState>,
     toggleMaximize: () =>

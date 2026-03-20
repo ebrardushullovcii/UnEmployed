@@ -11,6 +11,7 @@ declare global {
       window: {
         close: () => Promise<{ ok: true }>
         getControlsState: () => Promise<DesktopWindowControlsState>
+        onControlsStateChange: (listener: (state: DesktopWindowControlsState) => void) => () => void
         minimize: () => Promise<DesktopWindowControlsState>
         toggleMaximize: () => Promise<DesktopWindowControlsState>
       }
