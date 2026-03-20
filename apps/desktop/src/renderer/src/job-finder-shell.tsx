@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   type ApprovalMode,
+  type ApplicationAttempt,
   type ApplicationEvent,
   type ApplicationRecord,
   type ApplicationStatus,
@@ -23,6 +24,11 @@ interface JobFinderShellProps {
   actions: {
     refreshWorkspace: () => Promise<void>
     resetWorkspace: () => Promise<void>
+    runDiscovery: () => Promise<void>
+    importResume: () => Promise<void>
+    saveProfile: (profile: CandidateProfile) => Promise<void>
+    saveSearchPreferences: (searchPreferences: JobSearchPreferences) => Promise<void>
+    saveSettings: (settings: JobFinderSettings) => Promise<void>
     queueJobForReview: (jobId: string) => Promise<void>
     dismissDiscoveryJob: (jobId: string) => Promise<void>
     generateResume: (jobId: string) => Promise<void>
@@ -138,6 +144,17 @@ function useResettableSelection<TValue extends string | null>(initialValue: TVal
   return [value, setValue] as const
 }
 
+function joinListInput(values: readonly string[]): string {
+  return values.join('\n')
+}
+
+function parseListInput(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
 export function JobFinderShell(props: JobFinderShellProps) {
   const { actions, workspace } = props
   const isMac = props.platform === 'darwin'
@@ -207,6 +224,19 @@ export function JobFinderShell(props: JobFinderShellProps) {
       null,
     [selectedApplicationRecordId, workspace.applicationRecords]
   )
+
+  const selectedApplicationAttempt = useMemo(() => {
+    if (!selectedApplicationRecord) {
+      return null
+    }
+
+    return (
+      [...workspace.applicationAttempts]
+        .filter((attempt) => attempt.jobId === selectedApplicationRecord.jobId)
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ??
+      null
+    )
+  }, [selectedApplicationRecord, workspace.applicationAttempts])
 
   useEffect(() => {
     let cancelled = false
@@ -384,6 +414,29 @@ export function JobFinderShell(props: JobFinderShellProps) {
           <main className="screen-scroll-area">
           {activeScreen === 'profile' ? (
             <ProfileScreen
+              actionState={actionState}
+              busy={actionState.busy}
+              onImportResume={() =>
+                void runAction(
+                  actions.importResume,
+                  () => undefined,
+                  'Base resume replaced from a local document.'
+                )
+              }
+              onSaveProfile={(profile) =>
+                void runAction(
+                  () => actions.saveProfile(profile),
+                  () => undefined,
+                  'Candidate profile saved locally.'
+                )
+              }
+              onSaveSearchPreferences={(searchPreferences) =>
+                void runAction(
+                  () => actions.saveSearchPreferences(searchPreferences),
+                  () => undefined,
+                  'Discovery preferences updated.'
+                )
+              }
               profile={workspace.profile}
               searchPreferences={workspace.searchPreferences}
             />
@@ -417,9 +470,9 @@ export function JobFinderShell(props: JobFinderShellProps) {
               onSelectJob={setSelectedDiscoveryJobId}
               onRefreshDiscovery={() =>
                 void runAction(
-                  actions.refreshWorkspace,
+                  actions.runDiscovery,
                   () => undefined,
-                  'Workspace refreshed. Discovery adapter still uses seeded data.'
+                  'LinkedIn discovery run completed and saved locally.'
                 )
               }
             />
@@ -457,6 +510,7 @@ export function JobFinderShell(props: JobFinderShellProps) {
           {activeScreen === 'applications' ? (
             <ApplicationsScreen
               applicationRecords={workspace.applicationRecords}
+              selectedAttempt={selectedApplicationAttempt}
               selectedRecord={selectedApplicationRecord}
               onSelectRecord={setSelectedApplicationRecordId}
             />
@@ -471,6 +525,13 @@ export function JobFinderShell(props: JobFinderShellProps) {
                   actions.resetWorkspace,
                   () => undefined,
                   'Workspace reset to the seeded Job Finder baseline.'
+                )
+              }
+              onSaveSettings={(settings) =>
+                void runAction(
+                  () => actions.saveSettings(settings),
+                  () => undefined,
+                  'Job Finder settings updated.'
                 )
               }
               settings={workspace.settings}
@@ -501,10 +562,57 @@ function PageHeader(props: { eyebrow: string; title: string; description: string
 }
 
 function ProfileScreen(props: {
+  actionState: { busy: boolean; message: string | null }
+  busy: boolean
+  onImportResume: () => void
+  onSaveProfile: (profile: CandidateProfile) => void
+  onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
   profile: CandidateProfile
   searchPreferences: JobSearchPreferences
 }) {
-  const { profile, searchPreferences } = props
+  const { actionState, busy, onImportResume, onSaveProfile, onSaveSearchPreferences, profile, searchPreferences } = props
+  const [profileForm, setProfileForm] = useState({
+    currentLocation: profile.currentLocation,
+    fullName: profile.fullName,
+    headline: profile.headline,
+    skills: joinListInput(profile.skills),
+    summary: profile.summary,
+    yearsExperience: String(profile.yearsExperience)
+  })
+  const [preferenceForm, setPreferenceForm] = useState({
+    companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
+    companyWhitelist: joinListInput(searchPreferences.companyWhitelist),
+    locations: joinListInput(searchPreferences.locations),
+    minimumSalaryUsd: searchPreferences.minimumSalaryUsd?.toString() ?? '',
+    seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
+    tailoringMode: searchPreferences.tailoringMode,
+    targetRoles: joinListInput(searchPreferences.targetRoles),
+    workModes: searchPreferences.workModes
+  })
+
+  useEffect(() => {
+    setProfileForm({
+      currentLocation: profile.currentLocation,
+      fullName: profile.fullName,
+      headline: profile.headline,
+      skills: joinListInput(profile.skills),
+      summary: profile.summary,
+      yearsExperience: String(profile.yearsExperience)
+    })
+  }, [profile])
+
+  useEffect(() => {
+    setPreferenceForm({
+      companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
+      companyWhitelist: joinListInput(searchPreferences.companyWhitelist),
+      locations: joinListInput(searchPreferences.locations),
+      minimumSalaryUsd: searchPreferences.minimumSalaryUsd?.toString() ?? '',
+      seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
+      tailoringMode: searchPreferences.tailoringMode,
+      targetRoles: joinListInput(searchPreferences.targetRoles),
+      workModes: searchPreferences.workModes
+    })
+  }, [searchPreferences])
 
   return (
     <section className="screen-section">
@@ -520,6 +628,9 @@ function ProfileScreen(props: {
           <div className="resume-dropzone">
             <strong>{profile.baseResume.fileName}</strong>
             <span>Uploaded {formatDateOnly(profile.baseResume.uploadedAt)}</span>
+            <button className="secondary-action compact-action" disabled={busy} onClick={onImportResume} type="button">
+              Replace resume
+            </button>
           </div>
         </section>
 
@@ -557,10 +668,7 @@ function ProfileScreen(props: {
             <PreferenceList label="Target roles" values={searchPreferences.targetRoles} />
             <PreferenceList label="Locations" values={searchPreferences.locations} />
             <PreferenceList label="Work modes" values={searchPreferences.workModes.map(formatStatusLabel)} />
-            <PreferenceList
-              label="Seniority"
-              values={searchPreferences.seniorityLevels}
-            />
+            <PreferenceList label="Seniority" values={searchPreferences.seniorityLevels} />
           </div>
         </section>
 
@@ -588,6 +696,233 @@ function ProfileScreen(props: {
               <strong>{searchPreferences.companyWhitelist.length || 0}</strong>
             </div>
           </div>
+        </section>
+      </div>
+
+      <div className="profile-edit-layout">
+        <section className="panel panel-spacious">
+          <div className="panel-header-row">
+            <p className="section-label">Edit profile</p>
+            <span className="section-badge">Persist locally</span>
+          </div>
+          <div className="form-grid two-column-form-grid">
+            <label className="field-stack">
+              <span className="section-label">Full name</span>
+              <input
+                className="input-shell"
+                onChange={(event) => setProfileForm((current) => ({ ...current, fullName: event.target.value }))}
+                value={profileForm.fullName}
+              />
+            </label>
+            <label className="field-stack">
+              <span className="section-label">Current location</span>
+              <input
+                className="input-shell"
+                onChange={(event) =>
+                  setProfileForm((current) => ({ ...current, currentLocation: event.target.value }))
+                }
+                value={profileForm.currentLocation}
+              />
+            </label>
+            <label className="field-stack two-column-span">
+              <span className="section-label">Headline</span>
+              <input
+                className="input-shell"
+                onChange={(event) => setProfileForm((current) => ({ ...current, headline: event.target.value }))}
+                value={profileForm.headline}
+              />
+            </label>
+            <label className="field-stack">
+              <span className="section-label">Years of experience</span>
+              <input
+                className="input-shell"
+                min="0"
+                onChange={(event) =>
+                  setProfileForm((current) => ({ ...current, yearsExperience: event.target.value }))
+                }
+                type="number"
+                value={profileForm.yearsExperience}
+              />
+            </label>
+            <label className="field-stack">
+              <span className="section-label">Skills</span>
+              <textarea
+                className="textarea-shell compact-textarea"
+                onChange={(event) => setProfileForm((current) => ({ ...current, skills: event.target.value }))}
+                rows={3}
+                value={profileForm.skills}
+              />
+            </label>
+            <label className="field-stack two-column-span">
+              <span className="section-label">Summary</span>
+              <textarea
+                className="textarea-shell"
+                onChange={(event) => setProfileForm((current) => ({ ...current, summary: event.target.value }))}
+                rows={4}
+                value={profileForm.summary}
+              />
+            </label>
+          </div>
+          <div className="button-row">
+            <button
+              className="primary-action"
+              disabled={busy}
+              onClick={() =>
+                onSaveProfile({
+                  ...profile,
+                  currentLocation: profileForm.currentLocation.trim(),
+                  fullName: profileForm.fullName.trim(),
+                  headline: profileForm.headline.trim(),
+                  skills: parseListInput(profileForm.skills),
+                  summary: profileForm.summary.trim(),
+                  yearsExperience: Number(profileForm.yearsExperience || '0')
+                })
+              }
+              type="button"
+            >
+              Save profile
+            </button>
+          </div>
+        </section>
+
+        <section className="panel panel-spacious">
+          <div className="panel-header-row">
+            <p className="section-label">Discovery preferences</p>
+            <span className="section-badge">LinkedIn adapter</span>
+          </div>
+          <div className="form-grid two-column-form-grid">
+            <label className="field-stack two-column-span">
+              <span className="section-label">Target roles</span>
+              <textarea
+                className="textarea-shell compact-textarea"
+                onChange={(event) =>
+                  setPreferenceForm((current) => ({ ...current, targetRoles: event.target.value }))
+                }
+                rows={3}
+                value={preferenceForm.targetRoles}
+              />
+            </label>
+            <label className="field-stack">
+              <span className="section-label">Locations</span>
+              <textarea
+                className="textarea-shell compact-textarea"
+                onChange={(event) =>
+                  setPreferenceForm((current) => ({ ...current, locations: event.target.value }))
+                }
+                rows={3}
+                value={preferenceForm.locations}
+              />
+            </label>
+            <div className="field-stack">
+              <span className="section-label">Work modes</span>
+              <div className="checkbox-grid">
+                {(['remote', 'hybrid', 'onsite', 'flexible'] as const).map((workMode) => (
+                  <label key={workMode} className="checkbox-row">
+                    <input
+                      checked={preferenceForm.workModes.includes(workMode)}
+                      onChange={(event) =>
+                        setPreferenceForm((current) => ({
+                          ...current,
+                          workModes: event.target.checked
+                            ? [...current.workModes, workMode]
+                            : current.workModes.filter((value) => value !== workMode)
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <span>{formatStatusLabel(workMode)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <label className="field-stack">
+              <span className="section-label">Seniority</span>
+              <textarea
+                className="textarea-shell compact-textarea"
+                onChange={(event) =>
+                  setPreferenceForm((current) => ({ ...current, seniorityLevels: event.target.value }))
+                }
+                rows={3}
+                value={preferenceForm.seniorityLevels}
+              />
+            </label>
+            <label className="field-stack">
+              <span className="section-label">Minimum salary</span>
+              <input
+                className="input-shell"
+                min="0"
+                onChange={(event) =>
+                  setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value }))
+                }
+                type="number"
+                value={preferenceForm.minimumSalaryUsd}
+              />
+            </label>
+            <label className="field-stack">
+              <span className="section-label">Tailoring mode</span>
+              <select
+                className="input-shell"
+                onChange={(event) =>
+                  setPreferenceForm((current) => ({
+                    ...current,
+                    tailoringMode: event.target.value as JobSearchPreferences['tailoringMode']
+                  }))
+                }
+                value={preferenceForm.tailoringMode}
+              >
+                <option value="conservative">Conservative</option>
+                <option value="balanced">Balanced</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+            </label>
+            <label className="field-stack">
+              <span className="section-label">Preferred companies</span>
+              <textarea
+                className="textarea-shell compact-textarea"
+                onChange={(event) =>
+                  setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))
+                }
+                rows={3}
+                value={preferenceForm.companyWhitelist}
+              />
+            </label>
+            <label className="field-stack">
+              <span className="section-label">Blocked companies</span>
+              <textarea
+                className="textarea-shell compact-textarea"
+                onChange={(event) =>
+                  setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))
+                }
+                rows={3}
+                value={preferenceForm.companyBlacklist}
+              />
+            </label>
+          </div>
+          <div className="button-row">
+            <button
+              className="primary-action"
+              disabled={busy}
+              onClick={() =>
+                onSaveSearchPreferences({
+                  ...searchPreferences,
+                  companyBlacklist: parseListInput(preferenceForm.companyBlacklist),
+                  companyWhitelist: parseListInput(preferenceForm.companyWhitelist),
+                  locations: parseListInput(preferenceForm.locations),
+                  minimumSalaryUsd: preferenceForm.minimumSalaryUsd.trim()
+                    ? Number(preferenceForm.minimumSalaryUsd)
+                    : null,
+                  seniorityLevels: parseListInput(preferenceForm.seniorityLevels),
+                  tailoringMode: preferenceForm.tailoringMode,
+                  targetRoles: parseListInput(preferenceForm.targetRoles),
+                  workModes: preferenceForm.workModes
+                })
+              }
+              type="button"
+            >
+              Save preferences
+            </button>
+          </div>
+          {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
         </section>
       </div>
     </section>
@@ -643,7 +978,7 @@ function DiscoveryScreen(props: {
             values={searchPreferences.workModes.map(formatStatusLabel)}
           />
           <button className="primary-action" disabled={busy} onClick={onRefreshDiscovery} type="button">
-            Refresh discovery snapshot
+            Run LinkedIn discovery
           </button>
           {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
         </section>
@@ -934,10 +1269,11 @@ function ReviewQueueScreen(props: {
 
 function ApplicationsScreen(props: {
   applicationRecords: readonly ApplicationRecord[]
+  selectedAttempt: ApplicationAttempt | null
   selectedRecord: ApplicationRecord | null
   onSelectRecord: (recordId: string) => void
 }) {
-  const { applicationRecords, onSelectRecord, selectedRecord } = props
+  const { applicationRecords, onSelectRecord, selectedAttempt, selectedRecord } = props
 
   return (
     <section className="screen-section">
@@ -1002,6 +1338,18 @@ function ApplicationsScreen(props: {
                   <strong>{selectedRecord.nextActionLabel ?? 'None'}</strong>
                 </div>
               </div>
+              {selectedAttempt ? (
+                <section className="status-card">
+                  <p className="section-label">Latest apply attempt</p>
+                  <div className="panel-header-row">
+                    <strong>{selectedAttempt.summary}</strong>
+                    <span className={`status-chip ${getAssetTone(selectedAttempt.state === 'submitted' ? 'ready' : selectedAttempt.state === 'paused' ? 'queued' : selectedAttempt.state === 'unsupported' ? 'failed' : selectedAttempt.state === 'failed' ? 'failed' : 'generating')}`}>
+                      {formatStatusLabel(selectedAttempt.state)}
+                    </span>
+                  </div>
+                  <p className="body-copy">{selectedAttempt.detail}</p>
+                </section>
+              ) : null}
               <div className="timeline-list">
                 {selectedRecord.events.map((event) => (
                   <article key={event.id} className="timeline-item">
@@ -1033,9 +1381,15 @@ function SettingsScreen(props: {
   actionState: { busy: boolean; message: string | null }
   busy: boolean
   onResetWorkspace: () => void
+  onSaveSettings: (settings: JobFinderSettings) => void
   settings: JobFinderSettings
 }) {
-  const { actionState, busy, onResetWorkspace, settings } = props
+  const { actionState, busy, onResetWorkspace, onSaveSettings, settings } = props
+  const [settingsForm, setSettingsForm] = useState(settings)
+
+  useEffect(() => {
+    setSettingsForm(settings)
+  }, [settings])
 
   return (
     <section className="screen-section">
@@ -1050,14 +1404,13 @@ function SettingsScreen(props: {
           <p className="section-label">Current profile</p>
           <h2>Workspace controls</h2>
           <p className="body-copy">
-            Keep the current seeded shell stable while iterating on UI polish. Resetting restores the seeded review and discovery state.
+            Keep the current seeded shell stable while iterating on real Job Finder workflows. Resetting restores the local baseline.
           </p>
         </div>
         <div className="settings-hero-actions">
           <button className="secondary-action" disabled={busy} onClick={onResetWorkspace} type="button">
             Reset workspace
           </button>
-          {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
         </div>
       </section>
 
@@ -1092,6 +1445,83 @@ function SettingsScreen(props: {
           </div>
         </section>
       </div>
+
+      <section className="panel panel-spacious">
+        <div className="panel-header-row">
+          <p className="section-label">Editable defaults</p>
+          <span className="section-badge">Persist locally</span>
+        </div>
+        <div className="form-grid two-column-form-grid">
+          <label className="field-stack">
+            <span className="section-label">Resume format</span>
+            <select
+              className="input-shell"
+              onChange={(event) =>
+                setSettingsForm((current) => ({
+                  ...current,
+                  resumeFormat: event.target.value as JobFinderSettings['resumeFormat']
+                }))
+              }
+              value={settingsForm.resumeFormat}
+            >
+              <option value="pdf">PDF</option>
+              <option value="docx">DOCX</option>
+            </select>
+          </label>
+          <label className="field-stack">
+            <span className="section-label">Font preset</span>
+            <select
+              className="input-shell"
+              onChange={(event) =>
+                setSettingsForm((current) => ({
+                  ...current,
+                  fontPreset: event.target.value as JobFinderSettings['fontPreset']
+                }))
+              }
+              value={settingsForm.fontPreset}
+            >
+              <option value="inter_requisite">Inter Requisite</option>
+              <option value="space_grotesk_display">Space Grotesk Display</option>
+            </select>
+          </label>
+          <label className="checkbox-row">
+            <input
+              checked={settingsForm.keepSessionAlive}
+              onChange={(event) =>
+                setSettingsForm((current) => ({ ...current, keepSessionAlive: event.target.checked }))
+              }
+              type="checkbox"
+            />
+            <span>Keep browser session alive between discovery and apply runs</span>
+          </label>
+          <label className="checkbox-row">
+            <input
+              checked={settingsForm.humanReviewRequired}
+              onChange={(event) =>
+                setSettingsForm((current) => ({ ...current, humanReviewRequired: event.target.checked }))
+              }
+              type="checkbox"
+            />
+            <span>Require explicit human review before every Easy Apply attempt</span>
+          </label>
+          <label className="checkbox-row two-column-span">
+            <input
+              checked={settingsForm.allowAutoSubmitOverride}
+              onChange={(event) =>
+                setSettingsForm((current) => ({ ...current, allowAutoSubmitOverride: event.target.checked }))
+              }
+              type="checkbox"
+            />
+            <span>Allow future adapter overrides to submit automatically when the flow is fully supported</span>
+          </label>
+        </div>
+        <div className="button-row">
+          <button className="primary-action" disabled={busy} onClick={() => onSaveSettings(settingsForm)} type="button">
+            Save settings
+          </button>
+        </div>
+        {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
+      </section>
     </section>
   )
 }

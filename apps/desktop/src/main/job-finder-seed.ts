@@ -1,15 +1,17 @@
 import {
+  ApplicationRecordSchema,
   BrowserSessionStateSchema,
   CandidateProfileSchema,
-  JobSearchPreferencesSchema,
   JobFinderSettingsSchema,
+  JobPostingSchema,
+  JobSearchPreferencesSchema,
   SavedJobSchema,
   TailoredAssetSchema,
-  ApplicationRecordSchema,
   type ApplicationRecord,
   type BrowserSessionState,
   type CandidateProfile,
   type JobFinderSettings,
+  type JobPosting,
   type JobSearchPreferences,
   type SavedJob,
   type TailoredAsset
@@ -28,11 +30,12 @@ function createCandidateProfile(): CandidateProfile {
     baseResume: {
       id: 'resume_alex_vanguard',
       fileName: 'alex-vanguard-resume.pdf',
-      uploadedAt: '2026-03-20T09:30:00.000Z'
+      uploadedAt: '2026-03-20T09:30:00.000Z',
+      storagePath: null
     },
     targetRoles: ['Product Design Director', 'Staff Product Designer', 'Design Systems Lead'],
     locations: ['Remote Global', 'London, UK'],
-    skills: ['Design Systems', 'Figma', 'React', 'Prototyping', 'UX Strategy']
+    skills: ['Design Systems', 'Figma', 'React', 'Prototyping', 'UX Strategy', 'Accessibility']
   })
 }
 
@@ -50,21 +53,132 @@ function createSearchPreferences(): JobSearchPreferences {
   })
 }
 
-function createSavedJobs(): SavedJob[] {
+function createLinkedInDiscoveryCatalog(): JobPosting[] {
   return [
     {
-      id: 'job_signal_staff_designer',
       source: 'linkedin',
+      sourceJobId: 'linkedin_signal_staff_designer',
+      canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_staff_designer',
       title: 'Staff Product Designer',
       company: 'Signal Systems',
       location: 'Remote, UK/EU',
       workMode: 'remote',
       applyPath: 'easy_apply',
+      easyApplyEligible: true,
       postedAt: '2026-03-20T08:10:00.000Z',
+      discoveredAt: '2026-03-20T10:00:00.000Z',
       salaryText: '$180k - $215k',
       summary:
         'Lead dense operational workflows, systematize UI quality, and own the product-design layer for a browser-heavy enterprise platform.',
-      keySkills: ['Design Systems', 'Enterprise UX', 'Figma'],
+      description:
+        'Lead dense operational workflows, improve enterprise UI quality, and shape cross-functional platform roadmaps for browser-heavy internal products.',
+      keySkills: ['Design Systems', 'Enterprise UX', 'Figma']
+    },
+    {
+      source: 'linkedin',
+      sourceJobId: 'linkedin_northwind_principal_ux',
+      canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_northwind_principal_ux',
+      title: 'Principal UX Engineer',
+      company: 'Northwind Labs',
+      location: 'Hybrid, London',
+      workMode: 'hybrid',
+      applyPath: 'easy_apply',
+      easyApplyEligible: true,
+      postedAt: '2026-03-20T06:45:00.000Z',
+      discoveredAt: '2026-03-20T10:00:00.000Z',
+      salaryText: '$165k - $205k',
+      summary:
+        'Bridge product design and front-end implementation for a shared platform team shipping internal workflow tooling.',
+      description:
+        'Bridge product design and front-end implementation for platform tooling. Portfolio review required before final submission.',
+      keySkills: ['React', 'Design Systems', 'Accessibility']
+    },
+    {
+      source: 'linkedin',
+      sourceJobId: 'linkedin_cloudline_design_lead',
+      canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_cloudline_design_lead',
+      title: 'Design Systems Lead',
+      company: 'Cloudline',
+      location: 'Remote, Europe',
+      workMode: 'remote',
+      applyPath: 'easy_apply',
+      easyApplyEligible: true,
+      postedAt: '2026-03-19T14:30:00.000Z',
+      discoveredAt: '2026-03-20T10:00:00.000Z',
+      salaryText: '$170k - $200k',
+      summary:
+        'Own a federated component ecosystem and steer interaction quality across a complex operations platform.',
+      description:
+        'Own a federated component ecosystem, steer governance, and define interaction quality standards across a remote operations platform.',
+      keySkills: ['Component Libraries', 'Platform Design', 'Governance']
+    },
+    {
+      source: 'linkedin',
+      sourceJobId: 'linkedin_atlas_product_designer',
+      canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_atlas_product_designer',
+      title: 'Lead Product Designer',
+      company: 'Atlas Systems',
+      location: 'Remote, United States',
+      workMode: 'remote',
+      applyPath: 'easy_apply',
+      easyApplyEligible: true,
+      postedAt: '2026-03-18T17:05:00.000Z',
+      discoveredAt: '2026-03-20T10:00:00.000Z',
+      salaryText: '$155k - $185k',
+      summary:
+        'Drive product design for a logistics dashboard suite with deep data workflows and approvals-heavy operations.',
+      description:
+        'Drive logistics and approvals-heavy dashboard experiences for a distributed operations platform with strong systems constraints.',
+      keySkills: ['Workflow Design', 'Data Products']
+    },
+    {
+      source: 'linkedin',
+      sourceJobId: 'linkedin_void_ui_engineer',
+      canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_void_ui_engineer',
+      title: 'UI Engineer',
+      company: 'Void Industries',
+      location: 'Remote, UK',
+      workMode: 'remote',
+      applyPath: 'easy_apply',
+      easyApplyEligible: true,
+      postedAt: '2026-03-20T09:00:00.000Z',
+      discoveredAt: '2026-03-20T10:00:00.000Z',
+      salaryText: '$170k - $210k',
+      summary:
+        'Ship high-trust operational UI systems while partnering tightly with product design and platform engineering.',
+      description:
+        'Ship operational UI systems for a regulated environment. Additional work authorization details are required during apply.',
+      keySkills: ['React', 'UI Engineering', 'Design Systems']
+    },
+    {
+      source: 'linkedin',
+      sourceJobId: 'linkedin_neural_systems_operator',
+      canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_neural_systems_operator',
+      title: 'Senior Systems Operator',
+      company: 'Neural Net Solutions',
+      location: 'London, UK',
+      workMode: 'hybrid',
+      applyPath: 'easy_apply',
+      easyApplyEligible: true,
+      postedAt: '2026-03-19T11:30:00.000Z',
+      discoveredAt: '2026-03-20T10:00:00.000Z',
+      salaryText: '$162k - $190k',
+      summary:
+        'Own systems design quality across regulated operational surfaces and collaborate with infrastructure teams.',
+      description:
+        'Own systems design quality across regulated operational surfaces, collaborate with infrastructure teams, and improve governance signals.',
+      keySkills: ['Governance', 'Workflow Design', 'Accessibility']
+    }
+  ].map((job) => JobPostingSchema.parse(job))
+}
+
+function createSavedJobs(): SavedJob[] {
+  const [signal, northwind, cloudline, atlas] = createLinkedInDiscoveryCatalog()
+
+  return [
+    {
+      ...signal,
+      id: 'job_signal_staff_designer',
       status: 'ready_for_review',
       matchAssessment: {
         score: 98,
@@ -77,18 +191,8 @@ function createSavedJobs(): SavedJob[] {
       }
     },
     {
+      ...northwind,
       id: 'job_northwind_principal_ux',
-      source: 'linkedin',
-      title: 'Principal UX Engineer',
-      company: 'Northwind Labs',
-      location: 'Hybrid, London',
-      workMode: 'hybrid',
-      applyPath: 'easy_apply',
-      postedAt: '2026-03-20T06:45:00.000Z',
-      salaryText: '$165k - $205k',
-      summary:
-        'Bridge product design and front-end implementation for a shared platform team shipping internal workflow tooling.',
-      keySkills: ['React', 'Design Systems', 'Accessibility'],
       status: 'drafting',
       matchAssessment: {
         score: 89,
@@ -100,18 +204,8 @@ function createSavedJobs(): SavedJob[] {
       }
     },
     {
+      ...cloudline,
       id: 'job_cloudline_design_lead',
-      source: 'linkedin',
-      title: 'Design Systems Lead',
-      company: 'Cloudline',
-      location: 'Remote, Europe',
-      workMode: 'remote',
-      applyPath: 'easy_apply',
-      postedAt: '2026-03-19T14:30:00.000Z',
-      salaryText: '$170k - $200k',
-      summary:
-        'Own a federated component ecosystem and steer interaction quality across a complex operations platform.',
-      keySkills: ['Component Libraries', 'Platform Design', 'Governance'],
       status: 'approved',
       matchAssessment: {
         score: 84,
@@ -123,18 +217,8 @@ function createSavedJobs(): SavedJob[] {
       }
     },
     {
+      ...atlas,
       id: 'job_atlas_product_designer',
-      source: 'linkedin',
-      title: 'Lead Product Designer',
-      company: 'Atlas Systems',
-      location: 'Remote, United States',
-      workMode: 'remote',
-      applyPath: 'easy_apply',
-      postedAt: '2026-03-18T17:05:00.000Z',
-      salaryText: '$155k - $185k',
-      summary:
-        'Drive product design for a logistics dashboard suite with deep data workflows and approvals-heavy operations.',
-      keySkills: ['Workflow Design', 'Data Products'],
       status: 'shortlisted',
       matchAssessment: {
         score: 76,
@@ -158,6 +242,8 @@ function createTailoredAssets(): TailoredAsset[] {
       compatibilityScore: 98,
       progressPercent: 100,
       updatedAt: '2026-03-20T09:55:00.000Z',
+      storagePath: null,
+      contentText: 'Alex Vanguard\nSenior systems product designer\n\nSummary\nSenior systems product designer focused on dense workflow applications.',
       previewSections: [
         {
           heading: 'Summary',
@@ -189,6 +275,8 @@ function createTailoredAssets(): TailoredAsset[] {
       compatibilityScore: null,
       progressPercent: 64,
       updatedAt: '2026-03-20T10:02:00.000Z',
+      storagePath: null,
+      contentText: null,
       previewSections: []
     },
     {
@@ -202,6 +290,8 @@ function createTailoredAssets(): TailoredAsset[] {
       compatibilityScore: 94,
       progressPercent: 100,
       updatedAt: '2026-03-19T19:15:00.000Z',
+      storagePath: null,
+      contentText: 'Design systems leader with a track record of aligning platform governance and product delivery.',
       previewSections: [
         {
           heading: 'Summary',
@@ -223,6 +313,7 @@ function createApplicationRecords(): ApplicationRecord[] {
       lastActionLabel: 'Technical screen invitation',
       nextActionLabel: 'Join meeting',
       lastUpdatedAt: '2026-03-20T08:42:00.000Z',
+      lastAttemptState: 'submitted',
       events: [
         {
           id: 'event_neural_1',
@@ -249,6 +340,7 @@ function createApplicationRecords(): ApplicationRecord[] {
       lastActionLabel: 'Needs response',
       nextActionLabel: 'Reply to recruiter',
       lastUpdatedAt: '2026-03-19T11:15:00.000Z',
+      lastAttemptState: 'submitted',
       events: [
         {
           id: 'event_data_core_1',
@@ -268,6 +360,7 @@ function createApplicationRecords(): ApplicationRecord[] {
       lastActionLabel: 'Resume tailoring in progress',
       nextActionLabel: 'Wait for review queue',
       lastUpdatedAt: '2026-03-20T09:58:00.000Z',
+      lastAttemptState: 'not_started',
       events: [
         {
           id: 'event_void_1',
@@ -287,6 +380,7 @@ function createApplicationRecords(): ApplicationRecord[] {
       lastActionLabel: 'System archived',
       nextActionLabel: null,
       lastUpdatedAt: '2026-03-18T15:20:00.000Z',
+      lastAttemptState: 'failed',
       events: [
         {
           id: 'event_synergy_1',
@@ -315,7 +409,7 @@ function createBrowserSession(): BrowserSessionState {
     source: 'linkedin',
     status: 'ready',
     label: 'Browser session ready',
-    detail: 'LinkedIn session validated 5 minutes ago for discovery and Easy Apply.',
+    detail: 'LinkedIn session validated for discovery and Easy Apply.',
     lastCheckedAt: '2026-03-20T10:05:00.000Z'
   })
 }
@@ -327,10 +421,15 @@ export function createJobFinderRepositorySeed(): JobFinderRepositorySeed {
     savedJobs: createSavedJobs(),
     tailoredAssets: createTailoredAssets(),
     applicationRecords: createApplicationRecords(),
+    applicationAttempts: [],
     settings: createSettings()
   }
 }
 
 export function createJobFinderBrowserSessionSeed(): BrowserSessionState[] {
   return [createBrowserSession()]
+}
+
+export function createLinkedInDiscoveryCatalogSeed(): JobPosting[] {
+  return createLinkedInDiscoveryCatalog()
 }

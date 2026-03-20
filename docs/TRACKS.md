@@ -31,10 +31,10 @@ Use one track per meaningful workstream, not per person or per chat.
 - scope: define the minimal Job Finder schemas and repository seams for the LinkedIn `Easy Apply` slice
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/contracts`, `packages/db`
-- current focus: typed Job Finder contracts and file-backed local persistence are in place
-- next step: evolve the file-backed repository shape only when real discovery and tailoring data creates pressure
+- current focus: typed Job Finder contracts now include discovery/apply attempt data and the desktop repository is SQLite-backed
+- next step: add richer migration coverage and resume artifact storage once live LinkedIn execution adds more schema pressure
 - blockers: none
-- notes: current implementation persists seeded workspace data to a local JSON file so desktop actions survive restarts without locking the project into a heavier storage design too early
+- notes: current implementation persists profile, preferences, saved jobs, tailored assets, application records, and apply attempts into a local SQLite database with a legacy JSON fallback path
 
 ### `JF-02 Job Finder Screen Design`
 
@@ -51,47 +51,46 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `JF-03 Browser Runtime And LinkedIn Discovery`
 
-- status: `ready`
+- status: `in_progress`
 - last updated: `2026-03-20`
 - scope: build the generic browser primitives and the first LinkedIn discovery adapter boundary
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/browser-runtime`, `packages/job-finder`
-- current focus: a stub browser-session runtime exists and the desktop shell can model session readiness plus seeded discovery actions
-- next step: replace the session stub with real discovery primitives and the first LinkedIn adapter seam
-- blockers: none
-- notes: keep LinkedIn selectors and recovery logic out of the generic runtime; discovery should write back through the current repository boundary
+- current focus: browser-runtime now exposes discovery and apply execution methods, and the desktop shell can run deterministic LinkedIn discovery through saved preferences
+- next step: harden the adapter with live-session wiring, richer unsupported-branch coverage, and selector-level automation when authenticated browser work starts
+- blockers: live LinkedIn execution still depends on authenticated-session integration and selector hardening
+- notes: keep LinkedIn selectors and recovery logic out of the generic runtime; discovery already writes back through the repository boundary and now dedupes by source job identity
 
 ### `JF-04 Tailored Resume Path`
 
-- status: `ready`
+- status: `in_progress`
 - last updated: `2026-03-20`
 - scope: create one solid custom-resume workflow for a selected job
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
-- code areas: `packages/job-finder`
-- current focus: the desktop shell can already generate seeded tailored resume previews and move them through review/apply transitions
-- next step: replace seeded asset generation with real resume-generation outputs and stored variants
-- blockers: depends on the first tailoring implementation, not on schema shape anymore
-- notes: cover letters stay deferred unless the main slice lands cleanly first
+- code areas: `packages/job-finder`, `apps/desktop`
+- current focus: the app can generate and persist versioned tailored resume content from profile, preferences, and selected job data through the review flow
+- next step: add richer artifact export/storage and iterate on higher-fidelity resume rendering once the live LinkedIn path is hardened
+- blockers: no external model/provider dependency is wired yet for richer tailoring
+- notes: cover letters stay deferred unless the main slice lands cleanly first; current tailoring remains deterministic and source-backed
 
 ### `JF-05 Review-Gated Easy Apply Execution`
 
-- status: `blocked`
+- status: `in_progress`
 - last updated: `2026-03-20`
 - scope: automate a narrow LinkedIn `Easy Apply` submission path with tracked outcomes
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/job-finder`, `packages/browser-runtime`, `apps/desktop`
-- current focus: waiting on discovery, tailoring, and workflow-state foundations
-- next step: implement the supported apply state machine after the real discovery adapter and real tailoring path exist
-- blockers: depends on real browser primitives and non-seeded workflow state
-- notes: stop on unsupported flows instead of guessing
+- current focus: the app now records explicit apply attempts, checkpoints, submitted outcomes, and safe paused branches instead of assuming direct success
+- next step: connect the supported state machine to a live authenticated LinkedIn execution path and broaden recovery helpers in Applications
+- blockers: live browser execution still depends on authenticated-session integration and selector hardening
+- notes: stop on unsupported flows instead of guessing; paused attempts now persist locally with next-action guidance
 
 ## Ready Queue
 
-- Use the desktop capture workflow to iterate on shell polish, title bar behavior, and screen spacing.
-- Implement the first LinkedIn discovery adapter on top of the current browser-runtime stub.
-- Add real local persistence behind the existing Job Finder repository interface.
-- Replace seeded workspace data with real desktop mutations and workflow updates.
-- Start the first real tailoring flow that produces stored resume assets.
+- Wire the deterministic LinkedIn adapter into a live authenticated browser session path.
+- Add richer tailored resume export/storage beyond persisted preview content.
+- Expand Applications with filters, retry controls, and attempt-centric recovery views.
+- Add broader runtime tests for unsupported Easy Apply branches and resume-import flows.
 
 ## Recently Completed
 
@@ -100,3 +99,4 @@ Use one track per meaningful workstream, not per person or per chat.
 - `2026-03-20`: consolidated the current Job Finder design references and prototype policy under `docs/Design/`
 - `2026-03-20`: implemented the first typed Job Finder workspace shell with contracts, in-memory repository seams, and desktop preload wiring
 - `2026-03-20`: switched the seeded Job Finder workspace to file-backed persistence and interactive desktop actions
+- `2026-03-20`: upgraded Job Finder to SQLite persistence, deterministic LinkedIn discovery/apply orchestration, editable profile/settings flows, and persisted application attempts

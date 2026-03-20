@@ -1,8 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  CandidateProfile,
   DesktopPlatformPing,
   DesktopWindowControlsState,
-  JobFinderWorkspaceSnapshot
+  JobFinderSettings,
+  JobFinderWorkspaceSnapshot,
+  JobSearchPreferences
 } from '@unemployed/contracts'
 
 const desktopApi = {
@@ -30,6 +33,16 @@ const desktopApi = {
   jobFinder: {
     getWorkspace: () =>
       ipcRenderer.invoke('job-finder:get-workspace') as Promise<JobFinderWorkspaceSnapshot>,
+    saveProfile: (profile: CandidateProfile) =>
+      ipcRenderer.invoke('job-finder:save-profile', profile) as Promise<JobFinderWorkspaceSnapshot>,
+    saveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
+      ipcRenderer.invoke('job-finder:save-search-preferences', searchPreferences) as Promise<JobFinderWorkspaceSnapshot>,
+    saveSettings: (settings: JobFinderSettings) =>
+      ipcRenderer.invoke('job-finder:save-settings', settings) as Promise<JobFinderWorkspaceSnapshot>,
+    importResume: () =>
+      ipcRenderer.invoke('job-finder:import-resume') as Promise<JobFinderWorkspaceSnapshot>,
+    runDiscovery: () =>
+      ipcRenderer.invoke('job-finder:run-discovery') as Promise<JobFinderWorkspaceSnapshot>,
     resetWorkspace: () =>
       ipcRenderer.invoke('job-finder:reset-workspace') as Promise<JobFinderWorkspaceSnapshot>,
     queueJobForReview: (jobId: string) =>

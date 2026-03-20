@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Job Finder UI-first iteration with custom window chrome and capture workflow
+Job Finder vertical-slice implementation with SQLite persistence, local discovery orchestration, and review-gated apply tracking
 
 ## Completed In This Repo
 
@@ -42,17 +42,21 @@ Job Finder UI-first iteration with custom window chrome and capture workflow
 - Kept the sidebar metric cards visible in compact desktop layouts instead of hiding them at smaller heights and widths
 - Unified the cross-platform top tab styling so Mac and Windows now share the same centered title-bar tabs, with only the native window buttons differing
 - Reduced headline, label, chip, button, sidebar, and list typography so the shell reads less oversized and more information-dense across desktop sizes
+- Replaced the JSON-backed workspace store with a SQLite-backed repository that persists saved jobs, tailored assets, application records, and application attempts locally
+- Added a richer browser runtime contract plus a deterministic LinkedIn source adapter for discovery filtering and safe Easy Apply execution checkpoints
+- Added real Job Finder mutations for editable profile data, discovery preferences, settings, local discovery runs, tailored resume content generation, and tracked apply attempts
+- Added desktop UI controls for saving profile/preferences/settings and replacing the base resume through a native file picker
 
 ## Active Work
 
-- Tighten desktop UI polish and screen-level details before widening deeper functionality
-- Keep the current custom window chrome and desktop capture workflow stable during UI iteration
-- Replace the current browser-session stub with real browser runtime and source-adapter behavior after the shell feels right
+- Harden the new Job Finder functionality now that local persistence, discovery runs, profile/settings editing, and attempt tracking exist
+- Evolve the deterministic LinkedIn adapter into a real authenticated browser-driven LinkedIn path when live session work starts
 - Keep the durable project plan and commit-time doc workflow explicit for future agents
-- Keep the design references usable without letting prototype HTML become a second source of truth
+- Keep the desktop capture workflow available for regression checks while functional work expands
+- Preserve safe-stop behavior for unsupported apply branches instead of widening automation blindly
 
 ## Immediate Next Steps
 
-- Use `pnpm --filter @unemployed/desktop ui:capture` to inspect the current shell and keep polishing the UI
-- Tighten the custom title bar, navigation density, and screen spacing based on capture output
-- Start the first real LinkedIn discovery adapter only after the current UI shell is in a better place
+- Harden the browser runtime and deterministic LinkedIn adapter with richer fixtures and unsupported-branch coverage
+- Add richer document export and artifact storage for tailored resumes beyond preview-only rendering
+- Expand the Applications screen with filtering, retry helpers, and attempt-centric recovery flows

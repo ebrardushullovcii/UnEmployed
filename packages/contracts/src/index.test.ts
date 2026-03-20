@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import {
+  ApplicationAttemptSchema,
   ApplicationStatusSchema,
   CandidateProfileSchema,
   DesktopWindowControlsStateSchema,
+  DiscoveryRunResultSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
   applicationStatusValues
@@ -25,12 +27,13 @@ describe('contracts', () => {
       baseResume: {
         id: 'resume_1',
         fileName: 'alex-vanguard.pdf',
-        uploadedAt: '2026-03-20T10:00:00.000Z'
+        uploadedAt: '2026-03-20T10:00:00.000Z',
+        storagePath: '/tmp/alex-vanguard.pdf'
       },
       targetRoles: ['Frontend Engineer']
     })
 
-    expect(profile.targetRoles).toEqual(['Frontend Engineer'])
+    expect(profile.baseResume.storagePath).toBe('/tmp/alex-vanguard.pdf')
     expect(profile.locations).toEqual([])
     expect(profile.skills).toEqual([])
   })
@@ -46,7 +49,83 @@ describe('contracts', () => {
     expect(preferences.workModes).toEqual([])
   })
 
+  test('parses a discovery run result and application attempt', () => {
+    const discovery = DiscoveryRunResultSchema.parse({
+      source: 'linkedin',
+      startedAt: '2026-03-20T10:00:00.000Z',
+      completedAt: '2026-03-20T10:01:00.000Z',
+      querySummary: 'Designer | Remote | remote',
+      warning: null,
+      jobs: [
+        {
+          source: 'linkedin',
+          sourceJobId: 'linkedin_job_1',
+          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
+          title: 'Senior Product Designer',
+          company: 'Signal Systems',
+          location: 'Remote',
+          workMode: 'remote',
+          applyPath: 'easy_apply',
+          easyApplyEligible: true,
+          postedAt: '2026-03-20T09:00:00.000Z',
+          discoveredAt: '2026-03-20T10:01:00.000Z',
+          salaryText: '$180k - $220k',
+          summary: 'Own the design system.',
+          description: 'Own the design system and workflow platform.',
+          keySkills: ['Figma']
+        }
+      ]
+    })
+
+    const attempt = ApplicationAttemptSchema.parse({
+      id: 'attempt_1',
+      jobId: 'job_1',
+      state: 'submitted',
+      summary: 'Easy Apply submitted',
+      detail: 'Submitted successfully.',
+      startedAt: '2026-03-20T10:02:00.000Z',
+      updatedAt: '2026-03-20T10:03:00.000Z',
+      completedAt: '2026-03-20T10:03:00.000Z',
+      outcome: 'submitted',
+      nextActionLabel: 'Monitor inbox',
+      checkpoints: [
+        {
+          id: 'checkpoint_1',
+          at: '2026-03-20T10:03:00.000Z',
+          label: 'Submission confirmed',
+          detail: 'The supported path completed successfully.',
+          state: 'submitted'
+        }
+      ]
+    })
+
+    expect(discovery.jobs[0]?.easyApplyEligible).toBe(true)
+    expect(attempt.checkpoints[0]?.state).toBe('submitted')
+  })
+
   test('parses a job finder workspace snapshot', () => {
+    const attempt = ApplicationAttemptSchema.parse({
+      id: 'attempt_1',
+      jobId: 'job_1',
+      state: 'submitted',
+      summary: 'Easy Apply submitted',
+      detail: 'Submitted successfully.',
+      startedAt: '2026-03-20T10:02:00.000Z',
+      updatedAt: '2026-03-20T10:03:00.000Z',
+      completedAt: '2026-03-20T10:03:00.000Z',
+      outcome: 'submitted',
+      nextActionLabel: 'Monitor inbox',
+      checkpoints: [
+        {
+          id: 'checkpoint_1',
+          at: '2026-03-20T10:03:00.000Z',
+          label: 'Submission confirmed',
+          detail: 'The supported path completed successfully.',
+          state: 'submitted'
+        }
+      ]
+    })
+
     const workspace = JobFinderWorkspaceSnapshotSchema.parse({
       module: 'job-finder',
       generatedAt: '2026-03-20T10:05:00.000Z',
@@ -60,7 +139,8 @@ describe('contracts', () => {
         baseResume: {
           id: 'resume_1',
           fileName: 'alex-vanguard.pdf',
-          uploadedAt: '2026-03-20T10:00:00.000Z'
+          uploadedAt: '2026-03-20T10:00:00.000Z',
+          storagePath: '/tmp/alex-vanguard.pdf'
         },
         targetRoles: ['Principal Designer'],
         locations: ['Remote'],
@@ -88,14 +168,19 @@ describe('contracts', () => {
         {
           id: 'job_1',
           source: 'linkedin',
+          sourceJobId: 'linkedin_job_1',
+          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
           title: 'Senior Product Designer',
           company: 'Signal Systems',
           location: 'Remote',
           workMode: 'remote',
           applyPath: 'easy_apply',
+          easyApplyEligible: true,
           postedAt: '2026-03-20T09:00:00.000Z',
+          discoveredAt: '2026-03-20T10:01:00.000Z',
           salaryText: '$180k - $220k',
           summary: 'Own the design system.',
+          description: 'Own the design system and workflow platform.',
           keySkills: ['Figma'],
           status: 'ready_for_review',
           matchAssessment: {
@@ -133,6 +218,8 @@ describe('contracts', () => {
           compatibilityScore: 98,
           progressPercent: 100,
           updatedAt: '2026-03-20T10:03:00.000Z',
+          storagePath: null,
+          contentText: 'Tailored resume body',
           previewSections: [
             {
               heading: 'Summary',
@@ -151,6 +238,7 @@ describe('contracts', () => {
           lastActionLabel: 'Technical screen scheduled',
           nextActionLabel: 'Join meeting',
           lastUpdatedAt: '2026-03-20T10:04:00.000Z',
+          lastAttemptState: 'submitted',
           events: [
             {
               id: 'event_1',
@@ -162,6 +250,7 @@ describe('contracts', () => {
           ]
         }
       ],
+      applicationAttempts: [attempt],
       selectedApplicationRecordId: 'application_1',
       settings: {
         resumeFormat: 'pdf',
@@ -174,7 +263,7 @@ describe('contracts', () => {
 
     expect(workspace.discoveryJobs).toHaveLength(1)
     expect(workspace.reviewQueue[0]?.assetStatus).toBe('ready')
-    expect(workspace.applicationRecords[0]?.events[0]?.emphasis).toBe('positive')
+    expect(workspace.applicationAttempts[0]?.state).toBe('submitted')
   })
 
   test('parses desktop window controls state', () => {

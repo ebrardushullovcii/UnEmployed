@@ -718,6 +718,80 @@ button {
   align-items: start;
 }
 
+.profile-edit-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.form-grid {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.two-column-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.two-column-span {
+  grid-column: 1 / -1;
+}
+
+.field-stack {
+  display: grid;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.input-shell,
+.textarea-shell {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.34rem;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  padding: 0.72rem 0.82rem;
+  font-size: 0.92rem;
+}
+
+.input-shell:focus,
+.textarea-shell:focus {
+  outline: none;
+  border-color: rgba(235, 233, 225, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(235, 233, 225, 0.08);
+}
+
+.textarea-shell {
+  resize: vertical;
+  min-height: 6.2rem;
+}
+
+.compact-textarea {
+  min-height: 4.6rem;
+}
+
+.checkbox-row {
+  display: flex;
+  gap: 0.7rem;
+  align-items: start;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 0.34rem;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+
+.checkbox-row input {
+  margin-top: 0.2rem;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
 .profile-panel-summary {
   grid-column: 1 / -1;
   order: 1;
@@ -833,6 +907,12 @@ button {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.035));
   border-color: rgba(255, 255, 255, 0.22);
   color: var(--text);
+}
+
+.compact-action {
+  justify-self: start;
+  min-height: 2.2rem;
+  padding: 0.48rem 0.68rem;
 }
 
 .primary-action:disabled {
@@ -1313,7 +1393,10 @@ button {
 @media (max-width: 1180px) {
   .three-column-layout,
   .profile-layout,
-  .settings-layout {
+  .settings-layout,
+  .profile-edit-layout,
+  .two-column-form-grid,
+  .checkbox-grid {
     grid-template-columns: 1fr;
   }
 

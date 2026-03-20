@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 const IsoDateTimeSchema = z.string().datetime()
+const NonEmptyStringSchema = z.string().trim().min(1)
 
 export const suiteModules = ['job-finder', 'interview-helper'] as const
 export type SuiteModule = (typeof suiteModules)[number]
@@ -92,139 +93,188 @@ export const ApplicationEventEmphasisSchema = z.enum(applicationEventEmphasisVal
 export type ApplicationEventEmphasis = z.infer<typeof ApplicationEventEmphasisSchema>
 
 export const ResumeSourceDocumentSchema = z.object({
-  id: z.string().min(1),
-  fileName: z.string().min(1),
-  uploadedAt: IsoDateTimeSchema
+  id: NonEmptyStringSchema,
+  fileName: NonEmptyStringSchema,
+  uploadedAt: IsoDateTimeSchema,
+  storagePath: NonEmptyStringSchema.nullable().default(null)
 })
 export type ResumeSourceDocument = z.infer<typeof ResumeSourceDocumentSchema>
 
 export const CandidateProfileSchema = z.object({
-  id: z.string().min(1),
-  fullName: z.string().min(1),
-  headline: z.string().min(1),
-  summary: z.string().min(1),
-  currentLocation: z.string().min(1),
+  id: NonEmptyStringSchema,
+  fullName: NonEmptyStringSchema,
+  headline: NonEmptyStringSchema,
+  summary: NonEmptyStringSchema,
+  currentLocation: NonEmptyStringSchema,
   yearsExperience: z.number().int().min(0),
   baseResume: ResumeSourceDocumentSchema,
-  targetRoles: z.array(z.string().min(1)).default([]),
-  locations: z.array(z.string().min(1)).default([]),
-  skills: z.array(z.string().min(1)).default([])
+  targetRoles: z.array(NonEmptyStringSchema).default([]),
+  locations: z.array(NonEmptyStringSchema).default([]),
+  skills: z.array(NonEmptyStringSchema).default([])
 })
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>
 
 export const JobSearchPreferencesSchema = z.object({
-  targetRoles: z.array(z.string().min(1)).default([]),
-  locations: z.array(z.string().min(1)).default([]),
+  targetRoles: z.array(NonEmptyStringSchema).default([]),
+  locations: z.array(NonEmptyStringSchema).default([]),
   workModes: z.array(WorkModeSchema).default([]),
-  seniorityLevels: z.array(z.string().min(1)).default([]),
+  seniorityLevels: z.array(NonEmptyStringSchema).default([]),
   minimumSalaryUsd: z.number().int().min(0).nullable(),
   approvalMode: ApprovalModeSchema,
   tailoringMode: TailoringModeSchema,
-  companyBlacklist: z.array(z.string().min(1)).default([]),
-  companyWhitelist: z.array(z.string().min(1)).default([])
+  companyBlacklist: z.array(NonEmptyStringSchema).default([]),
+  companyWhitelist: z.array(NonEmptyStringSchema).default([])
 })
 export type JobSearchPreferences = z.infer<typeof JobSearchPreferencesSchema>
 
 export const MatchAssessmentSchema = z.object({
   score: z.number().int().min(0).max(100),
-  reasons: z.array(z.string().min(1)).default([]),
-  gaps: z.array(z.string().min(1)).default([])
+  reasons: z.array(NonEmptyStringSchema).default([]),
+  gaps: z.array(NonEmptyStringSchema).default([])
 })
 export type MatchAssessment = z.infer<typeof MatchAssessmentSchema>
 
-export const SavedJobSchema = z.object({
-  id: z.string().min(1),
+export const JobPostingSchema = z.object({
   source: JobSourceSchema,
-  title: z.string().min(1),
-  company: z.string().min(1),
-  location: z.string().min(1),
+  sourceJobId: NonEmptyStringSchema,
+  canonicalUrl: NonEmptyStringSchema,
+  title: NonEmptyStringSchema,
+  company: NonEmptyStringSchema,
+  location: NonEmptyStringSchema,
   workMode: WorkModeSchema,
   applyPath: JobApplyPathSchema,
+  easyApplyEligible: z.boolean(),
   postedAt: IsoDateTimeSchema,
-  salaryText: z.string().min(1).nullable(),
-  summary: z.string().min(1),
-  keySkills: z.array(z.string().min(1)).default([]),
+  discoveredAt: IsoDateTimeSchema,
+  salaryText: NonEmptyStringSchema.nullable(),
+  summary: NonEmptyStringSchema,
+  description: NonEmptyStringSchema,
+  keySkills: z.array(NonEmptyStringSchema).default([])
+})
+export type JobPosting = z.infer<typeof JobPostingSchema>
+
+export const SavedJobSchema = JobPostingSchema.extend({
+  id: NonEmptyStringSchema,
   status: ApplicationStatusSchema,
   matchAssessment: MatchAssessmentSchema
 })
 export type SavedJob = z.infer<typeof SavedJobSchema>
 
 export const TailoredAssetPreviewSectionSchema = z.object({
-  heading: z.string().min(1),
-  lines: z.array(z.string().min(1)).default([])
+  heading: NonEmptyStringSchema,
+  lines: z.array(NonEmptyStringSchema).default([])
 })
 export type TailoredAssetPreviewSection = z.infer<typeof TailoredAssetPreviewSectionSchema>
 
 export const TailoredAssetSchema = z.object({
-  id: z.string().min(1),
-  jobId: z.string().min(1),
+  id: NonEmptyStringSchema,
+  jobId: NonEmptyStringSchema,
   kind: z.literal('resume'),
   status: AssetStatusSchema,
-  label: z.string().min(1),
-  version: z.string().min(1),
-  templateName: z.string().min(1),
+  label: NonEmptyStringSchema,
+  version: NonEmptyStringSchema,
+  templateName: NonEmptyStringSchema,
   compatibilityScore: z.number().int().min(0).max(100).nullable(),
   progressPercent: z.number().int().min(0).max(100).nullable(),
   updatedAt: IsoDateTimeSchema,
+  storagePath: NonEmptyStringSchema.nullable().default(null),
+  contentText: NonEmptyStringSchema.nullable().default(null),
   previewSections: z.array(TailoredAssetPreviewSectionSchema).default([])
 })
 export type TailoredAsset = z.infer<typeof TailoredAssetSchema>
 
 export const ReviewQueueItemSchema = z.object({
-  jobId: z.string().min(1),
-  title: z.string().min(1),
-  company: z.string().min(1),
-  location: z.string().min(1),
+  jobId: NonEmptyStringSchema,
+  title: NonEmptyStringSchema,
+  company: NonEmptyStringSchema,
+  location: NonEmptyStringSchema,
   matchScore: z.number().int().min(0).max(100),
   applicationStatus: ApplicationStatusSchema,
   assetStatus: AssetStatusSchema,
   progressPercent: z.number().int().min(0).max(100).nullable(),
-  resumeAssetId: z.string().min(1).nullable(),
+  resumeAssetId: NonEmptyStringSchema.nullable(),
   updatedAt: IsoDateTimeSchema
 })
 export type ReviewQueueItem = z.infer<typeof ReviewQueueItemSchema>
 
 export const ApplicationEventSchema = z.object({
-  id: z.string().min(1),
+  id: NonEmptyStringSchema,
   at: IsoDateTimeSchema,
-  title: z.string().min(1),
-  detail: z.string().min(1),
+  title: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema,
   emphasis: ApplicationEventEmphasisSchema
 })
 export type ApplicationEvent = z.infer<typeof ApplicationEventSchema>
 
+export const ApplicationAttemptCheckpointSchema = z.object({
+  id: NonEmptyStringSchema,
+  at: IsoDateTimeSchema,
+  label: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema,
+  state: ApplicationAttemptStateSchema
+})
+export type ApplicationAttemptCheckpoint = z.infer<typeof ApplicationAttemptCheckpointSchema>
+
+export const ApplicationAttemptSchema = z.object({
+  id: NonEmptyStringSchema,
+  jobId: NonEmptyStringSchema,
+  state: ApplicationAttemptStateSchema,
+  summary: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema,
+  startedAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema,
+  completedAt: IsoDateTimeSchema.nullable(),
+  outcome: ApplicationStatusSchema.nullable(),
+  checkpoints: z.array(ApplicationAttemptCheckpointSchema).default([]),
+  nextActionLabel: NonEmptyStringSchema.nullable()
+})
+export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>
+
+export const ApplyExecutionResultSchema = z.object({
+  state: ApplicationAttemptStateSchema,
+  summary: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema,
+  submittedAt: IsoDateTimeSchema.nullable(),
+  outcome: ApplicationStatusSchema.nullable(),
+  checkpoints: z.array(ApplicationAttemptCheckpointSchema).default([]),
+  nextActionLabel: NonEmptyStringSchema.nullable()
+})
+export type ApplyExecutionResult = z.infer<typeof ApplyExecutionResultSchema>
+
+export const DiscoveryRunResultSchema = z.object({
+  source: JobSourceSchema,
+  startedAt: IsoDateTimeSchema,
+  completedAt: IsoDateTimeSchema,
+  querySummary: NonEmptyStringSchema,
+  warning: NonEmptyStringSchema.nullable(),
+  jobs: z.array(JobPostingSchema).default([])
+})
+export type DiscoveryRunResult = z.infer<typeof DiscoveryRunResultSchema>
+
 export const ApplicationRecordSchema = z.object({
-  id: z.string().min(1),
-  jobId: z.string().min(1),
-  title: z.string().min(1),
-  company: z.string().min(1),
+  id: NonEmptyStringSchema,
+  jobId: NonEmptyStringSchema,
+  title: NonEmptyStringSchema,
+  company: NonEmptyStringSchema,
   status: ApplicationStatusSchema,
-  lastActionLabel: z.string().min(1),
-  nextActionLabel: z.string().min(1).nullable(),
+  lastActionLabel: NonEmptyStringSchema,
+  nextActionLabel: NonEmptyStringSchema.nullable(),
   lastUpdatedAt: IsoDateTimeSchema,
+  lastAttemptState: ApplicationAttemptStateSchema.nullable().default(null),
   events: z.array(ApplicationEventSchema).default([])
 })
 export type ApplicationRecord = z.infer<typeof ApplicationRecordSchema>
 
-export const ApplicationAttemptSchema = z.object({
-  id: z.string().min(1),
-  jobId: z.string().min(1),
-  state: ApplicationAttemptStateSchema,
-  updatedAt: IsoDateTimeSchema,
-  outcome: ApplicationStatusSchema.nullable()
-})
-export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>
-
 export const JobFinderJobActionInputSchema = z.object({
-  jobId: z.string().min(1)
+  jobId: NonEmptyStringSchema
 })
 export type JobFinderJobActionInput = z.infer<typeof JobFinderJobActionInputSchema>
 
 export const BrowserSessionStateSchema = z.object({
   source: JobSourceSchema,
   status: BrowserSessionStatusSchema,
-  label: z.string().min(1),
-  detail: z.string().min(1).nullable(),
+  label: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema.nullable(),
   lastCheckedAt: IsoDateTimeSchema
 })
 export type BrowserSessionState = z.infer<typeof BrowserSessionStateSchema>
@@ -244,6 +294,7 @@ export const JobFinderRepositoryStateSchema = z.object({
   savedJobs: z.array(SavedJobSchema).default([]),
   tailoredAssets: z.array(TailoredAssetSchema).default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
+  applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
   settings: JobFinderSettingsSchema
 })
 export type JobFinderRepositoryState = z.infer<typeof JobFinderRepositoryStateSchema>
@@ -255,15 +306,25 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   searchPreferences: JobSearchPreferencesSchema,
   browserSession: BrowserSessionStateSchema,
   discoveryJobs: z.array(SavedJobSchema).default([]),
-  selectedDiscoveryJobId: z.string().min(1).nullable(),
+  selectedDiscoveryJobId: NonEmptyStringSchema.nullable(),
   reviewQueue: z.array(ReviewQueueItemSchema).default([]),
-  selectedReviewJobId: z.string().min(1).nullable(),
+  selectedReviewJobId: NonEmptyStringSchema.nullable(),
   tailoredAssets: z.array(TailoredAssetSchema).default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
-  selectedApplicationRecordId: z.string().min(1).nullable(),
+  applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
+  selectedApplicationRecordId: NonEmptyStringSchema.nullable(),
   settings: JobFinderSettingsSchema
 })
 export type JobFinderWorkspaceSnapshot = z.infer<typeof JobFinderWorkspaceSnapshotSchema>
+
+export const SaveCandidateProfileInputSchema = CandidateProfileSchema
+export type SaveCandidateProfileInput = z.infer<typeof SaveCandidateProfileInputSchema>
+
+export const SaveJobSearchPreferencesInputSchema = JobSearchPreferencesSchema
+export type SaveJobSearchPreferencesInput = z.infer<typeof SaveJobSearchPreferencesInputSchema>
+
+export const SaveJobFinderSettingsInputSchema = JobFinderSettingsSchema
+export type SaveJobFinderSettingsInput = z.infer<typeof SaveJobFinderSettingsInputSchema>
 
 export const DesktopPlatformPingSchema = z.object({
   ok: z.literal(true),

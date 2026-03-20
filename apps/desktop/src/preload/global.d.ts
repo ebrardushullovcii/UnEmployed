@@ -1,7 +1,10 @@
 import type {
+  CandidateProfile,
   DesktopPlatformPing,
   DesktopWindowControlsState,
-  JobFinderWorkspaceSnapshot
+  JobFinderSettings,
+  JobFinderWorkspaceSnapshot,
+  JobSearchPreferences
 } from '@unemployed/contracts'
 
 declare global {
@@ -17,6 +20,11 @@ declare global {
       }
       jobFinder: {
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
+        saveProfile: (profile: CandidateProfile) => Promise<JobFinderWorkspaceSnapshot>
+        saveSearchPreferences: (searchPreferences: JobSearchPreferences) => Promise<JobFinderWorkspaceSnapshot>
+        saveSettings: (settings: JobFinderSettings) => Promise<JobFinderWorkspaceSnapshot>
+        importResume: () => Promise<JobFinderWorkspaceSnapshot>
+        runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>
         resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
         queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
         dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>

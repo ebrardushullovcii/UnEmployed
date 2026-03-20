@@ -8,8 +8,8 @@ Deliver the first real `Job Finder` vertical slice for `LinkedIn Easy Apply` wit
 
 ## Progress Snapshot
 
-- Milestone 1 foundations are in place: typed contracts, a file-backed local Job Finder repository, a stub browser-session runtime, and an initial interactive desktop workspace shell.
-- The next implementation focus is replacing seeded data and seeded workflow mutations with real LinkedIn discovery and tailoring behavior.
+- Milestone 1 is complete and Milestones 2-4 now have a functional local-first implementation: typed contracts, SQLite-backed persistence, a richer browser runtime interface, deterministic LinkedIn discovery runs, stored tailored resume content, and tracked Easy Apply attempts.
+- The next implementation focus is hardening the deterministic LinkedIn adapter into a live authenticated browser-driven path while preserving the current safe-stop behavior for unsupported flows.
 
 ## Why This Slice
 

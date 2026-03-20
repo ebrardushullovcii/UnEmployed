@@ -12,16 +12,17 @@
 
 - Candidate profile and resume source metadata
 - Job search preferences, approval mode, and tailoring mode
-- Job posting, fit assessment, and review queue items
-- Tailored resume asset metadata and preview sections
-- Application record, event timeline, and attempt state
+- Job posting, discovery-run results, fit assessment, and review queue items
+- Tailored resume asset metadata, stored content, and preview sections
+- Application record, event timeline, attempt checkpoints, and apply execution results
 - Browser session state for source adapters
-- Job Finder workspace snapshot for typed desktop IPC
+- Job Finder workspace snapshot plus typed save/update IPC payloads for profile, preferences, and settings
 - Interview workspace, transcript chunks, and live suggestions later in the roadmap
 
 ## Validation Policy
 
-- Browser extraction outputs must be normalized through schemas
+- Browser extraction outputs must be normalized through schemas before they become saved jobs
+- Tailored assets and apply attempt checkpoints should be validated before persistence
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them
 

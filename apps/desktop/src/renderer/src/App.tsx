@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { JobFinderWorkspaceSnapshot } from '@unemployed/contracts'
+import type { CandidateProfile, JobFinderSettings, JobFinderWorkspaceSnapshot, JobSearchPreferences } from '@unemployed/contracts'
 import { JobFinderShell } from './job-finder-shell'
 
 type AppLoadState =
@@ -101,6 +101,16 @@ export function App() {
           runWorkspaceAction(() => window.unemployed.jobFinder.queueJobForReview(jobId)),
         resetWorkspace: () =>
           runWorkspaceAction(() => window.unemployed.jobFinder.resetWorkspace()),
+        importResume: () =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.importResume()),
+        runDiscovery: () =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.runDiscovery()),
+        saveProfile: (profile: CandidateProfile) =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.saveProfile(profile)),
+        saveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.saveSearchPreferences(searchPreferences)),
+        saveSettings: (settings: JobFinderSettings) =>
+          runWorkspaceAction(() => window.unemployed.jobFinder.saveSettings(settings)),
         refreshWorkspace: () =>
           runWorkspaceAction(() => window.unemployed.jobFinder.getWorkspace())
       }}
