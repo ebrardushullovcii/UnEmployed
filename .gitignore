@@ -22,4 +22,5 @@ apps/desktop/test-artifacts/
 .claude/*
 !.claude/skills/
 !.claude/skills/**
+apps/desktop/test-fixtures/local/
 .opencode/
