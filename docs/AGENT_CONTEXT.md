@@ -31,9 +31,11 @@ This repo keeps agent-facing context in the places that current agent tools expe
 
 - `docs/PLAN.md` is the durable big-picture project plan
 - `docs/STATUS.md` is the short current-state snapshot
+- `docs/TRACKS.md` is the live workboard for active streams, handoffs, and ready tasks
 - `docs/exec-plans/active/` holds current execution plans
 - `docs/exec-plans/completed/` holds completed plans that still matter
 - `docs/decisions/` holds durable decisions only
+- `docs/Design/README.md` holds the current design-reference map for UI work
 
 ## Rules
 
@@ -43,6 +45,10 @@ This repo keeps agent-facing context in the places that current agent tools expe
 - Author repo-local skills in `.agents/skills/`.
 - Do not duplicate repo-local skills across tool-specific directories in git.
 - Treat `.claude/skills` as a generated compatibility path, not an authored source.
+- Before starting non-trivial work, read `docs/STATUS.md`, `docs/TRACKS.md`, and the relevant active exec plan.
+- When pausing or finishing a workstream, update `docs/TRACKS.md` with the next concrete action or blocker.
 - If a task changes behavior, contracts, architecture, or workflow, update the relevant docs in the same task.
 - If work is being prepared for commit or PR handoff, agents should update docs proactively without waiting for a separate instruction.
+- Treat design mockups as directional references only; they do not automatically define product scope or required backend behavior.
+- Treat prototype HTML in `docs/Design/` as disposable design-reference material only, not reusable implementation code.
 - Never create a git commit or PR action unless the user explicitly asks for it.

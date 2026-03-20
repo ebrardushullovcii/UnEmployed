@@ -18,6 +18,8 @@ Agent-first desktop monorepo for:
 - Full project plan: [docs/PLAN.md](docs/PLAN.md)
 - Agent context layout: [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT.md)
 - Current status: [docs/STATUS.md](docs/STATUS.md)
+- Live workboard: [docs/TRACKS.md](docs/TRACKS.md)
+- UI design references: [docs/Design/README.md](docs/Design/README.md)
 
 ## Commands
 

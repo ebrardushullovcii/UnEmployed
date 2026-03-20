@@ -21,6 +21,11 @@
       "sourceType": "github",
       "computedHash": "50f22debeb01a02b8bc073e0a1bfb9ab215f724148db0df8668b8ae90544dd31"
     },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "computedHash": "516bd2154eb843a8240e43d5b285229129853114ad7075a5e141e1c08e408c84"
+    },
     "playwright-best-practices": {
       "source": "currents-dev/playwright-best-practices-skill",
       "sourceType": "github",

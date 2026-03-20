@@ -7,6 +7,10 @@ canonicalDocs:
     purpose: plan
   - path: docs/AGENT_CONTEXT.md
     purpose: agent-context
+  - path: docs/TRACKS.md
+    purpose: tracks
+  - path: docs/Design/README.md
+    purpose: design
   - path: docs/PRODUCT.md
     purpose: product
   - path: docs/ARCHITECTURE.md

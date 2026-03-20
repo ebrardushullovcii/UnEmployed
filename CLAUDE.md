@@ -6,6 +6,7 @@ See @AGENTS.md
 - Reference @docs/PLAN.md for the durable project plan
 - Reference @docs/AGENT_CONTEXT.md for the agent-native layout and handoff model
 - Reference @docs/STATUS.md before starting work
+- Reference @docs/TRACKS.md for active workstreams and handoffs
 - Reference @docs/ARCHITECTURE.md and @docs/CONTRACTS.md before changing package boundaries or shared types
 - Reference @docs/TESTING.md before adding or changing verification workflows
 - Project-local skills live in @.agents/skills

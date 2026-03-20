@@ -24,6 +24,7 @@ function buildClaudeMd() {
 - Reference @docs/PLAN.md for the durable project plan
 - Reference @docs/AGENT_CONTEXT.md for the agent-native layout and handoff model
 - Reference @docs/STATUS.md before starting work
+- Reference @docs/TRACKS.md for active workstreams and handoffs
 - Reference @docs/ARCHITECTURE.md and @docs/CONTRACTS.md before changing package boundaries or shared types
 - Reference @docs/TESTING.md before adding or changing verification workflows
 - Project-local skills live in @.agents/skills
@@ -44,7 +45,7 @@ alwaysApply: true
 
 # UnEmployed
 
-- Start with \`AGENTS.md\`, \`docs/README.md\`, \`docs/PLAN.md\`, \`docs/AGENT_CONTEXT.md\`, and \`docs/STATUS.md\`.
+- Start with \`AGENTS.md\`, \`docs/README.md\`, \`docs/PLAN.md\`, \`docs/AGENT_CONTEXT.md\`, \`docs/STATUS.md\`, and \`docs/TRACKS.md\`.
 - Prefer package-local \`AGENTS.md\` files when working inside one workspace.
 - Shared contracts live in \`packages/contracts\`; do not introduce untyped cross-package boundaries.
 - Update docs in the same task when behavior, contracts, or architecture change.
@@ -66,10 +67,13 @@ async function syncCompatibilityLinks() {
   const sourceRoot = path.join(rootDir, registry.projectSkills.canonicalDir)
   const claudeRoot = path.join(rootDir, '.claude')
   const claudeSkillsPath = path.join(claudeRoot, 'skills')
+  const isWindows = process.platform === 'win32'
+  const linkTarget = isWindows ? sourceRoot : path.relative(claudeRoot, sourceRoot)
+  const linkType = isWindows ? 'junction' : 'dir'
 
   await fs.mkdir(claudeRoot, { recursive: true })
   await fs.rm(claudeSkillsPath, { recursive: true, force: true })
-  await fs.symlink(path.relative(claudeRoot, sourceRoot), claudeSkillsPath, 'dir')
+  await fs.symlink(linkTarget, claudeSkillsPath, linkType)
 }
 
 async function checkAgents() {
@@ -114,9 +118,9 @@ async function checkAgents() {
     if (!stat.isSymbolicLink()) {
       failures.push('.claude/skills must be a symlink to .agents/skills')
     } else {
-      const target = await fs.readlink(claudeSkillsPath)
-      const resolvedTarget = path.resolve(path.dirname(claudeSkillsPath), target)
-      if (resolvedTarget !== canonicalSkillRoot) {
+      const resolvedTarget = await fs.realpath(claudeSkillsPath)
+      const canonicalTarget = await fs.realpath(canonicalSkillRoot)
+      if (resolvedTarget !== canonicalTarget) {
         failures.push('.claude/skills symlink does not point to .agents/skills')
       }
     }

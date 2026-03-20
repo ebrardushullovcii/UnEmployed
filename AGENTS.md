@@ -10,6 +10,7 @@ Agent-first Electron monorepo for two modules:
 - Full project plan lives in [docs/PLAN.md](docs/PLAN.md).
 - Agent context layout lives in [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT.md).
 - Current work and next steps live in [docs/STATUS.md](docs/STATUS.md).
+- Live task and handoff tracking lives in [docs/TRACKS.md](docs/TRACKS.md).
 - System boundaries live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - Shared contracts live in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 - Testing and validation rules live in [docs/TESTING.md](docs/TESTING.md).
@@ -21,7 +22,7 @@ Agent-first Electron monorepo for two modules:
 - Keep all external boundaries typed and schema-validated.
 - Do not introduce `any`, deep cross-package imports, or untyped IPC.
 - If code changes affect behavior, contracts, architecture, or workflows, update the relevant docs in the same task.
-- Treat `docs/STATUS.md` and `docs/exec-plans/` as the handoff layer for the next agent.
+- Treat `docs/STATUS.md`, `docs/TRACKS.md`, and `docs/exec-plans/` as the handoff layer for the next agent.
 
 ## Git And Doc Workflow
 
@@ -63,5 +64,6 @@ Agent-first Electron monorepo for two modules:
 - `.agents/skills/vitest`: Vitest testing patterns
 - `.agents/skills/sqlite-database-expert`: SQLite design and query guidance
 - `.agents/skills/playwright-best-practices`: Playwright testing and automation guidance
+- `.agents/skills/frontend-design`: frontend design and polished UI exploration guidance
 - `.agents/skills/context-driven-development`: context and handoff workflow guidance
 - `.agents/skills/architecture-decision-records`: ADR writing and maintenance guidance

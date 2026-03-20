@@ -6,7 +6,7 @@ alwaysApply: true
 
 # UnEmployed
 
-- Start with `AGENTS.md`, `docs/README.md`, `docs/PLAN.md`, `docs/AGENT_CONTEXT.md`, and `docs/STATUS.md`.
+- Start with `AGENTS.md`, `docs/README.md`, `docs/PLAN.md`, `docs/AGENT_CONTEXT.md`, `docs/STATUS.md`, and `docs/TRACKS.md`.
 - Prefer package-local `AGENTS.md` files when working inside one workspace.
 - Shared contracts live in `packages/contracts`; do not introduce untyped cross-package boundaries.
 - Update docs in the same task when behavior, contracts, or architecture change.
