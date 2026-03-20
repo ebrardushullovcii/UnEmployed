@@ -48,7 +48,79 @@ function createCandidateProfile(): CandidateProfile {
     },
     targetRoles: ['Product Design Director', 'Staff Product Designer', 'Design Systems Lead'],
     locations: ['Remote Global', 'London, UK'],
-    skills: ['Design Systems', 'Figma', 'React', 'Prototyping', 'UX Strategy', 'Accessibility']
+    skills: ['Design Systems', 'Figma', 'React', 'Prototyping', 'UX Strategy', 'Accessibility'],
+    experiences: [
+      {
+        id: 'experience_alex_signal',
+        companyName: 'Signal Systems',
+        title: 'Principal Product Designer',
+        employmentType: 'Full-time',
+        location: 'London, UK',
+        workMode: 'hybrid',
+        startDate: '2021-03',
+        endDate: null,
+        isCurrent: true,
+        summary: 'Leads workflow-platform design for operations-heavy enterprise products.',
+        achievements: [
+          'Built a cross-product design system used by four product squads.',
+          'Reduced multi-step operator flows by 28% through dashboard redesign.'
+        ],
+        skills: ['Design Systems', 'Figma', 'Accessibility']
+      },
+      {
+        id: 'experience_alex_northwind',
+        companyName: 'Northwind Labs',
+        title: 'Senior Product Designer',
+        employmentType: 'Full-time',
+        location: 'Remote, Europe',
+        workMode: 'remote',
+        startDate: '2017-06',
+        endDate: '2021-02',
+        isCurrent: false,
+        summary: 'Owned platform UX for internal tooling and front-end collaboration.',
+        achievements: [
+          'Partnered with engineering on React component-library adoption.',
+          'Created service-blueprint artifacts that shortened discovery cycles.'
+        ],
+        skills: ['React', 'Prototyping', 'UX Strategy']
+      }
+    ],
+    education: [
+      {
+        id: 'education_alex_ual',
+        schoolName: 'University of the Arts London',
+        degree: 'BA',
+        fieldOfStudy: 'Interaction Design',
+        location: 'London, UK',
+        startDate: '2009-09',
+        endDate: '2012-06',
+        summary: 'Focused on digital product systems and service design.'
+      }
+    ],
+    certifications: [
+      {
+        id: 'certification_alex_nng',
+        name: 'UX Certification',
+        issuer: 'Nielsen Norman Group',
+        issueDate: '2019-05',
+        expiryDate: null,
+        credentialUrl: 'https://www.nngroup.com/'
+      }
+    ],
+    links: [
+      {
+        id: 'link_alex_portfolio',
+        label: 'Portfolio',
+        url: 'https://alexvanguard.design',
+        kind: 'portfolio'
+      },
+      {
+        id: 'link_alex_linkedin',
+        label: 'LinkedIn',
+        url: 'https://www.linkedin.com/in/alex-vanguard',
+        kind: 'linkedin'
+      }
+    ]
   })
 }
 
@@ -472,7 +544,11 @@ export function createFreshJobFinderRepositorySeed(): JobFinderRepositorySeed {
       },
       targetRoles: [],
       locations: [],
-      skills: []
+      skills: [],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: []
     }),
     searchPreferences: JobSearchPreferencesSchema.parse({
       targetRoles: [],

@@ -137,6 +137,52 @@ export const ResumeSourceDocumentSchema = z.object({
 })
 export type ResumeSourceDocument = z.infer<typeof ResumeSourceDocumentSchema>
 
+export const CandidateExperienceSchema = z.object({
+  id: NonEmptyStringSchema,
+  companyName: NonEmptyStringSchema,
+  title: NonEmptyStringSchema,
+  employmentType: NonEmptyStringSchema.nullable().default(null),
+  location: NonEmptyStringSchema.nullable().default(null),
+  workMode: WorkModeSchema.nullable().default(null),
+  startDate: NonEmptyStringSchema.nullable().default(null),
+  endDate: NonEmptyStringSchema.nullable().default(null),
+  isCurrent: z.boolean().default(false),
+  summary: NonEmptyStringSchema.nullable().default(null),
+  achievements: z.array(NonEmptyStringSchema).default([]),
+  skills: z.array(NonEmptyStringSchema).default([])
+})
+export type CandidateExperience = z.infer<typeof CandidateExperienceSchema>
+
+export const CandidateEducationSchema = z.object({
+  id: NonEmptyStringSchema,
+  schoolName: NonEmptyStringSchema,
+  degree: NonEmptyStringSchema.nullable().default(null),
+  fieldOfStudy: NonEmptyStringSchema.nullable().default(null),
+  location: NonEmptyStringSchema.nullable().default(null),
+  startDate: NonEmptyStringSchema.nullable().default(null),
+  endDate: NonEmptyStringSchema.nullable().default(null),
+  summary: NonEmptyStringSchema.nullable().default(null)
+})
+export type CandidateEducation = z.infer<typeof CandidateEducationSchema>
+
+export const CandidateCertificationSchema = z.object({
+  id: NonEmptyStringSchema,
+  name: NonEmptyStringSchema,
+  issuer: NonEmptyStringSchema.nullable().default(null),
+  issueDate: NonEmptyStringSchema.nullable().default(null),
+  expiryDate: NonEmptyStringSchema.nullable().default(null),
+  credentialUrl: NonEmptyStringSchema.nullable().default(null)
+})
+export type CandidateCertification = z.infer<typeof CandidateCertificationSchema>
+
+export const CandidateLinkSchema = z.object({
+  id: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  url: NonEmptyStringSchema,
+  kind: NonEmptyStringSchema.nullable().default(null)
+})
+export type CandidateLink = z.infer<typeof CandidateLinkSchema>
+
 export const CandidateProfileSchema = z.object({
   id: NonEmptyStringSchema,
   firstName: NonEmptyStringSchema,
@@ -154,7 +200,11 @@ export const CandidateProfileSchema = z.object({
   baseResume: ResumeSourceDocumentSchema,
   targetRoles: z.array(NonEmptyStringSchema).default([]),
   locations: z.array(NonEmptyStringSchema).default([]),
-  skills: z.array(NonEmptyStringSchema).default([])
+  skills: z.array(NonEmptyStringSchema).default([]),
+  experiences: z.array(CandidateExperienceSchema).default([]),
+  education: z.array(CandidateEducationSchema).default([]),
+  certifications: z.array(CandidateCertificationSchema).default([]),
+  links: z.array(CandidateLinkSchema).default([])
 })
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>
 

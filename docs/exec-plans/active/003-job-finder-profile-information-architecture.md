@@ -421,6 +421,12 @@ Rationale:
 - add repeater editors for experience, education, certifications, projects, and links
 - keep discovery preferences visually separate from canonical candidate data
 
+Implementation update on 2026-03-20:
+
+- the first live rollout has landed in `CandidateProfile` and the desktop Profile screen with structured repeatable records for experience, education, certifications, and links
+- the current implementation still stores these records under the existing `CandidateProfile` object for backward compatibility, rather than splitting into fully separate top-level buckets yet
+- discovery preferences remain visually separated from the new canonical candidate-data sections
+
 ### Phase 4: Tailoring And Automation Integration
 
 - build prompt inputs from grouped data instead of one large profile payload

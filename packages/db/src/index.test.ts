@@ -34,7 +34,11 @@ function createSeed(): JobFinderRepositorySeed {
       },
       targetRoles: ['Principal Designer'],
       locations: ['Remote'],
-      skills: ['Figma', 'React']
+      skills: ['Figma', 'React'],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: []
     },
     searchPreferences: {
       targetRoles: ['Principal Designer'],

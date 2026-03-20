@@ -35,7 +35,44 @@ function createSeed(): JobFinderRepositorySeed {
       },
       targetRoles: ['Principal Designer'],
       locations: ['Remote'],
-      skills: ['Figma', 'React', 'Design Systems']
+      skills: ['Figma', 'React', 'Design Systems'],
+      experiences: [
+        {
+          id: 'experience_1',
+          companyName: 'Signal Systems',
+          title: 'Senior systems designer',
+          employmentType: 'Full-time',
+          location: 'London, UK',
+          workMode: 'hybrid',
+          startDate: '2020-01',
+          endDate: null,
+          isCurrent: true,
+          summary: 'Builds resilient workflow tools.',
+          achievements: ['Led design-system rollout across core surfaces.'],
+          skills: ['Figma', 'Design Systems']
+        }
+      ],
+      education: [
+        {
+          id: 'education_1',
+          schoolName: 'Royal College of Art',
+          degree: 'MA',
+          fieldOfStudy: 'Design Products',
+          location: 'London, UK',
+          startDate: '2012-09',
+          endDate: '2014-06',
+          summary: null
+        }
+      ],
+      certifications: [],
+      links: [
+        {
+          id: 'link_1',
+          label: 'Portfolio',
+          url: 'https://alex.example.com',
+          kind: 'portfolio'
+        }
+      ]
     },
     searchPreferences: {
       targetRoles: ['Principal Designer', 'Senior Product Designer', 'Principal UX Engineer'],

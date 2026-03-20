@@ -781,6 +781,11 @@ button {
   gap: 1.5rem;
 }
 
+.profile-stack-layout {
+  display: grid;
+  gap: 1.5rem;
+}
+
 .form-column-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1021,6 +1026,21 @@ button {
   color: var(--text);
 }
 
+.ghost-action {
+  min-height: 2rem;
+  padding: 0.32rem 0.45rem;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+}
+
+.ghost-action:hover {
+  color: var(--text);
+}
+
 .compact-action {
   justify-self: start;
   min-height: 2.2rem;
@@ -1075,6 +1095,22 @@ button {
   color: var(--text);
   border-radius: 0.3rem;
   transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.record-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.record-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.012)),
+    rgba(255, 255, 255, 0.015);
 }
 
 .list-card-active,

@@ -67,6 +67,7 @@ Job Finder agent-first foundation with SQLite persistence, resume-text extractio
 - Added desktop env-file loading plus a root `.env.example`, so FelidaeAI credentials can be supplied through `.env.local` and picked up automatically by the Electron main process instead of relying only on an inherited shell environment
 - Added persisted resume-analysis provenance plus a visible profile badge so the UI now states whether the current resume was parsed by FelidaeAI or the deterministic fallback, and changed Settings reset to jump back to the fresh profile after clearing workspace state
 - Added and then tightened a dedicated profile-information-architecture plan, now grounded in LinkedIn/Greenhouse/Workable/Ashby patterns with clearer priority tiers, a separate eligibility bucket, and explicit guidance on which sensitive fields not to collect by default
+- Integrated the first structured Profile-screen rollout so candidate data now stores repeatable experience, education, certification, and proof-link records with dedicated per-field editors instead of relying only on one large profile form
 
 ## Active Work
 
@@ -77,6 +78,7 @@ Job Finder agent-first foundation with SQLite persistence, resume-text extractio
 - Preserve safe-stop behavior for unsupported apply branches instead of widening automation blindly
 - Add real exportable tailored resume artifacts so live Easy Apply flows can upload generated documents without falling back to the stored base resume
 - Keep the new template pipeline stable while deciding whether downstream export should target browser-printed PDF, DOCX templating, or both
+- Continue the profile-information-architecture rollout by connecting the new structured profile records to resume extraction, tailoring prompts, and apply-form answers
 
 ## Immediate Next Steps
 
@@ -84,3 +86,4 @@ Job Finder agent-first foundation with SQLite persistence, resume-text extractio
 - Add richer document export and artifact storage for tailored resumes beyond the current saved HTML template output
 - Expand the Applications screen with filtering, retry helpers, and attempt-centric recovery flows
 - Add richer fallback extraction and cleanup for edge-case PDF and DOCX resumes that do not yield clean text on the first pass
+- Map resume-analysis output into the new structured profile sections so imported resumes can prefill experience, education, certifications, and links instead of only top-level summary fields

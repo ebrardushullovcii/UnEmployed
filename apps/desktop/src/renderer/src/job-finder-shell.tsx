@@ -17,6 +17,7 @@ import {
   type ReviewQueueItem,
   type SavedJob,
   type TailoredAsset,
+  type WorkMode,
   suiteModules
 } from '@unemployed/contracts'
 
@@ -179,6 +180,102 @@ function buildFullName(parts: {
     .map((value) => value.trim())
     .filter(Boolean)
     .join(' ')
+}
+
+type ExperienceFormEntry = {
+  id: string
+  companyName: string
+  title: string
+  employmentType: string
+  location: string
+  workMode: WorkMode | ''
+  startDate: string
+  endDate: string
+  isCurrent: boolean
+  summary: string
+  achievements: string
+  skills: string
+}
+
+type EducationFormEntry = {
+  id: string
+  schoolName: string
+  degree: string
+  fieldOfStudy: string
+  location: string
+  startDate: string
+  endDate: string
+  summary: string
+}
+
+type CertificationFormEntry = {
+  id: string
+  name: string
+  issuer: string
+  issueDate: string
+  expiryDate: string
+  credentialUrl: string
+}
+
+type LinkFormEntry = {
+  id: string
+  label: string
+  url: string
+  kind: string
+}
+
+function createProfileEntryId(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function toExperienceFormEntries(profile: CandidateProfile): ExperienceFormEntry[] {
+  return profile.experiences.map((experience) => ({
+    id: experience.id,
+    companyName: experience.companyName,
+    title: experience.title,
+    employmentType: experience.employmentType ?? '',
+    location: experience.location ?? '',
+    workMode: experience.workMode ?? '',
+    startDate: experience.startDate ?? '',
+    endDate: experience.endDate ?? '',
+    isCurrent: experience.isCurrent,
+    summary: experience.summary ?? '',
+    achievements: joinListInput(experience.achievements),
+    skills: joinListInput(experience.skills)
+  }))
+}
+
+function toEducationFormEntries(profile: CandidateProfile): EducationFormEntry[] {
+  return profile.education.map((education) => ({
+    id: education.id,
+    schoolName: education.schoolName,
+    degree: education.degree ?? '',
+    fieldOfStudy: education.fieldOfStudy ?? '',
+    location: education.location ?? '',
+    startDate: education.startDate ?? '',
+    endDate: education.endDate ?? '',
+    summary: education.summary ?? ''
+  }))
+}
+
+function toCertificationFormEntries(profile: CandidateProfile): CertificationFormEntry[] {
+  return profile.certifications.map((certification) => ({
+    id: certification.id,
+    name: certification.name,
+    issuer: certification.issuer ?? '',
+    issueDate: certification.issueDate ?? '',
+    expiryDate: certification.expiryDate ?? '',
+    credentialUrl: certification.credentialUrl ?? ''
+  }))
+}
+
+function toLinkFormEntries(profile: CandidateProfile): LinkFormEntry[] {
+  return profile.links.map((link) => ({
+    id: link.id,
+    label: link.label,
+    url: link.url,
+    kind: link.kind ?? ''
+  }))
 }
 
 export function JobFinderShell(props: JobFinderShellProps) {
@@ -644,6 +741,12 @@ function ProfileScreen(props: {
     summary: profile.summary,
     yearsExperience: String(profile.yearsExperience)
   })
+  const [experienceEntries, setExperienceEntries] = useState<ExperienceFormEntry[]>(toExperienceFormEntries(profile))
+  const [educationEntries, setEducationEntries] = useState<EducationFormEntry[]>(toEducationFormEntries(profile))
+  const [certificationEntries, setCertificationEntries] = useState<CertificationFormEntry[]>(
+    toCertificationFormEntries(profile)
+  )
+  const [linkEntries, setLinkEntries] = useState<LinkFormEntry[]>(toLinkFormEntries(profile))
   const [preferenceForm, setPreferenceForm] = useState({
     companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
     companyWhitelist: joinListInput(searchPreferences.companyWhitelist),
@@ -671,6 +774,10 @@ function ProfileScreen(props: {
       summary: profile.summary,
       yearsExperience: String(profile.yearsExperience)
     })
+    setExperienceEntries(toExperienceFormEntries(profile))
+    setEducationEntries(toEducationFormEntries(profile))
+    setCertificationEntries(toCertificationFormEntries(profile))
+    setLinkEntries(toLinkFormEntries(profile))
   }, [profile])
 
   useEffect(() => {
@@ -686,12 +793,157 @@ function ProfileScreen(props: {
     })
   }, [searchPreferences])
 
+  const updateExperienceEntry = (id: string, field: keyof ExperienceFormEntry, value: string | boolean) => {
+    setExperienceEntries((current) =>
+      current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry))
+    )
+  }
+
+  const updateEducationEntry = (id: string, field: keyof EducationFormEntry, value: string) => {
+    setEducationEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)))
+  }
+
+  const updateCertificationEntry = (id: string, field: keyof CertificationFormEntry, value: string) => {
+    setCertificationEntries((current) =>
+      current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry))
+    )
+  }
+
+  const updateLinkEntry = (id: string, field: keyof LinkFormEntry, value: string) => {
+    setLinkEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)))
+  }
+
+  const addExperienceEntry = () => {
+    setExperienceEntries((current) => [
+      ...current,
+      {
+        id: createProfileEntryId('experience'),
+        companyName: '',
+        title: '',
+        employmentType: '',
+        location: '',
+        workMode: '',
+        startDate: '',
+        endDate: '',
+        isCurrent: false,
+        summary: '',
+        achievements: '',
+        skills: ''
+      }
+    ])
+  }
+
+  const addEducationEntry = () => {
+    setEducationEntries((current) => [
+      ...current,
+      {
+        id: createProfileEntryId('education'),
+        schoolName: '',
+        degree: '',
+        fieldOfStudy: '',
+        location: '',
+        startDate: '',
+        endDate: '',
+        summary: ''
+      }
+    ])
+  }
+
+  const addCertificationEntry = () => {
+    setCertificationEntries((current) => [
+      ...current,
+      {
+        id: createProfileEntryId('certification'),
+        name: '',
+        issuer: '',
+        issueDate: '',
+        expiryDate: '',
+        credentialUrl: ''
+      }
+    ])
+  }
+
+  const addLinkEntry = () => {
+    setLinkEntries((current) => [...current, { id: createProfileEntryId('link'), label: '', url: '', kind: '' }])
+  }
+
+  const saveProfilePayload: CandidateProfile = {
+    ...profile,
+    firstName: profileForm.firstName.trim(),
+    lastName: profileForm.lastName.trim(),
+    middleName: profileForm.middleName.trim() || null,
+    fullName: buildFullName({
+      firstName: profileForm.firstName,
+      middleName: profileForm.middleName,
+      lastName: profileForm.lastName
+    }),
+    headline: profileForm.headline.trim(),
+    currentLocation: profileForm.currentLocation.trim(),
+    yearsExperience: Number(profileForm.yearsExperience || '0'),
+    email: profileForm.email.trim() || null,
+    phone: profileForm.phone.trim() || null,
+    portfolioUrl: profileForm.portfolioUrl.trim() || null,
+    linkedinUrl: profileForm.linkedinUrl.trim() || null,
+    summary: profileForm.summary.trim(),
+    skills: parseListInput(profileForm.skills),
+    experiences: experienceEntries
+      .filter((entry) => entry.companyName.trim() && entry.title.trim())
+      .map((entry) => ({
+        id: entry.id,
+        companyName: entry.companyName.trim(),
+        title: entry.title.trim(),
+        employmentType: entry.employmentType.trim() || null,
+        location: entry.location.trim() || null,
+        workMode: entry.workMode || null,
+        startDate: entry.startDate.trim() || null,
+        endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
+        isCurrent: entry.isCurrent,
+        summary: entry.summary.trim() || null,
+        achievements: parseListInput(entry.achievements),
+        skills: parseListInput(entry.skills)
+      })),
+    education: educationEntries
+      .filter((entry) => entry.schoolName.trim())
+      .map((entry) => ({
+        id: entry.id,
+        schoolName: entry.schoolName.trim(),
+        degree: entry.degree.trim() || null,
+        fieldOfStudy: entry.fieldOfStudy.trim() || null,
+        location: entry.location.trim() || null,
+        startDate: entry.startDate.trim() || null,
+        endDate: entry.endDate.trim() || null,
+        summary: entry.summary.trim() || null
+      })),
+    certifications: certificationEntries
+      .filter((entry) => entry.name.trim())
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name.trim(),
+        issuer: entry.issuer.trim() || null,
+        issueDate: entry.issueDate.trim() || null,
+        expiryDate: entry.expiryDate.trim() || null,
+        credentialUrl: entry.credentialUrl.trim() || null
+      })),
+    links: linkEntries
+      .filter((entry) => entry.label.trim() && entry.url.trim())
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label.trim(),
+        url: entry.url.trim(),
+        kind: entry.kind.trim() || null
+      })),
+    baseResume: {
+      ...profile.baseResume,
+      textContent: profileForm.resumeText.trim() || null
+    }
+  }
+
   return (
     <section className="screen-section">
       <PageHeader
         eyebrow="Profile"
         title="Candidate setup"
-        description="Foundational resume, extracted profile details, and targeting rules for the first LinkedIn Easy Apply slice."
+        description="Structured candidate data for tailoring, ATS alignment, and future field-by-field apply automation."
       />
 
       <div className="profile-layout">
@@ -716,6 +968,14 @@ function ProfileScreen(props: {
               <div>
                 <span>Base location</span>
                 <strong>{profile.currentLocation}</strong>
+              </div>
+              <div>
+                <span>Roles captured</span>
+                <strong>{profile.experiences.length}</strong>
+              </div>
+              <div>
+                <span>Education records</span>
+                <strong>{profile.education.length}</strong>
               </div>
             </div>
           </div>
@@ -803,202 +1063,219 @@ function ProfileScreen(props: {
           </div>
 
           <div className="panel-muted profile-subsection">
-            <p className="section-label">Workflow defaults</p>
+            <p className="section-label">Structured coverage</p>
             <div className="stat-grid">
               <div>
-                <span>Tailoring mode</span>
-                <strong>{formatStatusLabel(searchPreferences.tailoringMode)}</strong>
+                <span>Experience entries</span>
+                <strong>{profile.experiences.length}</strong>
               </div>
               <div>
-                <span>Approval mode</span>
-                <strong>{formatApprovalMode(searchPreferences.approvalMode)}</strong>
+                <span>Education entries</span>
+                <strong>{profile.education.length}</strong>
               </div>
               <div>
-                <span>Minimum salary</span>
-                <strong>
-                  {searchPreferences.minimumSalaryUsd
-                    ? `$${searchPreferences.minimumSalaryUsd.toLocaleString('en-US')}`
-                    : 'Not set'}
-                </strong>
+                <span>Certifications</span>
+                <strong>{profile.certifications.length}</strong>
               </div>
               <div>
-                <span>Preferred companies</span>
-                <strong>{searchPreferences.companyWhitelist.length || 0}</strong>
+                <span>Proof links</span>
+                <strong>{profile.links.length}</strong>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <div className="profile-edit-layout">
+      <div className="profile-stack-layout">
         <section className="panel panel-spacious">
           <div className="panel-header-row">
-            <p className="section-label">Edit profile</p>
+            <div>
+              <p className="section-label">Identity and contact</p>
+              <p className="muted-copy">Keep the top-level profile concise, searchable, and ready for ATS autofill.</p>
+            </div>
             <span className="section-badge">Persist locally</span>
           </div>
           <div className="form-column-layout">
             <div className="form-column">
               <label className="field-stack">
                 <span className="section-label">First name</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) => setProfileForm((current) => ({ ...current, firstName: event.target.value }))}
-                  value={profileForm.firstName}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, firstName: event.target.value }))} value={profileForm.firstName} />
               </label>
               <label className="field-stack">
                 <span className="section-label">Middle name</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) => setProfileForm((current) => ({ ...current, middleName: event.target.value }))}
-                  value={profileForm.middleName}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, middleName: event.target.value }))} value={profileForm.middleName} />
               </label>
               <label className="field-stack">
                 <span className="section-label">Headline</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) => setProfileForm((current) => ({ ...current, headline: event.target.value }))}
-                  value={profileForm.headline}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, headline: event.target.value }))} value={profileForm.headline} />
               </label>
               <label className="field-stack">
                 <span className="section-label">Email</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))}
-                  value={profileForm.email}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))} value={profileForm.email} />
               </label>
               <label className="field-stack">
                 <span className="section-label">Portfolio URL</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) =>
-                    setProfileForm((current) => ({ ...current, portfolioUrl: event.target.value }))
-                  }
-                  value={profileForm.portfolioUrl}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, portfolioUrl: event.target.value }))} value={profileForm.portfolioUrl} />
               </label>
               <label className="field-stack">
                 <span className="section-label">Skills</span>
-                <textarea
-                  className="textarea-shell compact-textarea"
-                  onChange={(event) => setProfileForm((current) => ({ ...current, skills: event.target.value }))}
-                  rows={3}
-                  value={profileForm.skills}
-                />
+                <textarea className="textarea-shell compact-textarea" onChange={(event) => setProfileForm((current) => ({ ...current, skills: event.target.value }))} rows={4} value={profileForm.skills} />
               </label>
             </div>
-
             <div className="form-column">
               <label className="field-stack">
                 <span className="section-label">Last name</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) => setProfileForm((current) => ({ ...current, lastName: event.target.value }))}
-                  value={profileForm.lastName}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, lastName: event.target.value }))} value={profileForm.lastName} />
               </label>
               <label className="field-stack">
                 <span className="section-label">Current location</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) =>
-                    setProfileForm((current) => ({ ...current, currentLocation: event.target.value }))
-                  }
-                  value={profileForm.currentLocation}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, currentLocation: event.target.value }))} value={profileForm.currentLocation} />
               </label>
               <label className="field-stack">
                 <span className="section-label">Years of experience</span>
-                <input
-                  className="input-shell"
-                  min="0"
-                  onChange={(event) =>
-                    setProfileForm((current) => ({ ...current, yearsExperience: event.target.value }))
-                  }
-                  type="number"
-                  value={profileForm.yearsExperience}
-                />
+                <input className="input-shell" min="0" onChange={(event) => setProfileForm((current) => ({ ...current, yearsExperience: event.target.value }))} type="number" value={profileForm.yearsExperience} />
               </label>
               <label className="field-stack">
                 <span className="section-label">Phone</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))}
-                  value={profileForm.phone}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))} value={profileForm.phone} />
               </label>
               <label className="field-stack">
                 <span className="section-label">LinkedIn URL</span>
-                <input
-                  className="input-shell"
-                  onChange={(event) =>
-                    setProfileForm((current) => ({ ...current, linkedinUrl: event.target.value }))
-                  }
-                  value={profileForm.linkedinUrl}
-                />
+                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, linkedinUrl: event.target.value }))} value={profileForm.linkedinUrl} />
               </label>
             </div>
           </div>
-
           <div className="form-grid">
             <label className="field-stack">
               <span className="section-label">Summary</span>
-              <textarea
-                className="textarea-shell"
-                onChange={(event) => setProfileForm((current) => ({ ...current, summary: event.target.value }))}
-                rows={4}
-                value={profileForm.summary}
-              />
+              <textarea className="textarea-shell" onChange={(event) => setProfileForm((current) => ({ ...current, summary: event.target.value }))} rows={4} value={profileForm.summary} />
             </label>
             <label className="field-stack">
               <span className="section-label">Resume text for agents</span>
-              <textarea
-                className="textarea-shell"
-                onChange={(event) => setProfileForm((current) => ({ ...current, resumeText: event.target.value }))}
-                rows={8}
-                value={profileForm.resumeText}
-              />
+              <textarea className="textarea-shell" onChange={(event) => setProfileForm((current) => ({ ...current, resumeText: event.target.value }))} rows={8} value={profileForm.resumeText} />
             </label>
           </div>
-          <div className="button-row">
-            <button
-              className="primary-action"
-              disabled={busy}
-                onClick={() =>
-                  onSaveProfile({
-                    ...profile,
-                    firstName: profileForm.firstName.trim(),
-                    email: profileForm.email.trim() || null,
-                    currentLocation: profileForm.currentLocation.trim(),
-                    fullName: buildFullName({
-                      firstName: profileForm.firstName,
-                      middleName: profileForm.middleName,
-                      lastName: profileForm.lastName
-                    }),
-                    headline: profileForm.headline.trim(),
-                    linkedinUrl: profileForm.linkedinUrl.trim() || null,
-                    lastName: profileForm.lastName.trim(),
-                    middleName: profileForm.middleName.trim() || null,
-                    phone: profileForm.phone.trim() || null,
-                    portfolioUrl: profileForm.portfolioUrl.trim() || null,
-                    skills: parseListInput(profileForm.skills),
-                  summary: profileForm.summary.trim(),
-                  baseResume: {
-                    ...profile.baseResume,
-                    textContent: profileForm.resumeText.trim() || null
-                  },
-                  yearsExperience: Number(profileForm.yearsExperience || '0')
-                })
-              }
-              type="button"
-            >
-              Save profile
+        </section>
+
+        <section className="panel panel-spacious">
+          <div className="panel-header-row">
+            <div>
+              <p className="section-label">Experience timeline</p>
+              <p className="muted-copy">Each role now has dedicated fields for title, employer, dates, outcomes, and skill evidence.</p>
+            </div>
+            <button className="secondary-action compact-action" disabled={busy} onClick={addExperienceEntry} type="button">
+              Add experience
             </button>
           </div>
+          <div className="record-stack">
+            {experienceEntries.length > 0 ? experienceEntries.map((entry, index) => (
+              <article key={entry.id} className="record-card">
+                <div className="panel-header-row">
+                  <p className="section-label">Role {index + 1}</p>
+                  <button className="ghost-action compact-action" disabled={busy} onClick={() => setExperienceEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">
+                    Remove
+                  </button>
+                </div>
+                <div className="form-column-layout">
+                  <div className="form-column">
+                    <label className="field-stack"><span className="section-label">Company</span><input className="input-shell" value={entry.companyName} onChange={(event) => updateExperienceEntry(entry.id, 'companyName', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Title</span><input className="input-shell" value={entry.title} onChange={(event) => updateExperienceEntry(entry.id, 'title', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Employment type</span><input className="input-shell" value={entry.employmentType} onChange={(event) => updateExperienceEntry(entry.id, 'employmentType', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Location</span><input className="input-shell" value={entry.location} onChange={(event) => updateExperienceEntry(entry.id, 'location', event.target.value)} /></label>
+                  </div>
+                  <div className="form-column">
+                    <label className="field-stack"><span className="section-label">Work mode</span><select className="select-shell" value={entry.workMode} onChange={(event) => updateExperienceEntry(entry.id, 'workMode', event.target.value as WorkMode | '')}><option value="">Select mode</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">Onsite</option><option value="flexible">Flexible</option></select></label>
+                    <label className="field-stack"><span className="section-label">Start date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.startDate} onChange={(event) => updateExperienceEntry(entry.id, 'startDate', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">End date</span><input className="input-shell" disabled={entry.isCurrent} placeholder="YYYY-MM" value={entry.endDate} onChange={(event) => updateExperienceEntry(entry.id, 'endDate', event.target.value)} /></label>
+                    <label className="checkbox-row"><input checked={entry.isCurrent} onChange={(event) => updateExperienceEntry(entry.id, 'isCurrent', event.target.checked)} type="checkbox" /><span>Current role</span></label>
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <label className="field-stack"><span className="section-label">Role summary</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.summary} onChange={(event) => updateExperienceEntry(entry.id, 'summary', event.target.value)} /></label>
+                  <div className="form-column-layout">
+                    <label className="field-stack"><span className="section-label">Achievements</span><textarea className="textarea-shell" rows={4} value={entry.achievements} onChange={(event) => updateExperienceEntry(entry.id, 'achievements', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Skills used</span><textarea className="textarea-shell compact-textarea" rows={4} value={entry.skills} onChange={(event) => updateExperienceEntry(entry.id, 'skills', event.target.value)} /></label>
+                  </div>
+                </div>
+              </article>
+            )) : <EmptyState title="No structured experience yet" description="Add each role with dedicated fields so resume tailoring and future form-fill flows do not depend on one large text box." />}
+          </div>
         </section>
+
+        <div className="profile-edit-layout">
+          <section className="panel panel-spacious">
+            <div className="panel-header-row">
+              <div>
+                <p className="section-label">Education</p>
+                <p className="muted-copy">Store schools, degrees, fields of study, and dates as separate records.</p>
+              </div>
+              <button className="secondary-action compact-action" disabled={busy} onClick={addEducationEntry} type="button">Add education</button>
+            </div>
+            <div className="record-stack">
+              {educationEntries.length > 0 ? educationEntries.map((entry, index) => (
+                <article key={entry.id} className="record-card">
+                  <div className="panel-header-row">
+                    <p className="section-label">Education {index + 1}</p>
+                    <button className="ghost-action compact-action" disabled={busy} onClick={() => setEducationEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button>
+                  </div>
+                  <div className="form-grid two-column-form-grid">
+                    <label className="field-stack"><span className="section-label">School</span><input className="input-shell" value={entry.schoolName} onChange={(event) => updateEducationEntry(entry.id, 'schoolName', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Degree</span><input className="input-shell" value={entry.degree} onChange={(event) => updateEducationEntry(entry.id, 'degree', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Field of study</span><input className="input-shell" value={entry.fieldOfStudy} onChange={(event) => updateEducationEntry(entry.id, 'fieldOfStudy', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Location</span><input className="input-shell" value={entry.location} onChange={(event) => updateEducationEntry(entry.id, 'location', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Start date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.startDate} onChange={(event) => updateEducationEntry(entry.id, 'startDate', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">End date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.endDate} onChange={(event) => updateEducationEntry(entry.id, 'endDate', event.target.value)} /></label>
+                    <label className="field-stack two-column-span"><span className="section-label">Notes</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.summary} onChange={(event) => updateEducationEntry(entry.id, 'summary', event.target.value)} /></label>
+                  </div>
+                </article>
+              )) : <EmptyState title="No education records yet" description="Add schools and credentials here instead of burying them in one freeform summary box." />}
+            </div>
+          </section>
+
+          <section className="panel panel-spacious">
+            <div className="panel-header-row">
+              <div>
+                <p className="section-label">Certifications and links</p>
+                <p className="muted-copy">Capture credentials, portfolio links, GitHub, case studies, and other proof separately.</p>
+              </div>
+              <div className="button-row">
+                <button className="secondary-action compact-action" disabled={busy} onClick={addCertificationEntry} type="button">Add certification</button>
+                <button className="secondary-action compact-action" disabled={busy} onClick={addLinkEntry} type="button">Add link</button>
+              </div>
+            </div>
+            <div className="record-stack">
+              {certificationEntries.map((entry, index) => (
+                <article key={entry.id} className="record-card">
+                  <div className="panel-header-row">
+                    <p className="section-label">Certification {index + 1}</p>
+                    <button className="ghost-action compact-action" disabled={busy} onClick={() => setCertificationEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button>
+                  </div>
+                  <div className="form-grid two-column-form-grid">
+                    <label className="field-stack"><span className="section-label">Name</span><input className="input-shell" value={entry.name} onChange={(event) => updateCertificationEntry(entry.id, 'name', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Issuer</span><input className="input-shell" value={entry.issuer} onChange={(event) => updateCertificationEntry(entry.id, 'issuer', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Issue date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.issueDate} onChange={(event) => updateCertificationEntry(entry.id, 'issueDate', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Expiry date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.expiryDate} onChange={(event) => updateCertificationEntry(entry.id, 'expiryDate', event.target.value)} /></label>
+                    <label className="field-stack two-column-span"><span className="section-label">Credential URL</span><input className="input-shell" value={entry.credentialUrl} onChange={(event) => updateCertificationEntry(entry.id, 'credentialUrl', event.target.value)} /></label>
+                  </div>
+                </article>
+              ))}
+              {linkEntries.map((entry, index) => (
+                <article key={entry.id} className="record-card">
+                  <div className="panel-header-row">
+                    <p className="section-label">Link {index + 1}</p>
+                    <button className="ghost-action compact-action" disabled={busy} onClick={() => setLinkEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button>
+                  </div>
+                  <div className="form-grid two-column-form-grid">
+                    <label className="field-stack"><span className="section-label">Label</span><input className="input-shell" value={entry.label} onChange={(event) => updateLinkEntry(entry.id, 'label', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Kind</span><input className="input-shell" value={entry.kind} onChange={(event) => updateLinkEntry(entry.id, 'kind', event.target.value)} /></label>
+                    <label className="field-stack two-column-span"><span className="section-label">URL</span><input className="input-shell" value={entry.url} onChange={(event) => updateLinkEntry(entry.id, 'url', event.target.value)} /></label>
+                  </div>
+                </article>
+              ))}
+              {certificationEntries.length === 0 && linkEntries.length === 0 ? <EmptyState title="No supporting records yet" description="Keep certifications and portfolio proof in dedicated records so future job applications can reuse them directly." /> : null}
+            </div>
+          </section>
+        </div>
 
         <section className="panel panel-spacious">
           <div className="panel-header-row">
@@ -1007,120 +1284,32 @@ function ProfileScreen(props: {
           </div>
           <div className="form-column-layout">
             <div className="form-column">
-              <label className="field-stack">
-                <span className="section-label">Target roles</span>
-                <textarea
-                  className="textarea-shell compact-textarea"
-                  onChange={(event) =>
-                    setPreferenceForm((current) => ({ ...current, targetRoles: event.target.value }))
-                  }
-                  rows={3}
-                  value={preferenceForm.targetRoles}
-                />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Locations</span>
-                <textarea
-                  className="textarea-shell compact-textarea"
-                  onChange={(event) =>
-                    setPreferenceForm((current) => ({ ...current, locations: event.target.value }))
-                  }
-                  rows={3}
-                  value={preferenceForm.locations}
-                />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Seniority</span>
-                <textarea
-                  className="textarea-shell compact-textarea"
-                  onChange={(event) =>
-                    setPreferenceForm((current) => ({ ...current, seniorityLevels: event.target.value }))
-                  }
-                  rows={3}
-                  value={preferenceForm.seniorityLevels}
-                />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Tailoring mode</span>
-                <select
-                  className="select-shell"
-                  onChange={(event) =>
-                    setPreferenceForm((current) => ({
-                      ...current,
-                      tailoringMode: event.target.value as JobSearchPreferences['tailoringMode']
-                    }))
-                  }
-                  value={preferenceForm.tailoringMode}
-                >
-                  <option value="conservative">Conservative</option>
-                  <option value="balanced">Balanced</option>
-                  <option value="aggressive">Aggressive</option>
-                </select>
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Blocked companies</span>
-                <textarea
-                  className="textarea-shell compact-textarea"
-                  onChange={(event) =>
-                    setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))
-                  }
-                  rows={3}
-                  value={preferenceForm.companyBlacklist}
-                />
-              </label>
+              <label className="field-stack"><span className="section-label">Target roles</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, targetRoles: event.target.value }))} rows={3} value={preferenceForm.targetRoles} /></label>
+              <label className="field-stack"><span className="section-label">Locations</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, locations: event.target.value }))} rows={3} value={preferenceForm.locations} /></label>
+              <label className="field-stack"><span className="section-label">Seniority</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, seniorityLevels: event.target.value }))} rows={3} value={preferenceForm.seniorityLevels} /></label>
+              <label className="field-stack"><span className="section-label">Tailoring mode</span><select className="select-shell" onChange={(event) => setPreferenceForm((current) => ({ ...current, tailoringMode: event.target.value as JobSearchPreferences['tailoringMode'] }))} value={preferenceForm.tailoringMode}><option value="conservative">Conservative</option><option value="balanced">Balanced</option><option value="aggressive">Aggressive</option></select></label>
+              <label className="field-stack"><span className="section-label">Blocked companies</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))} rows={3} value={preferenceForm.companyBlacklist} /></label>
             </div>
-
             <div className="form-column">
               <div className="field-stack">
                 <span className="section-label">Work modes</span>
                 <div className="checkbox-grid">
                   {(['remote', 'hybrid', 'onsite', 'flexible'] as const).map((workMode) => (
                     <label key={workMode} className="checkbox-row">
-                      <input
-                        checked={preferenceForm.workModes.includes(workMode)}
-                        onChange={(event) =>
-                          setPreferenceForm((current) => ({
-                            ...current,
-                            workModes: event.target.checked
-                              ? [...current.workModes, workMode]
-                              : current.workModes.filter((value) => value !== workMode)
-                          }))
-                        }
-                        type="checkbox"
-                      />
+                      <input checked={preferenceForm.workModes.includes(workMode)} onChange={(event) => setPreferenceForm((current) => ({ ...current, workModes: event.target.checked ? [...current.workModes, workMode] : current.workModes.filter((value) => value !== workMode) }))} type="checkbox" />
                       <span>{formatStatusLabel(workMode)}</span>
                     </label>
                   ))}
                 </div>
               </div>
-              <label className="field-stack">
-                <span className="section-label">Minimum salary</span>
-                <input
-                  className="input-shell"
-                  min="0"
-                  onChange={(event) =>
-                    setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value }))
-                  }
-                  type="number"
-                  value={preferenceForm.minimumSalaryUsd}
-                />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Preferred companies</span>
-                <textarea
-                  className="textarea-shell compact-textarea"
-                  onChange={(event) =>
-                    setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))
-                  }
-                  rows={3}
-                  value={preferenceForm.companyWhitelist}
-                />
-              </label>
+              <label className="field-stack"><span className="section-label">Minimum salary</span><input className="input-shell" min="0" onChange={(event) => setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value }))} type="number" value={preferenceForm.minimumSalaryUsd} /></label>
+              <label className="field-stack"><span className="section-label">Preferred companies</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))} rows={3} value={preferenceForm.companyWhitelist} /></label>
             </div>
           </div>
           <div className="button-row">
+            <button className="primary-action" disabled={busy} onClick={() => onSaveProfile(saveProfilePayload)} type="button">Save profile</button>
             <button
-              className="primary-action"
+              className="secondary-action"
               disabled={busy}
               onClick={() =>
                 onSaveSearchPreferences({
@@ -1128,9 +1317,7 @@ function ProfileScreen(props: {
                   companyBlacklist: parseListInput(preferenceForm.companyBlacklist),
                   companyWhitelist: parseListInput(preferenceForm.companyWhitelist),
                   locations: parseListInput(preferenceForm.locations),
-                  minimumSalaryUsd: preferenceForm.minimumSalaryUsd.trim()
-                    ? Number(preferenceForm.minimumSalaryUsd)
-                    : null,
+                  minimumSalaryUsd: preferenceForm.minimumSalaryUsd.trim() ? Number(preferenceForm.minimumSalaryUsd) : null,
                   seniorityLevels: parseListInput(preferenceForm.seniorityLevels),
                   tailoringMode: preferenceForm.tailoringMode,
                   targetRoles: parseListInput(preferenceForm.targetRoles),

@@ -33,7 +33,11 @@ describe('contracts', () => {
         uploadedAt: '2026-03-20T10:00:00.000Z',
         storagePath: '/tmp/alex-vanguard.pdf'
       },
-      targetRoles: ['Frontend Engineer']
+      targetRoles: ['Frontend Engineer'],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: []
     })
 
     expect(profile.baseResume.storagePath).toBe('/tmp/alex-vanguard.pdf')
@@ -41,6 +45,8 @@ describe('contracts', () => {
     expect(profile.email).toBeNull()
     expect(profile.locations).toEqual([])
     expect(profile.skills).toEqual([])
+    expect(profile.experiences).toEqual([])
+    expect(profile.education).toEqual([])
   })
 
   test('applies defaults for job search preferences', () => {
@@ -176,7 +182,53 @@ describe('contracts', () => {
         },
         targetRoles: ['Principal Designer'],
         locations: ['Remote'],
-        skills: ['Figma', 'React']
+        skills: ['Figma', 'React'],
+        experiences: [
+          {
+            id: 'experience_1',
+            companyName: 'Signal Systems',
+            title: 'Senior Product Designer',
+            employmentType: 'Full-time',
+            location: 'London, UK',
+            workMode: 'hybrid',
+            startDate: '2021-01',
+            endDate: null,
+            isCurrent: true,
+            summary: 'Owns workflow tooling and design systems.',
+            achievements: ['Improved designer-engineer handoff quality'],
+            skills: ['Figma', 'Design Systems']
+          }
+        ],
+        education: [
+          {
+            id: 'education_1',
+            schoolName: 'University of the Arts London',
+            degree: 'BA',
+            fieldOfStudy: 'Interaction Design',
+            location: 'London, UK',
+            startDate: '2010-09',
+            endDate: '2013-06',
+            summary: null
+          }
+        ],
+        certifications: [
+          {
+            id: 'certification_1',
+            name: 'UX Certification',
+            issuer: 'NN/g',
+            issueDate: '2020-04',
+            expiryDate: null,
+            credentialUrl: null
+          }
+        ],
+        links: [
+          {
+            id: 'link_1',
+            label: 'Portfolio',
+            url: 'https://alex.example.com',
+            kind: 'portfolio'
+          }
+        ]
       },
       searchPreferences: {
         targetRoles: ['Principal Designer'],
