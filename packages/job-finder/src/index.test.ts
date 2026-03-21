@@ -13,14 +13,22 @@ function createSeed(): JobFinderRepositorySeed {
       lastName: 'Vanguard',
       middleName: null,
       fullName: 'Alex Vanguard',
+      preferredDisplayName: null,
       headline: 'Senior systems designer',
       summary: 'Builds resilient workflows.',
       currentLocation: 'London, UK',
+      currentCity: null,
+      currentRegion: null,
+      currentCountry: null,
+      timeZone: null,
       yearsExperience: 10,
       email: 'alex@example.com',
+      secondaryEmail: null,
       phone: '+44 7700 900123',
       portfolioUrl: 'https://alex.example.com',
       linkedinUrl: 'https://www.linkedin.com/in/alex-vanguard',
+      githubUrl: null,
+      personalWebsiteUrl: null,
       baseResume: {
         id: 'resume_1',
         fileName: 'alex-vanguard.pdf',
@@ -31,18 +39,99 @@ function createSeed(): JobFinderRepositorySeed {
         textUpdatedAt: '2026-03-20T10:00:00.000Z',
         extractionStatus: 'ready',
         lastAnalyzedAt: '2026-03-20T10:01:00.000Z',
+        analysisProviderKind: null,
+        analysisProviderLabel: null,
         analysisWarnings: []
+      },
+      workEligibility: {
+        authorizedWorkCountries: [],
+        requiresVisaSponsorship: null,
+        willingToRelocate: null,
+        preferredRelocationRegions: [],
+        willingToTravel: null,
+        remoteEligible: null,
+        noticePeriodDays: null,
+        availableStartDate: null,
+        securityClearance: null
+      },
+      professionalSummary: {
+        shortValueProposition: null,
+        fullSummary: null,
+        careerThemes: [],
+        leadershipSummary: null,
+        domainFocusSummary: null,
+        strengths: []
+      },
+      skillGroups: {
+        coreSkills: [],
+        tools: [],
+        languagesAndFrameworks: [],
+        softSkills: [],
+        highlightedSkills: []
       },
       targetRoles: ['Principal Designer'],
       locations: ['Remote'],
-      skills: ['Figma', 'React', 'Design Systems']
+      skills: ['Figma', 'React', 'Design Systems'],
+      experiences: [
+        {
+          id: 'experience_1',
+          companyName: 'Signal Systems',
+          companyUrl: null,
+          title: 'Senior systems designer',
+          employmentType: 'Full-time',
+          location: 'London, UK',
+          workMode: 'hybrid',
+          startDate: '2020-01',
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: 'Builds resilient workflow tools.',
+          achievements: ['Led design-system rollout across core surfaces.'],
+          skills: ['Figma', 'Design Systems'],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        }
+      ],
+      education: [
+        {
+          id: 'education_1',
+          schoolName: 'Royal College of Art',
+          degree: 'MA',
+          fieldOfStudy: 'Design Products',
+          location: 'London, UK',
+          startDate: '2012-09',
+          endDate: '2014-06',
+          isDraft: false,
+          summary: null
+        }
+      ],
+      certifications: [],
+      links: [
+        {
+          id: 'link_1',
+          label: 'Portfolio',
+          url: 'https://alex.example.com',
+          kind: 'portfolio',
+          isDraft: false
+        }
+      ],
+      projects: [],
+      spokenLanguages: []
     },
     searchPreferences: {
       targetRoles: ['Principal Designer', 'Senior Product Designer', 'Principal UX Engineer'],
+      jobFamilies: [],
       locations: ['Remote', 'London'],
+      excludedLocations: [],
       workModes: ['remote', 'hybrid'],
       seniorityLevels: ['senior'],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
       minimumSalaryUsd: 170000,
+      targetSalaryUsd: null,
+      salaryCurrency: 'USD',
       approvalMode: 'review_before_submit',
       tailoringMode: 'balanced',
       companyBlacklist: [],

@@ -27,20 +27,28 @@ describe('contracts', () => {
       summary: 'Builds reliable user-facing systems.',
       currentLocation: 'London, UK',
       yearsExperience: 8,
-      baseResume: {
-        id: 'resume_1',
-        fileName: 'alex-vanguard.pdf',
-        uploadedAt: '2026-03-20T10:00:00.000Z',
-        storagePath: '/tmp/alex-vanguard.pdf'
-      },
-      targetRoles: ['Frontend Engineer']
-    })
+        baseResume: {
+          id: 'resume_1',
+          fileName: 'alex-vanguard.pdf',
+          uploadedAt: '2026-03-20T10:00:00.000Z',
+          storagePath: '/tmp/alex-vanguard.pdf'
+        },
+        targetRoles: ['Frontend Engineer'],
+        experiences: [],
+        education: [],
+        certifications: [],
+        links: [],
+        projects: [],
+        spokenLanguages: []
+      })
 
     expect(profile.baseResume.storagePath).toBe('/tmp/alex-vanguard.pdf')
     expect(profile.baseResume.extractionStatus).toBe('not_started')
     expect(profile.email).toBeNull()
     expect(profile.locations).toEqual([])
     expect(profile.skills).toEqual([])
+    expect(profile.experiences).toEqual([])
+    expect(profile.education).toEqual([])
   })
 
   test('applies defaults for job search preferences', () => {
@@ -52,6 +60,36 @@ describe('contracts', () => {
 
     expect(preferences.companyBlacklist).toEqual([])
     expect(preferences.workModes).toEqual([])
+  })
+
+  test('rejects malformed link metadata and url fields', () => {
+    expect(() =>
+      CandidateProfileSchema.parse({
+        id: 'candidate_1',
+        firstName: 'Alex',
+        lastName: 'Vanguard',
+        middleName: null,
+        fullName: 'Alex Vanguard',
+        headline: 'Full-stack engineer',
+        summary: 'Builds reliable user-facing systems.',
+        currentLocation: 'London, UK',
+        yearsExperience: 8,
+        baseResume: {
+          id: 'resume_1',
+          fileName: 'alex-vanguard.pdf',
+          uploadedAt: '2026-03-20T10:00:00.000Z',
+          storagePath: '/tmp/alex-vanguard.pdf'
+        },
+        links: [
+          {
+            id: 'link_1',
+            label: 'Portfolio',
+            url: 'not-a-url',
+            kind: 'custom'
+          }
+        ]
+      })
+    ).toThrow()
   })
 
   test('parses a discovery run result and application attempt', () => {
@@ -172,18 +210,79 @@ describe('contracts', () => {
           textUpdatedAt: '2026-03-20T10:00:00.000Z',
           extractionStatus: 'ready',
           lastAnalyzedAt: '2026-03-20T10:01:00.000Z',
+          analysisProviderKind: null,
+          analysisProviderLabel: null,
           analysisWarnings: []
         },
         targetRoles: ['Principal Designer'],
         locations: ['Remote'],
-        skills: ['Figma', 'React']
+        skills: ['Figma', 'React'],
+        experiences: [
+          {
+            id: 'experience_1',
+            companyName: 'Signal Systems',
+            companyUrl: null,
+            title: 'Senior Product Designer',
+            employmentType: 'Full-time',
+            location: 'London, UK',
+            workMode: 'hybrid',
+            startDate: '2021-01',
+            endDate: null,
+            isCurrent: true,
+            summary: 'Owns workflow tooling and design systems.',
+            achievements: ['Improved designer-engineer handoff quality'],
+            skills: ['Figma', 'Design Systems'],
+            domainTags: [],
+            peopleManagementScope: null,
+            ownershipScope: null
+          }
+        ],
+        education: [
+          {
+            id: 'education_1',
+            schoolName: 'University of the Arts London',
+            degree: 'BA',
+            fieldOfStudy: 'Interaction Design',
+            location: 'London, UK',
+            startDate: '2010-09',
+            endDate: '2013-06',
+            summary: null
+          }
+        ],
+        certifications: [
+          {
+            id: 'certification_1',
+            name: 'UX Certification',
+            issuer: 'NN/g',
+            issueDate: '2020-04',
+            expiryDate: null,
+            credentialUrl: null
+          }
+        ],
+        links: [
+          {
+            id: 'link_1',
+            label: 'Portfolio',
+            url: 'https://alex.example.com',
+            kind: 'portfolio'
+          }
+        ],
+        projects: [],
+        spokenLanguages: []
       },
       searchPreferences: {
         targetRoles: ['Principal Designer'],
+        jobFamilies: [],
         locations: ['Remote'],
+        excludedLocations: [],
         workModes: ['remote'],
         seniorityLevels: ['senior'],
+        targetIndustries: [],
+        targetCompanyStages: [],
+        employmentTypes: [],
         minimumSalaryUsd: 170000,
+        targetSalaryUsd: null,
+        salaryCurrency: 'USD',
         approvalMode: 'review_before_submit',
         tailoringMode: 'balanced',
         companyBlacklist: [],

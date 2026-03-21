@@ -104,10 +104,10 @@ Use one track per meaningful workstream, not per person or per chat.
 - scope: redesign the candidate profile data model and Profile screen so hiring-relevant details are grouped more clearly for ATS alignment, resume tailoring, and browser automation
 - linked plan: `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`
 - code areas: `packages/contracts`, `packages/job-finder`, `apps/desktop`
-- current focus: refine the profile field taxonomy against current hiring-platform patterns, define must-have versus later fields, and clarify how eligibility/logistics should stay separate from public profile data before changing contracts or renderer state
-- next step: reshape the profile contracts into grouped identity/eligibility/background/artifact objects and then rebuild the Profile screen around sectioned cards and repeatable records
+- current focus: the researched profile-information-architecture slice is now live in contracts and the Profile screen, covering richer identity/contact, eligibility/logistics, summary layers, grouped skills, repeatable experience/education/certification/project/link/language records, and broader targeting preferences while staying compatible with the existing save flow; partial repeatable records now persist as drafts instead of being dropped on save
+- next step: map resume-analysis output into the new structured records, then use those sections directly in tailoring prompts and apply-form answer generation
 - blockers: none
-- notes: the refined plan now leans on current LinkedIn, Greenhouse, Workable, and Ashby field patterns; the main recommendation is to separate identity, eligibility/logistics, background, search preferences, and profile artifacts while avoiding unnecessary sensitive-data collection by default
+- notes: the refined plan now leans on current LinkedIn, Greenhouse, Workable, and Ashby field patterns; the live implementation keeps backward compatibility by extending `CandidateProfile` and `JobSearchPreferences` with structured sections rather than replacing them outright, while still avoiding unnecessary sensitive-data collection by default
 
 ## Ready Queue
 
@@ -135,3 +135,5 @@ Use one track per meaningful workstream, not per person or per chat.
 - `2026-03-20`: changed workspace reset to a true fresh-start reset that clears persisted resume/job/application data and the LinkedIn browser profile instead of reseeding the sample candidate
 - `2026-03-20`: added automatic desktop `.env` / `.env.local` loading and a root `.env.example` so FelidaeAI can be activated reliably for local resume extraction without manual shell export steps
 - `2026-03-20`: added persisted resume-analysis provenance in workspace state plus a visible profile badge for AI-vs-fallback parsing, and made Settings reset return the app to the cleared fresh-profile view
+- `2026-03-20`: expanded the profile-information-architecture slice with researched identity/contact, eligibility, summary, skills, experience, education, certifications, projects, links, languages, and broader targeting sections in the live Profile screen instead of leaving them only in the plan
+- `2026-03-20`: fixed the structured Profile save path so half-filled repeatable cards persist as drafts, integer-only numeric fields validate before IPC, and link/credential URLs plus link kinds are enforced at the contract boundary
