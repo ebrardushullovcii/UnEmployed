@@ -16,8 +16,8 @@ apps/desktop/dist/
 apps/desktop/out/
 apps/desktop/.vite/
 apps/desktop/test-artifacts/
+apps/desktop/test-fixtures/local/
 .cursor/*
 !.cursor/rules/
 !.cursor/rules/**
-apps/desktop/test-fixtures/local/
 .opencode/
