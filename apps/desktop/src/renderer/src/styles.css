@@ -1031,7 +1031,7 @@ button {
   padding: 0.32rem 0.45rem;
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 0.72rem;

@@ -84,6 +84,7 @@ function createSeed(): JobFinderRepositorySeed {
           startDate: '2020-01',
           endDate: null,
           isCurrent: true,
+          isDraft: false,
           summary: 'Builds resilient workflow tools.',
           achievements: ['Led design-system rollout across core surfaces.'],
           skills: ['Figma', 'Design Systems'],
@@ -101,6 +102,7 @@ function createSeed(): JobFinderRepositorySeed {
           location: 'London, UK',
           startDate: '2012-09',
           endDate: '2014-06',
+          isDraft: false,
           summary: null
         }
       ],
@@ -110,7 +112,8 @@ function createSeed(): JobFinderRepositorySeed {
           id: 'link_1',
           label: 'Portfolio',
           url: 'https://alex.example.com',
-          kind: 'portfolio'
+          kind: 'portfolio',
+          isDraft: false
         }
       ],
       projects: [],

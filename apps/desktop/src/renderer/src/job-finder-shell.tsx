@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  candidateLinkKindValues,
   type AgentProviderStatus,
   type ApprovalMode,
   type ApplicationAttempt,
@@ -18,6 +19,7 @@ import {
   type SavedJob,
   type TailoredAsset,
   type WorkMode,
+  workModeValues,
   suiteModules
 } from '@unemployed/contracts'
 
@@ -300,12 +302,28 @@ function createProfileEntryId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+function parseRequiredNonNegativeInteger(value: string): number | null {
+  const trimmedValue = value.trim()
+
+  if (!trimmedValue) {
+    return null
+  }
+
+  const parsedValue = Number(trimmedValue)
+
+  if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+    return null
+  }
+
+  return parsedValue
+}
+
 function toExperienceFormEntries(profile: CandidateProfile): ExperienceFormEntry[] {
   return profile.experiences.map((experience) => ({
     id: experience.id,
-    companyName: experience.companyName,
+    companyName: experience.companyName ?? '',
     companyUrl: experience.companyUrl ?? '',
-    title: experience.title,
+    title: experience.title ?? '',
     employmentType: experience.employmentType ?? '',
     location: experience.location ?? '',
     workMode: experience.workMode ?? '',
@@ -324,7 +342,7 @@ function toExperienceFormEntries(profile: CandidateProfile): ExperienceFormEntry
 function toEducationFormEntries(profile: CandidateProfile): EducationFormEntry[] {
   return profile.education.map((education) => ({
     id: education.id,
-    schoolName: education.schoolName,
+    schoolName: education.schoolName ?? '',
     degree: education.degree ?? '',
     fieldOfStudy: education.fieldOfStudy ?? '',
     location: education.location ?? '',
@@ -337,7 +355,7 @@ function toEducationFormEntries(profile: CandidateProfile): EducationFormEntry[]
 function toCertificationFormEntries(profile: CandidateProfile): CertificationFormEntry[] {
   return profile.certifications.map((certification) => ({
     id: certification.id,
-    name: certification.name,
+    name: certification.name ?? '',
     issuer: certification.issuer ?? '',
     issueDate: certification.issueDate ?? '',
     expiryDate: certification.expiryDate ?? '',
@@ -348,8 +366,8 @@ function toCertificationFormEntries(profile: CandidateProfile): CertificationFor
 function toLinkFormEntries(profile: CandidateProfile): LinkFormEntry[] {
   return profile.links.map((link) => ({
     id: link.id,
-    label: link.label,
-    url: link.url,
+    label: link.label ?? '',
+    url: link.url ?? '',
     kind: link.kind ?? ''
   }))
 }
@@ -883,6 +901,7 @@ function ProfileScreen(props: {
   const [linkEntries, setLinkEntries] = useState<LinkFormEntry[]>(toLinkFormEntries(profile))
   const [projectEntries, setProjectEntries] = useState<ProjectFormEntry[]>(toProjectFormEntries(profile))
   const [languageEntries, setLanguageEntries] = useState<LanguageFormEntry[]>(toLanguageFormEntries(profile))
+  const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const [preferenceForm, setPreferenceForm] = useState({
     targetRoles: joinListInput(searchPreferences.targetRoles),
     jobFamilies: joinListInput(searchPreferences.jobFamilies),
@@ -1018,6 +1037,11 @@ function ProfileScreen(props: {
     profileForm.currentLocation
   ])[0] ?? profileForm.currentLocation.trim()
 
+  const parsedYearsExperience = parseRequiredNonNegativeInteger(profileForm.yearsExperience)
+  const parsedNoticePeriodDays = parseRequiredNonNegativeInteger(eligibilityForm.noticePeriodDays)
+  const parsedMinimumSalaryUsd = parseRequiredNonNegativeInteger(preferenceForm.minimumSalaryUsd)
+  const parsedTargetSalaryUsd = parseRequiredNonNegativeInteger(preferenceForm.targetSalaryUsd)
+
   const saveProfilePayload: CandidateProfile = {
     ...profile,
     firstName: profileForm.firstName.trim(),
@@ -1032,7 +1056,7 @@ function ProfileScreen(props: {
     currentRegion: profileForm.currentRegion.trim() || null,
     currentCountry: profileForm.currentCountry.trim() || null,
     timeZone: profileForm.timeZone.trim() || null,
-    yearsExperience: Number(profileForm.yearsExperience || '0'),
+    yearsExperience: parsedYearsExperience ?? 0,
     email: profileForm.email.trim() || null,
     secondaryEmail: profileForm.secondaryEmail.trim() || null,
     phone: profileForm.phone.trim() || null,
@@ -1051,7 +1075,7 @@ function ProfileScreen(props: {
       preferredRelocationRegions: parseListInput(eligibilityForm.preferredRelocationRegions),
       willingToTravel: selectToBoolean(eligibilityForm.willingToTravel),
       remoteEligible: selectToBoolean(eligibilityForm.remoteEligible),
-      noticePeriodDays: eligibilityForm.noticePeriodDays.trim() ? Number(eligibilityForm.noticePeriodDays) : null,
+      noticePeriodDays: parsedNoticePeriodDays,
       availableStartDate: eligibilityForm.availableStartDate.trim() || null,
       securityClearance: eligibilityForm.securityClearance.trim() || null
     },
@@ -1073,17 +1097,18 @@ function ProfileScreen(props: {
     targetRoles: profile.targetRoles,
     locations: profile.locations,
     skills: mergedSkills,
-    experiences: experienceEntries.filter((entry) => entry.companyName.trim() && entry.title.trim()).map((entry) => ({
+    experiences: experienceEntries.map((entry) => ({
       id: entry.id,
-      companyName: entry.companyName.trim(),
+      companyName: entry.companyName.trim() || null,
       companyUrl: entry.companyUrl.trim() || null,
-      title: entry.title.trim(),
+      title: entry.title.trim() || null,
       employmentType: entry.employmentType.trim() || null,
       location: entry.location.trim() || null,
       workMode: entry.workMode || null,
       startDate: entry.startDate.trim() || null,
       endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
       isCurrent: entry.isCurrent,
+      isDraft: !entry.companyName.trim() || !entry.title.trim(),
       summary: entry.summary.trim() || null,
       achievements: parseListInput(entry.achievements),
       skills: parseListInput(entry.skills),
@@ -1091,25 +1116,33 @@ function ProfileScreen(props: {
       peopleManagementScope: entry.peopleManagementScope.trim() || null,
       ownershipScope: entry.ownershipScope.trim() || null
     })),
-    education: educationEntries.filter((entry) => entry.schoolName.trim()).map((entry) => ({
+    education: educationEntries.map((entry) => ({
       id: entry.id,
-      schoolName: entry.schoolName.trim(),
+      schoolName: entry.schoolName.trim() || null,
       degree: entry.degree.trim() || null,
       fieldOfStudy: entry.fieldOfStudy.trim() || null,
       location: entry.location.trim() || null,
       startDate: entry.startDate.trim() || null,
       endDate: entry.endDate.trim() || null,
+      isDraft: !entry.schoolName.trim(),
       summary: entry.summary.trim() || null
     })),
-    certifications: certificationEntries.filter((entry) => entry.name.trim()).map((entry) => ({
+    certifications: certificationEntries.map((entry) => ({
       id: entry.id,
-      name: entry.name.trim(),
+      name: entry.name.trim() || null,
       issuer: entry.issuer.trim() || null,
       issueDate: entry.issueDate.trim() || null,
       expiryDate: entry.expiryDate.trim() || null,
-      credentialUrl: entry.credentialUrl.trim() || null
+      credentialUrl: entry.credentialUrl.trim() || null,
+      isDraft: !entry.name.trim()
     })),
-    links: linkEntries.filter((entry) => entry.label.trim() && entry.url.trim()).map((entry) => ({ id: entry.id, label: entry.label.trim(), url: entry.url.trim(), kind: entry.kind.trim() || null })),
+    links: linkEntries.map((entry) => ({
+      id: entry.id,
+      label: entry.label.trim() || null,
+      url: entry.url.trim() || null,
+      kind: entry.kind ? (entry.kind as CandidateProfile['links'][number]['kind']) : null,
+      isDraft: !entry.label.trim() || !entry.url.trim()
+    })),
     projects: projectEntries.filter((entry) => entry.name.trim()).map((entry) => ({
       id: entry.id,
       name: entry.name.trim(),
@@ -1129,6 +1162,54 @@ function ProfileScreen(props: {
       interviewPreference: entry.interviewPreference,
       notes: entry.notes.trim() || null
     }))
+  }
+
+  const handleSaveProfile = () => {
+    if (parsedYearsExperience === null) {
+      setValidationMessage('Years of experience must be a whole number greater than or equal to 0.')
+      return
+    }
+
+    if (eligibilityForm.noticePeriodDays.trim() && parsedNoticePeriodDays === null) {
+      setValidationMessage('Notice period must be a whole number greater than or equal to 0.')
+      return
+    }
+
+    setValidationMessage(null)
+    onSaveProfile(saveProfilePayload)
+  }
+
+  const handleSaveSearchPreferences = () => {
+    if (preferenceForm.minimumSalaryUsd.trim() && parsedMinimumSalaryUsd === null) {
+      setValidationMessage('Minimum salary must be a whole number greater than or equal to 0.')
+      return
+    }
+
+    if (preferenceForm.targetSalaryUsd.trim() && parsedTargetSalaryUsd === null) {
+      setValidationMessage('Target salary must be a whole number greater than or equal to 0.')
+      return
+    }
+
+    setValidationMessage(null)
+    onSaveSearchPreferences({
+      ...searchPreferences,
+      targetRoles: parseListInput(preferenceForm.targetRoles),
+      jobFamilies: parseListInput(preferenceForm.jobFamilies),
+      locations: parseListInput(preferenceForm.locations),
+      excludedLocations: parseListInput(preferenceForm.excludedLocations),
+      workModes: preferenceForm.workModes,
+      seniorityLevels: parseListInput(preferenceForm.seniorityLevels),
+      targetIndustries: parseListInput(preferenceForm.targetIndustries),
+      targetCompanyStages: parseListInput(preferenceForm.targetCompanyStages),
+      employmentTypes: parseListInput(preferenceForm.employmentTypes),
+      minimumSalaryUsd: parsedMinimumSalaryUsd,
+      targetSalaryUsd: parsedTargetSalaryUsd,
+      salaryCurrency: preferenceForm.salaryCurrency.trim() || null,
+      approvalMode: searchPreferences.approvalMode,
+      tailoringMode: preferenceForm.tailoringMode,
+      companyBlacklist: parseListInput(preferenceForm.companyBlacklist),
+      companyWhitelist: parseListInput(preferenceForm.companyWhitelist)
+    })
   }
 
   return (
@@ -1238,7 +1319,7 @@ function ProfileScreen(props: {
             <label className="field-stack"><span className="section-label">Middle name</span><input className="input-shell" value={profileForm.middleName} onChange={(event) => setProfileForm((current) => ({ ...current, middleName: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Preferred display name</span><input className="input-shell" value={profileForm.preferredDisplayName} onChange={(event) => setProfileForm((current) => ({ ...current, preferredDisplayName: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Headline</span><input className="input-shell" value={profileForm.headline} onChange={(event) => setProfileForm((current) => ({ ...current, headline: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Years of experience</span><input className="input-shell" min="0" type="number" value={profileForm.yearsExperience} onChange={(event) => setProfileForm((current) => ({ ...current, yearsExperience: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Years of experience</span><input className="input-shell" min="0" step="1" type="number" value={profileForm.yearsExperience} onChange={(event) => setProfileForm((current) => ({ ...current, yearsExperience: event.target.value === "" ? "" : Number.isInteger(event.target.valueAsNumber) && event.target.valueAsNumber >= 0 ? String(event.target.valueAsNumber) : current.yearsExperience }))} /></label>
             <label className="field-stack"><span className="section-label">Primary email</span><input className="input-shell" value={profileForm.email} onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Secondary email</span><input className="input-shell" value={profileForm.secondaryEmail} onChange={(event) => setProfileForm((current) => ({ ...current, secondaryEmail: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Phone</span><input className="input-shell" value={profileForm.phone} onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))} /></label>
@@ -1310,7 +1391,7 @@ function ProfileScreen(props: {
                   <label className="field-stack"><span className="section-label">Title</span><input className="input-shell" value={entry.title} onChange={(event) => updateExperienceEntry(entry.id, 'title', event.target.value)} /></label>
                   <label className="field-stack"><span className="section-label">Employment type</span><input className="input-shell" value={entry.employmentType} onChange={(event) => updateExperienceEntry(entry.id, 'employmentType', event.target.value)} /></label>
                   <label className="field-stack"><span className="section-label">Location</span><input className="input-shell" value={entry.location} onChange={(event) => updateExperienceEntry(entry.id, 'location', event.target.value)} /></label>
-                  <label className="field-stack"><span className="section-label">Work mode</span><select className="select-shell" value={entry.workMode} onChange={(event) => updateExperienceEntry(entry.id, 'workMode', event.target.value as WorkMode | '')}><option value="">Select mode</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">Onsite</option><option value="flexible">Flexible</option></select></label>
+                  <label className="field-stack"><span className="section-label">Work mode</span><select className="select-shell" value={entry.workMode} onChange={(event) => updateExperienceEntry(entry.id, 'workMode', event.target.value as WorkMode | '')}><option value="">Select mode</option>{workModeValues.map((workMode) => <option key={workMode} value={workMode}>{formatStatusLabel(workMode)}</option>)}</select></label>
                   <label className="field-stack"><span className="section-label">Start date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.startDate} onChange={(event) => updateExperienceEntry(entry.id, 'startDate', event.target.value)} /></label>
                   <label className="field-stack"><span className="section-label">End date</span><input className="input-shell" disabled={entry.isCurrent} placeholder="YYYY-MM" value={entry.endDate} onChange={(event) => updateExperienceEntry(entry.id, 'endDate', event.target.value)} /></label>
                   <label className="field-stack"><span className="section-label">Domain / industry tags</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.domainTags} onChange={(event) => updateExperienceEntry(entry.id, 'domainTags', event.target.value)} /></label>
@@ -1386,7 +1467,7 @@ function ProfileScreen(props: {
                   <div className="panel-header-row"><p className="section-label">Link {index + 1}</p><button className="ghost-action compact-action" disabled={busy} onClick={() => setLinkEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button></div>
                   <div className="form-grid two-column-form-grid">
                     <label className="field-stack"><span className="section-label">Label</span><input className="input-shell" value={entry.label} onChange={(event) => updateLinkEntry(entry.id, 'label', event.target.value)} /></label>
-                    <label className="field-stack"><span className="section-label">Kind</span><input className="input-shell" value={entry.kind} onChange={(event) => updateLinkEntry(entry.id, 'kind', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Kind</span><select className="select-shell" value={entry.kind} onChange={(event) => updateLinkEntry(entry.id, 'kind', event.target.value)}><option value="">Select kind</option>{candidateLinkKindValues.map((kind) => <option key={kind} value={kind}>{formatStatusLabel(kind)}</option>)}</select></label>
                     <label className="field-stack two-column-span"><span className="section-label">URL</span><input className="input-shell" value={entry.url} onChange={(event) => updateLinkEntry(entry.id, 'url', event.target.value)} /></label>
                   </div>
                 </article>
@@ -1418,18 +1499,19 @@ function ProfileScreen(props: {
             <label className="field-stack"><span className="section-label">Employment types</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.employmentTypes} onChange={(event) => setPreferenceForm((current) => ({ ...current, employmentTypes: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Industries</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.targetIndustries} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetIndustries: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Company stages / sizes</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.targetCompanyStages} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetCompanyStages: event.target.value }))} /></label>
-            <div className="field-stack"><span className="section-label">Work modes</span><div className="checkbox-grid">{(['remote', 'hybrid', 'onsite', 'flexible'] as const).map((workMode) => (<label key={workMode} className="checkbox-row"><input checked={preferenceForm.workModes.includes(workMode)} onChange={(event) => setPreferenceForm((current) => ({ ...current, workModes: event.target.checked ? [...current.workModes, workMode] : current.workModes.filter((value) => value !== workMode) }))} type="checkbox" /><span>{formatStatusLabel(workMode)}</span></label>))}</div></div>
+            <div className="field-stack"><span className="section-label">Work modes</span><div className="checkbox-grid">{workModeValues.map((workMode) => (<label key={workMode} className="checkbox-row"><input checked={preferenceForm.workModes.includes(workMode)} onChange={(event) => setPreferenceForm((current) => ({ ...current, workModes: event.target.checked ? [...current.workModes, workMode] : current.workModes.filter((value) => value !== workMode) }))} type="checkbox" /><span>{formatStatusLabel(workMode)}</span></label>))}</div></div>
             <label className="field-stack"><span className="section-label">Tailoring mode</span><select className="select-shell" value={preferenceForm.tailoringMode} onChange={(event) => setPreferenceForm((current) => ({ ...current, tailoringMode: event.target.value as JobSearchPreferences['tailoringMode'] }))}><option value="conservative">Conservative</option><option value="balanced">Balanced</option><option value="aggressive">Aggressive</option></select></label>
-            <label className="field-stack"><span className="section-label">Minimum salary</span><input className="input-shell" min="0" type="number" value={preferenceForm.minimumSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Target salary</span><input className="input-shell" min="0" type="number" value={preferenceForm.targetSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetSalaryUsd: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Minimum salary</span><input className="input-shell" min="0" step="1" type="number" value={preferenceForm.minimumSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value === "" ? "" : Number.isInteger(event.target.valueAsNumber) && event.target.valueAsNumber >= 0 ? String(event.target.valueAsNumber) : current.minimumSalaryUsd }))} /></label>
+            <label className="field-stack"><span className="section-label">Target salary</span><input className="input-shell" min="0" step="1" type="number" value={preferenceForm.targetSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetSalaryUsd: event.target.value === "" ? "" : Number.isInteger(event.target.valueAsNumber) && event.target.valueAsNumber >= 0 ? String(event.target.valueAsNumber) : current.targetSalaryUsd }))} /></label>
             <label className="field-stack"><span className="section-label">Salary currency</span><input className="input-shell" value={preferenceForm.salaryCurrency} onChange={(event) => setPreferenceForm((current) => ({ ...current, salaryCurrency: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Preferred companies</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.companyWhitelist} onChange={(event) => setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Blocked companies</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.companyBlacklist} onChange={(event) => setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))} /></label>
           </div>
           <div className="button-row">
-            <button className="primary-action" disabled={busy} onClick={() => onSaveProfile(saveProfilePayload)} type="button">Save profile</button>
-            <button className="secondary-action" disabled={busy} onClick={() => onSaveSearchPreferences({ ...searchPreferences, targetRoles: parseListInput(preferenceForm.targetRoles), jobFamilies: parseListInput(preferenceForm.jobFamilies), locations: parseListInput(preferenceForm.locations), excludedLocations: parseListInput(preferenceForm.excludedLocations), workModes: preferenceForm.workModes, seniorityLevels: parseListInput(preferenceForm.seniorityLevels), targetIndustries: parseListInput(preferenceForm.targetIndustries), targetCompanyStages: parseListInput(preferenceForm.targetCompanyStages), employmentTypes: parseListInput(preferenceForm.employmentTypes), minimumSalaryUsd: preferenceForm.minimumSalaryUsd.trim() ? Number(preferenceForm.minimumSalaryUsd) : null, targetSalaryUsd: preferenceForm.targetSalaryUsd.trim() ? Number(preferenceForm.targetSalaryUsd) : null, salaryCurrency: preferenceForm.salaryCurrency.trim() || null, approvalMode: searchPreferences.approvalMode, tailoringMode: preferenceForm.tailoringMode, companyBlacklist: parseListInput(preferenceForm.companyBlacklist), companyWhitelist: parseListInput(preferenceForm.companyWhitelist) })} type="button">Save preferences</button>
+            <button className="primary-action" disabled={busy} onClick={handleSaveProfile} type="button">Save profile</button>
+            <button className="secondary-action" disabled={busy} onClick={handleSaveSearchPreferences} type="button">Save preferences</button>
           </div>
+          {validationMessage ? <p className="muted-copy">{validationMessage}</p> : null}
           {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
         </section>
       </div>

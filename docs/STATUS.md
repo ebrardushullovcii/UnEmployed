@@ -68,6 +68,7 @@ Job Finder agent-first foundation with SQLite persistence, resume-text extractio
 - Added persisted resume-analysis provenance plus a visible profile badge so the UI now states whether the current resume was parsed by FelidaeAI or the deterministic fallback, and changed Settings reset to jump back to the fresh profile after clearing workspace state
 - Added and then tightened a dedicated profile-information-architecture plan, now grounded in LinkedIn/Greenhouse/Workable/Ashby patterns with clearer priority tiers, a separate eligibility bucket, and explicit guidance on which sensitive fields not to collect by default
 - Expanded the structured Profile-screen rollout so candidate data now includes richer identity/contact fields, work-eligibility/logistics, summary layers, grouped skill evidence, repeatable experience/education/certification/project/link/language records, and broader role-targeting preferences in the live desktop UI
+- Tightened the structured Profile save path so partial experience/education/certification/link cards now persist as explicit drafts instead of being silently dropped, integer-only numeric fields validate before dispatch, and link/credential URLs plus link kinds are schema-validated
 
 ## Active Work
 

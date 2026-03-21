@@ -62,6 +62,36 @@ describe('contracts', () => {
     expect(preferences.workModes).toEqual([])
   })
 
+  test('rejects malformed link metadata and url fields', () => {
+    expect(() =>
+      CandidateProfileSchema.parse({
+        id: 'candidate_1',
+        firstName: 'Alex',
+        lastName: 'Vanguard',
+        middleName: null,
+        fullName: 'Alex Vanguard',
+        headline: 'Full-stack engineer',
+        summary: 'Builds reliable user-facing systems.',
+        currentLocation: 'London, UK',
+        yearsExperience: 8,
+        baseResume: {
+          id: 'resume_1',
+          fileName: 'alex-vanguard.pdf',
+          uploadedAt: '2026-03-20T10:00:00.000Z',
+          storagePath: '/tmp/alex-vanguard.pdf'
+        },
+        links: [
+          {
+            id: 'link_1',
+            label: 'Portfolio',
+            url: 'not-a-url',
+            kind: 'custom'
+          }
+        ]
+      })
+    ).toThrow()
+  })
+
   test('parses a discovery run result and application attempt', () => {
     const discovery = DiscoveryRunResultSchema.parse({
       source: 'linkedin',

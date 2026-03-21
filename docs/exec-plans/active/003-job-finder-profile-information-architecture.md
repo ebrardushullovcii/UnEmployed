@@ -426,6 +426,7 @@ Implementation update on 2026-03-20:
 - the live rollout now covers richer identity/contact fields, work-eligibility/logistics, summary layers, grouped skills, repeatable experience/education/certification/project/link/language records, and broader targeting preferences in the desktop Profile screen
 - the current implementation still stores these sections under the existing `CandidateProfile` and `JobSearchPreferences` objects for backward compatibility, rather than splitting into fully separate top-level buckets yet
 - discovery preferences remain visually separated from the canonical candidate-data sections, matching the plan direction
+- partial repeatable records now persist as explicit drafts instead of being silently dropped, and numeric/url enum validation is enforced before data crosses the schema boundary
 
 ### Phase 4: Tailoring And Automation Integration
 
