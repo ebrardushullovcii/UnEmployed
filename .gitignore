@@ -19,8 +19,5 @@ apps/desktop/test-artifacts/
 .cursor/*
 !.cursor/rules/
 !.cursor/rules/**
-.claude/*
-!.claude/skills/
-!.claude/skills/**
 apps/desktop/test-fixtures/local/
 .opencode/
