@@ -423,9 +423,9 @@ Rationale:
 
 Implementation update on 2026-03-20:
 
-- the first live rollout has landed in `CandidateProfile` and the desktop Profile screen with structured repeatable records for experience, education, certifications, and links
-- the current implementation still stores these records under the existing `CandidateProfile` object for backward compatibility, rather than splitting into fully separate top-level buckets yet
-- discovery preferences remain visually separated from the new canonical candidate-data sections
+- the live rollout now covers richer identity/contact fields, work-eligibility/logistics, summary layers, grouped skills, repeatable experience/education/certification/project/link/language records, and broader targeting preferences in the desktop Profile screen
+- the current implementation still stores these sections under the existing `CandidateProfile` and `JobSearchPreferences` objects for backward compatibility, rather than splitting into fully separate top-level buckets yet
+- discovery preferences remain visually separated from the canonical candidate-data sections, matching the plan direction
 
 ### Phase 4: Tailoring And Automation Integration
 

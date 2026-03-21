@@ -25,15 +25,23 @@ function createCandidateProfile(): CandidateProfile {
     lastName: 'Vanguard',
     middleName: null,
     fullName: 'Alex Vanguard',
+    preferredDisplayName: 'Alex',
     headline: 'Senior systems product designer',
     summary:
       'Designs dense workflow tools for high-trust operators and turns ambiguous platform requirements into practical, polished systems.',
     currentLocation: 'London, UK',
+    currentCity: 'London',
+    currentRegion: 'England',
+    currentCountry: 'United Kingdom',
+    timeZone: 'Europe/London',
     yearsExperience: 12,
     email: 'alex.vanguard@example.com',
+    secondaryEmail: 'alex.design@example.com',
     phone: '+44 7700 900123',
     portfolioUrl: 'https://alexvanguard.design',
     linkedinUrl: 'https://www.linkedin.com/in/alex-vanguard',
+    githubUrl: 'https://github.com/alexvanguard',
+    personalWebsiteUrl: 'https://alexvanguard.design/about',
     baseResume: {
       id: 'resume_alex_vanguard',
       fileName: 'alex-vanguard-resume.pdf',
@@ -46,6 +54,33 @@ function createCandidateProfile(): CandidateProfile {
       lastAnalyzedAt: '2026-03-20T09:31:00.000Z',
       analysisWarnings: ['Seeded profile details were extracted from stored resume text.']
     },
+    workEligibility: {
+      authorizedWorkCountries: ['United Kingdom'],
+      requiresVisaSponsorship: false,
+      willingToRelocate: true,
+      preferredRelocationRegions: ['UK', 'EU'],
+      willingToTravel: true,
+      remoteEligible: true,
+      noticePeriodDays: 30,
+      availableStartDate: '2026-04-15',
+      securityClearance: null
+    },
+    professionalSummary: {
+      shortValueProposition: 'Design leader for dense workflow tools and resilient design systems.',
+      fullSummary:
+        'Designs dense workflow tools for high-trust operators and turns ambiguous platform requirements into practical, polished systems.',
+      careerThemes: ['Design systems', 'Workflow tooling', 'Accessibility'],
+      leadershipSummary: 'Leads cross-functional design initiatives and mentors senior ICs.',
+      domainFocusSummary: 'Enterprise operations platforms, browser-heavy internal tooling, and systemized UX quality.',
+      strengths: ['Structured problem framing', 'Cross-functional facilitation', 'Design-to-code collaboration']
+    },
+    skillGroups: {
+      coreSkills: ['Design Systems', 'UX Strategy', 'Accessibility'],
+      tools: ['Figma', 'FigJam', 'Notion'],
+      languagesAndFrameworks: ['React', 'HTML', 'CSS'],
+      softSkills: ['Leadership', 'Facilitation', 'Stakeholder alignment'],
+      highlightedSkills: ['Design Systems', 'React', 'Accessibility']
+    },
     targetRoles: ['Product Design Director', 'Staff Product Designer', 'Design Systems Lead'],
     locations: ['Remote Global', 'London, UK'],
     skills: ['Design Systems', 'Figma', 'React', 'Prototyping', 'UX Strategy', 'Accessibility'],
@@ -53,6 +88,7 @@ function createCandidateProfile(): CandidateProfile {
       {
         id: 'experience_alex_signal',
         companyName: 'Signal Systems',
+        companyUrl: 'https://signalsystems.example.com',
         title: 'Principal Product Designer',
         employmentType: 'Full-time',
         location: 'London, UK',
@@ -65,11 +101,15 @@ function createCandidateProfile(): CandidateProfile {
           'Built a cross-product design system used by four product squads.',
           'Reduced multi-step operator flows by 28% through dashboard redesign.'
         ],
-        skills: ['Design Systems', 'Figma', 'Accessibility']
+        skills: ['Design Systems', 'Figma', 'Accessibility'],
+        domainTags: ['Enterprise SaaS', 'Operations'],
+        peopleManagementScope: 'Mentored 3 senior designers',
+        ownershipScope: 'Owned platform design quality across 4 squads'
       },
       {
         id: 'experience_alex_northwind',
         companyName: 'Northwind Labs',
+        companyUrl: 'https://northwind.example.com',
         title: 'Senior Product Designer',
         employmentType: 'Full-time',
         location: 'Remote, Europe',
@@ -82,7 +122,10 @@ function createCandidateProfile(): CandidateProfile {
           'Partnered with engineering on React component-library adoption.',
           'Created service-blueprint artifacts that shortened discovery cycles.'
         ],
-        skills: ['React', 'Prototyping', 'UX Strategy']
+        skills: ['React', 'Prototyping', 'UX Strategy'],
+        domainTags: ['Developer Tools', 'Platform'],
+        peopleManagementScope: null,
+        ownershipScope: 'Design lead for shared tooling roadmap'
       }
     ],
     education: [
@@ -120,6 +163,36 @@ function createCandidateProfile(): CandidateProfile {
         url: 'https://www.linkedin.com/in/alex-vanguard',
         kind: 'linkedin'
       }
+    ],
+    projects: [
+      {
+        id: 'project_alex_orbit',
+        name: 'Orbit Control Redesign',
+        projectType: 'Platform',
+        summary: 'Redesigned a logistics control surface for exception-heavy operator workflows.',
+        role: 'Design lead',
+        skills: ['Design Systems', 'Prototyping', 'Accessibility'],
+        outcome: 'Cut operator handling time for critical workflows by 28%.',
+        projectUrl: 'https://alexvanguard.design/orbit-control',
+        repositoryUrl: null,
+        caseStudyUrl: 'https://alexvanguard.design/case-studies/orbit-control'
+      }
+    ],
+    spokenLanguages: [
+      {
+        id: 'language_alex_en',
+        language: 'English',
+        proficiency: 'Native',
+        interviewPreference: true,
+        notes: null
+      },
+      {
+        id: 'language_alex_fr',
+        language: 'French',
+        proficiency: 'Professional working',
+        interviewPreference: false,
+        notes: 'Comfortable for collaboration, prefers interviews in English.'
+      }
     ]
   })
 }
@@ -127,10 +200,17 @@ function createCandidateProfile(): CandidateProfile {
 function createSearchPreferences(): JobSearchPreferences {
   return JobSearchPreferencesSchema.parse({
     targetRoles: ['Product Design Director', 'Staff Product Designer', 'Design Systems Lead'],
+    jobFamilies: ['Product Design', 'Design Systems'],
     locations: ['Remote Global', 'London, UK'],
+    excludedLocations: ['Onsite-only United States'],
     workModes: ['remote', 'hybrid'],
     seniorityLevels: ['Senior', 'Staff', 'Lead'],
     minimumSalaryUsd: 160000,
+    targetSalaryUsd: 190000,
+    salaryCurrency: 'USD',
+    targetIndustries: ['Enterprise SaaS', 'Developer Tools'],
+    targetCompanyStages: ['Growth', 'Mid-market'],
+    employmentTypes: ['Full-time'],
     approvalMode: 'review_before_submit',
     tailoringMode: 'balanced',
     companyBlacklist: [],
@@ -523,14 +603,22 @@ export function createFreshJobFinderRepositorySeed(): JobFinderRepositorySeed {
       lastName: 'Candidate',
       middleName: null,
       fullName: 'New Candidate',
+      preferredDisplayName: null,
       headline: 'Import your resume to begin',
       summary: 'Import a resume or paste resume text to build your profile, targeting, and tailored documents.',
       currentLocation: 'Set your preferred location',
+      currentCity: null,
+      currentRegion: null,
+      currentCountry: null,
+      timeZone: null,
       yearsExperience: 0,
       email: null,
+      secondaryEmail: null,
       phone: null,
       portfolioUrl: null,
       linkedinUrl: null,
+      githubUrl: null,
+      personalWebsiteUrl: null,
       baseResume: {
         id: 'resume_fresh_start',
         fileName: 'No resume imported yet',
@@ -542,20 +630,32 @@ export function createFreshJobFinderRepositorySeed(): JobFinderRepositorySeed {
         lastAnalyzedAt: null,
         analysisWarnings: []
       },
+      workEligibility: {},
+      professionalSummary: {},
+      skillGroups: {},
       targetRoles: [],
       locations: [],
       skills: [],
       experiences: [],
       education: [],
       certifications: [],
-      links: []
+      links: [],
+      projects: [],
+      spokenLanguages: []
     }),
     searchPreferences: JobSearchPreferencesSchema.parse({
       targetRoles: [],
+      jobFamilies: [],
       locations: [],
+      excludedLocations: [],
       workModes: [],
       seniorityLevels: [],
       minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: 'USD',
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
       approvalMode: 'review_before_submit',
       tailoringMode: 'balanced',
       companyBlacklist: [],

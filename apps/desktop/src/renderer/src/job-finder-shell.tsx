@@ -185,6 +185,7 @@ function buildFullName(parts: {
 type ExperienceFormEntry = {
   id: string
   companyName: string
+  companyUrl: string
   title: string
   employmentType: string
   location: string
@@ -195,6 +196,9 @@ type ExperienceFormEntry = {
   summary: string
   achievements: string
   skills: string
+  domainTags: string
+  peopleManagementScope: string
+  ownershipScope: string
 }
 
 type EducationFormEntry = {
@@ -224,6 +228,74 @@ type LinkFormEntry = {
   kind: string
 }
 
+type ProjectFormEntry = {
+  id: string
+  name: string
+  projectType: string
+  summary: string
+  role: string
+  skills: string
+  outcome: string
+  projectUrl: string
+  repositoryUrl: string
+  caseStudyUrl: string
+}
+
+type LanguageFormEntry = {
+  id: string
+  language: string
+  proficiency: string
+  interviewPreference: boolean
+  notes: string
+}
+
+type BooleanSelectValue = '' | 'yes' | 'no'
+
+function booleanToSelect(value: boolean | null): BooleanSelectValue {
+  if (value === true) {
+    return 'yes'
+  }
+
+  if (value === false) {
+    return 'no'
+  }
+
+  return ''
+}
+
+function selectToBoolean(value: BooleanSelectValue): boolean | null {
+  if (value === 'yes') {
+    return true
+  }
+
+  if (value === 'no') {
+    return false
+  }
+
+  return null
+}
+
+function uniqueList(values: readonly string[]): string[] {
+  const seen = new Set<string>()
+
+  return values.flatMap((value) => {
+    const trimmed = value.trim()
+
+    if (!trimmed) {
+      return []
+    }
+
+    const key = trimmed.toLowerCase()
+
+    if (seen.has(key)) {
+      return []
+    }
+
+    seen.add(key)
+    return [trimmed]
+  })
+}
+
 function createProfileEntryId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
@@ -232,6 +304,7 @@ function toExperienceFormEntries(profile: CandidateProfile): ExperienceFormEntry
   return profile.experiences.map((experience) => ({
     id: experience.id,
     companyName: experience.companyName,
+    companyUrl: experience.companyUrl ?? '',
     title: experience.title,
     employmentType: experience.employmentType ?? '',
     location: experience.location ?? '',
@@ -241,7 +314,10 @@ function toExperienceFormEntries(profile: CandidateProfile): ExperienceFormEntry
     isCurrent: experience.isCurrent,
     summary: experience.summary ?? '',
     achievements: joinListInput(experience.achievements),
-    skills: joinListInput(experience.skills)
+    skills: joinListInput(experience.skills),
+    domainTags: joinListInput(experience.domainTags),
+    peopleManagementScope: experience.peopleManagementScope ?? '',
+    ownershipScope: experience.ownershipScope ?? ''
   }))
 }
 
@@ -275,6 +351,31 @@ function toLinkFormEntries(profile: CandidateProfile): LinkFormEntry[] {
     label: link.label,
     url: link.url,
     kind: link.kind ?? ''
+  }))
+}
+
+function toProjectFormEntries(profile: CandidateProfile): ProjectFormEntry[] {
+  return profile.projects.map((project) => ({
+    id: project.id,
+    name: project.name,
+    projectType: project.projectType ?? '',
+    summary: project.summary ?? '',
+    role: project.role ?? '',
+    skills: joinListInput(project.skills),
+    outcome: project.outcome ?? '',
+    projectUrl: project.projectUrl ?? '',
+    repositoryUrl: project.repositoryUrl ?? '',
+    caseStudyUrl: project.caseStudyUrl ?? ''
+  }))
+}
+
+function toLanguageFormEntries(profile: CandidateProfile): LanguageFormEntry[] {
+  return profile.spokenLanguages.map((language) => ({
+    id: language.id,
+    language: language.language,
+    proficiency: language.proficiency ?? '',
+    interviewPreference: language.interviewPreference,
+    notes: language.notes ?? ''
   }))
 }
 
@@ -726,216 +827,308 @@ function ProfileScreen(props: {
     profile,
     searchPreferences
   } = props
+
   const [profileForm, setProfileForm] = useState({
-    currentLocation: profile.currentLocation,
-    email: profile.email ?? '',
     firstName: profile.firstName,
-    headline: profile.headline,
-    linkedinUrl: profile.linkedinUrl ?? '',
-    lastName: profile.lastName,
     middleName: profile.middleName ?? '',
+    lastName: profile.lastName,
+    preferredDisplayName: profile.preferredDisplayName ?? '',
+    headline: profile.headline,
+    summary: profile.summary,
+    currentLocation: profile.currentLocation,
+    currentCity: profile.currentCity ?? '',
+    currentRegion: profile.currentRegion ?? '',
+    currentCountry: profile.currentCountry ?? '',
+    timeZone: profile.timeZone ?? '',
+    yearsExperience: String(profile.yearsExperience),
+    email: profile.email ?? '',
+    secondaryEmail: profile.secondaryEmail ?? '',
     phone: profile.phone ?? '',
     portfolioUrl: profile.portfolioUrl ?? '',
+    linkedinUrl: profile.linkedinUrl ?? '',
+    githubUrl: profile.githubUrl ?? '',
+    personalWebsiteUrl: profile.personalWebsiteUrl ?? '',
     resumeText: profile.baseResume.textContent ?? '',
-    skills: joinListInput(profile.skills),
-    summary: profile.summary,
-    yearsExperience: String(profile.yearsExperience)
+    skills: joinListInput(profile.skills)
+  })
+  const [eligibilityForm, setEligibilityForm] = useState({
+    authorizedWorkCountries: joinListInput(profile.workEligibility.authorizedWorkCountries),
+    requiresVisaSponsorship: booleanToSelect(profile.workEligibility.requiresVisaSponsorship),
+    willingToRelocate: booleanToSelect(profile.workEligibility.willingToRelocate),
+    preferredRelocationRegions: joinListInput(profile.workEligibility.preferredRelocationRegions),
+    willingToTravel: booleanToSelect(profile.workEligibility.willingToTravel),
+    remoteEligible: booleanToSelect(profile.workEligibility.remoteEligible),
+    noticePeriodDays: profile.workEligibility.noticePeriodDays?.toString() ?? '',
+    availableStartDate: profile.workEligibility.availableStartDate ?? '',
+    securityClearance: profile.workEligibility.securityClearance ?? ''
+  })
+  const [summaryForm, setSummaryForm] = useState({
+    shortValueProposition: profile.professionalSummary.shortValueProposition ?? '',
+    fullSummary: profile.professionalSummary.fullSummary ?? profile.summary,
+    careerThemes: joinListInput(profile.professionalSummary.careerThemes),
+    leadershipSummary: profile.professionalSummary.leadershipSummary ?? '',
+    domainFocusSummary: profile.professionalSummary.domainFocusSummary ?? '',
+    strengths: joinListInput(profile.professionalSummary.strengths)
+  })
+  const [skillGroupForm, setSkillGroupForm] = useState({
+    coreSkills: joinListInput(profile.skillGroups.coreSkills),
+    tools: joinListInput(profile.skillGroups.tools),
+    languagesAndFrameworks: joinListInput(profile.skillGroups.languagesAndFrameworks),
+    softSkills: joinListInput(profile.skillGroups.softSkills),
+    highlightedSkills: joinListInput(profile.skillGroups.highlightedSkills)
   })
   const [experienceEntries, setExperienceEntries] = useState<ExperienceFormEntry[]>(toExperienceFormEntries(profile))
   const [educationEntries, setEducationEntries] = useState<EducationFormEntry[]>(toEducationFormEntries(profile))
-  const [certificationEntries, setCertificationEntries] = useState<CertificationFormEntry[]>(
-    toCertificationFormEntries(profile)
-  )
+  const [certificationEntries, setCertificationEntries] = useState<CertificationFormEntry[]>(toCertificationFormEntries(profile))
   const [linkEntries, setLinkEntries] = useState<LinkFormEntry[]>(toLinkFormEntries(profile))
+  const [projectEntries, setProjectEntries] = useState<ProjectFormEntry[]>(toProjectFormEntries(profile))
+  const [languageEntries, setLanguageEntries] = useState<LanguageFormEntry[]>(toLanguageFormEntries(profile))
   const [preferenceForm, setPreferenceForm] = useState({
-    companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
-    companyWhitelist: joinListInput(searchPreferences.companyWhitelist),
-    locations: joinListInput(searchPreferences.locations),
-    minimumSalaryUsd: searchPreferences.minimumSalaryUsd?.toString() ?? '',
-    seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
-    tailoringMode: searchPreferences.tailoringMode,
     targetRoles: joinListInput(searchPreferences.targetRoles),
-    workModes: searchPreferences.workModes
+    jobFamilies: joinListInput(searchPreferences.jobFamilies),
+    locations: joinListInput(searchPreferences.locations),
+    excludedLocations: joinListInput(searchPreferences.excludedLocations),
+    seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
+    targetIndustries: joinListInput(searchPreferences.targetIndustries),
+    targetCompanyStages: joinListInput(searchPreferences.targetCompanyStages),
+    employmentTypes: joinListInput(searchPreferences.employmentTypes),
+    tailoringMode: searchPreferences.tailoringMode,
+    workModes: searchPreferences.workModes,
+    minimumSalaryUsd: searchPreferences.minimumSalaryUsd?.toString() ?? '',
+    targetSalaryUsd: searchPreferences.targetSalaryUsd?.toString() ?? '',
+    salaryCurrency: searchPreferences.salaryCurrency ?? 'USD',
+    companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
+    companyWhitelist: joinListInput(searchPreferences.companyWhitelist)
   })
 
   useEffect(() => {
     setProfileForm({
-      currentLocation: profile.currentLocation,
-      email: profile.email ?? '',
       firstName: profile.firstName,
-      headline: profile.headline,
-      linkedinUrl: profile.linkedinUrl ?? '',
-      lastName: profile.lastName,
       middleName: profile.middleName ?? '',
+      lastName: profile.lastName,
+      preferredDisplayName: profile.preferredDisplayName ?? '',
+      headline: profile.headline,
+      summary: profile.summary,
+      currentLocation: profile.currentLocation,
+      currentCity: profile.currentCity ?? '',
+      currentRegion: profile.currentRegion ?? '',
+      currentCountry: profile.currentCountry ?? '',
+      timeZone: profile.timeZone ?? '',
+      yearsExperience: String(profile.yearsExperience),
+      email: profile.email ?? '',
+      secondaryEmail: profile.secondaryEmail ?? '',
       phone: profile.phone ?? '',
       portfolioUrl: profile.portfolioUrl ?? '',
+      linkedinUrl: profile.linkedinUrl ?? '',
+      githubUrl: profile.githubUrl ?? '',
+      personalWebsiteUrl: profile.personalWebsiteUrl ?? '',
       resumeText: profile.baseResume.textContent ?? '',
-      skills: joinListInput(profile.skills),
-      summary: profile.summary,
-      yearsExperience: String(profile.yearsExperience)
+      skills: joinListInput(profile.skills)
+    })
+    setEligibilityForm({
+      authorizedWorkCountries: joinListInput(profile.workEligibility.authorizedWorkCountries),
+      requiresVisaSponsorship: booleanToSelect(profile.workEligibility.requiresVisaSponsorship),
+      willingToRelocate: booleanToSelect(profile.workEligibility.willingToRelocate),
+      preferredRelocationRegions: joinListInput(profile.workEligibility.preferredRelocationRegions),
+      willingToTravel: booleanToSelect(profile.workEligibility.willingToTravel),
+      remoteEligible: booleanToSelect(profile.workEligibility.remoteEligible),
+      noticePeriodDays: profile.workEligibility.noticePeriodDays?.toString() ?? '',
+      availableStartDate: profile.workEligibility.availableStartDate ?? '',
+      securityClearance: profile.workEligibility.securityClearance ?? ''
+    })
+    setSummaryForm({
+      shortValueProposition: profile.professionalSummary.shortValueProposition ?? '',
+      fullSummary: profile.professionalSummary.fullSummary ?? profile.summary,
+      careerThemes: joinListInput(profile.professionalSummary.careerThemes),
+      leadershipSummary: profile.professionalSummary.leadershipSummary ?? '',
+      domainFocusSummary: profile.professionalSummary.domainFocusSummary ?? '',
+      strengths: joinListInput(profile.professionalSummary.strengths)
+    })
+    setSkillGroupForm({
+      coreSkills: joinListInput(profile.skillGroups.coreSkills),
+      tools: joinListInput(profile.skillGroups.tools),
+      languagesAndFrameworks: joinListInput(profile.skillGroups.languagesAndFrameworks),
+      softSkills: joinListInput(profile.skillGroups.softSkills),
+      highlightedSkills: joinListInput(profile.skillGroups.highlightedSkills)
     })
     setExperienceEntries(toExperienceFormEntries(profile))
     setEducationEntries(toEducationFormEntries(profile))
     setCertificationEntries(toCertificationFormEntries(profile))
     setLinkEntries(toLinkFormEntries(profile))
+    setProjectEntries(toProjectFormEntries(profile))
+    setLanguageEntries(toLanguageFormEntries(profile))
   }, [profile])
 
   useEffect(() => {
     setPreferenceForm({
-      companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
-      companyWhitelist: joinListInput(searchPreferences.companyWhitelist),
-      locations: joinListInput(searchPreferences.locations),
-      minimumSalaryUsd: searchPreferences.minimumSalaryUsd?.toString() ?? '',
-      seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
-      tailoringMode: searchPreferences.tailoringMode,
       targetRoles: joinListInput(searchPreferences.targetRoles),
-      workModes: searchPreferences.workModes
+      jobFamilies: joinListInput(searchPreferences.jobFamilies),
+      locations: joinListInput(searchPreferences.locations),
+      excludedLocations: joinListInput(searchPreferences.excludedLocations),
+      seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
+      targetIndustries: joinListInput(searchPreferences.targetIndustries),
+      targetCompanyStages: joinListInput(searchPreferences.targetCompanyStages),
+      employmentTypes: joinListInput(searchPreferences.employmentTypes),
+      tailoringMode: searchPreferences.tailoringMode,
+      workModes: searchPreferences.workModes,
+      minimumSalaryUsd: searchPreferences.minimumSalaryUsd?.toString() ?? '',
+      targetSalaryUsd: searchPreferences.targetSalaryUsd?.toString() ?? '',
+      salaryCurrency: searchPreferences.salaryCurrency ?? 'USD',
+      companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
+      companyWhitelist: joinListInput(searchPreferences.companyWhitelist)
     })
   }, [searchPreferences])
 
   const updateExperienceEntry = (id: string, field: keyof ExperienceFormEntry, value: string | boolean) => {
-    setExperienceEntries((current) =>
-      current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry))
-    )
+    setExperienceEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)))
   }
-
   const updateEducationEntry = (id: string, field: keyof EducationFormEntry, value: string) => {
     setEducationEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)))
   }
-
   const updateCertificationEntry = (id: string, field: keyof CertificationFormEntry, value: string) => {
-    setCertificationEntries((current) =>
-      current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry))
-    )
+    setCertificationEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)))
   }
-
   const updateLinkEntry = (id: string, field: keyof LinkFormEntry, value: string) => {
     setLinkEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)))
   }
-
-  const addExperienceEntry = () => {
-    setExperienceEntries((current) => [
-      ...current,
-      {
-        id: createProfileEntryId('experience'),
-        companyName: '',
-        title: '',
-        employmentType: '',
-        location: '',
-        workMode: '',
-        startDate: '',
-        endDate: '',
-        isCurrent: false,
-        summary: '',
-        achievements: '',
-        skills: ''
-      }
-    ])
+  const updateProjectEntry = (id: string, field: keyof ProjectFormEntry, value: string) => {
+    setProjectEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)))
+  }
+  const updateLanguageEntry = (id: string, field: keyof LanguageFormEntry, value: string | boolean) => {
+    setLanguageEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, [field]: value } : entry)))
   }
 
-  const addEducationEntry = () => {
-    setEducationEntries((current) => [
-      ...current,
-      {
-        id: createProfileEntryId('education'),
-        schoolName: '',
-        degree: '',
-        fieldOfStudy: '',
-        location: '',
-        startDate: '',
-        endDate: '',
-        summary: ''
-      }
-    ])
-  }
+  const addExperienceEntry = () => setExperienceEntries((current) => [...current, { id: createProfileEntryId('experience'), companyName: '', companyUrl: '', title: '', employmentType: '', location: '', workMode: '', startDate: '', endDate: '', isCurrent: false, summary: '', achievements: '', skills: '', domainTags: '', peopleManagementScope: '', ownershipScope: '' }])
+  const addEducationEntry = () => setEducationEntries((current) => [...current, { id: createProfileEntryId('education'), schoolName: '', degree: '', fieldOfStudy: '', location: '', startDate: '', endDate: '', summary: '' }])
+  const addCertificationEntry = () => setCertificationEntries((current) => [...current, { id: createProfileEntryId('certification'), name: '', issuer: '', issueDate: '', expiryDate: '', credentialUrl: '' }])
+  const addLinkEntry = () => setLinkEntries((current) => [...current, { id: createProfileEntryId('link'), label: '', url: '', kind: '' }])
+  const addProjectEntry = () => setProjectEntries((current) => [...current, { id: createProfileEntryId('project'), name: '', projectType: '', summary: '', role: '', skills: '', outcome: '', projectUrl: '', repositoryUrl: '', caseStudyUrl: '' }])
+  const addLanguageEntry = () => setLanguageEntries((current) => [...current, { id: createProfileEntryId('language'), language: '', proficiency: '', interviewPreference: false, notes: '' }])
 
-  const addCertificationEntry = () => {
-    setCertificationEntries((current) => [
-      ...current,
-      {
-        id: createProfileEntryId('certification'),
-        name: '',
-        issuer: '',
-        issueDate: '',
-        expiryDate: '',
-        credentialUrl: ''
-      }
-    ])
-  }
+  const mergedSkills = uniqueList([
+    ...parseListInput(profileForm.skills),
+    ...parseListInput(skillGroupForm.coreSkills),
+    ...parseListInput(skillGroupForm.tools),
+    ...parseListInput(skillGroupForm.languagesAndFrameworks),
+    ...parseListInput(skillGroupForm.highlightedSkills)
+  ])
 
-  const addLinkEntry = () => {
-    setLinkEntries((current) => [...current, { id: createProfileEntryId('link'), label: '', url: '', kind: '' }])
-  }
+  const builtLocation = uniqueList([
+    [profileForm.currentCity, profileForm.currentRegion, profileForm.currentCountry].filter(Boolean).join(', '),
+    profileForm.currentLocation
+  ])[0] ?? profileForm.currentLocation.trim()
 
   const saveProfilePayload: CandidateProfile = {
     ...profile,
     firstName: profileForm.firstName.trim(),
-    lastName: profileForm.lastName.trim(),
     middleName: profileForm.middleName.trim() || null,
-    fullName: buildFullName({
-      firstName: profileForm.firstName,
-      middleName: profileForm.middleName,
-      lastName: profileForm.lastName
-    }),
+    lastName: profileForm.lastName.trim(),
+    preferredDisplayName: profileForm.preferredDisplayName.trim() || null,
+    fullName: buildFullName({ firstName: profileForm.firstName, middleName: profileForm.middleName, lastName: profileForm.lastName }),
     headline: profileForm.headline.trim(),
-    currentLocation: profileForm.currentLocation.trim(),
+    summary: (summaryForm.fullSummary.trim() || profileForm.summary.trim()),
+    currentLocation: builtLocation,
+    currentCity: profileForm.currentCity.trim() || null,
+    currentRegion: profileForm.currentRegion.trim() || null,
+    currentCountry: profileForm.currentCountry.trim() || null,
+    timeZone: profileForm.timeZone.trim() || null,
     yearsExperience: Number(profileForm.yearsExperience || '0'),
     email: profileForm.email.trim() || null,
+    secondaryEmail: profileForm.secondaryEmail.trim() || null,
     phone: profileForm.phone.trim() || null,
     portfolioUrl: profileForm.portfolioUrl.trim() || null,
     linkedinUrl: profileForm.linkedinUrl.trim() || null,
-    summary: profileForm.summary.trim(),
-    skills: parseListInput(profileForm.skills),
-    experiences: experienceEntries
-      .filter((entry) => entry.companyName.trim() && entry.title.trim())
-      .map((entry) => ({
-        id: entry.id,
-        companyName: entry.companyName.trim(),
-        title: entry.title.trim(),
-        employmentType: entry.employmentType.trim() || null,
-        location: entry.location.trim() || null,
-        workMode: entry.workMode || null,
-        startDate: entry.startDate.trim() || null,
-        endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
-        isCurrent: entry.isCurrent,
-        summary: entry.summary.trim() || null,
-        achievements: parseListInput(entry.achievements),
-        skills: parseListInput(entry.skills)
-      })),
-    education: educationEntries
-      .filter((entry) => entry.schoolName.trim())
-      .map((entry) => ({
-        id: entry.id,
-        schoolName: entry.schoolName.trim(),
-        degree: entry.degree.trim() || null,
-        fieldOfStudy: entry.fieldOfStudy.trim() || null,
-        location: entry.location.trim() || null,
-        startDate: entry.startDate.trim() || null,
-        endDate: entry.endDate.trim() || null,
-        summary: entry.summary.trim() || null
-      })),
-    certifications: certificationEntries
-      .filter((entry) => entry.name.trim())
-      .map((entry) => ({
-        id: entry.id,
-        name: entry.name.trim(),
-        issuer: entry.issuer.trim() || null,
-        issueDate: entry.issueDate.trim() || null,
-        expiryDate: entry.expiryDate.trim() || null,
-        credentialUrl: entry.credentialUrl.trim() || null
-      })),
-    links: linkEntries
-      .filter((entry) => entry.label.trim() && entry.url.trim())
-      .map((entry) => ({
-        id: entry.id,
-        label: entry.label.trim(),
-        url: entry.url.trim(),
-        kind: entry.kind.trim() || null
-      })),
+    githubUrl: profileForm.githubUrl.trim() || null,
+    personalWebsiteUrl: profileForm.personalWebsiteUrl.trim() || null,
     baseResume: {
       ...profile.baseResume,
       textContent: profileForm.resumeText.trim() || null
-    }
+    },
+    workEligibility: {
+      authorizedWorkCountries: parseListInput(eligibilityForm.authorizedWorkCountries),
+      requiresVisaSponsorship: selectToBoolean(eligibilityForm.requiresVisaSponsorship),
+      willingToRelocate: selectToBoolean(eligibilityForm.willingToRelocate),
+      preferredRelocationRegions: parseListInput(eligibilityForm.preferredRelocationRegions),
+      willingToTravel: selectToBoolean(eligibilityForm.willingToTravel),
+      remoteEligible: selectToBoolean(eligibilityForm.remoteEligible),
+      noticePeriodDays: eligibilityForm.noticePeriodDays.trim() ? Number(eligibilityForm.noticePeriodDays) : null,
+      availableStartDate: eligibilityForm.availableStartDate.trim() || null,
+      securityClearance: eligibilityForm.securityClearance.trim() || null
+    },
+    professionalSummary: {
+      shortValueProposition: summaryForm.shortValueProposition.trim() || null,
+      fullSummary: summaryForm.fullSummary.trim() || null,
+      careerThemes: parseListInput(summaryForm.careerThemes),
+      leadershipSummary: summaryForm.leadershipSummary.trim() || null,
+      domainFocusSummary: summaryForm.domainFocusSummary.trim() || null,
+      strengths: parseListInput(summaryForm.strengths)
+    },
+    skillGroups: {
+      coreSkills: parseListInput(skillGroupForm.coreSkills),
+      tools: parseListInput(skillGroupForm.tools),
+      languagesAndFrameworks: parseListInput(skillGroupForm.languagesAndFrameworks),
+      softSkills: parseListInput(skillGroupForm.softSkills),
+      highlightedSkills: parseListInput(skillGroupForm.highlightedSkills)
+    },
+    targetRoles: profile.targetRoles,
+    locations: profile.locations,
+    skills: mergedSkills,
+    experiences: experienceEntries.filter((entry) => entry.companyName.trim() && entry.title.trim()).map((entry) => ({
+      id: entry.id,
+      companyName: entry.companyName.trim(),
+      companyUrl: entry.companyUrl.trim() || null,
+      title: entry.title.trim(),
+      employmentType: entry.employmentType.trim() || null,
+      location: entry.location.trim() || null,
+      workMode: entry.workMode || null,
+      startDate: entry.startDate.trim() || null,
+      endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
+      isCurrent: entry.isCurrent,
+      summary: entry.summary.trim() || null,
+      achievements: parseListInput(entry.achievements),
+      skills: parseListInput(entry.skills),
+      domainTags: parseListInput(entry.domainTags),
+      peopleManagementScope: entry.peopleManagementScope.trim() || null,
+      ownershipScope: entry.ownershipScope.trim() || null
+    })),
+    education: educationEntries.filter((entry) => entry.schoolName.trim()).map((entry) => ({
+      id: entry.id,
+      schoolName: entry.schoolName.trim(),
+      degree: entry.degree.trim() || null,
+      fieldOfStudy: entry.fieldOfStudy.trim() || null,
+      location: entry.location.trim() || null,
+      startDate: entry.startDate.trim() || null,
+      endDate: entry.endDate.trim() || null,
+      summary: entry.summary.trim() || null
+    })),
+    certifications: certificationEntries.filter((entry) => entry.name.trim()).map((entry) => ({
+      id: entry.id,
+      name: entry.name.trim(),
+      issuer: entry.issuer.trim() || null,
+      issueDate: entry.issueDate.trim() || null,
+      expiryDate: entry.expiryDate.trim() || null,
+      credentialUrl: entry.credentialUrl.trim() || null
+    })),
+    links: linkEntries.filter((entry) => entry.label.trim() && entry.url.trim()).map((entry) => ({ id: entry.id, label: entry.label.trim(), url: entry.url.trim(), kind: entry.kind.trim() || null })),
+    projects: projectEntries.filter((entry) => entry.name.trim()).map((entry) => ({
+      id: entry.id,
+      name: entry.name.trim(),
+      projectType: entry.projectType.trim() || null,
+      summary: entry.summary.trim() || null,
+      role: entry.role.trim() || null,
+      skills: parseListInput(entry.skills),
+      outcome: entry.outcome.trim() || null,
+      projectUrl: entry.projectUrl.trim() || null,
+      repositoryUrl: entry.repositoryUrl.trim() || null,
+      caseStudyUrl: entry.caseStudyUrl.trim() || null
+    })),
+    spokenLanguages: languageEntries.filter((entry) => entry.language.trim()).map((entry) => ({
+      id: entry.id,
+      language: entry.language.trim(),
+      proficiency: entry.proficiency.trim() || null,
+      interviewPreference: entry.interviewPreference,
+      notes: entry.notes.trim() || null
+    }))
   }
 
   return (
@@ -943,7 +1136,7 @@ function ProfileScreen(props: {
       <PageHeader
         eyebrow="Profile"
         title="Candidate setup"
-        description="Structured candidate data for tailoring, ATS alignment, and future field-by-field apply automation."
+        description="Structured candidate data for ATS-safe applications, stronger tailoring, and future field-by-field automation across profile, discovery, and apply flows."
       />
 
       <div className="profile-layout">
@@ -951,136 +1144,80 @@ function ProfileScreen(props: {
           <p className="section-label">Profile summary</p>
           <div className="two-up-grid">
             <div>
-              <h2>{profile.fullName}</h2>
+              <h2>{profile.preferredDisplayName ?? profile.fullName}</h2>
               <p className="profile-headline">{profile.headline}</p>
               <div className="chip-row chip-row-compact">
                 {profile.email ? <span className="chip">{profile.email}</span> : null}
+                {profile.secondaryEmail ? <span className="chip">Secondary email on file</span> : null}
                 {profile.phone ? <span className="chip">{profile.phone}</span> : null}
-                {profile.linkedinUrl ? <span className="chip">LinkedIn on file</span> : null}
-                {profile.portfolioUrl ? <span className="chip">Portfolio on file</span> : null}
+                {profile.timeZone ? <span className="chip">{profile.timeZone}</span> : null}
               </div>
             </div>
             <div className="stat-grid">
-              <div>
-                <span>Experience</span>
-                <strong>{profile.yearsExperience} years</strong>
-              </div>
-              <div>
-                <span>Base location</span>
-                <strong>{profile.currentLocation}</strong>
-              </div>
-              <div>
-                <span>Roles captured</span>
-                <strong>{profile.experiences.length}</strong>
-              </div>
-              <div>
-                <span>Education records</span>
-                <strong>{profile.education.length}</strong>
-              </div>
+              <div><span>Experience</span><strong>{profile.yearsExperience} years</strong></div>
+              <div><span>Base location</span><strong>{profile.currentLocation}</strong></div>
+              <div><span>Projects</span><strong>{profile.projects.length}</strong></div>
+              <div><span>Languages</span><strong>{profile.spokenLanguages.length}</strong></div>
             </div>
           </div>
-          <p className="body-copy">{profile.summary}</p>
+          <p className="body-copy">{profile.professionalSummary.shortValueProposition ?? profile.summary}</p>
           <div className="chip-row">
-            {profile.skills.map((skill) => (
-              <span key={skill} className="chip">
-                {skill}
-              </span>
-            ))}
+            {profile.skillGroups.highlightedSkills.length > 0
+              ? profile.skillGroups.highlightedSkills.map((skill) => <span key={skill} className="chip">{skill}</span>)
+              : profile.skills.map((skill) => <span key={skill} className="chip">{skill}</span>)}
           </div>
         </section>
 
         <section className="panel panel-spacious profile-panel-resume">
           <div className="panel-header-row">
-            <p className="section-label">Source resume</p>
-            <span className={`status-chip ${agentProvider.kind === 'openai_compatible' ? 'tone-positive' : 'tone-active'}`}>
-              {agentProvider.label}
-            </span>
+            <p className="section-label">Resume intake and provenance</p>
+            <span className={`status-chip ${agentProvider.kind === 'openai_compatible' ? 'tone-positive' : 'tone-active'}`}>{agentProvider.label}</span>
           </div>
           <div className="resume-dropzone">
             <strong>{profile.baseResume.fileName}</strong>
             <span>Uploaded {formatDateOnly(profile.baseResume.uploadedAt)}</span>
-            <span className={`status-chip ${getAssetTone(profile.baseResume.extractionStatus === 'ready' ? 'ready' : profile.baseResume.extractionStatus === 'failed' ? 'failed' : profile.baseResume.extractionStatus === 'needs_text' ? 'queued' : 'generating')}`}>
-              {formatStatusLabel(profile.baseResume.extractionStatus)}
-            </span>
+            <span className={`status-chip ${getAssetTone(profile.baseResume.extractionStatus === 'ready' ? 'ready' : profile.baseResume.extractionStatus === 'failed' ? 'failed' : profile.baseResume.extractionStatus === 'needs_text' ? 'queued' : 'generating')}`}>{formatStatusLabel(profile.baseResume.extractionStatus)}</span>
             {profile.baseResume.lastAnalyzedAt && profile.baseResume.analysisProviderLabel ? (
               <div className="resume-analysis-inline">
-                <span
-                  className={`status-chip ${profile.baseResume.analysisProviderKind === 'openai_compatible' ? 'tone-positive' : 'tone-active'}`}
-                >
+                <span className={`status-chip ${profile.baseResume.analysisProviderKind === 'openai_compatible' ? 'tone-positive' : 'tone-active'}`}>
                   {profile.baseResume.analysisProviderKind === 'openai_compatible' ? 'AI parsed' : 'Fallback parsed'}
                 </span>
                 <span className="meta-copy">{profile.baseResume.analysisProviderLabel}</span>
               </div>
             ) : null}
             <div className="button-row">
-              <button className="secondary-action compact-action" disabled={busy} onClick={onImportResume} type="button">
-                Replace resume
-              </button>
-              <button
-                className="primary-action compact-action"
-                disabled={
-                  busy ||
-                  !profileForm.resumeText.trim() ||
-                  profileForm.resumeText.trim() !== (profile.baseResume.textContent ?? '')
-                }
-                onClick={onAnalyzeProfileFromResume}
-                type="button"
-              >
-                Analyze saved resume text
-              </button>
+              <button className="secondary-action compact-action" disabled={busy} onClick={onImportResume} type="button">Replace resume</button>
+              <button className="primary-action compact-action" disabled={busy || !profileForm.resumeText.trim() || profileForm.resumeText.trim() !== (profile.baseResume.textContent ?? '')} onClick={onAnalyzeProfileFromResume} type="button">Analyze saved resume text</button>
             </div>
           </div>
-          <p className="muted-copy">
-            {profile.baseResume.textContent
-              ? 'Stored resume text is ready for profile extraction, tailoring, and validation.'
-              : 'PDF, DOCX, TXT, and Markdown resumes can be stored locally. If extraction misses key content, paste cleaned plain text below so the agent can continue.'}
-          </p>
-          {profile.baseResume.lastAnalyzedAt && profile.baseResume.analysisProviderLabel ? (
-            <div className="resume-analysis-summary">
-              <p className="body-copy body-copy-compact">{formatResumeAnalysisSummary(profile)}</p>
-            </div>
-          ) : null}
-          {profile.baseResume.analysisWarnings.length > 0 ? (
-            <PreferenceList label="Review notes" values={profile.baseResume.analysisWarnings} />
-          ) : null}
+          <p className="muted-copy">{profile.baseResume.textContent ? 'Stored resume text is ready for structured extraction, tailoring, and validation.' : 'PDF, DOCX, TXT, and Markdown resumes can be stored locally. If extraction misses content, paste clean text below so the agent can continue.'}</p>
+          {profile.baseResume.lastAnalyzedAt && profile.baseResume.analysisProviderLabel ? <div className="resume-analysis-summary"><p className="body-copy body-copy-compact">{formatResumeAnalysisSummary(profile)}</p></div> : null}
+          {profile.baseResume.analysisWarnings.length > 0 ? <PreferenceList label="Review notes" values={profile.baseResume.analysisWarnings} /> : null}
         </section>
       </div>
 
       <section className="panel panel-spacious profile-panel-overview">
         <div className="panel-header-row">
-          <p className="section-label">Job matching defaults</p>
-          <span className="section-badge">Targeting and workflow</span>
+          <p className="section-label">Structured coverage</p>
+          <span className="section-badge">Plan-backed fields now live in code</span>
         </div>
         <div className="profile-secondary-grid">
+          <div className="panel-muted profile-subsection">
+            <p className="section-label">Candidate record</p>
+            <div className="stat-grid">
+              <div><span>Experience entries</span><strong>{profile.experiences.length}</strong></div>
+              <div><span>Education entries</span><strong>{profile.education.length}</strong></div>
+              <div><span>Projects</span><strong>{profile.projects.length}</strong></div>
+              <div><span>Proof links</span><strong>{profile.links.length}</strong></div>
+            </div>
+          </div>
           <div className="panel-muted profile-subsection">
             <p className="section-label">Targeting rules</p>
             <div className="settings-grid preference-summary-grid">
               <PreferenceList label="Target roles" values={searchPreferences.targetRoles} />
+              <PreferenceList label="Job families" values={searchPreferences.jobFamilies} />
               <PreferenceList label="Locations" values={searchPreferences.locations} />
-              <PreferenceList label="Work modes" values={searchPreferences.workModes.map(formatStatusLabel)} />
-              <PreferenceList label="Seniority" values={searchPreferences.seniorityLevels} />
-            </div>
-          </div>
-
-          <div className="panel-muted profile-subsection">
-            <p className="section-label">Structured coverage</p>
-            <div className="stat-grid">
-              <div>
-                <span>Experience entries</span>
-                <strong>{profile.experiences.length}</strong>
-              </div>
-              <div>
-                <span>Education entries</span>
-                <strong>{profile.education.length}</strong>
-              </div>
-              <div>
-                <span>Certifications</span>
-                <strong>{profile.certifications.length}</strong>
-              </div>
-              <div>
-                <span>Proof links</span>
-                <strong>{profile.links.length}</strong>
-              </div>
+              <PreferenceList label="Industries" values={searchPreferences.targetIndustries} />
             </div>
           </div>
         </div>
@@ -1091,133 +1228,111 @@ function ProfileScreen(props: {
           <div className="panel-header-row">
             <div>
               <p className="section-label">Identity and contact</p>
-              <p className="muted-copy">Keep the top-level profile concise, searchable, and ready for ATS autofill.</p>
+              <p className="muted-copy">Explicit ATS-safe header fields, contact channels, location details, and public profile links.</p>
             </div>
-            <span className="section-badge">Persist locally</span>
+            <span className="section-badge">Identity</span>
           </div>
-          <div className="form-column-layout">
-            <div className="form-column">
-              <label className="field-stack">
-                <span className="section-label">First name</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, firstName: event.target.value }))} value={profileForm.firstName} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Middle name</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, middleName: event.target.value }))} value={profileForm.middleName} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Headline</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, headline: event.target.value }))} value={profileForm.headline} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Email</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))} value={profileForm.email} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Portfolio URL</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, portfolioUrl: event.target.value }))} value={profileForm.portfolioUrl} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Skills</span>
-                <textarea className="textarea-shell compact-textarea" onChange={(event) => setProfileForm((current) => ({ ...current, skills: event.target.value }))} rows={4} value={profileForm.skills} />
-              </label>
-            </div>
-            <div className="form-column">
-              <label className="field-stack">
-                <span className="section-label">Last name</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, lastName: event.target.value }))} value={profileForm.lastName} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Current location</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, currentLocation: event.target.value }))} value={profileForm.currentLocation} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Years of experience</span>
-                <input className="input-shell" min="0" onChange={(event) => setProfileForm((current) => ({ ...current, yearsExperience: event.target.value }))} type="number" value={profileForm.yearsExperience} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">Phone</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))} value={profileForm.phone} />
-              </label>
-              <label className="field-stack">
-                <span className="section-label">LinkedIn URL</span>
-                <input className="input-shell" onChange={(event) => setProfileForm((current) => ({ ...current, linkedinUrl: event.target.value }))} value={profileForm.linkedinUrl} />
-              </label>
-            </div>
-          </div>
-          <div className="form-grid">
-            <label className="field-stack">
-              <span className="section-label">Summary</span>
-              <textarea className="textarea-shell" onChange={(event) => setProfileForm((current) => ({ ...current, summary: event.target.value }))} rows={4} value={profileForm.summary} />
-            </label>
-            <label className="field-stack">
-              <span className="section-label">Resume text for agents</span>
-              <textarea className="textarea-shell" onChange={(event) => setProfileForm((current) => ({ ...current, resumeText: event.target.value }))} rows={8} value={profileForm.resumeText} />
-            </label>
-          </div>
-        </section>
-
-        <section className="panel panel-spacious">
-          <div className="panel-header-row">
-            <div>
-              <p className="section-label">Experience timeline</p>
-              <p className="muted-copy">Each role now has dedicated fields for title, employer, dates, outcomes, and skill evidence.</p>
-            </div>
-            <button className="secondary-action compact-action" disabled={busy} onClick={addExperienceEntry} type="button">
-              Add experience
-            </button>
-          </div>
-          <div className="record-stack">
-            {experienceEntries.length > 0 ? experienceEntries.map((entry, index) => (
-              <article key={entry.id} className="record-card">
-                <div className="panel-header-row">
-                  <p className="section-label">Role {index + 1}</p>
-                  <button className="ghost-action compact-action" disabled={busy} onClick={() => setExperienceEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">
-                    Remove
-                  </button>
-                </div>
-                <div className="form-column-layout">
-                  <div className="form-column">
-                    <label className="field-stack"><span className="section-label">Company</span><input className="input-shell" value={entry.companyName} onChange={(event) => updateExperienceEntry(entry.id, 'companyName', event.target.value)} /></label>
-                    <label className="field-stack"><span className="section-label">Title</span><input className="input-shell" value={entry.title} onChange={(event) => updateExperienceEntry(entry.id, 'title', event.target.value)} /></label>
-                    <label className="field-stack"><span className="section-label">Employment type</span><input className="input-shell" value={entry.employmentType} onChange={(event) => updateExperienceEntry(entry.id, 'employmentType', event.target.value)} /></label>
-                    <label className="field-stack"><span className="section-label">Location</span><input className="input-shell" value={entry.location} onChange={(event) => updateExperienceEntry(entry.id, 'location', event.target.value)} /></label>
-                  </div>
-                  <div className="form-column">
-                    <label className="field-stack"><span className="section-label">Work mode</span><select className="select-shell" value={entry.workMode} onChange={(event) => updateExperienceEntry(entry.id, 'workMode', event.target.value as WorkMode | '')}><option value="">Select mode</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">Onsite</option><option value="flexible">Flexible</option></select></label>
-                    <label className="field-stack"><span className="section-label">Start date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.startDate} onChange={(event) => updateExperienceEntry(entry.id, 'startDate', event.target.value)} /></label>
-                    <label className="field-stack"><span className="section-label">End date</span><input className="input-shell" disabled={entry.isCurrent} placeholder="YYYY-MM" value={entry.endDate} onChange={(event) => updateExperienceEntry(entry.id, 'endDate', event.target.value)} /></label>
-                    <label className="checkbox-row"><input checked={entry.isCurrent} onChange={(event) => updateExperienceEntry(entry.id, 'isCurrent', event.target.checked)} type="checkbox" /><span>Current role</span></label>
-                  </div>
-                </div>
-                <div className="form-grid">
-                  <label className="field-stack"><span className="section-label">Role summary</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.summary} onChange={(event) => updateExperienceEntry(entry.id, 'summary', event.target.value)} /></label>
-                  <div className="form-column-layout">
-                    <label className="field-stack"><span className="section-label">Achievements</span><textarea className="textarea-shell" rows={4} value={entry.achievements} onChange={(event) => updateExperienceEntry(entry.id, 'achievements', event.target.value)} /></label>
-                    <label className="field-stack"><span className="section-label">Skills used</span><textarea className="textarea-shell compact-textarea" rows={4} value={entry.skills} onChange={(event) => updateExperienceEntry(entry.id, 'skills', event.target.value)} /></label>
-                  </div>
-                </div>
-              </article>
-            )) : <EmptyState title="No structured experience yet" description="Add each role with dedicated fields so resume tailoring and future form-fill flows do not depend on one large text box." />}
+          <div className="form-grid two-column-form-grid">
+            <label className="field-stack"><span className="section-label">First name</span><input className="input-shell" value={profileForm.firstName} onChange={(event) => setProfileForm((current) => ({ ...current, firstName: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Last name</span><input className="input-shell" value={profileForm.lastName} onChange={(event) => setProfileForm((current) => ({ ...current, lastName: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Middle name</span><input className="input-shell" value={profileForm.middleName} onChange={(event) => setProfileForm((current) => ({ ...current, middleName: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Preferred display name</span><input className="input-shell" value={profileForm.preferredDisplayName} onChange={(event) => setProfileForm((current) => ({ ...current, preferredDisplayName: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Headline</span><input className="input-shell" value={profileForm.headline} onChange={(event) => setProfileForm((current) => ({ ...current, headline: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Years of experience</span><input className="input-shell" min="0" type="number" value={profileForm.yearsExperience} onChange={(event) => setProfileForm((current) => ({ ...current, yearsExperience: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Primary email</span><input className="input-shell" value={profileForm.email} onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Secondary email</span><input className="input-shell" value={profileForm.secondaryEmail} onChange={(event) => setProfileForm((current) => ({ ...current, secondaryEmail: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Phone</span><input className="input-shell" value={profileForm.phone} onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Timezone</span><input className="input-shell" value={profileForm.timeZone} onChange={(event) => setProfileForm((current) => ({ ...current, timeZone: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">City</span><input className="input-shell" value={profileForm.currentCity} onChange={(event) => setProfileForm((current) => ({ ...current, currentCity: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Region / state</span><input className="input-shell" value={profileForm.currentRegion} onChange={(event) => setProfileForm((current) => ({ ...current, currentRegion: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Country</span><input className="input-shell" value={profileForm.currentCountry} onChange={(event) => setProfileForm((current) => ({ ...current, currentCountry: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Fallback location label</span><input className="input-shell" value={profileForm.currentLocation} onChange={(event) => setProfileForm((current) => ({ ...current, currentLocation: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">LinkedIn URL</span><input className="input-shell" value={profileForm.linkedinUrl} onChange={(event) => setProfileForm((current) => ({ ...current, linkedinUrl: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Portfolio URL</span><input className="input-shell" value={profileForm.portfolioUrl} onChange={(event) => setProfileForm((current) => ({ ...current, portfolioUrl: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">GitHub URL</span><input className="input-shell" value={profileForm.githubUrl} onChange={(event) => setProfileForm((current) => ({ ...current, githubUrl: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Personal website</span><input className="input-shell" value={profileForm.personalWebsiteUrl} onChange={(event) => setProfileForm((current) => ({ ...current, personalWebsiteUrl: event.target.value }))} /></label>
+            <label className="field-stack two-column-span"><span className="section-label">Resume text for agents</span><textarea className="textarea-shell" rows={8} value={profileForm.resumeText} onChange={(event) => setProfileForm((current) => ({ ...current, resumeText: event.target.value }))} /></label>
           </div>
         </section>
 
         <div className="profile-edit-layout">
           <section className="panel panel-spacious">
-            <div className="panel-header-row">
-              <div>
-                <p className="section-label">Education</p>
-                <p className="muted-copy">Store schools, degrees, fields of study, and dates as separate records.</p>
-              </div>
-              <button className="secondary-action compact-action" disabled={busy} onClick={addEducationEntry} type="button">Add education</button>
+            <div className="panel-header-row"><div><p className="section-label">Work eligibility and logistics</p><p className="muted-copy">Structured screening answers for authorization, relocation, travel, and availability.</p></div><span className="section-badge">Eligibility</span></div>
+            <div className="form-grid two-column-form-grid">
+              <label className="field-stack"><span className="section-label">Authorized work countries</span><textarea className="textarea-shell compact-textarea" rows={3} value={eligibilityForm.authorizedWorkCountries} onChange={(event) => setEligibilityForm((current) => ({ ...current, authorizedWorkCountries: event.target.value }))} /></label>
+              <label className="field-stack"><span className="section-label">Preferred relocation regions</span><textarea className="textarea-shell compact-textarea" rows={3} value={eligibilityForm.preferredRelocationRegions} onChange={(event) => setEligibilityForm((current) => ({ ...current, preferredRelocationRegions: event.target.value }))} /></label>
+              <label className="field-stack"><span className="section-label">Requires visa sponsorship</span><select className="select-shell" value={eligibilityForm.requiresVisaSponsorship} onChange={(event) => setEligibilityForm((current) => ({ ...current, requiresVisaSponsorship: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <label className="field-stack"><span className="section-label">Willing to relocate</span><select className="select-shell" value={eligibilityForm.willingToRelocate} onChange={(event) => setEligibilityForm((current) => ({ ...current, willingToRelocate: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <label className="field-stack"><span className="section-label">Willing to travel</span><select className="select-shell" value={eligibilityForm.willingToTravel} onChange={(event) => setEligibilityForm((current) => ({ ...current, willingToTravel: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <label className="field-stack"><span className="section-label">Remote eligible</span><select className="select-shell" value={eligibilityForm.remoteEligible} onChange={(event) => setEligibilityForm((current) => ({ ...current, remoteEligible: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <label className="field-stack"><span className="section-label">Notice period (days)</span><input className="input-shell" min="0" type="number" value={eligibilityForm.noticePeriodDays} onChange={(event) => setEligibilityForm((current) => ({ ...current, noticePeriodDays: event.target.value }))} /></label>
+              <label className="field-stack"><span className="section-label">Available start date</span><input className="input-shell" placeholder="YYYY-MM-DD" value={eligibilityForm.availableStartDate} onChange={(event) => setEligibilityForm((current) => ({ ...current, availableStartDate: event.target.value }))} /></label>
+              <label className="field-stack two-column-span"><span className="section-label">Security clearance</span><input className="input-shell" value={eligibilityForm.securityClearance} onChange={(event) => setEligibilityForm((current) => ({ ...current, securityClearance: event.target.value }))} /></label>
             </div>
+          </section>
+
+          <section className="panel panel-spacious">
+            <div className="panel-header-row"><div><p className="section-label">Professional summary layer</p><p className="muted-copy">Separate reusable narrative blocks from the raw factual record.</p></div><span className="section-badge">Narrative</span></div>
+            <div className="form-grid">
+              <label className="field-stack"><span className="section-label">Short value proposition</span><textarea className="textarea-shell compact-textarea" rows={3} value={summaryForm.shortValueProposition} onChange={(event) => setSummaryForm((current) => ({ ...current, shortValueProposition: event.target.value }))} /></label>
+              <label className="field-stack"><span className="section-label">Full summary</span><textarea className="textarea-shell" rows={5} value={summaryForm.fullSummary} onChange={(event) => setSummaryForm((current) => ({ ...current, fullSummary: event.target.value }))} /></label>
+              <div className="form-grid two-column-form-grid">
+                <label className="field-stack"><span className="section-label">Career themes</span><textarea className="textarea-shell compact-textarea" rows={4} value={summaryForm.careerThemes} onChange={(event) => setSummaryForm((current) => ({ ...current, careerThemes: event.target.value }))} /></label>
+                <label className="field-stack"><span className="section-label">Strengths / differentiators</span><textarea className="textarea-shell compact-textarea" rows={4} value={summaryForm.strengths} onChange={(event) => setSummaryForm((current) => ({ ...current, strengths: event.target.value }))} /></label>
+                <label className="field-stack"><span className="section-label">Leadership summary</span><textarea className="textarea-shell compact-textarea" rows={4} value={summaryForm.leadershipSummary} onChange={(event) => setSummaryForm((current) => ({ ...current, leadershipSummary: event.target.value }))} /></label>
+                <label className="field-stack"><span className="section-label">Domain focus</span><textarea className="textarea-shell compact-textarea" rows={4} value={summaryForm.domainFocusSummary} onChange={(event) => setSummaryForm((current) => ({ ...current, domainFocusSummary: event.target.value }))} /></label>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section className="panel panel-spacious">
+          <div className="panel-header-row"><div><p className="section-label">Skills and evidence</p><p className="muted-copy">Maintain searchable skill groups and highlighted evidence alongside the general skills list.</p></div><span className="section-badge">Skills</span></div>
+          <div className="form-grid two-column-form-grid">
+            <label className="field-stack"><span className="section-label">General skills</span><textarea className="textarea-shell compact-textarea" rows={4} value={profileForm.skills} onChange={(event) => setProfileForm((current) => ({ ...current, skills: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Highlighted skills for target roles</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.highlightedSkills} onChange={(event) => setSkillGroupForm((current) => ({ ...current, highlightedSkills: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Core skills</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.coreSkills} onChange={(event) => setSkillGroupForm((current) => ({ ...current, coreSkills: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Tools / platforms</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.tools} onChange={(event) => setSkillGroupForm((current) => ({ ...current, tools: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Languages / frameworks</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.languagesAndFrameworks} onChange={(event) => setSkillGroupForm((current) => ({ ...current, languagesAndFrameworks: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Soft skills</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.softSkills} onChange={(event) => setSkillGroupForm((current) => ({ ...current, softSkills: event.target.value }))} /></label>
+          </div>
+        </section>
+
+        <section className="panel panel-spacious">
+          <div className="panel-header-row"><div><p className="section-label">Experience timeline</p><p className="muted-copy">Field-by-field reusable work history for ATS alignment, tailoring, and future form-fill.</p></div><button className="secondary-action compact-action" disabled={busy} onClick={addExperienceEntry} type="button">Add experience</button></div>
+          <div className="record-stack">
+            {experienceEntries.length > 0 ? experienceEntries.map((entry, index) => (
+              <article key={entry.id} className="record-card">
+                <div className="panel-header-row"><p className="section-label">Role {index + 1}</p><button className="ghost-action compact-action" disabled={busy} onClick={() => setExperienceEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button></div>
+                <div className="form-grid two-column-form-grid">
+                  <label className="field-stack"><span className="section-label">Company</span><input className="input-shell" value={entry.companyName} onChange={(event) => updateExperienceEntry(entry.id, 'companyName', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">Company URL</span><input className="input-shell" value={entry.companyUrl} onChange={(event) => updateExperienceEntry(entry.id, 'companyUrl', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">Title</span><input className="input-shell" value={entry.title} onChange={(event) => updateExperienceEntry(entry.id, 'title', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">Employment type</span><input className="input-shell" value={entry.employmentType} onChange={(event) => updateExperienceEntry(entry.id, 'employmentType', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">Location</span><input className="input-shell" value={entry.location} onChange={(event) => updateExperienceEntry(entry.id, 'location', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">Work mode</span><select className="select-shell" value={entry.workMode} onChange={(event) => updateExperienceEntry(entry.id, 'workMode', event.target.value as WorkMode | '')}><option value="">Select mode</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">Onsite</option><option value="flexible">Flexible</option></select></label>
+                  <label className="field-stack"><span className="section-label">Start date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.startDate} onChange={(event) => updateExperienceEntry(entry.id, 'startDate', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">End date</span><input className="input-shell" disabled={entry.isCurrent} placeholder="YYYY-MM" value={entry.endDate} onChange={(event) => updateExperienceEntry(entry.id, 'endDate', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">Domain / industry tags</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.domainTags} onChange={(event) => updateExperienceEntry(entry.id, 'domainTags', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">People-management scope</span><input className="input-shell" value={entry.peopleManagementScope} onChange={(event) => updateExperienceEntry(entry.id, 'peopleManagementScope', event.target.value)} /></label>
+                  <label className="field-stack two-column-span"><span className="section-label">Ownership / budget scope</span><input className="input-shell" value={entry.ownershipScope} onChange={(event) => updateExperienceEntry(entry.id, 'ownershipScope', event.target.value)} /></label>
+                  <label className="checkbox-row two-column-span"><input checked={entry.isCurrent} onChange={(event) => updateExperienceEntry(entry.id, 'isCurrent', event.target.checked)} type="checkbox" /><span>Current role</span></label>
+                  <label className="field-stack two-column-span"><span className="section-label">Role summary</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.summary} onChange={(event) => updateExperienceEntry(entry.id, 'summary', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">Achievements</span><textarea className="textarea-shell" rows={4} value={entry.achievements} onChange={(event) => updateExperienceEntry(entry.id, 'achievements', event.target.value)} /></label>
+                  <label className="field-stack"><span className="section-label">Skills used</span><textarea className="textarea-shell compact-textarea" rows={4} value={entry.skills} onChange={(event) => updateExperienceEntry(entry.id, 'skills', event.target.value)} /></label>
+                </div>
+              </article>
+            )) : <EmptyState title="No structured experience yet" description="Add each role with dedicated fields so tailoring and future form-fill flows do not depend on one large text box." />}
+          </div>
+        </section>
+
+        <div className="profile-edit-layout">
+          <section className="panel panel-spacious">
+            <div className="panel-header-row"><div><p className="section-label">Education and credentials</p><p className="muted-copy">Schools, degrees, certifications, and qualification metadata stored as explicit records.</p></div><button className="secondary-action compact-action" disabled={busy} onClick={addEducationEntry} type="button">Add education</button></div>
             <div className="record-stack">
               {educationEntries.length > 0 ? educationEntries.map((entry, index) => (
                 <article key={entry.id} className="record-card">
-                  <div className="panel-header-row">
-                    <p className="section-label">Education {index + 1}</p>
-                    <button className="ghost-action compact-action" disabled={busy} onClick={() => setEducationEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button>
-                  </div>
+                  <div className="panel-header-row"><p className="section-label">Education {index + 1}</p><button className="ghost-action compact-action" disabled={busy} onClick={() => setEducationEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button></div>
                   <div className="form-grid two-column-form-grid">
                     <label className="field-stack"><span className="section-label">School</span><input className="input-shell" value={entry.schoolName} onChange={(event) => updateEducationEntry(entry.id, 'schoolName', event.target.value)} /></label>
                     <label className="field-stack"><span className="section-label">Degree</span><input className="input-shell" value={entry.degree} onChange={(event) => updateEducationEntry(entry.id, 'degree', event.target.value)} /></label>
@@ -1230,26 +1345,11 @@ function ProfileScreen(props: {
                 </article>
               )) : <EmptyState title="No education records yet" description="Add schools and credentials here instead of burying them in one freeform summary box." />}
             </div>
-          </section>
-
-          <section className="panel panel-spacious">
-            <div className="panel-header-row">
-              <div>
-                <p className="section-label">Certifications and links</p>
-                <p className="muted-copy">Capture credentials, portfolio links, GitHub, case studies, and other proof separately.</p>
-              </div>
-              <div className="button-row">
-                <button className="secondary-action compact-action" disabled={busy} onClick={addCertificationEntry} type="button">Add certification</button>
-                <button className="secondary-action compact-action" disabled={busy} onClick={addLinkEntry} type="button">Add link</button>
-              </div>
-            </div>
+            <div className="button-row"><button className="secondary-action compact-action" disabled={busy} onClick={addCertificationEntry} type="button">Add certification</button></div>
             <div className="record-stack">
               {certificationEntries.map((entry, index) => (
                 <article key={entry.id} className="record-card">
-                  <div className="panel-header-row">
-                    <p className="section-label">Certification {index + 1}</p>
-                    <button className="ghost-action compact-action" disabled={busy} onClick={() => setCertificationEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button>
-                  </div>
+                  <div className="panel-header-row"><p className="section-label">Certification {index + 1}</p><button className="ghost-action compact-action" disabled={busy} onClick={() => setCertificationEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button></div>
                   <div className="form-grid two-column-form-grid">
                     <label className="field-stack"><span className="section-label">Name</span><input className="input-shell" value={entry.name} onChange={(event) => updateCertificationEntry(entry.id, 'name', event.target.value)} /></label>
                     <label className="field-stack"><span className="section-label">Issuer</span><input className="input-shell" value={entry.issuer} onChange={(event) => updateCertificationEntry(entry.id, 'issuer', event.target.value)} /></label>
@@ -1259,12 +1359,31 @@ function ProfileScreen(props: {
                   </div>
                 </article>
               ))}
+            </div>
+          </section>
+
+          <section className="panel panel-spacious">
+            <div className="panel-header-row"><div><p className="section-label">Projects, proof, and languages</p><p className="muted-copy">Portfolio projects, public links, and communication signals stored separately from the summary.</p></div><div className="button-row"><button className="secondary-action compact-action" disabled={busy} onClick={addProjectEntry} type="button">Add project</button><button className="secondary-action compact-action" disabled={busy} onClick={addLinkEntry} type="button">Add link</button><button className="secondary-action compact-action" disabled={busy} onClick={addLanguageEntry} type="button">Add language</button></div></div>
+            <div className="record-stack">
+              {projectEntries.map((entry, index) => (
+                <article key={entry.id} className="record-card">
+                  <div className="panel-header-row"><p className="section-label">Project {index + 1}</p><button className="ghost-action compact-action" disabled={busy} onClick={() => setProjectEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button></div>
+                  <div className="form-grid two-column-form-grid">
+                    <label className="field-stack"><span className="section-label">Project name</span><input className="input-shell" value={entry.name} onChange={(event) => updateProjectEntry(entry.id, 'name', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Project type</span><input className="input-shell" value={entry.projectType} onChange={(event) => updateProjectEntry(entry.id, 'projectType', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Role</span><input className="input-shell" value={entry.role} onChange={(event) => updateProjectEntry(entry.id, 'role', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Skills used</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.skills} onChange={(event) => updateProjectEntry(entry.id, 'skills', event.target.value)} /></label>
+                    <label className="field-stack two-column-span"><span className="section-label">Summary</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.summary} onChange={(event) => updateProjectEntry(entry.id, 'summary', event.target.value)} /></label>
+                    <label className="field-stack two-column-span"><span className="section-label">Outcome / impact</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.outcome} onChange={(event) => updateProjectEntry(entry.id, 'outcome', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Project URL</span><input className="input-shell" value={entry.projectUrl} onChange={(event) => updateProjectEntry(entry.id, 'projectUrl', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Repository URL</span><input className="input-shell" value={entry.repositoryUrl} onChange={(event) => updateProjectEntry(entry.id, 'repositoryUrl', event.target.value)} /></label>
+                    <label className="field-stack two-column-span"><span className="section-label">Case-study URL</span><input className="input-shell" value={entry.caseStudyUrl} onChange={(event) => updateProjectEntry(entry.id, 'caseStudyUrl', event.target.value)} /></label>
+                  </div>
+                </article>
+              ))}
               {linkEntries.map((entry, index) => (
                 <article key={entry.id} className="record-card">
-                  <div className="panel-header-row">
-                    <p className="section-label">Link {index + 1}</p>
-                    <button className="ghost-action compact-action" disabled={busy} onClick={() => setLinkEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button>
-                  </div>
+                  <div className="panel-header-row"><p className="section-label">Link {index + 1}</p><button className="ghost-action compact-action" disabled={busy} onClick={() => setLinkEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button></div>
                   <div className="form-grid two-column-form-grid">
                     <label className="field-stack"><span className="section-label">Label</span><input className="input-shell" value={entry.label} onChange={(event) => updateLinkEntry(entry.id, 'label', event.target.value)} /></label>
                     <label className="field-stack"><span className="section-label">Kind</span><input className="input-shell" value={entry.kind} onChange={(event) => updateLinkEntry(entry.id, 'kind', event.target.value)} /></label>
@@ -1272,62 +1391,44 @@ function ProfileScreen(props: {
                   </div>
                 </article>
               ))}
-              {certificationEntries.length === 0 && linkEntries.length === 0 ? <EmptyState title="No supporting records yet" description="Keep certifications and portfolio proof in dedicated records so future job applications can reuse them directly." /> : null}
+              {languageEntries.map((entry, index) => (
+                <article key={entry.id} className="record-card">
+                  <div className="panel-header-row"><p className="section-label">Language {index + 1}</p><button className="ghost-action compact-action" disabled={busy} onClick={() => setLanguageEntries((current) => current.filter((item) => item.id !== entry.id))} type="button">Remove</button></div>
+                  <div className="form-grid two-column-form-grid">
+                    <label className="field-stack"><span className="section-label">Language</span><input className="input-shell" value={entry.language} onChange={(event) => updateLanguageEntry(entry.id, 'language', event.target.value)} /></label>
+                    <label className="field-stack"><span className="section-label">Proficiency</span><input className="input-shell" value={entry.proficiency} onChange={(event) => updateLanguageEntry(entry.id, 'proficiency', event.target.value)} /></label>
+                    <label className="checkbox-row"><input checked={entry.interviewPreference} onChange={(event) => updateLanguageEntry(entry.id, 'interviewPreference', event.target.checked)} type="checkbox" /><span>Preferred interview language</span></label>
+                    <label className="field-stack two-column-span"><span className="section-label">Notes</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.notes} onChange={(event) => updateLanguageEntry(entry.id, 'notes', event.target.value)} /></label>
+                  </div>
+                </article>
+              ))}
+              {projectEntries.length === 0 && linkEntries.length === 0 && languageEntries.length === 0 ? <EmptyState title="No supporting evidence yet" description="Add projects, links, and spoken languages as first-class records instead of burying them in general notes." /> : null}
             </div>
           </section>
         </div>
 
         <section className="panel panel-spacious">
-          <div className="panel-header-row">
-            <p className="section-label">Discovery preferences</p>
-            <span className="section-badge">LinkedIn adapter</span>
-          </div>
-          <div className="form-column-layout">
-            <div className="form-column">
-              <label className="field-stack"><span className="section-label">Target roles</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, targetRoles: event.target.value }))} rows={3} value={preferenceForm.targetRoles} /></label>
-              <label className="field-stack"><span className="section-label">Locations</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, locations: event.target.value }))} rows={3} value={preferenceForm.locations} /></label>
-              <label className="field-stack"><span className="section-label">Seniority</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, seniorityLevels: event.target.value }))} rows={3} value={preferenceForm.seniorityLevels} /></label>
-              <label className="field-stack"><span className="section-label">Tailoring mode</span><select className="select-shell" onChange={(event) => setPreferenceForm((current) => ({ ...current, tailoringMode: event.target.value as JobSearchPreferences['tailoringMode'] }))} value={preferenceForm.tailoringMode}><option value="conservative">Conservative</option><option value="balanced">Balanced</option><option value="aggressive">Aggressive</option></select></label>
-              <label className="field-stack"><span className="section-label">Blocked companies</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))} rows={3} value={preferenceForm.companyBlacklist} /></label>
-            </div>
-            <div className="form-column">
-              <div className="field-stack">
-                <span className="section-label">Work modes</span>
-                <div className="checkbox-grid">
-                  {(['remote', 'hybrid', 'onsite', 'flexible'] as const).map((workMode) => (
-                    <label key={workMode} className="checkbox-row">
-                      <input checked={preferenceForm.workModes.includes(workMode)} onChange={(event) => setPreferenceForm((current) => ({ ...current, workModes: event.target.checked ? [...current.workModes, workMode] : current.workModes.filter((value) => value !== workMode) }))} type="checkbox" />
-                      <span>{formatStatusLabel(workMode)}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <label className="field-stack"><span className="section-label">Minimum salary</span><input className="input-shell" min="0" onChange={(event) => setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value }))} type="number" value={preferenceForm.minimumSalaryUsd} /></label>
-              <label className="field-stack"><span className="section-label">Preferred companies</span><textarea className="textarea-shell compact-textarea" onChange={(event) => setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))} rows={3} value={preferenceForm.companyWhitelist} /></label>
-            </div>
+          <div className="panel-header-row"><div><p className="section-label">Discovery preferences</p><p className="muted-copy">Role targeting stays separate from the canonical candidate record, but is now richer and more explicit.</p></div><span className="section-badge">Targeting</span></div>
+          <div className="form-grid two-column-form-grid">
+            <label className="field-stack"><span className="section-label">Target roles</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.targetRoles} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetRoles: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Job families</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.jobFamilies} onChange={(event) => setPreferenceForm((current) => ({ ...current, jobFamilies: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Preferred locations</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.locations} onChange={(event) => setPreferenceForm((current) => ({ ...current, locations: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Excluded locations</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.excludedLocations} onChange={(event) => setPreferenceForm((current) => ({ ...current, excludedLocations: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Seniority</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.seniorityLevels} onChange={(event) => setPreferenceForm((current) => ({ ...current, seniorityLevels: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Employment types</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.employmentTypes} onChange={(event) => setPreferenceForm((current) => ({ ...current, employmentTypes: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Industries</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.targetIndustries} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetIndustries: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Company stages / sizes</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.targetCompanyStages} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetCompanyStages: event.target.value }))} /></label>
+            <div className="field-stack"><span className="section-label">Work modes</span><div className="checkbox-grid">{(['remote', 'hybrid', 'onsite', 'flexible'] as const).map((workMode) => (<label key={workMode} className="checkbox-row"><input checked={preferenceForm.workModes.includes(workMode)} onChange={(event) => setPreferenceForm((current) => ({ ...current, workModes: event.target.checked ? [...current.workModes, workMode] : current.workModes.filter((value) => value !== workMode) }))} type="checkbox" /><span>{formatStatusLabel(workMode)}</span></label>))}</div></div>
+            <label className="field-stack"><span className="section-label">Tailoring mode</span><select className="select-shell" value={preferenceForm.tailoringMode} onChange={(event) => setPreferenceForm((current) => ({ ...current, tailoringMode: event.target.value as JobSearchPreferences['tailoringMode'] }))}><option value="conservative">Conservative</option><option value="balanced">Balanced</option><option value="aggressive">Aggressive</option></select></label>
+            <label className="field-stack"><span className="section-label">Minimum salary</span><input className="input-shell" min="0" type="number" value={preferenceForm.minimumSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Target salary</span><input className="input-shell" min="0" type="number" value={preferenceForm.targetSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetSalaryUsd: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Salary currency</span><input className="input-shell" value={preferenceForm.salaryCurrency} onChange={(event) => setPreferenceForm((current) => ({ ...current, salaryCurrency: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Preferred companies</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.companyWhitelist} onChange={(event) => setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))} /></label>
+            <label className="field-stack"><span className="section-label">Blocked companies</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.companyBlacklist} onChange={(event) => setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))} /></label>
           </div>
           <div className="button-row">
             <button className="primary-action" disabled={busy} onClick={() => onSaveProfile(saveProfilePayload)} type="button">Save profile</button>
-            <button
-              className="secondary-action"
-              disabled={busy}
-              onClick={() =>
-                onSaveSearchPreferences({
-                  ...searchPreferences,
-                  companyBlacklist: parseListInput(preferenceForm.companyBlacklist),
-                  companyWhitelist: parseListInput(preferenceForm.companyWhitelist),
-                  locations: parseListInput(preferenceForm.locations),
-                  minimumSalaryUsd: preferenceForm.minimumSalaryUsd.trim() ? Number(preferenceForm.minimumSalaryUsd) : null,
-                  seniorityLevels: parseListInput(preferenceForm.seniorityLevels),
-                  tailoringMode: preferenceForm.tailoringMode,
-                  targetRoles: parseListInput(preferenceForm.targetRoles),
-                  workModes: preferenceForm.workModes
-                })
-              }
-              type="button"
-            >
-              Save preferences
-            </button>
+            <button className="secondary-action" disabled={busy} onClick={() => onSaveSearchPreferences({ ...searchPreferences, targetRoles: parseListInput(preferenceForm.targetRoles), jobFamilies: parseListInput(preferenceForm.jobFamilies), locations: parseListInput(preferenceForm.locations), excludedLocations: parseListInput(preferenceForm.excludedLocations), workModes: preferenceForm.workModes, seniorityLevels: parseListInput(preferenceForm.seniorityLevels), targetIndustries: parseListInput(preferenceForm.targetIndustries), targetCompanyStages: parseListInput(preferenceForm.targetCompanyStages), employmentTypes: parseListInput(preferenceForm.employmentTypes), minimumSalaryUsd: preferenceForm.minimumSalaryUsd.trim() ? Number(preferenceForm.minimumSalaryUsd) : null, targetSalaryUsd: preferenceForm.targetSalaryUsd.trim() ? Number(preferenceForm.targetSalaryUsd) : null, salaryCurrency: preferenceForm.salaryCurrency.trim() || null, approvalMode: searchPreferences.approvalMode, tailoringMode: preferenceForm.tailoringMode, companyBlacklist: parseListInput(preferenceForm.companyBlacklist), companyWhitelist: parseListInput(preferenceForm.companyWhitelist) })} type="button">Save preferences</button>
           </div>
           {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
         </section>

@@ -27,18 +27,20 @@ describe('contracts', () => {
       summary: 'Builds reliable user-facing systems.',
       currentLocation: 'London, UK',
       yearsExperience: 8,
-      baseResume: {
-        id: 'resume_1',
-        fileName: 'alex-vanguard.pdf',
-        uploadedAt: '2026-03-20T10:00:00.000Z',
-        storagePath: '/tmp/alex-vanguard.pdf'
-      },
-      targetRoles: ['Frontend Engineer'],
-      experiences: [],
-      education: [],
-      certifications: [],
-      links: []
-    })
+        baseResume: {
+          id: 'resume_1',
+          fileName: 'alex-vanguard.pdf',
+          uploadedAt: '2026-03-20T10:00:00.000Z',
+          storagePath: '/tmp/alex-vanguard.pdf'
+        },
+        targetRoles: ['Frontend Engineer'],
+        experiences: [],
+        education: [],
+        certifications: [],
+        links: [],
+        projects: [],
+        spokenLanguages: []
+      })
 
     expect(profile.baseResume.storagePath).toBe('/tmp/alex-vanguard.pdf')
     expect(profile.baseResume.extractionStatus).toBe('not_started')
@@ -178,6 +180,8 @@ describe('contracts', () => {
           textUpdatedAt: '2026-03-20T10:00:00.000Z',
           extractionStatus: 'ready',
           lastAnalyzedAt: '2026-03-20T10:01:00.000Z',
+          analysisProviderKind: null,
+          analysisProviderLabel: null,
           analysisWarnings: []
         },
         targetRoles: ['Principal Designer'],
@@ -187,6 +191,7 @@ describe('contracts', () => {
           {
             id: 'experience_1',
             companyName: 'Signal Systems',
+            companyUrl: null,
             title: 'Senior Product Designer',
             employmentType: 'Full-time',
             location: 'London, UK',
@@ -196,7 +201,10 @@ describe('contracts', () => {
             isCurrent: true,
             summary: 'Owns workflow tooling and design systems.',
             achievements: ['Improved designer-engineer handoff quality'],
-            skills: ['Figma', 'Design Systems']
+            skills: ['Figma', 'Design Systems'],
+            domainTags: [],
+            peopleManagementScope: null,
+            ownershipScope: null
           }
         ],
         education: [
@@ -228,14 +236,23 @@ describe('contracts', () => {
             url: 'https://alex.example.com',
             kind: 'portfolio'
           }
-        ]
+        ],
+        projects: [],
+        spokenLanguages: []
       },
       searchPreferences: {
         targetRoles: ['Principal Designer'],
+        jobFamilies: [],
         locations: ['Remote'],
+        excludedLocations: [],
         workModes: ['remote'],
         seniorityLevels: ['senior'],
+        targetIndustries: [],
+        targetCompanyStages: [],
+        employmentTypes: [],
         minimumSalaryUsd: 170000,
+        targetSalaryUsd: null,
+        salaryCurrency: 'USD',
         approvalMode: 'review_before_submit',
         tailoringMode: 'balanced',
         companyBlacklist: [],
