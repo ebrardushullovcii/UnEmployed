@@ -27,7 +27,7 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `JF-01 Contracts And Persistence`
 
 - status: `done`
-- last updated: `2026-03-20`
+- last updated: `2026-03-21`
 - scope: define the minimal Job Finder schemas and repository seams for the LinkedIn `Easy Apply` slice
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/contracts`, `packages/db`
@@ -44,10 +44,10 @@ Use one track per meaningful workstream, not per person or per chat.
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - linked brief: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply-ui-brief.md`
 - code areas: `docs/Design`, `apps/desktop`
-- current focus: finalized visual references are implemented as a first interactive desktop shell with native mac traffic lights, tighter sidebar cards, clearer panel hierarchy, and page-level UI QA refinements
+- current focus: finalized visual references are implemented as a first interactive desktop shell with native mac traffic lights, a centered title-row navigation cluster, compact top-right summary cards, a gear-based Settings control, page-level UI QA refinements, and standard max-width shell constraints so ultra-wide windows keep comfortable readable gutters
 - next step: keep using the desktop UI capture workflow to tighten shell density, applications detail behavior, and compact-size usability before deeper functionality expands
 - blockers: none
-- notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete; use `pnpm --filter @unemployed/desktop ui:capture` for screenshot-based UI review and the reset action in Settings to restore the seeded workspace quickly; the current polish pass improved count-badge padding, stat label/value spacing, sidebar metric containment, native mac title-bar behavior, centered tabs, removed the ready and updated chips, reduced top-bar hover noise, tighter button sizing, fullscreen-state sync, oversized-panel balance, page-by-page active-state clarity, compact-height readability, real-window support for the documented `1024x768` review size, always-visible sidebar metrics on compact desktop layouts, shared centered top-tab styling across Mac and Windows, and a smaller typography scale across headlines, labels, chips, buttons, and list rows
+- notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete; use `pnpm --filter @unemployed/desktop ui:capture` for screenshot-based UI review and the reset action in Settings to restore the seeded workspace quickly; the current polish pass improved count-badge padding, stat label/value spacing, replaced the oversized sidebar with a centered title-row nav and compact top-right stat cards, restored suite tabs to the very top, made the left wordmark larger and bolder while tightening it to the edge, removed stat-card captions so only labels and numbers remain, aligned nav/card/settings controls more cleanly on a shared compact height, kept native mac title-bar behavior, removed the ready and updated chips, reduced top-bar hover noise, tightened button sizing, synced fullscreen state, balanced oversized panels, improved page-level active-state clarity, preserved compact-height readability, supported the documented `1024x768` review size in the real window, shared centered top-tab styling across Mac and Windows, and used `lucide-react` for shell icons instead of custom inline SVGs
 
 ### `JF-03 Browser Runtime And LinkedIn Discovery`
 
@@ -88,24 +88,24 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `JF-06 AI Provider And Resume Extraction`
 
 - status: `in_progress`
-- last updated: `2026-03-20`
+- last updated: `2026-03-21`
 - scope: wire the first model-backed Job Finder agents for profile extraction, fit assessment, and resume tailoring
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/ai-providers`, `packages/job-finder`, `apps/desktop`
-- current focus: OpenAI-compatible provider config is now supported through explicit env vars, deterministic fallbacks keep tests stable, and the Profile screen can analyze extracted resume text into structured candidate data
-- next step: improve provider-level observability, richer fit summaries, and better extraction cleanup for difficult PDF and DOCX resumes
+- current focus: resume analysis now maps into grouped skills, professional-summary fields, structured experience records, public links, and spoken languages, and the OpenAI-compatible path now falls back to deterministic field completion when model output is partial or inconsistent on real imported resumes
+- next step: improve provider-level observability, richer fit summaries, and broader structured extraction coverage for education, certifications, and projects on difficult PDF and DOCX resumes
 - blockers: model quality still depends on extracted text quality from the imported resume source
 - notes: current env surface is `UNEMPLOYED_AI_API_KEY`, optional `UNEMPLOYED_AI_BASE_URL`, and optional `UNEMPLOYED_AI_MODEL`; imported `pdf` resumes extract through `pdfjs-dist`, imported `docx` resumes extract through `mammoth`, and plain-text or markdown files pass straight through
 
 ### `JF-07 Profile Information Architecture`
 
 - status: `in_progress`
-- last updated: `2026-03-20`
+- last updated: `2026-03-21`
 - scope: redesign the candidate profile data model and Profile screen so hiring-relevant details are grouped more clearly for ATS alignment, resume tailoring, and browser automation
 - linked plan: `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`
 - code areas: `packages/contracts`, `packages/job-finder`, `apps/desktop`
-- current focus: the researched profile-information-architecture slice is now live in contracts and the Profile screen, covering richer identity/contact, eligibility/logistics, summary layers, grouped skills, repeatable experience/education/certification/project/link/language records, and broader targeting preferences while staying compatible with the existing save flow; partial repeatable records now persist as drafts instead of being dropped on save
-- next step: map resume-analysis output into the new structured records, then use those sections directly in tailoring prompts and apply-form answer generation
+- current focus: the live profile surface now starts with resume intake, keeps the raw resume text hidden from the normal user flow, uses compact removable chips only where they work well for dense skill buckets, uses bounded multiline inputs for the rest of the repeatable text fields, is split into focused tabs instead of one long scroll, and clears stale seeded profile/search data before a fresh resume import repopulates those tabs
+- next step: keep simplifying the remaining dense profile editors and extend extraction/tailoring to rely more directly on education, certification, and project records
 - blockers: none
 - notes: the refined plan now leans on current LinkedIn, Greenhouse, Workable, and Ashby field patterns; the live implementation keeps backward compatibility by extending `CandidateProfile` and `JobSearchPreferences` with structured sections rather than replacing them outright, while still avoiding unnecessary sensitive-data collection by default
 
@@ -137,3 +137,11 @@ Use one track per meaningful workstream, not per person or per chat.
 - `2026-03-20`: added persisted resume-analysis provenance in workspace state plus a visible profile badge for AI-vs-fallback parsing, and made Settings reset return the app to the cleared fresh-profile view
 - `2026-03-20`: expanded the profile-information-architecture slice with researched identity/contact, eligibility, summary, skills, experience, education, certifications, projects, links, languages, and broader targeting sections in the live Profile screen instead of leaving them only in the plan
 - `2026-03-20`: fixed the structured Profile save path so half-filled repeatable cards persist as drafts, integer-only numeric fields validate before IPC, and link/credential URLs plus link kinds are enforced at the contract boundary
+- `2026-03-21`: simplified the Profile screen around top-of-page resume intake plus add/remove list editors, and expanded resume-analysis mapping into grouped skills, professional summary fields, structured experience records, links, and spoken languages
+- `2026-03-21`: split the long Profile screen into focused tabs for resume, core profile, experience, background details, and preferences so editing is easier without a long scrolling form
+- `2026-03-21`: validated a real `Resume.pdf` import through the desktop capture harness, reset stale seeded profile/search data before analysis, and tightened extraction cleanup so imported tabs hold more trustworthy resume-derived values
+- `2026-03-21`: polished the Profile tabs with a single save action, quieter resume text editing, stacked section layout for dense tabs, compact chip-style list editing, and fallback timezone inference from imported location data
+- `2026-03-21`: hid the raw resume-text editor from the Profile tab, replaced most chip-based list editors with multiline scroll areas, and tightened the remaining skill-bucket chip containers for clearer dense editing
+- `2026-03-21`: removed textarea resizing across the Profile tabs so long-form fields stay fixed-height with scroll, and rebalanced skill-bucket editor sizing so add buttons and chip containers read more consistently
+- `2026-03-21`: kept sparse skill buckets from stretching visually and expanded resume extraction defaults so location context can now infer likely salary currency as well as timezone when confidence is high
+- `2026-03-21`: added centered max-width constraints to the desktop title bar and main content so the shell follows a more standard container pattern on large and zoomed-out displays

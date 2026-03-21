@@ -69,6 +69,17 @@ Job Finder agent-first foundation with SQLite persistence, resume-text extractio
 - Added and then tightened a dedicated profile-information-architecture plan, now grounded in LinkedIn/Greenhouse/Workable/Ashby patterns with clearer priority tiers, a separate eligibility bucket, and explicit guidance on which sensitive fields not to collect by default
 - Expanded the structured Profile-screen rollout so candidate data now includes richer identity/contact fields, work-eligibility/logistics, summary layers, grouped skill evidence, repeatable experience/education/certification/project/link/language records, and broader role-targeting preferences in the live desktop UI
 - Tightened the structured Profile save path so partial experience/education/certification/link cards now persist as explicit drafts instead of being silently dropped, integer-only numeric fields validate before dispatch, and link/credential URLs plus link kinds are schema-validated
+- Simplified the Profile screen so resume upload and parsing now sit at the top, provider-brand clutter is removed from that flow, and list-style profile data is managed through add/remove item editors instead of large newline textareas
+- Expanded resume-analysis mapping so extracted output now feeds grouped skill buckets, professional-summary fields, structured experience records, public links, and spoken-language entries rather than only top-level profile strings
+- Split the long Profile page into task-based tabs so resume intake, core profile editing, experience, background details, and targeting preferences can be worked on in smaller focused views instead of one long scroll
+- Hardened resume import so replacing the base resume now resets profile/search-preference state to a fresh baseline before analysis, preventing seeded candidate data from leaking into imported tabs
+- Added a deterministic extraction supplement behind the model-backed path so imported resumes still recover cleaner headline, skills, education, links, location parts, and structured experience fields when the AI response is partial or inconsistent
+- Polished the Profile tab workflow with a single top-right save action, quieter resume copy, stacked section ordering, compact removable chips for repeatable list fields, and timezone inference from imported location data when resumes omit an explicit timezone
+- Simplified the Profile tabs further by hiding the raw resume-text editor, replacing most chip-style list editors with bounded multiline textareas, and tightening the remaining skill-chip containers so dense skill buckets read more clearly
+- Removed textarea resizing across the Profile surface so long-form inputs now stay fixed-height with scroll, and tightened skill-bucket editor sizing so add buttons and chip containers feel more even row-to-row
+- Stabilized sparse skill buckets so pills stay compact instead of stretching in taller containers, and taught resume extraction to infer likely regional defaults like salary currency alongside timezone when location context is strong
+- Reworked the desktop shell header so the oversized sidebar is gone, suite tabs stay pinned at the very top, the left wordmark is larger, bolder, and tighter to the edge, primary navigation sits lower in the title row with theme-aligned count dots, compact workspace stat cards now show label-plus-number only beside a gear-based Settings button, and the header controls are vertically aligned on a shared compact height while the renderer uses `lucide-react` for iconography instead of custom inline SVGs
+- Added centered max-width shell constraints to the desktop chrome and page content so ultra-wide windows keep standard readable gutters instead of stretching navigation and forms edge to edge
 
 ## Active Work
 
@@ -87,4 +98,4 @@ Job Finder agent-first foundation with SQLite persistence, resume-text extractio
 - Add richer document export and artifact storage for tailored resumes beyond the current saved HTML template output
 - Expand the Applications screen with filtering, retry helpers, and attempt-centric recovery flows
 - Add richer fallback extraction and cleanup for edge-case PDF and DOCX resumes that do not yield clean text on the first pass
-- Map resume-analysis output into the expanded structured profile sections so imported resumes can prefill identity, eligibility hints, experience, education, projects, certifications, links, and language records instead of only top-level summary fields
+- Keep improving structured resume extraction so imported resumes fill deeper education, certification, and project records with less cleanup after import

@@ -206,6 +206,7 @@ ipcMain.handle('window:get-controls-state', (event) => {
 async function importResumeFromSourcePath(sourcePath: string) {
   const targetDirectory = getJobFinderDocumentsDirectory()
   const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+  const freshSeed = createFreshJobFinderRepositorySeed()
 
   await mkdir(targetDirectory, { recursive: true })
 
@@ -216,9 +217,10 @@ async function importResumeFromSourcePath(sourcePath: string) {
 
   await copyFile(sourcePath, targetPath)
 
-  const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
+  await jobFinderWorkspaceService.saveSearchPreferences(freshSeed.searchPreferences)
+
   const savedSnapshot = await jobFinderWorkspaceService.saveProfile({
-    ...currentSnapshot.profile,
+    ...freshSeed.profile,
     baseResume: {
       id: `resume_${timestamp}`,
       fileName,

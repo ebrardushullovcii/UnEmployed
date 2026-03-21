@@ -19,6 +19,7 @@
     "@unemployed/contracts": "workspace:*",
     "@unemployed/db": "workspace:*",
     "@unemployed/job-finder": "workspace:*",
+    "lucide-react": "^0.577.0",
     "mammoth": "^1.8.0",
     "pdfjs-dist": "^5.4.54",
     "react": "^19.0.0",
@@ -34,4 +35,3 @@
     "vite": "^6.2.0"
   }
 }
-

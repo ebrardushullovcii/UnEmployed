@@ -473,5 +473,8 @@ describe('createJobFinderWorkspaceService', () => {
     expect(snapshot.profile.headline).toContain('Engineer')
     expect(snapshot.profile.email).toBe('jamie@example.com')
     expect(snapshot.profile.baseResume.extractionStatus).toBe('ready')
+    expect(snapshot.profile.skillGroups.highlightedSkills.length).toBeGreaterThan(0)
+    expect(snapshot.profile.professionalSummary.fullSummary).toContain('12 years of experience')
+    expect(snapshot.searchPreferences.salaryCurrency).toBe('EUR')
   })
 })

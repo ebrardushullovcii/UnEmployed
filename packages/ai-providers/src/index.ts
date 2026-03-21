@@ -1,16 +1,95 @@
 import {
   AgentProviderStatusSchema,
-  type AiProviderKind,
+  candidateLinkKindValues,
   type AgentProviderStatus,
   type CandidateProfile,
   type JobFinderSettings,
   type JobPosting,
-  type JobSearchPreferences
+  type JobSearchPreferences,
+  workModeValues
 } from '@unemployed/contracts'
 import { z } from 'zod'
 
 const NonEmptyStringSchema = z.string().trim().min(1)
 const NullableStringSchema = NonEmptyStringSchema.nullable().default(null)
+
+const ResumeExtractionProfessionalSummarySchema = z.object({
+  shortValueProposition: NullableStringSchema,
+  fullSummary: NullableStringSchema,
+  careerThemes: z.array(NonEmptyStringSchema).default([]),
+  leadershipSummary: NullableStringSchema,
+  domainFocusSummary: NullableStringSchema,
+  strengths: z.array(NonEmptyStringSchema).default([])
+})
+
+const ResumeExtractionSkillGroupSchema = z.object({
+  coreSkills: z.array(NonEmptyStringSchema).default([]),
+  tools: z.array(NonEmptyStringSchema).default([]),
+  languagesAndFrameworks: z.array(NonEmptyStringSchema).default([]),
+  softSkills: z.array(NonEmptyStringSchema).default([]),
+  highlightedSkills: z.array(NonEmptyStringSchema).default([])
+})
+
+const ResumeExtractionExperienceSchema = z.object({
+  companyName: NullableStringSchema,
+  companyUrl: NullableStringSchema,
+  title: NullableStringSchema,
+  employmentType: NullableStringSchema,
+  location: NullableStringSchema,
+  workMode: z.enum(workModeValues).nullable().default(null),
+  startDate: NullableStringSchema,
+  endDate: NullableStringSchema,
+  isCurrent: z.boolean().default(false),
+  summary: NullableStringSchema,
+  achievements: z.array(NonEmptyStringSchema).default([]),
+  skills: z.array(NonEmptyStringSchema).default([]),
+  domainTags: z.array(NonEmptyStringSchema).default([]),
+  peopleManagementScope: NullableStringSchema,
+  ownershipScope: NullableStringSchema
+})
+
+const ResumeExtractionEducationSchema = z.object({
+  schoolName: NullableStringSchema,
+  degree: NullableStringSchema,
+  fieldOfStudy: NullableStringSchema,
+  location: NullableStringSchema,
+  startDate: NullableStringSchema,
+  endDate: NullableStringSchema,
+  summary: NullableStringSchema
+})
+
+const ResumeExtractionCertificationSchema = z.object({
+  name: NullableStringSchema,
+  issuer: NullableStringSchema,
+  issueDate: NullableStringSchema,
+  expiryDate: NullableStringSchema,
+  credentialUrl: NullableStringSchema
+})
+
+const ResumeExtractionLinkSchema = z.object({
+  label: NullableStringSchema,
+  url: NullableStringSchema,
+  kind: z.enum(candidateLinkKindValues).nullable().default(null)
+})
+
+const ResumeExtractionProjectSchema = z.object({
+  name: NullableStringSchema,
+  projectType: NullableStringSchema,
+  summary: NullableStringSchema,
+  role: NullableStringSchema,
+  skills: z.array(NonEmptyStringSchema).default([]),
+  outcome: NullableStringSchema,
+  projectUrl: NullableStringSchema,
+  repositoryUrl: NullableStringSchema,
+  caseStudyUrl: NullableStringSchema
+})
+
+const ResumeExtractionLanguageSchema = z.object({
+  language: NullableStringSchema,
+  proficiency: NullableStringSchema,
+  interviewPreference: z.boolean().default(false),
+  notes: NullableStringSchema
+})
 
 const ResumeProfileExtractionSchema = z.object({
   firstName: NullableStringSchema,
@@ -20,14 +99,26 @@ const ResumeProfileExtractionSchema = z.object({
   headline: NullableStringSchema,
   summary: NullableStringSchema,
   currentLocation: NullableStringSchema,
+  timeZone: NullableStringSchema,
+  salaryCurrency: NullableStringSchema,
   yearsExperience: z.number().int().min(0).nullable(),
   email: NullableStringSchema,
   phone: NullableStringSchema,
   portfolioUrl: NullableStringSchema,
   linkedinUrl: NullableStringSchema,
+  githubUrl: NullableStringSchema,
+  personalWebsiteUrl: NullableStringSchema,
+  professionalSummary: ResumeExtractionProfessionalSummarySchema.default({}),
+  skillGroups: ResumeExtractionSkillGroupSchema.default({}),
   skills: z.array(NonEmptyStringSchema).default([]),
   targetRoles: z.array(NonEmptyStringSchema).default([]),
   preferredLocations: z.array(NonEmptyStringSchema).default([]),
+  experiences: z.array(ResumeExtractionExperienceSchema).default([]),
+  education: z.array(ResumeExtractionEducationSchema).default([]),
+  certifications: z.array(ResumeExtractionCertificationSchema).default([]),
+  links: z.array(ResumeExtractionLinkSchema).default([]),
+  projects: z.array(ResumeExtractionProjectSchema).default([]),
+  spokenLanguages: z.array(ResumeExtractionLanguageSchema).default([]),
   analysisProviderKind: z.enum(['deterministic', 'openai_compatible']),
   analysisProviderLabel: NonEmptyStringSchema,
   notes: z.array(NonEmptyStringSchema).default([])
@@ -118,6 +209,7 @@ const knownSkillPhrases = [
   'Python',
   'AWS',
   'Azure',
+  'SQL Server',
   'MySQL',
   'PostgreSQL',
   'MongoDB',
@@ -132,7 +224,21 @@ const knownSkillPhrases = [
   'CSS',
   'HTML',
   'OAuth',
-  'JWT'
+  'JWT',
+  'TailwindCSS',
+  'ShadCN',
+  'REST APIs'
+] as const
+
+const knownSoftSkillPhrases = [
+  'Leadership',
+  'Communication',
+  'Problem-solving',
+  'Adaptability',
+  'Mentoring',
+  'Collaboration',
+  'Stakeholder alignment',
+  'Facilitation'
 ] as const
 
 const resumeSectionHeadings = new Set([
@@ -163,7 +269,9 @@ const headlineKeywordPattern =
 
 const skillSectionAliases = ['SKILLS', 'TECHNICAL SKILLS', 'CORE SKILLS', 'KEY SKILLS'] as const
 const summarySectionAliases = ['ABOUT MYSELF', 'ABOUT', 'SUMMARY', 'PROFILE', 'PERSONAL PROFILE', 'PROFESSIONAL SUMMARY'] as const
+const experienceSectionAliases = ['WORK EXPERIENCE', 'EXPERIENCE'] as const
 const skillCategoryHeadingPattern = /^(frameworks|programming languages|languages|databases|tools|security(?:\s*&\s*authentication)?|soft skills)$/i
+const dateRangePattern = /((?:\d{2}\/)?\d{4})\s*[–—-]\s*(current|present|(?:\d{2}\/)?\d{4})/i
 
 function uniqueStrings(values: readonly string[]): string[] {
   const seen = new Set<string>()
@@ -445,6 +553,379 @@ function inferSkills(resumeText: string, fallbackSkills: readonly string[]): str
   return extractedSkills.length > 0 ? uniqueStrings(extractedSkills) : uniqueStrings(fallbackSkills)
 }
 
+function extractAllUrls(resumeText: string): string[] {
+  return uniqueStrings((resumeText.match(/https?:\/\/[^\s]+/gi) ?? []).map((url) => url.replace(/[),.;]+$/, '')))
+}
+
+function inferGithubUrl(resumeText: string): string | null {
+  return extractFirstUrl(resumeText, /https?:\/\/(?:www\.)?github\.com\/[\w./?%&=+-]*/i)
+}
+
+function inferPersonalWebsiteUrl(resumeText: string): string | null {
+  return (
+    extractAllUrls(resumeText).find((url) => !/linkedin\.com|github\.com/i.test(url)) ?? null
+  )
+}
+
+function inferKnownPhrases(text: string, phrases: readonly string[]): string[] {
+  const lowerText = text.toLowerCase()
+  return uniqueStrings(phrases.filter((phrase) => lowerText.includes(phrase.toLowerCase())))
+}
+
+function splitSkillLine(line: string): string[] {
+  const rawEntries = line
+    .split(/,|\||\u2022| {2,}/)
+    .map(cleanLine)
+    .filter((entry) => entry.length >= 2 && entry.length <= 40)
+
+  const matchedKnownSkills = inferKnownPhrases(line, knownSkillPhrases)
+
+  if (matchedKnownSkills.length > 1) {
+    return matchedKnownSkills
+  }
+
+  return uniqueStrings([
+    ...matchedKnownSkills,
+    ...rawEntries.filter((entry) => inferKnownPhrases(entry, knownSkillPhrases).length <= 1)
+  ])
+}
+
+function inferSkillGroups(resumeText: string, fallbackSkills: readonly string[]) {
+  const sectionLines = findSectionBodyLinesByAliases(splitLines(resumeText), skillSectionAliases)
+  const groups = {
+    coreSkills: [] as string[],
+    tools: [] as string[],
+    languagesAndFrameworks: [] as string[],
+    softSkills: [] as string[],
+    highlightedSkills: [] as string[]
+  }
+  let activeGroup: keyof typeof groups = 'coreSkills'
+
+  for (const line of sectionLines) {
+    if (/^(frameworks|programming languages|languages)$/i.test(line)) {
+      activeGroup = 'languagesAndFrameworks'
+      continue
+    }
+
+    if (/^(databases|tools|security(?:\s*&\s*authentication)?)$/i.test(line)) {
+      activeGroup = 'tools'
+      continue
+    }
+
+    if (/^soft skills$/i.test(line)) {
+      activeGroup = 'softSkills'
+      continue
+    }
+
+    if (skillCategoryHeadingPattern.test(line)) {
+      continue
+    }
+
+    if (activeGroup === 'softSkills') {
+      groups.softSkills.push(...inferKnownPhrases(line, knownSoftSkillPhrases))
+      continue
+    }
+
+    groups[activeGroup].push(...splitSkillLine(line))
+  }
+
+  const allSkills = inferSkills(resumeText, fallbackSkills)
+
+  return {
+    coreSkills: uniqueStrings(groups.coreSkills.length > 0 ? groups.coreSkills : allSkills.slice(0, 8)),
+    tools: uniqueStrings(groups.tools),
+    languagesAndFrameworks: uniqueStrings(groups.languagesAndFrameworks),
+    softSkills: uniqueStrings(groups.softSkills),
+    highlightedSkills: uniqueStrings([
+      ...groups.coreSkills.slice(0, 4),
+      ...groups.languagesAndFrameworks.slice(0, 4),
+      ...allSkills.slice(0, 4)
+    ]).slice(0, 8)
+  }
+}
+
+function titleCaseWords(value: string): string {
+  return cleanLine(value.toLowerCase().replace(/\b[a-z]/g, (character) => character.toUpperCase()))
+}
+
+function normalizeLocationLabel(value: string | null): string | null {
+  if (!value) {
+    return null
+  }
+
+  return /[A-Z]{2,}/.test(value) ? titleCaseWords(value) : cleanLine(value)
+}
+
+function inferTimeZoneFromLocation(location: string | null): string | null {
+  if (!location) {
+    return null
+  }
+
+  const normalizedLocation = location.toLowerCase()
+  const knownMappings: Array<[RegExp, string]> = [
+    [/prishtina|kosovo/, 'Europe/Belgrade'],
+    [/london|united kingdom|uk\b|england/, 'Europe/London'],
+    [/new york|usa|united states/, 'America/New_York'],
+    [/berlin|germany/, 'Europe/Berlin'],
+    [/paris|france/, 'Europe/Paris'],
+    [/toronto|canada/, 'America/Toronto'],
+    [/zurich|switzerland/, 'Europe/Zurich']
+  ]
+
+  for (const [pattern, timeZone] of knownMappings) {
+    if (pattern.test(normalizedLocation)) {
+      return timeZone
+    }
+  }
+
+  return null
+}
+
+function inferSalaryCurrencyFromLocation(location: string | null): string | null {
+  if (!location) {
+    return null
+  }
+
+  const normalizedLocation = location.toLowerCase()
+  const knownMappings: Array<[RegExp, string]> = [
+    [/prishtina|kosovo|germany|berlin|france|paris|spain|italy|netherlands|belgium|austria|portugal|finland|ireland|greece/, 'EUR'],
+    [/london|united kingdom|uk\b|england/, 'GBP'],
+    [/switzerland|zurich|geneva/, 'CHF'],
+    [/toronto|canada/, 'CAD'],
+    [/new york|usa|united states/, 'USD']
+  ]
+
+  for (const [pattern, currency] of knownMappings) {
+    if (pattern.test(normalizedLocation)) {
+      return currency
+    }
+  }
+
+  return null
+}
+
+function inferProfessionalSummary(summary: string | null, headline: string | null, skills: readonly string[]) {
+  const firstSentence = cleanLine(summary?.split(/(?<=[.!?])\s+/)[0] ?? '') || null
+
+  return {
+    shortValueProposition: firstSentence,
+    fullSummary: summary,
+    careerThemes: uniqueStrings([headline ?? '', ...skills.slice(0, 3)]),
+    leadershipSummary: null,
+    domainFocusSummary: null,
+    strengths: uniqueStrings(skills.slice(0, 5))
+  }
+}
+
+function parseDateRange(line: string): { startDate: string | null; endDate: string | null; isCurrent: boolean } {
+  const match = line.match(dateRangePattern)
+
+  if (!match) {
+    return { startDate: null, endDate: null, isCurrent: false }
+  }
+
+  const startDate = match[1] ?? null
+  const rawEndDate = match[2] ?? null
+  const isCurrent = rawEndDate ? /current|present/i.test(rawEndDate) : false
+
+  return {
+    startDate,
+    endDate: isCurrent ? null : rawEndDate,
+    isCurrent
+  }
+}
+
+function isCompanyMarkerLine(line: string): boolean {
+  const cleaned = cleanLine(line.replace(/^[^A-Za-z0-9]+/, ''))
+  return /^[A-Z0-9&.'()/-]+(?:\s+[A-Z0-9&.'()/-]+)*\s*[–—-]\s*[A-Z][A-Z\s.'-]+,\s*[A-Z][A-Z\s.'-]+$/.test(cleaned)
+}
+
+function parseCompanyMarker(line: string): { companyName: string | null; location: string | null } {
+  const cleaned = cleanLine(line.replace(/^[^A-Za-z0-9]+/, ''))
+  const match = cleaned.match(/^([A-Z0-9&.'()/-]+(?:\s+[A-Z0-9&.'()/-]+)*)\s*[–—-]\s*([A-Z][A-Z\s.'-]+,\s*[A-Z][A-Z\s.'-]+)$/)
+
+  if (!match) {
+    return { companyName: null, location: null }
+  }
+
+  return {
+    companyName: cleanLine(match[1] ?? '') || null,
+    location: normalizeLocationLabel(match[2] ?? null)
+  }
+}
+
+function splitExperienceBlocks(lines: readonly string[]): string[][] {
+  const blocks: string[][] = []
+  let currentBlock: string[] = []
+  let pendingCompanyMarker: string | null = null
+
+  for (const line of lines) {
+    if (isCompanyMarkerLine(line)) {
+      pendingCompanyMarker = line
+      continue
+    }
+
+    const startsNewBlock = dateRangePattern.test(line)
+
+    if (startsNewBlock) {
+      if (currentBlock.length > 0) {
+        blocks.push(currentBlock)
+      }
+
+      currentBlock = pendingCompanyMarker ? [pendingCompanyMarker, line] : [line]
+      pendingCompanyMarker = null
+      continue
+    }
+
+    if (currentBlock.length > 0) {
+      currentBlock.push(line)
+    }
+  }
+
+  if (currentBlock.length > 0) {
+    blocks.push(currentBlock)
+  }
+
+  return blocks.filter((block) => block.some((line) => dateRangePattern.test(line)))
+}
+
+function inferExperienceEntries(resumeText: string) {
+  const sectionLines = findSectionBodyLinesByAliases(splitLines(resumeText), experienceSectionAliases)
+
+  return splitExperienceBlocks(sectionLines)
+    .map((block) => {
+      const companyContext = isCompanyMarkerLine(block[0] ?? '') ? parseCompanyMarker(block[0] ?? '') : null
+      const headerLine = companyContext ? block[1] ?? '' : block[0] ?? ''
+      const dateRange = parseDateRange(headerLine)
+      const titleValue = cleanLine(headerLine.replace(dateRangePattern, '').replace(/[|,–—-]+\s*$/g, '')) || null
+      const detailLines = block
+        .slice(companyContext ? 2 : 1)
+        .map((line) => cleanLine(line.replace(/^[•*-]\s*/, '')))
+        .filter((line) => line.length > 0 && !isCompanyMarkerLine(line))
+      const summaryLine = detailLines.find((line) => !/^project lead\b/i.test(line)) ?? null
+      const achievementLines = detailLines.filter((line) => line !== summaryLine)
+
+      return {
+        companyName: companyContext?.companyName ?? null,
+        companyUrl: null,
+        title: titleValue ? normalizeHeadlineText(titleValue) : null,
+        employmentType: null,
+        location: companyContext?.location ?? null,
+        workMode: null,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        isCurrent: dateRange.isCurrent,
+        summary: summaryLine,
+        achievements: uniqueStrings(achievementLines.filter((line) => line.length >= 24).slice(0, 6)),
+        skills: inferSkills(block.join('\n'), []),
+        domainTags: [],
+        peopleManagementScope: null,
+        ownershipScope: null
+      }
+    })
+    .filter((entry) => entry.title || entry.companyName || entry.summary)
+}
+
+function inferLinkKind(url: string): (typeof candidateLinkKindValues)[number] {
+  if (/linkedin\.com/i.test(url)) {
+    return 'linkedin'
+  }
+
+  if (/github\.com/i.test(url)) {
+    return 'github'
+  }
+
+  return 'website'
+}
+
+function inferLinkLabel(url: string): string {
+  if (/linkedin\.com/i.test(url)) {
+    return 'LinkedIn'
+  }
+
+  if (/github\.com/i.test(url)) {
+    return 'GitHub'
+  }
+
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '')
+  } catch {
+    return 'Website'
+  }
+}
+
+function inferLinks(resumeText: string) {
+  return extractAllUrls(resumeText).map((url) => ({
+    label: inferLinkLabel(url),
+    url,
+    kind: inferLinkKind(url)
+  }))
+}
+
+function inferEducationEntries(resumeText: string) {
+  const lines = splitLines(resumeText)
+  const educationLine = lines.find(
+    (line) =>
+      /degree|bachelor|master|phd/i.test(line) &&
+      /(college|university|school|institute|kolegji)/i.test(line) &&
+      !isResumeSectionHeading(line)
+  )
+
+  if (!educationLine) {
+    return []
+  }
+
+  const schoolKeywordMatch = educationLine.match(/\b(College|University|School|Institute|Kolegji)\b/i)
+  const schoolName = schoolKeywordMatch?.index !== undefined ? cleanLine(educationLine.slice(schoolKeywordMatch.index)) : null
+  const detailsPart = schoolKeywordMatch?.index !== undefined ? cleanLine(educationLine.slice(0, schoolKeywordMatch.index)) : educationLine
+  const [degreePart, fieldPart] = detailsPart.split(',').map(cleanLine)
+  const locationLine = lines[lines.indexOf(educationLine) - 1]
+
+  return [
+    {
+      schoolName,
+      degree: degreePart || null,
+      fieldOfStudy: fieldPart || null,
+      location: normalizeLocationLabel(locationLine ?? null),
+      startDate: null,
+      endDate: null,
+      summary: null
+    }
+  ].filter((entry) => entry.schoolName || entry.degree || entry.fieldOfStudy)
+}
+
+function inferSpokenLanguages(resumeText: string) {
+  const lines = splitLines(resumeText)
+  const entries: Array<{ language: string | null; proficiency: string | null; interviewPreference: boolean; notes: string | null }> = []
+  const motherTongueMatch = resumeText.match(/Mother tongue\(s\):\s*([A-Za-z]+)/i)
+
+  if (motherTongueMatch?.[1]) {
+    entries.push({
+      language: titleCaseWords(motherTongueMatch[1]),
+      proficiency: 'Native',
+      interviewPreference: true,
+      notes: null
+    })
+  }
+
+  for (const line of lines) {
+    const proficiencyMatch = line.match(/^([A-Z][A-Z\s]+?)\s+(A1|A2|B1|B2|C1|C2)(?:\s+(A1|A2|B1|B2|C1|C2)){4}$/)
+
+    if (!proficiencyMatch) {
+      continue
+    }
+
+    entries.push({
+      language: titleCaseWords(proficiencyMatch[1] ?? ''),
+      proficiency: proficiencyMatch[2] ?? null,
+      interviewPreference: false,
+      notes: null
+    })
+  }
+
+  return entries.filter((entry) => entry.language)
+}
+
 function buildProfileExtractionNotes(input: {
   fullName: string | null
   headline: string | null
@@ -498,6 +979,248 @@ function inferLocations(
   }
 
   return uniqueStrings([profile.currentLocation])
+}
+
+function buildDeterministicResumeProfileExtraction(
+  input: ExtractProfileFromResumeInput,
+  analysisProviderKind: ResumeProfileExtraction['analysisProviderKind'],
+  analysisProviderLabel: string
+): ResumeProfileExtraction {
+  const lines = splitLines(input.resumeText)
+  const fullName = inferName(lines)
+  const nameParts = parseNameParts(fullName)
+  const headline = inferHeadline(lines) ?? input.existingProfile.headline
+  const summary = inferSummary(lines) ?? input.existingProfile.summary
+  const currentLocation = inferCurrentLocation(lines)
+  const skills = inferSkills(input.resumeText, input.existingProfile.skills)
+  const skillGroups = inferSkillGroups(input.resumeText, skills)
+  const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText)
+  const portfolioUrl = inferPortfolioUrl(input.resumeText) ?? personalWebsiteUrl
+  const education = inferEducationEntries(input.resumeText)
+  const notes = buildProfileExtractionNotes({
+    fullName,
+    headline,
+    summary,
+    currentLocation
+  })
+
+  return ResumeProfileExtractionSchema.parse({
+    firstName: nameParts.firstName ?? input.existingProfile.firstName,
+    lastName: nameParts.lastName ?? input.existingProfile.lastName,
+    middleName: nameParts.middleName ?? input.existingProfile.middleName,
+    fullName: fullName ?? input.existingProfile.fullName,
+    headline,
+    summary,
+    currentLocation: currentLocation ?? input.existingProfile.currentLocation,
+    timeZone: inferTimeZoneFromLocation(currentLocation) ?? input.existingProfile.timeZone,
+    salaryCurrency: inferSalaryCurrencyFromLocation(currentLocation) ?? input.existingSearchPreferences.salaryCurrency,
+    yearsExperience:
+      Number.parseInt(extractRegexMatch(input.resumeText, /\b\d{1,2}\+?\s+years?\b/i)?.match(/\d+/)?.[0] ?? '', 10) ||
+      input.existingProfile.yearsExperience,
+    email: extractRegexMatch(input.resumeText, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) ?? input.existingProfile.email,
+    phone: inferPhone(input.resumeText, input.existingProfile.phone),
+    portfolioUrl,
+    linkedinUrl:
+      extractFirstUrl(input.resumeText, /https?:\/\/(?:www\.)?linkedin\.com\/[\w./?%&=+-]*/i) ??
+      input.existingProfile.linkedinUrl,
+    githubUrl: inferGithubUrl(input.resumeText) ?? input.existingProfile.githubUrl,
+    personalWebsiteUrl,
+    professionalSummary: inferProfessionalSummary(summary, headline, skillGroups.highlightedSkills),
+    skillGroups,
+    skills,
+    targetRoles: inferTargetRoles(headline, input.existingProfile),
+    preferredLocations: inferLocations(currentLocation, input.existingProfile, input.existingSearchPreferences),
+    experiences: inferExperienceEntries(input.resumeText),
+    education,
+    certifications: [],
+    links: inferLinks(input.resumeText),
+    projects: [],
+    spokenLanguages: inferSpokenLanguages(input.resumeText),
+    analysisProviderKind,
+    analysisProviderLabel,
+    notes
+  })
+}
+
+function mergeExperienceExtractionEntries(
+  primary: readonly ResumeProfileExtraction['experiences'][number][],
+  fallback: readonly ResumeProfileExtraction['experiences'][number][]
+) {
+  if (primary.length === 0) {
+    return fallback
+  }
+
+  const fallbackByKey = new Map(fallback.map((entry) => [`${entry.title ?? ''}|${entry.startDate ?? ''}`, entry]))
+
+  return primary.map((entry, index) => {
+    const match = fallbackByKey.get(`${entry.title ?? ''}|${entry.startDate ?? ''}`) ?? fallback[index]
+
+    return {
+      ...entry,
+      companyName: entry.companyName ?? match?.companyName ?? null,
+      companyUrl: entry.companyUrl ?? match?.companyUrl ?? null,
+      location: entry.location ?? match?.location ?? null,
+      workMode: entry.workMode ?? match?.workMode ?? null,
+      summary: entry.summary ?? match?.summary ?? null,
+      achievements: entry.achievements.length > 0 ? entry.achievements : match?.achievements ?? [],
+      skills: entry.skills.length > 0 ? entry.skills : match?.skills ?? [],
+      domainTags: entry.domainTags.length > 0 ? entry.domainTags : match?.domainTags ?? []
+    }
+  })
+}
+
+function mergeEducationExtractionEntries(
+  primary: readonly ResumeProfileExtraction['education'][number][],
+  fallback: readonly ResumeProfileExtraction['education'][number][]
+) {
+  if (primary.length === 0) {
+    return fallback
+  }
+
+  return primary.map((entry, index) => {
+    const match = fallback[index]
+
+    return {
+      ...entry,
+      schoolName: entry.schoolName ?? match?.schoolName ?? null,
+      location: entry.location ?? match?.location ?? null,
+      summary: entry.summary ?? match?.summary ?? null
+    }
+  })
+}
+
+function mergeLinkExtractionEntries(
+  primary: readonly ResumeProfileExtraction['links'][number][],
+  fallback: readonly ResumeProfileExtraction['links'][number][]
+) {
+  if (primary.length === 0) {
+    return fallback
+  }
+
+  const fallbackByUrl = new Map(fallback.map((entry) => [entry.url ?? '', entry]))
+
+  return primary.map((entry, index) => {
+    const match = fallbackByUrl.get(entry.url ?? '') ?? fallback[index]
+
+    return {
+      ...entry,
+      label: entry.label ?? match?.label ?? null,
+      url: entry.url ?? match?.url ?? null,
+      kind: entry.kind ?? match?.kind ?? null
+    }
+  })
+}
+
+function scoreExperienceEntries(entries: readonly ResumeProfileExtraction['experiences'][number][]): number {
+  if (entries.length === 0) {
+    return 0
+  }
+
+  const total = entries.reduce((score, entry) => {
+    return (
+      score +
+      (entry.companyName ? 2 : 0) +
+      (entry.title ? 1 : 0) +
+      (entry.location ? 1 : 0) +
+      (entry.summary ? 2 : 0) +
+      Math.min(entry.achievements.length, 2) +
+      Math.min(entry.skills.length, 2)
+    )
+  }, 0)
+
+  return total / entries.length
+}
+
+function scoreEducationEntries(entries: readonly ResumeProfileExtraction['education'][number][]): number {
+  if (entries.length === 0) {
+    return 0
+  }
+
+  const total = entries.reduce((score, entry) => {
+    return score + (entry.schoolName ? 2 : 0) + (entry.degree ? 1 : 0) + (entry.fieldOfStudy ? 1 : 0)
+  }, 0)
+
+  return total / entries.length
+}
+
+function choosePreferredHeadline(primary: string | null, fallback: string | null): string | null {
+  if (!primary) {
+    return fallback
+  }
+
+  if (primary.length > 60 || primary.includes('|')) {
+    return fallback ?? primary
+  }
+
+  return primary
+}
+
+function completeResumeExtraction(
+  primary: ResumeProfileExtraction,
+  fallback: ResumeProfileExtraction
+): ResumeProfileExtraction {
+  const mergedExperiences = mergeExperienceExtractionEntries(primary.experiences, fallback.experiences)
+  const mergedEducation = mergeEducationExtractionEntries(primary.education, fallback.education)
+  const useFallbackExperiences = scoreExperienceEntries(primary.experiences) < scoreExperienceEntries(fallback.experiences)
+  const useFallbackEducation = scoreEducationEntries(primary.education) < scoreEducationEntries(fallback.education)
+
+  return ResumeProfileExtractionSchema.parse({
+    ...primary,
+    firstName: primary.firstName ?? fallback.firstName,
+    lastName: primary.lastName ?? fallback.lastName,
+    middleName: primary.middleName ?? fallback.middleName,
+    fullName: primary.fullName ?? fallback.fullName,
+    headline: choosePreferredHeadline(primary.headline, fallback.headline),
+    summary: primary.summary ?? fallback.summary,
+    currentLocation: primary.currentLocation ?? fallback.currentLocation,
+    timeZone: primary.timeZone ?? fallback.timeZone,
+    salaryCurrency: primary.salaryCurrency ?? fallback.salaryCurrency,
+    yearsExperience: primary.yearsExperience ?? fallback.yearsExperience,
+    email: primary.email ?? fallback.email,
+    phone: primary.phone ?? fallback.phone,
+    portfolioUrl: primary.portfolioUrl ?? fallback.portfolioUrl,
+    linkedinUrl: primary.linkedinUrl ?? fallback.linkedinUrl,
+    githubUrl: primary.githubUrl ?? fallback.githubUrl,
+    personalWebsiteUrl: primary.personalWebsiteUrl ?? fallback.personalWebsiteUrl,
+    professionalSummary: {
+      shortValueProposition:
+        primary.professionalSummary.shortValueProposition ?? fallback.professionalSummary.shortValueProposition,
+      fullSummary: primary.professionalSummary.fullSummary ?? fallback.professionalSummary.fullSummary,
+      careerThemes:
+        primary.professionalSummary.careerThemes.length > 0
+          ? primary.professionalSummary.careerThemes
+          : fallback.professionalSummary.careerThemes,
+      leadershipSummary: primary.professionalSummary.leadershipSummary ?? fallback.professionalSummary.leadershipSummary,
+      domainFocusSummary: primary.professionalSummary.domainFocusSummary ?? fallback.professionalSummary.domainFocusSummary,
+      strengths:
+        primary.professionalSummary.strengths.length > 0
+          ? primary.professionalSummary.strengths
+          : fallback.professionalSummary.strengths
+    },
+    skillGroups: {
+      coreSkills: primary.skillGroups.coreSkills.length > 0 ? primary.skillGroups.coreSkills : fallback.skillGroups.coreSkills,
+      tools: primary.skillGroups.tools.length > 0 ? primary.skillGroups.tools : fallback.skillGroups.tools,
+      languagesAndFrameworks:
+        primary.skillGroups.languagesAndFrameworks.length > 0
+          ? primary.skillGroups.languagesAndFrameworks
+          : fallback.skillGroups.languagesAndFrameworks,
+      softSkills: primary.skillGroups.softSkills.length > 0 ? primary.skillGroups.softSkills : fallback.skillGroups.softSkills,
+      highlightedSkills:
+        primary.skillGroups.highlightedSkills.length > 0
+          ? primary.skillGroups.highlightedSkills
+          : fallback.skillGroups.highlightedSkills
+    },
+    skills: uniqueStrings([...primary.skills, ...fallback.skills]),
+    targetRoles: primary.targetRoles.length > 0 ? primary.targetRoles : fallback.targetRoles,
+    preferredLocations: primary.preferredLocations.length > 0 ? primary.preferredLocations : fallback.preferredLocations,
+    experiences: useFallbackExperiences ? fallback.experiences : mergedExperiences,
+    education: useFallbackEducation ? fallback.education : mergedEducation,
+    certifications: primary.certifications.length > 0 ? primary.certifications : fallback.certifications,
+    links: mergeLinkExtractionEntries(primary.links, fallback.links),
+    projects: primary.projects.length > 0 ? primary.projects : fallback.projects,
+    spokenLanguages: primary.spokenLanguages.length > 0 ? primary.spokenLanguages : fallback.spokenLanguages,
+    notes: uniqueStrings([...primary.notes, ...fallback.notes])
+  })
 }
 
 function buildDeterministicResumeText(
@@ -616,7 +1339,7 @@ function buildDeterministicStatus(detail: string): AgentProviderStatus {
 export function createDeterministicJobFinderAiClient(detail?: string): JobFinderAiClient {
   const status = buildDeterministicStatus(
     detail ??
-      'Deterministic fallback is active. Set UNEMPLOYED_AI_API_KEY to use FelidaeAI-Pro-2.5 for generic resume extraction and tailoring.'
+      'Deterministic fallback is active. Set UNEMPLOYED_AI_API_KEY to use the configured OpenAI-compatible provider for resume extraction and tailoring.'
   )
 
   return {
@@ -624,43 +1347,7 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
       return status
     },
     extractProfileFromResume(input) {
-      const lines = splitLines(input.resumeText)
-      const fullName = inferName(lines)
-      const nameParts = parseNameParts(fullName)
-      const headline = inferHeadline(lines) ?? input.existingProfile.headline
-      const summary = inferSummary(lines) ?? input.existingProfile.summary
-      const currentLocation = inferCurrentLocation(lines)
-      const notes = buildProfileExtractionNotes({
-        fullName,
-        headline,
-        summary,
-        currentLocation
-      })
-
-      return Promise.resolve(ResumeProfileExtractionSchema.parse({
-        firstName: nameParts.firstName ?? input.existingProfile.firstName,
-        lastName: nameParts.lastName ?? input.existingProfile.lastName,
-        middleName: nameParts.middleName ?? input.existingProfile.middleName,
-        fullName: fullName ?? input.existingProfile.fullName,
-        headline,
-        summary,
-        currentLocation: currentLocation ?? input.existingProfile.currentLocation,
-        yearsExperience:
-          Number.parseInt(extractRegexMatch(input.resumeText, /\b\d{1,2}\+?\s+years?\b/i)?.match(/\d+/)?.[0] ?? '', 10) ||
-          input.existingProfile.yearsExperience,
-        email: extractRegexMatch(input.resumeText, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) ?? input.existingProfile.email,
-        phone: inferPhone(input.resumeText, input.existingProfile.phone),
-        portfolioUrl: inferPortfolioUrl(input.resumeText),
-        linkedinUrl:
-          extractFirstUrl(input.resumeText, /https?:\/\/(?:www\.)?linkedin\.com\/[\w./?%&=+-]*/i) ??
-          input.existingProfile.linkedinUrl,
-        skills: inferSkills(input.resumeText, input.existingProfile.skills),
-        targetRoles: inferTargetRoles(headline, input.existingProfile),
-        preferredLocations: inferLocations(currentLocation, input.existingProfile, input.existingSearchPreferences),
-        analysisProviderKind: 'deterministic',
-        analysisProviderLabel: status.label,
-        notes
-      }))
+      return Promise.resolve(buildDeterministicResumeProfileExtraction(input, 'deterministic', status.label))
     },
     tailorResume(input) {
       const coreSkills = uniqueStrings([...input.profile.skills.slice(0, 6), ...input.job.keySkills.slice(0, 6)]).slice(0, 8)
@@ -703,10 +1390,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
   const status = AgentProviderStatusSchema.parse({
     kind: 'openai_compatible',
     ready: true,
-    label: options.label ?? 'OpenAI-compatible agent runtime',
+    label: options.label ?? 'AI resume agent',
     model: options.model,
     baseUrl: options.baseUrl,
-    detail: 'FelidaeAI-Pro-2.5 handles resume extraction and tailoring. Structured JSON outputs are validated locally before they affect Job Finder state.'
+    detail: 'The configured AI provider handles resume extraction and tailoring. Structured JSON outputs are validated locally before they affect Job Finder state.'
   })
 
   async function fetchModelJson(
@@ -755,6 +1442,13 @@ export function createOpenAiCompatibleJobFinderAiClient(
           'Return a concise headline without dates or employment ranges.',
           'Split names into firstName, middleName, lastName when possible.',
           'Return preferredLocations as a clean list of likely target locations, not raw address metadata.',
+          'If timezone is not explicitly written but location is clear, infer the most likely IANA timezone from the city, region, or country.',
+          'If salary currency or regional defaults are not explicitly written but the resume location makes them obvious, infer the most likely value with high confidence.',
+          'Return atomic list items only: one skill, one role, one school, one language, or one company per entry.',
+          'Do not repeat exact duplicates across skills, grouped skills, links, languages, projects, or experience item arrays.',
+          'Populate skillGroups with coreSkills, tools, languagesAndFrameworks, softSkills, and highlightedSkills instead of dumping everything into skills.',
+          'Populate experiences, education, certifications, links, projects, and spokenLanguages as structured arrays with one record per item whenever the resume contains enough evidence.',
+          'Use professionalSummary for narrative rollups such as shortValueProposition, fullSummary, careerThemes, and strengths.',
           'Return notes only when the extraction is uncertain, incomplete, or needs user review; otherwise return an empty array.'
         ].join(' '),
         {
@@ -764,9 +1458,19 @@ export function createOpenAiCompatibleJobFinderAiClient(
         }
       )
       const normalizedPayload = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+      const parsedPrimaryExtraction = ResumeProfileExtractionSchema.parse({
+        ...normalizedPayload,
+        analysisProviderKind: 'openai_compatible',
+        analysisProviderLabel: status.label
+      })
+      const deterministicSupplement = buildDeterministicResumeProfileExtraction(
+        input,
+        'deterministic',
+        'Built-in deterministic parser supplement'
+      )
 
       return ResumeProfileExtractionSchema.parse({
-        ...normalizedPayload,
+        ...completeResumeExtraction(parsedPrimaryExtraction, deterministicSupplement),
         analysisProviderKind: 'openai_compatible',
         analysisProviderLabel: status.label
       })
@@ -810,7 +1514,7 @@ export function createJobFinderAiClientFromEnvironment(env: StringMap = process.
     apiKey,
     baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? 'https://ai.automatedpros.link/v1',
     model: env.UNEMPLOYED_AI_MODEL ?? 'FelidaeAI-Pro-2.5',
-    label: 'FelidaeAI job agent'
+    label: 'AI resume agent'
   })
   const fallbackClient = createDeterministicJobFinderAiClient(
     'The configured model is enabled, and deterministic fallbacks protect the app when a model call fails.'

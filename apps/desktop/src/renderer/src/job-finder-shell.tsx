@@ -1,8 +1,8 @@
+import { Settings2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
   candidateLinkKindValues,
   type AgentProviderStatus,
-  type ApprovalMode,
   type ApplicationAttempt,
   type ApplicationEvent,
   type ApplicationRecord,
@@ -51,6 +51,12 @@ interface ScreenDefinition {
   count: number | null
 }
 
+interface OverviewMetric {
+  id: string
+  label: string
+  value: number
+}
+
 function formatTimestamp(timestamp: string): string {
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
@@ -68,23 +74,18 @@ function formatDateOnly(timestamp: string): string {
   }).format(new Date(timestamp))
 }
 
-function formatApprovalMode(value: ApprovalMode): string {
-  return value.replaceAll('_', ' ').replaceAll('-', ' ')
-}
-
 function formatStatusLabel(value: string): string {
   return value.replaceAll('_', ' ').replaceAll('-', ' ')
 }
 
 function formatResumeAnalysisSummary(profile: CandidateProfile): string | null {
-  const providerLabel = profile.baseResume.analysisProviderLabel
   const analyzedAt = profile.baseResume.lastAnalyzedAt
 
-  if (!providerLabel || !analyzedAt) {
+  if (!analyzedAt) {
     return null
   }
 
-  return `${providerLabel} parsed this resume on ${formatTimestamp(analyzedAt)}.`
+  return `Resume parsed on ${formatTimestamp(analyzedAt)}.`
 }
 
 function formatCountLabel(value: number, noun: string): string {
@@ -252,6 +253,7 @@ type LanguageFormEntry = {
 }
 
 type BooleanSelectValue = '' | 'yes' | 'no'
+type ProfileScreenTab = 'resume' | 'profile' | 'experience' | 'background' | 'preferences'
 
 function booleanToSelect(value: boolean | null): BooleanSelectValue {
   if (value === true) {
@@ -432,6 +434,18 @@ export function JobFinderShell(props: JobFinderShellProps) {
     ],
     [workspace.applicationRecords.length, workspace.discoveryJobs.length, workspace.reviewQueue.length]
   )
+  const primaryScreenDefinitions = useMemo(
+    () => screenDefinitions.filter((screen) => screen.id !== 'settings'),
+    [screenDefinitions]
+  )
+  const overviewMetrics = useMemo<OverviewMetric[]>(
+    () => [
+      { id: 'saved', label: 'Saved', value: workspace.discoveryJobs.length },
+      { id: 'queue', label: 'Queue', value: workspace.reviewQueue.length },
+      { id: 'tracked', label: 'Tracked', value: workspace.applicationRecords.length }
+    ],
+    [workspace.applicationRecords.length, workspace.discoveryJobs.length, workspace.reviewQueue.length]
+  )
 
   const selectedDiscoveryJob = useMemo(
     () =>
@@ -509,7 +523,7 @@ export function JobFinderShell(props: JobFinderShellProps) {
   async function runAction(
     action: () => Promise<void>,
     onSuccess: () => void,
-    successMessage: string
+    successMessage: string | null
   ) {
     try {
       setActionState({ busy: true, message: null })
@@ -550,10 +564,7 @@ export function JobFinderShell(props: JobFinderShellProps) {
       className={`window-shell platform-${props.platform} ${isFullscreenWindow ? 'window-shell-fullscreen' : ''}`}
     >
       <header className={`custom-titlebar ${isMac ? 'custom-titlebar-mac' : ''}`}>
-        <div className="titlebar-drag-zone">
-          <div className="titlebar-brand">
-            <span className="titlebar-app-name">UnEmployed</span>
-          </div>
+        <div className="titlebar-suite-row">
           <div className="module-switcher module-switcher-titlebar">
             {suiteModules.map((moduleName) => (
               <button
@@ -564,6 +575,50 @@ export function JobFinderShell(props: JobFinderShellProps) {
                 {formatStatusLabel(moduleName)}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="titlebar-drag-zone">
+          <div className="titlebar-brand">
+            <div className="titlebar-brand-copy">
+              <span className="titlebar-app-name">UnEmployed</span>
+              <span className="titlebar-app-subtitle">Job Finder desktop</span>
+            </div>
+          </div>
+
+          <nav aria-label="Primary sections" className="nav-list nav-list-titlebar">
+            {primaryScreenDefinitions.map((screen) => (
+              <button
+                key={screen.id}
+                className={`nav-item ${activeScreen === screen.id ? 'nav-item-active' : ''}`}
+                onClick={() => setActiveScreen(screen.id)}
+                type="button"
+              >
+                <span>{screen.label}</span>
+                {screen.count !== null ? <span className="nav-count">{screen.count}</span> : null}
+              </button>
+            ))}
+          </nav>
+
+          <div className="topbar-meta">
+            <div className="topbar-summary-row" aria-label="Workspace summary">
+              {overviewMetrics.map((metric) => (
+                <div key={metric.id} className="topbar-summary-card panel">
+                  <span className="topbar-summary-label">{metric.label}</span>
+                  <strong className="topbar-summary-value">{metric.value}</strong>
+                </div>
+              ))}
+            </div>
+
+            <button
+              aria-label="Settings"
+              className={`topbar-settings-button ${activeScreen === 'settings' ? 'topbar-settings-button-active' : ''}`}
+              onClick={() => setActiveScreen('settings')}
+              type="button"
+            >
+              <Settings2 aria-hidden="true" strokeWidth={1.8} />
+              <span>Settings</span>
+            </button>
           </div>
         </div>
 
@@ -600,91 +655,34 @@ export function JobFinderShell(props: JobFinderShellProps) {
       </header>
 
       <div className="app-shell">
-        <aside className="sidebar">
-          <div className="sidebar-top">
-            <div className="brand-block">
-              <div className="brand-wordmark">UNEMPLOYED</div>
-              <div className="brand-subtitle">First job finder slice</div>
-            </div>
-
-            <div className="operator-card panel">
-              <p className="eyebrow">Operator</p>
-              <h2>{workspace.profile.fullName}</h2>
-              <p>{workspace.profile.headline}</p>
-              <div className={`status-chip ${getSessionTone(workspace.browserSession)}`}>
-                {workspace.browserSession.label}
-              </div>
-            </div>
-
-            <nav className="nav-list">
-              {screenDefinitions.map((screen) => (
-                <button
-                  key={screen.id}
-                  className={`nav-item ${activeScreen === screen.id ? 'nav-item-active' : ''}`}
-                  onClick={() => setActiveScreen(screen.id)}
-                  type="button"
-                >
-                  <span>{screen.label}</span>
-                  {screen.count !== null ? <span className="nav-count">{screen.count}</span> : null}
-                </button>
-              ))}
-            </nav>
-          </div>
-
-          <div className="sidebar-footer panel">
-            <div className="summary-metric-row">
-              <div className="summary-metric-box">
-                <span className="summary-metric-label">Saved</span>
-                <strong className="summary-metric-value">{workspace.discoveryJobs.length}</strong>
-                <span className="summary-metric-caption">jobs</span>
-              </div>
-              <div className="summary-metric-box">
-                <span className="summary-metric-label">Queue</span>
-                <strong className="summary-metric-value">{workspace.reviewQueue.length}</strong>
-                <span className="summary-metric-caption">items</span>
-              </div>
-              <div className="summary-metric-box summary-metric-box-wide">
-                <span className="summary-metric-label">Tracked</span>
-                <strong className="summary-metric-value">{workspace.applicationRecords.length}</strong>
-                <span className="summary-metric-caption">applications</span>
-              </div>
-            </div>
-          </div>
-        </aside>
-
         <div className="workspace-shell">
           <main className="screen-scroll-area">
           {activeScreen === 'profile' ? (
             <ProfileScreen
-              agentProvider={workspace.agentProvider}
               actionState={actionState}
               busy={actionState.busy}
               onAnalyzeProfileFromResume={() =>
                 void runAction(
                   actions.analyzeProfileFromResume,
                   () => undefined,
-                  'Candidate details refreshed from the stored resume text.'
+                  null
                 )
               }
               onImportResume={() =>
                 void runAction(
                   actions.importResume,
                   () => undefined,
-                  'Base resume replaced from a local document.'
+                  null
                 )
               }
-              onSaveProfile={(profile) =>
+              onSaveAll={(profile, searchPreferences) =>
                 void runAction(
-                  () => actions.saveProfile(profile),
+                  async () => {
+                    await actions.saveProfile(profile)
+                    await actions.saveSearchPreferences(searchPreferences)
+                  },
                   () => undefined,
-                  'Candidate profile saved locally.'
-                )
-              }
-              onSaveSearchPreferences={(searchPreferences) =>
-                void runAction(
-                  () => actions.saveSearchPreferences(searchPreferences),
-                  () => undefined,
-                  'Discovery preferences updated.'
+                  null
                 )
               }
               profile={workspace.profile}
@@ -793,7 +791,7 @@ export function JobFinderShell(props: JobFinderShellProps) {
                 void runAction(
                   () => actions.saveSettings(settings),
                   () => undefined,
-                  'Job Finder settings updated.'
+                  null
                 )
               }
               settings={workspace.settings}
@@ -824,24 +822,20 @@ function PageHeader(props: { eyebrow: string; title: string; description: string
 }
 
 function ProfileScreen(props: {
-  agentProvider: AgentProviderStatus
   actionState: { busy: boolean; message: string | null }
   busy: boolean
   onAnalyzeProfileFromResume: () => void
   onImportResume: () => void
-  onSaveProfile: (profile: CandidateProfile) => void
-  onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
+  onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   profile: CandidateProfile
   searchPreferences: JobSearchPreferences
 }) {
   const {
-    agentProvider,
     actionState,
     busy,
     onAnalyzeProfileFromResume,
     onImportResume,
-    onSaveProfile,
-    onSaveSearchPreferences,
+    onSaveAll,
     profile,
     searchPreferences
   } = props
@@ -901,6 +895,7 @@ function ProfileScreen(props: {
   const [linkEntries, setLinkEntries] = useState<LinkFormEntry[]>(toLinkFormEntries(profile))
   const [projectEntries, setProjectEntries] = useState<ProjectFormEntry[]>(toProjectFormEntries(profile))
   const [languageEntries, setLanguageEntries] = useState<LanguageFormEntry[]>(toLanguageFormEntries(profile))
+  const [activeProfileTab, setActiveProfileTab] = useState<ProfileScreenTab>('resume')
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const [preferenceForm, setPreferenceForm] = useState({
     targetRoles: joinListInput(searchPreferences.targetRoles),
@@ -1164,7 +1159,27 @@ function ProfileScreen(props: {
     }))
   }
 
-  const handleSaveProfile = () => {
+  const saveSearchPreferencesPayload: JobSearchPreferences = {
+    ...searchPreferences,
+    targetRoles: parseListInput(preferenceForm.targetRoles),
+    jobFamilies: parseListInput(preferenceForm.jobFamilies),
+    locations: parseListInput(preferenceForm.locations),
+    excludedLocations: parseListInput(preferenceForm.excludedLocations),
+    workModes: preferenceForm.workModes,
+    seniorityLevels: parseListInput(preferenceForm.seniorityLevels),
+    targetIndustries: parseListInput(preferenceForm.targetIndustries),
+    targetCompanyStages: parseListInput(preferenceForm.targetCompanyStages),
+    employmentTypes: parseListInput(preferenceForm.employmentTypes),
+    minimumSalaryUsd: parsedMinimumSalaryUsd,
+    targetSalaryUsd: parsedTargetSalaryUsd,
+    salaryCurrency: preferenceForm.salaryCurrency.trim() || null,
+    approvalMode: searchPreferences.approvalMode,
+    tailoringMode: preferenceForm.tailoringMode,
+    companyBlacklist: parseListInput(preferenceForm.companyBlacklist),
+    companyWhitelist: parseListInput(preferenceForm.companyWhitelist)
+  }
+
+  const handleSaveAll = () => {
     if (parsedYearsExperience === null) {
       setValidationMessage('Years of experience must be a whole number greater than or equal to 0.')
       return
@@ -1175,11 +1190,6 @@ function ProfileScreen(props: {
       return
     }
 
-    setValidationMessage(null)
-    onSaveProfile(saveProfilePayload)
-  }
-
-  const handleSaveSearchPreferences = () => {
     if (preferenceForm.minimumSalaryUsd.trim() && parsedMinimumSalaryUsd === null) {
       setValidationMessage('Minimum salary must be a whole number greater than or equal to 0.')
       return
@@ -1191,26 +1201,45 @@ function ProfileScreen(props: {
     }
 
     setValidationMessage(null)
-    onSaveSearchPreferences({
-      ...searchPreferences,
-      targetRoles: parseListInput(preferenceForm.targetRoles),
-      jobFamilies: parseListInput(preferenceForm.jobFamilies),
-      locations: parseListInput(preferenceForm.locations),
-      excludedLocations: parseListInput(preferenceForm.excludedLocations),
-      workModes: preferenceForm.workModes,
-      seniorityLevels: parseListInput(preferenceForm.seniorityLevels),
-      targetIndustries: parseListInput(preferenceForm.targetIndustries),
-      targetCompanyStages: parseListInput(preferenceForm.targetCompanyStages),
-      employmentTypes: parseListInput(preferenceForm.employmentTypes),
-      minimumSalaryUsd: parsedMinimumSalaryUsd,
-      targetSalaryUsd: parsedTargetSalaryUsd,
-      salaryCurrency: preferenceForm.salaryCurrency.trim() || null,
-      approvalMode: searchPreferences.approvalMode,
-      tailoringMode: preferenceForm.tailoringMode,
-      companyBlacklist: parseListInput(preferenceForm.companyBlacklist),
-      companyWhitelist: parseListInput(preferenceForm.companyWhitelist)
-    })
+    onSaveAll(saveProfilePayload, saveSearchPreferencesPayload)
   }
+
+  const resumeTextReadyToAnalyze =
+    Boolean(profileForm.resumeText.trim()) &&
+    profileForm.resumeText.trim() === (profile.baseResume.textContent ?? '')
+  const profileTabs: ReadonlyArray<{ id: ProfileScreenTab; label: string; description: string }> = [
+    {
+      id: 'resume',
+      label: 'Resume',
+      description: 'Upload your base resume, review the extracted text, and run parsing.'
+    },
+    {
+      id: 'profile',
+      label: 'Core Profile',
+      description: 'Edit identity, summary, and skills that define your main candidate record.'
+    },
+    {
+      id: 'experience',
+      label: 'Experience',
+      description: 'Maintain each role separately so tailoring and form-fill stay grounded.'
+    },
+    {
+      id: 'background',
+      label: 'Background',
+      description: 'Manage education, certifications, projects, public links, and languages.'
+    },
+    {
+      id: 'preferences',
+      label: 'Preferences',
+      description: 'Keep eligibility answers and job-targeting rules in a separate workspace.'
+    }
+  ]
+  const activeProfileTabDefinition =
+    profileTabs.find((tab) => tab.id === activeProfileTab) ?? {
+      id: 'resume' as const,
+      label: 'Resume',
+      description: 'Upload your base resume, review the extracted text, and run parsing.'
+    }
 
   return (
     <section className="screen-section">
@@ -1220,91 +1249,68 @@ function ProfileScreen(props: {
         description="Structured candidate data for ATS-safe applications, stronger tailoring, and future field-by-field automation across profile, discovery, and apply flows."
       />
 
-      <div className="profile-layout">
-        <section className="panel panel-spacious profile-panel-summary">
-          <p className="section-label">Profile summary</p>
-          <div className="two-up-grid">
-            <div>
-              <h2>{profile.preferredDisplayName ?? profile.fullName}</h2>
-              <p className="profile-headline">{profile.headline}</p>
-              <div className="chip-row chip-row-compact">
-                {profile.email ? <span className="chip">{profile.email}</span> : null}
-                {profile.secondaryEmail ? <span className="chip">Secondary email on file</span> : null}
-                {profile.phone ? <span className="chip">{profile.phone}</span> : null}
-                {profile.timeZone ? <span className="chip">{profile.timeZone}</span> : null}
-              </div>
-            </div>
-            <div className="stat-grid">
-              <div><span>Experience</span><strong>{profile.yearsExperience} years</strong></div>
-              <div><span>Base location</span><strong>{profile.currentLocation}</strong></div>
-              <div><span>Projects</span><strong>{profile.projects.length}</strong></div>
-              <div><span>Languages</span><strong>{profile.spokenLanguages.length}</strong></div>
-            </div>
+      <section className="panel panel-shell profile-tab-toolbar">
+        <div className="profile-tab-header">
+          <div className="profile-tab-strip" aria-label="Profile sections" role="tablist">
+            {profileTabs.map((tab) => (
+              <button
+                key={tab.id}
+                aria-selected={activeProfileTab === tab.id}
+                className={`profile-tab-button ${activeProfileTab === tab.id ? 'profile-tab-button-active' : ''}`}
+                onClick={() => setActiveProfileTab(tab.id)}
+                role="tab"
+                type="button"
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-          <p className="body-copy">{profile.professionalSummary.shortValueProposition ?? profile.summary}</p>
-          <div className="chip-row">
-            {profile.skillGroups.highlightedSkills.length > 0
-              ? profile.skillGroups.highlightedSkills.map((skill) => <span key={skill} className="chip">{skill}</span>)
-              : profile.skills.map((skill) => <span key={skill} className="chip">{skill}</span>)}
+          <button className="primary-action profile-save-action" disabled={busy} onClick={handleSaveAll} type="button">
+            Save changes
+          </button>
+        </div>
+        <div className="profile-tab-actions">
+          <div>
+            <p className="section-label">{activeProfileTabDefinition.label}</p>
+            <p className="muted-copy">{activeProfileTabDefinition.description}</p>
           </div>
-        </section>
+        </div>
+        {validationMessage ? <p className="muted-copy">{validationMessage}</p> : null}
+        {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
+      </section>
 
-        <section className="panel panel-spacious profile-panel-resume">
-          <div className="panel-header-row">
-            <p className="section-label">Resume intake and provenance</p>
-            <span className={`status-chip ${agentProvider.kind === 'openai_compatible' ? 'tone-positive' : 'tone-active'}`}>{agentProvider.label}</span>
+      {activeProfileTab === 'resume' ? <section className="panel panel-spacious profile-panel-resume">
+        <div className="panel-header-row">
+          <div>
+            <p className="section-label">Resume</p>
+            <p className="muted-copy">Upload once, clean up the stored text if needed, then run parsing into the structured sections below.</p>
           </div>
+          <span className={`status-chip ${getAssetTone(profile.baseResume.extractionStatus === 'ready' ? 'ready' : profile.baseResume.extractionStatus === 'failed' ? 'failed' : profile.baseResume.extractionStatus === 'needs_text' ? 'queued' : 'generating')}`}>{formatStatusLabel(profile.baseResume.extractionStatus)}</span>
+        </div>
+        <div className="profile-resume-grid">
           <div className="resume-dropzone">
             <strong>{profile.baseResume.fileName}</strong>
             <span>Uploaded {formatDateOnly(profile.baseResume.uploadedAt)}</span>
-            <span className={`status-chip ${getAssetTone(profile.baseResume.extractionStatus === 'ready' ? 'ready' : profile.baseResume.extractionStatus === 'failed' ? 'failed' : profile.baseResume.extractionStatus === 'needs_text' ? 'queued' : 'generating')}`}>{formatStatusLabel(profile.baseResume.extractionStatus)}</span>
-            {profile.baseResume.lastAnalyzedAt && profile.baseResume.analysisProviderLabel ? (
-              <div className="resume-analysis-inline">
-                <span className={`status-chip ${profile.baseResume.analysisProviderKind === 'openai_compatible' ? 'tone-positive' : 'tone-active'}`}>
-                  {profile.baseResume.analysisProviderKind === 'openai_compatible' ? 'AI parsed' : 'Fallback parsed'}
-                </span>
-                <span className="meta-copy">{profile.baseResume.analysisProviderLabel}</span>
-              </div>
-            ) : null}
+            {profile.baseResume.lastAnalyzedAt ? <span className="meta-copy">{formatResumeAnalysisSummary(profile)}</span> : null}
             <div className="button-row">
               <button className="secondary-action compact-action" disabled={busy} onClick={onImportResume} type="button">Replace resume</button>
-              <button className="primary-action compact-action" disabled={busy || !profileForm.resumeText.trim() || profileForm.resumeText.trim() !== (profile.baseResume.textContent ?? '')} onClick={onAnalyzeProfileFromResume} type="button">Analyze saved resume text</button>
+              <button className="primary-action compact-action" disabled={busy || !resumeTextReadyToAnalyze} onClick={onAnalyzeProfileFromResume} type="button">Analyze saved text</button>
             </div>
           </div>
-          <p className="muted-copy">{profile.baseResume.textContent ? 'Stored resume text is ready for structured extraction, tailoring, and validation.' : 'PDF, DOCX, TXT, and Markdown resumes can be stored locally. If extraction misses content, paste clean text below so the agent can continue.'}</p>
-          {profile.baseResume.lastAnalyzedAt && profile.baseResume.analysisProviderLabel ? <div className="resume-analysis-summary"><p className="body-copy body-copy-compact">{formatResumeAnalysisSummary(profile)}</p></div> : null}
-          {profile.baseResume.analysisWarnings.length > 0 ? <PreferenceList label="Review notes" values={profile.baseResume.analysisWarnings} /> : null}
-        </section>
-      </div>
-
-      <section className="panel panel-spacious profile-panel-overview">
-        <div className="panel-header-row">
-          <p className="section-label">Structured coverage</p>
-          <span className="section-badge">Plan-backed fields now live in code</span>
-        </div>
-        <div className="profile-secondary-grid">
           <div className="panel-muted profile-subsection">
-            <p className="section-label">Candidate record</p>
+            <p className="section-label">Current snapshot</p>
             <div className="stat-grid">
-              <div><span>Experience entries</span><strong>{profile.experiences.length}</strong></div>
-              <div><span>Education entries</span><strong>{profile.education.length}</strong></div>
-              <div><span>Projects</span><strong>{profile.projects.length}</strong></div>
-              <div><span>Proof links</span><strong>{profile.links.length}</strong></div>
-            </div>
-          </div>
-          <div className="panel-muted profile-subsection">
-            <p className="section-label">Targeting rules</p>
-            <div className="settings-grid preference-summary-grid">
-              <PreferenceList label="Target roles" values={searchPreferences.targetRoles} />
-              <PreferenceList label="Job families" values={searchPreferences.jobFamilies} />
-              <PreferenceList label="Locations" values={searchPreferences.locations} />
-              <PreferenceList label="Industries" values={searchPreferences.targetIndustries} />
+              <div><span>Name</span><strong>{profile.preferredDisplayName ?? profile.fullName}</strong></div>
+              <div><span>Headline</span><strong>{profile.headline}</strong></div>
+              <div><span>Location</span><strong>{profile.currentLocation}</strong></div>
+              <div><span>Experience</span><strong>{profile.yearsExperience} years</strong></div>
             </div>
           </div>
         </div>
-      </section>
+        {profile.baseResume.analysisWarnings.length > 0 ? <PreferenceList label="Review notes" values={profile.baseResume.analysisWarnings} /> : null}
+      </section> : null}
 
-      <div className="profile-stack-layout">
+      {activeProfileTab === 'profile' ? <div className="profile-stack-layout">
         <section className="panel panel-spacious">
           <div className="panel-header-row">
             <div>
@@ -1332,54 +1338,39 @@ function ProfileScreen(props: {
             <label className="field-stack"><span className="section-label">Portfolio URL</span><input className="input-shell" value={profileForm.portfolioUrl} onChange={(event) => setProfileForm((current) => ({ ...current, portfolioUrl: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">GitHub URL</span><input className="input-shell" value={profileForm.githubUrl} onChange={(event) => setProfileForm((current) => ({ ...current, githubUrl: event.target.value }))} /></label>
             <label className="field-stack"><span className="section-label">Personal website</span><input className="input-shell" value={profileForm.personalWebsiteUrl} onChange={(event) => setProfileForm((current) => ({ ...current, personalWebsiteUrl: event.target.value }))} /></label>
-            <label className="field-stack two-column-span"><span className="section-label">Resume text for agents</span><textarea className="textarea-shell" rows={8} value={profileForm.resumeText} onChange={(event) => setProfileForm((current) => ({ ...current, resumeText: event.target.value }))} /></label>
           </div>
         </section>
 
-        <div className="profile-edit-layout">
-          <section className="panel panel-spacious">
-            <div className="panel-header-row"><div><p className="section-label">Work eligibility and logistics</p><p className="muted-copy">Structured screening answers for authorization, relocation, travel, and availability.</p></div><span className="section-badge">Eligibility</span></div>
-            <div className="form-grid two-column-form-grid">
-              <label className="field-stack"><span className="section-label">Authorized work countries</span><textarea className="textarea-shell compact-textarea" rows={3} value={eligibilityForm.authorizedWorkCountries} onChange={(event) => setEligibilityForm((current) => ({ ...current, authorizedWorkCountries: event.target.value }))} /></label>
-              <label className="field-stack"><span className="section-label">Preferred relocation regions</span><textarea className="textarea-shell compact-textarea" rows={3} value={eligibilityForm.preferredRelocationRegions} onChange={(event) => setEligibilityForm((current) => ({ ...current, preferredRelocationRegions: event.target.value }))} /></label>
-              <label className="field-stack"><span className="section-label">Requires visa sponsorship</span><select className="select-shell" value={eligibilityForm.requiresVisaSponsorship} onChange={(event) => setEligibilityForm((current) => ({ ...current, requiresVisaSponsorship: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
-              <label className="field-stack"><span className="section-label">Willing to relocate</span><select className="select-shell" value={eligibilityForm.willingToRelocate} onChange={(event) => setEligibilityForm((current) => ({ ...current, willingToRelocate: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
-              <label className="field-stack"><span className="section-label">Willing to travel</span><select className="select-shell" value={eligibilityForm.willingToTravel} onChange={(event) => setEligibilityForm((current) => ({ ...current, willingToTravel: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
-              <label className="field-stack"><span className="section-label">Remote eligible</span><select className="select-shell" value={eligibilityForm.remoteEligible} onChange={(event) => setEligibilityForm((current) => ({ ...current, remoteEligible: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
-              <label className="field-stack"><span className="section-label">Notice period (days)</span><input className="input-shell" min="0" type="number" value={eligibilityForm.noticePeriodDays} onChange={(event) => setEligibilityForm((current) => ({ ...current, noticePeriodDays: event.target.value }))} /></label>
-              <label className="field-stack"><span className="section-label">Available start date</span><input className="input-shell" placeholder="YYYY-MM-DD" value={eligibilityForm.availableStartDate} onChange={(event) => setEligibilityForm((current) => ({ ...current, availableStartDate: event.target.value }))} /></label>
-              <label className="field-stack two-column-span"><span className="section-label">Security clearance</span><input className="input-shell" value={eligibilityForm.securityClearance} onChange={(event) => setEligibilityForm((current) => ({ ...current, securityClearance: event.target.value }))} /></label>
-            </div>
-          </section>
-
+        <div className="profile-stack-layout">
           <section className="panel panel-spacious">
             <div className="panel-header-row"><div><p className="section-label">Professional summary layer</p><p className="muted-copy">Separate reusable narrative blocks from the raw factual record.</p></div><span className="section-badge">Narrative</span></div>
             <div className="form-grid">
               <label className="field-stack"><span className="section-label">Short value proposition</span><textarea className="textarea-shell compact-textarea" rows={3} value={summaryForm.shortValueProposition} onChange={(event) => setSummaryForm((current) => ({ ...current, shortValueProposition: event.target.value }))} /></label>
               <label className="field-stack"><span className="section-label">Full summary</span><textarea className="textarea-shell" rows={5} value={summaryForm.fullSummary} onChange={(event) => setSummaryForm((current) => ({ ...current, fullSummary: event.target.value }))} /></label>
               <div className="form-grid two-column-form-grid">
-                <label className="field-stack"><span className="section-label">Career themes</span><textarea className="textarea-shell compact-textarea" rows={4} value={summaryForm.careerThemes} onChange={(event) => setSummaryForm((current) => ({ ...current, careerThemes: event.target.value }))} /></label>
-                <label className="field-stack"><span className="section-label">Strengths / differentiators</span><textarea className="textarea-shell compact-textarea" rows={4} value={summaryForm.strengths} onChange={(event) => setSummaryForm((current) => ({ ...current, strengths: event.target.value }))} /></label>
+                <MultiValueTextarea label="Career themes" placeholder="One theme per line" rows={4} value={summaryForm.careerThemes} onChange={(value) => setSummaryForm((current) => ({ ...current, careerThemes: value }))} />
+                <MultiValueTextarea label="Strengths / differentiators" placeholder="One strength per line" rows={4} value={summaryForm.strengths} onChange={(value) => setSummaryForm((current) => ({ ...current, strengths: value }))} />
                 <label className="field-stack"><span className="section-label">Leadership summary</span><textarea className="textarea-shell compact-textarea" rows={4} value={summaryForm.leadershipSummary} onChange={(event) => setSummaryForm((current) => ({ ...current, leadershipSummary: event.target.value }))} /></label>
                 <label className="field-stack"><span className="section-label">Domain focus</span><textarea className="textarea-shell compact-textarea" rows={4} value={summaryForm.domainFocusSummary} onChange={(event) => setSummaryForm((current) => ({ ...current, domainFocusSummary: event.target.value }))} /></label>
               </div>
             </div>
           </section>
+
+          <section className="panel panel-spacious">
+            <div className="panel-header-row"><div><p className="section-label">Skills and evidence</p><p className="muted-copy">Keep each skill bucket distinct so resume parsing, tailoring, and later form-fill stay clear.</p></div><span className="section-badge">Skills</span></div>
+            <div className="form-grid two-column-form-grid">
+              <ListEditor label="General skills" placeholder="Add a skill" values={parseListInput(profileForm.skills)} onChange={(values) => setProfileForm((current) => ({ ...current, skills: joinListInput(values) }))} />
+              <ListEditor label="Highlighted skills for target roles" placeholder="Add a highlighted skill" values={parseListInput(skillGroupForm.highlightedSkills)} onChange={(values) => setSkillGroupForm((current) => ({ ...current, highlightedSkills: joinListInput(values) }))} />
+              <ListEditor label="Core skills" placeholder="Add a core skill" values={parseListInput(skillGroupForm.coreSkills)} onChange={(values) => setSkillGroupForm((current) => ({ ...current, coreSkills: joinListInput(values) }))} />
+              <ListEditor label="Tools / platforms" placeholder="Add a tool" values={parseListInput(skillGroupForm.tools)} onChange={(values) => setSkillGroupForm((current) => ({ ...current, tools: joinListInput(values) }))} />
+              <ListEditor label="Languages / frameworks" placeholder="Add a language or framework" values={parseListInput(skillGroupForm.languagesAndFrameworks)} onChange={(values) => setSkillGroupForm((current) => ({ ...current, languagesAndFrameworks: joinListInput(values) }))} />
+              <ListEditor label="Soft skills" placeholder="Add a soft skill" values={parseListInput(skillGroupForm.softSkills)} onChange={(values) => setSkillGroupForm((current) => ({ ...current, softSkills: joinListInput(values) }))} />
+            </div>
+          </section>
         </div>
+      </div> : null}
 
-        <section className="panel panel-spacious">
-          <div className="panel-header-row"><div><p className="section-label">Skills and evidence</p><p className="muted-copy">Maintain searchable skill groups and highlighted evidence alongside the general skills list.</p></div><span className="section-badge">Skills</span></div>
-          <div className="form-grid two-column-form-grid">
-            <label className="field-stack"><span className="section-label">General skills</span><textarea className="textarea-shell compact-textarea" rows={4} value={profileForm.skills} onChange={(event) => setProfileForm((current) => ({ ...current, skills: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Highlighted skills for target roles</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.highlightedSkills} onChange={(event) => setSkillGroupForm((current) => ({ ...current, highlightedSkills: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Core skills</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.coreSkills} onChange={(event) => setSkillGroupForm((current) => ({ ...current, coreSkills: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Tools / platforms</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.tools} onChange={(event) => setSkillGroupForm((current) => ({ ...current, tools: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Languages / frameworks</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.languagesAndFrameworks} onChange={(event) => setSkillGroupForm((current) => ({ ...current, languagesAndFrameworks: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Soft skills</span><textarea className="textarea-shell compact-textarea" rows={4} value={skillGroupForm.softSkills} onChange={(event) => setSkillGroupForm((current) => ({ ...current, softSkills: event.target.value }))} /></label>
-          </div>
-        </section>
-
-        <section className="panel panel-spacious">
+      {activeProfileTab === 'experience' ? <section className="panel panel-spacious">
           <div className="panel-header-row"><div><p className="section-label">Experience timeline</p><p className="muted-copy">Field-by-field reusable work history for ATS alignment, tailoring, and future form-fill.</p></div><button className="secondary-action compact-action" disabled={busy} onClick={addExperienceEntry} type="button">Add experience</button></div>
           <div className="record-stack">
             {experienceEntries.length > 0 ? experienceEntries.map((entry, index) => (
@@ -1394,20 +1385,20 @@ function ProfileScreen(props: {
                   <label className="field-stack"><span className="section-label">Work mode</span><select className="select-shell" value={entry.workMode} onChange={(event) => updateExperienceEntry(entry.id, 'workMode', event.target.value as WorkMode | '')}><option value="">Select mode</option>{workModeValues.map((workMode) => <option key={workMode} value={workMode}>{formatStatusLabel(workMode)}</option>)}</select></label>
                   <label className="field-stack"><span className="section-label">Start date</span><input className="input-shell" placeholder="YYYY-MM" value={entry.startDate} onChange={(event) => updateExperienceEntry(entry.id, 'startDate', event.target.value)} /></label>
                   <label className="field-stack"><span className="section-label">End date</span><input className="input-shell" disabled={entry.isCurrent} placeholder="YYYY-MM" value={entry.endDate} onChange={(event) => updateExperienceEntry(entry.id, 'endDate', event.target.value)} /></label>
-                  <label className="field-stack"><span className="section-label">Domain / industry tags</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.domainTags} onChange={(event) => updateExperienceEntry(entry.id, 'domainTags', event.target.value)} /></label>
+                  <MultiValueTextarea label="Domain / industry tags" placeholder="One domain tag per line" rows={4} value={entry.domainTags} onChange={(value) => updateExperienceEntry(entry.id, 'domainTags', value)} />
                   <label className="field-stack"><span className="section-label">People-management scope</span><input className="input-shell" value={entry.peopleManagementScope} onChange={(event) => updateExperienceEntry(entry.id, 'peopleManagementScope', event.target.value)} /></label>
                   <label className="field-stack two-column-span"><span className="section-label">Ownership / budget scope</span><input className="input-shell" value={entry.ownershipScope} onChange={(event) => updateExperienceEntry(entry.id, 'ownershipScope', event.target.value)} /></label>
                   <label className="checkbox-row two-column-span"><input checked={entry.isCurrent} onChange={(event) => updateExperienceEntry(entry.id, 'isCurrent', event.target.checked)} type="checkbox" /><span>Current role</span></label>
                   <label className="field-stack two-column-span"><span className="section-label">Role summary</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.summary} onChange={(event) => updateExperienceEntry(entry.id, 'summary', event.target.value)} /></label>
-                  <label className="field-stack"><span className="section-label">Achievements</span><textarea className="textarea-shell" rows={4} value={entry.achievements} onChange={(event) => updateExperienceEntry(entry.id, 'achievements', event.target.value)} /></label>
-                  <label className="field-stack"><span className="section-label">Skills used</span><textarea className="textarea-shell compact-textarea" rows={4} value={entry.skills} onChange={(event) => updateExperienceEntry(entry.id, 'skills', event.target.value)} /></label>
+                  <MultiValueTextarea className="two-column-span" label="Achievements" placeholder="One achievement per line" rows={5} value={entry.achievements} onChange={(value) => updateExperienceEntry(entry.id, 'achievements', value)} />
+                  <MultiValueTextarea className="two-column-span" label="Skills used" placeholder="One skill per line" rows={5} value={entry.skills} onChange={(value) => updateExperienceEntry(entry.id, 'skills', value)} />
                 </div>
               </article>
             )) : <EmptyState title="No structured experience yet" description="Add each role with dedicated fields so tailoring and future form-fill flows do not depend on one large text box." />}
           </div>
-        </section>
+        </section> : null}
 
-        <div className="profile-edit-layout">
+      {activeProfileTab === 'background' ? <div className="profile-stack-layout">
           <section className="panel panel-spacious">
             <div className="panel-header-row"><div><p className="section-label">Education and credentials</p><p className="muted-copy">Schools, degrees, certifications, and qualification metadata stored as explicit records.</p></div><button className="secondary-action compact-action" disabled={busy} onClick={addEducationEntry} type="button">Add education</button></div>
             <div className="record-stack">
@@ -1453,7 +1444,7 @@ function ProfileScreen(props: {
                     <label className="field-stack"><span className="section-label">Project name</span><input className="input-shell" value={entry.name} onChange={(event) => updateProjectEntry(entry.id, 'name', event.target.value)} /></label>
                     <label className="field-stack"><span className="section-label">Project type</span><input className="input-shell" value={entry.projectType} onChange={(event) => updateProjectEntry(entry.id, 'projectType', event.target.value)} /></label>
                     <label className="field-stack"><span className="section-label">Role</span><input className="input-shell" value={entry.role} onChange={(event) => updateProjectEntry(entry.id, 'role', event.target.value)} /></label>
-                    <label className="field-stack"><span className="section-label">Skills used</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.skills} onChange={(event) => updateProjectEntry(entry.id, 'skills', event.target.value)} /></label>
+                    <MultiValueTextarea label="Skills used" placeholder="One skill per line" rows={4} value={entry.skills} onChange={(value) => updateProjectEntry(entry.id, 'skills', value)} />
                     <label className="field-stack two-column-span"><span className="section-label">Summary</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.summary} onChange={(event) => updateProjectEntry(entry.id, 'summary', event.target.value)} /></label>
                     <label className="field-stack two-column-span"><span className="section-label">Outcome / impact</span><textarea className="textarea-shell compact-textarea" rows={3} value={entry.outcome} onChange={(event) => updateProjectEntry(entry.id, 'outcome', event.target.value)} /></label>
                     <label className="field-stack"><span className="section-label">Project URL</span><input className="input-shell" value={entry.projectUrl} onChange={(event) => updateProjectEntry(entry.id, 'projectUrl', event.target.value)} /></label>
@@ -1486,35 +1477,45 @@ function ProfileScreen(props: {
               {projectEntries.length === 0 && linkEntries.length === 0 && languageEntries.length === 0 ? <EmptyState title="No supporting evidence yet" description="Add projects, links, and spoken languages as first-class records instead of burying them in general notes." /> : null}
             </div>
           </section>
-        </div>
+        </div> : null}
 
-        <section className="panel panel-spacious">
-          <div className="panel-header-row"><div><p className="section-label">Discovery preferences</p><p className="muted-copy">Role targeting stays separate from the canonical candidate record, but is now richer and more explicit.</p></div><span className="section-badge">Targeting</span></div>
-          <div className="form-grid two-column-form-grid">
-            <label className="field-stack"><span className="section-label">Target roles</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.targetRoles} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetRoles: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Job families</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.jobFamilies} onChange={(event) => setPreferenceForm((current) => ({ ...current, jobFamilies: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Preferred locations</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.locations} onChange={(event) => setPreferenceForm((current) => ({ ...current, locations: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Excluded locations</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.excludedLocations} onChange={(event) => setPreferenceForm((current) => ({ ...current, excludedLocations: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Seniority</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.seniorityLevels} onChange={(event) => setPreferenceForm((current) => ({ ...current, seniorityLevels: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Employment types</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.employmentTypes} onChange={(event) => setPreferenceForm((current) => ({ ...current, employmentTypes: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Industries</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.targetIndustries} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetIndustries: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Company stages / sizes</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.targetCompanyStages} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetCompanyStages: event.target.value }))} /></label>
-            <div className="field-stack"><span className="section-label">Work modes</span><div className="checkbox-grid">{workModeValues.map((workMode) => (<label key={workMode} className="checkbox-row"><input checked={preferenceForm.workModes.includes(workMode)} onChange={(event) => setPreferenceForm((current) => ({ ...current, workModes: event.target.checked ? [...current.workModes, workMode] : current.workModes.filter((value) => value !== workMode) }))} type="checkbox" /><span>{formatStatusLabel(workMode)}</span></label>))}</div></div>
-            <label className="field-stack"><span className="section-label">Tailoring mode</span><select className="select-shell" value={preferenceForm.tailoringMode} onChange={(event) => setPreferenceForm((current) => ({ ...current, tailoringMode: event.target.value as JobSearchPreferences['tailoringMode'] }))}><option value="conservative">Conservative</option><option value="balanced">Balanced</option><option value="aggressive">Aggressive</option></select></label>
-            <label className="field-stack"><span className="section-label">Minimum salary</span><input className="input-shell" min="0" step="1" type="number" value={preferenceForm.minimumSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value === "" ? "" : Number.isInteger(event.target.valueAsNumber) && event.target.valueAsNumber >= 0 ? String(event.target.valueAsNumber) : current.minimumSalaryUsd }))} /></label>
-            <label className="field-stack"><span className="section-label">Target salary</span><input className="input-shell" min="0" step="1" type="number" value={preferenceForm.targetSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetSalaryUsd: event.target.value === "" ? "" : Number.isInteger(event.target.valueAsNumber) && event.target.valueAsNumber >= 0 ? String(event.target.valueAsNumber) : current.targetSalaryUsd }))} /></label>
-            <label className="field-stack"><span className="section-label">Salary currency</span><input className="input-shell" value={preferenceForm.salaryCurrency} onChange={(event) => setPreferenceForm((current) => ({ ...current, salaryCurrency: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Preferred companies</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.companyWhitelist} onChange={(event) => setPreferenceForm((current) => ({ ...current, companyWhitelist: event.target.value }))} /></label>
-            <label className="field-stack"><span className="section-label">Blocked companies</span><textarea className="textarea-shell compact-textarea" rows={3} value={preferenceForm.companyBlacklist} onChange={(event) => setPreferenceForm((current) => ({ ...current, companyBlacklist: event.target.value }))} /></label>
-          </div>
-          <div className="button-row">
-            <button className="primary-action" disabled={busy} onClick={handleSaveProfile} type="button">Save profile</button>
-            <button className="secondary-action" disabled={busy} onClick={handleSaveSearchPreferences} type="button">Save preferences</button>
-          </div>
-          {validationMessage ? <p className="muted-copy">{validationMessage}</p> : null}
-          {actionState.message ? <p className="muted-copy">{actionState.message}</p> : null}
-        </section>
-      </div>
+      {activeProfileTab === 'preferences' ? <div className="profile-stack-layout">
+          <section className="panel panel-spacious">
+            <div className="panel-header-row"><div><p className="section-label">Work eligibility and logistics</p><p className="muted-copy">Keep screening answers lower in the page after the core resume and profile content is filled out.</p></div><span className="section-badge">Eligibility</span></div>
+            <div className="form-grid two-column-form-grid">
+              <MultiValueTextarea label="Authorized work countries" placeholder="One country per line" value={eligibilityForm.authorizedWorkCountries} onChange={(value) => setEligibilityForm((current) => ({ ...current, authorizedWorkCountries: value }))} />
+              <MultiValueTextarea label="Preferred relocation regions" placeholder="One region per line" value={eligibilityForm.preferredRelocationRegions} onChange={(value) => setEligibilityForm((current) => ({ ...current, preferredRelocationRegions: value }))} />
+              <label className="field-stack"><span className="section-label">Requires visa sponsorship</span><select className="select-shell" value={eligibilityForm.requiresVisaSponsorship} onChange={(event) => setEligibilityForm((current) => ({ ...current, requiresVisaSponsorship: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <label className="field-stack"><span className="section-label">Willing to relocate</span><select className="select-shell" value={eligibilityForm.willingToRelocate} onChange={(event) => setEligibilityForm((current) => ({ ...current, willingToRelocate: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <label className="field-stack"><span className="section-label">Willing to travel</span><select className="select-shell" value={eligibilityForm.willingToTravel} onChange={(event) => setEligibilityForm((current) => ({ ...current, willingToTravel: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <label className="field-stack"><span className="section-label">Remote eligible</span><select className="select-shell" value={eligibilityForm.remoteEligible} onChange={(event) => setEligibilityForm((current) => ({ ...current, remoteEligible: event.target.value as BooleanSelectValue }))}><option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+              <label className="field-stack"><span className="section-label">Notice period (days)</span><input className="input-shell" min="0" type="number" value={eligibilityForm.noticePeriodDays} onChange={(event) => setEligibilityForm((current) => ({ ...current, noticePeriodDays: event.target.value }))} /></label>
+              <label className="field-stack"><span className="section-label">Available start date</span><input className="input-shell" placeholder="YYYY-MM-DD" value={eligibilityForm.availableStartDate} onChange={(event) => setEligibilityForm((current) => ({ ...current, availableStartDate: event.target.value }))} /></label>
+              <label className="field-stack two-column-span"><span className="section-label">Security clearance</span><input className="input-shell" value={eligibilityForm.securityClearance} onChange={(event) => setEligibilityForm((current) => ({ ...current, securityClearance: event.target.value }))} /></label>
+            </div>
+          </section>
+
+          <section className="panel panel-spacious">
+            <div className="panel-header-row"><div><p className="section-label">Discovery preferences</p><p className="muted-copy">Job targeting comes after the candidate record so you set search rules only once the profile itself is solid.</p></div><span className="section-badge">Targeting</span></div>
+            <div className="form-grid two-column-form-grid">
+              <MultiValueTextarea label="Target roles" placeholder="One role per line" value={preferenceForm.targetRoles} onChange={(value) => setPreferenceForm((current) => ({ ...current, targetRoles: value }))} />
+              <MultiValueTextarea label="Job families" placeholder="One job family per line" value={preferenceForm.jobFamilies} onChange={(value) => setPreferenceForm((current) => ({ ...current, jobFamilies: value }))} />
+              <MultiValueTextarea label="Preferred locations" placeholder="One location per line" value={preferenceForm.locations} onChange={(value) => setPreferenceForm((current) => ({ ...current, locations: value }))} />
+              <MultiValueTextarea label="Excluded locations" placeholder="One location per line" value={preferenceForm.excludedLocations} onChange={(value) => setPreferenceForm((current) => ({ ...current, excludedLocations: value }))} />
+              <MultiValueTextarea label="Seniority" placeholder="One level per line" value={preferenceForm.seniorityLevels} onChange={(value) => setPreferenceForm((current) => ({ ...current, seniorityLevels: value }))} />
+              <MultiValueTextarea label="Employment types" placeholder="One employment type per line" value={preferenceForm.employmentTypes} onChange={(value) => setPreferenceForm((current) => ({ ...current, employmentTypes: value }))} />
+              <MultiValueTextarea label="Industries" placeholder="One industry per line" value={preferenceForm.targetIndustries} onChange={(value) => setPreferenceForm((current) => ({ ...current, targetIndustries: value }))} />
+              <MultiValueTextarea label="Company stages / sizes" placeholder="One stage or size per line" value={preferenceForm.targetCompanyStages} onChange={(value) => setPreferenceForm((current) => ({ ...current, targetCompanyStages: value }))} />
+              <div className="field-stack"><span className="section-label">Work modes</span><div className="checkbox-grid">{workModeValues.map((workMode) => (<label key={workMode} className="checkbox-row"><input checked={preferenceForm.workModes.includes(workMode)} onChange={(event) => setPreferenceForm((current) => ({ ...current, workModes: event.target.checked ? [...current.workModes, workMode] : current.workModes.filter((value) => value !== workMode) }))} type="checkbox" /><span>{formatStatusLabel(workMode)}</span></label>))}</div></div>
+              <label className="field-stack"><span className="section-label">Tailoring mode</span><select className="select-shell" value={preferenceForm.tailoringMode} onChange={(event) => setPreferenceForm((current) => ({ ...current, tailoringMode: event.target.value as JobSearchPreferences['tailoringMode'] }))}><option value="conservative">Conservative</option><option value="balanced">Balanced</option><option value="aggressive">Aggressive</option></select></label>
+              <label className="field-stack"><span className="section-label">Minimum salary</span><input className="input-shell" min="0" step="1" type="number" value={preferenceForm.minimumSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, minimumSalaryUsd: event.target.value === "" ? "" : Number.isInteger(event.target.valueAsNumber) && event.target.valueAsNumber >= 0 ? String(event.target.valueAsNumber) : current.minimumSalaryUsd }))} /></label>
+              <label className="field-stack"><span className="section-label">Target salary</span><input className="input-shell" min="0" step="1" type="number" value={preferenceForm.targetSalaryUsd} onChange={(event) => setPreferenceForm((current) => ({ ...current, targetSalaryUsd: event.target.value === "" ? "" : Number.isInteger(event.target.valueAsNumber) && event.target.valueAsNumber >= 0 ? String(event.target.valueAsNumber) : current.targetSalaryUsd }))} /></label>
+              <label className="field-stack"><span className="section-label">Salary currency</span><input className="input-shell" value={preferenceForm.salaryCurrency} onChange={(event) => setPreferenceForm((current) => ({ ...current, salaryCurrency: event.target.value }))} /></label>
+              <MultiValueTextarea label="Preferred companies" placeholder="One company per line" value={preferenceForm.companyWhitelist} onChange={(value) => setPreferenceForm((current) => ({ ...current, companyWhitelist: value }))} />
+              <MultiValueTextarea label="Blocked companies" placeholder="One company per line" value={preferenceForm.companyBlacklist} onChange={(value) => setPreferenceForm((current) => ({ ...current, companyBlacklist: value }))} />
+            </div>
+          </section>
+        </div> : null}
     </section>
   )
 }
@@ -2193,6 +2194,114 @@ function SettingsStat(props: { label: string; value: string }) {
     <div className="settings-stat">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  )
+}
+
+function MultiValueTextarea(props: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  rows?: number
+  className?: string
+}) {
+  const { className, label, onChange, placeholder, rows = 4, value } = props
+
+  return (
+    <label className={`field-stack ${className ?? ''}`.trim()}>
+      <span className="section-label">{label}</span>
+      <textarea
+        className="textarea-shell compact-textarea multi-value-textarea"
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        rows={rows}
+        value={value}
+      />
+    </label>
+  )
+}
+
+function ListEditor(props: {
+  label: string
+  values: readonly string[]
+  onChange: (values: string[]) => void
+  placeholder: string
+  emptyMessage?: string
+  className?: string
+}) {
+  const {
+    className,
+    emptyMessage = 'No items added yet.',
+    label,
+    onChange,
+    placeholder,
+    values
+  } = props
+  const [draft, setDraft] = useState('')
+
+  const addValue = () => {
+    const trimmedDraft = draft.trim()
+
+    if (!trimmedDraft) {
+      return
+    }
+
+    const nextValues = uniqueList([...values, trimmedDraft])
+
+    if (nextValues.length === values.length) {
+      setDraft('')
+      return
+    }
+
+    onChange(nextValues)
+    setDraft('')
+  }
+
+  return (
+    <div className={`field-stack list-editor ${className ?? ''}`.trim()}>
+      <div className="panel-header-row list-editor-header">
+        <span className="section-label">{label}</span>
+        <span className="meta-copy">{formatCountLabel(values.length, 'item')}</span>
+      </div>
+      <div className="list-editor-input-row">
+        <input
+          className="input-shell"
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') {
+              return
+            }
+
+            event.preventDefault()
+            addValue()
+          }}
+          placeholder={placeholder}
+          value={draft}
+        />
+        <button className="secondary-action compact-action" disabled={!draft.trim()} onClick={addValue} type="button">
+          Add
+        </button>
+      </div>
+      {values.length > 0 ? (
+        <div className="list-editor-values">
+          {values.map((value) => (
+            <div key={`${label}_${value}`} className="list-editor-value" title={value}>
+              <span>{value}</span>
+              <button
+                aria-label={`Remove ${value}`}
+                className="list-editor-remove"
+                onClick={() => onChange(values.filter((entry) => entry !== value))}
+                type="button"
+              >
+                x
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted-copy">{emptyMessage}</p>
+      )}
     </div>
   )
 }

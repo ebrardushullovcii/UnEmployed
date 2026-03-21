@@ -464,7 +464,7 @@ Practical guidance:
 
 ## Recommended Immediate Next Task
 
-Implement the data-model split first, then redesign the profile page around grouped sections. Specifically: define `candidateIdentity`, `candidateEligibility`, `candidateBackground`, `jobSearchPreferences`, and `profileArtifacts`; add adapters from the current flat profile; then replace the current large freeform edit panels with section cards and repeatable records. If the UI is redesigned before the contracts are cleaned up, the current mixed data model will keep leaking into the new layout.
+Continue the rollout by keeping repeatable profile data in itemized records and add/remove editors instead of large freeform textareas, and by mapping resume-analysis output directly into those grouped sections. The next implementation focus should be deeper extraction coverage for education, certifications, and projects plus prompt inputs that consume the structured records instead of one large mixed profile payload.
 
 ## Research Anchors
 
