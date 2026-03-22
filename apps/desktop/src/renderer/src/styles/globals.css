@@ -1,0 +1,169 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono);
+  --font-display: var(--font-headline);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-canvas: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-strong: var(--surface-strong);
+  --color-surface-muted: var(--surface-muted);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-foreground-soft: var(--foreground-soft);
+  --color-positive: var(--positive);
+  --color-positive-foreground: var(--positive-foreground);
+  --color-active: var(--active);
+  --color-active-foreground: var(--active-foreground);
+  --color-critical: var(--critical);
+  --color-critical-foreground: var(--critical-foreground);
+}
+
+:root {
+  color-scheme: dark;
+  --font-body: "Inter", sans-serif;
+  --font-headline: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --background: #0e0e0e;
+  --foreground: #e7e5e5;
+  --card: #131313;
+  --card-foreground: #e7e5e5;
+  --popover: #191a1a;
+  --popover-foreground: #e7e5e5;
+  --primary: #c6c6c7;
+  --primary-foreground: #3f4041;
+  --secondary: #1f2020;
+  --secondary-foreground: #e7e5e5;
+  --muted: #191a1a;
+  --muted-foreground: #767575;
+  --accent: #252626;
+  --accent-foreground: #e7e5e5;
+  --destructive: #ee7d77;
+  --destructive-foreground: #490106;
+  --border: rgba(72, 72, 72, 0.72);
+  --input: #252626;
+  --ring: rgba(198, 198, 199, 0.48);
+
+  --surface: #0e0e0e;
+  --surface-raised: #1f2020;
+  --surface-strong: #252626;
+  --surface-muted: #131313;
+  --border-subtle: rgba(72, 72, 72, 0.2);
+  --border-strong: rgba(72, 72, 72, 0.7);
+  --foreground-soft: #acabaa;
+
+  --positive: #d0ecff;
+  --positive-foreground: #2b4655;
+  --active: #c6c6c7;
+  --active-foreground: #3e4040;
+  --critical: #ff9993;
+  --critical-foreground: #490106;
+
+  background: var(--background);
+  color: var(--foreground);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 18%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    var(--background);
+  background-size: auto, 32px 32px, 32px 32px, auto;
+  color: var(--text);
+  font-family: var(--font-body);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--font-headline);
+  font-size: clamp(2.05rem, 3.35vw, 3.3rem);
+  line-height: 0.97;
+  letter-spacing: -0.028em;
+  color: #fbfaf6;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.035);
+}
+
+h2 {
+  font-family: var(--font-headline);
+  font-size: clamp(1.22rem, 1.12vw, 1.58rem);
+  line-height: 1.1;
+  color: #f8f7f3;
+}
+
+strong {
+  font-weight: 600;
+}
+
+::selection {
+  background: rgba(235, 233, 225, 0.22);
+  color: var(--text);
+}
