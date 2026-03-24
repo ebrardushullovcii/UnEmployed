@@ -17,6 +17,7 @@ export function DiscoveryResultsPanel({
   onSelectJob,
   selectedJob
 }: DiscoveryResultsPanelProps) {
+  const jobCount = jobs.length
   const baseButtonClasses =
     'grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] p-5 text-left transition-colors'
 
@@ -24,7 +25,7 @@ export function DiscoveryResultsPanel({
     <section className="grid min-h-[31rem] min-w-0 content-start gap-4 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Saved results</p>
-        <Badge variant="section">{jobs.length} jobs</Badge>
+        <Badge variant="section">{jobCount} {jobCount === 1 ? 'job' : 'jobs'}</Badge>
       </div>
 
       {browserSession.status !== 'ready' ? (
@@ -44,13 +45,13 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {browserSession.status === 'ready' && jobs.length > 0 ? (
-        <div aria-label="Saved job results" className="grid content-start gap-3 pr-1" role="listbox">
+        <div aria-label="Saved job results" className="grid content-start gap-3 pr-1">
           {jobs.map((job) => {
             const isSelected = selectedJob?.id === job.id
 
             return (
               <button
-                aria-selected={isSelected}
+                aria-pressed={isSelected}
                 key={job.id}
                 className={`${baseButtonClasses} ${
                   isSelected
@@ -58,7 +59,6 @@ export function DiscoveryResultsPanel({
                     : 'bg-transparent hover:bg-[var(--surface-panel-raised)]'
                 }`}
                 onClick={() => onSelectJob(job.id)}
-                role="option"
                 type="button"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -68,7 +68,9 @@ export function DiscoveryResultsPanel({
                       {job.company} - {job.location}
                     </span>
                   </div>
-                  <span className="text-[1rem] font-semibold text-[var(--text-headline)]">{job.matchAssessment.score}</span>
+                  <span aria-label={`Match ${job.matchAssessment.score}%`} className="text-[1rem] font-semibold text-[var(--text-headline)]">
+                    Match {job.matchAssessment.score}
+                  </span>
                 </div>
 
                 <div className="flex flex-wrap gap-2">

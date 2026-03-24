@@ -68,9 +68,9 @@ export function ReviewQueueMissionPanel({
           <PreferenceList label="Role fit" values={selectedJob.matchAssessment.reasons} />
           {selectedAsset?.notes.length ? <PreferenceList label="Agent notes" values={selectedAsset.notes} /> : null}
           <div className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-            <label className="mb-4 block font-display text-[10px] font-bold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">Telemetry Stream</label>
+            <h3 className="mb-4 block font-display text-[10px] font-bold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">Telemetry Stream</h3>
             <div className="space-y-1 font-mono text-[9px] leading-relaxed text-foreground-soft">
-              {selectedAsset?.notes.length ? selectedAsset.notes.map((note, index) => <div key={note}>{`14:22:0${index + 1}`} # {note.toUpperCase()}</div>) : <div>14:22:05 # ASSET_READY_FOR_OPERATOR_SIGNOFF</div>}
+              {selectedAsset?.notes.length ? selectedAsset.notes.map((note, index) => <div key={`${note}-${index}`}>{`14:22:0${index + 1}`} # {note.toUpperCase()}</div>) : <div>14:22:05 # ASSET_READY_FOR_OPERATOR_SIGNOFF</div>}
             </div>
           </div>
           {actionMessage ? <p className="font-mono text-[10px] uppercase tracking-[var(--tracking-normal)] text-primary">{actionMessage}</p> : null}

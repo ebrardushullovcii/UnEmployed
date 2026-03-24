@@ -50,7 +50,7 @@ export const workModeValues = ['remote', 'hybrid', 'onsite', 'flexible'] as cons
 export const WorkModeSchema = z.enum(workModeValues)
 export type WorkMode = z.infer<typeof WorkModeSchema>
 
-function normalizeWorkModeList(value: unknown): unknown {
+export function normalizeWorkModeList(value: unknown): unknown {
   if (value == null) {
     return []
   }
@@ -66,7 +66,7 @@ function normalizeWorkModeList(value: unknown): unknown {
   return value
 }
 
-const WorkModeListSchema = z.preprocess(normalizeWorkModeList, z.array(WorkModeSchema).default([]))
+export const WorkModeListSchema = z.preprocess(normalizeWorkModeList, z.array(WorkModeSchema).default([]))
 
 export const jobApplyPathValues = ['easy_apply', 'external_redirect', 'unknown'] as const
 

@@ -19,7 +19,7 @@ function Switch({
     const trackHeight = size === "sm" ? 16 : 20 // h-4 or h-5
     const thumbSize = size === "sm" ? 10 : 12 // size-2.5 or size-3
     const padding = 2 // px-[2px]
-    const thumbTravel = trackWidth - thumbSize - (padding * 2)
+    const thumbTravel = trackWidth - thumbSize - padding
     
     return {
       '--switch-track-width': `${trackWidth}px`,

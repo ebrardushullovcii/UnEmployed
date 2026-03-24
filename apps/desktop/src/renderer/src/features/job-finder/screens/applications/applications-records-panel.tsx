@@ -71,7 +71,7 @@ export function ApplicationsRecordsPanel({
                 <TableCell className="px-4 py-4 font-mono text-[10px] text-muted-foreground">#{record.id.slice(0, 7).toUpperCase()}</TableCell>
                 <TableCell className="px-4 py-4 align-top">
                   <button
-                    aria-pressed={selectedRecord?.id === record.id}
+                    aria-current={selectedRecord?.id === record.id ? 'true' : undefined}
                     className="grid w-full gap-1 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
                     onClick={() => onSelectRecord(record.id)}
                     type="button"

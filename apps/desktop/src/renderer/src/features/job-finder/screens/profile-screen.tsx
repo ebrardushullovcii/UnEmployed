@@ -96,12 +96,7 @@ export function ProfileScreen(props: {
     []
   )
 
-  const activeSectionDefinition =
-    sections.find((section) => section.id === activeSection) ?? {
-      id: 'resume' as const,
-      label: 'Resume',
-      description: 'Upload your base resume, review the stored file state, and re-run parsing when needed.'
-    }
+  const activeSectionDefinition = sections.find((section) => section.id === activeSection)!
 
   function handleSaveAll() {
     const profileResult = buildProfilePayload(profile, profileForm.getValues())

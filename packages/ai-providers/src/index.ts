@@ -718,7 +718,20 @@ function inferTimeZoneFromLocation(location: string | null): string | null {
     [/berlin|germany/, 'Europe/Berlin'],
     [/paris|france/, 'Europe/Paris'],
     [/toronto|canada/, 'America/Toronto'],
-    [/zurich|switzerland/, 'Europe/Zurich']
+    [/zurich|switzerland/, 'Europe/Zurich'],
+    [/sydney|melbourne|australia/, 'Australia/Sydney'],
+    [/tokyo|japan/, 'Asia/Tokyo'],
+    [/mumbai|delhi|bangalore|india/, 'Asia/Kolkata'],
+    [/sao paulo|brazil/, 'America/Sao_Paulo'],
+    [/singapore/, 'Asia/Singapore'],
+    [/hong kong/, 'Asia/Hong_Kong'],
+    [/dubai|uae/, 'Asia/Dubai'],
+    [/tel aviv|israel/, 'Asia/Jerusalem'],
+    [/amsterdam|netherlands/, 'Europe/Amsterdam'],
+    [/stockholm|sweden/, 'Europe/Stockholm'],
+    [/oslo|norway/, 'Europe/Oslo'],
+    [/copenhagen|denmark/, 'Europe/Copenhagen'],
+    [/helsinki|finland/, 'Europe/Helsinki']
   ]
 
   for (const [pattern, timeZone] of knownMappings) {
@@ -741,7 +754,15 @@ function inferSalaryCurrencyFromLocation(location: string | null): string | null
     [/london|united kingdom|uk\b|england/, 'GBP'],
     [/switzerland|zurich|geneva/, 'CHF'],
     [/toronto|canada/, 'CAD'],
-    [/new york|usa|united states/, 'USD']
+    [/new york|usa|united states/, 'USD'],
+    [/sydney|melbourne|australia/, 'AUD'],
+    [/tokyo|japan/, 'JPY'],
+    [/mumbai|delhi|bangalore|india/, 'INR'],
+    [/sao paulo|brazil/, 'BRL'],
+    [/singapore/, 'SGD'],
+    [/hong kong/, 'HKD'],
+    [/dubai|uae/, 'AED'],
+    [/tel aviv|israel/, 'ILS']
   ]
 
   for (const [pattern, currency] of knownMappings) {
@@ -1100,8 +1121,7 @@ function mergeExperienceExtractionEntries(
   }
 
   const fallbackByKey = new Map(fallback.map((entry) => [`${entry.title ?? ''}|${entry.startDate ?? ''}`, entry]))
-
-  return primary.map((entry, index) => {
+  const merged = primary.map((entry, index) => {
     const match = fallbackByKey.get(`${entry.title ?? ''}|${entry.startDate ?? ''}`) ?? fallback[index]
 
     return {
@@ -1116,6 +1136,11 @@ function mergeExperienceExtractionEntries(
       domainTags: entry.domainTags.length > 0 ? entry.domainTags : match?.domainTags ?? []
     }
   })
+
+  const primaryKeys = new Set(primary.map((entry) => `${entry.title ?? ''}|${entry.startDate ?? ''}`))
+  const unmatchedFallback = fallback.filter((entry) => !primaryKeys.has(`${entry.title ?? ''}|${entry.startDate ?? ''}`))
+
+  return [...merged, ...unmatchedFallback]
 }
 
 function mergeEducationExtractionEntries(

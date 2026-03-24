@@ -1,4 +1,4 @@
-import type { CandidateProfile } from '@unemployed/contracts'
+import type { AssetStatus, CandidateProfile, ResumeExtractionStatus } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { PreferenceList } from '../preference-list'
 import { StatusBadge } from '../status-badge'
@@ -11,12 +11,12 @@ interface ProfileOverviewTabProps {
   profile: CandidateProfile
 }
 
-const statusToTone = {
+const extractionStatusToAssetStatus: Record<ResumeExtractionStatus, AssetStatus> = {
+  ready: 'ready',
   failed: 'failed',
   needs_text: 'queued',
-  not_started: 'generating',
-  ready: 'ready'
-} as const
+  not_started: 'generating'
+}
 
 export function ProfileOverviewTab({
   busy,
@@ -45,7 +45,7 @@ export function ProfileOverviewTab({
             </p>
           </div>
           <StatusBadge
-            tone={getAssetTone(statusToTone[profile.baseResume.extractionStatus] ?? 'generating')}
+            tone={getAssetTone(extractionStatusToAssetStatus[profile.baseResume.extractionStatus])}
           >
             {formatStatusLabel(profile.baseResume.extractionStatus)}
           </StatusBadge>
