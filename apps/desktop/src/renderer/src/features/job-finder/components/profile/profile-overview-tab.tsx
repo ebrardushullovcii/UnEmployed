@@ -15,7 +15,7 @@ const extractionStatusToAssetStatus: Record<ResumeExtractionStatus, AssetStatus>
   ready: 'ready',
   failed: 'failed',
   needs_text: 'queued',
-  not_started: 'generating'
+  not_started: 'not_started'
 }
 
 export function ProfileOverviewTab({

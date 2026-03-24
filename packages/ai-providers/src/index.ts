@@ -528,6 +528,9 @@ function inferSkills(resumeText: string, fallbackSkills: readonly string[]): str
   const matchedKnownSkills = uniqueStrings(
     knownSkillPhrases.filter((skill) => sectionText.toLowerCase().includes(skill.toLowerCase()))
   )
+  const nonNestedMatchedSkills = matchedKnownSkills.filter((skill) =>
+    !matchedKnownSkills.some((other) => other !== skill && other.toLowerCase().includes(skill.toLowerCase()))
+  )
   const rawSectionSkills = sectionLines
     .filter((line) => !skillCategoryHeadingPattern.test(line))
     .flatMap((line) => line.split(/,|\||\u2022/))
@@ -540,9 +543,9 @@ function inferSkills(resumeText: string, fallbackSkills: readonly string[]): str
         return false
       }
 
-      return !matchedKnownSkills.some((skill) => skill.toLowerCase() === entry.toLowerCase())
+      return !nonNestedMatchedSkills.some((skill) => skill.toLowerCase() === entry.toLowerCase())
     })
-  const sectionSkills = uniqueStrings([...matchedKnownSkills, ...rawSectionSkills])
+  const sectionSkills = uniqueStrings([...nonNestedMatchedSkills, ...rawSectionSkills])
 
   if (sectionSkills.length > 0) {
     return uniqueStrings(sectionSkills)
@@ -550,7 +553,10 @@ function inferSkills(resumeText: string, fallbackSkills: readonly string[]): str
 
   const lowerText = resumeText.toLowerCase()
   const extractedSkills = knownSkillPhrases.filter((skill) => lowerText.includes(skill.toLowerCase()))
-  return extractedSkills.length > 0 ? uniqueStrings(extractedSkills) : uniqueStrings(fallbackSkills)
+  const nonNestedExtracted = extractedSkills.filter((skill) =>
+    !extractedSkills.some((other) => other !== skill && other.toLowerCase().includes(skill.toLowerCase()))
+  )
+  return nonNestedExtracted.length > 0 ? uniqueStrings(nonNestedExtracted) : uniqueStrings(fallbackSkills)
 }
 
 function extractAllUrls(resumeText: string): string[] {
@@ -609,7 +615,17 @@ function isLikelyPersonalWebsiteUrl(url: string): boolean {
 }
 
 function inferGithubUrl(resumeText: string): string | null {
-  return extractFirstUrl(resumeText, /https?:\/\/(?:www\.)?github\.com\/[\w./?%&=+-]*/i)
+  const match = extractFirstUrl(resumeText, /https?:\/\/(?:www\.)?github\.com\/[A-Za-z0-9_-]+\/?$/i)
+  if (match) {
+    try {
+      const url = new URL(match)
+      const pathParts = url.pathname.split('/').filter(Boolean)
+      if (pathParts.length === 1) {
+        return match.replace(/\/$/, '')
+      }
+    } catch {}
+  }
+  return null
 }
 
 function inferPersonalWebsiteUrl(resumeText: string): string | null {
@@ -644,7 +660,7 @@ function splitSkillLine(line: string): string[] {
     )
   })
 
-  const rawUnmatched = rawEntries.filter((entry, index) => {
+  const rawUnmatched = rawEntries.filter((entry) => {
     const entryKnown = inferKnownPhrases(entry, knownSkillPhrases)
     return entryKnown.length === 0
   })
@@ -1133,9 +1149,26 @@ function mergeExperienceExtractionEntries(
     return fallback
   }
 
-  const fallbackByKey = new Map(fallback.map((entry) => [`${entry.title ?? ''}|${entry.startDate ?? ''}`, entry]))
-  const merged = primary.map((entry, index) => {
-    const match = fallbackByKey.get(`${entry.title ?? ''}|${entry.startDate ?? ''}`) ?? fallback[index]
+  const matchedFallbackIndices = new Set<number>()
+  const merged = primary.map((entry) => {
+    let matchIndex = fallback.findIndex((fb, idx) => {
+      if (matchedFallbackIndices.has(idx)) return false
+      const titleMatch = (entry.title && fb.title && entry.title.toLowerCase() === fb.title.toLowerCase()) 
+        || (!entry.title && !fb.title)
+      const startMatch = (entry.startDate && fb.startDate && entry.startDate === fb.startDate)
+        || (!entry.startDate && !fb.startDate)
+      return titleMatch && startMatch
+    })
+    
+    if (matchIndex === -1) {
+      matchIndex = fallback.findIndex((fb, idx) => !matchedFallbackIndices.has(idx))
+    }
+    
+    if (matchIndex !== -1) {
+      matchedFallbackIndices.add(matchIndex)
+    }
+    
+    const match = matchIndex !== -1 ? fallback[matchIndex] : null
 
     return {
       ...entry,
@@ -1143,15 +1176,19 @@ function mergeExperienceExtractionEntries(
       companyUrl: entry.companyUrl ?? match?.companyUrl ?? null,
       location: entry.location ?? match?.location ?? null,
       workMode: entry.workMode ?? match?.workMode ?? null,
+      employmentType: entry.employmentType ?? match?.employmentType ?? null,
+      endDate: entry.endDate ?? match?.endDate ?? null,
+      isCurrent: entry.isCurrent ?? match?.isCurrent ?? false,
       summary: entry.summary ?? match?.summary ?? null,
       achievements: entry.achievements.length > 0 ? entry.achievements : match?.achievements ?? [],
       skills: entry.skills.length > 0 ? entry.skills : match?.skills ?? [],
-      domainTags: entry.domainTags.length > 0 ? entry.domainTags : match?.domainTags ?? []
+      domainTags: entry.domainTags.length > 0 ? entry.domainTags : match?.domainTags ?? [],
+      peopleManagementScope: entry.peopleManagementScope ?? match?.peopleManagementScope ?? null,
+      ownershipScope: entry.ownershipScope ?? match?.ownershipScope ?? null
     }
   })
 
-  const primaryKeys = new Set(primary.map((entry) => `${entry.title ?? ''}|${entry.startDate ?? ''}`))
-  const unmatchedFallback = fallback.filter((entry) => !primaryKeys.has(`${entry.title ?? ''}|${entry.startDate ?? ''}`))
+  const unmatchedFallback = fallback.filter((_, idx) => !matchedFallbackIndices.has(idx))
 
   return [...merged, ...unmatchedFallback]
 }
@@ -1164,18 +1201,39 @@ function mergeEducationExtractionEntries(
     return fallback
   }
 
-  const merged = primary.map((entry, index) => {
-    const match = fallback[index]
+  const matchedFallbackIndices = new Set<number>()
+  const merged = primary.map((entry) => {
+    const normalize = (s: string | null) => s?.toLowerCase().trim() ?? ''
+    
+    let matchIndex = fallback.findIndex((fb, idx) => {
+      if (matchedFallbackIndices.has(idx)) return false
+      return normalize(entry.schoolName) === normalize(fb.schoolName) 
+        && normalize(entry.location) === normalize(fb.location)
+    })
+    
+    if (matchIndex === -1) {
+      matchIndex = fallback.findIndex((fb, idx) => !matchedFallbackIndices.has(idx))
+    }
+    
+    if (matchIndex !== -1) {
+      matchedFallbackIndices.add(matchIndex)
+    }
+    
+    const match = matchIndex !== -1 ? fallback[matchIndex] : null
 
     return {
       ...entry,
       schoolName: entry.schoolName ?? match?.schoolName ?? null,
       location: entry.location ?? match?.location ?? null,
-      summary: entry.summary ?? match?.summary ?? null
+      summary: entry.summary ?? match?.summary ?? null,
+      degree: entry.degree ?? match?.degree ?? null,
+      fieldOfStudy: entry.fieldOfStudy ?? match?.fieldOfStudy ?? null,
+      startDate: entry.startDate ?? match?.startDate ?? null,
+      endDate: entry.endDate ?? match?.endDate ?? null
     }
   })
 
-  const unmatchedFallback = fallback.slice(primary.length)
+  const unmatchedFallback = fallback.filter((_, idx) => !matchedFallbackIndices.has(idx))
 
   return [...merged, ...unmatchedFallback]
 }
@@ -1538,7 +1596,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           'Return a concise headline without dates or employment ranges.',
           'Split names into firstName, middleName, lastName when possible.',
           'Return preferredLocations as a clean list of likely target locations, not raw address metadata.',
-          'If timezone is not explicitly written but location is clear, infer the most likely IANA timezone from the city, region, or country.',
+          'If timezone is not explicitly written but location contains a city or region (not just a country), infer the most likely IANA timezone from the city or region.',
           'If salary currency or regional defaults are not explicitly written but the resume location makes them obvious, infer the most likely value with high confidence.',
           'Return atomic list items only: one skill, one role, one school, one language, or one company per entry.',
           'Return experience achievements, experience skills, project skills, and grouped skills as clean arrays with one item per entry, not one large paragraph or combined newline blob.',

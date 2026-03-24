@@ -19,7 +19,7 @@ export function DiscoveryResultsPanel({
 }: DiscoveryResultsPanelProps) {
   const jobCount = jobs.length
   const baseButtonClasses =
-    'grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] p-5 text-left transition-colors'
+    'grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] p-5 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30'
 
   return (
     <section className="grid min-h-[31rem] min-w-0 content-start gap-4 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5">
