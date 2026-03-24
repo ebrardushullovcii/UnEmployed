@@ -98,6 +98,34 @@ export function ProfileScreen(props: {
 
   const activeSectionDefinition = sections.find((section) => section.id === activeSection)!
 
+  const snapshotDisplayName = profileForm.watch('identity.preferredDisplayName') || null
+  const snapshotFullName = [
+    profileForm.watch('identity.firstName'),
+    profileForm.watch('identity.middleName'),
+    profileForm.watch('identity.lastName')
+  ]
+    .filter(Boolean)
+    .join(' ') || profile.fullName
+  const snapshotHeadline = profileForm.watch('identity.headline') || profile.headline
+  const snapshotLocation = profileForm.watch('identity.currentLocation') || profile.currentLocation
+  const snapshotYearsExperience = profileForm.watch('identity.yearsExperience')
+
+  const overviewProfile = useMemo<CandidateProfile>(() => ({
+    ...profile,
+    preferredDisplayName: snapshotDisplayName,
+    fullName: snapshotFullName,
+    headline: snapshotHeadline,
+    currentLocation: snapshotLocation,
+    yearsExperience: snapshotYearsExperience ? parseInt(snapshotYearsExperience, 10) : profile.yearsExperience
+  }), [
+    profile,
+    snapshotDisplayName,
+    snapshotFullName,
+    snapshotHeadline,
+    snapshotLocation,
+    snapshotYearsExperience
+  ])
+
   function handleSaveAll() {
     const profileResult = buildProfilePayload(profile, profileForm.getValues())
 
@@ -184,7 +212,7 @@ export function ProfileScreen(props: {
           busy={busy}
           onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
           onImportResume={onImportResume}
-          profile={profile}
+          profile={overviewProfile}
         />
       ) : null}
 

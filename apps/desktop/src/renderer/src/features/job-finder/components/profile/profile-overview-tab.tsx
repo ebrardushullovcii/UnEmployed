@@ -32,7 +32,12 @@ export function ProfileOverviewTab({
   const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Profile name not set'
   const headline = profile.headline.trim() || 'Headline not set'
   const location = profile.currentLocation.trim() || 'Location not set'
-  const experienceLabel = profile.yearsExperience > 0 ? `${profile.yearsExperience} years` : 'Experience not set'
+  const experienceLabel =
+    profile.yearsExperience == null
+      ? 'Experience not set'
+      : profile.yearsExperience === 1
+        ? '1 year'
+        : `${profile.yearsExperience} years`
 
   return (
     <div className="grid gap-6">

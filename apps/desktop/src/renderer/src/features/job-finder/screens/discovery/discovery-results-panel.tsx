@@ -1,8 +1,8 @@
 import type { BrowserSessionState, SavedJob } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
-import { EmptyState } from '../../components/empty-state'
-import { StatusBadge } from '../../components/status-badge'
-import { formatDateOnly, formatStatusLabel, getApplicationTone } from '../../lib/job-finder-utils'
+import { EmptyState } from '@renderer/features/job-finder/components/empty-state'
+import { StatusBadge } from '@renderer/features/job-finder/components/status-badge'
+import { formatDateOnly, formatStatusLabel, getApplicationTone } from '@renderer/features/job-finder/lib/job-finder-utils'
 
 interface DiscoveryResultsPanelProps {
   browserSession: BrowserSessionState
@@ -68,9 +68,9 @@ export function DiscoveryResultsPanel({
                       {job.company} - {job.location}
                     </span>
                   </div>
-                  <span aria-label={`Match ${job.matchAssessment.score}%`} className="text-[1rem] font-semibold text-[var(--text-headline)]">
-                    Match {job.matchAssessment.score}
-                  </span>
+<span className="text-[1rem] font-semibold text-[var(--text-headline)]">
+                  Match {job.matchAssessment.score}%
+                </span>
                 </div>
 
                 <div className="flex flex-wrap gap-2">

@@ -627,16 +627,29 @@ function splitSkillLine(line: string): string[] {
     .map(cleanLine)
     .filter((entry) => entry.length >= 2 && entry.length <= 40)
 
-  const matchedKnownSkills = inferKnownPhrases(line, knownSkillPhrases)
-
-  if (matchedKnownSkills.length > 1) {
-    return matchedKnownSkills
+  if (rawEntries.length === 0) {
+    const matchedKnownSkills = inferKnownPhrases(line, knownSkillPhrases)
+    const nonNested = matchedKnownSkills.filter((skill) =>
+      !matchedKnownSkills.some(
+        (other) => other !== skill && other.toLowerCase().includes(skill.toLowerCase())
+      )
+    )
+    return nonNested.length > 0 ? nonNested : []
   }
 
-  return uniqueStrings([
-    ...matchedKnownSkills,
-    ...rawEntries.filter((entry) => inferKnownPhrases(entry, knownSkillPhrases).length <= 1)
-  ])
+  const entryMatches = rawEntries.map((entry) => {
+    const matches = inferKnownPhrases(entry, knownSkillPhrases)
+    return matches.filter((skill) =>
+      !matches.some((other) => other !== skill && other.toLowerCase().includes(skill.toLowerCase()))
+    )
+  })
+
+  const rawUnmatched = rawEntries.filter((entry, index) => {
+    const entryKnown = inferKnownPhrases(entry, knownSkillPhrases)
+    return entryKnown.length === 0
+  })
+
+  return uniqueStrings([...entryMatches.flat(), ...rawUnmatched])
 }
 
 function inferSkillGroups(resumeText: string, fallbackSkills: readonly string[]) {
@@ -714,15 +727,15 @@ function inferTimeZoneFromLocation(location: string | null): string | null {
   const knownMappings: Array<[RegExp, string]> = [
     [/prishtina|kosovo/, 'Europe/Belgrade'],
     [/london|united kingdom|uk\b|england/, 'Europe/London'],
-    [/new york|usa|united states/, 'America/New_York'],
+    [/new york/, 'America/New_York'],
     [/berlin|germany/, 'Europe/Berlin'],
     [/paris|france/, 'Europe/Paris'],
-    [/toronto|canada/, 'America/Toronto'],
+    [/toronto/, 'America/Toronto'],
     [/zurich|switzerland/, 'Europe/Zurich'],
-    [/sydney|melbourne|australia/, 'Australia/Sydney'],
+    [/sydney|melbourne/, 'Australia/Sydney'],
     [/tokyo|japan/, 'Asia/Tokyo'],
     [/mumbai|delhi|bangalore|india/, 'Asia/Kolkata'],
-    [/sao paulo|brazil/, 'America/Sao_Paulo'],
+    [/sao paulo/, 'America/Sao_Paulo'],
     [/singapore/, 'Asia/Singapore'],
     [/hong kong/, 'Asia/Hong_Kong'],
     [/dubai|uae/, 'Asia/Dubai'],
@@ -1064,8 +1077,8 @@ function buildDeterministicResumeProfileExtraction(
   const currentLocation = inferCurrentLocation(lines)
   const skills = inferSkills(input.resumeText, input.existingProfile.skills)
   const skillGroups = inferSkillGroups(input.resumeText, skills)
-  const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText)
-  const portfolioUrl = inferPortfolioUrl(input.resumeText) ?? personalWebsiteUrl
+  const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText) ?? input.existingProfile.personalWebsiteUrl
+  const portfolioUrl = inferPortfolioUrl(input.resumeText) ?? personalWebsiteUrl ?? input.existingProfile.portfolioUrl
   const education = inferEducationEntries(input.resumeText)
   const notes = buildProfileExtractionNotes({
     fullName,
@@ -1151,7 +1164,7 @@ function mergeEducationExtractionEntries(
     return fallback
   }
 
-  return primary.map((entry, index) => {
+  const merged = primary.map((entry, index) => {
     const match = fallback[index]
 
     return {
@@ -1161,6 +1174,10 @@ function mergeEducationExtractionEntries(
       summary: entry.summary ?? match?.summary ?? null
     }
   })
+
+  const unmatchedFallback = fallback.slice(primary.length)
+
+  return [...merged, ...unmatchedFallback]
 }
 
 function mergeLinkExtractionEntries(
@@ -1172,8 +1189,7 @@ function mergeLinkExtractionEntries(
   }
 
   const fallbackByUrl = new Map(fallback.map((entry) => [entry.url ?? '', entry]))
-
-  return primary.map((entry, index) => {
+  const merged = primary.map((entry, index) => {
     const match = fallbackByUrl.get(entry.url ?? '') ?? fallback[index]
 
     return {
@@ -1183,6 +1199,11 @@ function mergeLinkExtractionEntries(
       kind: entry.kind ?? match?.kind ?? null
     }
   })
+
+  const primaryUrls = new Set(primary.map((entry) => entry.url ?? ''))
+  const unmatchedFallback = fallback.filter((entry) => !primaryUrls.has(entry.url ?? ''))
+
+  return [...merged, ...unmatchedFallback]
 }
 
 function scoreExperienceEntries(entries: readonly ResumeProfileExtraction['experiences'][number][]): number {
