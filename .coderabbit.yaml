@@ -36,11 +36,10 @@ reviews:
       instructions: "Preserve typed boundaries, accessibility, and CSS custom property usage from globals.css instead of ad hoc styling values."
     - path: "packages/**/*.{ts,tsx}"
       instructions: "Keep package boundaries typed, schema-validated, and free of deep cross-package imports or any usage."
+  tools:
+    github-checks:
+      enabled: true
+      timeout_ms: 120000
 
 chat:
   auto_reply: true
-
-tools:
-  github-checks:
-    enabled: true
-    timeout_ms: 120000
