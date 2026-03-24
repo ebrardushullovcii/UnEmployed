@@ -59,6 +59,8 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
   const isMac = platform === 'darwin'
   const location = useLocation()
   const navigate = useNavigate()
+  const dragRegionStyle = { WebkitAppRegion: 'drag' } as CSSProperties
+  const noDragRegionStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties
   const [windowControlsState, setWindowControlsState] = useState<DesktopWindowControlsState>({
     isClosable: true,
     isMaximized: false,
@@ -133,31 +135,45 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
 
   return (
     <div className={cn('h-screen overflow-hidden text-foreground', `platform-${platform}`)}>
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-[rgba(12,12,12,0.92)] backdrop-blur-sm">
-        <div className="mx-auto flex h-10 max-w-[118rem] items-center justify-center px-4 sm:px-6">
-          <div className="flex-1" style={{ WebkitAppRegion: 'drag' } as CSSProperties} />
-          <div className="flex items-center gap-6" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-            {suiteModules.map((moduleName) => (
-              <Button
-                key={moduleName}
-                className={cn(
-                  'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[10px] font-semibold tracking-[var(--tracking-badge)] shadow-none',
-                  moduleName === 'job-finder'
-                    ? 'text-[var(--text-headline)]'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-                type="button"
-              >
-                {formatStatusLabel(moduleName)}
-              </Button>
-            ))}
+      <header
+        className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-[rgba(12,12,12,0.92)] backdrop-blur-sm"
+        style={dragRegionStyle}
+      >
+        <div className="grid grid-cols-[15.5rem_minmax(0,1fr)_auto] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:grid-cols-[18.5rem_minmax(0,1fr)_auto] sm:pl-3 sm:pr-0">
+          <div className="row-span-2 flex min-w-0 items-center pl-2 sm:pl-3" style={dragRegionStyle}>
+            <div className="flex min-w-0 flex-col">
+              <span className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-[var(--headline-primary)] sm:text-[2.7rem]">UNEMPLOYED</span>
+              <span className="text-[0.72rem] uppercase tracking-[var(--tracking-caps)] text-muted-foreground sm:text-[var(--text-tiny)]">Job Finder Desktop</span>
+            </div>
           </div>
-          <div className="flex flex-1 justify-end" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+
+          <div className="col-start-2 row-start-1 flex items-center justify-center" style={dragRegionStyle}>
+            <div className="flex items-center gap-4" style={noDragRegionStyle}>
+              {suiteModules.map((moduleName, index) => (
+                <div key={moduleName} className="flex items-center gap-4">
+                  {index > 0 ? <span aria-hidden="true" className="h-4 w-px bg-border/50" /> : null}
+                  <Button
+                    className={cn(
+                      'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[10px] font-semibold tracking-[var(--tracking-badge)] shadow-none',
+                      moduleName === 'job-finder'
+                        ? 'text-[var(--text-headline)]'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                    type="button"
+                  >
+                    {formatStatusLabel(moduleName)}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="col-start-3 row-start-1 flex h-full items-start justify-end self-start" style={dragRegionStyle}>
             {!isMac ? (
-              <div className="flex items-center gap-1" role="group" aria-label="Window controls">
+              <div className="flex h-full items-stretch gap-0" role="group" aria-label="Window controls" style={noDragRegionStyle}>
                 <Button
                   aria-label="Minimize window"
-                  className="h-7 w-7 rounded-[var(--radius-badge)] border border-transparent bg-transparent p-0 text-muted-foreground shadow-none hover:border-[var(--surface-panel-border)] hover:bg-[var(--surface-panel-raised)] hover:text-foreground"
+                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-[var(--surface-panel-raised)] hover:text-foreground"
                   disabled={!windowControlsState.isMinimizable}
                   onClick={minimizeWindow}
                   size="icon-xs"
@@ -168,7 +184,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
                 </Button>
                 <Button
                   aria-label={windowControlsState.isMaximized ? 'Restore window' : 'Maximize window'}
-                  className="h-7 w-7 rounded-[var(--radius-badge)] border border-transparent bg-transparent p-0 text-muted-foreground shadow-none hover:border-[var(--surface-panel-border)] hover:bg-[var(--surface-panel-raised)] hover:text-foreground"
+                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-[var(--surface-panel-raised)] hover:text-foreground"
                   onClick={toggleWindowExpand}
                   size="icon-xs"
                   type="button"
@@ -178,7 +194,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
                 </Button>
                 <Button
                   aria-label="Close window"
-                  className="h-7 w-7 rounded-[var(--radius-badge)] border border-transparent bg-transparent p-0 text-muted-foreground shadow-none hover:border-[var(--button-close-hover)] hover:bg-[var(--button-close-hover)] hover:text-white"
+                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-[var(--button-close-hover)] hover:text-white"
                   disabled={!windowControlsState.isClosable}
                   onClick={closeWindow}
                   size="icon-xs"
@@ -190,17 +206,8 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
               </div>
             ) : null}
           </div>
-        </div>
 
-        <div className="mx-auto grid h-16 max-w-[118rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 sm:px-6">
-          <div className="min-w-0 justify-self-start" style={{ WebkitAppRegion: 'drag' } as CSSProperties}>
-            <div className="flex min-w-0 flex-col">
-              <span className="font-display text-[2rem] font-black leading-none tracking-[-0.08em] text-[var(--headline-primary)]">UNEMPLOYED</span>
-              <span className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-caps)] text-muted-foreground">Job Finder Desktop</span>
-            </div>
-          </div>
-
-          <nav className="hidden min-w-0 justify-self-center lg:flex" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+          <nav className="col-start-2 row-start-2 hidden min-w-0 items-center justify-center lg:flex" style={noDragRegionStyle}>
             <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-1">
               {primaryScreens.map((screen) => (
                 <button
@@ -223,7 +230,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
             </div>
           </nav>
 
-          <div className="flex items-center justify-self-end gap-2" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+          <div className="col-start-3 row-start-2 flex items-center justify-end gap-2" style={noDragRegionStyle}>
             {[
               ['Saved', workspace.discoveryJobs.length],
               ['Queue', workspace.reviewQueue.length],
@@ -256,7 +263,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
         </div>
       </header>
 
-      <div className="flex h-full flex-col pt-[6.5rem]">
+      <div className="flex h-full flex-col pt-[6.75rem]">
         <main className="screen-scroll-area flex-1 overflow-y-auto overflow-x-hidden px-4 pb-12 pt-8 sm:px-6">
           <div className="mx-auto w-full max-w-[118rem]">{children}</div>
         </main>
