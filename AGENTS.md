@@ -29,6 +29,9 @@ Agent-first Electron monorepo for two modules:
 
 - Never create a git commit unless the user explicitly asks for a commit.
 - Never create, update, or comment on a PR unless the user explicitly asks for that action.
+- Treat `main` as PR-only; do not plan or rely on direct pushes to `main`.
+- Only `@ebrardushullovcii` and `@vigani1` should retain merge authority for `main`.
+- Treat CodeRabbit reviews as required repo feedback on every PR, but not as a hard merge gate for those two maintainers.
 - If work is being prepared for a commit, PR, or PR update, agents must proactively update the relevant docs without waiting to be told.
 - At minimum, that means updating `docs/STATUS.md`, any affected module or architecture docs, and the active or completed exec plan when the change materially affects project behavior, contracts, structure, or roadmap clarity.
 - Treat documentation updates as part of the same deliverable, not as optional follow-up.
@@ -36,6 +39,7 @@ Agent-first Electron monorepo for two modules:
 ## Commands
 
 - `pnpm dev`
+- `pnpm desktop:dev`
 - `pnpm lint`
 - `pnpm lsp:typescript`
 - `pnpm typecheck`

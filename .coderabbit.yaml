@@ -1,0 +1,45 @@
+language: "en-US"
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  commit_status: true
+  fail_commit_status: false
+  collapse_walkthrough: false
+  poem: false
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+    drafts: true
+    base_branches:
+      - "main"
+  path_filters:
+    - "!**/coverage/**"
+    - "!**/dist/**"
+    - "!**/out/**"
+    - "!**/test-artifacts/**"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.jpeg"
+    - "!**/*.gif"
+    - "!**/*.pdf"
+    - "!pnpm-lock.yaml"
+  path_instructions:
+    - path: "AGENTS.md"
+      instructions: "Treat repo and package AGENTS guides as authoritative workflow rules and flag PRs that drift from them."
+    - path: "docs/**/*.md"
+      instructions: "Flag stale repo guidance, missing durable documentation updates, and contradictions with implementation or workflow policy."
+    - path: "apps/desktop/**/*.{ts,tsx,css}"
+      instructions: "Preserve typed boundaries, accessibility, and CSS custom property usage from globals.css instead of ad hoc styling values."
+    - path: "packages/**/*.{ts,tsx}"
+      instructions: "Keep package boundaries typed, schema-validated, and free of deep cross-package imports or any usage."
+  tools:
+    github-checks:
+      enabled: true
+      timeout_ms: 120000
+
+chat:
+  auto_reply: true

@@ -49,6 +49,9 @@ This repo keeps agent-facing context in the places that current agent tools expe
 - When pausing or finishing a workstream, update `docs/TRACKS.md` with the next concrete action or blocker.
 - If a task changes behavior, contracts, architecture, or workflow, update the relevant docs in the same task.
 - If work is being prepared for commit or PR handoff, agents should update docs proactively without waiting for a separate instruction.
+- `main` is a PR-only branch; direct pushes are not part of the supported workflow.
+- Only `@ebrardushullovcii` and `@vigani1` should be treated as `main` merge maintainers.
+- CodeRabbit should auto-review every PR, but its review is advisory rather than a required merge approval for those maintainers.
 - Treat design mockups as directional references only; they do not automatically define product scope or required backend behavior.
 - Treat prototype HTML in `docs/Design/` as disposable design-reference material only, not reusable implementation code.
 - Never create a git commit or PR action unless the user explicitly asks for it.

@@ -118,6 +118,8 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ## Recently Completed
 
+- `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, added repo-local CodeRabbit defaults, and checked in `.github/CODEOWNERS` naming `@ebrardushullovcii` plus `@vigani1` as the intended merge maintainers
+- `2026-03-24`: added a root `pnpm desktop:dev` shortcut and updated repo docs so local desktop startup no longer depends on the longer workspace-filter command
 - `2026-03-20`: added `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md` as the first active Job Finder delivery plan
 - `2026-03-20`: bootstrapped `docs/TRACKS.md` as the live workboard for parallel agent handoffs
 - `2026-03-20`: consolidated the current Job Finder design references and prototype policy under `docs/Design/`

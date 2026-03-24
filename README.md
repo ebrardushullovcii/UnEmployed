@@ -28,5 +28,5 @@ pnpm install
 pnpm lsp:typescript
 pnpm agents:sync
 pnpm verify
-pnpm --filter @unemployed/desktop dev
+pnpm desktop:dev
 ```

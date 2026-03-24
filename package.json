@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.8.0",
   "scripts": {
     "dev": "turbo dev --parallel",
+    "desktop:dev": "pnpm --filter @unemployed/desktop dev",
     "build": "turbo build",
     "lint": "turbo lint",
     "lsp:typescript": "typescript-language-server --stdio",
