@@ -98,15 +98,15 @@ function createSeed(): JobFinderRepositorySeed {
     },
     savedJobs: [],
     tailoredAssets: [],
-      applicationRecords: [],
-      applicationAttempts: [],
-      settings: {
-        resumeFormat: 'html' as const,
-        resumeTemplateId: 'classic_ats' as const,
-        fontPreset: 'inter_requisite' as const,
-        humanReviewRequired: true,
-        allowAutoSubmitOverride: false,
-        keepSessionAlive: true
+    applicationRecords: [],
+    applicationAttempts: [],
+    settings: {
+      resumeFormat: 'html' as const,
+      resumeTemplateId: 'classic_ats' as const,
+      fontPreset: 'inter_requisite' as const,
+      humanReviewRequired: true,
+      allowAutoSubmitOverride: false,
+      keepSessionAlive: true
     }
   }
 }
@@ -189,7 +189,7 @@ describe('createInMemoryJobFinderRepository', () => {
               title: 'Legacy Role',
               company: 'Old Co',
               location: 'Remote',
-              workMode: 'remote',
+              workMode: ['remote'],
               applyPath: 'easy_apply',
               postedAt: '2026-03-20T10:00:00.000Z',
               salaryText: '$180k',
@@ -204,6 +204,82 @@ describe('createInMemoryJobFinderRepository', () => {
       const savedJobs = await repository.listSavedJobs()
 
       expect(savedJobs).toEqual([])
+      await repository.close()
+    } finally {
+      await rm(tempDirectory, { recursive: true, force: true })
+    }
+  })
+
+  test('migrates legacy string workMode values in saved jobs and experiences', async () => {
+    const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-db-work-mode-'))
+    const filePath = path.join(tempDirectory, 'job-finder-state.sqlite')
+    const legacyPath = path.join(tempDirectory, 'job-finder-state.json')
+
+    try {
+      await writeFile(
+        legacyPath,
+        JSON.stringify({
+          ...createSeed(),
+          profile: {
+            ...createSeed().profile,
+            experiences: [
+              {
+                id: 'experience_1',
+                companyName: 'Signal Systems',
+                companyUrl: null,
+                title: 'Senior systems designer',
+                employmentType: 'Full-time',
+                location: 'London, UK',
+                workMode: 'hybrid',
+                startDate: '2020-01',
+                endDate: null,
+                isCurrent: true,
+                isDraft: false,
+                summary: 'Builds resilient workflows.',
+                achievements: [],
+                skills: [],
+                domainTags: [],
+                peopleManagementScope: null,
+                ownershipScope: null
+              }
+            ]
+          },
+          savedJobs: [
+            {
+              id: 'job_legacy',
+              source: 'linkedin',
+              sourceJobId: 'linkedin_job_legacy',
+              discoveryMethod: 'catalog_seed',
+              canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_legacy',
+              title: 'Lead Designer',
+              company: 'Signal Systems',
+              location: 'Remote',
+              workMode: 'remote',
+              applyPath: 'easy_apply',
+              easyApplyEligible: true,
+              postedAt: '2026-03-20T10:00:00.000Z',
+              discoveredAt: '2026-03-20T10:01:00.000Z',
+              salaryText: '$180k',
+              summary: 'Lead product design.',
+              description: 'Lead product design for operational software.',
+              keySkills: ['Figma'],
+              status: 'ready_for_review',
+              matchAssessment: {
+                score: 94,
+                reasons: ['Strong overlap'],
+                gaps: []
+              }
+            }
+          ]
+        })
+      )
+
+      const repository = await createFileJobFinderRepository({ filePath, seed: createSeed() })
+      const [profile, savedJobs] = await Promise.all([repository.getProfile(), repository.listSavedJobs()])
+
+      expect(profile.experiences[0]?.workMode).toEqual(['hybrid'])
+      expect(savedJobs[0]?.workMode).toEqual(['remote'])
+
       await repository.close()
     } finally {
       await rm(tempDirectory, { recursive: true, force: true })
@@ -230,7 +306,7 @@ describe('createInMemoryJobFinderRepository', () => {
           title: 'Lead Designer',
           company: 'Signal Systems',
           location: 'Remote',
-          workMode: 'remote',
+          workMode: ['remote'],
           applyPath: 'easy_apply',
           easyApplyEligible: true,
           postedAt: '2026-03-20T10:00:00.000Z',

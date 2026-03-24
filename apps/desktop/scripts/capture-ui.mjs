@@ -39,6 +39,17 @@ const screens = [
   }
 ]
 
+async function clickNavigationControl(window, name) {
+  const control = window.locator('button, [role="tab"]').filter({ hasText: name }).first()
+
+  if (await control.count()) {
+    await control.click()
+    return
+  }
+
+  await window.getByRole('button', { name }).click()
+}
+
 async function captureScreens() {
   await mkdir(outputDir, { recursive: true })
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-ui-capture-'))
@@ -60,8 +71,8 @@ async function captureScreens() {
     await window.setViewportSize({ width, height })
 
     for (const screen of screens) {
-      await window.getByRole('button', { name: screen.buttonName }).click()
-      await window.getByRole('heading', { name: screen.heading }).waitFor({ timeout: 10000 })
+      await clickNavigationControl(window, screen.buttonName)
+      await window.getByRole('heading', { level: 1, name: screen.heading }).waitFor({ timeout: 10000 })
       await window.screenshot({
         animations: 'disabled',
         path: path.join(outputDir, screen.fileName)

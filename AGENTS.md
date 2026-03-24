@@ -23,6 +23,7 @@ Agent-first Electron monorepo for two modules:
 - Do not introduce `any`, deep cross-package imports, or untyped IPC.
 - If code changes affect behavior, contracts, architecture, or workflows, update the relevant docs in the same task.
 - Treat `docs/STATUS.md`, `docs/TRACKS.md`, and `docs/exec-plans/` as the handoff layer for the next agent.
+- When working on the desktop app, follow the frontend best practices documented in `apps/desktop/AGENTS.md`.
 
 ## Git And Doc Workflow
 

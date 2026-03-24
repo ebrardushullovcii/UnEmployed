@@ -208,8 +208,8 @@ function createMatchAssessment(
   const matchesLocation = matchesAnyPhrase(posting.location, searchPreferences.locations)
   const matchesWorkMode =
     searchPreferences.workModes.length === 0 ||
-    searchPreferences.workModes.includes(posting.workMode) ||
-    searchPreferences.workModes.includes('flexible')
+    searchPreferences.workModes.includes('flexible') ||
+    posting.workMode.some((mode) => searchPreferences.workModes.includes(mode))
   const salaryFloor = parseSalaryFloor(posting.salaryText)
   const meetsSalaryExpectation =
     searchPreferences.minimumSalaryUsd === null ||
@@ -446,8 +446,8 @@ function parseLocationParts(location: string | null | undefined): {
   if (parts.length === 2) {
     return {
       currentCity: parts[0] ?? null,
-      currentRegion: null,
-      currentCountry: parts[1] ?? null
+      currentRegion: parts[1] ?? null,
+      currentCountry: null
     }
   }
 
@@ -481,7 +481,7 @@ function mergeExperienceRecords(
       title: entry.title,
       employmentType: entry.employmentType,
       location: entry.location,
-      workMode: entry.workMode,
+      workMode: entry.workMode ? [entry.workMode] : [],
       startDate: entry.startDate,
       endDate: entry.endDate,
       isCurrent: entry.isCurrent,
@@ -584,7 +584,7 @@ function mergeLinkRecords(
     })
   })
 
-  return nextLinks
+  return nextLinks.length === 0 ? existing : nextLinks
 }
 
 function mergeProjectRecords(
@@ -597,7 +597,7 @@ function mergeProjectRecords(
 
   const existingByKey = new Map(existing.map((entry) => [normalizeRecordKey([entry.name, entry.role]), entry]))
 
-  return extracted
+  const nextProjects = extracted
     .map((entry, index) => {
       if (!entry.name) {
         return null
@@ -620,6 +620,8 @@ function mergeProjectRecords(
       }
     })
     .filter((entry): entry is CandidateProfile['projects'][number] => entry !== null)
+
+  return nextProjects.length === 0 ? existing : nextProjects
 }
 
 function mergeLanguageRecords(
@@ -632,7 +634,7 @@ function mergeLanguageRecords(
 
   const existingByKey = new Map(existing.map((entry) => [normalizeRecordKey([entry.language]), entry]))
 
-  return extracted
+  const nextLanguages = extracted
     .map((entry, index) => {
       if (!entry.language) {
         return null
@@ -650,6 +652,8 @@ function mergeLanguageRecords(
       }
     })
     .filter((entry): entry is CandidateProfile['spokenLanguages'][number] => entry !== null)
+
+  return nextLanguages.length === 0 ? existing : nextLanguages
 }
 
 function mergeResumeExtractionIntoWorkspace(
@@ -847,6 +851,10 @@ export interface JobFinderWorkspaceService {
   openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>
   resetWorkspace(seed: JobFinderRepositorySeed): Promise<JobFinderWorkspaceSnapshot>
   saveProfile(profile: CandidateProfile): Promise<JobFinderWorkspaceSnapshot>
+  saveProfileAndSearchPreferences(
+    profile: CandidateProfile,
+    searchPreferences: JobSearchPreferences
+  ): Promise<JobFinderWorkspaceSnapshot>
   analyzeProfileFromResume(): Promise<JobFinderWorkspaceSnapshot>
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<JobFinderWorkspaceSnapshot>
   saveSettings(settings: JobFinderSettings): Promise<JobFinderWorkspaceSnapshot>
@@ -964,6 +972,16 @@ export function createJobFinderWorkspaceService(
       await repository.saveProfile(normalizeProfileBeforeSave(currentProfile, CandidateProfileSchema.parse(profile)))
       return getWorkspaceSnapshot()
     },
+    async saveProfileAndSearchPreferences(profile, searchPreferences) {
+      const currentProfile = await repository.getProfile()
+
+      await repository.saveProfileAndSearchPreferences(
+        normalizeProfileBeforeSave(currentProfile, CandidateProfileSchema.parse(profile)),
+        JobSearchPreferencesSchema.parse(searchPreferences)
+      )
+
+      return getWorkspaceSnapshot()
+    },
     async analyzeProfileFromResume() {
       const [profile, searchPreferences] = await Promise.all([
         repository.getProfile(),
@@ -993,10 +1011,7 @@ export function createJobFinderWorkspaceService(
       })
       const merged = mergeResumeExtractionIntoWorkspace(profile, searchPreferences, extraction)
 
-      await Promise.all([
-        repository.saveProfile(merged.profile),
-        repository.saveSearchPreferences(merged.searchPreferences)
-      ])
+      await repository.saveProfileAndSearchPreferences(merged.profile, merged.searchPreferences)
 
       return getWorkspaceSnapshot()
     },

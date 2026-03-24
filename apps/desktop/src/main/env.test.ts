@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { getDefaultDesktopEnvPaths, loadDesktopEnvironment, parseDotEnvContent } from './env'
+import { getDefaultDesktopEnvPaths, loadDesktopEnvironment, parseDotEnvContent } from './setup/env'
 
 describe('desktop env loader', () => {
   test('parses dotenv content with quotes and comments', () => {

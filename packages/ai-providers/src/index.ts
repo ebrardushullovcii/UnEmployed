@@ -557,14 +557,63 @@ function extractAllUrls(resumeText: string): string[] {
   return uniqueStrings((resumeText.match(/https?:\/\/[^\s]+/gi) ?? []).map((url) => url.replace(/[),.;]+$/, '')))
 }
 
+const knownPersonalWebsitePlatformDomains = [
+  'coursera.org',
+  'dev.to',
+  'edx.org',
+  'facebook.com',
+  'github.com',
+  'github.io',
+  'hashnode.dev',
+  'linkedin.com',
+  'linkedinlearning.com',
+  'medium.com',
+  'npmjs.com',
+  'stackoverflow.com',
+  'substack.com',
+  'twitter.com',
+  'udemy.com',
+  'x.com'
+] as const
+
+const likelyPersonalWebsitePaths = new Set(['', '/', '/about', '/contact', '/cv', '/home', '/portfolio', '/resume'])
+
+function isKnownPlatformDomain(hostname: string): boolean {
+  return knownPersonalWebsitePlatformDomains.some(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+  )
+}
+
+function hasLikelyPersonalWebsitePath(url: URL): boolean {
+  if (url.search || url.hash) {
+    return false
+  }
+
+  const normalizedPath = url.pathname.replace(/\/+$/, '') || '/'
+  return likelyPersonalWebsitePaths.has(normalizedPath.toLowerCase())
+}
+
+function isLikelyPersonalWebsiteUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url)
+    const hostname = parsedUrl.hostname.toLowerCase()
+
+    if (isKnownPlatformDomain(hostname)) {
+      return false
+    }
+
+    return hasLikelyPersonalWebsitePath(parsedUrl)
+  } catch {
+    return false
+  }
+}
+
 function inferGithubUrl(resumeText: string): string | null {
   return extractFirstUrl(resumeText, /https?:\/\/(?:www\.)?github\.com\/[\w./?%&=+-]*/i)
 }
 
 function inferPersonalWebsiteUrl(resumeText: string): string | null {
-  return (
-    extractAllUrls(resumeText).find((url) => !/linkedin\.com|github\.com/i.test(url)) ?? null
-  )
+  return extractAllUrls(resumeText).find((url) => isLikelyPersonalWebsiteUrl(url)) ?? null
 }
 
 function inferKnownPhrases(text: string, phrases: readonly string[]): string[] {
@@ -669,7 +718,20 @@ function inferTimeZoneFromLocation(location: string | null): string | null {
     [/berlin|germany/, 'Europe/Berlin'],
     [/paris|france/, 'Europe/Paris'],
     [/toronto|canada/, 'America/Toronto'],
-    [/zurich|switzerland/, 'Europe/Zurich']
+    [/zurich|switzerland/, 'Europe/Zurich'],
+    [/sydney|melbourne|australia/, 'Australia/Sydney'],
+    [/tokyo|japan/, 'Asia/Tokyo'],
+    [/mumbai|delhi|bangalore|india/, 'Asia/Kolkata'],
+    [/sao paulo|brazil/, 'America/Sao_Paulo'],
+    [/singapore/, 'Asia/Singapore'],
+    [/hong kong/, 'Asia/Hong_Kong'],
+    [/dubai|uae/, 'Asia/Dubai'],
+    [/tel aviv|israel/, 'Asia/Jerusalem'],
+    [/amsterdam|netherlands/, 'Europe/Amsterdam'],
+    [/stockholm|sweden/, 'Europe/Stockholm'],
+    [/oslo|norway/, 'Europe/Oslo'],
+    [/copenhagen|denmark/, 'Europe/Copenhagen'],
+    [/helsinki|finland/, 'Europe/Helsinki']
   ]
 
   for (const [pattern, timeZone] of knownMappings) {
@@ -692,7 +754,15 @@ function inferSalaryCurrencyFromLocation(location: string | null): string | null
     [/london|united kingdom|uk\b|england/, 'GBP'],
     [/switzerland|zurich|geneva/, 'CHF'],
     [/toronto|canada/, 'CAD'],
-    [/new york|usa|united states/, 'USD']
+    [/new york|usa|united states/, 'USD'],
+    [/sydney|melbourne|australia/, 'AUD'],
+    [/tokyo|japan/, 'JPY'],
+    [/mumbai|delhi|bangalore|india/, 'INR'],
+    [/sao paulo|brazil/, 'BRL'],
+    [/singapore/, 'SGD'],
+    [/hong kong/, 'HKD'],
+    [/dubai|uae/, 'AED'],
+    [/tel aviv|israel/, 'ILS']
   ]
 
   for (const [pattern, currency] of knownMappings) {
@@ -1051,8 +1121,7 @@ function mergeExperienceExtractionEntries(
   }
 
   const fallbackByKey = new Map(fallback.map((entry) => [`${entry.title ?? ''}|${entry.startDate ?? ''}`, entry]))
-
-  return primary.map((entry, index) => {
+  const merged = primary.map((entry, index) => {
     const match = fallbackByKey.get(`${entry.title ?? ''}|${entry.startDate ?? ''}`) ?? fallback[index]
 
     return {
@@ -1067,6 +1136,11 @@ function mergeExperienceExtractionEntries(
       domainTags: entry.domainTags.length > 0 ? entry.domainTags : match?.domainTags ?? []
     }
   })
+
+  const primaryKeys = new Set(primary.map((entry) => `${entry.title ?? ''}|${entry.startDate ?? ''}`))
+  const unmatchedFallback = fallback.filter((entry) => !primaryKeys.has(`${entry.title ?? ''}|${entry.startDate ?? ''}`))
+
+  return [...merged, ...unmatchedFallback]
 }
 
 function mergeEducationExtractionEntries(
@@ -1352,7 +1426,8 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
     tailorResume(input) {
       const coreSkills = uniqueStrings([...input.profile.skills.slice(0, 6), ...input.job.keySkills.slice(0, 6)]).slice(0, 8)
       const targetedKeywords = uniqueStrings(input.job.keySkills).slice(0, 6)
-      const summary = `${input.profile.headline} aligned to ${input.job.title} at ${input.job.company}, emphasizing ${targetedKeywords.slice(0, 3).join(', ') || 'role alignment'} and ${input.job.workMode} delivery.`
+      const workModeSummary = input.job.workMode.join(', ') || 'flexible'
+      const summary = `${input.profile.headline} aligned to ${input.job.title} at ${input.job.company}, emphasizing ${targetedKeywords.slice(0, 3).join(', ') || 'role alignment'} and ${workModeSummary} delivery.`
       const experienceHighlights = uniqueStrings([
         `${input.profile.yearsExperience}+ years of experience aligned to ${input.job.summary.toLowerCase()}`,
         `Grounded in ${input.searchPreferences.tailoringMode} tailoring with saved preferences for ${input.searchPreferences.targetRoles.slice(0, 2).join(' and ') || input.job.title}.`,
@@ -1445,6 +1520,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
           'If timezone is not explicitly written but location is clear, infer the most likely IANA timezone from the city, region, or country.',
           'If salary currency or regional defaults are not explicitly written but the resume location makes them obvious, infer the most likely value with high confidence.',
           'Return atomic list items only: one skill, one role, one school, one language, or one company per entry.',
+          'Return experience achievements, experience skills, project skills, and grouped skills as clean arrays with one item per entry, not one large paragraph or combined newline blob.',
+          'Keep single-word or short technical skills split into separate array items instead of grouping many of them into one sentence.',
           'Do not repeat exact duplicates across skills, grouped skills, links, languages, projects, or experience item arrays.',
           'Populate skillGroups with coreSkills, tools, languagesAndFrameworks, softSkills, and highlightedSkills instead of dumping everything into skills.',
           'Populate experiences, education, certifications, links, projects, and spokenLanguages as structured arrays with one record per item whenever the resume contains enough evidence.',

@@ -1,0 +1,182 @@
+import type { UseFormReturn } from 'react-hook-form'
+import { Badge } from '@renderer/components/ui/badge'
+import { Field, FieldLabel } from '@renderer/components/ui/field'
+import type { ProfileEditorValues } from '../../lib/profile-editor'
+import { joinListInput, parseListInput } from '../../lib/job-finder-utils'
+import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
+import { ProfileListEditor } from './profile-list-editor'
+
+interface ProfileCoreTabProps {
+  profileForm: UseFormReturn<ProfileEditorValues>
+}
+
+export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
+  const { register, setValue, watch } = profileForm
+  const listFieldOptions = { shouldDirty: true, shouldTouch: true, shouldValidate: true } as const
+
+  return (
+    <div className="grid gap-6">
+      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Identity and contact</p>
+            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
+              Explicit ATS-safe header fields, contact channels, location details, and public profile links.
+            </p>
+          </div>
+          <Badge variant="section">Identity</Badge>
+        </div>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Personal details</p>
+          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+            <Field><FieldLabel>First name</FieldLabel><ProfileInput {...register('identity.firstName')} /></Field>
+            <Field><FieldLabel>Last name</FieldLabel><ProfileInput {...register('identity.lastName')} /></Field>
+            <Field><FieldLabel>Middle name</FieldLabel><ProfileInput {...register('identity.middleName')} /></Field>
+            <Field><FieldLabel>Preferred display name</FieldLabel><ProfileInput {...register('identity.preferredDisplayName')} /></Field>
+            <Field><FieldLabel>Headline</FieldLabel><ProfileInput {...register('identity.headline')} /></Field>
+            <Field><FieldLabel>Years of experience</FieldLabel><ProfileInput min="0" step="1" type="number" {...register('identity.yearsExperience')} /></Field>
+          </div>
+        </article>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Contact information</p>
+          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+            <Field><FieldLabel>Primary email</FieldLabel><ProfileInput {...register('identity.email')} /></Field>
+            <Field><FieldLabel>Secondary email</FieldLabel><ProfileInput {...register('identity.secondaryEmail')} /></Field>
+            <Field><FieldLabel>Phone</FieldLabel><ProfileInput {...register('identity.phone')} /></Field>
+            <Field><FieldLabel>Timezone</FieldLabel><ProfileInput {...register('identity.timeZone')} /></Field>
+          </div>
+        </article>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Location</p>
+          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+            <Field><FieldLabel>City</FieldLabel><ProfileInput {...register('identity.currentCity')} /></Field>
+            <Field><FieldLabel>Region / state</FieldLabel><ProfileInput {...register('identity.currentRegion')} /></Field>
+            <Field><FieldLabel>Country</FieldLabel><ProfileInput {...register('identity.currentCountry')} /></Field>
+            <Field><FieldLabel>Fallback location label</FieldLabel><ProfileInput {...register('identity.currentLocation')} /></Field>
+          </div>
+        </article>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Online presence</p>
+          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+            <Field><FieldLabel>LinkedIn URL</FieldLabel><ProfileInput {...register('identity.linkedinUrl')} /></Field>
+            <Field><FieldLabel>Portfolio URL</FieldLabel><ProfileInput {...register('identity.portfolioUrl')} /></Field>
+            <Field><FieldLabel>GitHub URL</FieldLabel><ProfileInput {...register('identity.githubUrl')} /></Field>
+            <Field><FieldLabel>Personal website</FieldLabel><ProfileInput {...register('identity.personalWebsiteUrl')} /></Field>
+          </div>
+        </article>
+      </section>
+
+      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Professional summary layer</p>
+            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
+              Separate reusable narrative blocks from the raw factual record.
+            </p>
+          </div>
+          <Badge variant="section">Narrative</Badge>
+        </div>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Summary</p>
+          <div className="grid gap-[var(--gap-content)]">
+            <Field>
+              <FieldLabel>Short value proposition</FieldLabel>
+              <ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={3} {...register('summary.shortValueProposition')} />
+            </Field>
+            <Field>
+              <FieldLabel>Full summary</FieldLabel>
+              <ProfileTextarea className="min-h-[var(--textarea-default)] max-h-[var(--textarea-default)]" rows={5} {...register('summary.fullSummary')} />
+            </Field>
+          </div>
+        </article>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Career positioning</p>
+          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+            <Field>
+              <FieldLabel>Career themes</FieldLabel>
+              <ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...register('summary.careerThemes')} />
+            </Field>
+            <Field>
+              <FieldLabel>Strengths / differentiators</FieldLabel>
+              <ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...register('summary.strengths')} />
+            </Field>
+            <Field>
+              <FieldLabel>Leadership summary</FieldLabel>
+              <ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register('summary.leadershipSummary')} />
+            </Field>
+            <Field>
+              <FieldLabel>Domain focus</FieldLabel>
+              <ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register('summary.domainFocusSummary')} />
+            </Field>
+          </div>
+        </article>
+      </section>
+
+      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Skills and evidence</p>
+            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
+              Keep each skill bucket distinct so resume parsing, tailoring, and later form-fill stay clear.
+            </p>
+          </div>
+          <Badge variant="section">Skills</Badge>
+        </div>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Core competencies</p>
+          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+            <ProfileListEditor
+              label="General skills"
+              onChange={(values) => setValue('profileSkills', joinListInput(values), listFieldOptions)}
+              placeholder="Add a skill"
+              values={parseListInput(watch('profileSkills'))}
+            />
+            <ProfileListEditor
+              label="Highlighted skills for target roles"
+              onChange={(values) => setValue('skillGroups.highlightedSkills', joinListInput(values), listFieldOptions)}
+              placeholder="Add a highlighted skill"
+              values={parseListInput(watch('skillGroups.highlightedSkills'))}
+            />
+          </div>
+        </article>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Technical skills</p>
+          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+            <ProfileListEditor
+              label="Core skills"
+              onChange={(values) => setValue('skillGroups.coreSkills', joinListInput(values), listFieldOptions)}
+              placeholder="Add a core skill"
+              values={parseListInput(watch('skillGroups.coreSkills'))}
+            />
+            <ProfileListEditor
+              label="Tools / platforms"
+              onChange={(values) => setValue('skillGroups.tools', joinListInput(values), listFieldOptions)}
+              placeholder="Add a tool"
+              values={parseListInput(watch('skillGroups.tools'))}
+            />
+            <ProfileListEditor
+              label="Languages / frameworks"
+              onChange={(values) => setValue('skillGroups.languagesAndFrameworks', joinListInput(values), listFieldOptions)}
+              placeholder="Add a language or framework"
+              values={parseListInput(watch('skillGroups.languagesAndFrameworks'))}
+            />
+            <ProfileListEditor
+              label="Soft skills"
+              onChange={(values) => setValue('skillGroups.softSkills', joinListInput(values), listFieldOptions)}
+              placeholder="Add a soft skill"
+              values={parseListInput(watch('skillGroups.softSkills'))}
+            />
+          </div>
+        </article>
+      </section>
+    </div>
+  )
+}

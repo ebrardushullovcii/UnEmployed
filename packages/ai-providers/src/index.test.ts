@@ -225,6 +225,14 @@ describe('ai providers', () => {
       startDate: '07/2023',
       isCurrent: true
     })
+    expect(result.experiences[0]?.achievements).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Engineered a real-time restaurant order platform')
+      ])
+    )
+    expect(result.experiences[0]?.skills).toEqual(
+      expect.arrayContaining(['React', 'Next.js', 'TailwindCSS', 'WebSockets'])
+    )
     expect(result.education[0]?.schoolName).toContain('Kolegji Riinvest')
     expect(result.education[0]?.degree).toBe("BACHELOR'S DEGREE")
     expect(result.timeZone).toBe('Europe/Belgrade')
@@ -235,6 +243,24 @@ describe('ai providers', () => {
         expect.objectContaining({ language: 'English', proficiency: 'C2' })
       ])
     )
+  })
+
+  test('prefers top-level personal sites over arbitrary non-platform links', async () => {
+    const client = createDeterministicJobFinderAiClient()
+
+    const result = await client.extractProfileFromResume({
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      resumeText: [
+        'Jamie Rivers',
+        'https://acme.com/team/jamie-rivers',
+        'https://github.com/jamie-rivers',
+        'https://www.linkedin.com/in/jamie-rivers',
+        'https://jamierivers.dev'
+      ].join('\n')
+    })
+
+    expect(result.personalWebsiteUrl).toBe('https://jamierivers.dev')
   })
 
   test('falls back to deterministic mode without an API key', () => {

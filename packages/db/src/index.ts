@@ -139,6 +139,10 @@ export interface JobFinderRepository {
   saveProfile(profile: CandidateProfile): Promise<void>
   getSearchPreferences(): Promise<JobSearchPreferences>
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<void>
+  saveProfileAndSearchPreferences(
+    profile: CandidateProfile,
+    searchPreferences: JobSearchPreferences
+  ): Promise<void>
   listSavedJobs(): Promise<readonly SavedJob[]>
   replaceSavedJobs(savedJobs: readonly SavedJob[]): Promise<void>
   listTailoredAssets(): Promise<readonly TailoredAsset[]>
@@ -160,6 +164,55 @@ function getLegacyJsonPath(filePath: string): string {
   return filePath.replace(/\.[^.]+$/, '.json')
 }
 
+function migrateWorkModeToArray(data: Record<string, unknown>): Record<string, unknown> {
+  const migrateValue = (value: unknown) => {
+    if (typeof value === 'string') {
+      return value ? [value] : []
+    }
+
+    if (value === null) {
+      return []
+    }
+
+    return value
+  }
+
+  const migrateCollection = (entries: unknown, key: 'workMode') => {
+    if (!Array.isArray(entries)) {
+      return entries
+    }
+
+    return entries.map((entry: unknown) => {
+      if (typeof entry !== 'object' || entry === null) {
+        return entry
+      }
+
+      const record = entry as Record<string, unknown>
+      return {
+        ...record,
+        [key]: migrateValue(record[key])
+      }
+    })
+  }
+
+  const nextData = { ...data }
+
+  if (data.profile && typeof data.profile === 'object') {
+    const profile = data.profile as Record<string, unknown>
+
+    nextData.profile = {
+      ...profile,
+      experiences: migrateCollection(profile.experiences, 'workMode')
+    }
+  }
+
+  if (Array.isArray(data.savedJobs)) {
+    nextData.savedJobs = migrateCollection(data.savedJobs, 'workMode')
+  }
+
+  return nextData
+}
+
 async function readLegacySeed(
   filePath: string,
   seed: JobFinderRepositorySeed
@@ -173,13 +226,14 @@ async function readLegacySeed(
   try {
     const raw = await readFile(legacyPath, 'utf8')
     const parsed = JSON.parse(raw) as Record<string, unknown>
-    const profile = CandidateProfileSchema.safeParse(parsed.profile)
-    const searchPreferences = JobSearchPreferencesSchema.safeParse(parsed.searchPreferences)
-    const settings = JobFinderSettingsSchema.safeParse(parsed.settings)
-    const savedJobs = SavedJobSchema.array().safeParse(parsed.savedJobs)
-    const tailoredAssets = TailoredAssetSchema.array().safeParse(parsed.tailoredAssets)
-    const applicationRecords = ApplicationRecordSchema.array().safeParse(parsed.applicationRecords)
-    const applicationAttempts = ApplicationAttemptSchema.array().safeParse(parsed.applicationAttempts ?? [])
+    const migratedData = migrateWorkModeToArray(parsed)
+    const profile = CandidateProfileSchema.safeParse(migratedData.profile)
+    const searchPreferences = JobSearchPreferencesSchema.safeParse(migratedData.searchPreferences)
+    const settings = JobFinderSettingsSchema.safeParse(migratedData.settings)
+    const savedJobs = SavedJobSchema.array().safeParse(migratedData.savedJobs)
+    const tailoredAssets = TailoredAssetSchema.array().safeParse(migratedData.tailoredAssets)
+    const applicationRecords = ApplicationRecordSchema.array().safeParse(migratedData.applicationRecords)
+    const applicationAttempts = ApplicationAttemptSchema.array().safeParse(migratedData.applicationAttempts ?? [])
 
     return JobFinderRepositoryStateSchema.parse({
       profile: profile.success ? profile.data : cloneValue(seed.profile),
@@ -348,6 +402,11 @@ export function createInMemoryJobFinderRepository(seed: JobFinderRepositorySeed)
       state.searchPreferences = JobSearchPreferencesSchema.parse(cloneValue(searchPreferences))
       return Promise.resolve()
     },
+    saveProfileAndSearchPreferences(profile, searchPreferences) {
+      state.profile = CandidateProfileSchema.parse(cloneValue(profile))
+      state.searchPreferences = JobSearchPreferencesSchema.parse(cloneValue(searchPreferences))
+      return Promise.resolve()
+    },
     listSavedJobs() {
       return Promise.resolve(cloneValue(state.savedJobs))
     },
@@ -461,6 +520,15 @@ export async function createFileJobFinderRepository(
     saveSearchPreferences(searchPreferences) {
       return persist((state) => {
         state.searchPreferences = JobSearchPreferencesSchema.parse(cloneValue(searchPreferences))
+      })
+    },
+    saveProfileAndSearchPreferences(profile, searchPreferences) {
+      const normalizedProfile = CandidateProfileSchema.parse(cloneValue(profile))
+      const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(cloneValue(searchPreferences))
+
+      return persist((state) => {
+        state.profile = normalizedProfile
+        state.searchPreferences = normalizedSearchPreferences
       })
     },
     listSavedJobs() {

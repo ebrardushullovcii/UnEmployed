@@ -4,11 +4,36 @@ import type {
   DesktopPlatformPing,
   DesktopWindowControlsState,
   JobFinderSettings,
+  SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences
 } from '@unemployed/contracts'
 
 const testApiEnabled = process.env.UNEMPLOYED_ENABLE_TEST_API === '1' || process.env.UNEMPLOYED_ENABLE_TEST_API === 'true'
+
+function isSaveWorkspaceInputsPayload(
+  profileOrInput: CandidateProfile | SaveJobFinderWorkspaceInput
+): profileOrInput is SaveJobFinderWorkspaceInput {
+  return 'profile' in profileOrInput && 'searchPreferences' in profileOrInput
+}
+
+function toSaveWorkspaceInputsPayload(
+  profileOrInput: CandidateProfile | SaveJobFinderWorkspaceInput,
+  searchPreferences?: JobSearchPreferences
+): SaveJobFinderWorkspaceInput {
+  if (isSaveWorkspaceInputsPayload(profileOrInput)) {
+    return profileOrInput
+  }
+
+  if (!searchPreferences) {
+    throw new Error('Search preferences are required when saving workspace inputs.')
+  }
+
+  return {
+    profile: profileOrInput,
+    searchPreferences
+  }
+}
 
 const desktopApi = {
   ping: () => ipcRenderer.invoke('system:ping') as Promise<DesktopPlatformPing>,
@@ -39,6 +64,14 @@ const desktopApi = {
       ipcRenderer.invoke('job-finder:open-browser-session') as Promise<JobFinderWorkspaceSnapshot>,
     saveProfile: (profile: CandidateProfile) =>
       ipcRenderer.invoke('job-finder:save-profile', profile) as Promise<JobFinderWorkspaceSnapshot>,
+    saveWorkspaceInputs: (
+      profileOrInput: CandidateProfile | SaveJobFinderWorkspaceInput,
+      searchPreferences?: JobSearchPreferences
+    ) =>
+      ipcRenderer.invoke(
+        'job-finder:save-workspace-inputs',
+        toSaveWorkspaceInputsPayload(profileOrInput, searchPreferences)
+      ) as Promise<JobFinderWorkspaceSnapshot>,
     analyzeProfileFromResume: () =>
       ipcRenderer.invoke('job-finder:analyze-profile-from-resume') as Promise<JobFinderWorkspaceSnapshot>,
     saveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
@@ -74,4 +107,3 @@ const desktopApi = {
 }
 
 contextBridge.exposeInMainWorld('unemployed', desktopApi)
-

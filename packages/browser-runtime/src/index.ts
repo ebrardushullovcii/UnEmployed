@@ -181,8 +181,8 @@ export function createCatalogBrowserSessionRuntime(
         const matchesLocation = matchesAnyPhrase(job.location, searchPreferences.locations)
         const matchesWorkMode =
           searchPreferences.workModes.length === 0 ||
-          searchPreferences.workModes.includes(job.workMode) ||
-          searchPreferences.workModes.includes('flexible')
+          searchPreferences.workModes.includes('flexible') ||
+          job.workMode.some((mode) => searchPreferences.workModes.includes(mode))
         const salaryFloor = parseSalaryFloor(job.salaryText)
         const meetsSalaryExpectation =
           searchPreferences.minimumSalaryUsd === null ||

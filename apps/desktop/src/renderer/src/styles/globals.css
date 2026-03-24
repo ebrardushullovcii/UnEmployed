@@ -1,0 +1,219 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono);
+  --font-display: var(--font-headline);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-canvas: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-strong: var(--surface-strong);
+  --color-surface-muted: var(--surface-muted);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-foreground-soft: var(--foreground-soft);
+  --color-foreground-muted: var(--muted-foreground);
+  --color-positive: var(--positive);
+  --color-positive-foreground: var(--positive-foreground);
+  --color-active: var(--active);
+  --color-active-foreground: var(--active-foreground);
+  --color-critical: var(--critical);
+  --color-critical-foreground: var(--critical-foreground);
+}
+
+:root {
+  color-scheme: dark;
+  --font-body: "Inter", sans-serif;
+  --font-headline: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --background: #0e0e0e;
+  --foreground: #e7e5e5;
+  --card: #131313;
+  --card-foreground: #e7e5e5;
+  --popover: #161616;
+  --popover-foreground: #e7e5e5;
+  --primary: #c6c6c7;
+  --primary-foreground: #3f4041;
+  --secondary: #151515;
+  --secondary-foreground: #e7e5e5;
+  --muted: #141414;
+  --muted-foreground: #7a7771;
+  --accent: #1a1a1a;
+  --accent-foreground: #e7e5e5;
+  --destructive: #ee7d77;
+  --destructive-foreground: #490106;
+  --border: rgba(255, 255, 255, 0.14);
+  --input: #19191a;
+  --ring: rgba(198, 198, 199, 0.48);
+
+  --surface: #0e0e0e;
+  --surface-raised: #141414;
+  --surface-strong: #191919;
+  --surface-muted: #101010;
+  --surface-panel: #0a0a0b;
+  --surface-panel-raised: #0d0d0e;
+  --surface-panel-border: rgba(255, 255, 255, 0.12);
+  --surface-progress-track: rgba(0, 0, 0, 0.4);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --foreground-soft: #b7b2ab;
+  --field: #0d0d0e;
+  --field-strong: #141414;
+  --field-border: rgba(255, 255, 255, 0.15);
+
+  --positive: #d0ecff;
+  --positive-foreground: #2b4655;
+  --active: #c6c6c7;
+  --active-foreground: #3e4040;
+  --critical: #ff9993;
+  --critical-foreground: #490106;
+
+  /* Component tokens - Radius */
+  --radius-field: 0.42rem;
+  --radius-panel: 0.55rem;
+  --radius-badge: 0.32rem;
+  --radius-button: 0.8rem;
+  --radius-chip: 0.22rem;
+  --radius-small: 0.24rem;
+
+  /* Component tokens - Typography */
+  --text-field: 0.92rem;
+  --text-body: 0.95rem;
+  --text-description: 0.84rem;
+  --text-small: 0.78rem;
+  --text-tiny: 0.68rem;
+  --text-label: 0.58rem;
+
+  /* Component tokens - Tracking */
+  --tracking-label: 0.11em;
+  --tracking-heading: 0.12em;
+  --tracking-caps: 0.18em;
+  --tracking-badge: 0.14em;
+  --tracking-mono: 0.16em;
+  --tracking-normal: 0.08em;
+
+  /* Component tokens - Gap */
+  --gap-field: 0.44rem;
+  --gap-content: 0.9rem;
+  --gap-card: 1.2rem;
+  --gap-section: 1.65rem;
+
+  /* Component tokens - Textarea heights */
+  --textarea-compact: 5.6rem;
+  --textarea-default: 6.8rem;
+  --textarea-tall: 7.4rem;
+
+  /* Component tokens - Colors */
+  --headline-primary: #fbfaf6;
+  --headline-secondary: #f8f7f3;
+  --text-headline: #f6f2e8;
+  --text-badge: #f4efe4;
+  --button-close-hover: #8a1f17;
+
+  background: var(--background);
+  color: var(--foreground);
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 18%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    var(--background);
+  background-size: auto, 32px 32px, 32px 32px, auto;
+  color: var(--foreground);
+  font-family: var(--font-body);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--font-headline);
+  font-size: clamp(2.05rem, 3.35vw, 3.3rem);
+  line-height: 0.97;
+  letter-spacing: -0.028em;
+  color: #fbfaf6;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.035);
+}
+
+h2 {
+  font-family: var(--font-headline);
+  font-size: clamp(1.22rem, 1.12vw, 1.58rem);
+  line-height: 1.1;
+  color: #f8f7f3;
+}
+
+strong {
+  font-weight: 600;
+}
+
+::selection {
+  background: rgba(235, 233, 225, 0.22);
+  color: var(--foreground);
+}

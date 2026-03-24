@@ -14,6 +14,7 @@
 - `pnpm --filter @unemployed/desktop dev`
 - `pnpm --filter @unemployed/desktop ui:capture`
 - `pnpm --filter @unemployed/desktop ui:resume-import`
+- `pnpm --filter @unemployed/desktop ui:profile-baseline`
 
 ## Live Agent Config
 
@@ -31,8 +32,10 @@
 - Install workspace dependencies first with `pnpm install` so the desktop app and `playwright` are available locally.
 - Use `pnpm --filter @unemployed/desktop ui:capture` for the default desktop review pass.
 - Use `pnpm --filter @unemployed/desktop ui:resume-import` to run a scripted resume-import flow that bypasses the native picker through a test-only preload bridge, reloads the workspace, and saves screenshots plus workspace JSON.
+- Use `pnpm --filter @unemployed/desktop ui:profile-baseline` to hydrate the preferred imported-profile snapshot and capture the current visual baseline for the shell plus every Profile subtab before larger UI refactors, including scroll-slice coverage for long surfaces.
 - The capture script builds the desktop app first, launches Electron through Playwright, waits for the seeded Job Finder workspace to load, clicks through the current MVP screens, and saves screenshots for visual review.
 - The resume-import capture defaults to `Resume.pdf` at the repo root; override with CLI flags like `--resume`, `--expected-name`, `--expected-headline`, `--expected-location`, `--expected-summary-contains`, and `--label`, or use the matching `UI_TEST_*` environment variables when validating other files.
+- The profile-baseline capture defaults to `apps/desktop/test-artifacts/ui/resume-pdf-polish-v4/workspace-after-reload.json`; override with `--snapshot` or `UI_PROFILE_BASELINE_SNAPSHOT` when another imported-profile snapshot should drive the screenshots.
 - The current default capture size is `1440x920`.
 - The current standard multi-size review pass covers `1728x1080`, `1440x920`, `1280x800`, and `1024x768`.
 - Override capture size with environment variables when needed, for example: `UI_CAPTURE_WIDTH=1280 UI_CAPTURE_HEIGHT=800 UI_CAPTURE_LABEL=1280x800 pnpm --filter @unemployed/desktop exec node ./scripts/capture-ui.mjs`.

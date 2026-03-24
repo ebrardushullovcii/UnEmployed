@@ -1,7 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "jsx": "react-jsx",
+    "paths": {
+      "@renderer/*": [
+        "src/renderer/src/*"
+      ]
+    },
     "types": [
       "node",
       "vite/client"
@@ -12,4 +18,3 @@
     "src/**/*"
   ]
 }
-
