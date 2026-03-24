@@ -1,5 +1,0 @@
-interface:
-  display_name: "Repo Governance"
-  short_description: "Maintain repo-wide docs, adapters, and structure"
-  default_prompt: "Update the UnEmployed repo guidance, agent adapters, or package boundaries and keep the validation checks green."
-
