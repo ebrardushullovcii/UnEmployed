@@ -11,7 +11,7 @@
 ## UI Validation Commands
 
 - `pnpm --filter @unemployed/desktop build`
-- `pnpm --filter @unemployed/desktop dev`
+- `pnpm desktop:dev`
 - `pnpm --filter @unemployed/desktop ui:capture`
 - `pnpm --filter @unemployed/desktop ui:resume-import`
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`

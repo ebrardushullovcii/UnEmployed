@@ -11,7 +11,7 @@ Owns the Electron shell, preload bridge, and renderer entrypoint.
 
 ## Commands
 
-- `pnpm --filter @unemployed/desktop dev`
+- `pnpm desktop:dev`
 - `pnpm --filter @unemployed/desktop build`
 - `pnpm --filter @unemployed/desktop typecheck`
 - `pnpm --filter @unemployed/desktop lint`
