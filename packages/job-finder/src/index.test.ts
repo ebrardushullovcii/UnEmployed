@@ -1,4 +1,4 @@
-import { createDeterministicJobFinderAiClient } from '@unemployed/ai-providers'
+import { createDeterministicJobFinderAiClient, type JobFinderAiClient, type ResumeProfileExtraction } from '@unemployed/ai-providers'
 import { describe, expect, test } from 'vitest'
 import { createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import { createInMemoryJobFinderRepository } from '@unemployed/db'
@@ -295,6 +295,64 @@ function createAiClient() {
   return createDeterministicJobFinderAiClient('Tests use the deterministic fallback agent.')
 }
 
+function createResumeExtraction(overrides: Partial<ResumeProfileExtraction> = {}): ResumeProfileExtraction {
+  return {
+    firstName: null,
+    lastName: null,
+    middleName: null,
+    fullName: null,
+    headline: null,
+    summary: null,
+    currentLocation: null,
+    timeZone: null,
+    salaryCurrency: null,
+    yearsExperience: null,
+    email: null,
+    phone: null,
+    portfolioUrl: null,
+    linkedinUrl: null,
+    githubUrl: null,
+    personalWebsiteUrl: null,
+    professionalSummary: {
+      shortValueProposition: null,
+      fullSummary: null,
+      careerThemes: [],
+      leadershipSummary: null,
+      domainFocusSummary: null,
+      strengths: []
+    },
+    skillGroups: {
+      coreSkills: [],
+      tools: [],
+      languagesAndFrameworks: [],
+      softSkills: [],
+      highlightedSkills: []
+    },
+    skills: [],
+    targetRoles: [],
+    preferredLocations: [],
+    experiences: [],
+    education: [],
+    certifications: [],
+    links: [],
+    projects: [],
+    spokenLanguages: [],
+    analysisProviderKind: 'deterministic',
+    analysisProviderLabel: 'Stub extraction',
+    notes: [],
+    ...overrides
+  }
+}
+
+function createExtractionAiClient(extraction: ResumeProfileExtraction): JobFinderAiClient {
+  const fallbackClient = createDeterministicJobFinderAiClient('Tests use the deterministic fallback agent.')
+
+  return {
+    ...fallbackClient,
+    extractProfileFromResume: async () => extraction
+  }
+}
+
 function createDocumentManager() {
   return {
     listResumeTemplates() {
@@ -476,5 +534,93 @@ describe('createJobFinderWorkspaceService', () => {
     expect(snapshot.profile.skillGroups.highlightedSkills.length).toBeGreaterThan(0)
     expect(snapshot.profile.professionalSummary.fullSummary).toContain('12 years of experience')
     expect(snapshot.searchPreferences.salaryCurrency).toBe('EUR')
+  })
+
+  test('maps two-part locations to city and region without forcing a country', async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed())
+    const browserRuntime = createBrowserRuntime()
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createExtractionAiClient(
+        createResumeExtraction({
+          currentLocation: 'New York, NY'
+        })
+      ),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.analyzeProfileFromResume()
+
+    expect(snapshot.profile.currentCity).toBe('New York')
+    expect(snapshot.profile.currentRegion).toBe('NY')
+    expect(snapshot.profile.currentCountry).toBeNull()
+  })
+
+  test('keeps saved links, projects, and languages when extracted records are invalid', async () => {
+    const seed = createSeed()
+    seed.profile.projects = [
+      {
+        id: 'project_1',
+        name: 'Signal Design System',
+        projectType: 'Product',
+        summary: 'Unified the product UI layer.',
+        role: 'Lead designer',
+        skills: ['Figma', 'React'],
+        outcome: 'Improved release speed.',
+        projectUrl: null,
+        repositoryUrl: null,
+        caseStudyUrl: null
+      }
+    ]
+    seed.profile.spokenLanguages = [
+      {
+        id: 'language_1',
+        language: 'English',
+        proficiency: 'Native',
+        interviewPreference: true,
+        notes: null
+      }
+    ]
+
+    const repository = createInMemoryJobFinderRepository(seed)
+    const browserRuntime = createBrowserRuntime()
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createExtractionAiClient(
+        createResumeExtraction({
+          links: [{ label: 'Broken link', url: 'notaurl', kind: 'portfolio' }],
+          projects: [
+            {
+              name: null,
+              projectType: 'Portfolio',
+              summary: 'Ignored project',
+              role: null,
+              skills: [],
+              outcome: null,
+              projectUrl: null,
+              repositoryUrl: null,
+              caseStudyUrl: null
+            }
+          ],
+          spokenLanguages: [
+            {
+              language: null,
+              proficiency: null,
+              interviewPreference: false,
+              notes: null
+            }
+          ]
+        })
+      ),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.analyzeProfileFromResume()
+
+    expect(snapshot.profile.links).toEqual(seed.profile.links)
+    expect(snapshot.profile.projects).toEqual(seed.profile.projects)
+    expect(snapshot.profile.spokenLanguages).toEqual(seed.profile.spokenLanguages)
   })
 })

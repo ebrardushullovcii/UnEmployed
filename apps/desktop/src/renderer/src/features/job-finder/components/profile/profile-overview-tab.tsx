@@ -11,6 +11,13 @@ interface ProfileOverviewTabProps {
   profile: CandidateProfile
 }
 
+const statusToTone = {
+  failed: 'failed',
+  needs_text: 'queued',
+  not_started: 'generating',
+  ready: 'ready'
+} as const
+
 export function ProfileOverviewTab({
   busy,
   onAnalyzeProfileFromResume,
@@ -38,15 +45,7 @@ export function ProfileOverviewTab({
             </p>
           </div>
           <StatusBadge
-            tone={getAssetTone(
-              profile.baseResume.extractionStatus === 'ready'
-                ? 'ready'
-                : profile.baseResume.extractionStatus === 'failed'
-                  ? 'failed'
-                  : profile.baseResume.extractionStatus === 'needs_text'
-                    ? 'queued'
-                    : 'generating'
-            )}
+            tone={getAssetTone(statusToTone[profile.baseResume.extractionStatus] ?? 'generating')}
           >
             {formatStatusLabel(profile.baseResume.extractionStatus)}
           </StatusBadge>

@@ -446,8 +446,8 @@ function parseLocationParts(location: string | null | undefined): {
   if (parts.length === 2) {
     return {
       currentCity: parts[0] ?? null,
-      currentRegion: null,
-      currentCountry: parts[1] ?? null
+      currentRegion: parts[1] ?? null,
+      currentCountry: null
     }
   }
 
@@ -584,7 +584,7 @@ function mergeLinkRecords(
     })
   })
 
-  return nextLinks
+  return nextLinks.length === 0 ? existing : nextLinks
 }
 
 function mergeProjectRecords(
@@ -597,7 +597,7 @@ function mergeProjectRecords(
 
   const existingByKey = new Map(existing.map((entry) => [normalizeRecordKey([entry.name, entry.role]), entry]))
 
-  return extracted
+  const nextProjects = extracted
     .map((entry, index) => {
       if (!entry.name) {
         return null
@@ -620,6 +620,8 @@ function mergeProjectRecords(
       }
     })
     .filter((entry): entry is CandidateProfile['projects'][number] => entry !== null)
+
+  return nextProjects.length === 0 ? existing : nextProjects
 }
 
 function mergeLanguageRecords(
@@ -632,7 +634,7 @@ function mergeLanguageRecords(
 
   const existingByKey = new Map(existing.map((entry) => [normalizeRecordKey([entry.language]), entry]))
 
-  return extracted
+  const nextLanguages = extracted
     .map((entry, index) => {
       if (!entry.language) {
         return null
@@ -650,6 +652,8 @@ function mergeLanguageRecords(
       }
     })
     .filter((entry): entry is CandidateProfile['spokenLanguages'][number] => entry !== null)
+
+  return nextLanguages.length === 0 ? existing : nextLanguages
 }
 
 function mergeResumeExtractionIntoWorkspace(

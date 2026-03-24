@@ -17,6 +17,9 @@ export function DiscoveryResultsPanel({
   onSelectJob,
   selectedJob
 }: DiscoveryResultsPanelProps) {
+  const baseButtonClasses =
+    'grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] p-5 text-left transition-colors'
+
   return (
     <section className="grid min-h-[31rem] min-w-0 content-start gap-4 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -42,36 +45,40 @@ export function DiscoveryResultsPanel({
 
       {browserSession.status === 'ready' && jobs.length > 0 ? (
         <div aria-label="Saved job results" className="grid content-start gap-3 pr-1" role="listbox">
-          {jobs.map((job) => (
-            <button
-              aria-selected={selectedJob?.id === job.id}
-              key={job.id}
-              className={
-                selectedJob?.id === job.id
-                  ? 'grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-5 text-left'
-                  : 'grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-transparent p-5 text-left transition-colors hover:bg-[var(--surface-panel-raised)]'
-              }
-              onClick={() => onSelectJob(job.id)}
-              role="option"
-              type="button"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="grid gap-1">
-                  <strong className="text-[1.15rem] text-[var(--text-headline)]">{job.title}</strong>
-                  <span className="text-[var(--text-description)] text-foreground-muted">
-                    {job.company} - {job.location}
-                  </span>
-                </div>
-                <span className="text-[1rem] font-semibold text-[var(--text-headline)]">{job.matchAssessment.score}</span>
-              </div>
+          {jobs.map((job) => {
+            const isSelected = selectedJob?.id === job.id
 
-              <div className="flex flex-wrap gap-2">
-                <StatusBadge tone={getApplicationTone(job.status)}>{formatStatusLabel(job.status)}</StatusBadge>
-                <Badge variant="outline">{formatStatusLabel(job.applyPath)}</Badge>
-                <Badge variant="outline">Posted {formatDateOnly(job.postedAt)}</Badge>
-              </div>
-            </button>
-          ))}
+            return (
+              <button
+                aria-selected={isSelected}
+                key={job.id}
+                className={`${baseButtonClasses} ${
+                  isSelected
+                    ? 'bg-[var(--surface-panel-raised)]'
+                    : 'bg-transparent hover:bg-[var(--surface-panel-raised)]'
+                }`}
+                onClick={() => onSelectJob(job.id)}
+                role="option"
+                type="button"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="grid gap-1">
+                    <strong className="text-[1.15rem] text-[var(--text-headline)]">{job.title}</strong>
+                    <span className="text-[var(--text-description)] text-foreground-muted">
+                      {job.company} - {job.location}
+                    </span>
+                  </div>
+                  <span className="text-[1rem] font-semibold text-[var(--text-headline)]">{job.matchAssessment.score}</span>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <StatusBadge tone={getApplicationTone(job.status)}>{formatStatusLabel(job.status)}</StatusBadge>
+                  <Badge variant="outline">{formatStatusLabel(job.applyPath)}</Badge>
+                  <Badge variant="outline">Posted {formatDateOnly(job.postedAt)}</Badge>
+                </div>
+              </button>
+            )
+          })}
         </div>
       ) : null}
     </section>

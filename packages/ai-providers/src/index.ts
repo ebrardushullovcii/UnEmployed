@@ -557,14 +557,63 @@ function extractAllUrls(resumeText: string): string[] {
   return uniqueStrings((resumeText.match(/https?:\/\/[^\s]+/gi) ?? []).map((url) => url.replace(/[),.;]+$/, '')))
 }
 
+const knownPersonalWebsitePlatformDomains = [
+  'coursera.org',
+  'dev.to',
+  'edx.org',
+  'facebook.com',
+  'github.com',
+  'github.io',
+  'hashnode.dev',
+  'linkedin.com',
+  'linkedinlearning.com',
+  'medium.com',
+  'npmjs.com',
+  'stackoverflow.com',
+  'substack.com',
+  'twitter.com',
+  'udemy.com',
+  'x.com'
+] as const
+
+const likelyPersonalWebsitePaths = new Set(['', '/', '/about', '/contact', '/cv', '/home', '/portfolio', '/resume'])
+
+function isKnownPlatformDomain(hostname: string): boolean {
+  return knownPersonalWebsitePlatformDomains.some(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+  )
+}
+
+function hasLikelyPersonalWebsitePath(url: URL): boolean {
+  if (url.search || url.hash) {
+    return false
+  }
+
+  const normalizedPath = url.pathname.replace(/\/+$/, '') || '/'
+  return likelyPersonalWebsitePaths.has(normalizedPath.toLowerCase())
+}
+
+function isLikelyPersonalWebsiteUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url)
+    const hostname = parsedUrl.hostname.toLowerCase()
+
+    if (isKnownPlatformDomain(hostname)) {
+      return false
+    }
+
+    return hasLikelyPersonalWebsitePath(parsedUrl)
+  } catch {
+    return false
+  }
+}
+
 function inferGithubUrl(resumeText: string): string | null {
   return extractFirstUrl(resumeText, /https?:\/\/(?:www\.)?github\.com\/[\w./?%&=+-]*/i)
 }
 
 function inferPersonalWebsiteUrl(resumeText: string): string | null {
-  return (
-    extractAllUrls(resumeText).find((url) => !/linkedin\.com|github\.com/i.test(url)) ?? null
-  )
+  return extractAllUrls(resumeText).find((url) => isLikelyPersonalWebsiteUrl(url)) ?? null
 }
 
 function inferKnownPhrases(text: string, phrases: readonly string[]): string[] {

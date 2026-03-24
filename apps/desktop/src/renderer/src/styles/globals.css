@@ -74,6 +74,7 @@
   --surface-panel: #0a0a0b;
   --surface-panel-raised: #0d0d0e;
   --surface-panel-border: rgba(255, 255, 255, 0.12);
+  --surface-progress-track: rgba(0, 0, 0, 0.4);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.22);
   --foreground-soft: #b7b2ab;

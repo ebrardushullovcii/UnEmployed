@@ -25,12 +25,14 @@ export function ApplicationsRecordsPanel({
   onSelectRecord,
   selectedRecord
 }: ApplicationsRecordsPanelProps) {
+  const recordCount = applicationRecords.length
+
   return (
     <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] min-w-0 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--surface-panel-border)] px-8 py-5">
         <div className="flex items-center gap-4">
           <h2 className="font-display text-lg font-bold uppercase tracking-[var(--tracking-heading)] text-primary">Applications Log</h2>
-          <Badge variant="section">{applicationRecords.length} records</Badge>
+          <Badge variant="section">{recordCount} {recordCount === 1 ? 'record' : 'records'}</Badge>
         </div>
         <div className="flex items-center gap-3 text-muted-foreground">
           <Badge variant="outline">ALL</Badge>

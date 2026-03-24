@@ -309,9 +309,11 @@ async function captureProfileBaseline() {
     await page.setViewportSize({ width, height })
 
     await page.evaluate(async ({ profile, searchPreferences, settings }) => {
-      await window.unemployed.jobFinder.saveProfile(profile)
-      await window.unemployed.jobFinder.saveSearchPreferences(searchPreferences)
-      await window.unemployed.jobFinder.saveSettings(settings)
+      await window.unemployed.jobFinder.saveWorkspaceInputs({
+        profile,
+        searchPreferences,
+        settings
+      })
       return window.unemployed.jobFinder.getWorkspace()
     }, {
       profile: snapshot.profile,

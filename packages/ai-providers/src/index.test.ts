@@ -245,6 +245,24 @@ describe('ai providers', () => {
     )
   })
 
+  test('prefers top-level personal sites over arbitrary non-platform links', async () => {
+    const client = createDeterministicJobFinderAiClient()
+
+    const result = await client.extractProfileFromResume({
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      resumeText: [
+        'Jamie Rivers',
+        'https://acme.com/team/jamie-rivers',
+        'https://github.com/jamie-rivers',
+        'https://www.linkedin.com/in/jamie-rivers',
+        'https://jamierivers.dev'
+      ].join('\n')
+    })
+
+    expect(result.personalWebsiteUrl).toBe('https://jamierivers.dev')
+  })
+
   test('falls back to deterministic mode without an API key', () => {
     const client = createJobFinderAiClientFromEnvironment({
       UNEMPLOYED_AI_API_KEY: undefined

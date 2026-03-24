@@ -557,7 +557,8 @@ export type SaveJobSearchPreferencesInput = z.infer<typeof SaveJobSearchPreferen
 
 export const SaveJobFinderWorkspaceInputSchema = z.object({
   profile: CandidateProfileSchema,
-  searchPreferences: JobSearchPreferencesSchema
+  searchPreferences: JobSearchPreferencesSchema,
+  settings: JobFinderSettingsSchema.optional()
 })
 export type SaveJobFinderWorkspaceInput = z.infer<typeof SaveJobFinderWorkspaceInputSchema>
 

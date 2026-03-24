@@ -53,7 +53,7 @@ export function ReviewQueueMissionPanel({
           <span className="font-mono text-[9px] uppercase tracking-[var(--tracking-heading)] text-muted-foreground">Tailoring state</span>
           <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
         </div>
-        <div className="h-2 w-full rounded-full bg-[rgba(0,0,0,0.4)]">
+        <div className="h-2 w-full rounded-full bg-[var(--surface-progress-track)]">
           <div className="h-full bg-primary shadow-[0_0_8px_rgba(198,198,199,0.3)]" style={{ width: `${selectedItem?.progressPercent ?? 0}%` }} />
         </div>
       </div>

@@ -162,8 +162,26 @@ export function ProfileScreen(props: {
           <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{activeSectionDefinition.description}</p>
         </div>
 
-        {validationMessage ? <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{validationMessage}</p> : null}
-        {actionState.message ? <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{actionState.message}</p> : null}
+        {validationMessage ? (
+          <p
+            aria-atomic="true"
+            aria-live="polite"
+            className="text-[var(--text-description)] leading-6 text-foreground-muted"
+            role="status"
+          >
+            {validationMessage}
+          </p>
+        ) : null}
+        {actionState.message ? (
+          <p
+            aria-atomic="true"
+            aria-live="polite"
+            className="text-[var(--text-description)] leading-6 text-foreground-muted"
+            role="status"
+          >
+            {actionState.message}
+          </p>
+        ) : null}
       </section>
 
       {activeSection === 'resume' ? (

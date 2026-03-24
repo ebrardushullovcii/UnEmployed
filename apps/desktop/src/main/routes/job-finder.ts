@@ -39,9 +39,15 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   })
 
   ipcMain.handle('job-finder:save-workspace-inputs', async (_event, payload: unknown) => {
-    const { profile, searchPreferences } = SaveJobFinderWorkspaceInputSchema.parse(payload)
+    const { profile, searchPreferences, settings } = SaveJobFinderWorkspaceInputSchema.parse(payload)
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
-    const snapshot = await jobFinderWorkspaceService.saveProfileAndSearchPreferences(profile, searchPreferences)
+    await jobFinderWorkspaceService.saveProfileAndSearchPreferences(profile, searchPreferences)
+
+    if (settings) {
+      await jobFinderWorkspaceService.saveSettings(settings)
+    }
+
+    const snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   })
