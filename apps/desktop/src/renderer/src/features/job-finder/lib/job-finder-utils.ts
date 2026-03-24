@@ -34,7 +34,13 @@ export function formatDateOnly(timestamp: string): string {
 }
 
 export function formatStatusLabel(value: string): string {
-  return value.replaceAll('_', ' ').replaceAll('-', ' ')
+  return value
+    .replace(/_/g, ' ')
+    .replace(/-/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ')
 }
 
 export function formatResumeAnalysisSummary(profile: CandidateProfile): string | null {
@@ -204,7 +210,7 @@ export function toExperienceFormEntries(profile: CandidateProfile): ExperienceFo
     title: experience.title ?? '',
     employmentType: experience.employmentType ?? '',
     location: experience.location ?? '',
-    workMode: experience.workMode ?? '',
+    workMode: experience.workMode ?? [],
     startDate: experience.startDate ?? '',
     endDate: experience.endDate ?? '',
     isCurrent: experience.isCurrent,

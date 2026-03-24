@@ -56,6 +56,7 @@ export interface JobFinderPageContext {
   onQueueJob: (jobId: string) => void
   onRefreshDiscovery: () => void
   onResetWorkspace: () => void
+  onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onSaveProfile: (profile: CandidateProfile) => void
   onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
   onSaveSettings: (settings: JobFinderSettings) => void
@@ -80,13 +81,11 @@ export function JobFinderProfileRoute() {
 
   return (
     <ProfileScreen
-      agentProvider={context.workspace.agentProvider}
       actionState={context.actionState}
       busy={context.busy}
       onAnalyzeProfileFromResume={context.onAnalyzeProfileFromResume}
       onImportResume={context.onImportResume}
-      onSaveProfile={context.onSaveProfile}
-      onSaveSearchPreferences={context.onSaveSearchPreferences}
+      onSaveAll={context.onSaveAll}
       profile={context.workspace.profile}
       searchPreferences={context.workspace.searchPreferences}
     />
@@ -177,7 +176,7 @@ export function JobFinderPage() {
     workspaceState.status === 'ready' ? workspaceState.workspace.selectedApplicationRecordId : null
   )
 
-  const runAction = useCallback(async (action: () => Promise<void>, onSuccess: () => void, successMessage: string) => {
+  const runAction = useCallback(async (action: () => Promise<void>, onSuccess: () => void, successMessage: string | null) => {
     try {
       setActionState({ busy: true, message: null })
       await action()
@@ -243,7 +242,7 @@ export function JobFinderPage() {
       void runAction(
         actions.analyzeProfileFromResume,
         () => undefined,
-        'Candidate details refreshed from the stored resume text.'
+        null
       ),
     onApproveApply: (jobId: string) =>
       void runAction(
@@ -300,16 +299,25 @@ export function JobFinderPage() {
         },
         'Workspace reset to a fresh profile, cleared resume state, and empty job history.'
       ),
+    onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) =>
+      void runAction(
+        async () => {
+          await actions.saveProfile(profile)
+          await actions.saveSearchPreferences(searchPreferences)
+        },
+        () => undefined,
+        null
+      ),
     onSaveProfile: (profile: CandidateProfile) =>
-      void runAction(() => actions.saveProfile(profile), () => undefined, 'Candidate profile saved locally.'),
+      void runAction(() => actions.saveProfile(profile), () => undefined, null),
     onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
       void runAction(
         () => actions.saveSearchPreferences(searchPreferences),
         () => undefined,
-        'Discovery preferences updated.'
+        null
       ),
     onSaveSettings: (settings: JobFinderSettings) =>
-      void runAction(() => actions.saveSettings(settings), () => undefined, 'Job Finder settings updated.'),
+      void runAction(() => actions.saveSettings(settings), () => undefined, null),
     onSelectApplicationRecord: setSelectedApplicationRecordId,
     onSelectDiscoveryJob: setSelectedDiscoveryJobId,
     onSelectReviewItem: setSelectedReviewJobId,

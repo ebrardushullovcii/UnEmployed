@@ -1,4 +1,4 @@
-import { Checkbox } from '../../../components/ui/checkbox'
+import { Checkbox } from '@renderer/components/ui/checkbox'
 import { cn } from '@renderer/lib/utils'
 
 interface CheckboxFieldProps {
@@ -10,7 +10,12 @@ interface CheckboxFieldProps {
 
 export function CheckboxField({ checked, className, label, onCheckedChange }: CheckboxFieldProps) {
   return (
-    <label className={cn('flex items-start gap-3 border border-border/30 bg-card px-4 py-3 text-[11px] uppercase tracking-[0.08em] text-foreground-soft', className)}>
+    <label
+      className={cn(
+        'flex min-h-11 items-center gap-3 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-3 text-[var(--text-field)] normal-case tracking-normal text-foreground-soft',
+        className
+      )}
+    >
       <Checkbox checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} />
       <span>{label}</span>
     </label>

@@ -1,5 +1,5 @@
 import type { SavedJob } from '@unemployed/contracts'
-import { Button } from '../../../../components/ui/button'
+import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
@@ -19,47 +19,55 @@ export function DiscoveryDetailPanel({
   selectedJob
 }: DiscoveryDetailPanelProps) {
   return (
-    <section className="border-l border-border/10 bg-card px-6 py-6 grid content-start gap-6 min-w-0">
+    <section className="grid min-h-[31rem] min-w-0 content-start gap-6 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Deep Dive Match</p>
+        <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Selected job</p>
         <StatusBadge tone={selectedJob ? getApplicationTone(selectedJob.status) : 'muted'}>
           {selectedJob ? formatStatusLabel(selectedJob.status) : 'No selection'}
         </StatusBadge>
       </div>
+
       {selectedJob ? (
         <>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="font-display text-2xl font-black tracking-tight text-foreground">DEEP_DIVE_MATCH</h2>
-              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-positive">QUERY_EXECUTION: SUCCESSFUL</p>
+          <div className="grid gap-2">
+            <h2 className="text-[1.65rem] font-semibold tracking-[-0.03em] text-[var(--text-headline)]">{selectedJob.title}</h2>
+            <p className="text-[0.9rem] text-foreground-muted">
+              {selectedJob.company} - {selectedJob.location}
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+              <span className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Fit score</span>
+              <strong className="mt-2 block text-[1.1rem] text-[var(--text-headline)]">{selectedJob.matchAssessment.score}</strong>
+            </div>
+            <div className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+              <span className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Posted</span>
+              <strong className="mt-2 block text-[1.1rem] text-[var(--text-headline)]">{formatDateOnly(selectedJob.postedAt)}</strong>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-px border border-border/20 bg-border/20">
-            <div className="bg-secondary px-4 py-4">
-              <span className="mb-1 block font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">Match Type</span>
-              <span className="font-display text-xs font-bold uppercase text-foreground">ELITE_SYNERGY</span>
-            </div>
-            <div className="bg-secondary px-4 py-4">
-              <span className="mb-1 block font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">Estimated salary</span>
-              <span className="font-display text-xs font-bold uppercase text-positive">{formatDateOnly(selectedJob.postedAt).toUpperCase()}</span>
-            </div>
-          </div>
-          <PreferenceList label="Fit explanation" values={selectedJob.matchAssessment.reasons} />
-          <PreferenceList label="Skills gap analysis" values={selectedJob.matchAssessment.gaps} />
+
+          <p className="text-[var(--text-body)] leading-7 text-foreground-soft">{selectedJob.summary}</p>
+
+          <PreferenceList compact label="Discovery mode" values={[formatStatusLabel(selectedJob.discoveryMethod)]} />
           <PreferenceList compact label="Key skills" values={selectedJob.keySkills} />
-          <div className="flex flex-wrap items-stretch gap-2.5">
-            <Button variant="primary" disabled={busy} onClick={() => onQueueJob(selectedJob.id)} type="button">
-              Save to queue
+          <PreferenceList label="Fit reasons" values={selectedJob.matchAssessment.reasons} />
+          <PreferenceList label="Watch-outs" values={selectedJob.matchAssessment.gaps} />
+
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <Button className="h-11 w-full" disabled={busy} onClick={() => onQueueJob(selectedJob.id)} type="button" variant="primary">
+              Save to review queue
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => onDismissJob(selectedJob.id)} type="button">
-              Dismiss application
+            <Button className="h-11 w-full" disabled={busy} onClick={() => onDismissJob(selectedJob.id)} type="button" variant="secondary">
+              Dismiss
             </Button>
           </div>
         </>
       ) : (
         <EmptyState
-          title="Choose a job result"
+          className="min-h-[20rem]"
           description="Select a saved LinkedIn result to inspect match reasons and move it toward resume tailoring."
+          title="Choose a job result"
         />
       )}
     </section>

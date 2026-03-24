@@ -41,7 +41,7 @@ export type ExperienceFormEntry = {
   title: string
   employmentType: string
   location: string
-  workMode: WorkMode | ''
+  workMode: WorkMode[]
   startDate: string
   endDate: string
   isCurrent: boolean

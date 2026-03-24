@@ -3,18 +3,14 @@ import { createCatalogBrowserSessionRuntime, createLinkedInBrowserAgentRuntime }
 import { createFileJobFinderRepository } from '@unemployed/db'
 import { createJobFinderWorkspaceService } from '@unemployed/job-finder'
 import { createLocalJobFinderDocumentManager } from '../../adapters/job-finder-document-manager'
-import {
-  createJobFinderBrowserSessionSeed,
-  createJobFinderRepositorySeed,
-  createLinkedInDiscoveryCatalogSeed
-} from '../../adapters/job-finder-seed'
+import { createEmptyJobFinderRepositoryState } from '../../adapters/job-finder-initial-state'
 import { getGeneratedResumeDocumentsDirectory, getJobFinderWorkspaceFilePath, getLinkedInBrowserProfileDirectory } from './paths'
 import { isBrowserHeadlessEnabled, isLinkedInBrowserAgentEnabled } from './test-api'
 
 export async function createJobFinderWorkspaceServiceAsync() {
   const jobFinderRepository = await createFileJobFinderRepository({
     filePath: getJobFinderWorkspaceFilePath(),
-    seed: createJobFinderRepositorySeed()
+    seed: createEmptyJobFinderRepositoryState()
   })
   const chromeDebugPort = process.env.UNEMPLOYED_CHROME_DEBUG_PORT
     ? Number.parseInt(process.env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
@@ -29,8 +25,8 @@ export async function createJobFinderWorkspaceServiceAsync() {
         ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {})
       })
     : createCatalogBrowserSessionRuntime({
-        sessions: createJobFinderBrowserSessionSeed(),
-        catalog: createLinkedInDiscoveryCatalogSeed()
+        sessions: [],
+        catalog: []
       })
   const aiClient = createJobFinderAiClientFromEnvironment(process.env)
   const documentManager = createLocalJobFinderDocumentManager({

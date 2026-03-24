@@ -208,8 +208,8 @@ function createMatchAssessment(
   const matchesLocation = matchesAnyPhrase(posting.location, searchPreferences.locations)
   const matchesWorkMode =
     searchPreferences.workModes.length === 0 ||
-    searchPreferences.workModes.includes(posting.workMode) ||
-    searchPreferences.workModes.includes('flexible')
+    searchPreferences.workModes.includes('flexible') ||
+    posting.workMode.some((mode) => searchPreferences.workModes.includes(mode))
   const salaryFloor = parseSalaryFloor(posting.salaryText)
   const meetsSalaryExpectation =
     searchPreferences.minimumSalaryUsd === null ||
@@ -481,7 +481,7 @@ function mergeExperienceRecords(
       title: entry.title,
       employmentType: entry.employmentType,
       location: entry.location,
-      workMode: entry.workMode,
+      workMode: entry.workMode ? [entry.workMode] : [],
       startDate: entry.startDate,
       endDate: entry.endDate,
       isCurrent: entry.isCurrent,

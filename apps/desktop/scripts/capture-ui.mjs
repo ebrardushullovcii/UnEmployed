@@ -13,29 +13,29 @@ const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel)
 
 const screens = [
   {
-    buttonName: /^PROFILE$/,
+    buttonName: /^Profile$/,
     fileName: 'profile.png',
-    heading: 'Operator Profile'
+    heading: 'Candidate setup'
   },
   {
-    buttonName: /^DISCOVERY$/,
+    buttonName: /^Discovery\s+\d+$/,
     fileName: 'discovery.png',
-    heading: 'Discovery Ops'
+    heading: 'LinkedIn results'
   },
   {
-    buttonName: /^REVIEW_QUEUE$/,
+    buttonName: /^Review Queue\s+\d+$/,
     fileName: 'review-queue.png',
-    heading: 'Review Queue'
+    heading: 'Tailored asset review'
   },
   {
-    buttonName: /^APPLICATIONS$/,
+    buttonName: /^Applications\s+\d+$/,
     fileName: 'applications.png',
-    heading: 'Applications Log'
+    heading: 'Application history'
   },
   {
-    buttonName: /^SETTINGS$/,
+    buttonName: /^Settings$/,
     fileName: 'settings.png',
-    heading: 'Operator Config'
+    heading: 'MVP defaults'
   }
 ]
 
@@ -67,7 +67,7 @@ async function captureScreens() {
     const window = await app.firstWindow()
 
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { name: 'Operator Profile' }).waitFor({ timeout: 15000 })
+    await window.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
     await window.setViewportSize({ width, height })
 
     for (const screen of screens) {

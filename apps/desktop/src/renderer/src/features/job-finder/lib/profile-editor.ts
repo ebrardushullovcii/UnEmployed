@@ -290,7 +290,7 @@ export function buildProfilePayload(
       title: entry.title.trim() || null,
       employmentType: entry.employmentType.trim() || null,
       location: entry.location.trim() || null,
-      workMode: entry.workMode || null,
+      workMode: entry.workMode,
       startDate: entry.startDate.trim() || null,
       endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
       isCurrent: entry.isCurrent,

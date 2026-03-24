@@ -160,6 +160,39 @@ function getLegacyJsonPath(filePath: string): string {
   return filePath.replace(/\.[^.]+$/, '.json')
 }
 
+function migrateWorkModeToArray(data: Record<string, unknown>): Record<string, unknown> {
+  if (!data.profile || typeof data.profile !== 'object') {
+    return data
+  }
+
+  const profile = data.profile as Record<string, unknown>
+  if (!Array.isArray(profile.experiences)) {
+    return data
+  }
+
+  const migratedExperiences = profile.experiences.map((exp: unknown) => {
+    if (typeof exp !== 'object' || exp === null) {
+      return exp
+    }
+    const experience = exp as Record<string, unknown>
+    if (typeof experience.workMode === 'string') {
+      return {
+        ...experience,
+        workMode: experience.workMode ? [experience.workMode] : []
+      }
+    }
+    return experience
+  })
+
+  return {
+    ...data,
+    profile: {
+      ...profile,
+      experiences: migratedExperiences
+    }
+  }
+}
+
 async function readLegacySeed(
   filePath: string,
   seed: JobFinderRepositorySeed
@@ -173,13 +206,14 @@ async function readLegacySeed(
   try {
     const raw = await readFile(legacyPath, 'utf8')
     const parsed = JSON.parse(raw) as Record<string, unknown>
-    const profile = CandidateProfileSchema.safeParse(parsed.profile)
-    const searchPreferences = JobSearchPreferencesSchema.safeParse(parsed.searchPreferences)
-    const settings = JobFinderSettingsSchema.safeParse(parsed.settings)
-    const savedJobs = SavedJobSchema.array().safeParse(parsed.savedJobs)
-    const tailoredAssets = TailoredAssetSchema.array().safeParse(parsed.tailoredAssets)
-    const applicationRecords = ApplicationRecordSchema.array().safeParse(parsed.applicationRecords)
-    const applicationAttempts = ApplicationAttemptSchema.array().safeParse(parsed.applicationAttempts ?? [])
+    const migratedData = migrateWorkModeToArray(parsed)
+    const profile = CandidateProfileSchema.safeParse(migratedData.profile)
+    const searchPreferences = JobSearchPreferencesSchema.safeParse(migratedData.searchPreferences)
+    const settings = JobFinderSettingsSchema.safeParse(migratedData.settings)
+    const savedJobs = SavedJobSchema.array().safeParse(migratedData.savedJobs)
+    const tailoredAssets = TailoredAssetSchema.array().safeParse(migratedData.tailoredAssets)
+    const applicationRecords = ApplicationRecordSchema.array().safeParse(migratedData.applicationRecords)
+    const applicationAttempts = ApplicationAttemptSchema.array().safeParse(migratedData.applicationAttempts ?? [])
 
     return JobFinderRepositoryStateSchema.parse({
       profile: profile.success ? profile.data : cloneValue(seed.profile),

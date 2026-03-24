@@ -1445,6 +1445,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
           'If timezone is not explicitly written but location is clear, infer the most likely IANA timezone from the city, region, or country.',
           'If salary currency or regional defaults are not explicitly written but the resume location makes them obvious, infer the most likely value with high confidence.',
           'Return atomic list items only: one skill, one role, one school, one language, or one company per entry.',
+          'Return experience achievements, experience skills, project skills, and grouped skills as clean arrays with one item per entry, not one large paragraph or combined newline blob.',
+          'Keep single-word or short technical skills split into separate array items instead of grouping many of them into one sentence.',
           'Do not repeat exact duplicates across skills, grouped skills, links, languages, projects, or experience item arrays.',
           'Populate skillGroups with coreSkills, tools, languagesAndFrameworks, softSkills, and highlightedSkills instead of dumping everything into skills.',
           'Populate experiences, education, certifications, links, projects, and spokenLanguages as structured arrays with one record per item whenever the resume contains enough evidence.',

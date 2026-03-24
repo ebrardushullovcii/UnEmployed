@@ -2,27 +2,23 @@ import type { CSSProperties, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import {
   Bell,
-  Bot,
-  BriefcaseBusiness,
   ClipboardCheck,
   Compass,
   FileText,
-  LayoutGrid,
-  Plus,
+  Minus,
+  Settings2,
   Settings,
-  TerminalSquare,
-  UserRound
+  Square,
+  UserRound,
+  X
 } from 'lucide-react'
 import type { DesktopWindowControlsState, JobFinderWorkspaceSnapshot } from '@unemployed/contracts'
 import { suiteModules } from '@unemployed/contracts'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Button } from '../../../components/ui/button'
-import { ScrollArea } from '../../../components/ui/scroll-area'
-import { Tabs, TabsList, TabsTrigger } from '../../../components/ui/tabs'
-import { cn } from '../../../lib/cn'
+import { Button } from '@renderer/components/ui/button'
+import { cn } from '@renderer/lib/cn'
 import type { JobFinderScreen } from '../lib/job-finder-types'
-import { formatStatusLabel, getSessionTone } from '../lib/job-finder-utils'
-import { StatusBadge } from './status-badge'
+import { formatStatusLabel } from '../lib/job-finder-utils'
 
 interface JobFinderShellProps {
   actionMessage: string | null
@@ -82,6 +78,8 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
     [workspace.applicationRecords.length, workspace.discoveryJobs.length, workspace.reviewQueue.length]
   )
 
+  const primaryScreens = screenDefinitions.filter((screen) => screen.id !== 'settings')
+
   useEffect(() => {
     let cancelled = false
 
@@ -134,34 +132,19 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
   }
 
   return (
-    <div className={cn('h-screen overflow-hidden bg-background text-foreground', `platform-${platform}`)}>
-      <header
-        className={cn(
-          'fixed top-0 z-50 flex h-14 w-full items-center justify-between border-b border-border/20 bg-[#0e0e0e] px-6 font-display text-xs font-bold uppercase tracking-[0.05em] text-primary',
-          isMac ? 'pt-2' : ''
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-8" style={{ WebkitAppRegion: 'drag' } as CSSProperties}>
-          <div className="flex items-center">
-            <span className="font-display text-xl font-black tracking-tighter text-primary">UNEMPLOYED</span>
-          </div>
-          <div className="hidden min-w-max items-center gap-6 md:flex" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-            <span className="border-b border-primary px-1 py-0.5 font-display text-xs font-bold tracking-[0.05em] text-primary">SESSION_ACTIVE</span>
-            <span className="px-1 py-0.5 font-display text-xs font-bold tracking-[0.05em] text-muted-foreground hover:bg-secondary hover:text-foreground">PROXY_LHR_01</span>
-            <span className="px-1 py-0.5 font-display text-xs font-bold tracking-[0.05em] text-muted-foreground hover:bg-secondary hover:text-foreground">BROWSER_SYNCED</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-          <div className="hidden items-center gap-1 md:flex">
+    <div className={cn('h-screen overflow-hidden text-foreground', `platform-${platform}`)}>
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-[rgba(12,12,12,0.92)] backdrop-blur-sm">
+        <div className="mx-auto flex h-10 max-w-[118rem] items-center justify-center px-4 sm:px-6">
+          <div className="flex-1" style={{ WebkitAppRegion: 'drag' } as CSSProperties} />
+          <div className="flex items-center gap-6" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
             {suiteModules.map((moduleName) => (
               <Button
                 key={moduleName}
                 className={cn(
-                  'h-8 rounded-none border-0 px-2 text-[10px] font-display font-bold tracking-[0.12em] shadow-none',
+                  'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[10px] font-semibold tracking-[var(--tracking-badge)] shadow-none',
                   moduleName === 'job-finder'
-                    ? 'bg-secondary text-foreground'
-                    : 'bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground'
+                    ? 'text-[var(--text-headline)]'
+                    : 'text-muted-foreground hover:text-foreground'
                 )}
                 type="button"
               >
@@ -169,125 +152,122 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
               </Button>
             ))}
           </div>
-          <Button className="h-8 w-8 rounded-none border-0 bg-transparent text-primary hover:bg-secondary hover:text-primary" size="icon-sm" type="button">
-            <Bell className="size-4" />
-          </Button>
-          <Button className="h-8 w-8 rounded-none border-0 bg-transparent text-primary hover:bg-secondary hover:text-primary" size="icon-sm" type="button">
-            <TerminalSquare className="size-4" />
-          </Button>
-          <div className="flex h-8 w-8 items-center justify-center border border-border/30 bg-surface-container-high">
-            <Bot className="size-4 text-primary" />
+          <div className="flex flex-1 justify-end" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            {!isMac ? (
+              <div className="flex items-center gap-1" role="group" aria-label="Window controls">
+                <Button
+                  aria-label="Minimize window"
+                  className="h-7 w-7 rounded-[var(--radius-badge)] border border-transparent bg-transparent p-0 text-muted-foreground shadow-none hover:border-[var(--surface-panel-border)] hover:bg-[var(--surface-panel-raised)] hover:text-foreground"
+                  disabled={!windowControlsState.isMinimizable}
+                  onClick={minimizeWindow}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Minus className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label={windowControlsState.isMaximized ? 'Restore window' : 'Maximize window'}
+                  className="h-7 w-7 rounded-[var(--radius-badge)] border border-transparent bg-transparent p-0 text-muted-foreground shadow-none hover:border-[var(--surface-panel-border)] hover:bg-[var(--surface-panel-raised)] hover:text-foreground"
+                  onClick={toggleWindowExpand}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Square className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label="Close window"
+                  className="h-7 w-7 rounded-[var(--radius-badge)] border border-transparent bg-transparent p-0 text-muted-foreground shadow-none hover:border-[var(--button-close-hover)] hover:bg-[var(--button-close-hover)] hover:text-white"
+                  disabled={!windowControlsState.isClosable}
+                  onClick={closeWindow}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <X className="size-3.5" />
+                </Button>
+              </div>
+            ) : null}
           </div>
-          {!isMac ? (
-            <div className="ml-2 flex items-center justify-end gap-1" role="group" aria-label="Window controls">
-              <Button
-                aria-label="Minimize window"
-                className="h-7 w-8 rounded-[0.22rem] border-0 bg-transparent p-0 text-base text-foreground-muted shadow-none hover:bg-white/6 hover:text-foreground"
-                disabled={!windowControlsState.isMinimizable}
-                onClick={minimizeWindow}
-                type="button"
-              >
-                <span aria-hidden="true">-</span>
-              </Button>
-              <Button
-                aria-label={windowControlsState.isMaximized ? 'Restore window' : 'Maximize window'}
-                className="h-7 w-8 rounded-[0.22rem] border-0 bg-transparent p-0 text-[0.84rem] text-foreground-muted shadow-none hover:bg-white/6 hover:text-foreground"
-                onClick={toggleWindowExpand}
-                type="button"
-              >
-                <span aria-hidden="true">{windowControlsState.isMaximized ? '❐' : '□'}</span>
-              </Button>
-              <Button
-                aria-label="Close window"
-                className="h-7 w-8 rounded-[0.22rem] border-0 bg-transparent p-0 text-base text-foreground-muted shadow-none hover:bg-[#8a1f17] hover:text-white"
-                disabled={!windowControlsState.isClosable}
-                onClick={closeWindow}
-                type="button"
-              >
-                <span aria-hidden="true">×</span>
-              </Button>
+        </div>
+
+        <div className="mx-auto grid h-16 max-w-[118rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 sm:px-6">
+          <div className="min-w-0 justify-self-start" style={{ WebkitAppRegion: 'drag' } as CSSProperties}>
+            <div className="flex min-w-0 flex-col">
+              <span className="font-display text-[2rem] font-black leading-none tracking-[-0.08em] text-[var(--headline-primary)]">UNEMPLOYED</span>
+              <span className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-caps)] text-muted-foreground">Job Finder Desktop</span>
             </div>
-          ) : null}
+          </div>
+
+          <nav className="hidden min-w-0 justify-self-center lg:flex" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-1">
+              {primaryScreens.map((screen) => (
+                <button
+                  key={screen.id}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium text-muted-foreground transition-colors hover:text-foreground xl:px-4 xl:text-[var(--text-small)]',
+                    activeScreen === screen.id ? 'bg-secondary text-foreground' : ''
+                  )}
+                  onClick={() => handleScreenChange(screen.id)}
+                  type="button"
+                >
+                  <span>{screen.label}</span>
+                  {screen.count !== null ? (
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--input)] px-1.5 text-[0.65rem] text-[var(--text-badge)]">
+                      {screen.count}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          <div className="flex items-center justify-self-end gap-2" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            {[
+              ['Saved', workspace.discoveryJobs.length],
+              ['Queue', workspace.reviewQueue.length],
+              ['Tracked', workspace.applicationRecords.length]
+            ].map(([label, value]) => (
+              <div key={label} className="hidden h-12 min-w-[4.35rem] rounded-[var(--radius-button)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] px-2.5 xl:grid xl:content-center xl:text-center">
+                <div className="text-[0.58rem] uppercase leading-none tracking-[var(--tracking-caps)] text-muted-foreground">{label}</div>
+                <div className="mt-1 text-[1.05rem] font-semibold leading-none text-[var(--text-headline)]">{value}</div>
+              </div>
+            ))}
+            <Button
+              className={cn(
+                'h-11 rounded-[var(--radius-button)] px-4 text-[0.72rem] tracking-[var(--tracking-caps)] xl:h-12',
+                activeScreen === 'settings'
+                  ? 'border-primary/35 bg-primary/15 text-[var(--text-headline)]'
+                  : 'border-[var(--surface-panel-border)] bg-[var(--surface-panel)] text-[var(--text-headline)] hover:bg-[var(--surface-panel-raised)]'
+              )}
+              onClick={() => handleScreenChange('settings')}
+              size="default"
+              type="button"
+              variant="secondary"
+            >
+              <Settings2 className="size-4" />
+              Settings
+            </Button>
+            <Button className="h-10 w-10 rounded-[var(--radius-button)] border-[var(--surface-panel-border)] bg-[var(--surface-panel)] text-[var(--text-headline)] hover:bg-[var(--surface-panel-raised)] md:hidden" size="icon-sm" type="button" variant="secondary">
+              <Bell className="size-4" />
+            </Button>
+          </div>
         </div>
       </header>
 
-      <Tabs className="h-screen" onValueChange={handleScreenChange} orientation="vertical" value={activeScreen}>
-        <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-border/20 bg-[#131313] pt-20">
-          <div className="px-6 pb-8">
-            <div className="mb-8 flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center bg-primary text-primary-foreground">
-                <Bot className="size-4" />
-              </div>
-              <div>
-                <h2 className="font-display text-xs font-bold uppercase tracking-widest text-primary">UNEMPLOYED_OPS</h2>
-                <p className="font-mono text-[9px] text-muted-foreground">STATUS: COMMAND_READY</p>
-              </div>
-            </div>
-            <Button className="w-full justify-center gap-2 rounded-none" variant="primary">
-              <Plus className="size-4" />
-              NEW_SEARCH
-            </Button>
-          </div>
+      <div className="flex h-full flex-col pt-[6.5rem]">
+        <main className="screen-scroll-area flex-1 overflow-y-auto overflow-x-hidden px-4 pb-12 pt-8 sm:px-6">
+          <div className="mx-auto w-full max-w-[118rem]">{children}</div>
+        </main>
 
-          <ScrollArea className="flex-1">
-            <TabsList className="px-2 py-2" variant="line">
-              {screenDefinitions.map((screen) => {
-                const Icon = screen.icon
-
-                return (
-                  <TabsTrigger key={screen.id} className="justify-start gap-3 px-4" value={screen.id}>
-                    <Icon className="size-4" />
-                    {screen.label.replace(' ', '_').toUpperCase()}
-                  </TabsTrigger>
-                )
-              })}
-            </TabsList>
-          </ScrollArea>
-
-          <div className="mt-auto border-t border-border/10 p-4">
-            <div className="grid grid-cols-3 gap-px bg-border/20">
-              {[
-                ['Saved', workspace.discoveryJobs.length, 'jobs'],
-                ['Queue', workspace.reviewQueue.length, 'items'],
-                ['Tracked', workspace.applicationRecords.length, 'active']
-              ].map(([label, value, meta]) => (
-                <div key={label} className="grid gap-1 bg-card px-3 py-3 text-center">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
-                  <strong className="font-display text-base font-bold text-primary">{value}</strong>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-foreground-soft">{meta}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
-
-        <div className="ml-64 flex h-screen flex-col bg-surface pt-14">
-          <main className="flex-1 overflow-y-auto overflow-x-hidden pb-12">
-            <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 border-b border-border/10 bg-surface-container-low px-8">
-              <div className="flex items-center gap-4">
-                <span className="font-display text-lg font-bold tracking-[0.08em] text-primary">{(screenDefinitions.find((screen) => screen.id === activeScreen)?.label ?? 'PROFILE').replace('Review Queue', 'REVIEW_QUEUE').replace(' ', '_').toUpperCase()}</span>
-                <StatusBadge tone={getSessionTone(workspace.browserSession)}>{workspace.browserSession.label}</StatusBadge>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button className="rounded-none" size="compact" variant="secondary" type="button">
-                  <LayoutGrid className="size-4" />
-                  VIEW
-                </Button>
-                <Button className="rounded-none" size="compact" variant="secondary" type="button">
-                  <BriefcaseBusiness className="size-4" />
-                  JOB_FINDER
-                </Button>
-              </div>
-            </div>
-            <div className="px-8 py-6">{children}</div>
-          </main>
-
-          <footer className="flex items-center justify-between gap-3 border-t border-border/10 bg-surface-muted px-8 py-3 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        <footer className="border-t border-border/10 px-4 py-3 text-[var(--text-tiny)] uppercase tracking-[var(--tracking-caps)] text-muted-foreground sm:px-6">
+          <div className="mx-auto flex max-w-[118rem] items-center justify-between gap-3">
             <span>Job Finder MVP</span>
-            {actionMessage ? <span className="truncate text-primary">{actionMessage}</span> : null}
-          </footer>
-        </div>
-      </Tabs>
+            {actionMessage ? <span className="truncate text-foreground-soft">{actionMessage}</span> : null}
+          </div>
+        </footer>
+      </div>
     </div>
   )
 }

@@ -175,6 +175,7 @@ class PdfJsDomMatrixPolyfill {
     return this.clone().scaleSelf(scaleX, scaleY, scaleZ, originX, originY, originZ)
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _scaleZ and _originZ are for API compatibility
   scaleSelf(scaleX = 1, scaleY = scaleX, _scaleZ = 1, originX = 0, originY = 0, _originZ = 0): PdfJsDomMatrixPolyfill {
     if (originX !== 0 || originY !== 0) {
       this.translateSelf(originX, originY)
@@ -238,6 +239,7 @@ function configurePdfJsWorker(pdfjs: {
 
 function normalizeExtractedText(value: string): string | null {
   const normalized = value
+    // eslint-disable-next-line no-control-regex -- Null bytes are valid in PDF text extraction
     .replace(/\u0000/g, ' ')
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

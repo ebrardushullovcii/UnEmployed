@@ -1,5 +1,5 @@
-import { Chip } from '../../../components/ui/chip'
-import { FieldLabel } from '../../../components/ui/field'
+import { Chip } from '@renderer/components/ui/chip'
+import { FieldLabel } from '@renderer/components/ui/field'
 
 interface PreferenceListProps {
   compact?: boolean
@@ -18,7 +18,7 @@ export function PreferenceList({ compact = false, label, values }: PreferenceLis
           ))}
         </div>
       ) : (
-        <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">No values configured.</p>
+        <p className="font-mono text-[10px] uppercase tracking-[var(--tracking-normal)] text-muted-foreground">No values configured.</p>
       )}
     </div>
   )

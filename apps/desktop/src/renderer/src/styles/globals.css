@@ -32,6 +32,7 @@
   --color-border-subtle: var(--border-subtle);
   --color-border-strong: var(--border-strong);
   --color-foreground-soft: var(--foreground-soft);
+  --color-foreground-muted: var(--muted-foreground);
   --color-positive: var(--positive);
   --color-positive-foreground: var(--positive-foreground);
   --color-active: var(--active);
@@ -50,29 +51,35 @@
   --foreground: #e7e5e5;
   --card: #131313;
   --card-foreground: #e7e5e5;
-  --popover: #191a1a;
+  --popover: #161616;
   --popover-foreground: #e7e5e5;
   --primary: #c6c6c7;
   --primary-foreground: #3f4041;
-  --secondary: #1f2020;
+  --secondary: #151515;
   --secondary-foreground: #e7e5e5;
-  --muted: #191a1a;
-  --muted-foreground: #767575;
-  --accent: #252626;
+  --muted: #141414;
+  --muted-foreground: #7a7771;
+  --accent: #1a1a1a;
   --accent-foreground: #e7e5e5;
   --destructive: #ee7d77;
   --destructive-foreground: #490106;
-  --border: rgba(72, 72, 72, 0.72);
-  --input: #252626;
+  --border: rgba(255, 255, 255, 0.14);
+  --input: #19191a;
   --ring: rgba(198, 198, 199, 0.48);
 
   --surface: #0e0e0e;
-  --surface-raised: #1f2020;
-  --surface-strong: #252626;
-  --surface-muted: #131313;
-  --border-subtle: rgba(72, 72, 72, 0.2);
-  --border-strong: rgba(72, 72, 72, 0.7);
-  --foreground-soft: #acabaa;
+  --surface-raised: #141414;
+  --surface-strong: #191919;
+  --surface-muted: #101010;
+  --surface-panel: #0a0a0b;
+  --surface-panel-raised: #0d0d0e;
+  --surface-panel-border: rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --foreground-soft: #b7b2ab;
+  --field: #0d0d0e;
+  --field-strong: #141414;
+  --field-border: rgba(255, 255, 255, 0.15);
 
   --positive: #d0ecff;
   --positive-foreground: #2b4655;
@@ -80,6 +87,48 @@
   --active-foreground: #3e4040;
   --critical: #ff9993;
   --critical-foreground: #490106;
+
+  /* Component tokens - Radius */
+  --radius-field: 0.42rem;
+  --radius-panel: 0.55rem;
+  --radius-badge: 0.32rem;
+  --radius-button: 0.8rem;
+  --radius-chip: 0.22rem;
+  --radius-small: 0.24rem;
+
+  /* Component tokens - Typography */
+  --text-field: 0.92rem;
+  --text-body: 0.95rem;
+  --text-description: 0.84rem;
+  --text-small: 0.78rem;
+  --text-tiny: 0.68rem;
+  --text-label: 0.58rem;
+
+  /* Component tokens - Tracking */
+  --tracking-label: 0.11em;
+  --tracking-heading: 0.12em;
+  --tracking-caps: 0.18em;
+  --tracking-badge: 0.14em;
+  --tracking-mono: 0.16em;
+  --tracking-normal: 0.08em;
+
+  /* Component tokens - Gap */
+  --gap-field: 0.44rem;
+  --gap-content: 0.9rem;
+  --gap-card: 1.2rem;
+  --gap-section: 1.65rem;
+
+  /* Component tokens - Textarea heights */
+  --textarea-compact: 5.6rem;
+  --textarea-default: 6.8rem;
+  --textarea-tall: 7.4rem;
+
+  /* Component tokens - Colors */
+  --headline-primary: #fbfaf6;
+  --headline-secondary: #f8f7f3;
+  --text-headline: #f6f2e8;
+  --text-badge: #f4efe4;
+  --button-close-hover: #8a1f17;
 
   background: var(--background);
   color: var(--foreground);
@@ -120,7 +169,7 @@ body {
     linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
     var(--background);
   background-size: auto, 32px 32px, 32px 32px, auto;
-  color: var(--text);
+  color: var(--foreground);
   font-family: var(--font-body);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -165,5 +214,5 @@ strong {
 
 ::selection {
   background: rgba(235, 233, 225, 0.22);
-  color: var(--text);
+  color: var(--foreground);
 }

@@ -225,6 +225,14 @@ describe('ai providers', () => {
       startDate: '07/2023',
       isCurrent: true
     })
+    expect(result.experiences[0]?.achievements).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Engineered a real-time restaurant order platform')
+      ])
+    )
+    expect(result.experiences[0]?.skills).toEqual(
+      expect.arrayContaining(['React', 'Next.js', 'TailwindCSS', 'WebSockets'])
+    )
     expect(result.education[0]?.schoolName).toContain('Kolegji Riinvest')
     expect(result.education[0]?.degree).toBe("BACHELOR'S DEGREE")
     expect(result.timeZone).toBe('Europe/Belgrade')

@@ -428,6 +428,9 @@ Implementation update on 2026-03-20:
 - discovery preferences remain visually separated from the canonical candidate-data sections, matching the plan direction
 - partial repeatable records now persist as explicit drafts instead of being silently dropped, and numeric/url enum validation is enforced before data crosses the schema boundary
 - a dedicated profile-baseline capture workflow now hydrates the preferred imported-profile snapshot and records shell plus scrolled Profile-tab screenshots for regression reference before the broader renderer refactor lands
+- the latest renderer polish pass further separated dark container and field tones, aligned top-level add controls to the same height as text inputs, and simplified Discovery's zero-results state into a deliberate two-column empty composition so blank searches do not produce a misleading third-panel layout
+- a follow-up polish pass flattened the dark palette toward more neutral charcoal surfaces, fixed grid-field alignment so labels stay visually attached to short inputs even beside taller textareas, and made compact-width title-bar navigation resilient by hiding the right-hand stat cards earlier in the responsive shell
+- a subsequent pass widened Discovery's left desktop column and rebuilt that rail as one contained control surface with its primary action inside the same card, while also separating experience-record canvases from their nested fields more clearly and moving domain tags away from the short-input row so mixed-height profile fields no longer feel visually broken
 
 ### Phase 4: Tailoring And Automation Integration
 
