@@ -4,14 +4,27 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 
 ## Start Here
 
-1. [STATUS.md](STATUS.md) for current state and active work
+1. [STATUS.md](STATUS.md) for the current snapshot
 2. [TRACKS.md](TRACKS.md) for the live workboard and next-task registry
-3. [PLAN.md](PLAN.md) for the durable big-picture plan and rollout shape
-4. [AGENT_CONTEXT.md](AGENT_CONTEXT.md) for skills, rules, and repo handoff conventions
-5. [PRODUCT.md](PRODUCT.md) for product shape and module intent
-6. [ARCHITECTURE.md](ARCHITECTURE.md) for workspace boundaries and data flow
-7. [CONTRACTS.md](CONTRACTS.md) for shared schemas, adapters, and IPC rules
-8. [TESTING.md](TESTING.md) for required checks and harnesses
+3. Linked active exec plan in `docs/exec-plans/active/` for task-scoped detail
+4. Relevant package-local `AGENTS.md` for area-specific rules
+
+## Canonical Docs
+
+- [PLAN.md](PLAN.md): durable big-picture plan and rollout shape
+- [PRODUCT.md](PRODUCT.md): product shape and module intent
+- [AGENT_CONTEXT.md](AGENT_CONTEXT.md): agent layout, generated-adapter policy, and handoff conventions
+- [ARCHITECTURE.md](ARCHITECTURE.md): workspace boundaries and data flow
+- [CONTRACTS.md](CONTRACTS.md): shared schemas, adapters, and IPC rules
+- [TESTING.md](TESTING.md): required checks and validation harnesses
+- [HISTORY.md](HISTORY.md): condensed repo milestones and notable completed changes
+
+## Reading Strategy
+
+- Start with the smallest relevant doc set for the task.
+- Use `STATUS.md` for now, `TRACKS.md` for ownership and next steps, and exec plans for active implementation detail.
+- Use `HISTORY.md` for background, not for active handoff.
+- Prefer package-local `AGENTS.md` over repo-wide docs when you are already inside a specific workspace.
 
 ## Modules
 

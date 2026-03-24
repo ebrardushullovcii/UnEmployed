@@ -4,37 +4,55 @@ Agent-first Electron monorepo for two modules:
 - `Job Finder`
 - `Interview Helper`
 
+## Fast Start
+
+- Read [docs/README.md](docs/README.md) for the doc map.
+- Read [docs/STATUS.md](docs/STATUS.md) for the current snapshot.
+- Read [docs/TRACKS.md](docs/TRACKS.md) and any linked active exec plan before non-trivial work.
+- Read the nearest package-local `AGENTS.md` before changing code in that area.
+- Read only the docs relevant to the task; do not re-scan the whole repo when the canonical docs already answer it.
+
 ## Canonical Sources
 
-- Start with [docs/README.md](docs/README.md).
-- Full project plan lives in [docs/PLAN.md](docs/PLAN.md).
-- Agent context layout lives in [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT.md).
-- Current work and next steps live in [docs/STATUS.md](docs/STATUS.md).
-- Live task and handoff tracking lives in [docs/TRACKS.md](docs/TRACKS.md).
-- System boundaries live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-- Shared contracts live in [docs/CONTRACTS.md](docs/CONTRACTS.md).
-- Testing and validation rules live in [docs/TESTING.md](docs/TESTING.md).
-- Canonical agent registry lives in [.agents/registry.yaml](.agents/registry.yaml).
+- [docs/README.md](docs/README.md): documentation entrypoint and reading order
+- [docs/PLAN.md](docs/PLAN.md): durable project plan and rollout shape
+- [docs/PRODUCT.md](docs/PRODUCT.md): product shape and module intent
+- [docs/STATUS.md](docs/STATUS.md): short current-state snapshot
+- [docs/TRACKS.md](docs/TRACKS.md): live workboard and handoff registry
+- [docs/HISTORY.md](docs/HISTORY.md): condensed repo milestones and notable changes
+- [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT.md): agent layout, handoff rules, generated-adapter policy
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): workspace boundaries and data flow
+- [docs/CONTRACTS.md](docs/CONTRACTS.md): shared schemas, adapters, and IPC rules
+- [docs/TESTING.md](docs/TESTING.md): required checks and validation workflows
+- [.agents/registry.yaml](.agents/registry.yaml): machine-readable registry for docs, guides, and adapters
 
 ## Repo Rules
 
 - Prefer package-local `AGENTS.md` files when working inside a package.
-- Keep all external boundaries typed and schema-validated.
+- Keep external boundaries typed and schema-validated.
 - Do not introduce `any`, deep cross-package imports, or untyped IPC.
-- If code changes affect behavior, contracts, architecture, or workflows, update the relevant docs in the same task.
+- Keep durable knowledge in `docs/` and reusable workflows in skills; keep always-on instruction files short.
+- Do not duplicate volatile implementation details, long changelogs, or generated content across multiple guidance files.
 - Treat `docs/STATUS.md`, `docs/TRACKS.md`, and `docs/exec-plans/` as the handoff layer for the next agent.
-- When working on the desktop app, follow the frontend best practices documented in `apps/desktop/AGENTS.md`.
+- When working on the desktop app, follow `apps/desktop/AGENTS.md`.
 
-## Git And Doc Workflow
+## Doc Update Rules
+
+- Update docs in the same task when code changes behavior, contracts, architecture, workflows, or delivery shape.
+- Update `docs/PRODUCT.md` or module docs for user-facing behavior and scope changes.
+- Update `docs/ARCHITECTURE.md` for package boundaries, data flow, or ownership changes.
+- Update `docs/CONTRACTS.md` when schemas, DTOs, preload APIs, or adapter payloads change.
+- Update `docs/TESTING.md` when required checks, harnesses, or live QA workflows change.
+- Update `docs/STATUS.md`, `docs/TRACKS.md`, and the relevant exec plan when preparing work for handoff, commit, or PR review.
+
+## Git And PR Workflow
 
 - Never create a git commit unless the user explicitly asks for a commit.
 - Never create, update, or comment on a PR unless the user explicitly asks for that action.
 - Treat `main` as PR-only; do not plan or rely on direct pushes to `main`.
 - Only `@ebrardushullovcii` and `@vigani1` should retain merge authority for `main`.
-- Treat CodeRabbit reviews as required repo feedback on every PR, but not as a hard merge gate for those two maintainers.
-- If work is being prepared for a commit, PR, or PR update, agents must proactively update the relevant docs without waiting to be told.
-- At minimum, that means updating `docs/STATUS.md`, any affected module or architecture docs, and the active or completed exec plan when the change materially affects project behavior, contracts, structure, or roadmap clarity.
-- Treat documentation updates as part of the same deliverable, not as optional follow-up.
+- Treat CodeRabbit as required repo feedback on every PR, but not as a hard merge gate for those two maintainers.
+- Treat documentation updates as part of the same deliverable, not optional follow-up.
 
 ## Commands
 
@@ -52,23 +70,25 @@ Agent-first Electron monorepo for two modules:
 ## Agent Context
 
 - `.agents/skills` is the canonical project-local skill directory.
-- `.claude/skills` is a compatibility symlink created by `pnpm agents:sync`.
-- `CLAUDE.md` and `.cursor/rules/00-project.mdc` are generated adapters for other agent tools.
+- `.claude/skills` is a generated compatibility symlink created by `pnpm agents:sync`.
+- `CLAUDE.md` and `.cursor/rules/00-project.mdc` are generated adapters; do not hand-edit them.
 - After updating repo-wide guidance, registry entries, or project-local skills, run `pnpm agents:sync`.
 
 ## Repo-Owned Skills
 
-- `.agents/skills/repo-governance`: use for repo-wide docs, structure, and adapter changes
+- `.agents/skills/repo-governance`: repo-wide docs, structure, and adapter changes
 
 ## Installed Stack Skills
 
-- `.agents/skills/electron`: Electron-focused implementation guidance
+- `.agents/skills/electron`: Electron implementation guidance
 - `.agents/skills/vercel-react-best-practices`: React implementation and performance guidance
+- `.agents/skills/react-hook-form`: React Hook Form form patterns and performance guidance
+- `.agents/skills/shadcn`: shadcn/ui component architecture, forms, and composition guidance
 - `.agents/skills/typescript-advanced-types`: strict TypeScript and advanced typing patterns
 - `.agents/skills/zod`: schema and validation patterns
 - `.agents/skills/vitest`: Vitest testing patterns
 - `.agents/skills/sqlite-database-expert`: SQLite design and query guidance
 - `.agents/skills/playwright-best-practices`: Playwright testing and automation guidance
-- `.agents/skills/frontend-design`: frontend design and polished UI exploration guidance
+- `.agents/skills/frontend-design`: polished UI exploration guidance
 - `.agents/skills/context-driven-development`: context and handoff workflow guidance
 - `.agents/skills/architecture-decision-records`: ADR writing and maintenance guidance

@@ -8,6 +8,7 @@ Owns the Electron shell, preload bridge, and renderer entrypoint.
 - Never expose raw Node or Electron primitives directly to the renderer.
 - Shared types and IPC payload shapes come from `@unemployed/contracts`.
 - UI changes should preserve room for both `Job Finder` and `Interview Helper`.
+- Keep desktop guidance stable and implementation-facing; point to canonical source files instead of duplicating volatile token values.
 
 ## Commands
 
@@ -18,6 +19,13 @@ Owns the Electron shell, preload bridge, and renderer entrypoint.
 - `pnpm --filter @unemployed/desktop ui:capture`
 - `pnpm --filter @unemployed/desktop ui:resume-import`
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`
+
+## Read This Before Editing
+
+- `src/renderer/src/styles/globals.css`: canonical renderer tokens and shared base styles
+- `src/renderer/src/app/` and `src/renderer/src/pages/`: route and app entrypoints
+- `src/renderer/src/features/`: feature-local components, hooks, and utilities
+- `src/main/` and `src/preload/`: Electron main-process and preload boundaries
 
 ## UI Review Notes
 
@@ -34,106 +42,45 @@ Owns the Electron shell, preload bridge, and renderer entrypoint.
 
 ### CSS Custom Properties
 
-All design tokens are defined in `src/renderer/src/styles/globals.css`. Use these CSS custom properties instead of arbitrary Tailwind values:
-
-**Radius:**
-- `--radius-field: 0.42rem` - Input/field borders
-- `--radius-panel: 0.55rem` - Panel/card borders
-- `--radius-badge: 0.32rem` - Badge borders
-- `--radius-button: 0.8rem` - Button borders
-- `--radius-chip: 0.22rem` - Chip/tag borders
-
-**Typography Size:**
-- `--text-field: 0.92rem` - Field/input text
-- `--text-body: 0.95rem` - Body text
-- `--text-description: 0.84rem` - Description text
-- `--text-small: 0.78rem` - Small text
-- `--text-tiny: 0.68rem` - Tiny/label text
-
-**Typography Tracking:**
-- `--tracking-label: 0.11em` - Labels
-- `--tracking-heading: 0.12em` - Headings
-- `--tracking-caps: 0.18em` - All-caps text
-- `--tracking-badge: 0.14em` - Badges
-- `--tracking-mono: 0.16em` - Monospace
-- `--tracking-normal: 0.08em` - Normal tracking
-
-**Spacing:**
-- `--gap-field: 0.44rem` - Field internal gap
-- `--gap-content: 0.9rem` - Content gap
-- `--gap-card: 1.2rem` - Card internal gap
-- `--gap-section: 1.65rem` - Section gap
-
-**Textarea Heights:**
-- `--textarea-compact: 5.6rem`
-- `--textarea-default: 6.8rem`
-- `--textarea-tall: 7.4rem`
-
-**Colors:**
-- `--headline-primary: #fbfaf6` - Primary headlines
-- `--headline-secondary: #f8f7f3` - Secondary headlines
-- `--text-headline: #f6f2e8` - Headline text color
-- `--text-badge: #f4efe4` - Badge text color
-- `--button-close-hover: #8a1f17` - Close button hover
-
-```tsx
-// ✅ Good - Use CSS custom properties
-<div className="rounded-[var(--radius-panel)] text-[var(--text-body)] tracking-[var(--tracking-label)]">
-
-// ❌ Bad - Don't use arbitrary values
-<div className="rounded-[0.55rem] text-[0.95rem] tracking-[0.11em]">
-```
+- All design tokens live in `src/renderer/src/styles/globals.css`.
+- Reuse existing semantic CSS variables and shared utility patterns before adding new token names.
+- Prefer shared tokens over one-off raw hex values, arbitrary spacing, or inline styles.
+- If a new visual primitive is likely to be reused, add or extend a token in `src/renderer/src/styles/globals.css` instead of hardcoding it in a component.
 
 ### Import Paths
 
-Use the `@renderer/` path alias for cross-module imports. Never use deep relative paths.
+Use the `@renderer/` path alias for cross-feature or shared imports. Use short relative imports only inside the same local feature subtree.
 
 ```tsx
 // ✅ Good
-import { Button } from '@renderer/components/ui/button'
-import { StatusBadge } from '../../components/status-badge'
+import { Button } from "@renderer/components/ui/button";
+import { StatusBadge } from "@renderer/features/job-finder/components/status-badge";
+import { profileFieldClassName } from "./profile-form-primitives";
 
 // ❌ Bad
-import { Button } from '../../../components/ui/button'
+import { Button } from "../../../components/ui/button";
+import { StatusBadge } from "../../../../features/job-finder/components/status-badge";
 ```
 
 ### Component Architecture
 
-**UI Components (`src/renderer/src/components/ui/`):**
 - Reusable primitives (Button, Input, Field, Badge, etc.)
 - Use `class-variance-authority` (CVA) for variants
 - Keep components small and focused
 - Export both component and variants function
-
-**Feature Components (`src/renderer/src/features/*/components/`):**
 - Feature-specific components
 - Can compose UI components
 - Keep close to the feature that uses them
-
-**Form Primitives:**
 - Use `ProfileInput` and `ProfileTextarea` from `profile-form-primitives.tsx`
 - These use consistent styling via exported class names
 - Don't duplicate form styling across files
 
 ### File Organization
 
-```
-src/renderer/src/features/job-finder/
-├── components/          # Shared feature components
-│   ├── ui/              # Feature-specific UI primitives
-│   ├── profile/         # Profile-related components
-│   └── *.tsx            # Other components
-├── screens/             # Screen-level components
-│   ├── profile-screen.tsx
-│   ├── discovery/
-│   ├── applications/
-│   └── ...
-├── lib/                 # Utilities and types
-│   ├── job-finder-utils.ts
-│   ├── job-finder-types.ts
-│   └── profile-editor.ts
-└── hooks/               # Feature-specific hooks
-```
+- Put shared renderer primitives in `src/renderer/src/components/ui/`.
+- Put feature-specific composition in `src/renderer/src/features/<feature>/`.
+- Put route-level page shells in `src/renderer/src/pages/` or feature screen folders that already match the routed structure.
+- Keep helpers close to the feature that owns them before promoting them to shared UI or shared lib code.
 
 ### TypeScript
 
@@ -141,28 +88,6 @@ src/renderer/src/features/job-finder/
 - Types come from `@unemployed/contracts` for shared shapes
 - Keep type definitions close to where they're used
 - Use `readonly` for immutable arrays in props
-
-### Styling Patterns
-
-**Section/Article Pattern:**
-```tsx
-<section className="rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-  <div className="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">
-        Section Label
-      </p>
-      <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-        Section description text.
-      </p>
-    </div>
-    <Badge variant="section">Badge</Badge>
-  </div>
-  <article className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-    {/* Content */}
-  </article>
-</section>
-```
 
 ### Accessibility
 

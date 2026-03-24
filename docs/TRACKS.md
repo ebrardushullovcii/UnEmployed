@@ -12,6 +12,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - If you take a track, update its `status`, `last updated`, `current focus`, and `next step`.
 - If you stop mid-stream, set the track to `handoff` or `blocked` and leave the next concrete action.
 - Keep deep implementation detail in the linked exec plan or module docs; keep this file short and current.
+- Keep longer completed-history context in `docs/HISTORY.md`, not in active track notes.
 - When a track finishes, update the relevant docs and move follow-up work into the ready queue instead of leaving hidden context in chat.
 
 ## Status Keys
@@ -118,6 +119,7 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ## Recently Completed
 
+- `2026-03-24`: tightened repo guidance so the root and desktop `AGENTS.md` files, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `docs/STATUS.md` now separate navigation, handoff, and history more cleanly
 - `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, added repo-local CodeRabbit defaults, and checked in `.github/CODEOWNERS` naming `@ebrardushullovcii` plus `@vigani1` as the intended merge maintainers
 - `2026-03-24`: added a root `pnpm desktop:dev` shortcut and updated repo docs so local desktop startup no longer depends on the longer workspace-filter command
 - `2026-03-20`: added `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md` as the first active Job Finder delivery plan

@@ -9,6 +9,8 @@ canonicalDocs:
     purpose: agent-context
   - path: docs/TRACKS.md
     purpose: tracks
+  - path: docs/HISTORY.md
+    purpose: history
   - path: docs/Design/README.md
     purpose: design
   - path: docs/PRODUCT.md
