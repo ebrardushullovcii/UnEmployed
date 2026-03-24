@@ -13,31 +13,42 @@ const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel)
 
 const screens = [
   {
-    buttonName: /^Profile$/,
+    buttonName: /^PROFILE$/,
     fileName: 'profile.png',
-    heading: 'Candidate setup'
+    heading: 'Operator Profile'
   },
   {
-    buttonName: /^Discovery\s+\d+$/,
+    buttonName: /^DISCOVERY$/,
     fileName: 'discovery.png',
-    heading: 'LinkedIn results'
+    heading: 'Discovery Ops'
   },
   {
-    buttonName: /^Review Queue\s+\d+$/,
+    buttonName: /^REVIEW_QUEUE$/,
     fileName: 'review-queue.png',
-    heading: 'Tailored asset review'
+    heading: 'Review Queue'
   },
   {
-    buttonName: /^Applications\s+\d+$/,
+    buttonName: /^APPLICATIONS$/,
     fileName: 'applications.png',
-    heading: 'Application history'
+    heading: 'Applications Log'
   },
   {
-    buttonName: /^Settings$/,
+    buttonName: /^SETTINGS$/,
     fileName: 'settings.png',
-    heading: 'MVP defaults'
+    heading: 'Operator Config'
   }
 ]
+
+async function clickNavigationControl(window, name) {
+  const control = window.locator('button, [role="tab"]').filter({ hasText: name }).first()
+
+  if (await control.count()) {
+    await control.click()
+    return
+  }
+
+  await window.getByRole('button', { name }).click()
+}
 
 async function captureScreens() {
   await mkdir(outputDir, { recursive: true })
@@ -56,12 +67,12 @@ async function captureScreens() {
     const window = await app.firstWindow()
 
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
+    await window.getByRole('heading', { name: 'Operator Profile' }).waitFor({ timeout: 15000 })
     await window.setViewportSize({ width, height })
 
     for (const screen of screens) {
-      await window.getByRole('button', { name: screen.buttonName }).click()
-      await window.getByRole('heading', { name: screen.heading }).waitFor({ timeout: 10000 })
+      await clickNavigationControl(window, screen.buttonName)
+      await window.getByRole('heading', { level: 1, name: screen.heading }).waitFor({ timeout: 10000 })
       await window.screenshot({
         animations: 'disabled',
         path: path.join(outputDir, screen.fileName)

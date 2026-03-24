@@ -427,6 +427,7 @@ Implementation update on 2026-03-20:
 - the current implementation still stores these sections under the existing `CandidateProfile` and `JobSearchPreferences` objects for backward compatibility, rather than splitting into fully separate top-level buckets yet
 - discovery preferences remain visually separated from the canonical candidate-data sections, matching the plan direction
 - partial repeatable records now persist as explicit drafts instead of being silently dropped, and numeric/url enum validation is enforced before data crosses the schema boundary
+- a dedicated profile-baseline capture workflow now hydrates the preferred imported-profile snapshot and records shell plus scrolled Profile-tab screenshots for regression reference before the broader renderer refactor lands
 
 ### Phase 4: Tailoring And Automation Integration
 

@@ -39,7 +39,7 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `JF-02 Job Finder Screen Design`
 
 - status: `done`
-- last updated: `2026-03-20`
+- last updated: `2026-03-23`
 - scope: design the MVP screens and states for the first Job Finder slice
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - linked brief: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply-ui-brief.md`
@@ -47,7 +47,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - current focus: finalized visual references are implemented as a first interactive desktop shell with native mac traffic lights, a centered title-row navigation cluster, compact top-right summary cards, a gear-based Settings control, page-level UI QA refinements, and standard max-width shell constraints so ultra-wide windows keep comfortable readable gutters
 - next step: keep using the desktop UI capture workflow to tighten shell density, applications detail behavior, and compact-size usability before deeper functionality expands
 - blockers: none
-- notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete; use `pnpm --filter @unemployed/desktop ui:capture` for screenshot-based UI review and the reset action in Settings to restore the seeded workspace quickly; the current polish pass improved count-badge padding, stat label/value spacing, replaced the oversized sidebar with a centered title-row nav and compact top-right stat cards, restored suite tabs to the very top, made the left wordmark larger and bolder while tightening it to the edge, removed stat-card captions so only labels and numbers remain, aligned nav/card/settings controls more cleanly on a shared compact height, kept native mac title-bar behavior, removed the ready and updated chips, reduced top-bar hover noise, tightened button sizing, synced fullscreen state, balanced oversized panels, improved page-level active-state clarity, preserved compact-height readability, supported the documented `1024x768` review size in the real window, shared centered top-tab styling across Mac and Windows, and used `lucide-react` for shell icons instead of custom inline SVGs
+- notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete; use `pnpm --filter @unemployed/desktop ui:capture` for screenshot-based shell review, `pnpm --filter @unemployed/desktop ui:profile-baseline` for the current preferred imported-profile baseline before larger refactors, and the reset action in Settings to restore the seeded workspace quickly; the current polish pass improved count-badge padding, stat label/value spacing, replaced the oversized sidebar with a centered title-row nav and compact top-right stat cards, restored suite tabs to the very top, made the left wordmark larger and bolder while tightening it to the edge, removed stat-card captions so only labels and numbers remain, aligned nav/card/settings controls more cleanly on a shared compact height, kept native mac title-bar behavior, removed the ready and updated chips, reduced top-bar hover noise, tightened button sizing, synced fullscreen state, balanced oversized panels, improved page-level active-state clarity, preserved compact-height readability, supported the documented `1024x768` review size in the real window, shared centered top-tab styling across Mac and Windows, and used `lucide-react` for shell icons instead of custom inline SVGs
 
 ### `JF-03 Browser Runtime And LinkedIn Discovery`
 
@@ -100,14 +100,14 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `JF-07 Profile Information Architecture`
 
 - status: `in_progress`
-- last updated: `2026-03-21`
+- last updated: `2026-03-23`
 - scope: redesign the candidate profile data model and Profile screen so hiring-relevant details are grouped more clearly for ATS alignment, resume tailoring, and browser automation
 - linked plan: `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`
 - code areas: `packages/contracts`, `packages/job-finder`, `apps/desktop`
-- current focus: the live profile surface now starts with resume intake, keeps the raw resume text hidden from the normal user flow, uses compact removable chips only where they work well for dense skill buckets, uses bounded multiline inputs for the rest of the repeatable text fields, is split into focused tabs instead of one long scroll, and clears stale seeded profile/search data before a fresh resume import repopulates those tabs
-- next step: keep simplifying the remaining dense profile editors and extend extraction/tailoring to rely more directly on education, certification, and project records
+- current focus: the live profile surface now starts with resume intake, keeps the raw resume text hidden from the normal user flow, uses compact removable chips only where they work well for dense skill buckets, uses bounded multiline inputs for the rest of the repeatable text fields, is split into focused tabs instead of one long scroll, clears stale seeded profile/search data before a fresh resume import repopulates those tabs, and now has a repeatable screenshot-baseline workflow to preserve the current polished look before broader renderer refactors
+- next step: use the captured baseline to protect the current tab polish during the upcoming refactor, then keep simplifying the remaining dense profile editors and extend extraction/tailoring to rely more directly on education, certification, and project records
 - blockers: none
-- notes: the refined plan now leans on current LinkedIn, Greenhouse, Workable, and Ashby field patterns; the live implementation keeps backward compatibility by extending `CandidateProfile` and `JobSearchPreferences` with structured sections rather than replacing them outright, while still avoiding unnecessary sensitive-data collection by default
+- notes: the refined plan now leans on current LinkedIn, Greenhouse, Workable, and Ashby field patterns; the live implementation keeps backward compatibility by extending `CandidateProfile` and `JobSearchPreferences` with structured sections rather than replacing them outright, while still avoiding unnecessary sensitive-data collection by default; the current preferred imported-profile visual state is documented locally via `docs/Design/job-finder-profile/current-branch-baseline-2026-03-23.md` and `apps/desktop/test-artifacts/ui/profile-visual-baseline-2026-03-23/`
 
 ## Ready Queue
 
