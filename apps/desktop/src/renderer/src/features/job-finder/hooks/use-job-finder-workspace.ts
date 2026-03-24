@@ -55,6 +55,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       runDiscovery: () => runWorkspaceAction(() => window.unemployed.jobFinder.runDiscovery()),
       saveProfile: (profile: CandidateProfile) =>
         runWorkspaceAction(() => window.unemployed.jobFinder.saveProfile(profile)),
+      saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.saveWorkspaceInputs(profile, searchPreferences)),
       saveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
         runWorkspaceAction(() => window.unemployed.jobFinder.saveSearchPreferences(searchPreferences)),
       saveSettings: (settings: JobFinderSettings) =>

@@ -132,18 +132,17 @@ export function ProfileScreen(props: {
 
       <section className="grid gap-5 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-4 sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex flex-wrap gap-2" aria-label="Profile sections" role="tablist">
+          <div aria-label="Profile sections" className="flex flex-wrap gap-2">
             {sections.map((section) => (
               <button
                 key={section.id}
-                aria-selected={activeSection === section.id}
+                aria-pressed={activeSection === section.id}
                 className={
                   activeSection === section.id
                     ? 'inline-flex items-center rounded-full border border-[var(--field-border)] bg-[var(--field)] px-4 py-2 text-[var(--text-small)] font-medium text-[var(--text-headline)]'
                     : 'inline-flex items-center rounded-full border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-2 text-[var(--text-small)] font-medium text-foreground-soft transition-colors hover:border-[var(--field-border)] hover:bg-[var(--field)] hover:text-foreground'
                 }
                 onClick={() => setActiveSection(section.id)}
-                role="tab"
                 type="button"
               >
                 {section.label}

@@ -29,10 +29,10 @@ export function ToggleField({
       )}
     >
       <FieldLabel htmlFor={switchId}>{label}</FieldLabel>
-      <div className="flex items-start justify-between gap-4 flex-1">
+      <div className="flex min-w-0 flex-1 items-start justify-between gap-4">
         <span 
           id={descriptionId}
-          className="text-[var(--text-small)] leading-5 text-muted-foreground"
+          className="min-w-0 text-[var(--text-small)] leading-5 text-muted-foreground"
         >
           {description}
         </span>

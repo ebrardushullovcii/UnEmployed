@@ -139,6 +139,10 @@ export interface JobFinderRepository {
   saveProfile(profile: CandidateProfile): Promise<void>
   getSearchPreferences(): Promise<JobSearchPreferences>
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<void>
+  saveProfileAndSearchPreferences(
+    profile: CandidateProfile,
+    searchPreferences: JobSearchPreferences
+  ): Promise<void>
   listSavedJobs(): Promise<readonly SavedJob[]>
   replaceSavedJobs(savedJobs: readonly SavedJob[]): Promise<void>
   listTailoredAssets(): Promise<readonly TailoredAsset[]>
@@ -161,36 +165,52 @@ function getLegacyJsonPath(filePath: string): string {
 }
 
 function migrateWorkModeToArray(data: Record<string, unknown>): Record<string, unknown> {
-  if (!data.profile || typeof data.profile !== 'object') {
-    return data
-  }
-
-  const profile = data.profile as Record<string, unknown>
-  if (!Array.isArray(profile.experiences)) {
-    return data
-  }
-
-  const migratedExperiences = profile.experiences.map((exp: unknown) => {
-    if (typeof exp !== 'object' || exp === null) {
-      return exp
+  const migrateValue = (value: unknown) => {
+    if (typeof value === 'string') {
+      return value ? [value] : []
     }
-    const experience = exp as Record<string, unknown>
-    if (typeof experience.workMode === 'string') {
-      return {
-        ...experience,
-        workMode: experience.workMode ? [experience.workMode] : []
+
+    if (value === null) {
+      return []
+    }
+
+    return value
+  }
+
+  const migrateCollection = (entries: unknown, key: 'workMode') => {
+    if (!Array.isArray(entries)) {
+      return entries
+    }
+
+    return entries.map((entry: unknown) => {
+      if (typeof entry !== 'object' || entry === null) {
+        return entry
       }
-    }
-    return experience
-  })
 
-  return {
-    ...data,
-    profile: {
+      const record = entry as Record<string, unknown>
+      return {
+        ...record,
+        [key]: migrateValue(record[key])
+      }
+    })
+  }
+
+  const nextData = { ...data }
+
+  if (data.profile && typeof data.profile === 'object') {
+    const profile = data.profile as Record<string, unknown>
+
+    nextData.profile = {
       ...profile,
-      experiences: migratedExperiences
+      experiences: migrateCollection(profile.experiences, 'workMode')
     }
   }
+
+  if (Array.isArray(data.savedJobs)) {
+    nextData.savedJobs = migrateCollection(data.savedJobs, 'workMode')
+  }
+
+  return nextData
 }
 
 async function readLegacySeed(
@@ -382,6 +402,11 @@ export function createInMemoryJobFinderRepository(seed: JobFinderRepositorySeed)
       state.searchPreferences = JobSearchPreferencesSchema.parse(cloneValue(searchPreferences))
       return Promise.resolve()
     },
+    saveProfileAndSearchPreferences(profile, searchPreferences) {
+      state.profile = CandidateProfileSchema.parse(cloneValue(profile))
+      state.searchPreferences = JobSearchPreferencesSchema.parse(cloneValue(searchPreferences))
+      return Promise.resolve()
+    },
     listSavedJobs() {
       return Promise.resolve(cloneValue(state.savedJobs))
     },
@@ -495,6 +520,15 @@ export async function createFileJobFinderRepository(
     saveSearchPreferences(searchPreferences) {
       return persist((state) => {
         state.searchPreferences = JobSearchPreferencesSchema.parse(cloneValue(searchPreferences))
+      })
+    },
+    saveProfileAndSearchPreferences(profile, searchPreferences) {
+      const normalizedProfile = CandidateProfileSchema.parse(cloneValue(profile))
+      const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(cloneValue(searchPreferences))
+
+      return persist((state) => {
+        state.profile = normalizedProfile
+        state.searchPreferences = normalizedSearchPreferences
       })
     },
     listSavedJobs() {

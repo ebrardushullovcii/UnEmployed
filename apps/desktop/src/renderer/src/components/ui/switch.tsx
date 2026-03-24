@@ -8,6 +8,7 @@ import { cn } from "@renderer/lib/utils"
 function Switch({
   className,
   size = "default",
+  style,
   ...props
 }: React.ComponentProps<typeof SwitchPrimitive.Root> & {
   size?: "sm" | "default"
@@ -28,12 +29,20 @@ function Switch({
     } as React.CSSProperties
   }, [size])
 
+  const switchStyle = React.useMemo(
+    () => ({
+      ...style,
+      ...dimensions,
+    }),
+    [dimensions, style]
+  )
+
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
       data-size={size}
       role="switch"
-      style={dimensions}
+      style={switchStyle}
       className={cn(
         "peer group/switch inline-flex shrink-0 items-center rounded-none border border-border bg-input transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50",
         "data-[size=default]:h-[var(--switch-track-height)] data-[size=default]:w-[var(--switch-track-width)]",

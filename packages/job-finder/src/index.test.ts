@@ -226,14 +226,14 @@ function createSeed(): JobFinderRepositorySeed {
       }
     ],
     applicationRecords: [],
-      applicationAttempts: [],
-      settings: {
-        resumeFormat: 'html',
-        resumeTemplateId: 'classic_ats',
-        fontPreset: 'inter_requisite',
-        humanReviewRequired: true,
-        allowAutoSubmitOverride: false,
-        keepSessionAlive: true
+    applicationAttempts: [],
+    settings: {
+      resumeFormat: 'html',
+      resumeTemplateId: 'classic_ats',
+      fontPreset: 'inter_requisite',
+      humanReviewRequired: true,
+      allowAutoSubmitOverride: false,
+      keepSessionAlive: true
     }
   }
 }
@@ -380,10 +380,10 @@ describe('createJobFinderWorkspaceService', () => {
   test('pauses unsupported Easy Apply branches instead of submitting blindly', async () => {
     const seed = createSeed()
     seed.savedJobs.push({
-        source: 'linkedin',
-        sourceJobId: 'linkedin_pause_case',
-        discoveryMethod: 'catalog_seed',
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_pause_case',
+      source: 'linkedin',
+      sourceJobId: 'linkedin_pause_case',
+      discoveryMethod: 'catalog_seed',
+      canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_pause_case',
       id: 'job_pause_case',
       title: 'Principal UX Engineer',
       company: 'Void Industries',

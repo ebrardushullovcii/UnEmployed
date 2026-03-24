@@ -54,6 +54,7 @@ interface ProfilePreferencesTabProps {
 export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfilePreferencesTabProps) {
   const { control: preferenceControl, register: registerPreferences, setValue: setPreferenceValue, watch: watchPreferences } = preferencesForm
   const { control: profileControl, register: registerProfile } = profileForm
+  const listFieldOptions = { shouldDirty: true, shouldTouch: true, shouldValidate: true } as const
 
   return (
     <div className="grid gap-6">
@@ -112,25 +113,25 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Target roles"
-              onChange={(values) => setPreferenceValue('targetRoles', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('targetRoles', joinListInput(values), listFieldOptions)}
               placeholder="Add a target role"
               values={parseListInput(watchPreferences('targetRoles'))}
             />
             <ProfileListEditor
               label="Job families"
-              onChange={(values) => setPreferenceValue('jobFamilies', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('jobFamilies', joinListInput(values), listFieldOptions)}
               placeholder="Add a job family"
               values={parseListInput(watchPreferences('jobFamilies'))}
             />
             <ProfileListEditor
               label="Seniority"
-              onChange={(values) => setPreferenceValue('seniorityLevels', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('seniorityLevels', joinListInput(values), listFieldOptions)}
               placeholder="Add a seniority level"
               values={parseListInput(watchPreferences('seniorityLevels'))}
             />
             <ProfileListEditor
               label="Employment types"
-              onChange={(values) => setPreferenceValue('employmentTypes', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('employmentTypes', joinListInput(values), listFieldOptions)}
               placeholder="Add an employment type"
               values={parseListInput(watchPreferences('employmentTypes'))}
             />
@@ -142,13 +143,13 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Preferred locations"
-              onChange={(values) => setPreferenceValue('locations', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('locations', joinListInput(values), listFieldOptions)}
               placeholder="Add a preferred location"
               values={parseListInput(watchPreferences('locations'))}
             />
             <ProfileListEditor
               label="Excluded locations"
-              onChange={(values) => setPreferenceValue('excludedLocations', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('excludedLocations', joinListInput(values), listFieldOptions)}
               placeholder="Add an excluded location"
               values={parseListInput(watchPreferences('excludedLocations'))}
             />
@@ -160,25 +161,25 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Industries"
-              onChange={(values) => setPreferenceValue('targetIndustries', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('targetIndustries', joinListInput(values), listFieldOptions)}
               placeholder="Add an industry"
               values={parseListInput(watchPreferences('targetIndustries'))}
             />
             <ProfileListEditor
               label="Company stages / sizes"
-              onChange={(values) => setPreferenceValue('targetCompanyStages', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('targetCompanyStages', joinListInput(values), listFieldOptions)}
               placeholder="Add a company stage or size"
               values={parseListInput(watchPreferences('targetCompanyStages'))}
             />
             <ProfileListEditor
               label="Preferred companies"
-              onChange={(values) => setPreferenceValue('companyWhitelist', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('companyWhitelist', joinListInput(values), listFieldOptions)}
               placeholder="Add a preferred company"
               values={parseListInput(watchPreferences('companyWhitelist'))}
             />
             <ProfileListEditor
               label="Blocked companies"
-              onChange={(values) => setPreferenceValue('companyBlacklist', joinListInput(values))}
+              onChange={(values) => setPreferenceValue('companyBlacklist', joinListInput(values), listFieldOptions)}
               placeholder="Add a blocked company"
               values={parseListInput(watchPreferences('companyBlacklist'))}
             />
@@ -238,18 +239,6 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
             <Field><FieldLabel>Minimum salary</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerPreferences('minimumSalaryUsd')} /></Field>
             <Field><FieldLabel>Target salary</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerPreferences('targetSalaryUsd')} /></Field>
             <Field><FieldLabel>Salary currency</FieldLabel><ProfileInput {...registerPreferences('salaryCurrency')} /></Field>
-            <ProfileListEditor
-              label="Preferred companies"
-              onChange={(values) => setPreferenceValue('companyWhitelist', joinListInput(values))}
-              placeholder="Add a preferred company"
-              values={parseListInput(watchPreferences('companyWhitelist'))}
-            />
-            <ProfileListEditor
-              label="Blocked companies"
-              onChange={(values) => setPreferenceValue('companyBlacklist', joinListInput(values))}
-              placeholder="Add a blocked company"
-              values={parseListInput(watchPreferences('companyBlacklist'))}
-            />
           </div>
         </article>
       </section>

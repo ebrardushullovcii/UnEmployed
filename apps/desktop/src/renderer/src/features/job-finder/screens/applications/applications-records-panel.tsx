@@ -30,7 +30,7 @@ export function ApplicationsRecordsPanel({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--surface-panel-border)] px-8 py-5">
         <div className="flex items-center gap-4">
           <h2 className="font-display text-lg font-bold uppercase tracking-[var(--tracking-heading)] text-primary">Applications Log</h2>
-          <Badge variant="section">{applicationRecords.length} active</Badge>
+          <Badge variant="section">{applicationRecords.length} records</Badge>
         </div>
         <div className="flex items-center gap-3 text-muted-foreground">
           <Badge variant="outline">ALL</Badge>
@@ -62,17 +62,21 @@ export function ApplicationsRecordsPanel({
               <TableRow
                 key={record.id}
                 className={cn(
-                  'cursor-pointer border-[var(--surface-panel-border)] text-[0.85rem] tracking-normal hover:bg-[var(--surface-panel-raised)]',
+                  'border-[var(--surface-panel-border)] text-[0.85rem] tracking-normal hover:bg-[var(--surface-panel-raised)]',
                   selectedRecord?.id === record.id ? 'border-l-2 border-l-primary bg-[var(--surface-panel-raised)]' : ''
                 )}
-                onClick={() => onSelectRecord(record.id)}
               >
                 <TableCell className="px-4 py-4 font-mono text-[10px] text-muted-foreground">#{record.id.slice(0, 7).toUpperCase()}</TableCell>
                 <TableCell className="px-4 py-4 align-top">
-                  <div className="grid gap-1">
+                  <button
+                    aria-pressed={selectedRecord?.id === record.id}
+                    className="grid w-full gap-1 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
+                    onClick={() => onSelectRecord(record.id)}
+                    type="button"
+                  >
                     <strong className="font-display text-[1rem] font-semibold tracking-[-0.015em] text-foreground">{record.title}</strong>
                     <span className="text-[0.8rem] text-muted-foreground">{record.company}</span>
-                  </div>
+                  </button>
                 </TableCell>
                 <TableCell className="px-4 py-4 text-[0.8rem] text-foreground-soft">{record.lastActionLabel}</TableCell>
                 <TableCell className="px-4 py-4"><StatusBadge tone={getApplicationTone(record.status)}>{formatStatusLabel(record.status)}</StatusBadge></TableCell>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { FieldLabel } from '@renderer/components/ui/field'
 import { Input } from '@renderer/components/ui/input'
@@ -28,7 +28,20 @@ export function ProfileListEditor({
   placeholder,
   values
 }: ProfileListEditorProps) {
+  const inputId = useId()
   const [draft, setDraft] = useState('')
+
+  const updateValues = (nextValues: readonly string[]) => {
+    const normalizedCurrentValues = [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+    const normalizedNextValues = [...new Set(nextValues.map((value) => value.trim()).filter(Boolean))]
+    const isUnchanged =
+      normalizedCurrentValues.length === normalizedNextValues.length &&
+      normalizedCurrentValues.every((value, index) => value === normalizedNextValues[index])
+
+    if (!isUnchanged) {
+      onChange(normalizedNextValues)
+    }
+  }
 
   const addValue = () => {
     const trimmed = draft.trim()
@@ -37,11 +50,7 @@ export function ProfileListEditor({
       return
     }
 
-    const nextValues = [...new Set([...values, trimmed])]
-
-    if (nextValues.length !== values.length) {
-      onChange(nextValues)
-    }
+    updateValues([...values, trimmed])
 
     setDraft('')
   }
@@ -54,13 +63,14 @@ export function ProfileListEditor({
       )}
     >
       <div className="flex items-baseline justify-between gap-3">
-        <FieldLabel className="text-[var(--text-tiny)] tracking-[var(--tracking-label)] text-foreground-muted">{label}</FieldLabel>
+        <FieldLabel className="text-[var(--text-tiny)] tracking-[var(--tracking-label)] text-foreground-muted" htmlFor={inputId}>{label}</FieldLabel>
         <span className="text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">{formatCountLabel(values.length)}</span>
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_5rem] gap-3">
         <Input
           className={profileInputClassName}
+          id={inputId}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -102,7 +112,7 @@ export function ProfileListEditor({
                 <button
                   aria-label={`Remove ${value}`}
                   className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[0.8rem] leading-none text-muted-foreground transition-colors hover:bg-[var(--surface-panel)] hover:text-foreground"
-                  onClick={() => onChange(values.filter((entry) => entry !== value))}
+                  onClick={() => updateValues(values.filter((entry) => entry !== value))}
                   type="button"
                 >
                   x
@@ -118,7 +128,7 @@ export function ProfileListEditor({
                   <button
                     aria-label={`Remove ${value}`}
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.8rem] leading-none text-muted-foreground transition-colors hover:bg-[var(--surface-panel)] hover:text-foreground"
-                    onClick={() => onChange(values.filter((entry) => entry !== value))}
+                    onClick={() => updateValues(values.filter((entry) => entry !== value))}
                     type="button"
                   >
                     x

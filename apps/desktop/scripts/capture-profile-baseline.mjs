@@ -27,6 +27,46 @@ function toSlug(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
+function requireSnapshotPath() {
+  const cliSnapshotPath = readCliOption('--snapshot')
+
+  if (cliSnapshotPath) {
+    return cliSnapshotPath
+  }
+
+  if (process.env.UI_PROFILE_BASELINE_SNAPSHOT) {
+    return process.env.UI_PROFILE_BASELINE_SNAPSHOT
+  }
+
+  throw new Error('Pass --snapshot or set UI_PROFILE_BASELINE_SNAPSHOT to a committed workspace snapshot fixture.')
+}
+
+function parseProfileBaselineSnapshot(rawSnapshot) {
+  const snapshot = JSON.parse(rawSnapshot)
+
+  if (!snapshot || typeof snapshot !== 'object') {
+    throw new Error('Profile baseline snapshot must be a JSON object.')
+  }
+
+  if (!snapshot.profile || typeof snapshot.profile !== 'object') {
+    throw new Error('Profile baseline snapshot must include a profile object.')
+  }
+
+  if (!snapshot.searchPreferences || typeof snapshot.searchPreferences !== 'object') {
+    throw new Error('Profile baseline snapshot must include a searchPreferences object.')
+  }
+
+  if (!snapshot.settings || typeof snapshot.settings !== 'object') {
+    throw new Error('Profile baseline snapshot must include a settings object.')
+  }
+
+  if (typeof snapshot.profile.fullName !== 'string' || snapshot.profile.fullName.trim().length === 0) {
+    throw new Error('Profile baseline snapshot must include profile.fullName.')
+  }
+
+  return snapshot
+}
+
 function getGitMetadata() {
   try {
     const branch = execSync('git branch --show-current', {
@@ -46,6 +86,17 @@ function getGitMetadata() {
 
 async function ensureLocatorText(page, text) {
   await page.getByText(text, { exact: true }).first().waitFor({ timeout: 10000 })
+}
+
+async function clickNavigationControl(page, name) {
+  const control = page.locator('button, [role="tab"]').filter({ hasText: name }).first()
+
+  if (await control.count()) {
+    await control.click()
+    return
+  }
+
+  await page.getByRole('button', { name }).click()
 }
 
 const scrollAreaSelector = '.screen-scroll-area'
@@ -143,15 +194,7 @@ async function captureViewportSegments(page, outputDirectory, filePrefix) {
 
 const width = Number.parseInt(process.env.UI_CAPTURE_WIDTH ?? '1440', 10)
 const height = Number.parseInt(process.env.UI_CAPTURE_HEIGHT ?? '920', 10)
-const defaultSnapshotPath = path.join(
-  desktopDir,
-  'test-artifacts',
-  'ui',
-  'resume-pdf-polish-v4',
-  'workspace-after-reload.json'
-)
-const snapshotPath =
-  readCliOption('--snapshot') ?? process.env.UI_PROFILE_BASELINE_SNAPSHOT ?? defaultSnapshotPath
+const snapshotPath = requireSnapshotPath()
 const runLabel =
   readCliOption('--label') ?? process.env.UI_CAPTURE_LABEL ?? `profile-visual-baseline-${toDateLabel(new Date())}`
 const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel)
@@ -164,7 +207,7 @@ const topLevelScreens = [
     slug: 'profile',
     heading: 'Candidate setup',
     beforeCapture: async (page) => {
-      await page.getByRole('tab', { name: 'Resume' }).click()
+      await clickNavigationControl(page, 'Resume')
       await ensureLocatorText(page, 'Current snapshot')
     }
   },
@@ -219,21 +262,14 @@ const profileTabs = [
 ]
 
 async function captureProfileBaseline() {
+  const snapshot = parseProfileBaselineSnapshot(await readFile(snapshotPath, 'utf8'))
+  const gitMetadata = getGitMetadata()
+
   await mkdir(topTabsDir, { recursive: true })
   await mkdir(profileTabsDir, { recursive: true })
 
-  const snapshot = JSON.parse(await readFile(snapshotPath, 'utf8'))
-  const gitMetadata = getGitMetadata()
-  const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-profile-baseline-'))
-  const app = await electron.launch({
-    args: ['.'],
-    cwd: desktopDir,
-    env: {
-      ...process.env,
-      UNEMPLOYED_ENABLE_TEST_API: '1',
-      UNEMPLOYED_USER_DATA_DIR: userDataDirectory
-    }
-  })
+  let userDataDirectory = null
+  let app = null
 
   const report = {
     capturedAt: new Date().toISOString(),
@@ -255,6 +291,17 @@ async function captureProfileBaseline() {
   }
 
   try {
+    userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-profile-baseline-'))
+    app = await electron.launch({
+      args: ['.'],
+      cwd: desktopDir,
+      env: {
+        ...process.env,
+        UNEMPLOYED_ENABLE_TEST_API: '1',
+        UNEMPLOYED_USER_DATA_DIR: userDataDirectory
+      }
+    })
+
     const page = await app.firstWindow()
 
     await page.waitForLoadState('domcontentloaded')
@@ -275,14 +322,14 @@ async function captureProfileBaseline() {
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByRole('button', { name: /^Profile$/ }).click()
+    await clickNavigationControl(page, /^Profile$/)
     await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 10000 })
-    await page.getByRole('tab', { name: 'Resume' }).click()
+    await clickNavigationControl(page, 'Resume')
     await ensureLocatorText(page, 'Current snapshot')
     await ensureLocatorText(page, snapshot.profile.fullName)
 
     for (const screen of topLevelScreens) {
-      await page.getByRole('button', { name: screen.buttonName }).click()
+      await clickNavigationControl(page, screen.buttonName)
       await page.getByRole('heading', { name: screen.heading }).waitFor({ timeout: 10000 })
 
       if (screen.beforeCapture) {
@@ -311,11 +358,11 @@ async function captureProfileBaseline() {
       }
     }
 
-    await page.getByRole('button', { name: /^Profile$/ }).click()
+    await clickNavigationControl(page, /^Profile$/)
     await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 10000 })
 
     for (const profileTab of profileTabs) {
-      await page.getByRole('tab', { name: profileTab.label }).click()
+      await clickNavigationControl(page, profileTab.label)
       await ensureLocatorText(page, profileTab.readyText)
       await setScrollAreaOffset(page, 0)
       await page.waitForTimeout(120)
@@ -343,8 +390,13 @@ async function captureProfileBaseline() {
     await writeFile(path.join(outputDir, 'capture-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
     process.stdout.write(`Saved profile baseline captures to ${outputDir}\n`)
   } finally {
-    await app.close()
-    await rm(userDataDirectory, { recursive: true, force: true })
+    if (app) {
+      await app.close()
+    }
+
+    if (userDataDirectory) {
+      await rm(userDataDirectory, { recursive: true, force: true })
+    }
   }
 }
 

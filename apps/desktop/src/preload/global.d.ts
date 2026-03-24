@@ -22,6 +22,10 @@ declare global {
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
         openBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>
         saveProfile: (profile: CandidateProfile) => Promise<JobFinderWorkspaceSnapshot>
+        saveWorkspaceInputs: (
+          profile: CandidateProfile,
+          searchPreferences: JobSearchPreferences
+        ) => Promise<JobFinderWorkspaceSnapshot>
         analyzeProfileFromResume: () => Promise<JobFinderWorkspaceSnapshot>
         saveSearchPreferences: (searchPreferences: JobSearchPreferences) => Promise<JobFinderWorkspaceSnapshot>
         saveSettings: (settings: JobFinderSettings) => Promise<JobFinderWorkspaceSnapshot>
@@ -41,4 +45,3 @@ declare global {
 }
 
 export {}
-

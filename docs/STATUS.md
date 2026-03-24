@@ -97,6 +97,7 @@ Job Finder agent-first foundation with SQLite persistence, resume-text extractio
 - Reworked the Discovery left rail into one contained control surface with an integrated footer action, widened the discovery left column at desktop widths, and retuned the experience-card/input contrast so repeatable Profile records read as darker canvases with clearly elevated graphite fields instead of nearly identical dark fills
 - Migrated all arbitrary Tailwind values (rounded, text, tracking, gap) to CSS custom properties defined in `globals.css` for consistent design tokens across the desktop app, and replaced all hardcoded hex colors with semantic CSS variables
 - Added frontend best practices documentation to `apps/desktop/AGENTS.md` covering CSS custom properties usage, import path conventions, component architecture, file organization, TypeScript standards, styling patterns, accessibility requirements, and performance guidelines
+- Hardened the post-polish follow-up pass by making combined profile-plus-preferences saves atomic, preserving existing profile/search data until imported resume analysis succeeds, normalizing legacy `workMode` string values at the contracts/database boundary, and tightening accessibility around selection controls, list editors, and review/applications panels
 
 ## Active Work
 

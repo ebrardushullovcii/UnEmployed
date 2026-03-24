@@ -3,6 +3,7 @@ import {
   CandidateProfileSchema,
   JobFinderJobActionInputSchema,
   JobFinderSettingsSchema,
+  SaveJobFinderWorkspaceInputSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema
 } from '@unemployed/contracts'
@@ -33,6 +34,14 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     const profile = CandidateProfileSchema.parse(payload)
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
     const snapshot = await jobFinderWorkspaceService.saveProfile(profile)
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  })
+
+  ipcMain.handle('job-finder:save-workspace-inputs', async (_event, payload: unknown) => {
+    const { profile, searchPreferences } = SaveJobFinderWorkspaceInputSchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const snapshot = await jobFinderWorkspaceService.saveProfileAndSearchPreferences(profile, searchPreferences)
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   })

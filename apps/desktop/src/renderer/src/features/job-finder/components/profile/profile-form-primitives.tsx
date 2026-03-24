@@ -15,7 +15,7 @@ export const profileTextareaDefaultClassName = `${profileTextareaClassName} min-
 export const profileTextareaTallClassName = `${profileTextareaClassName} min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]`
 
 export const profileSelectTriggerClassName =
-  '!h-11 rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[var(--field)] px-[0.82rem] py-0 text-[var(--text-field)] normal-case leading-none tracking-normal text-foreground data-[placeholder]:text-muted-foreground focus-visible:border-[rgba(235,233,225,0.35)] focus-visible:bg-[var(--field-strong)]'
+  'h-11! rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[var(--field)] px-[0.82rem] py-0 text-[var(--text-field)] normal-case leading-none tracking-normal text-foreground data-[placeholder]:text-muted-foreground focus-visible:border-[rgba(235,233,225,0.35)] focus-visible:bg-[var(--field-strong)]'
 
 export function ProfileInput(props: React.ComponentProps<typeof Input>) {
   const { className, ...rest } = props

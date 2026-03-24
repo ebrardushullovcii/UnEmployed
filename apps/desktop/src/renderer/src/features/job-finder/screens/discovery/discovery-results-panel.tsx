@@ -41,9 +41,10 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {browserSession.status === 'ready' && jobs.length > 0 ? (
-        <div className="grid content-start gap-3 pr-1">
+        <div aria-label="Saved job results" className="grid content-start gap-3 pr-1" role="listbox">
           {jobs.map((job) => (
             <button
+              aria-selected={selectedJob?.id === job.id}
               key={job.id}
               className={
                 selectedJob?.id === job.id
@@ -51,6 +52,7 @@ export function DiscoveryResultsPanel({
                   : 'grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-transparent p-5 text-left transition-colors hover:bg-[var(--surface-panel-raised)]'
               }
               onClick={() => onSelectJob(job.id)}
+              role="option"
               type="button"
             >
               <div className="flex items-start justify-between gap-3">

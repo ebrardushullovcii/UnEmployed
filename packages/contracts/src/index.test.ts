@@ -143,6 +143,7 @@ describe('contracts', () => {
     })
 
     expect(discovery.jobs[0]?.easyApplyEligible).toBe(true)
+    expect(discovery.jobs[0]?.workMode).toEqual(['remote'])
     expect(attempt.checkpoints[0]?.state).toBe('submitted')
   })
 
@@ -398,6 +399,8 @@ describe('contracts', () => {
     })
 
     expect(workspace.discoveryJobs).toHaveLength(1)
+    expect(workspace.profile.experiences[0]?.workMode).toEqual(['hybrid'])
+    expect(workspace.discoveryJobs[0]?.workMode).toEqual(['remote'])
     expect(workspace.reviewQueue[0]?.assetStatus).toBe('ready')
     expect(workspace.applicationAttempts[0]?.state).toBe('submitted')
   })

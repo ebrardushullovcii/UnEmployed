@@ -39,6 +39,11 @@ const desktopApi = {
       ipcRenderer.invoke('job-finder:open-browser-session') as Promise<JobFinderWorkspaceSnapshot>,
     saveProfile: (profile: CandidateProfile) =>
       ipcRenderer.invoke('job-finder:save-profile', profile) as Promise<JobFinderWorkspaceSnapshot>,
+    saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) =>
+      ipcRenderer.invoke('job-finder:save-workspace-inputs', {
+        profile,
+        searchPreferences
+      }) as Promise<JobFinderWorkspaceSnapshot>,
     analyzeProfileFromResume: () =>
       ipcRenderer.invoke('job-finder:analyze-profile-from-resume') as Promise<JobFinderWorkspaceSnapshot>,
     saveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
@@ -74,4 +79,3 @@ const desktopApi = {
 }
 
 contextBridge.exposeInMainWorld('unemployed', desktopApi)
-

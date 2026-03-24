@@ -12,6 +12,7 @@ interface ProfileCoreTabProps {
 
 export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
   const { register, setValue, watch } = profileForm
+  const listFieldOptions = { shouldDirty: true, shouldTouch: true, shouldValidate: true } as const
 
   return (
     <div className="grid gap-6">
@@ -133,13 +134,13 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <ProfileListEditor
               label="General skills"
-              onChange={(values) => setValue('profileSkills', joinListInput(values))}
+              onChange={(values) => setValue('profileSkills', joinListInput(values), listFieldOptions)}
               placeholder="Add a skill"
               values={parseListInput(watch('profileSkills'))}
             />
             <ProfileListEditor
               label="Highlighted skills for target roles"
-              onChange={(values) => setValue('skillGroups.highlightedSkills', joinListInput(values))}
+              onChange={(values) => setValue('skillGroups.highlightedSkills', joinListInput(values), listFieldOptions)}
               placeholder="Add a highlighted skill"
               values={parseListInput(watch('skillGroups.highlightedSkills'))}
             />
@@ -151,25 +152,25 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <ProfileListEditor
               label="Core skills"
-              onChange={(values) => setValue('skillGroups.coreSkills', joinListInput(values))}
+              onChange={(values) => setValue('skillGroups.coreSkills', joinListInput(values), listFieldOptions)}
               placeholder="Add a core skill"
               values={parseListInput(watch('skillGroups.coreSkills'))}
             />
             <ProfileListEditor
               label="Tools / platforms"
-              onChange={(values) => setValue('skillGroups.tools', joinListInput(values))}
+              onChange={(values) => setValue('skillGroups.tools', joinListInput(values), listFieldOptions)}
               placeholder="Add a tool"
               values={parseListInput(watch('skillGroups.tools'))}
             />
             <ProfileListEditor
               label="Languages / frameworks"
-              onChange={(values) => setValue('skillGroups.languagesAndFrameworks', joinListInput(values))}
+              onChange={(values) => setValue('skillGroups.languagesAndFrameworks', joinListInput(values), listFieldOptions)}
               placeholder="Add a language or framework"
               values={parseListInput(watch('skillGroups.languagesAndFrameworks'))}
             />
             <ProfileListEditor
               label="Soft skills"
-              onChange={(values) => setValue('skillGroups.softSkills', joinListInput(values))}
+              onChange={(values) => setValue('skillGroups.softSkills', joinListInput(values), listFieldOptions)}
               placeholder="Add a soft skill"
               values={parseListInput(watch('skillGroups.softSkills'))}
             />

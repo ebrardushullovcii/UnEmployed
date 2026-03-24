@@ -301,10 +301,7 @@ export function JobFinderPage() {
       ),
     onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) =>
       void runAction(
-        async () => {
-          await actions.saveProfile(profile)
-          await actions.saveSearchPreferences(searchPreferences)
-        },
+        () => actions.saveWorkspaceInputs(profile, searchPreferences),
         () => undefined,
         null
       ),

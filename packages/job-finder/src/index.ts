@@ -847,6 +847,10 @@ export interface JobFinderWorkspaceService {
   openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>
   resetWorkspace(seed: JobFinderRepositorySeed): Promise<JobFinderWorkspaceSnapshot>
   saveProfile(profile: CandidateProfile): Promise<JobFinderWorkspaceSnapshot>
+  saveProfileAndSearchPreferences(
+    profile: CandidateProfile,
+    searchPreferences: JobSearchPreferences
+  ): Promise<JobFinderWorkspaceSnapshot>
   analyzeProfileFromResume(): Promise<JobFinderWorkspaceSnapshot>
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<JobFinderWorkspaceSnapshot>
   saveSettings(settings: JobFinderSettings): Promise<JobFinderWorkspaceSnapshot>
@@ -964,6 +968,16 @@ export function createJobFinderWorkspaceService(
       await repository.saveProfile(normalizeProfileBeforeSave(currentProfile, CandidateProfileSchema.parse(profile)))
       return getWorkspaceSnapshot()
     },
+    async saveProfileAndSearchPreferences(profile, searchPreferences) {
+      const currentProfile = await repository.getProfile()
+
+      await repository.saveProfileAndSearchPreferences(
+        normalizeProfileBeforeSave(currentProfile, CandidateProfileSchema.parse(profile)),
+        JobSearchPreferencesSchema.parse(searchPreferences)
+      )
+
+      return getWorkspaceSnapshot()
+    },
     async analyzeProfileFromResume() {
       const [profile, searchPreferences] = await Promise.all([
         repository.getProfile(),
@@ -993,10 +1007,7 @@ export function createJobFinderWorkspaceService(
       })
       const merged = mergeResumeExtractionIntoWorkspace(profile, searchPreferences, extraction)
 
-      await Promise.all([
-        repository.saveProfile(merged.profile),
-        repository.saveSearchPreferences(merged.searchPreferences)
-      ])
+      await repository.saveProfileAndSearchPreferences(merged.profile, merged.searchPreferences)
 
       return getWorkspaceSnapshot()
     },

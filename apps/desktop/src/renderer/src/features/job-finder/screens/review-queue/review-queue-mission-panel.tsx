@@ -4,7 +4,7 @@ import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
-import { formatStatusLabel, getSessionTone } from '../../lib/job-finder-utils'
+import { formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
 
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
@@ -29,6 +29,8 @@ export function ReviewQueueMissionPanel({
 }: ReviewQueueMissionPanelProps) {
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
   const isGenerating = selectedItem?.assetStatus === 'generating' || selectedItem?.assetStatus === 'queued'
+  const tailoringStateLabel = selectedItem ? formatStatusLabel(selectedItem.assetStatus) : 'No asset'
+  const tailoringStateTone = selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'
 
   return (
     <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] px-6 py-6 grid content-start gap-6 min-w-0">
@@ -49,7 +51,7 @@ export function ReviewQueueMissionPanel({
       <div className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-4">
         <div className="mb-2 flex items-center justify-between">
           <span className="font-mono text-[9px] uppercase tracking-[var(--tracking-heading)] text-muted-foreground">Tailoring state</span>
-          <StatusBadge tone={getSessionTone(browserSession)}>{formatStatusLabel(browserSession.status)}</StatusBadge>
+          <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
         </div>
         <div className="h-2 w-full rounded-full bg-[rgba(0,0,0,0.4)]">
           <div className="h-full bg-primary shadow-[0_0_8px_rgba(198,198,199,0.3)]" style={{ width: `${selectedItem?.progressPercent ?? 0}%` }} />
@@ -90,11 +92,11 @@ export function ReviewQueueMissionPanel({
               {needsGeneration ? 'Generate tailored resume' : 'Approve Easy Apply'}
             </Button>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button className="h-11 w-full" variant="secondary" disabled={busy} type="button"><Pencil className="size-4" />Edit asset</Button>
-              <Button className="h-11 w-full" variant="secondary" disabled={busy} type="button"><View className="size-4" />View source</Button>
+              <Button className="h-11 w-full" disabled type="button" variant="secondary"><Pencil className="size-4" />Edit asset</Button>
+              <Button className="h-11 w-full" disabled type="button" variant="secondary"><View className="size-4" />View source</Button>
             </div>
           </div>
-          <Button className="mt-auto h-11 w-full" variant="destructive" disabled={busy} type="button"><Trash2 className="size-4" />Purge job application</Button>
+          <Button className="mt-auto h-11 w-full" disabled type="button" variant="destructive"><Trash2 className="size-4" />Purge job application</Button>
         </>
       ) : (
         <EmptyState
