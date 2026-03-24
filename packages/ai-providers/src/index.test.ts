@@ -12,14 +12,22 @@ function createProfile(): CandidateProfile {
     lastName: 'Vanguard',
     middleName: null,
     fullName: 'Alex Vanguard',
+    preferredDisplayName: null,
     headline: 'Workflow engineer',
     summary: 'Builds reliable automation.',
     currentLocation: 'London, UK',
+    currentCity: null,
+    currentRegion: null,
+    currentCountry: null,
+    timeZone: null,
     yearsExperience: 8,
     email: null,
+    secondaryEmail: null,
     phone: null,
     portfolioUrl: null,
     linkedinUrl: null,
+    githubUrl: null,
+    personalWebsiteUrl: null,
     baseResume: {
       id: 'resume_1',
       fileName: 'resume.txt',
@@ -33,19 +41,58 @@ function createProfile(): CandidateProfile {
       analysisProviderLabel: 'Built-in deterministic agent fallback',
       analysisWarnings: []
     },
+    workEligibility: {
+      authorizedWorkCountries: [],
+      requiresVisaSponsorship: null,
+      willingToRelocate: null,
+      preferredRelocationRegions: [],
+      willingToTravel: null,
+      remoteEligible: null,
+      noticePeriodDays: null,
+      availableStartDate: null,
+      securityClearance: null
+    },
+    professionalSummary: {
+      shortValueProposition: null,
+      fullSummary: null,
+      careerThemes: [],
+      leadershipSummary: null,
+      domainFocusSummary: null,
+      strengths: []
+    },
+    skillGroups: {
+      coreSkills: [],
+      tools: [],
+      languagesAndFrameworks: [],
+      softSkills: [],
+      highlightedSkills: []
+    },
     targetRoles: ['Staff Frontend Engineer'],
     locations: ['London, UK'],
-    skills: ['React', 'TypeScript']
+    skills: ['React', 'TypeScript'],
+    experiences: [],
+    education: [],
+    certifications: [],
+    links: [],
+    projects: [],
+    spokenLanguages: []
   }
 }
 
 function createPreferences(): JobSearchPreferences {
   return {
     targetRoles: ['Staff Frontend Engineer'],
+    jobFamilies: [],
     locations: ['London, UK'],
+    excludedLocations: [],
     workModes: ['remote'],
     seniorityLevels: ['Staff'],
+    targetIndustries: [],
+    targetCompanyStages: [],
+    employmentTypes: [],
     minimumSalaryUsd: 150000,
+    targetSalaryUsd: null,
+    salaryCurrency: 'USD',
     approvalMode: 'review_before_submit' as const,
     tailoringMode: 'balanced' as const,
     companyBlacklist: [],
@@ -96,6 +143,10 @@ describe('ai providers', () => {
     expect(result.analysisProviderKind).toBe('deterministic')
     expect(result.notes).toEqual([])
     expect(result.skills).toContain('React')
+    expect(result.skillGroups.languagesAndFrameworks).toContain('React')
+    expect(result.professionalSummary.fullSummary).toContain('A passionate software developer')
+    expect(result.experiences[0]?.title).toBe('React/Next.js Developer')
+    expect(result.links[0]?.kind).toBe('linkedin')
   })
 
   test('handles alternate summary and skills sections without seeded leakage', async () => {
@@ -120,8 +171,96 @@ describe('ai providers', () => {
     expect(result.currentLocation).toBe('Toronto, Canada')
     expect(result.summary).toContain('Hands-on product engineer focused on polished frontend systems')
     expect(result.skills).toEqual(['React', 'TypeScript', 'Design Systems', 'Accessibility', 'Product Strategy'])
+    expect(result.skillGroups.coreSkills).toContain('React')
     expect(result.targetRoles).toEqual(['Lead Product Engineer'])
     expect(result.analysisProviderKind).toBe('deterministic')
+  })
+
+  test('parses real imported resume details into structured sections', async () => {
+    const client = createDeterministicJobFinderAiClient()
+
+    const result = await client.extractProfileFromResume({
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      resumeText: [
+        'Ebrar Dushullovci',
+        'Date of birth: 04/07/1998 Nationality: Kosovar Phone: (+383) 44283970 (Mobile) Email:',
+        'ebrar.dushullovci@gmail.com Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/',
+        'Address: Prishtina, Kosovo (Home)',
+        'ABOUT MYSELF',
+        'A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and Azure.',
+        'SKILLS',
+        'Frameworks',
+        'React, Node.js, Next.js, Express.js, React Native ASP.NET, .Net Core, .Net Framework, MVC, Entity Framework',
+        'Programming Languages',
+        'Javascript, TypeScript C# SQL Python',
+        'Databases',
+        'SQL Server MySQL PostgreSQL MongoDB',
+        'Tools',
+        'Docker Git Azure/AWS WebSockets Postman Jira Figma Selenium Cypress',
+        'Security & Authentication',
+        'OAuth JWT',
+        'Soft Skills',
+        'Leadership Communication Problem-solving Adaptability',
+        'WORK EXPERIENCE',
+        ' AUTOMATEDPROS – PRISHTINA, KOSOVO',
+        'REACT/NEXT.JS DEVELOPER – 07/2023 – CURRENT',
+        'After deciding to return to my passion for development, I transitioned back into a hands-on developer role,',
+        'contributing to two key projects.',
+        '• Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets.',
+        "BACHELOR'S DEGREE, COMPUTER SCIENCE Kolegji Riinvest (Riinvest College)",
+        'Mother tongue(s): ALBANIAN',
+        'ENGLISH C2 C2 C2 C2 C2'
+      ].join('\n')
+    })
+
+    expect(result.skillGroups.tools).toEqual(expect.arrayContaining(['SQL Server', 'MySQL', 'PostgreSQL', 'MongoDB', 'Docker']))
+    expect(result.skillGroups.softSkills).toEqual(
+      expect.arrayContaining(['Leadership', 'Communication', 'Problem-solving', 'Adaptability'])
+    )
+    expect(result.experiences[0]).toMatchObject({
+      companyName: 'AUTOMATEDPROS',
+      location: 'Prishtina, Kosovo',
+      title: 'React/Next.js Developer',
+      startDate: '07/2023',
+      isCurrent: true
+    })
+    expect(result.experiences[0]?.achievements).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Engineered a real-time restaurant order platform')
+      ])
+    )
+    expect(result.experiences[0]?.skills).toEqual(
+      expect.arrayContaining(['React', 'Next.js', 'TailwindCSS', 'WebSockets'])
+    )
+    expect(result.education[0]?.schoolName).toContain('Kolegji Riinvest')
+    expect(result.education[0]?.degree).toBe("BACHELOR'S DEGREE")
+    expect(result.timeZone).toBe('Europe/Belgrade')
+    expect(result.salaryCurrency).toBe('EUR')
+    expect(result.spokenLanguages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ language: 'Albanian', proficiency: 'Native' }),
+        expect.objectContaining({ language: 'English', proficiency: 'C2' })
+      ])
+    )
+  })
+
+  test('prefers top-level personal sites over arbitrary non-platform links', async () => {
+    const client = createDeterministicJobFinderAiClient()
+
+    const result = await client.extractProfileFromResume({
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      resumeText: [
+        'Jamie Rivers',
+        'https://acme.com/team/jamie-rivers',
+        'https://github.com/jamie-rivers',
+        'https://www.linkedin.com/in/jamie-rivers',
+        'https://jamierivers.dev'
+      ].join('\n')
+    })
+
+    expect(result.personalWebsiteUrl).toBe('https://jamierivers.dev')
   })
 
   test('falls back to deterministic mode without an API key', () => {
@@ -132,7 +271,7 @@ describe('ai providers', () => {
     expect(client.getStatus().kind).toBe('deterministic')
   })
 
-  test('configures the FelidaeAI provider when the API key is present', () => {
+  test('configures the AI provider when the API key is present', () => {
     const client = createJobFinderAiClientFromEnvironment({
       UNEMPLOYED_AI_API_KEY: 'test-key'
     })
@@ -140,7 +279,7 @@ describe('ai providers', () => {
     expect(client.getStatus()).toMatchObject({
       kind: 'openai_compatible',
       model: 'FelidaeAI-Pro-2.5',
-      label: 'FelidaeAI job agent'
+      label: 'AI resume agent'
     })
   })
 })

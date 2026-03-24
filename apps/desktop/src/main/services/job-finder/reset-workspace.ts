@@ -1,6 +1,6 @@
 import { rm } from 'node:fs/promises'
 import { JobFinderWorkspaceSnapshotSchema } from '@unemployed/contracts'
-import { createFreshJobFinderRepositorySeed } from '../../adapters/job-finder-seed'
+import { createEmptyJobFinderRepositoryState } from '../../adapters/job-finder-initial-state'
 import { getJobFinderDocumentsDirectory, getLinkedInBrowserProfileDirectory } from './paths'
 import { getJobFinderWorkspaceService } from './workspace-service'
 
@@ -12,7 +12,7 @@ export async function resetJobFinderWorkspace() {
     rm(getLinkedInBrowserProfileDirectory(), { recursive: true, force: true })
   ])
 
-  const snapshot = await jobFinderWorkspaceService.resetWorkspace(createFreshJobFinderRepositorySeed())
+  const snapshot = await jobFinderWorkspaceService.resetWorkspace(createEmptyJobFinderRepositoryState())
 
   return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
 }

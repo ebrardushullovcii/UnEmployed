@@ -22,10 +22,11 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 ## Current Implementation Snapshot
 
 - Typed Job Finder contracts now cover profile/contact fields, stored resume-text extraction state, saved jobs, tailored assets, browser session state, application records, agent-provider status, and the desktop workspace snapshot
-- The desktop app renders `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` surfaces with agent status visible in the workflow
+- The desktop app renders `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` surfaces, with the Profile screen now centered on top-of-page resume intake and simpler add/remove editors for list-style candidate data
+- Desktop capture tooling now includes a profile-baseline flow that can hydrate a saved imported-profile snapshot and capture top-level shell tabs plus scrolled screenshots of every Profile subtab before renderer refactors land
 - Job Finder now supports an OpenAI-compatible provider seam for resume-text profile extraction, job-fit assessment, and resume tailoring, with deterministic fallbacks kept in place for tests and offline use
 - Browser discovery can run either through the deterministic catalog seed or an opt-in dedicated Chrome-profile LinkedIn browser agent backed by a user-authenticated local profile
-- Desktop actions can import `txt`, `md`, `pdf`, and `docx` resumes, extract resume text for the profile agent, analyze that text into structured candidate details, render generated resume text into a fixed template set, and create tracked apply attempts through typed preload flows
+- Desktop actions can import `txt`, `md`, `pdf`, and `docx` resumes, reset stale profile/search state before re-analysis, extract resume text for the profile agent, analyze that text into structured candidate details including grouped skills and repeatable records, supplement partial model output with deterministic cleanup, render generated resume text into a fixed template set, and create tracked apply attempts through typed preload flows
 - The next profile-model redesign is documented in `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`, now refined against current LinkedIn, Greenhouse, Workable, and Ashby patterns with a proposed split between candidate identity, eligibility, background, job-search preferences, and profile artifacts so the UI can separate ATS-critical facts from AI-derived resume content
 
 ## Agent Runtime Configuration
@@ -51,4 +52,3 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Browser control from `packages/browser-runtime`
 - Storage from `packages/db`
 - Shared retrieval from `packages/knowledge-base`
-

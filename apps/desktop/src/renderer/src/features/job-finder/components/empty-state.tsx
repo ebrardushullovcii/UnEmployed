@@ -1,19 +1,24 @@
-import { Card, CardContent } from '@renderer/components/ui/card'
+import { cn } from '@renderer/lib/utils'
 
 interface EmptyStateProps {
+  className?: string
   description: string
   title: string
 }
 
-export function EmptyState({ description, title }: EmptyStateProps) {
+export function EmptyState({ className, description, title }: EmptyStateProps) {
   return (
-    <Card className="min-h-[12rem] border-border/30 bg-card/80">
-      <CardContent className="grid min-h-[12rem] place-items-center text-center">
-        <div className="grid max-w-[28rem] gap-3">
-          <h2 className="font-display text-[1.32rem] font-bold uppercase tracking-[0.02em] text-foreground">{title}</h2>
-          <p className="text-sm leading-7 text-foreground-soft">{description}</p>
-        </div>
-      </CardContent>
-    </Card>
+    <div
+      className={cn(
+        'grid min-h-[14rem] w-full place-items-center overflow-hidden rounded-[var(--radius-panel)] border border-dashed border-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.012))] px-6 py-8 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]',
+        className
+      )}
+    >
+      <div className="grid max-w-[34rem] gap-3">
+        <span className="text-[0.62rem] uppercase tracking-[var(--tracking-caps)] text-muted-foreground">Awaiting state</span>
+        <h2 className="font-display text-[1.48rem] font-semibold tracking-[-0.03em] text-[var(--text-headline)]">{title}</h2>
+        <p className="text-[0.96rem] leading-7 text-foreground-soft">{description}</p>
+      </div>
+    </div>
   )
 }

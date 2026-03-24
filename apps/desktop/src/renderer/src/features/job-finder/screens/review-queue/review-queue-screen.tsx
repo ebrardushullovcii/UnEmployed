@@ -30,14 +30,14 @@ export function ReviewQueueScreen(props: {
   } = props
 
   return (
-    <section className="grid gap-[1.65rem]">
+    <section className="grid gap-[var(--gap-section)]">
       <PageHeader
         eyebrow="Review Queue"
-        title="Review Queue"
+        title="Tailored asset review"
         description="A supervised queue for generated resume variants before the first supported Easy Apply automation path begins."
       />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem]">
+      <div className="grid items-stretch gap-4 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem]">
         <ReviewQueueListPanel onSelectItem={onSelectItem} queue={queue} selectedItem={selectedItem} />
         <ReviewQueuePreviewPanel queue={queue} selectedAsset={selectedAsset} selectedItem={selectedItem} selectedJob={selectedJob} />
         <ReviewQueueMissionPanel

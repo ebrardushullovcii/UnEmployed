@@ -20,6 +20,7 @@ export interface JobFinderShellActions {
   runDiscovery: () => Promise<void>
   importResume: () => Promise<void>
   saveProfile: (profile: CandidateProfile) => Promise<void>
+  saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => Promise<void>
   saveSearchPreferences: (searchPreferences: JobSearchPreferences) => Promise<void>
   saveSettings: (settings: JobFinderSettings) => Promise<void>
   queueJobForReview: (jobId: string) => Promise<void>
@@ -41,7 +42,7 @@ export type ExperienceFormEntry = {
   title: string
   employmentType: string
   location: string
-  workMode: WorkMode | ''
+  workMode: WorkMode[]
   startDate: string
   endDate: string
   isCurrent: boolean

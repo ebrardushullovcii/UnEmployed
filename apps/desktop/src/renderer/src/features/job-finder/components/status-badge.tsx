@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Badge } from '../../../components/ui/badge'
+import { Badge } from '@renderer/components/ui/badge'
 import { cn } from '@renderer/lib/utils'
 import type { BadgeTone } from '../lib/job-finder-types'
 

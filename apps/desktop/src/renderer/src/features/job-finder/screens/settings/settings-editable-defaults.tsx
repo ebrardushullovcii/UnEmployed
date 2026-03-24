@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { JobFinderSettings, ResumeTemplateDefinition } from '@unemployed/contracts'
-import { Badge } from '../../../../components/ui/badge'
-import { Button } from '../../../../components/ui/button'
-import { Field, FieldLabel } from '../../../../components/ui/field'
+import { Badge } from '@renderer/components/ui/badge'
+import { Button } from '@renderer/components/ui/button'
+import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
 import { PreferenceList } from '../../components/preference-list'
 import { ToggleField } from '../../components/toggle-field'
@@ -29,12 +29,12 @@ export function SettingsEditableDefaults({
   }, [settings])
 
   return (
-    <section className="border border-border/20 bg-card px-8 py-8 grid content-start gap-8">
+    <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] px-8 py-8 grid content-start gap-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="font-display text-sm font-bold uppercase tracking-[0.14em] text-foreground">Editable defaults</p>
+        <p className="font-display text-sm font-bold uppercase tracking-[var(--tracking-badge)] text-foreground">Editable defaults</p>
         <Badge variant="section">Persist locally</Badge>
       </div>
-      <div className="grid gap-[0.9rem] md:grid-cols-2">
+      <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
         <Field>
           <FieldLabel>Resume format</FieldLabel>
           <FormSelect
@@ -76,7 +76,6 @@ export function SettingsEditableDefaults({
         />
         <ToggleField
           checked={settingsForm.allowAutoSubmitOverride}
-          className="md:col-span-2"
           description="Allow future adapter overrides to submit automatically when the flow is fully supported."
           label="Auto-submit override"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, allowAutoSubmitOverride: checked }))}
@@ -85,8 +84,8 @@ export function SettingsEditableDefaults({
       {availableResumeTemplates.length > 0 ? (
         <PreferenceList label="Template notes" values={availableResumeTemplates.map((template) => `${template.label}: ${template.description}`)} />
       ) : null}
-      <div className="mt-4 flex items-center justify-between gap-4 border-t border-border/10 pt-6">
-        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-border/10 pt-6">
+        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[var(--tracking-heading)] text-muted-foreground">
           <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-positive" />LOCAL_CACHE: SYNCED</span>
           <span className="opacity-30">|</span>
           <span>LAST_MODIFIED: 2024.05.12_14:22</span>
@@ -95,7 +94,7 @@ export function SettingsEditableDefaults({
           Save settings
         </Button>
       </div>
-      {actionMessage ? <p className="text-[0.84rem] leading-6 text-foreground-muted">{actionMessage}</p> : null}
+      {actionMessage ? <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{actionMessage}</p> : null}
     </section>
   )
 }

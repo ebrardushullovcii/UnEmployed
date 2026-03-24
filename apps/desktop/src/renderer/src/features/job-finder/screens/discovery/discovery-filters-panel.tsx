@@ -1,9 +1,9 @@
-import { Radar, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 import type { BrowserSessionState, JobSearchPreferences } from '@unemployed/contracts'
-import { Button } from '../../../../components/ui/button'
-import { PreferenceList } from '../../components/preference-list'
+import { Chip } from '@renderer/components/ui/chip'
+import { Button } from '@renderer/components/ui/button'
 import { StatusBadge } from '../../components/status-badge'
-import { formatStatusLabel, getSessionTone } from '../../lib/job-finder-utils'
+import { getSessionTone } from '../../lib/job-finder-utils'
 
 interface DiscoveryFiltersPanelProps {
   actionMessage: string | null
@@ -22,39 +22,60 @@ export function DiscoveryFiltersPanel({
   onRefreshDiscovery,
   searchPreferences
 }: DiscoveryFiltersPanelProps) {
+  const sections = [
+    { label: 'Roles', values: searchPreferences.targetRoles, empty: 'No role targets configured yet.' },
+    { label: 'Locations', values: searchPreferences.locations, empty: 'No preferred locations configured yet.' },
+    { label: 'Work modes', values: searchPreferences.workModes, empty: 'No work modes configured yet.' }
+  ]
+
   return (
-    <section className="border border-border/20 bg-card px-4 py-4 grid content-start gap-6 min-w-0">
-      <p className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Critical Filters</p>
-      <div className="grid gap-2 border border-border/20 bg-secondary px-3 py-3">
-        <StatusBadge tone={getSessionTone(browserSession)}>{browserSession.label}</StatusBadge>
-        <p className="text-[11px] leading-6 text-muted-foreground">{browserSession.detail}</p>
-      </div>
-      <div className="grid gap-4">
-        <div className="grid gap-2">
-          <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Search string</p>
-          <div className="border-b border-border bg-background px-3 py-2 font-mono text-xs text-primary">
-            {searchPreferences.targetRoles.join(', ') || 'NO_QUERY_SET'}
-          </div>
+    <section className="grid min-h-[31rem] min-w-0 content-start gap-4 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5">
+      <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Search controls</p>
+
+      <div className="grid min-h-[26.5rem] min-w-0 overflow-hidden rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)]">
+        <div className="grid min-w-0 gap-3 border-b border-[var(--surface-panel-border)] px-4 py-4">
+          <StatusBadge tone={getSessionTone(browserSession)}>{browserSession.label}</StatusBadge>
+          <p className="max-w-[28rem] text-[0.9rem] leading-7 text-foreground-soft">{browserSession.detail}</p>
         </div>
-        <div className="grid gap-2">
-          <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Location</p>
-          <div className="border-b border-border bg-background px-3 py-2 font-mono text-xs text-foreground-soft">
-            {searchPreferences.locations.join(' / ') || 'REMOTE_GLOBAL'}
-          </div>
+
+        <div className="grid min-w-0 content-start gap-0">
+          {sections.map((section, index) => (
+            <div key={section.label} className={index === 0 ? 'min-w-0 px-4 py-4' : 'min-w-0 border-t border-[var(--surface-panel-border)] px-4 py-4'}>
+              <div className="grid min-w-0 gap-3">
+                <p className="text-[0.62rem] uppercase tracking-[var(--tracking-badge)] text-foreground-muted">{section.label}</p>
+                {section.values.length > 0 ? (
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    {section.values.map((value) => (
+                      <Chip key={`${section.label}_${value}`} className="border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] text-foreground-soft">
+                        {value}
+                      </Chip>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[0.9rem] leading-7 text-foreground-soft">{section.empty}</p>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
-        <PreferenceList compact label="Work modes" values={searchPreferences.workModes.map(formatStatusLabel)} />
+
+        <div className="mt-auto grid gap-3 border-t border-[var(--surface-panel-border)] px-4 py-4">
+          {browserSession.driver !== 'catalog_seed' ? (
+            <Button className="h-11 w-full" disabled={busy} onClick={onOpenBrowserSession} type="button" variant="secondary">
+              <Search className="size-4" />
+              Open Chrome profile
+            </Button>
+          ) : null}
+
+          <Button className="h-11 w-full" disabled={busy} onClick={onRefreshDiscovery} type="button" variant="primary">
+            Run LinkedIn discovery
+          </Button>
+
+          {actionMessage ? (
+            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{actionMessage}</p>
+          ) : null}
+        </div>
       </div>
-      {browserSession.driver !== 'catalog_seed' ? (
-        <Button className="w-full justify-center gap-2" variant="secondary" disabled={busy} onClick={onOpenBrowserSession} type="button">
-          <Search className="size-4" />
-          Open Chrome profile
-        </Button>
-      ) : null}
-      <Button className="w-full justify-center gap-2" variant="primary" disabled={busy} onClick={onRefreshDiscovery} type="button">
-        <Radar className="size-4" />
-        Start discovery op
-      </Button>
-      {actionMessage ? <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-primary">{actionMessage}</p> : null}
     </section>
   )
 }

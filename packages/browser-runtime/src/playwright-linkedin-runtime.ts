@@ -88,20 +88,25 @@ function uniqueByKey<TValue>(values: readonly TValue[], getKey: (value: TValue) 
 
 function inferWorkMode(location: string, description: string): JobPosting['workMode'] {
   const combinedText = `${location} ${description}`.toLowerCase()
+  const modes: Array<'remote' | 'hybrid' | 'onsite' | 'flexible'> = []
 
   if (combinedText.includes('hybrid')) {
-    return 'hybrid'
+    modes.push('hybrid')
   }
 
   if (combinedText.includes('onsite') || combinedText.includes('on-site') || combinedText.includes('office')) {
-    return 'onsite'
+    modes.push('onsite')
   }
 
   if (combinedText.includes('remote')) {
-    return 'remote'
+    modes.push('remote')
   }
 
-  return 'flexible'
+  if (modes.length === 0) {
+    modes.push('flexible')
+  }
+
+  return modes
 }
 
 function inferKeySkills(title: string, description: string): string[] {

@@ -31,10 +31,10 @@ export function SettingsScreen(props: {
   } = props
 
   return (
-    <section className="grid gap-[1.65rem]">
+    <section className="grid gap-[var(--gap-section)]">
       <PageHeader
         eyebrow="Settings"
-        title="Operator Config"
+        title="MVP defaults"
         description="The current slice keeps settings intentionally narrow: session persistence, resume defaults, and review safety controls."
       />
 

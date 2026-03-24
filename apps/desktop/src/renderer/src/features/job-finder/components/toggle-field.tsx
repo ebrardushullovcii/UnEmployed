@@ -1,5 +1,7 @@
+import { useId } from 'react'
 import { Switch } from '@renderer/components/ui/switch'
 import { cn } from '@renderer/lib/utils'
+import { FieldLabel } from '@renderer/components/ui/field'
 
 interface ToggleFieldProps {
   checked: boolean
@@ -16,18 +18,31 @@ export function ToggleField({
   label,
   onCheckedChange
 }: ToggleFieldProps) {
+  const switchId = useId()
+  const descriptionId = useId()
+
   return (
-    <label
+    <div
       className={cn(
-        'flex items-center justify-between gap-4 border border-border/20 bg-secondary px-4 py-4',
+        'grid min-w-0 content-start gap-[var(--gap-field)] h-full rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-4',
         className
       )}
     >
-      <div className="grid gap-1.5">
-        <span className="font-display text-[11px] font-bold uppercase tracking-[0.12em] text-foreground">{label}</span>
-        <span className="text-[10px] leading-5 text-muted-foreground">{description}</span>
+      <FieldLabel htmlFor={switchId}>{label}</FieldLabel>
+      <div className="flex min-w-0 flex-1 items-start justify-between gap-4">
+        <span 
+          id={descriptionId}
+          className="min-w-0 text-[var(--text-small)] leading-5 text-muted-foreground"
+        >
+          {description}
+        </span>
+        <Switch 
+          id={switchId}
+          checked={checked} 
+          onCheckedChange={onCheckedChange}
+          aria-describedby={descriptionId}
+        />
       </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
-    </label>
+    </div>
   )
 }

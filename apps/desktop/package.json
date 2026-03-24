@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "ui:capture": "pnpm build && node ./scripts/capture-ui.mjs",
-    "ui:resume-import": "pnpm build && node ./scripts/capture-resume-import.mjs"
+    "ui:resume-import": "pnpm build && node ./scripts/capture-resume-import.mjs",
+    "ui:profile-baseline": "pnpm build && node ./scripts/capture-profile-baseline.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

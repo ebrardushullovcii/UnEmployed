@@ -2,12 +2,12 @@ import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../../lib/cn'
 
-const panelVariants = cva('rounded-[0.42rem] border border-border-subtle bg-[rgba(17,17,17,0.9)]', {
+const panelVariants = cva('rounded-[var(--radius-field)] border border-border-subtle bg-[rgba(17,17,17,0.9)]', {
   variants: {
     spacing: {
       default: null,
       shell: 'grid content-start gap-4 p-4',
-      spacious: 'grid content-start gap-[1.2rem] p-6'
+      spacious: 'grid content-start gap-[var(--gap-card)] p-6'
     },
     tone: {
       default: null,

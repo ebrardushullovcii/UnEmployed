@@ -50,6 +50,24 @@ export const workModeValues = ['remote', 'hybrid', 'onsite', 'flexible'] as cons
 export const WorkModeSchema = z.enum(workModeValues)
 export type WorkMode = z.infer<typeof WorkModeSchema>
 
+export function normalizeWorkModeList(value: unknown): unknown {
+  if (value == null) {
+    return []
+  }
+
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    return value.trim() ? [value] : []
+  }
+
+  return value
+}
+
+export const WorkModeListSchema = z.preprocess(normalizeWorkModeList, z.array(WorkModeSchema).default([]))
+
 export const jobApplyPathValues = ['easy_apply', 'external_redirect', 'unknown'] as const
 
 export const JobApplyPathSchema = z.enum(jobApplyPathValues)
@@ -145,7 +163,7 @@ export const CandidateExperienceSchema = z.object({
   title: NonEmptyStringSchema.nullable().default(null),
   employmentType: NonEmptyStringSchema.nullable().default(null),
   location: NonEmptyStringSchema.nullable().default(null),
-  workMode: WorkModeSchema.nullable().default(null),
+  workMode: WorkModeListSchema,
   startDate: NonEmptyStringSchema.nullable().default(null),
   endDate: NonEmptyStringSchema.nullable().default(null),
   isCurrent: z.boolean().default(false),
@@ -302,7 +320,7 @@ export const JobSearchPreferencesSchema = z.object({
   jobFamilies: z.array(NonEmptyStringSchema).default([]),
   locations: z.array(NonEmptyStringSchema).default([]),
   excludedLocations: z.array(NonEmptyStringSchema).default([]),
-  workModes: z.array(WorkModeSchema).default([]),
+  workModes: WorkModeListSchema,
   seniorityLevels: z.array(NonEmptyStringSchema).default([]),
   targetIndustries: z.array(NonEmptyStringSchema).default([]),
   targetCompanyStages: z.array(NonEmptyStringSchema).default([]),
@@ -332,7 +350,7 @@ export const JobPostingSchema = z.object({
   title: NonEmptyStringSchema,
   company: NonEmptyStringSchema,
   location: NonEmptyStringSchema,
-  workMode: WorkModeSchema,
+  workMode: WorkModeListSchema,
   applyPath: JobApplyPathSchema,
   easyApplyEligible: z.boolean(),
   postedAt: IsoDateTimeSchema,
@@ -536,6 +554,13 @@ export type SaveCandidateProfileInput = z.infer<typeof SaveCandidateProfileInput
 
 export const SaveJobSearchPreferencesInputSchema = JobSearchPreferencesSchema
 export type SaveJobSearchPreferencesInput = z.infer<typeof SaveJobSearchPreferencesInputSchema>
+
+export const SaveJobFinderWorkspaceInputSchema = z.object({
+  profile: CandidateProfileSchema,
+  searchPreferences: JobSearchPreferencesSchema,
+  settings: JobFinderSettingsSchema.optional()
+})
+export type SaveJobFinderWorkspaceInput = z.infer<typeof SaveJobFinderWorkspaceInputSchema>
 
 export const SaveJobFinderSettingsInputSchema = JobFinderSettingsSchema
 export type SaveJobFinderSettingsInput = z.infer<typeof SaveJobFinderSettingsInputSchema>

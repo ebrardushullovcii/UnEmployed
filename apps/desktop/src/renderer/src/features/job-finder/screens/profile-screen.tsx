@@ -1,14 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
-import type { AgentProviderStatus, CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
-import { Badge } from '../../../components/ui/badge'
-import { Button } from '../../../components/ui/button'
-import { cn } from '../../../lib/cn'
-import { PageHeader } from '../components/page-header'
+import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
+import { Button } from '@renderer/components/ui/button'
+import { ProfileBackgroundTab } from '../components/profile/profile-background-tab'
 import { ProfileCoreTab } from '../components/profile/profile-core-tab'
-import { ProfileHistoryTab } from '../components/profile/profile-history-tab'
+import { ProfileExperienceTab } from '../components/profile/profile-experience-tab'
 import { ProfileOverviewTab } from '../components/profile/profile-overview-tab'
 import { ProfilePreferencesTab } from '../components/profile/profile-preferences-tab'
+import { PageHeader } from '../components/page-header'
 import {
   buildProfilePayload,
   buildSearchPreferencesPayload,
@@ -18,33 +17,29 @@ import {
   type SearchPreferencesEditorValues
 } from '../lib/profile-editor'
 
-type ProfileSection = 'overview' | 'identity' | 'history' | 'preferences'
+type ProfileSection = 'resume' | 'profile' | 'experience' | 'background' | 'preferences'
 
 export function ProfileScreen(props: {
-  agentProvider: AgentProviderStatus
   actionState: { busy: boolean; message: string | null }
   busy: boolean
   onAnalyzeProfileFromResume: () => void
   onImportResume: () => void
-  onSaveProfile: (profile: CandidateProfile) => void
-  onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
+  onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   profile: CandidateProfile
   searchPreferences: JobSearchPreferences
 }) {
   const {
-    agentProvider,
     actionState,
     busy,
     onAnalyzeProfileFromResume,
     onImportResume,
-    onSaveProfile,
-    onSaveSearchPreferences,
+    onSaveAll,
     profile,
     searchPreferences
   } = props
 
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
-  const [activeSection, setActiveSection] = useState<ProfileSection>('overview')
+  const [activeSection, setActiveSection] = useState<ProfileSection>('resume')
 
   const profileForm = useForm<ProfileEditorValues>({
     defaultValues: createProfileEditorValues(profile)
@@ -70,105 +65,179 @@ export function ProfileScreen(props: {
     setValidationMessage(null)
   }, [preferencesForm, searchPreferences])
 
-  function handleSaveProfile() {
-    const result = buildProfilePayload(profile, profileForm.getValues())
+  const sections = useMemo(
+    () => [
+      {
+        id: 'resume' as const,
+        label: 'Resume',
+        description: 'Upload your base resume, review the stored file state, and re-run parsing when needed.'
+      },
+      {
+        id: 'profile' as const,
+        label: 'Core Profile',
+        description: 'Edit identity, summary, and skills that define your main candidate record.'
+      },
+      {
+        id: 'experience' as const,
+        label: 'Experience',
+        description: 'Maintain each role separately so tailoring and form-fill stay grounded.'
+      },
+      {
+        id: 'background' as const,
+        label: 'Background',
+        description: 'Manage education, certifications, projects, public links, and languages.'
+      },
+      {
+        id: 'preferences' as const,
+        label: 'Preferences',
+        description: 'Keep eligibility answers and job-targeting rules in a separate workspace.'
+      }
+    ],
+    []
+  )
 
-    if (!result.payload) {
-      setValidationMessage(result.validationMessage ?? 'Profile data is invalid.')
+  const activeSectionDefinition = sections.find((section) => section.id === activeSection)!
+
+  const snapshotDisplayName = profileForm.watch('identity.preferredDisplayName') || null
+  const snapshotFullName = [
+    profileForm.watch('identity.firstName'),
+    profileForm.watch('identity.middleName'),
+    profileForm.watch('identity.lastName')
+  ]
+    .filter(Boolean)
+    .join(' ') || profile.fullName
+  const snapshotHeadline = profileForm.watch('identity.headline') || profile.headline
+  const snapshotLocation = profileForm.watch('identity.currentLocation') || profile.currentLocation
+  const snapshotYearsExperience = profileForm.watch('identity.yearsExperience')
+
+  const overviewProfile = useMemo<CandidateProfile>(() => ({
+    ...profile,
+    preferredDisplayName: snapshotDisplayName,
+    fullName: snapshotFullName,
+    headline: snapshotHeadline,
+    currentLocation: snapshotLocation,
+    yearsExperience: snapshotYearsExperience ? parseInt(snapshotYearsExperience, 10) : profile.yearsExperience
+  }), [
+    profile,
+    snapshotDisplayName,
+    snapshotFullName,
+    snapshotHeadline,
+    snapshotLocation,
+    snapshotYearsExperience
+  ])
+
+  function handleSaveAll() {
+    const profileResult = buildProfilePayload(profile, profileForm.getValues())
+
+    if (!profileResult.payload) {
+      setValidationMessage(profileResult.validationMessage ?? 'Profile data is invalid.')
+      return
+    }
+
+    const preferencesResult = buildSearchPreferencesPayload(searchPreferences, preferencesForm.getValues())
+
+    if (!preferencesResult.payload) {
+      setValidationMessage(preferencesResult.validationMessage ?? 'Search preferences are invalid.')
       return
     }
 
     setValidationMessage(null)
-    onSaveProfile(result.payload)
-  }
-
-  function handleSaveSearchPreferences() {
-    const result = buildSearchPreferencesPayload(searchPreferences, preferencesForm.getValues())
-
-    if (!result.payload) {
-      setValidationMessage(result.validationMessage ?? 'Search preferences are invalid.')
-      return
-    }
-
-    setValidationMessage(null)
-    onSaveSearchPreferences(result.payload)
+    onSaveAll(profileResult.payload, preferencesResult.payload)
   }
 
   return (
-    <section className="grid gap-[1.65rem]">
+    <section className="grid gap-[var(--gap-section)]">
       <PageHeader
         eyebrow="Profile"
-        title="Operator Profile"
+        title="Candidate setup"
         description="Structured candidate data for ATS-safe applications, stronger tailoring, and future field-by-field automation across profile, discovery, and apply flows."
       />
 
-      <div className="grid gap-6">
-        <div className="flex flex-wrap gap-2 border-b border-border/10 pb-2">
-          {(['overview', 'identity', 'history', 'preferences'] as const).map((section) => (
-            <Button
-              key={section}
-              className={cn(
-                'min-w-[11rem] justify-center rounded-none border border-transparent bg-transparent px-4 py-3 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground shadow-none hover:bg-secondary hover:text-foreground',
-                activeSection === section ? 'border-b-2 border-b-primary bg-transparent text-foreground' : ''
-              )}
-              onClick={() => setActiveSection(section)}
-              type="button"
-              variant="ghost"
-            >
-              {section}
-            </Button>
-          ))}
+      <section className="grid gap-5 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-4 sm:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div aria-label="Profile sections" className="flex flex-wrap gap-2">
+            {sections.map((section) => (
+              <button
+                key={section.id}
+                aria-pressed={activeSection === section.id}
+                className={
+                  activeSection === section.id
+                    ? 'inline-flex items-center rounded-full border border-[var(--field-border)] bg-[var(--field)] px-4 py-2 text-[var(--text-small)] font-medium text-[var(--text-headline)]'
+                    : 'inline-flex items-center rounded-full border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-2 text-[var(--text-small)] font-medium text-foreground-soft transition-colors hover:border-[var(--field-border)] hover:bg-[var(--field)] hover:text-foreground'
+                }
+                onClick={() => setActiveSection(section.id)}
+                type="button"
+              >
+                {section.label}
+              </button>
+            ))}
+          </div>
+
+          <Button className="w-full sm:w-auto lg:shrink-0" disabled={busy} onClick={handleSaveAll} type="button" variant="primary">
+            Save changes
+          </Button>
         </div>
 
-        {activeSection === 'overview' ? (
-          <ProfileOverviewTab
-            agentProvider={agentProvider}
-            busy={busy}
-            onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
-            onImportResume={onImportResume}
-            profile={profile}
-            searchPreferences={searchPreferences}
-          />
-        ) : null}
-
-        {activeSection === 'identity' ? (
-          <ProfileCoreTab
-            busy={busy}
-            onSaveProfile={handleSaveProfile}
-            profileForm={profileForm}
-            validationMessage={validationMessage}
-          />
-        ) : null}
-
-        {activeSection === 'history' ? (
-          <ProfileHistoryTab
-            busy={busy}
-            certificationArray={certificationArray}
-            educationArray={educationArray}
-            experienceArray={experienceArray}
-            languageArray={languageArray}
-            linkArray={linkArray}
-            onSaveProfile={handleSaveProfile}
-            profileForm={profileForm}
-            projectArray={projectArray}
-          />
-        ) : null}
-
-        {activeSection === 'preferences' ? (
-          <ProfilePreferencesTab
-            busy={busy}
-            onSavePreferences={handleSaveSearchPreferences}
-            preferencesForm={preferencesForm}
-            validationMessage={validationMessage}
-          />
-        ) : null}
-      </div>
-
-      {actionState.message ? (
-        <div className="flex items-center gap-3 rounded-[0.42rem] border border-border-subtle bg-card px-4 py-3">
-          <Badge variant="section">Workspace</Badge>
-          <p className="text-[0.84rem] leading-6 text-foreground-muted">{actionState.message}</p>
+        <div className="grid gap-1">
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">
+            {activeSectionDefinition.label}
+          </p>
+          <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{activeSectionDefinition.description}</p>
         </div>
+
+        {validationMessage ? (
+          <p
+            aria-atomic="true"
+            aria-live="polite"
+            className="text-[var(--text-description)] leading-6 text-foreground-muted"
+            role="status"
+          >
+            {validationMessage}
+          </p>
+        ) : null}
+        {actionState.message ? (
+          <p
+            aria-atomic="true"
+            aria-live="polite"
+            className="text-[var(--text-description)] leading-6 text-foreground-muted"
+            role="status"
+          >
+            {actionState.message}
+          </p>
+        ) : null}
+      </section>
+
+      {activeSection === 'resume' ? (
+        <ProfileOverviewTab
+          busy={busy}
+          onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
+          onImportResume={onImportResume}
+          profile={overviewProfile}
+        />
+      ) : null}
+
+      {activeSection === 'profile' ? <ProfileCoreTab profileForm={profileForm} /> : null}
+
+      {activeSection === 'experience' ? (
+        <ProfileExperienceTab busy={busy} experienceArray={experienceArray} profileForm={profileForm} />
+      ) : null}
+
+      {activeSection === 'background' ? (
+        <ProfileBackgroundTab
+          backgroundArrays={{
+            certificationArray,
+            educationArray,
+            languageArray,
+            linkArray,
+            projectArray
+          }}
+          busy={busy}
+          profileForm={profileForm}
+        />
+      ) : null}
+
+      {activeSection === 'preferences' ? (
+        <ProfilePreferencesTab preferencesForm={preferencesForm} profileForm={profileForm} />
       ) : null}
     </section>
   )

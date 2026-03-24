@@ -15,12 +15,12 @@ export async function importResumeFromSourcePath(sourcePath: string) {
   const timestamp = Date.now()
   const fileName = path.basename(sourcePath)
   const targetPath = path.join(targetDirectory, `${timestamp}_${fileName}`)
+  const workspace = await jobFinderWorkspaceService.getWorkspaceSnapshot()
 
   await copyFile(sourcePath, targetPath)
 
-  const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
   const savedSnapshot = await jobFinderWorkspaceService.saveProfile({
-    ...currentSnapshot.profile,
+    ...workspace.profile,
     baseResume: {
       id: `resume_${timestamp}`,
       fileName,

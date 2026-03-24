@@ -1,0 +1,152 @@
+import type { UseFieldArrayReturn, UseFormReturn } from 'react-hook-form'
+import { Controller } from 'react-hook-form'
+import { workModeValues } from '@unemployed/contracts'
+import { Button } from '@renderer/components/ui/button'
+import { Field, FieldLabel } from '@renderer/components/ui/field'
+import { CheckboxField } from '../checkbox-field'
+import { EmptyState } from '../empty-state'
+import type { ProfileEditorValues } from '../../lib/profile-editor'
+import { formatStatusLabel, joinListInput, parseListInput } from '../../lib/job-finder-utils'
+import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
+import { ProfileListEditor } from './profile-list-editor'
+
+interface ProfileExperienceTabProps {
+  busy: boolean
+  experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', 'id'>
+  profileForm: UseFormReturn<ProfileEditorValues>
+}
+
+export function ProfileExperienceTab({ busy, experienceArray, profileForm }: ProfileExperienceTabProps) {
+  const { control, register, setValue, watch } = profileForm
+
+  return (
+    <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Experience timeline</p>
+          <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
+            Field-by-field reusable work history for ATS alignment, tailoring, and future form-fill.
+          </p>
+        </div>
+        <Button
+          disabled={busy}
+          onClick={() =>
+            experienceArray.append({
+              id: `experience_${crypto.randomUUID().slice(0, 8)}`,
+              companyName: '',
+              companyUrl: '',
+              title: '',
+              employmentType: '',
+              location: '',
+              workMode: [],
+              startDate: '',
+              endDate: '',
+              isCurrent: false,
+              summary: '',
+              achievements: '',
+              skills: '',
+              domainTags: '',
+              peopleManagementScope: '',
+              ownershipScope: ''
+            })
+          }
+          type="button"
+          variant="secondary"
+          className="h-11 px-4"
+        >
+          Add experience
+        </Button>
+      </div>
+
+      <div className="grid gap-4">
+        {experienceArray.fields.length > 0 ? (
+          experienceArray.fields.map((entry, index) => {
+            const currentRole = watch(`records.experiences.${index}.isCurrent`)
+
+            return (
+              <article
+                key={entry.id}
+                className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Role {index + 1}</p>
+                  <Button disabled={busy} onClick={() => experienceArray.remove(index)} size="compact" type="button" variant="ghost">
+                    Remove
+                  </Button>
+                </div>
+
+                <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+                  <Field><FieldLabel>Company</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyName`)} /></Field>
+                  <Field><FieldLabel>Company URL</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyUrl`)} /></Field>
+                  <Field><FieldLabel>Title</FieldLabel><ProfileInput {...register(`records.experiences.${index}.title`)} /></Field>
+                  <Field><FieldLabel>Employment type</FieldLabel><ProfileInput {...register(`records.experiences.${index}.employmentType`)} /></Field>
+                  <Field><FieldLabel>Location</FieldLabel><ProfileInput {...register(`records.experiences.${index}.location`)} /></Field>
+                  <div className="grid gap-[var(--gap-field)]">
+                    <FieldLabel>Work mode</FieldLabel>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {workModeValues.map((workMode) => (
+                        <Controller
+                          key={workMode}
+                          control={control}
+                          name={`records.experiences.${index}.workMode`}
+                          render={({ field }) => (
+                            <CheckboxField
+                              checked={field.value.includes(workMode)}
+                              label={formatStatusLabel(workMode)}
+                              onCheckedChange={(checked) =>
+                                field.onChange(
+                                  checked
+                                    ? [...field.value, workMode]
+                                    : field.value.filter((value) => value !== workMode)
+                                )
+                              }
+                            />
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <Controller
+                    control={control}
+                    name={`records.experiences.${index}.isCurrent`}
+                    render={({ field }) => (
+                      <CheckboxField checked={field.value} className="md:col-span-2" label="Current role" onCheckedChange={field.onChange} />
+                    )}
+                  />
+                  <Field><FieldLabel>Start date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.experiences.${index}.startDate`)} /></Field>
+                  <Field><FieldLabel>End date</FieldLabel><ProfileInput disabled={currentRole} placeholder="YYYY-MM" {...register(`records.experiences.${index}.endDate`)} /></Field>
+                  <Field><FieldLabel>People-management scope</FieldLabel><ProfileInput {...register(`records.experiences.${index}.peopleManagementScope`)} /></Field>
+                  <Field><FieldLabel>Ownership / budget scope</FieldLabel><ProfileInput {...register(`records.experiences.${index}.ownershipScope`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Domain / industry tags</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...register(`records.experiences.${index}.domainTags`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Role summary</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`records.experiences.${index}.summary`)} /></Field>
+                  <ProfileListEditor
+                    className="md:col-span-2"
+                    displayMode="rows"
+                    emptyMessage="No achievements added yet."
+                    label="Achievements"
+                    onChange={(values) => setValue(`records.experiences.${index}.achievements`, joinListInput(values))}
+                    placeholder="Add one achievement"
+                    values={parseListInput(watch(`records.experiences.${index}.achievements`))}
+                  />
+                  <ProfileListEditor
+                    className="md:col-span-2"
+                    emptyMessage="No skills added yet."
+                    label="Skills used"
+                    onChange={(values) => setValue(`records.experiences.${index}.skills`, joinListInput(values))}
+                    placeholder="Add one skill"
+                    values={parseListInput(watch(`records.experiences.${index}.skills`))}
+                  />
+                </div>
+              </article>
+            )
+          })
+        ) : (
+          <EmptyState
+            description="Add each role with dedicated fields so tailoring and future form-fill flows do not depend on one large text box."
+            title="No structured experience yet"
+          />
+        )}
+      </div>
+    </section>
+  )
+}

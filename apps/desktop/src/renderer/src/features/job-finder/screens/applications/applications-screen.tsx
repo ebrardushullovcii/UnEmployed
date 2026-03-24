@@ -12,10 +12,10 @@ export function ApplicationsScreen(props: {
   const { applicationRecords, onSelectRecord, selectedAttempt, selectedRecord } = props
 
   return (
-    <section className="grid gap-[1.65rem]">
+    <section className="grid gap-[var(--gap-section)]">
       <PageHeader
         eyebrow="Applications"
-        title="Applications Log"
+        title="Application history"
         description="Tracked statuses, follow-ups, and timeline events for the first set of saved application records."
       />
 
