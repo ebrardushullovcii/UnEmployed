@@ -56,7 +56,7 @@ export function ProfileListEditor({
   }
 
   return (
-    <div
+    <section
       className={cn(
         'grid min-w-0 gap-3 rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[var(--field)] p-4',
         className
@@ -141,6 +141,6 @@ export function ProfileListEditor({
       ) : (
         <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{emptyMessage}</p>
       )}
-    </div>
+    </section>
   )
 }

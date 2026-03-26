@@ -119,6 +119,7 @@
 
   /* Component tokens - Typography */
   --text-field: 0.92rem;
+  --text-eyebrow: 0.625rem;
   --text-field-label: 0.625rem;
   --text-section-title: 1.15rem;
   --text-body: 0.95rem;

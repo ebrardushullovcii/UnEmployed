@@ -44,7 +44,7 @@ export function ProfileResumePanel({
         <div className="grid gap-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="grid gap-2">
-              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Resume Source</p>
+              <p className="text-[var(--text-eyebrow)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">Resume Source</p>
               <div className="grid gap-2">
                 <h2 className="text-[1.35rem] font-semibold tracking-[-0.03em] text-[var(--text-headline)]">Import once, then refine the sections below</h2>
                 <p className="max-w-[62ch] text-[var(--text-description)] leading-6 text-foreground-muted">
@@ -93,7 +93,7 @@ export function ProfileResumePanel({
 
           {profile.baseResume.analysisWarnings.length > 0 ? (
             <article className="grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border-warm)] bg-[var(--surface-overlay-strong)] p-4">
-              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Review Notes</p>
+              <p className="text-[var(--text-eyebrow)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">Review Notes</p>
               <PreferenceList label="Check these items before saving" values={profile.baseResume.analysisWarnings} />
             </article>
           ) : null}
@@ -101,7 +101,7 @@ export function ProfileResumePanel({
 
         <aside className="grid gap-3 self-start rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-overlay-strong)] p-4">
           <div className="grid gap-1">
-            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Prefilled Snapshot</p>
+            <p className="text-[var(--text-eyebrow)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">Prefilled Snapshot</p>
             <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
               Resume analysis fills these sections first. Use the tabs to review and tighten the details.
             </p>
@@ -109,19 +109,19 @@ export function ProfileResumePanel({
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             <div className="rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[var(--field)] p-4">
-              <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Name</span>
+              <span className="text-[var(--text-eyebrow)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">Name</span>
               <strong className="mt-2 block text-[1rem] text-[var(--text-headline)]">{displayName}</strong>
             </div>
             <div className="rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[var(--field)] p-4">
-              <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Headline</span>
+              <span className="text-[var(--text-eyebrow)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">Headline</span>
               <strong className="mt-2 block text-[1rem] text-[var(--text-headline)]">{headline}</strong>
             </div>
             <div className="rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[var(--field)] p-4">
-              <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Location</span>
+              <span className="text-[var(--text-eyebrow)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">Location</span>
               <strong className="mt-2 block text-[1rem] text-[var(--text-headline)]">{location}</strong>
             </div>
             <div className="rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[var(--field)] p-4">
-              <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Experience</span>
+              <span className="text-[var(--text-eyebrow)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">Experience</span>
               <strong className="mt-2 block text-[1rem] text-[var(--text-headline)]">{experienceLabel}</strong>
             </div>
           </div>
