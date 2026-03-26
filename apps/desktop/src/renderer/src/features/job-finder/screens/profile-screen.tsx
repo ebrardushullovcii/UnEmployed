@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
@@ -211,6 +211,7 @@ export function ProfileScreen(props: {
   const snapshotHeadline = identityValues?.headline || profile.headline
   const snapshotLocation = identityValues?.currentLocation || profile.currentLocation
   const snapshotYearsExperience = identityValues?.yearsExperience
+  const parsedSnapshotYearsExperience = Number.parseInt(snapshotYearsExperience ?? '', 10)
 
   const overviewProfile = useMemo<CandidateProfile>(() => ({
     ...profile,
@@ -218,14 +219,14 @@ export function ProfileScreen(props: {
     fullName: snapshotFullName,
     headline: snapshotHeadline,
     currentLocation: snapshotLocation,
-    yearsExperience: snapshotYearsExperience ? parseInt(snapshotYearsExperience, 10) : profile.yearsExperience
+    yearsExperience: Number.isFinite(parsedSnapshotYearsExperience) ? parsedSnapshotYearsExperience : profile.yearsExperience
   }), [
+    parsedSnapshotYearsExperience,
     profile,
     snapshotDisplayName,
     snapshotFullName,
     snapshotHeadline,
-    snapshotLocation,
-    snapshotYearsExperience
+    snapshotLocation
   ])
 
   const sectionProgress = useMemo<Record<ProfileSection, SectionProgress>>(() => {
@@ -364,7 +365,7 @@ export function ProfileScreen(props: {
     [sectionProgress]
   )
 
-  const activeSectionPanelId = `${activeSection}-panel`
+  const activeSectionPanelId = 'profile-section-panel'
 
   function handleSectionKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     const currentIndex = sections.findIndex((section) => section.id === activeSection)
@@ -419,22 +420,24 @@ export function ProfileScreen(props: {
     onSaveAll(profileResult.payload, preferencesResult.payload)
   }
 
-  const activeSectionContent =
-    activeSection === 'basics' ? <ProfileCoreTab profileForm={profileForm} />
-      : activeSection === 'experience' ? <ProfileExperienceTab busy={busy} experienceArray={experienceArray} profileForm={profileForm} />
-        : activeSection === 'background' ? (
-            <ProfileBackgroundTab
-              backgroundArrays={{
-                certificationArray,
-                educationArray,
-                languageArray,
-                linkArray,
-                projectArray
-              }}
-              busy={busy}
-              profileForm={profileForm}
-            />
-          ) : <ProfilePreferencesTab preferencesForm={preferencesForm} profileForm={profileForm} />
+  const activeSectionContent: Record<ProfileSection, ReactNode> = {
+    basics: <ProfileCoreTab profileForm={profileForm} />,
+    experience: <ProfileExperienceTab busy={busy} experienceArray={experienceArray} profileForm={profileForm} />,
+    background: (
+      <ProfileBackgroundTab
+        backgroundArrays={{
+          certificationArray,
+          educationArray,
+          languageArray,
+          linkArray,
+          projectArray
+        }}
+        busy={busy}
+        profileForm={profileForm}
+      />
+    ),
+    preferences: <ProfilePreferencesTab preferencesForm={preferencesForm} profileForm={profileForm} />
+  }
 
   return (
     <section className="grid gap-[var(--gap-section)]">
@@ -457,14 +460,14 @@ export function ProfileScreen(props: {
               {sections.map((section) => (
                 <div key={section.id} className={cn(activeSection === section.id ? 'relative z-30 w-full' : 'relative w-full')}>
                   <button
-                    aria-controls={`${section.id}-panel`}
+                    aria-controls={activeSectionPanelId}
                     aria-selected={activeSection === section.id}
                     id={`${section.id}-tab`}
                     className={cn(
                       'group relative w-full border text-left transition-all duration-200',
                       activeSection === section.id
                         ? 'translate-y-1 overflow-hidden rounded-[var(--radius-button)] border-[var(--surface-panel-border-active)] bg-transparent text-[var(--text-headline)]'
-                        : 'overflow-hidden rounded-[var(--radius-button)] border-[var(--surface-panel-border-warm)] bg-[var(--surface-tab-fill)] text-foreground-soft hover:border-[var(--surface-panel-border-warm-hover)] hover:bg-[var(--surface-tab-hover)] hover:text-foreground'
+                        : 'overflow-hidden rounded-[var(--radius-button)] border-[var(--surface-panel-border-warm)] bg-[var(--surface-fill-subtle)] text-foreground-soft hover:border-[var(--surface-panel-border-warm-hover)] hover:bg-[var(--surface-tab-hover)] hover:text-foreground'
                     )}
                     onClick={() => setActiveSection(section.id)}
                     role="tab"
@@ -519,9 +522,9 @@ export function ProfileScreen(props: {
         </div>
 
         <div className="relative rounded-[var(--radius-field)] border border-[var(--surface-panel-border-active-soft)] bg-[var(--surface-panel)]">
-          <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">{activeSectionContent}</div>
+          <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">{activeSectionContent[activeSection]}</div>
 
-          <div className="border-t border-[var(--surface-panel-border)] bg-[var(--surface-overlay-strong)] px-4 py-4 sm:px-5">
+          <div className="border-t border-[var(--surface-panel-border)] bg-[var(--surface-overlay-medium)] px-4 py-4 sm:px-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="grid gap-2">
                 {validationMessage ? (

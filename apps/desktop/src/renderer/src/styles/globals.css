@@ -80,25 +80,23 @@
   --surface-panel-border-warm-strong: rgba(227, 202, 127, 0.7);
   --surface-panel-border-warm-hover: rgba(227, 202, 127, 0.28);
   --surface-tab-hover: rgba(255, 255, 255, 0.025);
-  --surface-tab-fill: rgba(255, 255, 255, 0.01);
+  --surface-fill-subtle: rgba(255, 255, 255, 0.01);
+  --surface-fill-soft: rgba(255, 255, 255, 0.03);
+  --surface-fill-chip: rgba(255, 255, 255, 0.04);
   --surface-overlay-subtle: rgba(255, 255, 255, 0.02);
   --surface-overlay-soft: rgba(0, 0, 0, 0.08);
-  --surface-overlay-strong: rgba(0, 0, 0, 0.12);
-  --surface-overlay-stronger: rgba(0, 0, 0, 0.22);
-  --surface-overlay-panel: rgba(0, 0, 0, 0.24);
+  --surface-overlay-medium: rgba(0, 0, 0, 0.12);
+  --surface-overlay-list: rgba(0, 0, 0, 0.16);
+  --surface-overlay-strong: rgba(0, 0, 0, 0.24);
+  --surface-overlay-heavy: rgba(12, 12, 12, 0.38);
   --surface-overlay-track: rgba(0, 0, 0, 0.26);
   --surface-progress-track: rgba(0, 0, 0, 0.4);
-  --surface-resume-panel: rgba(12, 12, 12, 0.38);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.22);
   --foreground-soft: #b7b2ab;
   --field: #0d0d0e;
   --field-strong: #141414;
   --field-border: rgba(255, 255, 255, 0.15);
-  --field-values-list: rgba(0, 0, 0, 0.16);
-  --field-row-item: rgba(255, 255, 255, 0.03);
-  --chip-border: rgba(255, 255, 255, 0.14);
-  --chip-bg: rgba(255, 255, 255, 0.04);
 
   --positive: #d0ecff;
   --positive-foreground: #2b4655;
@@ -122,6 +120,7 @@
   /* Component tokens - Typography */
   --text-field: 0.92rem;
   --text-field-label: 0.625rem;
+  --text-section-title: 1.15rem;
   --text-body: 0.95rem;
   --text-description: 0.84rem;
   --text-small: 0.78rem;

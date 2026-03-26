@@ -28,18 +28,14 @@ export function ProfileResumePanel({
   const resumeAnalysisSummary = formatResumeAnalysisSummary(profile)
   const resumeTextReadyToAnalyze = Boolean(profile.baseResume.textContent?.trim())
   const resumeFileName = profile.baseResume.fileName.trim() || 'No resume imported yet'
+  const hasImportedResume = resumeFileName !== 'No resume imported yet'
   const uploadedLabel = profile.baseResume.uploadedAt
     ? `Imported ${formatDateOnly(profile.baseResume.uploadedAt)}`
     : 'Import a resume to prefill the profile below.'
   const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Profile name not set'
   const headline = profile.headline.trim() || 'Headline not set yet'
   const location = profile.currentLocation.trim() || 'Location not set yet'
-  const experienceLabel =
-    profile.yearsExperience == null
-      ? 'Experience not set'
-      : profile.yearsExperience === 1
-        ? '1 year'
-        : `${profile.yearsExperience} years`
+  const experienceLabel = profile.yearsExperience === 1 ? '1 year' : `${profile.yearsExperience} years`
 
   return (
     <section className="relative overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[linear-gradient(135deg,var(--surface-panel-border-warm),var(--surface-overlay-subtle)_38%,var(--surface-overlay-soft))] p-5 sm:p-6">
@@ -62,7 +58,7 @@ export function ProfileResumePanel({
             </StatusBadge>
           </div>
 
-          <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border-warm)] bg-[var(--surface-resume-panel)] p-4">
+          <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border-warm)] bg-[var(--surface-overlay-heavy)] p-4">
             <div className="grid gap-1.5">
               <strong className="text-[1.22rem] font-semibold text-[var(--text-headline)]">{resumeFileName}</strong>
               <span className="text-[var(--text-body)] text-foreground-soft">{uploadedLabel}</span>
@@ -80,7 +76,7 @@ export function ProfileResumePanel({
             <div className="flex flex-wrap gap-2.5">
               <Button className="h-11 px-4" disabled={busy} onClick={onImportResume} type="button" variant="secondary">
                 <Upload className="size-4" />
-                {profile.baseResume.fileName ? 'Replace resume' : 'Import resume'}
+                {hasImportedResume ? 'Replace resume' : 'Import resume'}
               </Button>
               <Button
                 className="h-11 px-4"
@@ -96,14 +92,14 @@ export function ProfileResumePanel({
           </article>
 
           {profile.baseResume.analysisWarnings.length > 0 ? (
-            <article className="grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border-warm)] bg-[var(--surface-overlay-stronger)] p-4">
+            <article className="grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border-warm)] bg-[var(--surface-overlay-strong)] p-4">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Review Notes</p>
               <PreferenceList label="Check these items before saving" values={profile.baseResume.analysisWarnings} />
             </article>
           ) : null}
         </div>
 
-        <aside className="grid gap-3 self-start rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-overlay-panel)] p-4">
+        <aside className="grid gap-3 self-start rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-overlay-strong)] p-4">
           <div className="grid gap-1">
             <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Prefilled Snapshot</p>
             <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
