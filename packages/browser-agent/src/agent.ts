@@ -37,6 +37,10 @@ export interface JobExtractor {
     url: string
     salary?: string
     postedAt?: string
+    workMode?: string[]
+    applyPath?: string
+    easyApplyEligible?: boolean
+    keySkills?: string[]
   }>>
 }
 
@@ -118,22 +122,28 @@ export async function runAgentDiscovery(
       }
 
       if (response.toolCalls && response.toolCalls.length > 0) {
-        // Execute tool calls
+        // Add single assistant message with all tool calls
+        state.conversation.push({
+          role: 'assistant',
+          content: response.content || '',
+          toolCalls: response.toolCalls
+        })
+
+        // Execute tool calls and add results
         for (const toolCall of response.toolCalls) {
           const result = await executeToolCall(toolCall, page, state, config, jobExtractor, onProgress)
-          
-          // Add assistant message with tool call
-          state.conversation.push({
-            role: 'assistant',
-            content: response.content || '',
-            toolCalls: [toolCall]
-          })
 
-          // Add tool result
+          // Add tool result (compact representation to prevent conversation bloat)
+          const compactResult = {
+            success: (result as { success?: boolean }).success,
+            error: (result as { error?: string }).error,
+            summary: (result as { data?: { jobsExtracted?: number; totalJobs?: number } }).data ? 
+              `jobs:${(result as { data?: { jobsExtracted?: number } }).data?.jobsExtracted ?? 0}` : undefined
+          }
           state.conversation.push({
             role: 'tool',
             toolCallId: toolCall.id,
-            content: JSON.stringify(result)
+            content: JSON.stringify(compactResult)
           })
 
           // Check if we should finish
@@ -233,7 +243,7 @@ async function executeToolCall(
               maxJobs: config.targetJobCount - state.collectedJobs.length
             })
 
-            // Add unique jobs
+            // Add unique jobs, preferring extractor-provided values over defaults
             let addedCount = 0
             for (const job of extractedJobs) {
               const exists = state.collectedJobs.some(j => j.sourceJobId === job.sourceJobId)
@@ -246,15 +256,15 @@ async function executeToolCall(
                   title: job.title,
                   company: job.company,
                   location: job.location,
-                  workMode: ['flexible'],
-                  applyPath: 'unknown',
-                  easyApplyEligible: false,
+                  workMode: (job.workMode as Array<'remote' | 'hybrid' | 'onsite' | 'flexible'> | undefined) ?? ['flexible'],
+                  applyPath: (job.applyPath as 'easy_apply' | 'external_redirect' | 'unknown' | undefined) ?? 'unknown',
+                  easyApplyEligible: job.easyApplyEligible ?? false,
                   postedAt: job.postedAt || new Date().toISOString(),
                   discoveredAt: new Date().toISOString(),
                   salaryText: job.salary || null,
                   summary: job.description.slice(0, 240),
                   description: job.description,
-                  keySkills: []
+                  keySkills: job.keySkills ?? []
                 })
                 addedCount++
               }

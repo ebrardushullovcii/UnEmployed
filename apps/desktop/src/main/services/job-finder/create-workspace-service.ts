@@ -12,8 +12,11 @@ export async function createJobFinderWorkspaceServiceAsync() {
     filePath: getJobFinderWorkspaceFilePath(),
     seed: createEmptyJobFinderRepositoryState()
   })
-  const chromeDebugPort = process.env.UNEMPLOYED_CHROME_DEBUG_PORT
+  const rawPort = process.env.UNEMPLOYED_CHROME_DEBUG_PORT
     ? Number.parseInt(process.env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
+    : null
+  const chromeDebugPort = (rawPort !== null && Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535)
+    ? rawPort
     : null
   const aiClient = createJobFinderAiClientFromEnvironment(process.env)
   const linkedInAgentEnabled = isLinkedInBrowserAgentEnabled()

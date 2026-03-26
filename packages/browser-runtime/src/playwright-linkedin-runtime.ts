@@ -760,12 +760,19 @@ export function createLinkedInBrowserAgentRuntime(
       await page.waitForTimeout(2000)
       const pageText = await page.evaluate(() => document.body.innerText)
 
-      const extractedJobs = await extractor({
-        pageText,
-        pageUrl: page.url(),
-        pageType: 'search_results',
-        maxJobs: maxJobsPerRun
-      })
+      // Wrap extractor call to handle transient errors gracefully
+      let extractedJobs: JobPosting[] = []
+      try {
+        extractedJobs = await extractor({
+          pageText,
+          pageUrl: page.url(),
+          pageType: 'search_results',
+          maxJobs: maxJobsPerRun
+        })
+      } catch (extractError) {
+        console.error(`[Discovery] Extraction failed for ${page.url()}:`, extractError)
+        // Continue to next URL, preserving any previously accumulated results
+      }
 
       for (const job of extractedJobs) {
         if (!seenJobIds.has(job.sourceJobId)) {
@@ -1144,10 +1151,16 @@ export function createLinkedInBrowserAgentRuntime(
               if (!jobExtractor) {
                 return []
               }
+              // Normalize pageType to valid values
+              const validPageTypes = ['search_results', 'job_detail'] as const
+              const normalizedPageType = validPageTypes.includes(input.pageType as typeof validPageTypes[number])
+                ? (input.pageType as typeof validPageTypes[number])
+                : 'search_results' // Default fallback
+              
               const jobs = await jobExtractor({
                 pageText: input.pageText,
                 pageUrl: input.pageUrl,
-                pageType: input.pageType as 'search_results' | 'job_detail',
+                pageType: normalizedPageType,
                 maxJobs: input.maxJobs
               })
               // Map JobPosting to the expected JobExtractor format

@@ -39,6 +39,39 @@ You control the timeout strategy:
       const { page } = context
       const startTime = Date.now()
       
+      // Validate URL scheme and hostname
+      let parsedUrl: URL
+      try {
+        parsedUrl = new URL(url)
+      } catch {
+        return {
+          success: false,
+          error: `Invalid URL: ${url}`
+        }
+      }
+      
+      // Only allow http/https schemes
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        return {
+          success: false,
+          error: `Invalid URL scheme: ${parsedUrl.protocol}. Only http/https allowed.`
+        }
+      }
+      
+      // Allowlist of safe hostnames (LinkedIn only for now)
+      const allowedHostnames = ['linkedin.com', 'www.linkedin.com']
+      const hostname = parsedUrl.hostname.toLowerCase()
+      const isAllowed = allowedHostnames.some(allowed => 
+        hostname === allowed || hostname.endsWith(`.${allowed}`)
+      )
+      
+      if (!isAllowed) {
+        return {
+          success: false,
+          error: `Navigation to ${hostname} is not allowed. Only LinkedIn is permitted.`
+        }
+      }
+      
       try {
         await page.goto(url, { 
           waitUntil: waitFor,
@@ -131,18 +164,22 @@ Returns elements like buttons, links, inputs with unique reference IDs (e.g., @e
 
   {
     name: 'click',
-    description: `Click an element by its reference ID. 
+    description: `Click an element by its role and name. 
     
-You get reference IDs from get_interactive_elements(). 
+You get role and name from get_interactive_elements(). 
 Use this to click buttons, links, job listings, etc.
 
 If the click fails, you'll get details about why so you can decide whether to retry, scroll first, or try a different element.`,
     parameters: {
       type: 'object',
       properties: {
-        elementId: {
+        role: {
           type: 'string',
-          description: 'The reference ID of the element to click (e.g., @e5)'
+          description: 'The accessibility role of the element (e.g., button, link)'
+        },
+        name: {
+          type: 'string',
+          description: 'The accessible name/text of the element'
         },
         retryIfNotVisible: {
           type: 'boolean',
@@ -150,15 +187,15 @@ If the click fails, you'll get details about why so you can decide whether to re
           default: true
         }
       },
-      required: ['elementId']
+      required: ['role', 'name']
     },
     execute: async (args, context) => {
-      const { elementId, retryIfNotVisible = true } = args as { elementId: string; retryIfNotVisible?: boolean }
+      const { role, name, retryIfNotVisible = true } = args as { role: string; name: string; retryIfNotVisible?: boolean }
       const { page, state } = context
       
       try {
-        // Try to find and click the element
-        const locator = page.locator(`[ref="${elementId.replace('@', '')}"]`)
+        // Use Playwright's accessibility-friendly locator
+        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name })
         
         // Check if element is visible
         const isVisible = await locator.isVisible().catch(() => false)
@@ -187,7 +224,8 @@ If the click fails, you'll get details about why so you can decide whether to re
         return {
           success: true,
           data: {
-            elementId,
+            role,
+            name: name.slice(0, 50),
             text: text?.slice(0, 100),
             navigated,
             newUrl: navigated ? newUrl : undefined
@@ -198,7 +236,8 @@ If the click fails, you'll get details about why so you can decide whether to re
           success: false,
           error: error instanceof Error ? error.message : 'Click failed',
           data: {
-            elementId,
+            role,
+            name: name.slice(0, 50),
             errorType: error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'click_failed'
           }
         }
@@ -208,16 +247,20 @@ If the click fails, you'll get details about why so you can decide whether to re
 
   {
     name: 'fill',
-    description: `Fill an input field with text by its reference ID.
+    description: `Fill an input field with text by its role and label/name.
     
-You get reference IDs from get_interactive_elements().
+You get role and name from get_interactive_elements().
 Use this to fill search boxes, forms, etc.`,
     parameters: {
       type: 'object',
       properties: {
-        elementId: {
+        role: {
           type: 'string',
-          description: 'The reference ID of the input field (e.g., @e3)'
+          description: 'The accessibility role of the input (e.g., textbox, searchbox)'
+        },
+        name: {
+          type: 'string',
+          description: 'The accessible name/label of the input field'
         },
         text: {
           type: 'string',
@@ -229,14 +272,14 @@ Use this to fill search boxes, forms, etc.`,
           default: false
         }
       },
-      required: ['elementId', 'text']
+      required: ['role', 'name', 'text']
     },
     execute: async (args, context) => {
-      const { elementId, text, submit = false } = args as { elementId: string; text: string; submit?: boolean }
+      const { role, name, text, submit = false } = args as { role: string; name: string; text: string; submit?: boolean }
       const { page, state } = context
       
       try {
-        const locator = page.locator(`[ref="${elementId.replace('@', '')}"]`)
+        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name })
         
         await locator.fill(text)
         
@@ -253,13 +296,13 @@ Use this to fill search boxes, forms, etc.`,
         
         return {
           success: true,
-          data: { elementId, text: text.slice(0, 50), submitted: submit }
+          data: { role, name: name.slice(0, 30), text: text.slice(0, 50), submitted: submit }
         }
       } catch (error) {
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Fill failed',
-          data: { elementId }
+          data: { role, name: name.slice(0, 30) }
         }
       }
     }

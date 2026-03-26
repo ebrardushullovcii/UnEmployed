@@ -47,18 +47,18 @@ export function DiscoveryFiltersPanel({
           {isChromeAgent ? (
             <div className="grid gap-2">
               {needsLogin || isBlocked ? (
-                <div className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
+                <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
                   Log into LinkedIn in the Chrome window that opened, then click <strong>Check login status</strong> below.
                 </div>
               ) : null}
               {isReady ? (
-                <div className="rounded-[var(--radius-small)] border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[0.85rem] leading-6 text-emerald-600 dark:text-emerald-400">
+                <div role="status" className="rounded-[var(--radius-small)] border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[0.85rem] leading-6 text-emerald-600 dark:text-emerald-400">
                   LinkedIn session is active. You can run discovery or check login again at any time.
                 </div>
               ) : null}
             </div>
           ) : (
-            <div className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
+            <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
               Browser agent is not enabled. Set <strong>UNEMPLOYED_LINKEDIN_BROWSER_AGENT=1</strong> in your <strong>.env.local</strong> and restart the app.
             </div>
           )}

@@ -1,4 +1,4 @@
-import type { JobPosting, CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
+import type { JobPosting, CandidateProfile, JobSearchPreferences, AgentDiscoveryProgress } from '@unemployed/contracts'
 import type { Page } from 'playwright'
 
 export interface AgentConfig {
@@ -25,12 +25,8 @@ export interface AgentResult {
   error?: string
 }
 
-export interface AgentProgress {
-  currentUrl: string
-  jobsFound: number
-  stepCount: number
-  currentAction?: string
-}
+// Re-export AgentDiscoveryProgress from contracts for consistency
+export type AgentProgress = AgentDiscoveryProgress
 
 export type AgentMessage =
   | { role: 'system'; content: string }

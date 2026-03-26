@@ -294,6 +294,8 @@ export function JobFinderPage() {
         'Job moved into the review queue.'
       ),
     onRunAgentDiscovery: () =>
+      // TODO: Wire up onProgress callback to show real-time discovery progress in UI
+      // Currently progress is sent via IPC but not consumed by the UI
       void runAction(
         () => actions.runAgentDiscovery(),
         () => undefined,

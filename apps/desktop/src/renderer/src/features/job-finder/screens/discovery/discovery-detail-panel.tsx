@@ -55,7 +55,7 @@ export function DiscoveryDetailPanel({
           <PreferenceList label="Watch-outs" values={selectedJob.matchAssessment.gaps} />
 
           <div className="grid gap-2.5 sm:grid-cols-2">
-            <Button className="h-11 w-full text-[10px]" disabled={busy} onClick={() => onQueueJob(selectedJob.id)} type="button" variant="primary">
+            <Button className="h-11 w-full" disabled={busy} onClick={() => onQueueJob(selectedJob.id)} type="button" variant="primary">
               Shortlist
             </Button>
             <Button className="h-11 w-full" disabled={busy} onClick={() => onDismissJob(selectedJob.id)} type="button" variant="secondary">

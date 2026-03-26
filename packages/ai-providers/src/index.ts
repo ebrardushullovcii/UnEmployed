@@ -1763,9 +1763,21 @@ export function createOpenAiCompatibleJobFinderAiClient(
         .filter((job): job is JobPosting => job !== null)
     },
     async chatWithTools(messages, tools, signal) {
+      // Compose caller signal with 60s safety timeout
+      // AbortSignal.any is not universally available, so we create a composed controller
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60_000)
+      
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          clearTimeout(timeoutId)
+          controller.abort()
+        })
+      }
+
       const response = await fetch(buildChatCompletionsUrl(options.baseUrl), {
         method: 'POST',
-        signal: signal ?? AbortSignal.timeout(60_000),
+        signal: controller.signal,
         headers: {
           Authorization: `Bearer ${options.apiKey}`,
           'Content-Type': 'application/json'
@@ -1794,6 +1806,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
           tool_choice: 'auto'
         })
       })
+
+      clearTimeout(timeoutId)
 
       if (!response.ok) {
         const errorPayload = (await response.json().catch(() => ({}))) as { error?: { message?: string } }

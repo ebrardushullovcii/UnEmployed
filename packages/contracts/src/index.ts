@@ -580,9 +580,9 @@ export const DesktopWindowControlsStateSchema = z.object({
 export type DesktopWindowControlsState = z.infer<typeof DesktopWindowControlsStateSchema>
 
 export const AgentDiscoveryProgressSchema = z.object({
-  currentUrl: z.string(),
-  jobsFound: z.number(),
-  stepCount: z.number(),
+  currentUrl: z.string().min(1),
+  jobsFound: z.number().int().nonnegative(),
+  stepCount: z.number().int().nonnegative(),
   currentAction: z.string().optional()
 })
 export type AgentDiscoveryProgress = z.infer<typeof AgentDiscoveryProgressSchema>

@@ -1011,6 +1011,7 @@ export function createJobFinderWorkspaceService(
     getWorkspaceSnapshot,
     async resetWorkspace(seed) {
       await repository.reset(seed)
+      pendingDiscoveryJobs = [] // Clear pending discovery jobs on reset
       return getWorkspaceSnapshot()
     },
     async openBrowserSession() {

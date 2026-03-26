@@ -125,14 +125,34 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle('job-finder:run-agent-discovery', async (event) => {
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
     const window = event.sender
+    const controller = new AbortController()
 
-    const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
-      (progress) => {
-        window.send('job-finder:agent-discovery-progress', progress)
+    // Listen for cancellation requests
+    const cancelHandler = () => {
+      controller.abort()
+    }
+    ipcMain.once('job-finder:cancel-agent-discovery', cancelHandler)
+
+    try {
+      const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
+        (progress) => {
+          window.send('job-finder:agent-discovery-progress', progress)
+        },
+        controller.signal
+      )
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[JobFinder] Agent discovery cancelled')
+        // Return current workspace snapshot even on abort
+        const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
+        return JobFinderWorkspaceSnapshotSchema.parse(currentSnapshot)
       }
-    )
-
-    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+      throw error
+    } finally {
+      ipcMain.removeListener('job-finder:cancel-agent-discovery', cancelHandler)
+    }
   })
 
   ipcMain.handle('job-finder:queue-job-for-review', async (_event, payload: unknown) => {
