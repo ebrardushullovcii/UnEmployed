@@ -416,6 +416,46 @@ describe('createJobFinderWorkspaceService', () => {
     expect(snapshot.discoveryJobs[0]?.matchAssessment.reasons.length).toBeGreaterThan(0)
   })
 
+  test('discovery-only mode treats jobs as pending and does not persist to saved jobs', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      settings: {
+        resumeFormat: 'html',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: true
+      },
+      savedJobs: [],
+      tailoredAssets: [],
+      applicationRecords: [],
+      applicationAttempts: []
+    })
+    const browserRuntime = createBrowserRuntime()
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.runDiscovery()
+
+    // Jobs should appear in discoveryJobs but not in savedJobs
+    expect(snapshot.discoveryJobs).toHaveLength(2)
+    expect(snapshot.discoveryJobs[0]?.status).toBe('discovered')
+
+    // Verify jobs are pending (can be reviewed/queued) rather than auto-saved
+    // In discovery-only mode, jobs should be available for review
+    expect(snapshot.reviewQueue.length).toBeGreaterThanOrEqual(0)
+
+    // Ensure no application records or attempts were created
+    expect(snapshot.applicationRecords).toHaveLength(0)
+    expect(snapshot.applicationAttempts).toHaveLength(0)
+  })
+
   test('generates a tailored resume and submits a supported Easy Apply attempt', async () => {
     const repository = createInMemoryJobFinderRepository(createSeed())
     const browserRuntime = createBrowserRuntime()

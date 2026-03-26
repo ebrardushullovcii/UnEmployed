@@ -5,6 +5,7 @@ import type {
 } from '@unemployed/ai-providers'
 import type { BrowserSessionRuntime } from '@unemployed/browser-runtime'
 import {
+  AgentDiscoveryProgressSchema,
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   CandidateProfileSchema,
@@ -1172,12 +1173,18 @@ export function createJobFinderWorkspaceService(
         aiClient,
         ...(onProgress && {
           onProgress: (progress: { currentUrl: string; jobsFound: number; stepCount: number; currentAction?: string }) => {
-            onProgress({
+            // Validate progress before emitting
+            const validation = AgentDiscoveryProgressSchema.safeParse({
               currentUrl: progress.currentUrl,
               jobsFound: progress.jobsFound,
               stepCount: progress.stepCount,
-              ...(progress.currentAction && { currentAction: progress.currentAction })
+              currentAction: progress.currentAction
             })
+            if (validation.success) {
+              onProgress(validation.data)
+            } else {
+              console.warn('[JobFinder] Invalid progress data, skipping:', validation.error)
+            }
           }
         }),
         ...(signal && { signal })
