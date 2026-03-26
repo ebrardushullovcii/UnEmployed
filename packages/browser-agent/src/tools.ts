@@ -11,14 +11,14 @@ const NavigateSchema = z.object({
   url: z.string().url(),
   timeout: z.number().int().positive().max(MAX_NAVIGATION_TIMEOUT).optional().default(30000),
   waitFor: z.enum(['domcontentloaded', 'load', 'networkidle']).optional().default('domcontentloaded')
-})
+}).strict()
 
 const ClickSchema = z.object({
   role: z.string().min(1),
   name: z.string().min(1),
   index: z.number().int().nonnegative().optional().default(0),
   retryIfNotVisible: z.boolean().optional().default(true)
-})
+}).strict()
 
 const FillSchema = z.object({
   role: z.string().min(1),
@@ -26,27 +26,27 @@ const FillSchema = z.object({
   text: z.string().min(1),
   index: z.number().int().nonnegative().optional().default(0),
   submit: z.boolean().optional().default(false)
-})
+}).strict()
 
 const ScrollDownSchema = z.object({
   amount: z.number().int().positive().optional().default(800)
-})
+}).strict()
 
 const ExtractJobsSchema = z.object({
   pageType: z.enum(['search_results', 'job_detail', 'company_page', 'unknown']),
   maxJobs: z.number().int().positive().optional().default(5)
-})
+}).strict()
 
 const FinishSchema = z.object({
   reason: z.string().min(1)
-})
+}).strict()
 
 // Recovery helper for when navigation goes off allowlist
 async function recoverFromOffAllowlist(
   page: Page,
   invalidUrl: string,
   previousUrl: string
-): Promise<{ recovered: boolean; error: string }> {
+): Promise<{ recovered: boolean; error: string; recoveredUrl?: string }> {
   const error = `Navigation went to disallowed URL: ${invalidUrl}`
   
   // Check if previousUrl is valid for recovery
@@ -57,11 +57,11 @@ async function recoverFromOffAllowlist(
     await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 })
     await page.waitForTimeout(500)
     
-    // Check if we're back on an allowed URL
+    // Verify we landed on an allowed URL
     const currentUrl = page.url()
     const urlCheck = isAllowedUrl(currentUrl)
     if (urlCheck.valid) {
-      return { recovered: true, error }
+      return { recovered: true, error, recoveredUrl: currentUrl }
     }
   } catch {
     // goBack failed, try direct navigation
@@ -71,7 +71,13 @@ async function recoverFromOffAllowlist(
   if (previousUrlValid) {
     try {
       await page.goto(previousUrl, { waitUntil: 'domcontentloaded', timeout: 5000 })
-      return { recovered: true, error: error + ` (recovered to ${previousUrl})` }
+      
+      // Verify we landed on an allowed URL
+      const finalUrl = page.url()
+      const urlCheck = isAllowedUrl(finalUrl)
+      if (urlCheck.valid) {
+        return { recovered: true, error: error + ` (recovered to ${previousUrl})`, recoveredUrl: finalUrl }
+      }
     } catch {
       // Navigation also failed
     }
@@ -180,6 +186,19 @@ You control the timeout strategy:
         const errorMessage = error instanceof Error ? error.message : 'Navigation failed'
         const currentUrl = page.url()
         
+        // Check if we ended up on a disallowed URL and recover
+        let finalUrl = currentUrl
+        if (currentUrl) {
+          const urlCheck = isAllowedUrl(currentUrl)
+          if (!urlCheck.valid) {
+            // Try to recover back to an allowed URL
+            const recovery = await recoverFromOffAllowlist(page, currentUrl, url)
+            if (recovery.recovered && recovery.recoveredUrl) {
+              finalUrl = recovery.recoveredUrl
+            }
+          }
+        }
+        
         // Check for partial load by evaluating document state
         let readyState = 'unknown'
         let isPartialLoad = false
@@ -189,13 +208,18 @@ You control the timeout strategy:
           readyState = await page.evaluate(() => document.readyState).catch(() => 'unknown')
           // Partial load if URL changed or document isn't fully loaded
           isPartialLoad = Boolean(
-            currentUrl && 
-            currentUrl !== 'about:blank' && 
-            (currentUrl !== url || readyState !== 'complete')
+            finalUrl && 
+            finalUrl !== 'about:blank' && 
+            (finalUrl !== url || readyState !== 'complete')
           )
         } catch {
           // Fallback to URL-based check if evaluate fails
-          isPartialLoad = Boolean(currentUrl && currentUrl !== 'about:blank' && currentUrl !== url)
+          isPartialLoad = Boolean(finalUrl && finalUrl !== 'about:blank' && finalUrl !== url)
+        }
+        
+        // Update state to reflect current URL after recovery
+        if (finalUrl && isAllowedUrl(finalUrl).valid) {
+          state.currentUrl = finalUrl
         }
         
         return {
@@ -203,7 +227,7 @@ You control the timeout strategy:
           error: errorMessage,
           data: {
             requestedUrl: url,
-            currentUrl: currentUrl || null,
+            currentUrl: finalUrl || null,
             partialLoad: isPartialLoad,
             readyState,
             timeElapsed: Date.now() - startTime,
@@ -327,7 +351,7 @@ If the click fails, you'll get details about why so you can decide whether to re
 
       try {
         // Use Playwright's accessibility-friendly locator with nth for disambiguation
-        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name }).nth(index)
+        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name, exact: true }).nth(index)
 
         // Check if element is visible
         const isVisible = await locator.isVisible().catch(() => false)
@@ -382,6 +406,19 @@ If the click fails, you'll get details about why so you can decide whether to re
           }
         }
       } catch (error) {
+        // Check if we ended up on a disallowed URL and recover
+        const currentUrl = page.url()
+        if (currentUrl) {
+          const urlCheck = isAllowedUrl(currentUrl)
+          if (!urlCheck.valid) {
+            // Try to recover back to an allowed URL
+            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl)
+          } else {
+            // URL is allowed, update state
+            state.currentUrl = currentUrl
+          }
+        }
+        
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Click failed',
@@ -447,7 +484,7 @@ If multiple elements have the same role and name, use the index to disambiguate 
 
       try {
         // Use Playwright's accessibility-friendly locator with nth for disambiguation
-        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name }).nth(index)
+        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name, exact: true }).nth(index)
 
         await locator.fill(text)
 
@@ -479,6 +516,19 @@ If multiple elements have the same role and name, use the index to disambiguate 
           data: { role, name: name.slice(0, 30), index, text: text.slice(0, 50), submitted: submit }
         }
       } catch (error) {
+        // Check if we ended up on a disallowed URL and recover
+        const currentUrl = page.url()
+        if (currentUrl) {
+          const urlCheck = isAllowedUrl(currentUrl)
+          if (!urlCheck.valid) {
+            // Try to recover back to an allowed URL
+            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl)
+          } else {
+            // URL is allowed, update state
+            state.currentUrl = currentUrl
+          }
+        }
+        
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Fill failed',
@@ -610,6 +660,19 @@ Use this after viewing a job detail to return to search results.`,
           }
         }
       } catch (error) {
+        // Check if we ended up on a disallowed URL and recover
+        const currentUrl = page.url()
+        if (currentUrl) {
+          const urlCheck = isAllowedUrl(currentUrl)
+          if (!urlCheck.valid) {
+            // Try to recover back to an allowed URL
+            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl)
+          } else {
+            // URL is allowed, update state
+            state.currentUrl = currentUrl
+          }
+        }
+        
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Go back failed'
