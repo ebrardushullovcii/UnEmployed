@@ -9,7 +9,7 @@ interface ProfileSectionHeaderProps {
 
 export function ProfileSectionHeader({ action, description, eyebrow, title }: ProfileSectionHeaderProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
+    <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="grid gap-1.5">
         {eyebrow ? (
           <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">{eyebrow}</p>
@@ -23,6 +23,6 @@ export function ProfileSectionHeader({ action, description, eyebrow, title }: Pr
       </div>
 
       {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
+    </header>
   )
 }

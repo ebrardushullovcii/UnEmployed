@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@renderer/lib/cn'
 
@@ -14,6 +14,10 @@ export function ProfileRecordCard({ children, className, defaultOpen = false, su
   const [isOpen, setIsOpen] = useState(defaultOpen)
   const detailSummary = summary?.trim() || 'Expand to review and edit the full details.'
 
+  useEffect(() => {
+    setIsOpen(defaultOpen)
+  }, [defaultOpen])
+
   return (
     <details
       className={cn(
@@ -23,18 +27,16 @@ export function ProfileRecordCard({ children, className, defaultOpen = false, su
       onToggle={(event) => setIsOpen(event.currentTarget.open)}
       open={isOpen}
     >
-      <summary className="list-none cursor-pointer">
-        <div className="flex items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <p className="text-[0.96rem] font-semibold text-[var(--text-headline)]">{title}</p>
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{detailSummary}</p>
-          </div>
+      <summary className="flex items-start justify-between gap-3 list-none cursor-pointer">
+        <span className="grid gap-1 min-w-0">
+          <span className="text-[0.96rem] font-semibold text-[var(--text-headline)]">{title}</span>
+          <span className="text-[var(--text-description)] leading-6 text-foreground-muted">{detailSummary}</span>
+        </span>
 
-          <span className="inline-flex items-center gap-1 rounded-full border border-[var(--field-border)] bg-[var(--field)] px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted transition-transform group-open:[&_svg]:rotate-180">
-            <ChevronDown className="size-3 transition-transform duration-200" />
-            Details
-          </span>
-        </div>
+        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--field-border)] bg-[var(--field)] px-2.5 py-1 text-[var(--text-tiny)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted transition-transform group-open:[&_svg]:rotate-180">
+          <ChevronDown className="size-3 transition-transform duration-200" />
+          <span>Details</span>
+        </span>
       </summary>
 
       <div className="mt-4 grid gap-4 border-t border-[var(--surface-panel-border)] pt-4">{children}</div>

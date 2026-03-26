@@ -25,6 +25,7 @@ export function ProfileResumePanel({
   onImportResume,
   profile
 }: ProfileResumePanelProps) {
+  const resumeAnalysisSummary = formatResumeAnalysisSummary(profile)
   const resumeTextReadyToAnalyze = Boolean(profile.baseResume.textContent?.trim())
   const resumeFileName = profile.baseResume.fileName.trim() || 'No resume imported yet'
   const uploadedLabel = profile.baseResume.uploadedAt
@@ -41,8 +42,8 @@ export function ProfileResumePanel({
         : `${profile.yearsExperience} years`
 
   return (
-    <section className="relative overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[linear-gradient(135deg,rgba(227,202,127,0.12),rgba(255,255,255,0.02)_38%,rgba(0,0,0,0.08))] p-5 sm:p-6">
-      <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(227,202,127,0.7),transparent)]" />
+    <section className="relative overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[linear-gradient(135deg,var(--surface-panel-border-warm),var(--surface-overlay-subtle)_38%,var(--surface-overlay-soft))] p-5 sm:p-6">
+      <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,var(--surface-panel-border-warm-strong),transparent)]" />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
         <div className="grid gap-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -61,13 +62,13 @@ export function ProfileResumePanel({
             </StatusBadge>
           </div>
 
-          <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[rgba(227,202,127,0.18)] bg-[rgba(12,12,12,0.38)] p-4">
+          <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border-warm)] bg-[var(--surface-resume-panel)] p-4">
             <div className="grid gap-1.5">
               <strong className="text-[1.22rem] font-semibold text-[var(--text-headline)]">{resumeFileName}</strong>
               <span className="text-[var(--text-body)] text-foreground-soft">{uploadedLabel}</span>
-              {profile.baseResume.lastAnalyzedAt ? (
+              {resumeAnalysisSummary ? (
                 <span className="text-[var(--text-description)] leading-6 text-foreground-muted">
-                  {formatResumeAnalysisSummary(profile)}
+                  {resumeAnalysisSummary}
                 </span>
               ) : (
                 <span className="text-[var(--text-description)] leading-6 text-foreground-muted">
@@ -95,14 +96,14 @@ export function ProfileResumePanel({
           </article>
 
           {profile.baseResume.analysisWarnings.length > 0 ? (
-            <article className="grid gap-3 rounded-[var(--radius-panel)] border border-[rgba(227,202,127,0.16)] bg-[rgba(0,0,0,0.22)] p-4">
+            <article className="grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border-warm)] bg-[var(--surface-overlay-stronger)] p-4">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Review Notes</p>
               <PreferenceList label="Check these items before saving" values={profile.baseResume.analysisWarnings} />
             </article>
           ) : null}
         </div>
 
-        <aside className="grid gap-3 self-start rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[rgba(0,0,0,0.24)] p-4">
+        <aside className="grid gap-3 self-start rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-overlay-panel)] p-4">
           <div className="grid gap-1">
             <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Prefilled Snapshot</p>
             <p className="text-[var(--text-description)] leading-6 text-foreground-muted">

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useFieldArray, useForm } from 'react-hook-form'
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
@@ -48,7 +48,7 @@ function isFilledValue(value: unknown): boolean {
   }
 
   if (typeof value === 'boolean') {
-    return value
+    return true
   }
 
   if (Array.isArray(value)) {
@@ -137,8 +137,58 @@ export function ProfileScreen(props: {
   const projectArray = useFieldArray({ control: profileForm.control, name: 'projects' })
   const linkArray = useFieldArray({ control: profileForm.control, name: 'links' })
   const languageArray = useFieldArray({ control: profileForm.control, name: 'languages' })
-  const profileValues = profileForm.watch()
-  const preferenceValues = preferencesForm.watch()
+  const [identityValues, summaryValues, skillGroupValues, profileSkillValues, eligibilityValues, experienceValues, educationValues, certificationValues, projectValues, linkValues, languageValues] = useWatch({
+    control: profileForm.control,
+    name: [
+      'identity',
+      'summary',
+      'skillGroups',
+      'profileSkills',
+      'eligibility',
+      'records.experiences',
+      'records.education',
+      'records.certifications',
+      'projects',
+      'links',
+      'languages'
+    ]
+  })
+  const [
+    targetRoles,
+    jobFamilies,
+    seniorityLevels,
+    employmentTypes,
+    locations,
+    excludedLocations,
+    targetIndustries,
+    targetCompanyStages,
+    companyWhitelist,
+    companyBlacklist,
+    workModes,
+    tailoringMode,
+    minimumSalaryUsd,
+    targetSalaryUsd,
+    salaryCurrency
+  ] = useWatch({
+    control: preferencesForm.control,
+    name: [
+      'targetRoles',
+      'jobFamilies',
+      'seniorityLevels',
+      'employmentTypes',
+      'locations',
+      'excludedLocations',
+      'targetIndustries',
+      'targetCompanyStages',
+      'companyWhitelist',
+      'companyBlacklist',
+      'workModes',
+      'tailoringMode',
+      'minimumSalaryUsd',
+      'targetSalaryUsd',
+      'salaryCurrency'
+    ]
+  })
 
   useEffect(() => {
     profileForm.reset(createProfileEditorValues(profile))
@@ -150,17 +200,17 @@ export function ProfileScreen(props: {
     setValidationMessage(null)
   }, [preferencesForm, searchPreferences])
 
-  const snapshotDisplayName = profileForm.watch('identity.preferredDisplayName') || null
+  const snapshotDisplayName = identityValues?.preferredDisplayName || null
   const snapshotFullName = [
-    profileForm.watch('identity.firstName'),
-    profileForm.watch('identity.middleName'),
-    profileForm.watch('identity.lastName')
+    identityValues?.firstName,
+    identityValues?.middleName,
+    identityValues?.lastName
   ]
     .filter(Boolean)
     .join(' ') || profile.fullName
-  const snapshotHeadline = profileForm.watch('identity.headline') || profile.headline
-  const snapshotLocation = profileForm.watch('identity.currentLocation') || profile.currentLocation
-  const snapshotYearsExperience = profileForm.watch('identity.yearsExperience')
+  const snapshotHeadline = identityValues?.headline || profile.headline
+  const snapshotLocation = identityValues?.currentLocation || profile.currentLocation
+  const snapshotYearsExperience = identityValues?.yearsExperience
 
   const overviewProfile = useMemo<CandidateProfile>(() => ({
     ...profile,
@@ -180,73 +230,73 @@ export function ProfileScreen(props: {
 
   const sectionProgress = useMemo<Record<ProfileSection, SectionProgress>>(() => {
     const basics = countFilledFields([
-      profileValues.identity.firstName,
-      profileValues.identity.lastName,
-      profileValues.identity.middleName,
-      profileValues.identity.preferredDisplayName,
-      profileValues.identity.headline,
-      profileValues.identity.yearsExperience,
-      profileValues.identity.email,
-      profileValues.identity.secondaryEmail,
-      profileValues.identity.phone,
-      profileValues.identity.timeZone,
-      profileValues.identity.currentCity,
-      profileValues.identity.currentRegion,
-      profileValues.identity.currentCountry,
-      profileValues.identity.currentLocation,
-      profileValues.identity.linkedinUrl,
-      profileValues.identity.portfolioUrl,
-      profileValues.identity.githubUrl,
-      profileValues.identity.personalWebsiteUrl,
-      profileValues.summary.shortValueProposition,
-      profileValues.summary.fullSummary,
-      profileValues.summary.careerThemes,
-      profileValues.summary.strengths,
-      profileValues.summary.leadershipSummary,
-      profileValues.summary.domainFocusSummary,
-      profileValues.profileSkills,
-      profileValues.skillGroups.highlightedSkills,
-      profileValues.skillGroups.coreSkills,
-      profileValues.skillGroups.tools,
-      profileValues.skillGroups.languagesAndFrameworks,
-      profileValues.skillGroups.softSkills
+      identityValues?.firstName,
+      identityValues?.lastName,
+      identityValues?.middleName,
+      identityValues?.preferredDisplayName,
+      identityValues?.headline,
+      identityValues?.yearsExperience,
+      identityValues?.email,
+      identityValues?.secondaryEmail,
+      identityValues?.phone,
+      identityValues?.timeZone,
+      identityValues?.currentCity,
+      identityValues?.currentRegion,
+      identityValues?.currentCountry,
+      identityValues?.currentLocation,
+      identityValues?.linkedinUrl,
+      identityValues?.portfolioUrl,
+      identityValues?.githubUrl,
+      identityValues?.personalWebsiteUrl,
+      summaryValues?.shortValueProposition,
+      summaryValues?.fullSummary,
+      summaryValues?.careerThemes,
+      summaryValues?.strengths,
+      summaryValues?.leadershipSummary,
+      summaryValues?.domainFocusSummary,
+      profileSkillValues,
+      skillGroupValues?.highlightedSkills,
+      skillGroupValues?.coreSkills,
+      skillGroupValues?.tools,
+      skillGroupValues?.languagesAndFrameworks,
+      skillGroupValues?.softSkills
     ])
 
-    const experience = countFilledRecordFields(profileValues.records.experiences, ['id', 'isCurrent'])
+    const experience = countFilledRecordFields(experienceValues ?? [], ['id', 'isCurrent'])
 
     const background = combineSectionProgress(
-      countFilledRecordFields(profileValues.records.education, ['id']),
-      countFilledRecordFields(profileValues.records.certifications, ['id']),
-      countFilledRecordFields(profileValues.projects, ['id']),
-      countFilledRecordFields(profileValues.links, ['id']),
-      countFilledRecordFields(profileValues.languages, ['id', 'interviewPreference'])
+      countFilledRecordFields(educationValues ?? [], ['id']),
+      countFilledRecordFields(certificationValues ?? [], ['id']),
+      countFilledRecordFields(projectValues ?? [], ['id']),
+      countFilledRecordFields(linkValues ?? [], ['id']),
+      countFilledRecordFields(languageValues ?? [], ['id', 'interviewPreference'])
     )
 
     const preferences = countFilledFields([
-      profileValues.eligibility.authorizedWorkCountries,
-      profileValues.eligibility.requiresVisaSponsorship,
-      profileValues.eligibility.remoteEligible,
-      profileValues.eligibility.securityClearance,
-      profileValues.eligibility.willingToRelocate,
-      profileValues.eligibility.willingToTravel,
-      profileValues.eligibility.preferredRelocationRegions,
-      profileValues.eligibility.noticePeriodDays,
-      profileValues.eligibility.availableStartDate,
-      preferenceValues.targetRoles,
-      preferenceValues.jobFamilies,
-      preferenceValues.seniorityLevels,
-      preferenceValues.employmentTypes,
-      preferenceValues.locations,
-      preferenceValues.excludedLocations,
-      preferenceValues.targetIndustries,
-      preferenceValues.targetCompanyStages,
-      preferenceValues.companyWhitelist,
-      preferenceValues.companyBlacklist,
-      preferenceValues.workModes,
-      preferenceValues.tailoringMode,
-      preferenceValues.minimumSalaryUsd,
-      preferenceValues.targetSalaryUsd,
-      preferenceValues.salaryCurrency
+      eligibilityValues?.authorizedWorkCountries,
+      eligibilityValues?.requiresVisaSponsorship,
+      eligibilityValues?.remoteEligible,
+      eligibilityValues?.securityClearance,
+      eligibilityValues?.willingToRelocate,
+      eligibilityValues?.willingToTravel,
+      eligibilityValues?.preferredRelocationRegions,
+      eligibilityValues?.noticePeriodDays,
+      eligibilityValues?.availableStartDate,
+      targetRoles,
+      jobFamilies,
+      seniorityLevels,
+      employmentTypes,
+      locations,
+      excludedLocations,
+      targetIndustries,
+      targetCompanyStages,
+      companyWhitelist,
+      companyBlacklist,
+      workModes,
+      tailoringMode,
+      minimumSalaryUsd,
+      targetSalaryUsd,
+      salaryCurrency
     ])
 
     return {
@@ -255,7 +305,34 @@ export function ProfileScreen(props: {
       background,
       preferences
     }
-  }, [preferenceValues, profileValues])
+  }, [
+    certificationValues,
+    companyBlacklist,
+    companyWhitelist,
+    educationValues,
+    eligibilityValues,
+    employmentTypes,
+    excludedLocations,
+    experienceValues,
+    identityValues,
+    jobFamilies,
+    languageValues,
+    linkValues,
+    locations,
+    minimumSalaryUsd,
+    profileSkillValues,
+    projectValues,
+    salaryCurrency,
+    seniorityLevels,
+    skillGroupValues,
+    summaryValues,
+    tailoringMode,
+    targetCompanyStages,
+    targetIndustries,
+    targetRoles,
+    targetSalaryUsd,
+    workModes
+  ])
 
   const sections = useMemo(
     () => [
@@ -286,6 +363,42 @@ export function ProfileScreen(props: {
     ],
     [sectionProgress]
   )
+
+  const activeSectionPanelId = `${activeSection}-panel`
+
+  function handleSectionKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const currentIndex = sections.findIndex((section) => section.id === activeSection)
+
+    if (currentIndex < 0) {
+      return
+    }
+
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'Home' && event.key !== 'End') {
+      return
+    }
+
+    event.preventDefault()
+
+    let nextIndex = currentIndex
+
+    if (event.key === 'ArrowRight') {
+      nextIndex = (currentIndex + 1) % sections.length
+    } else if (event.key === 'ArrowLeft') {
+      nextIndex = (currentIndex - 1 + sections.length) % sections.length
+    } else if (event.key === 'Home') {
+      nextIndex = 0
+    } else if (event.key === 'End') {
+      nextIndex = sections.length - 1
+    }
+
+    const nextSection = sections[nextIndex]
+
+    if (nextSection) {
+      setActiveSection(nextSection.id)
+      const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+      tabs[nextIndex]?.focus()
+    }
+  }
 
   function handleSaveAll() {
     const profileResult = buildProfilePayload(profile, profileForm.getValues())
@@ -338,20 +451,24 @@ export function ProfileScreen(props: {
         profile={overviewProfile}
       />
 
-      <section className="grid gap-3">
+      <section className="grid gap-[var(--gap-content)]">
         <div className="px-3 pt-3 pb-2 sm:px-4 sm:pt-4 sm:pb-2">
-          <div aria-label="Profile sections" className="grid items-start gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div aria-label="Profile sections" className="grid items-start gap-2 sm:grid-cols-2 xl:grid-cols-4" onKeyDown={handleSectionKeyDown} role="tablist">
               {sections.map((section) => (
                 <div key={section.id} className={cn(activeSection === section.id ? 'relative z-30 w-full' : 'relative w-full')}>
                   <button
-                    aria-pressed={activeSection === section.id}
+                    aria-controls={`${section.id}-panel`}
+                    aria-selected={activeSection === section.id}
+                    id={`${section.id}-tab`}
                     className={cn(
                       'group relative w-full border text-left transition-all duration-200',
                       activeSection === section.id
-                        ? 'translate-y-[4px] overflow-hidden rounded-[0.95rem] border-[rgba(85,184,120,0.48)] bg-transparent text-[var(--text-headline)]'
-                        : 'overflow-hidden rounded-[0.95rem] border-[rgba(227,202,127,0.18)] bg-[rgba(255,255,255,0.01)] text-foreground-soft hover:border-[rgba(227,202,127,0.28)] hover:bg-[rgba(255,255,255,0.025)] hover:text-foreground'
+                        ? 'translate-y-1 overflow-hidden rounded-[var(--radius-button)] border-[var(--surface-panel-border-active)] bg-transparent text-[var(--text-headline)]'
+                        : 'overflow-hidden rounded-[var(--radius-button)] border-[var(--surface-panel-border-warm)] bg-[var(--surface-tab-fill)] text-foreground-soft hover:border-[var(--surface-panel-border-warm-hover)] hover:bg-[var(--surface-tab-hover)] hover:text-foreground'
                     )}
                     onClick={() => setActiveSection(section.id)}
+                    role="tab"
+                    tabIndex={activeSection === section.id ? 0 : -1}
                     type="button"
                     >
                     <span
@@ -360,35 +477,35 @@ export function ProfileScreen(props: {
                         'absolute inset-y-0 left-0 rounded-[inherit] transition-[width] duration-300',
                         activeSection === section.id
                           ? 'bg-transparent'
-                          : 'bg-[linear-gradient(135deg,rgba(227,202,127,0.12),rgba(255,255,255,0.02)_42%,rgba(0,0,0,0.06))]'
+                          : 'bg-[linear-gradient(135deg,var(--surface-panel-border-warm),var(--surface-overlay-subtle)_42%,var(--surface-overlay-soft))]'
                       )}
                       style={{ width: activeSection === section.id ? '0%' : `${section.progress.percent}%` }}
                     />
                     <span
                       className={cn(
-                        'absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.14),transparent)]',
+                        'absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,var(--border),transparent)]',
                         activeSection === section.id ? 'opacity-0' : 'opacity-80'
                       )}
                     />
-                    <span className="relative grid gap-2 px-4 pt-3 pb-2.5">
+                    <span className="relative grid gap-[var(--gap-field)] px-4 pt-3 pb-2.5">
                       <span className="flex items-center justify-between gap-3">
-                        <span className="text-[0.98rem] font-semibold tracking-[-0.02em]">{section.label}</span>
-                        <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">
+                        <span className="text-[var(--text-body)] font-semibold tracking-[-0.02em]">{section.label}</span>
+                        <span className="text-[var(--text-tiny)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">
                           {formatSectionProgressLabel(section.id, section.progress)}
                         </span>
                       </span>
 
                       <span className="flex items-center gap-2">
-                        <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">
+                        <span className="text-[var(--text-tiny)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">
                           {section.progress.percent}%
                         </span>
-                        <span className="h-1 flex-1 overflow-hidden rounded-sm bg-[rgba(0,0,0,0.26)]">
+                        <span className="h-1 flex-1 overflow-hidden rounded-[var(--radius-small)] bg-[var(--surface-overlay-track)]">
                           <span
                             className={cn(
                               'block h-full transition-[width] duration-300',
                               activeSection === section.id
-                                ? 'bg-[linear-gradient(90deg,rgba(100,214,136,0.95),rgba(180,244,199,0.72))]'
-                                : 'bg-[linear-gradient(90deg,rgba(227,202,127,0.92),rgba(255,255,255,0.58))]'
+                                ? 'bg-[linear-gradient(90deg,var(--progress-active-start),var(--progress-active-end))]'
+                                : 'bg-[linear-gradient(90deg,var(--progress-warm-start),var(--progress-warm-end))]'
                             )}
                             style={{ width: `${section.progress.percent}%` }}
                           />
@@ -401,10 +518,10 @@ export function ProfileScreen(props: {
           </div>
         </div>
 
-        <div className="relative rounded-[var(--radius-field)] border border-[rgba(85,184,120,0.4)] bg-[var(--surface-panel)]">
-          <div className="relative z-0 p-4 sm:p-5">{activeSectionContent}</div>
+        <div className="relative rounded-[var(--radius-field)] border border-[var(--surface-panel-border-active-soft)] bg-[var(--surface-panel)]">
+          <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">{activeSectionContent}</div>
 
-          <div className="border-t border-[var(--surface-panel-border)] bg-[rgba(0,0,0,0.12)] px-4 py-4 sm:px-5">
+          <div className="border-t border-[var(--surface-panel-border)] bg-[var(--surface-overlay-strong)] px-4 py-4 sm:px-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="grid gap-2">
                 {validationMessage ? (
