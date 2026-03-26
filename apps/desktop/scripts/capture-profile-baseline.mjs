@@ -207,8 +207,8 @@ const topLevelScreens = [
     slug: 'profile',
     heading: 'Candidate setup',
     beforeCapture: async (page) => {
-      await clickNavigationControl(page, 'Resume')
-      await ensureLocatorText(page, 'Current snapshot')
+      await clickNavigationControl(page, 'Basics')
+      await ensureLocatorText(page, 'Resume Source')
     }
   },
   {
@@ -235,19 +235,14 @@ const topLevelScreens = [
 
 const profileTabs = [
   {
-    label: 'Resume',
-    slug: 'resume',
-    readyText: 'Current snapshot'
-  },
-  {
-    label: 'Core Profile',
-    slug: 'core-profile',
-    readyText: 'Identity and contact'
+    label: 'Basics',
+    slug: 'basics',
+    readyText: 'Personal details'
   },
   {
     label: 'Experience',
     slug: 'experience',
-    readyText: 'Experience timeline'
+    readyText: 'Work history'
   },
   {
     label: 'Background',
@@ -257,7 +252,7 @@ const profileTabs = [
   {
     label: 'Preferences',
     slug: 'preferences',
-    readyText: 'Work eligibility and logistics'
+    readyText: 'Work eligibility'
   }
 ]
 
@@ -326,8 +321,8 @@ async function captureProfileBaseline() {
 
     await clickNavigationControl(page, /^Profile$/)
     await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 10000 })
-    await clickNavigationControl(page, 'Resume')
-    await ensureLocatorText(page, 'Current snapshot')
+    await clickNavigationControl(page, 'Basics')
+    await ensureLocatorText(page, 'Resume Source')
     await ensureLocatorText(page, snapshot.profile.fullName)
 
     for (const screen of topLevelScreens) {

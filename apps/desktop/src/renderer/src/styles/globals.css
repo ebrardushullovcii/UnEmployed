@@ -74,6 +74,22 @@
   --surface-panel: #0a0a0b;
   --surface-panel-raised: #0d0d0e;
   --surface-panel-border: rgba(255, 255, 255, 0.12);
+  --surface-panel-border-active: rgba(85, 184, 120, 0.48);
+  --surface-panel-border-active-soft: rgba(85, 184, 120, 0.4);
+  --surface-panel-border-warm: rgba(227, 202, 127, 0.18);
+  --surface-panel-border-warm-strong: rgba(227, 202, 127, 0.7);
+  --surface-panel-border-warm-hover: rgba(227, 202, 127, 0.28);
+  --surface-tab-hover: rgba(255, 255, 255, 0.025);
+  --surface-fill-subtle: rgba(255, 255, 255, 0.01);
+  --surface-fill-soft: rgba(255, 255, 255, 0.03);
+  --surface-fill-chip: rgba(255, 255, 255, 0.04);
+  --surface-overlay-subtle: rgba(255, 255, 255, 0.02);
+  --surface-overlay-soft: rgba(0, 0, 0, 0.08);
+  --surface-overlay-medium: rgba(0, 0, 0, 0.12);
+  --surface-overlay-list: rgba(0, 0, 0, 0.16);
+  --surface-overlay-strong: rgba(0, 0, 0, 0.24);
+  --surface-overlay-heavy: rgba(12, 12, 12, 0.38);
+  --surface-overlay-track: rgba(0, 0, 0, 0.26);
   --surface-progress-track: rgba(0, 0, 0, 0.4);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.22);
@@ -84,6 +100,10 @@
 
   --positive: #d0ecff;
   --positive-foreground: #2b4655;
+  --progress-active-start: rgba(100, 214, 136, 0.95);
+  --progress-active-end: rgba(180, 244, 199, 0.72);
+  --progress-warm-start: rgba(227, 202, 127, 0.92);
+  --progress-warm-end: rgba(255, 255, 255, 0.58);
   --active: #c6c6c7;
   --active-foreground: #3e4040;
   --critical: #ff9993;
@@ -99,6 +119,9 @@
 
   /* Component tokens - Typography */
   --text-field: 0.92rem;
+  --text-eyebrow: 0.625rem;
+  --text-field-label: 0.625rem;
+  --text-section-title: 1.15rem;
   --text-body: 0.95rem;
   --text-description: 0.84rem;
   --text-small: 0.78rem;
