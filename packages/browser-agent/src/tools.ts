@@ -1,4 +1,64 @@
+import { z } from 'zod'
 import type { ToolDefinition } from './types'
+
+// Helper to validate URLs against allowlist
+const ALLOWED_HOSTNAMES = ['linkedin.com', 'www.linkedin.com']
+
+function isAllowedUrl(url: string): { valid: boolean; error?: string } {
+  try {
+    const parsedUrl = new URL(url)
+    // Only allow http/https schemes
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return { valid: false, error: `Invalid URL scheme: ${parsedUrl.protocol}` }
+    }
+    // Check hostname against allowlist
+    const hostname = parsedUrl.hostname.toLowerCase()
+    const isAllowed = ALLOWED_HOSTNAMES.some(allowed =>
+      hostname === allowed || hostname.endsWith(`.${allowed}`)
+    )
+    if (!isAllowed) {
+      return { valid: false, error: `Navigation to ${hostname} is not allowed. Only LinkedIn is permitted.` }
+    }
+    return { valid: true }
+  } catch {
+    return { valid: false, error: `Invalid URL format` }
+  }
+}
+
+// Tool payload schemas
+const NavigateSchema = z.object({
+  url: z.string().url(),
+  timeout: z.number().int().positive().optional().default(30000),
+  waitFor: z.enum(['domcontentloaded', 'load', 'networkidle']).optional().default('domcontentloaded')
+})
+
+const ClickSchema = z.object({
+  role: z.string().min(1),
+  name: z.string().min(1),
+  index: z.number().int().nonnegative().optional().default(0),
+  retryIfNotVisible: z.boolean().optional().default(true)
+})
+
+const FillSchema = z.object({
+  role: z.string().min(1),
+  name: z.string().min(1),
+  text: z.string().min(1),
+  index: z.number().int().nonnegative().optional().default(0),
+  submit: z.boolean().optional().default(false)
+})
+
+const ScrollDownSchema = z.object({
+  amount: z.number().int().positive().optional().default(800)
+})
+
+const ExtractJobsSchema = z.object({
+  pageType: z.enum(['search_results', 'job_detail', 'company_page', 'unknown']),
+  maxJobs: z.number().int().positive().optional().default(5)
+})
+
+const FinishSchema = z.object({
+  reason: z.string().min(1)
+})
 
 export const browserTools: ToolDefinition[] = [
   {
@@ -31,44 +91,25 @@ You control the timeout strategy:
       required: ['url']
     },
     execute: async (args, context) => {
-      const { url, timeout = 30000, waitFor = 'domcontentloaded' } = args as { 
-        url: string
-        timeout?: number
-        waitFor?: 'domcontentloaded' | 'load' | 'networkidle'
+      // Validate args against schema
+      const parseResult = NavigateSchema.safeParse(args)
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid navigate arguments: ${parseResult.error.issues.map(i => i.message).join(', ')}`
+        }
       }
-      const { page } = context
+      const { url, timeout, waitFor } = parseResult.data
+      
+      const { page, state } = context
       const startTime = Date.now()
       
-      // Validate URL scheme and hostname
-      let parsedUrl: URL
-      try {
-        parsedUrl = new URL(url)
-      } catch {
+      // Validate URL before navigation
+      const urlValidation = isAllowedUrl(url)
+      if (!urlValidation.valid) {
         return {
           success: false,
-          error: `Invalid URL: ${url}`
-        }
-      }
-      
-      // Only allow http/https schemes
-      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-        return {
-          success: false,
-          error: `Invalid URL scheme: ${parsedUrl.protocol}. Only http/https allowed.`
-        }
-      }
-      
-      // Allowlist of safe hostnames (LinkedIn only for now)
-      const allowedHostnames = ['linkedin.com', 'www.linkedin.com']
-      const hostname = parsedUrl.hostname.toLowerCase()
-      const isAllowed = allowedHostnames.some(allowed => 
-        hostname === allowed || hostname.endsWith(`.${allowed}`)
-      )
-      
-      if (!isAllowed) {
-        return {
-          success: false,
-          error: `Navigation to ${hostname} is not allowed. Only LinkedIn is permitted.`
+          error: urlValidation.error ?? 'URL validation failed'
         }
       }
       
@@ -78,14 +119,29 @@ You control the timeout strategy:
           timeout 
         })
         
+        const finalUrl = page.url()
         const loadTime = Date.now() - startTime
-        context.state.currentUrl = page.url()
-        context.state.visitedUrls.add(page.url())
+        
+        // Validate final URL after navigation (redirects could escape allowlist)
+        const finalUrlValidation = isAllowedUrl(finalUrl)
+        if (!finalUrlValidation.valid) {
+          return {
+            success: false,
+            error: `Navigation redirected to disallowed URL: ${finalUrl}`,
+            data: {
+              requestedUrl: url,
+              finalUrl: finalUrl
+            }
+          }
+        }
+        
+        state.currentUrl = finalUrl
+        state.visitedUrls.add(finalUrl)
         
         return {
           success: true,
           data: { 
-            url: page.url(), 
+            url: finalUrl, 
             title: await page.title(),
             loadTimeMs: loadTime,
             waitState: waitFor
@@ -113,14 +169,14 @@ You control the timeout strategy:
 
   {
     name: 'get_interactive_elements',
-    description: `Get a list of interactive elements on the page with their accessibility role, name, and reference.
+    description: `Get a list of interactive elements on the page with their accessibility role, name, and occurrence index.
 
 Use this to understand what's clickable, fillable, or scrollable on the page.
-Returns elements with role, name, and ref that you can use with click(role, name, ref) or fill(role, name, ref) tools.
+Returns elements with role, name, and index that you can use with click(role, name, index) or fill(role, name, index) tools.
 
-Example: { role: 'button', name: 'Apply', ref: 'e5' } can be clicked with click('button', 'Apply', 'e5')
+Example: { role: 'button', name: 'Apply', index: 0 } can be clicked with click('button', 'Apply', 0)
 
-Note: If multiple elements have the same role and name, use the ref to disambiguate.`,
+Note: If multiple elements have the same role and name, use the index (0-based) to disambiguate which one to interact with.`,
     parameters: {
       type: 'object',
       properties: {}
@@ -210,7 +266,16 @@ If the click fails, you'll get details about why so you can decide whether to re
       required: ['role', 'name']
     },
     execute: async (args, context) => {
-      const { role, name, index = 0, retryIfNotVisible = true } = args as { role: string; name: string; index?: number; retryIfNotVisible?: boolean }
+      // Validate args against schema
+      const parseResult = ClickSchema.safeParse(args)
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid click arguments: ${parseResult.error.issues.map(i => i.message).join(', ')}`
+        }
+      }
+      const { role, name, index, retryIfNotVisible } = parseResult.data
+
       const { page, state } = context
 
       try {
@@ -236,6 +301,27 @@ If the click fails, you'll get details about why so you can decide whether to re
         const navigated = newUrl !== state.currentUrl
 
         if (navigated) {
+          // Validate final URL after navigation
+          const urlValidation = isAllowedUrl(newUrl)
+          if (!urlValidation.valid) {
+            // Navigation went to disallowed URL - try to go back
+            try {
+              await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 })
+            } catch {
+              // Ignore errors from goBack
+            }
+            return {
+              success: false,
+              error: `Click navigated to disallowed URL: ${newUrl}`,
+              data: {
+                role,
+                name: name.slice(0, 50),
+                index,
+                invalidUrl: newUrl
+              }
+            }
+          }
+          
           state.currentUrl = newUrl
           state.visitedUrls.add(newUrl)
         }
@@ -303,7 +389,16 @@ If multiple elements have the same role and name, use the index to disambiguate 
       required: ['role', 'name', 'text']
     },
     execute: async (args, context) => {
-      const { role, name, text, index = 0, submit = false } = args as { role: string; name: string; text: string; index?: number; submit?: boolean }
+      // Validate args against schema
+      const parseResult = FillSchema.safeParse(args)
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid fill arguments: ${parseResult.error.issues.map(i => i.message).join(', ')}`
+        }
+      }
+      const { role, name, text, index, submit } = parseResult.data
+
       const { page, state } = context
 
       try {
@@ -318,6 +413,22 @@ If multiple elements have the same role and name, use the index to disambiguate 
 
           const newUrl = page.url()
           if (newUrl !== state.currentUrl) {
+            // Validate final URL after navigation
+            const urlValidation = isAllowedUrl(newUrl)
+            if (!urlValidation.valid) {
+              // Navigation went to disallowed URL - try to go back
+              try {
+                await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 })
+              } catch {
+                // Ignore errors from goBack
+              }
+              return {
+                success: false,
+                error: `Submit navigated to disallowed URL: ${newUrl}`,
+                data: { role, name: name.slice(0, 30), index, text: text.slice(0, 50), invalidUrl: newUrl }
+              }
+            }
+            
             state.currentUrl = newUrl
             state.visitedUrls.add(newUrl)
           }
@@ -354,7 +465,16 @@ Returns information about whether new content was loaded so you can decide wheth
       }
     },
     execute: async (args, context) => {
-      const { amount = 800 } = args as { amount?: number }
+      // Validate args against schema
+      const parseResult = ScrollDownSchema.safeParse(args)
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid scroll_down arguments: ${parseResult.error.issues.map(i => i.message).join(', ')}`
+        }
+      }
+      const { amount } = parseResult.data
+
       const { page } = context
       
       try {
@@ -418,12 +538,29 @@ Use this after viewing a job detail to return to search results.`,
         await page.waitForTimeout(1000)
         
         const newUrl = page.url()
-        state.currentUrl = newUrl
+        const urlChanged = previousUrl !== newUrl
+        
+        // Only update state if URL actually changed and is allowed
+        if (urlChanged) {
+          const urlValidation = isAllowedUrl(newUrl)
+          if (!urlValidation.valid) {
+            return {
+              success: false,
+              error: `Navigation back went to disallowed URL: ${newUrl}`,
+              data: {
+                wentBack: false,
+                previousUrl,
+                invalidUrl: newUrl
+              }
+            }
+          }
+          state.currentUrl = newUrl
+        }
         
         return {
           success: true,
           data: {
-            wentBack: true,
+            wentBack: urlChanged,
             previousUrl,
             currentUrl: newUrl
           }
@@ -466,7 +603,16 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
       required: ['pageType']
     },
     execute: async (args, context) => {
-      const { pageType, maxJobs = 5 } = args as { pageType: string; maxJobs?: number }
+      // Validate args against schema
+      const parseResult = ExtractJobsSchema.safeParse(args)
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid extract_jobs arguments: ${parseResult.error.issues.map(i => i.message).join(', ')}`
+        }
+      }
+      const { pageType, maxJobs } = parseResult.data
+
       const { page } = context
       
       try {
@@ -551,7 +697,15 @@ Call this when you've found enough jobs or can't find any more relevant position
       required: ['reason']
     },
     execute: async (args) => {
-      const { reason } = args as { reason: string }
+      // Validate args against schema
+      const parseResult = FinishSchema.safeParse(args)
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid finish arguments: ${parseResult.error.issues.map(i => i.message).join(', ')}`
+        }
+      }
+      const { reason } = parseResult.data
       
       return {
         success: true,
