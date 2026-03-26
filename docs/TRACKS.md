@@ -52,15 +52,15 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `JF-03 Browser Runtime And LinkedIn Discovery`
 
-- status: `in_progress`
-- last updated: `2026-03-20`
+- status: `done`
+- last updated: `2026-03-26`
 - scope: build the generic browser primitives and the first LinkedIn discovery adapter boundary
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
-- code areas: `packages/browser-runtime`, `packages/job-finder`
-- current focus: browser-runtime now supports both the deterministic catalog path and an opt-in dedicated Chrome-profile LinkedIn browser agent that can launch its own profile, prompt for login, and extract live jobs through that session
-- next step: harden selector coverage, add better auth recovery, and support broader search/result pagination without weakening the safe-stop behavior
-- blockers: live LinkedIn execution still depends on user-authenticated sessions and selector hardening against real page variation
-- notes: keep LinkedIn selectors and recovery logic out of the generic runtime; discovery already writes back through the repository boundary, dedupes by source job identity, and now records whether jobs came from the catalog seed or the live Chrome-profile agent
+- code areas: `packages/browser-runtime`, `packages/job-finder`, `packages/browser-agent`
+- current focus: completed AI browser agent implementation with LLM tool calling for autonomous LinkedIn job discovery; agent controls navigation strategy, timeouts, retry logic; finds 20 jobs from LinkedIn using user's profile; includes URL validation (LinkedIn-only), AbortController cancellation, and compact conversation management
+- next step: monitor real-world usage for edge cases in auth recovery, pagination handling, and selector robustness
+- blockers: none
+- notes: AI browser agent replaces old deterministic discovery; keeps LinkedIn selectors out of generic runtime; discovery writes through repository boundary with deduping; includes cancellation support via `job-finder:cancel-agent-discovery` IPC
 
 ### `JF-04 Tailored Resume Path`
 
@@ -119,6 +119,7 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ## Recently Completed
 
+- `2026-03-26`: completed AI browser agent for autonomous LinkedIn job discovery with LLM tool calling; new `@unemployed/browser-agent` package; replaced deterministic discovery with AI-driven "Run AI Agent Discovery" button; finds 20 jobs using user's profile preferences; includes cancellation support and URL validation
 - `2026-03-24`: tightened repo guidance so the root and desktop `AGENTS.md` files, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `docs/STATUS.md` now separate navigation, handoff, and history more cleanly
 - `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, added repo-local CodeRabbit defaults, and checked in `.github/CODEOWNERS` naming `@ebrardushullovcii` plus `@vigani1` as the intended merge maintainers
 - `2026-03-24`: added a root `pnpm desktop:dev` shortcut and updated repo docs so local desktop startup no longer depends on the longer workspace-filter command

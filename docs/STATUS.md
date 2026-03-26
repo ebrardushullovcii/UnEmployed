@@ -41,6 +41,7 @@ Job Finder foundation with local persistence, structured profile editing, resume
 
 ## Recently Completed
 
+- `2026-03-26`: implemented AI browser agent for autonomous LinkedIn job discovery with LLM tool calling, replacing the old deterministic discovery button; agent controls navigation strategy, timeouts, and retry logic; finds 20 jobs from LinkedIn search results using user's profile preferences
 - `2026-03-24`: tightened repo guidance so `AGENTS.md`, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `apps/desktop/AGENTS.md` are shorter, clearer, and less duplicative
 - `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, CodeRabbit defaults, and `.github/CODEOWNERS`
 - `2026-03-24`: added a root `pnpm desktop:dev` shortcut for local desktop startup

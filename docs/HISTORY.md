@@ -4,6 +4,17 @@ Use this file for condensed repo milestones and notable completed changes.
 
 `docs/STATUS.md` stays short and current.
 
+## 2026-03-26
+
+- Implemented AI browser agent (`@unemployed/browser-agent`) for autonomous LinkedIn job discovery using LLM tool calling with 8 browser automation tools (navigate, click, fill, scroll, extract_jobs, etc.)
+- Replaced old deterministic "Run LinkedIn discovery" button with new "Run AI Agent Discovery" that uses AI to control browser navigation strategy, timeouts, and retry logic
+- Agent finds 20 jobs from LinkedIn search results using user's profile preferences (target roles, locations)
+- Added `chatWithTools()` to `@unemployed/ai-providers` for OpenAI-compatible tool calling
+- Extended `@unemployed/browser-runtime` with `runAgentDiscovery()` method for AI-driven discovery
+- Chrome profile authentication persists across sessions for authenticated LinkedIn access
+- Added cancellation support via AbortController and IPC listener for `job-finder:cancel-agent-discovery`
+- All changes pass lint, typecheck, and tests; PR merged after CodeRabbit review
+
 ## 2026-03-24
 
 - Tightened repo guidance so `AGENTS.md`, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `apps/desktop/AGENTS.md` are clearer, less duplicative, and better aligned with current agent-doc best practices.
