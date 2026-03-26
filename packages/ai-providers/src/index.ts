@@ -1714,7 +1714,6 @@ export function createOpenAiCompatibleJobFinderAiClient(
         pageUrl: input.pageUrl,
         pageText: input.pageText.slice(0, 12000)
       })
-      const rawJobs = ((payload as { jobs?: unknown[] }).jobs ?? []) as Array<Record<string, unknown>>
 
       // Helper to safely convert unknown to string
       const toStr = (value: unknown): string => {
@@ -1722,6 +1721,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
         if (typeof value === 'number') return String(value)
         return ''
       }
+
+      // Safely extract jobs array, defaulting to empty if not an array
+      const rawJobs = Array.isArray((payload as { jobs?: unknown }).jobs)
+        ? (payload as { jobs: Array<Record<string, unknown>> }).jobs
+        : []
 
       return rawJobs
         .map((raw) => {
@@ -1757,99 +1761,108 @@ export function createOpenAiCompatibleJobFinderAiClient(
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 60_000)
       
+      // Named handler for cleanup
+      let onCallerAbort: (() => void) | null = null
+      
       // Check if signal is already aborted
       if (signal?.aborted) {
         clearTimeout(timeoutId)
         controller.abort()
       } else if (signal) {
-        signal.addEventListener('abort', () => {
+        onCallerAbort = () => {
           clearTimeout(timeoutId)
           controller.abort()
-        })
+        }
+        signal.addEventListener('abort', onCallerAbort, { once: true })
       }
 
-      const response = await fetch(buildChatCompletionsUrl(options.baseUrl), {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          Authorization: `Bearer ${options.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: options.model,
-          temperature: 0.2,
-          messages: messages.map(msg => {
-            const base = { role: msg.role, content: msg.content }
-            if (msg.role === 'assistant' && msg.toolCalls) {
-              return {
-                ...base,
-                tool_calls: msg.toolCalls.map(tc => ({
-                  id: tc.id,
-                  type: tc.type,
-                  function: tc.function
-                }))
+      try {
+        const response = await fetch(buildChatCompletionsUrl(options.baseUrl), {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${options.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: options.model,
+            temperature: 0.2,
+            messages: messages.map(msg => {
+              const base = { role: msg.role, content: msg.content }
+              if (msg.role === 'assistant' && msg.toolCalls) {
+                return {
+                  ...base,
+                  tool_calls: msg.toolCalls.map(tc => ({
+                    id: tc.id,
+                    type: tc.type,
+                    function: tc.function
+                  }))
+                }
               }
-            }
-            if (msg.role === 'tool') {
-              return {
-                ...base,
-                tool_call_id: msg.toolCallId
+              if (msg.role === 'tool') {
+                return {
+                  ...base,
+                  tool_call_id: msg.toolCallId
+                }
               }
-            }
-            return base
-          }),
-          tools: tools.map(tool => ({
-            type: tool.type,
-            function: {
-              name: tool.function.name,
-              description: tool.function.description,
-              parameters: tool.function.parameters
-            }
-          })),
-          tool_choice: 'auto'
-        })
-      })
-
-      clearTimeout(timeoutId)
-
-      if (!response.ok) {
-        const errorPayload = (await response.json().catch(() => ({}))) as { error?: { message?: string } }
-        throw new Error(errorPayload.error?.message ?? `Chat request failed with status ${response.status}.`)
-      }
-
-      const payload = (await response.json()) as {
-        choices?: Array<{
-          message?: {
-            content?: string
-            tool_calls?: Array<{
-              id: string
-              type: string
+              return base
+            }),
+            tools: tools.map(tool => ({
+              type: tool.type,
               function: {
-                name: string
-                arguments: string
+                name: tool.function.name,
+                description: tool.function.description,
+                parameters: tool.function.parameters
               }
-            }>
-          }
-        }>
+            })),
+            tool_choice: 'auto'
+          })
+        })
+
+        if (!response.ok) {
+          const errorPayload = (await response.json().catch(() => ({}))) as { error?: { message?: string } }
+          throw new Error(errorPayload.error?.message ?? `Chat request failed with status ${response.status}.`)
+        }
+
+        const payload = (await response.json()) as {
+          choices?: Array<{
+            message?: {
+              content?: string
+              tool_calls?: Array<{
+                id: string
+                type: string
+                function: {
+                  name: string
+                  arguments: string
+                }
+              }>
+            }
+          }>
+        }
+
+        const message = payload.choices?.[0]?.message
+
+        const result: { content?: string; toolCalls?: ToolCall[]; reasoning?: string } = {}
+
+        if (message?.content) {
+          result.content = message.content
+        }
+
+        if (message?.tool_calls && message.tool_calls.length > 0) {
+          result.toolCalls = message.tool_calls.map(tc => ({
+            id: tc.id,
+            type: tc.type as 'function',
+            function: tc.function
+          }))
+        }
+
+        return result
+      } finally {
+        clearTimeout(timeoutId)
+        if (signal && onCallerAbort) {
+          signal.removeEventListener('abort', onCallerAbort)
+        }
       }
-
-      const message = payload.choices?.[0]?.message
-
-      const result: { content?: string; toolCalls?: ToolCall[]; reasoning?: string } = {}
-
-      if (message?.content) {
-        result.content = message.content
-      }
-
-      if (message?.tool_calls && message.tool_calls.length > 0) {
-        result.toolCalls = message.tool_calls.map(tc => ({
-          id: tc.id,
-          type: tc.type as 'function',
-          function: tc.function
-        }))
-      }
-
-      return result
     }
   }
 }

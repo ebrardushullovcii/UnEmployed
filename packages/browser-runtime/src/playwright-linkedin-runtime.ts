@@ -1117,6 +1117,20 @@ export function createLinkedInBrowserAgentRuntime(
         })
       }
 
+      if (!jobExtractor) {
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: buildQuerySummary({
+            targetRoles: options.searchPreferences.targetRoles,
+            locations: options.searchPreferences.locations
+          }),
+          warning: 'No job extractor configured. Cannot run agent discovery.',
+          jobs: []
+        })
+      }
+
       try {
         const page = await getReadyPage()
 
@@ -1167,9 +1181,22 @@ export function createLinkedInBrowserAgentRuntime(
                 pageType: normalizedPageType,
                 maxJobs: input.maxJobs
               })
-              // Map JobPosting to the expected JobExtractor format
+              // Map JobPosting to the expected JobExtractor format, preserving all fields
               return jobs.map(job => {
-                const result: { sourceJobId: string; title: string; company: string; location: string; description: string; url: string; salary?: string; postedAt?: string } = {
+                const mapped: {
+                  sourceJobId: string
+                  title: string
+                  company: string
+                  location: string
+                  description: string
+                  url: string
+                  postedAt: string
+                  salary?: string
+                  workMode?: ('remote' | 'hybrid' | 'onsite' | 'flexible')[]
+                  applyPath?: 'easy_apply' | 'external_redirect' | 'unknown'
+                  easyApplyEligible?: boolean
+                  keySkills?: string[]
+                } = {
                   sourceJobId: job.sourceJobId,
                   title: job.title,
                   company: job.company,
@@ -1178,10 +1205,12 @@ export function createLinkedInBrowserAgentRuntime(
                   url: job.canonicalUrl,
                   postedAt: job.postedAt
                 }
-                if (job.salaryText) {
-                  result.salary = job.salaryText
-                }
-                return result
+                if (job.salaryText) mapped.salary = job.salaryText
+                if (job.workMode?.length) mapped.workMode = job.workMode
+                if (job.applyPath) mapped.applyPath = job.applyPath
+                if (job.easyApplyEligible !== undefined) mapped.easyApplyEligible = job.easyApplyEligible
+                if (job.keySkills?.length) mapped.keySkills = job.keySkills
+                return mapped
               })
             }
           },

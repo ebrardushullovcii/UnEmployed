@@ -1,4 +1,5 @@
 import type { Page } from 'playwright'
+import { JobPostingSchema } from '@unemployed/contracts'
 import type {
   AgentConfig,
   AgentState,
@@ -68,10 +69,37 @@ export async function runAgentDiscovery(
 
   const tools = getToolDefinitions()
 
+  // Helper to validate URLs against allowlist
+  const isAllowedUrl = (url: string): boolean => {
+    try {
+      const parsedUrl = new URL(url)
+      // Only allow http/https schemes
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        return false
+      }
+      // Allowlist of safe hostnames (LinkedIn only for now)
+      const allowedHostnames = ['linkedin.com', 'www.linkedin.com']
+      const hostname = parsedUrl.hostname.toLowerCase()
+      return allowedHostnames.some(allowed =>
+        hostname === allowed || hostname.endsWith(`.${allowed}`)
+      )
+    } catch {
+      return false
+    }
+  }
+
   try {
     // Navigate to first starting URL
     const firstUrl = config.startingUrls[0]
     if (firstUrl) {
+      if (!isAllowedUrl(firstUrl)) {
+        console.error(`[Agent] Starting URL not allowed: ${firstUrl}`)
+        return {
+          jobs: [],
+          steps: 0,
+          error: `Starting URL not in allowlist: ${firstUrl}`
+        }
+      }
       await page.goto(firstUrl, { waitUntil: 'domcontentloaded' })
       await page.waitForTimeout(2000)
       state.currentUrl = page.url()
@@ -257,10 +285,11 @@ async function executeToolCall(
             for (const job of extractedJobs) {
               const exists = state.collectedJobs.some(j => j.sourceJobId === job.sourceJobId)
               if (!exists) {
-                state.collectedJobs.push({
-                  source: 'linkedin',
+                // Build job object and validate before adding
+                const jobToAdd = {
+                  source: 'linkedin' as const,
                   sourceJobId: job.sourceJobId,
-                  discoveryMethod: 'browser_agent',
+                  discoveryMethod: 'browser_agent' as const,
                   canonicalUrl: job.url,
                   title: job.title,
                   company: job.company,
@@ -284,8 +313,16 @@ async function executeToolCall(
                   summary: job.description.slice(0, 240),
                   description: job.description,
                   keySkills: job.keySkills ?? []
-                })
-                addedCount++
+                }
+                
+                // Validate with schema before adding
+                const validation = JobPostingSchema.safeParse(jobToAdd)
+                if (validation.success) {
+                  state.collectedJobs.push(validation.data)
+                  addedCount++
+                } else {
+                  console.warn(`[Agent] Skipping invalid job ${job.sourceJobId}:`, validation.error)
+                }
               }
             }
 

@@ -113,12 +113,14 @@ You control the timeout strategy:
 
   {
     name: 'get_interactive_elements',
-    description: `Get a list of interactive elements on the page with their accessibility role and name.
+    description: `Get a list of interactive elements on the page with their accessibility role, name, and reference.
 
 Use this to understand what's clickable, fillable, or scrollable on the page.
-Returns elements with role and name that you can use with click(role, name) or fill(role, name) tools.
+Returns elements with role, name, and ref that you can use with click(role, name, ref) or fill(role, name, ref) tools.
 
-Example: { role: 'button', name: 'Apply' } can be clicked with click('button', 'Apply')`,
+Example: { role: 'button', name: 'Apply', ref: 'e5' } can be clicked with click('button', 'Apply', 'e5')
+
+Note: If multiple elements have the same role and name, use the ref to disambiguate.`,
     parameters: {
       type: 'object',
       properties: {}
@@ -132,7 +134,8 @@ Example: { role: 'button', name: 'Apply' } can be clicked with click('button', '
 
         // Parse the snapshot to extract interactive elements
         const lines = snapshot.split('\n')
-        const elements: Array<{ role: string; name: string }> = []
+        const elements: Array<{ role: string; name: string; ref: string }> = []
+        const roleNameCounts = new Map<string, number>()
 
         for (const line of lines) {
           // Parse lines like: - button "Apply" [ref=e5]
@@ -140,17 +143,27 @@ Example: { role: 'button', name: 'Apply' } can be clicked with click('button', '
           if (match) {
             const role = match[1]
             const name = match[2]
-            if (role && name) {
-              elements.push({ role, name })
+            const ref = match[3]
+            if (role && name && ref) {
+              elements.push({ role, name, ref })
             }
           }
         }
+
+        // Calculate occurrence index for duplicate role/name pairs
+        const roleNameIndices = new Map<string, number>()
+        const elementsWithIndex = elements.map(el => {
+          const key = `${el.role}:${el.name}`
+          const index = roleNameIndices.get(key) ?? 0
+          roleNameIndices.set(key, index + 1)
+          return { ...el, index }
+        })
 
         return {
           success: true,
           data: {
             elementCount: elements.length,
-            elements: elements.slice(0, 30), // Limit to first 30 to avoid overwhelming the agent
+            elements: elementsWithIndex.slice(0, 30), // Limit to first 30 to avoid overwhelming the agent
             hasMore: elements.length > 30
           }
         }
@@ -165,10 +178,12 @@ Example: { role: 'button', name: 'Apply' } can be clicked with click('button', '
 
   {
     name: 'click',
-    description: `Click an element by its role and name. 
-    
-You get role and name from get_interactive_elements(). 
+    description: `Click an element by its role and name.
+
+You get role, name, and ref from get_interactive_elements().
 Use this to click buttons, links, job listings, etc.
+
+If multiple elements have the same role and name, use the ref to disambiguate.
 
 If the click fails, you'll get details about why so you can decide whether to retry, scroll first, or try a different element.`,
     parameters: {
@@ -182,6 +197,10 @@ If the click fails, you'll get details about why so you can decide whether to re
           type: 'string',
           description: 'The accessible name/text of the element'
         },
+        ref: {
+          type: 'string',
+          description: 'The reference identifier from get_interactive_elements() for disambiguating duplicates (optional)',
+        },
         retryIfNotVisible: {
           type: 'boolean',
           description: 'Whether to retry after scrolling if element is not visible (default: true)',
@@ -191,41 +210,50 @@ If the click fails, you'll get details about why so you can decide whether to re
       required: ['role', 'name']
     },
     execute: async (args, context) => {
-      const { role, name, retryIfNotVisible = true } = args as { role: string; name: string; retryIfNotVisible?: boolean }
+      const { role, name, ref, retryIfNotVisible = true } = args as { role: string; name: string; ref?: string; retryIfNotVisible?: boolean }
       const { page, state } = context
-      
+
       try {
         // Use Playwright's accessibility-friendly locator
-        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name })
-        
+        let locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name })
+
+        // If ref is provided, try to locate by ref attribute first
+        if (ref) {
+          const refLocator = page.locator(`[ref="${ref}"]`)
+          if (await refLocator.isVisible().catch(() => false)) {
+            locator = refLocator
+          }
+        }
+
         // Check if element is visible
         const isVisible = await locator.isVisible().catch(() => false)
-        
+
         if (!isVisible && retryIfNotVisible) {
           // Try scrolling to make it visible
           await locator.scrollIntoViewIfNeeded().catch(() => {})
           await page.waitForTimeout(500)
         }
-        
+
         // Get element info before clicking
         const text = await locator.textContent().catch(() => null)
 
         await locator.click({ timeout: 10000 })
         await page.waitForTimeout(1000) // Brief wait for navigation/state change
-        
+
         const newUrl = page.url()
         const navigated = newUrl !== state.currentUrl
-        
+
         if (navigated) {
           state.currentUrl = newUrl
           state.visitedUrls.add(newUrl)
         }
-        
+
         return {
           success: true,
           data: {
             role,
             name: name.slice(0, 50),
+            ref,
             text: text?.slice(0, 100),
             navigated,
             newUrl: navigated ? newUrl : undefined
@@ -238,6 +266,7 @@ If the click fails, you'll get details about why so you can decide whether to re
           data: {
             role,
             name: name.slice(0, 50),
+            ref,
             errorType: error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'click_failed'
           }
         }
@@ -248,9 +277,11 @@ If the click fails, you'll get details about why so you can decide whether to re
   {
     name: 'fill',
     description: `Fill an input field with text by its role and label/name.
-    
-You get role and name from get_interactive_elements().
-Use this to fill search boxes, forms, etc.`,
+
+You get role, name, and ref from get_interactive_elements().
+Use this to fill search boxes, forms, etc.
+
+If multiple elements have the same role and name, use the ref to disambiguate.`,
     parameters: {
       type: 'object',
       properties: {
@@ -266,6 +297,10 @@ Use this to fill search boxes, forms, etc.`,
           type: 'string',
           description: 'The text to type into the field'
         },
+        ref: {
+          type: 'string',
+          description: 'The reference identifier from get_interactive_elements() for disambiguating duplicates (optional)',
+        },
         submit: {
           type: 'boolean',
           description: 'Whether to press Enter after filling (default: false)',
@@ -275,34 +310,43 @@ Use this to fill search boxes, forms, etc.`,
       required: ['role', 'name', 'text']
     },
     execute: async (args, context) => {
-      const { role, name, text, submit = false } = args as { role: string; name: string; text: string; submit?: boolean }
+      const { role, name, text, ref, submit = false } = args as { role: string; name: string; text: string; ref?: string; submit?: boolean }
       const { page, state } = context
-      
+
       try {
-        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name })
-        
+        // Use Playwright's accessibility-friendly locator
+        let locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name })
+
+        // If ref is provided, try to locate by ref attribute first
+        if (ref) {
+          const refLocator = page.locator(`[ref="${ref}"]`)
+          if (await refLocator.isVisible().catch(() => false)) {
+            locator = refLocator
+          }
+        }
+
         await locator.fill(text)
-        
+
         if (submit) {
           await locator.press('Enter')
           await page.waitForTimeout(1500)
-          
+
           const newUrl = page.url()
           if (newUrl !== state.currentUrl) {
             state.currentUrl = newUrl
             state.visitedUrls.add(newUrl)
           }
         }
-        
+
         return {
           success: true,
-          data: { role, name: name.slice(0, 30), text: text.slice(0, 50), submitted: submit }
+          data: { role, name: name.slice(0, 30), ref, text: text.slice(0, 50), submitted: submit }
         }
       } catch (error) {
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Fill failed',
-          data: { role, name: name.slice(0, 30) }
+          data: { role, name: name.slice(0, 30), ref }
         }
       }
     }
