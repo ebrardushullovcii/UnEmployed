@@ -444,6 +444,34 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
         // Get page content
         const pageText = await page.locator('body').innerText()
         const pageUrl = page.url()
+        const pageTextLength = pageText.length
+        
+        // Heuristics to determine if page is ready for extraction
+        const hasMinimumContent = pageTextLength > 500
+        const hasNoLoadingIndicators = !pageText.toLowerCase().includes('loading') && 
+                                       !pageText.toLowerCase().includes('spinner') &&
+                                       !pageText.toLowerCase().includes('please wait')
+        
+        // Check for job-related content based on page type
+        const lowerText = pageText.toLowerCase()
+        let hasJobContent = false
+        
+        if (pageType === 'search_results') {
+          // Look for job-related keywords common in search results
+          hasJobContent = ['job', 'position', 'apply', 'senior', 'engineer', 'developer', 'manager'].some(
+            keyword => lowerText.includes(keyword)
+          )
+        } else if (pageType === 'job_detail') {
+          // Job detail pages should have description and requirements
+          hasJobContent = ['description', 'requirements', 'qualifications', 'responsibilities'].some(
+            keyword => lowerText.includes(keyword)
+          ) || lowerText.includes('apply')
+        } else {
+          // For unknown types, require substantial content
+          hasJobContent = pageTextLength > 1000
+        }
+        
+        const readyForExtraction = hasMinimumContent && hasNoLoadingIndicators && hasJobContent
         
         return {
           success: true,
@@ -451,9 +479,14 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             pageType,
             pageUrl,
             pageText,
-            pageTextLength: pageText.length,
-            readyForExtraction: true,
-            maxJobs
+            pageTextLength,
+            readyForExtraction,
+            maxJobs,
+            checks: {
+              hasMinimumContent,
+              hasNoLoadingIndicators,
+              hasJobContent
+            }
           }
         }
       } catch (error) {

@@ -265,16 +265,15 @@ async function executeToolCall(
                   title: job.title,
                   company: job.company,
                   location: job.location,
-                  workMode: (Array.isArray(job.workMode)
-                    ? job.workMode.filter((m): m is 'remote' | 'hybrid' | 'onsite' | 'flexible' =>
-                        ['remote', 'hybrid', 'onsite', 'flexible'].includes(m as string)
-                      )
-                    : []
-                  ).length > 0
-                    ? (job.workMode as Array<'remote' | 'hybrid' | 'onsite' | 'flexible'>).filter((m) =>
-                        ['remote', 'hybrid', 'onsite', 'flexible'].includes(m)
-                      )
-                    : ['flexible'],
+                  workMode: (() => {
+                    const allowedWorkModes = ['remote', 'hybrid', 'onsite', 'flexible'] as const
+                    const validWorkModes = Array.isArray(job.workMode)
+                      ? job.workMode.filter((m): m is typeof allowedWorkModes[number] =>
+                          allowedWorkModes.includes(m as typeof allowedWorkModes[number])
+                        )
+                      : []
+                    return validWorkModes.length > 0 ? validWorkModes : ['flexible']
+                  })(),
                   applyPath: ['easy_apply', 'external_redirect', 'unknown'].includes(job.applyPath as string)
                     ? (job.applyPath as 'easy_apply' | 'external_redirect' | 'unknown')
                     : 'unknown',

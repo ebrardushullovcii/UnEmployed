@@ -1,5 +1,8 @@
-import type { JobPosting, CandidateProfile, AgentDiscoveryProgress } from '@unemployed/contracts'
+import type { JobPosting, CandidateProfile, AgentDiscoveryProgress, Tool, ToolCall } from '@unemployed/contracts'
 import type { Page } from 'playwright'
+
+// Re-export shared types from contracts
+export type { Tool, ToolCall }
 
 // Narrow interface for search preferences used by the agent
 export interface AgentSearchPreferences {
@@ -39,28 +42,6 @@ export type AgentMessage =
   | { role: 'user'; content: string }
   | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
   | { role: 'tool'; toolCallId: string; content: string }
-
-export interface ToolCall {
-  id: string
-  type: 'function'
-  function: {
-    name: string
-    arguments: string
-  }
-}
-
-export interface Tool {
-  type: 'function'
-  function: {
-    name: string
-    description: string
-    parameters: {
-      type: 'object'
-      properties: Record<string, unknown>
-      required?: string[]
-    }
-  }
-}
 
 export interface ToolContext {
   page: Page

@@ -7,6 +7,8 @@ import {
   type JobFinderSettings,
   type JobPosting,
   type JobSearchPreferences,
+  type Tool,
+  type ToolCall,
   workModeValues
 } from '@unemployed/contracts'
 import { z } from 'zod'
@@ -175,30 +177,16 @@ export interface ExtractJobsFromPageInput {
   maxJobs: number
 }
 
-export interface AgentMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string
-  toolCalls?: ToolCall[]
-  toolCallId?: string
-}
+// Discriminated union for agent messages - matches browser-agent types
+export type AgentMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+  | { role: 'tool'; toolCallId: string; content: string }
 
-export interface ToolCall {
-  id: string
-  type: 'function'
-  function: {
-    name: string
-    arguments: string
-  }
-}
-
-export interface Tool {
-  type: 'function'
-  function: {
-    name: string
-    description: string
-    parameters: Record<string, unknown>
-  }
-}
+// Tool and ToolCall types are imported from @unemployed/contracts
+// Re-export them for backwards compatibility
+export type { Tool, ToolCall } from '@unemployed/contracts'
 
 export interface JobFinderAiClient {
   getStatus(): AgentProviderStatus
@@ -1790,16 +1778,26 @@ export function createOpenAiCompatibleJobFinderAiClient(
         body: JSON.stringify({
           model: options.model,
           temperature: 0.2,
-          messages: messages.map(msg => ({
-            role: msg.role,
-            content: msg.content,
-            ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
-              id: tc.id,
-              type: tc.type,
-              function: tc.function
-            })) }),
-            ...(msg.toolCallId && { tool_call_id: msg.toolCallId })
-          })),
+          messages: messages.map(msg => {
+            const base = { role: msg.role, content: msg.content }
+            if (msg.role === 'assistant' && msg.toolCalls) {
+              return {
+                ...base,
+                tool_calls: msg.toolCalls.map(tc => ({
+                  id: tc.id,
+                  type: tc.type,
+                  function: tc.function
+                }))
+              }
+            }
+            if (msg.role === 'tool') {
+              return {
+                ...base,
+                tool_call_id: msg.toolCallId
+              }
+            }
+            return base
+          }),
           tools: tools.map(tool => ({
             type: tool.type,
             function: {

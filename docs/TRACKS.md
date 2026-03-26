@@ -119,7 +119,7 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ## Recently Completed
 
-- `2026-03-26`: completed AI browser agent for autonomous LinkedIn job discovery with LLM tool calling; new `@unemployed/browser-agent` package; replaced deterministic discovery with AI-driven "Run AI Agent Discovery" button; finds 20 jobs using user's profile preferences; includes cancellation support and URL validation
+- `2026-03-26`: completed AI browser agent for autonomous LinkedIn job discovery with LLM tool calling; new `@unemployed/browser-agent` package; replaced deterministic discovery with AI-driven "Run AI Agent Discovery" button; targets up to the configured job count from LinkedIn using user's profile preferences; includes cancellation support and URL validation
 - `2026-03-24`: tightened repo guidance so the root and desktop `AGENTS.md` files, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `docs/STATUS.md` now separate navigation, handoff, and history more cleanly
 - `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, added repo-local CodeRabbit defaults, and checked in `.github/CODEOWNERS` naming `@ebrardushullovcii` plus `@vigani1` as the intended merge maintainers
 - `2026-03-24`: added a root `pnpm desktop:dev` shortcut and updated repo docs so local desktop startup no longer depends on the longer workspace-filter command

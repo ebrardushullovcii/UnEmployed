@@ -17,7 +17,7 @@ import {
   type JobSearchPreferences,
   type JobSource
 } from '@unemployed/contracts'
-import type { JobFinderAiClient, Tool as AiTool } from '@unemployed/ai-providers'
+import type { JobFinderAiClient } from '@unemployed/ai-providers'
 import { runAgentDiscovery, type AgentConfig, type AgentProgress } from '@unemployed/browser-agent'
 import type { BrowserSessionRuntime, ExecuteEasyApplyInput } from './index'
 
@@ -1142,10 +1142,9 @@ export function createLinkedInBrowserAgentRuntime(
           agentConfig,
           {
             chatWithTools: async (messages, tools, signal) => {
-              // Cast tools to match the expected type
               const response = await aiClient.chatWithTools!(
                 messages,
-                tools as AiTool[],
+                tools,
                 signal
               )
               return response
