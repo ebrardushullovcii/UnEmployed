@@ -1,10 +1,10 @@
 import type { UseFormReturn } from 'react-hook-form'
-import { Badge } from '@renderer/components/ui/badge'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import type { ProfileEditorValues } from '../../lib/profile-editor'
 import { joinListInput, parseListInput } from '../../lib/job-finder-utils'
 import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
 import { ProfileListEditor } from './profile-list-editor'
+import { ProfileSectionHeader } from './profile-section-header'
 
 interface ProfileCoreTabProps {
   profileForm: UseFormReturn<ProfileEditorValues>
@@ -16,19 +16,15 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
 
   return (
     <div className="grid gap-6">
-      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Identity and contact</p>
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-              Explicit ATS-safe header fields, contact channels, location details, and public profile links.
-            </p>
-          </div>
-          <Badge variant="section">Identity</Badge>
-        </div>
+      <section className="grid content-start gap-[var(--gap-card)]">
+        <ProfileSectionHeader
+          eyebrow="Basics"
+          title="Personal details"
+          description="Start with the basics people expect to see first: name, contact info, location, and public links."
+        />
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Personal details</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Name and headline</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <Field><FieldLabel>First name</FieldLabel><ProfileInput {...register('identity.firstName')} /></Field>
             <Field><FieldLabel>Last name</FieldLabel><ProfileInput {...register('identity.lastName')} /></Field>
@@ -40,7 +36,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Contact information</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Contact</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <Field><FieldLabel>Primary email</FieldLabel><ProfileInput {...register('identity.email')} /></Field>
             <Field><FieldLabel>Secondary email</FieldLabel><ProfileInput {...register('identity.secondaryEmail')} /></Field>
@@ -50,17 +46,17 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Location</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Location</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <Field><FieldLabel>City</FieldLabel><ProfileInput {...register('identity.currentCity')} /></Field>
             <Field><FieldLabel>Region / state</FieldLabel><ProfileInput {...register('identity.currentRegion')} /></Field>
             <Field><FieldLabel>Country</FieldLabel><ProfileInput {...register('identity.currentCountry')} /></Field>
-            <Field><FieldLabel>Fallback location label</FieldLabel><ProfileInput {...register('identity.currentLocation')} /></Field>
+            <Field><FieldLabel>Location display</FieldLabel><ProfileInput {...register('identity.currentLocation')} /></Field>
           </div>
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Online presence</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Public links</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <Field><FieldLabel>LinkedIn URL</FieldLabel><ProfileInput {...register('identity.linkedinUrl')} /></Field>
             <Field><FieldLabel>Portfolio URL</FieldLabel><ProfileInput {...register('identity.portfolioUrl')} /></Field>
@@ -70,19 +66,15 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         </article>
       </section>
 
-      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Professional summary layer</p>
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-              Separate reusable narrative blocks from the raw factual record.
-            </p>
-          </div>
-          <Badge variant="section">Narrative</Badge>
-        </div>
+      <section className="grid content-start gap-[var(--gap-card)]">
+        <ProfileSectionHeader
+          eyebrow="Narrative"
+          title="Summary"
+          description="This is the part you would usually rewrite the most. Keep the short positioning clear, then expand into the fuller story."
+        />
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Summary</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Positioning</p>
           <div className="grid gap-[var(--gap-content)]">
             <Field>
               <FieldLabel>Short value proposition</FieldLabel>
@@ -96,7 +88,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Career positioning</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Supporting angles</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <Field>
               <FieldLabel>Career themes</FieldLabel>
@@ -118,19 +110,15 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         </article>
       </section>
 
-      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Skills and evidence</p>
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-              Keep each skill bucket distinct so resume parsing, tailoring, and later form-fill stay clear.
-            </p>
-          </div>
-          <Badge variant="section">Skills</Badge>
-        </div>
+      <section className="grid content-start gap-[var(--gap-card)]">
+        <ProfileSectionHeader
+          eyebrow="Skills"
+          title="Skills"
+          description="Keep your core skills tidy here so tailored resumes and future form fill stay grounded in the same set of facts."
+        />
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Core competencies</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Role-facing skills</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <ProfileListEditor
               label="General skills"
@@ -148,7 +136,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Technical skills</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Grouped skills</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
             <ProfileListEditor
               label="Core skills"

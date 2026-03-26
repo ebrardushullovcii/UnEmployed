@@ -11,6 +11,7 @@ Job Finder foundation with local persistence, structured profile editing, resume
 - Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback and provenance tracking.
 - The browser-runtime layer supports both deterministic discovery fixtures and an opt-in dedicated Chrome-profile LinkedIn agent with safe-stop behavior for unsupported flows.
 - The renderer now uses routed screen structure, feature-local composition, shared design tokens, and a repeatable Playwright screenshot workflow for UI QA.
+- The Profile screen now keeps resume import and analysis in a persistent top panel, with lighter review tabs for basics, experience, background, and preferences plus tab-level completion progress.
 - Older completed milestones now live in `docs/HISTORY.md` so this file stays useful as a handoff snapshot.
 
 ## Active Work
@@ -41,6 +42,7 @@ Job Finder foundation with local persistence, structured profile editing, resume
 
 ## Recently Completed
 
+- `2026-03-25`: refocused the Profile screen around a persistent resume source panel, simpler tab labels, and collapsible record cards so resume-driven editing feels less dense
 - `2026-03-24`: tightened repo guidance so `AGENTS.md`, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `apps/desktop/AGENTS.md` are shorter, clearer, and less duplicative
 - `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, CodeRabbit defaults, and `.github/CODEOWNERS`
 - `2026-03-24`: added a root `pnpm desktop:dev` shortcut for local desktop startup

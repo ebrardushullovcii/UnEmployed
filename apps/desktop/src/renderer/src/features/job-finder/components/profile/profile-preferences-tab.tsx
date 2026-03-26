@@ -1,7 +1,6 @@
 import { workModeValues } from '@unemployed/contracts'
 import type { Control, UseFormReturn } from 'react-hook-form'
 import { Controller } from 'react-hook-form'
-import { Badge } from '@renderer/components/ui/badge'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { CheckboxField } from '../checkbox-field'
 import { FormSelect } from '../form-select'
@@ -10,6 +9,7 @@ import type { ProfileEditorValues, SearchPreferencesEditorValues } from '../../l
 import { formatStatusLabel, joinListInput, parseListInput } from '../../lib/job-finder-utils'
 import { ProfileInput, ProfileTextarea, profileSelectTriggerClassName } from './profile-form-primitives'
 import { ProfileListEditor } from './profile-list-editor'
+import { ProfileSectionHeader } from './profile-section-header'
 
 const booleanSelectOptions = [
   { label: 'Not set', value: '' },
@@ -58,19 +58,15 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
 
   return (
     <div className="grid gap-6">
-      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Work eligibility and logistics</p>
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-              Keep screening answers lower in the page after the core resume and profile content is filled out.
-            </p>
-          </div>
-          <Badge variant="section">Eligibility</Badge>
-        </div>
+      <section className="grid content-start gap-[var(--gap-card)]">
+        <ProfileSectionHeader
+          eyebrow="Preferences"
+          title="Work eligibility"
+          description="Keep the screening-style answers separate from your resume facts so they are easy to review when a form asks for them."
+        />
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Work authorization</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Authorization</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <Field><FieldLabel>Authorized work countries</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...registerProfile('eligibility.authorizedWorkCountries')} /></Field>
             <BooleanSelectField control={profileControl} label="Requires visa sponsorship" name="eligibility.requiresVisaSponsorship" />
@@ -80,7 +76,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Relocation and travel</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Relocation and travel</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <BooleanSelectField control={profileControl} label="Willing to relocate" name="eligibility.willingToRelocate" />
             <BooleanSelectField control={profileControl} label="Willing to travel" name="eligibility.willingToTravel" />
@@ -89,7 +85,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Availability</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Availability</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <Field><FieldLabel>Notice period (days)</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerProfile('eligibility.noticePeriodDays')} /></Field>
             <Field><FieldLabel>Available start date</FieldLabel><ProfileInput placeholder="YYYY-MM-DD" {...registerProfile('eligibility.availableStartDate')} /></Field>
@@ -97,19 +93,15 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         </article>
       </section>
 
-      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Discovery preferences</p>
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-              Job targeting comes after the candidate record so you set search rules only once the profile itself is solid.
-            </p>
-          </div>
-          <Badge variant="section">Targeting</Badge>
-        </div>
+      <section className="grid content-start gap-[var(--gap-card)]">
+        <ProfileSectionHeader
+          eyebrow="Targeting"
+          title="Job preferences"
+          description="Use this section for search rules and job targeting once the core profile looks right."
+        />
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Role targeting</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Target roles</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Target roles"
@@ -139,7 +131,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Location preferences</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Location preferences</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Preferred locations"
@@ -157,7 +149,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Company preferences</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Company preferences</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Industries"
@@ -187,7 +179,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         </article>
 
         <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Work mode and compensation</p>
+          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Work mode and compensation</p>
           <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
             <div className="grid gap-[var(--gap-field)] md:col-span-2">
               <FieldLabel>Work modes</FieldLabel>

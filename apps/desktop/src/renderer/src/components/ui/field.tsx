@@ -10,7 +10,7 @@ function FieldLabel({ className, ...props }: React.ComponentProps<typeof Label>)
   return (
     <Label
       className={cn(
-        'text-[9px] tracking-[var(--tracking-caps)] text-muted-foreground',
+        'text-[10px] font-medium tracking-[0.16em] text-muted-foreground',
         className
       )}
       {...props}

@@ -9,6 +9,8 @@ import { FormSelect } from '../form-select'
 import type { ProfileEditorValues } from '../../lib/profile-editor'
 import { formatStatusLabel } from '../../lib/job-finder-utils'
 import { ProfileInput, ProfileTextarea, profileSelectTriggerClassName } from './profile-form-primitives'
+import { ProfileRecordCard } from './profile-record-card'
+import { ProfileSectionHeader } from './profile-section-header'
 
 interface ProfileBackgroundTabProps {
   backgroundArrays: {
@@ -24,69 +26,81 @@ interface ProfileBackgroundTabProps {
 
 export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: ProfileBackgroundTabProps) {
   const { certificationArray, educationArray, languageArray, linkArray, projectArray } = backgroundArrays
-  const { control, register } = profileForm
+  const { control, register, watch } = profileForm
+
+  function joinParts(parts: Array<string | null | undefined>) {
+    return parts.map((part) => part?.trim()).filter(Boolean).join(' | ')
+  }
 
   return (
     <div className="grid gap-6">
-      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Education and credentials</p>
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-              Schools, degrees, certifications, and qualification metadata stored as explicit records.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-stretch gap-2.5">
-            <Button
-              disabled={busy}
-              onClick={() =>
-                educationArray.append({
-                  id: `education_${crypto.randomUUID().slice(0, 8)}`,
-                  schoolName: '',
-                  degree: '',
-                  fieldOfStudy: '',
-                  location: '',
-                  startDate: '',
-                  endDate: '',
-                  summary: ''
-                })
-              }
-              type="button"
-              variant="secondary"
-              className="h-11 px-4"
-            >
-              Add education
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() =>
-                certificationArray.append({
-                  id: `certification_${crypto.randomUUID().slice(0, 8)}`,
-                  name: '',
-                  issuer: '',
-                  issueDate: '',
-                  expiryDate: '',
-                  credentialUrl: ''
-                })
-              }
-              type="button"
-              variant="secondary"
-              className="h-11 px-4"
-            >
-              Add certification
-            </Button>
-          </div>
-        </div>
+      <section className="grid content-start gap-[var(--gap-card)]">
+        <ProfileSectionHeader
+          eyebrow="Background"
+          title="Education and credentials"
+          description="Keep schools and certifications in their own cards so this section stays readable even when it grows."
+          action={
+            <div className="flex flex-wrap items-stretch gap-2.5">
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  educationArray.append({
+                    id: `education_${crypto.randomUUID().slice(0, 8)}`,
+                    schoolName: '',
+                    degree: '',
+                    fieldOfStudy: '',
+                    location: '',
+                    startDate: '',
+                    endDate: '',
+                    summary: ''
+                  })
+                }
+                type="button"
+                variant="secondary"
+                className="h-11 px-4"
+              >
+                Add education
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  certificationArray.append({
+                    id: `certification_${crypto.randomUUID().slice(0, 8)}`,
+                    name: '',
+                    issuer: '',
+                    issueDate: '',
+                    expiryDate: '',
+                    credentialUrl: ''
+                  })
+                }
+                type="button"
+                variant="secondary"
+                className="h-11 px-4"
+              >
+                Add certification
+              </Button>
+            </div>
+          }
+        />
 
         <div className="grid gap-4">
           {educationArray.fields.length > 0 ? (
             educationArray.fields.map((entry, index) => (
-              <article
+              <ProfileRecordCard
                 key={entry.id}
-                className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4"
+                defaultOpen={index === 0}
+                summary={joinParts([
+                  watch(`records.education.${index}.degree`),
+                  watch(`records.education.${index}.schoolName`),
+                  joinParts([
+                    watch(`records.education.${index}.startDate`),
+                    watch(`records.education.${index}.endDate`)
+                  ])
+                ])}
+                title={`Education ${index + 1}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Education {index + 1}</p>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
                   <Button disabled={busy} onClick={() => educationArray.remove(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
@@ -100,22 +114,27 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   <Field><FieldLabel>End date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.education.${index}.endDate`)} /></Field>
                   <Field className="md:col-span-2"><FieldLabel>Notes</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`records.education.${index}.summary`)} /></Field>
                 </div>
-              </article>
+              </ProfileRecordCard>
             ))
           ) : (
             <EmptyState
-              description="Add schools and credentials here instead of burying them in one freeform summary box."
+              description="Add schools and qualifications here instead of hiding them inside one long summary."
               title="No education records yet"
             />
           )}
 
           {certificationArray.fields.map((entry, index) => (
-            <article
+            <ProfileRecordCard
               key={entry.id}
-              className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4"
+              defaultOpen={index === 0 && educationArray.fields.length === 0}
+              summary={joinParts([
+                watch(`records.certifications.${index}.name`),
+                watch(`records.certifications.${index}.issuer`)
+              ])}
+              title={`Certification ${index + 1}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Certification {index + 1}</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
                 <Button disabled={busy} onClick={() => certificationArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
@@ -127,86 +146,91 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 <Field><FieldLabel>Expiry date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.certifications.${index}.expiryDate`)} /></Field>
                 <Field className="md:col-span-2"><FieldLabel>Credential URL</FieldLabel><ProfileInput {...register(`records.certifications.${index}.credentialUrl`)} /></Field>
               </div>
-            </article>
+            </ProfileRecordCard>
           ))}
         </div>
       </section>
 
-      <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Projects, proof, and languages</p>
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-              Portfolio projects, public links, and communication signals stored separately from the summary.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-stretch gap-2.5">
-            <Button
-              disabled={busy}
-              onClick={() =>
-                projectArray.append({
-                  id: `project_${crypto.randomUUID().slice(0, 8)}`,
-                  name: '',
-                  projectType: '',
-                  summary: '',
-                  role: '',
-                  skills: '',
-                  outcome: '',
-                  projectUrl: '',
-                  repositoryUrl: '',
-                  caseStudyUrl: ''
-                })
-              }
-              type="button"
-              variant="secondary"
-              className="h-11 px-4"
-            >
-              Add project
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() =>
-                linkArray.append({
-                  id: `link_${crypto.randomUUID().slice(0, 8)}`,
-                  label: '',
-                  url: '',
-                  kind: ''
-                })
-              }
-              type="button"
-              variant="secondary"
-              className="h-11 px-4"
-            >
-              Add link
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() =>
-                languageArray.append({
-                  id: `language_${crypto.randomUUID().slice(0, 8)}`,
-                  language: '',
-                  proficiency: '',
-                  interviewPreference: false,
-                  notes: ''
-                })
-              }
-              type="button"
-              variant="secondary"
-              className="h-11 px-4"
-            >
-              Add language
-            </Button>
-          </div>
-        </div>
+      <section className="grid content-start gap-[var(--gap-card)]">
+        <ProfileSectionHeader
+          eyebrow="Supporting detail"
+          title="Projects, links, and languages"
+          description="These records back up the profile with proof, public links, and communication details without making the page feel like one long form."
+          action={
+            <div className="flex flex-wrap items-stretch gap-2.5">
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  projectArray.append({
+                    id: `project_${crypto.randomUUID().slice(0, 8)}`,
+                    name: '',
+                    projectType: '',
+                    summary: '',
+                    role: '',
+                    skills: '',
+                    outcome: '',
+                    projectUrl: '',
+                    repositoryUrl: '',
+                    caseStudyUrl: ''
+                  })
+                }
+                type="button"
+                variant="secondary"
+                className="h-11 px-4"
+              >
+                Add project
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  linkArray.append({
+                    id: `link_${crypto.randomUUID().slice(0, 8)}`,
+                    label: '',
+                    url: '',
+                    kind: ''
+                  })
+                }
+                type="button"
+                variant="secondary"
+                className="h-11 px-4"
+              >
+                Add link
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  languageArray.append({
+                    id: `language_${crypto.randomUUID().slice(0, 8)}`,
+                    language: '',
+                    proficiency: '',
+                    interviewPreference: false,
+                    notes: ''
+                  })
+                }
+                type="button"
+                variant="secondary"
+                className="h-11 px-4"
+              >
+                Add language
+              </Button>
+            </div>
+          }
+        />
 
         <div className="grid gap-4">
           {projectArray.fields.map((entry, index) => (
-            <article
+            <ProfileRecordCard
               key={entry.id}
-              className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4"
+              defaultOpen={index === 0}
+              summary={joinParts([
+                watch(`projects.${index}.name`),
+                watch(`projects.${index}.role`),
+                watch(`projects.${index}.projectType`)
+              ])}
+              title={`Project ${index + 1}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Project {index + 1}</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
                 <Button disabled={busy} onClick={() => projectArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
@@ -222,16 +246,21 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   <Field className="md:col-span-2"><FieldLabel>Summary</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`projects.${index}.summary`)} /></Field>
                   <Field className="md:col-span-2"><FieldLabel>Outcome / impact</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`projects.${index}.outcome`)} /></Field>
                 </div>
-            </article>
+            </ProfileRecordCard>
           ))}
 
           {linkArray.fields.map((entry, index) => (
-            <article
+            <ProfileRecordCard
               key={entry.id}
-              className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4"
+              defaultOpen={index === 0 && projectArray.fields.length === 0}
+              summary={joinParts([
+                watch(`links.${index}.label`),
+                watch(`links.${index}.kind`) ? formatStatusLabel(watch(`links.${index}.kind`)) : null
+              ])}
+              title={`Link ${index + 1}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Link {index + 1}</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
                 <Button disabled={busy} onClick={() => linkArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
@@ -262,16 +291,21 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 />
                 <Field className="md:col-span-2"><FieldLabel>URL</FieldLabel><ProfileInput {...register(`links.${index}.url`)} /></Field>
               </div>
-            </article>
+            </ProfileRecordCard>
           ))}
 
           {languageArray.fields.map((entry, index) => (
-            <article
+            <ProfileRecordCard
               key={entry.id}
-              className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4"
+              defaultOpen={index === 0 && projectArray.fields.length === 0 && linkArray.fields.length === 0}
+              summary={joinParts([
+                watch(`languages.${index}.language`),
+                watch(`languages.${index}.proficiency`)
+              ])}
+              title={`Language ${index + 1}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Language {index + 1}</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
                 <Button disabled={busy} onClick={() => languageArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
@@ -288,7 +322,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 />
                 <Field className="md:col-span-2"><FieldLabel>Notes</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`languages.${index}.notes`)} /></Field>
               </div>
-            </article>
+            </ProfileRecordCard>
           ))}
 
           {projectArray.fields.length === 0 && linkArray.fields.length === 0 && languageArray.fields.length === 0 ? (

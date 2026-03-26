@@ -58,12 +58,12 @@ export function ProfileListEditor({
   return (
     <div
       className={cn(
-        'grid min-w-0 gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4',
+        'grid min-w-0 gap-3 rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[var(--field)] p-4',
         className
       )}
     >
       <div className="flex items-baseline justify-between gap-3">
-        <FieldLabel className="text-[var(--text-tiny)] tracking-[var(--tracking-label)] text-foreground-muted" htmlFor={inputId}>{label}</FieldLabel>
+        <FieldLabel className="text-[10px] font-medium tracking-[0.16em] text-foreground-muted" htmlFor={inputId}>{label}</FieldLabel>
         <span className="text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">{formatCountLabel(values.length)}</span>
       </div>
 
@@ -95,7 +95,7 @@ export function ProfileListEditor({
       {values.length > 0 ? (
         <div
           className={cn(
-              'rounded-[var(--radius-field)] border border-[var(--field-border)] bg-[rgba(0,0,0,0.24)] p-3',
+              'rounded-[var(--radius-field)] border border-border/70 bg-[rgba(0,0,0,0.16)] p-3',
             displayMode === 'chips'
               ? 'flex max-h-[8.6rem] min-h-[8.6rem] flex-wrap content-start items-start gap-2 overflow-auto'
               : 'grid max-h-[11.5rem] min-h-[11.5rem] content-start gap-2 overflow-auto'
@@ -105,7 +105,7 @@ export function ProfileListEditor({
             displayMode === 'chips' ? (
               <div
                 key={`${label}_${value}`}
-                className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/60 bg-[rgba(255,255,255,0.05)] px-3 py-2 text-[0.9rem] text-foreground-soft"
+                className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/55 bg-[rgba(255,255,255,0.04)] px-3 py-2 text-[0.9rem] text-foreground-soft"
                 title={value}
               >
                 <span className="truncate whitespace-nowrap">{value}</span>
@@ -121,7 +121,7 @@ export function ProfileListEditor({
             ) : (
               <div
                 key={`${label}_${value}`}
-                className="grid gap-2 rounded-[var(--radius-field)] border border-border/60 bg-[var(--field)] px-3 py-2.5 text-[0.9rem] leading-6 text-foreground-soft"
+                className="grid gap-2 rounded-[var(--radius-field)] border border-border/60 bg-[rgba(255,255,255,0.03)] px-3 py-2.5 text-[0.9rem] leading-6 text-foreground-soft"
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="min-w-0 whitespace-pre-wrap break-words">{value}</span>
