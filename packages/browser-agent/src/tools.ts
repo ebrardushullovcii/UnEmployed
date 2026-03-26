@@ -740,10 +740,11 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
         
         // Check for genuine loading indicators (not false positives like "Loading dock technician")
         // Use word boundaries and ellipses to detect real loading UIs
+        // Use multiline flag (^$) to match per-line in multi-line text
         const loadingPatterns = [
           /loading\.\.\./i,
-          /loading\s*$/i,  // "Loading" at end of line
-          /^loading$/i,    // Just "Loading" alone
+          /loading\s*$/im,  // "Loading" at end of line (per-line)
+          /^loading$/im,    // Just "Loading" alone on a line (per-line)
           /please wait/i,
           /please wait\.\.\./i,
           /spinner/i,  // Spinner is almost always a loading indicator
