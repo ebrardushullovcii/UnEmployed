@@ -12,10 +12,11 @@ export function DiscoveryScreen(props: {
   busy: boolean
   browserSession: BrowserSessionState
   jobs: readonly SavedJob[]
+  onCheckBrowserSession: () => void
   onDismissJob: (jobId: string) => void
   onOpenBrowserSession: () => void
   onQueueJob: (jobId: string) => void
-  onRefreshDiscovery: () => void
+  onRunAgentDiscovery: (() => void) | undefined
   onSelectJob: (jobId: string) => void
   searchPreferences: JobSearchPreferences
   selectedJob: SavedJob | null
@@ -25,10 +26,11 @@ export function DiscoveryScreen(props: {
     browserSession,
     busy,
     jobs,
+    onCheckBrowserSession,
     onDismissJob,
     onOpenBrowserSession,
     onQueueJob,
-    onRefreshDiscovery,
+    onRunAgentDiscovery,
     onSelectJob,
     searchPreferences,
     selectedJob
@@ -68,8 +70,9 @@ export function DiscoveryScreen(props: {
             actionMessage={actionState.message}
             browserSession={browserSession}
             busy={busy}
+            onCheckBrowserSession={onCheckBrowserSession}
             onOpenBrowserSession={onOpenBrowserSession}
-            onRefreshDiscovery={onRefreshDiscovery}
+            onRunAgentDiscovery={onRunAgentDiscovery}
             searchPreferences={searchPreferences}
           />
           <section className="grid min-h-[31rem] content-start gap-5 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6">
@@ -98,8 +101,9 @@ export function DiscoveryScreen(props: {
             actionMessage={actionState.message}
             browserSession={browserSession}
             busy={busy}
+            onCheckBrowserSession={onCheckBrowserSession}
             onOpenBrowserSession={onOpenBrowserSession}
-            onRefreshDiscovery={onRefreshDiscovery}
+            onRunAgentDiscovery={onRunAgentDiscovery}
             searchPreferences={searchPreferences}
           />
           <DiscoveryResultsPanel

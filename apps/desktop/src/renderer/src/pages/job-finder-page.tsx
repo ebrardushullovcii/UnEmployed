@@ -49,13 +49,14 @@ export interface JobFinderPageContext {
   busy: boolean
   onAnalyzeProfileFromResume: () => void
   onApproveApply: (jobId: string) => void
+  onCheckBrowserSession: () => void
   onDismissJob: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
   onImportResume: () => void
   onOpenBrowserSession: () => void
   onQueueJob: (jobId: string) => void
-  onRefreshDiscovery: () => void
   onResetWorkspace: () => void
+  onRunAgentDiscovery: (() => void) | undefined
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onSaveProfile: (profile: CandidateProfile) => void
   onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
@@ -101,10 +102,11 @@ export function JobFinderDiscoveryRoute() {
       busy={context.busy}
       browserSession={context.workspace.browserSession}
       jobs={context.workspace.discoveryJobs}
+      onCheckBrowserSession={context.onCheckBrowserSession}
       onDismissJob={context.onDismissJob}
       onOpenBrowserSession={context.onOpenBrowserSession}
       onQueueJob={context.onQueueJob}
-      onRefreshDiscovery={context.onRefreshDiscovery}
+      onRunAgentDiscovery={context.onRunAgentDiscovery}
       onSelectJob={context.onSelectDiscoveryJob}
       searchPreferences={context.workspace.searchPreferences}
       selectedJob={context.selectedDiscoveryJob}
@@ -252,6 +254,12 @@ export function JobFinderPage() {
         },
         'Easy Apply marked as submitted and moved into Applications.'
       ),
+    onCheckBrowserSession: () =>
+      void runAction(
+        actions.checkBrowserSession,
+        () => undefined,
+        'Browser session status refreshed.'
+      ),
     onDismissJob: (jobId: string) =>
       void runAction(
         () => actions.dismissDiscoveryJob(jobId),
@@ -285,11 +293,11 @@ export function JobFinderPage() {
         },
         'Job moved into the review queue.'
       ),
-    onRefreshDiscovery: () =>
+    onRunAgentDiscovery: () =>
       void runAction(
-        actions.runDiscovery,
+        () => actions.runAgentDiscovery(),
         () => undefined,
-        'LinkedIn discovery run completed and saved locally.'
+        'AI Agent discovery run completed and saved locally.'
       ),
     onResetWorkspace: () =>
       void runAction(

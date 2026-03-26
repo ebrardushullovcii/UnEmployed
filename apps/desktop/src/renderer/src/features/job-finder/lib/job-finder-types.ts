@@ -1,4 +1,5 @@
 import type {
+  AgentDiscoveryProgress,
   CandidateProfile,
   JobFinderSettings,
   JobSearchPreferences,
@@ -15,9 +16,10 @@ export type JobFinderScreen =
 export interface JobFinderShellActions {
   analyzeProfileFromResume: () => Promise<void>
   openBrowserSession: () => Promise<void>
+  checkBrowserSession: () => Promise<void>
   refreshWorkspace: () => Promise<void>
   resetWorkspace: () => Promise<void>
-  runDiscovery: () => Promise<void>
+  runAgentDiscovery: (onProgress?: (progress: AgentDiscoveryProgress) => void) => Promise<void>
   importResume: () => Promise<void>
   saveProfile: (profile: CandidateProfile) => Promise<void>
   saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => Promise<void>

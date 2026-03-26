@@ -514,7 +514,8 @@ export const JobFinderSettingsSchema = z.object({
   fontPreset: DocumentFontPresetSchema,
   humanReviewRequired: z.boolean(),
   allowAutoSubmitOverride: z.boolean(),
-  keepSessionAlive: z.boolean()
+  keepSessionAlive: z.boolean(),
+  discoveryOnly: z.boolean().default(false)
 })
 export type JobFinderSettings = z.infer<typeof JobFinderSettingsSchema>
 
@@ -577,3 +578,11 @@ export const DesktopWindowControlsStateSchema = z.object({
   isClosable: z.boolean()
 })
 export type DesktopWindowControlsState = z.infer<typeof DesktopWindowControlsStateSchema>
+
+export const AgentDiscoveryProgressSchema = z.object({
+  currentUrl: z.string(),
+  jobsFound: z.number(),
+  stepCount: z.number(),
+  currentAction: z.string().optional()
+})
+export type AgentDiscoveryProgress = z.infer<typeof AgentDiscoveryProgressSchema>

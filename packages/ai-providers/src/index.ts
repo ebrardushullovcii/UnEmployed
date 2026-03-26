@@ -1,6 +1,7 @@
 import {
   AgentProviderStatusSchema,
   candidateLinkKindValues,
+  JobPostingSchema,
   type AgentProviderStatus,
   type CandidateProfile,
   type JobFinderSettings,
@@ -167,11 +168,53 @@ export interface AssessJobFitInput {
   job: JobPosting
 }
 
+export interface ExtractJobsFromPageInput {
+  pageText: string
+  pageUrl: string
+  pageType: 'search_results' | 'job_detail'
+  maxJobs: number
+}
+
+export interface AgentMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  toolCalls?: ToolCall[]
+  toolCallId?: string
+}
+
+export interface ToolCall {
+  id: string
+  type: 'function'
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
+export interface Tool {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: Record<string, unknown>
+  }
+}
+
 export interface JobFinderAiClient {
   getStatus(): AgentProviderStatus
   extractProfileFromResume(input: ExtractProfileFromResumeInput): Promise<ResumeProfileExtraction>
   tailorResume(input: TailorResumeInput): Promise<TailoredResumeDraft>
   assessJobFit(input: AssessJobFitInput): Promise<JobFitAssessment | null>
+  extractJobsFromPage(input: ExtractJobsFromPageInput): Promise<JobPosting[]>
+  chatWithTools?(
+    messages: AgentMessage[],
+    tools: Tool[],
+    signal?: AbortSignal
+  ): Promise<{
+    content?: string
+    toolCalls?: ToolCall[]
+    reasoning?: string
+  }>
 }
 
 export interface OpenAiCompatibleJobFinderAiClientOptions {
@@ -623,7 +666,9 @@ function inferGithubUrl(resumeText: string): string | null {
       if (pathParts.length === 1) {
         return match.replace(/\/$/, '')
       }
-    } catch {}
+    } catch {
+      // Ignore URL parsing errors
+    }
   }
   return null
 }
@@ -1534,6 +1579,9 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
     },
     assessJobFit() {
       return Promise.resolve(null)
+    },
+    extractJobsFromPage() {
+      return Promise.resolve([])
     }
   }
 }
@@ -1655,6 +1703,136 @@ export function createOpenAiCompatibleJobFinderAiClient(
         input
       )
       return JobFitAssessmentSchema.parse(payload)
+    },
+    async extractJobsFromPage(input) {
+      const systemPrompt = input.pageType === 'search_results'
+        ? [
+            'You extract job listings from LinkedIn search results page text.',
+            'Return JSON with a "jobs" array.',
+            'Each job must have: sourceJobId (extract from URL), canonicalUrl (full URL), title, company, location, salaryText (or null), description (short summary from listing).',
+            'sourceJobId is the numeric ID from URLs like /jobs/view/12345 — extract just the number.',
+            'canonicalUrl is the full https://www.linkedin.com/jobs/view/<id> URL.',
+            'If the page text does not contain job listings, return { "jobs": [] }.',
+            `Return at most ${input.maxJobs} jobs.`
+          ].join(' ')
+        : [
+            'You extract structured job details from a LinkedIn job posting page text.',
+            'Return JSON with a "jobs" array containing one job object.',
+            'Each job must have: sourceJobId, canonicalUrl, title, company, location, salaryText (or null), description (full job description text).',
+            'Extract all relevant details: title, company name, location, salary if mentioned, and the full job description.'
+          ].join(' ')
+
+      const payload = await fetchModelJson(systemPrompt, {
+        pageUrl: input.pageUrl,
+        pageText: input.pageText.slice(0, 12000)
+      })
+      const rawJobs = ((payload as { jobs?: unknown[] }).jobs ?? []) as Array<Record<string, unknown>>
+
+      // Helper to safely convert unknown to string
+      const toStr = (value: unknown): string => {
+        if (typeof value === 'string') return value
+        if (typeof value === 'number') return String(value)
+        return ''
+      }
+
+      return rawJobs
+        .map((raw) => {
+          try {
+            return JobPostingSchema.parse({
+              source: 'linkedin',
+              sourceJobId: toStr(raw.sourceJobId),
+              discoveryMethod: 'browser_agent',
+              canonicalUrl: toStr(raw.canonicalUrl),
+              title: toStr(raw.title),
+              company: toStr(raw.company),
+              location: toStr(raw.location),
+              workMode: Array.isArray(raw.workMode) ? raw.workMode : [],
+              applyPath: raw.easyApplyEligible ? 'easy_apply' : 'unknown',
+              easyApplyEligible: Boolean(raw.easyApplyEligible),
+              postedAt: new Date().toISOString(),
+              discoveredAt: new Date().toISOString(),
+              salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
+              summary: toStr(raw.description).slice(0, 240),
+              description: toStr(raw.description),
+              keySkills: Array.isArray(raw.keySkills) ? raw.keySkills : []
+            })
+          } catch {
+            return null
+          }
+        })
+        .filter((job): job is JobPosting => job !== null)
+    },
+    async chatWithTools(messages, tools, signal) {
+      const response = await fetch(buildChatCompletionsUrl(options.baseUrl), {
+        method: 'POST',
+        signal: signal ?? AbortSignal.timeout(60_000),
+        headers: {
+          Authorization: `Bearer ${options.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: options.model,
+          temperature: 0.2,
+          messages: messages.map(msg => ({
+            role: msg.role,
+            content: msg.content,
+            ...(msg.toolCalls && { tool_calls: msg.toolCalls.map(tc => ({
+              id: tc.id,
+              type: tc.type,
+              function: tc.function
+            })) }),
+            ...(msg.toolCallId && { tool_call_id: msg.toolCallId })
+          })),
+          tools: tools.map(tool => ({
+            type: tool.type,
+            function: {
+              name: tool.function.name,
+              description: tool.function.description,
+              parameters: tool.function.parameters
+            }
+          })),
+          tool_choice: 'auto'
+        })
+      })
+
+      if (!response.ok) {
+        const errorPayload = (await response.json().catch(() => ({}))) as { error?: { message?: string } }
+        throw new Error(errorPayload.error?.message ?? `Chat request failed with status ${response.status}.`)
+      }
+
+      const payload = (await response.json()) as {
+        choices?: Array<{
+          message?: {
+            content?: string
+            tool_calls?: Array<{
+              id: string
+              type: string
+              function: {
+                name: string
+                arguments: string
+              }
+            }>
+          }
+        }>
+      }
+
+      const message = payload.choices?.[0]?.message
+
+      const result: { content?: string; toolCalls?: ToolCall[]; reasoning?: string } = {}
+
+      if (message?.content) {
+        result.content = message.content
+      }
+
+      if (message?.tool_calls && message.tool_calls.length > 0) {
+        result.toolCalls = message.tool_calls.map(tc => ({
+          id: tc.id,
+          type: tc.type as 'function',
+          function: tc.function
+        }))
+      }
+
+      return result
     }
   }
 }
@@ -1708,6 +1886,16 @@ export function createJobFinderAiClientFromEnvironment(env: StringMap = process.
       } catch {
         return fallbackClient.assessJobFit(input)
       }
+    },
+    async extractJobsFromPage(input) {
+      try {
+        return await primaryClient.extractJobsFromPage(input)
+      } catch {
+        return fallbackClient.extractJobsFromPage(input)
+      }
+    },
+    async chatWithTools(messages, tools, signal) {
+      return primaryClient.chatWithTools!(messages, tools, signal)
     }
   }
 }

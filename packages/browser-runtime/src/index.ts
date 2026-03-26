@@ -14,6 +14,7 @@ import {
   type SavedJob,
   type TailoredAsset
 } from '@unemployed/contracts'
+import type { JobFinderAiClient } from '@unemployed/ai-providers'
 
 function cloneValue<TValue>(value: TValue): TValue {
   return structuredClone(value)
@@ -112,6 +113,21 @@ export interface BrowserSessionRuntime {
   openSession(source: JobSource): Promise<BrowserSessionState>
   runDiscovery(source: JobSource, searchPreferences: JobSearchPreferences): Promise<DiscoveryRunResult>
   executeEasyApply(source: JobSource, input: ExecuteEasyApplyInput): Promise<ApplyExecutionResult>
+  runAgentDiscovery?(source: JobSource, options: AgentDiscoveryOptions): Promise<DiscoveryRunResult>
+}
+
+export interface AgentDiscoveryOptions {
+  userProfile: CandidateProfile
+  searchPreferences: {
+    targetRoles: string[]
+    locations: string[]
+  }
+  targetJobCount: number
+  maxSteps: number
+  startingUrls: string[]
+  aiClient?: JobFinderAiClient
+  onProgress?: (progress: { currentUrl: string; jobsFound: number; stepCount: number; currentAction?: string }) => void
+  signal?: AbortSignal
 }
 
 export interface CatalogBrowserSessionRuntimeSeed {
@@ -331,4 +347,4 @@ export function createStubBrowserSessionRuntime(
   return createCatalogBrowserSessionRuntime(seed)
 }
 
-export { createLinkedInBrowserAgentRuntime } from './playwright-linkedin-runtime'
+export { createLinkedInBrowserAgentRuntime, type JobPageExtractor, type JobPageExtractionInput } from './playwright-linkedin-runtime'

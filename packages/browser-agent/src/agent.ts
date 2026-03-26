@@ -1,0 +1,319 @@
+import type { Page } from 'playwright'
+import type {
+  AgentConfig,
+  AgentState,
+  AgentResult,
+  AgentMessage,
+  ToolCall,
+  OnProgressCallback
+} from './types'
+import { getToolDefinitions, getToolExecutor } from './tools'
+import { createSystemPrompt } from './prompts'
+
+export interface LLMClient {
+  chatWithTools(
+    messages: AgentMessage[],
+    tools: ReturnType<typeof getToolDefinitions>,
+    signal?: AbortSignal
+  ): Promise<{
+    content?: string
+    toolCalls?: ToolCall[]
+    reasoning?: string
+  }>
+}
+
+export interface JobExtractor {
+  extractJobsFromPage(input: {
+    pageText: string
+    pageUrl: string
+    pageType: string
+    maxJobs: number
+  }): Promise<Array<{
+    sourceJobId: string
+    title: string
+    company: string
+    location: string
+    description: string
+    url: string
+    salary?: string
+    postedAt?: string
+  }>>
+}
+
+export async function runAgentDiscovery(
+  page: Page,
+  config: AgentConfig,
+  llmClient: LLMClient,
+  jobExtractor: JobExtractor,
+  onProgress?: OnProgressCallback,
+  signal?: AbortSignal
+): Promise<AgentResult> {
+  console.log(`[Agent] Starting discovery: ${config.targetJobCount} jobs target`)
+
+  const state: AgentState = {
+    conversation: [
+      { role: 'system', content: createSystemPrompt(config) },
+      { role: 'user', content: createUserPrompt(config) }
+    ],
+    collectedJobs: [],
+    visitedUrls: new Set(),
+    stepCount: 0,
+    currentUrl: '',
+    isRunning: true
+  }
+
+  const tools = getToolDefinitions()
+
+  try {
+    // Navigate to first starting URL
+    const firstUrl = config.startingUrls[0]
+    if (firstUrl) {
+      await page.goto(firstUrl, { waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(2000)
+      state.currentUrl = page.url()
+      state.visitedUrls.add(state.currentUrl)
+      console.log(`[Agent] Started at: ${state.currentUrl}`)
+    } else {
+      return {
+        jobs: [],
+        steps: 0,
+        error: 'No starting URLs provided'
+      }
+    }
+
+    while (state.stepCount < config.maxSteps && state.isRunning) {
+      if (signal?.aborted) {
+        return {
+          jobs: state.collectedJobs,
+          steps: state.stepCount,
+          incomplete: true
+        }
+      }
+
+      state.stepCount++
+
+      // Report progress every 10 steps
+      if (state.stepCount % 10 === 0) {
+        console.log(`[Agent] Step ${state.stepCount}/${config.maxSteps} | Jobs: ${state.collectedJobs.length}`)
+      }
+
+      onProgress?.({
+        currentUrl: state.currentUrl,
+        jobsFound: state.collectedJobs.length,
+        stepCount: state.stepCount,
+        currentAction: 'Thinking...'
+      })
+
+      // Get LLM decision
+      let response: { content?: string; toolCalls?: ToolCall[]; reasoning?: string }
+      try {
+        response = await llmClient.chatWithTools(state.conversation, tools, signal)
+      } catch (llmError) {
+        console.error('[Agent] LLM call failed:', llmError instanceof Error ? llmError.message : 'Unknown')
+        return {
+          jobs: state.collectedJobs,
+          steps: state.stepCount,
+          error: 'LLM call failed'
+        }
+      }
+
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        // Execute tool calls
+        for (const toolCall of response.toolCalls) {
+          const result = await executeToolCall(toolCall, page, state, config, jobExtractor, onProgress)
+          
+          // Add assistant message with tool call
+          state.conversation.push({
+            role: 'assistant',
+            content: response.content || '',
+            toolCalls: [toolCall]
+          })
+
+          // Add tool result
+          state.conversation.push({
+            role: 'tool',
+            toolCallId: toolCall.id,
+            content: JSON.stringify(result)
+          })
+
+          // Check if we should finish
+          if (toolCall.function.name === 'finish') {
+            console.log(`[Agent] Finished: ${state.collectedJobs.length} jobs found`)
+            return {
+              jobs: state.collectedJobs,
+              steps: state.stepCount
+            }
+          }
+
+          // Check if we have enough jobs
+          if (state.collectedJobs.length >= config.targetJobCount) {
+            console.log(`[Agent] Target reached: ${state.collectedJobs.length} jobs`)
+            return {
+              jobs: state.collectedJobs,
+              steps: state.stepCount
+            }
+          }
+        }
+      } else {
+        // No tool calls, just text response
+        state.conversation.push({
+          role: 'assistant',
+          content: response.content || 'No action taken'
+        })
+
+        // If no tool calls for multiple steps, we might be stuck
+        if (state.stepCount >= config.maxSteps - 5) {
+          return {
+            jobs: state.collectedJobs,
+            steps: state.stepCount,
+            incomplete: true
+          }
+        }
+      }
+    }
+
+    console.log(`[Agent] Max steps reached: ${state.collectedJobs.length} jobs`)
+    return {
+      jobs: state.collectedJobs,
+      steps: state.stepCount,
+      incomplete: state.stepCount >= config.maxSteps
+    }
+  } catch (error) {
+    console.error('[Agent] Error:', error instanceof Error ? error.message : 'Unknown')
+    return {
+      jobs: state.collectedJobs,
+      steps: state.stepCount,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  } finally {
+    state.isRunning = false
+  }
+}
+
+async function executeToolCall(
+  toolCall: ToolCall,
+  page: Page,
+  state: AgentState,
+  config: AgentConfig,
+  jobExtractor: JobExtractor,
+  onProgress?: OnProgressCallback
+): Promise<unknown> {
+  const toolName = toolCall.function.name
+  const args = JSON.parse(toolCall.function.arguments || '{}')
+
+  onProgress?.({
+    currentUrl: state.currentUrl,
+    jobsFound: state.collectedJobs.length,
+    stepCount: state.stepCount,
+    currentAction: `${toolName}: ${JSON.stringify(args)}`
+  })
+
+  // Handle browser tools
+  const tool = getToolExecutor(toolName)
+  if (tool) {
+    const maxRetries = 3
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await tool.execute(args, { page, state, config })
+        
+        // Special handling for extract_jobs
+        if (toolName === 'extract_jobs' && result.success && result.data) {
+          const extractData = result.data as {
+            pageText: string
+            pageUrl: string
+            pageType: string
+            readyForExtraction: boolean
+          }
+          
+          if (extractData.readyForExtraction) {
+            const extractedJobs = await jobExtractor.extractJobsFromPage({
+              pageText: extractData.pageText,
+              pageUrl: extractData.pageUrl,
+              pageType: extractData.pageType,
+              maxJobs: config.targetJobCount - state.collectedJobs.length
+            })
+
+            // Add unique jobs
+            let addedCount = 0
+            for (const job of extractedJobs) {
+              const exists = state.collectedJobs.some(j => j.sourceJobId === job.sourceJobId)
+              if (!exists) {
+                state.collectedJobs.push({
+                  source: 'linkedin',
+                  sourceJobId: job.sourceJobId,
+                  discoveryMethod: 'browser_agent',
+                  canonicalUrl: job.url,
+                  title: job.title,
+                  company: job.company,
+                  location: job.location,
+                  workMode: ['flexible'],
+                  applyPath: 'unknown',
+                  easyApplyEligible: false,
+                  postedAt: job.postedAt || new Date().toISOString(),
+                  discoveredAt: new Date().toISOString(),
+                  salaryText: job.salary || null,
+                  summary: job.description.slice(0, 240),
+                  description: job.description,
+                  keySkills: []
+                })
+                addedCount++
+              }
+            }
+
+            if (addedCount > 0) {
+              console.log(`[Agent] +${addedCount} jobs (${state.collectedJobs.length} total) from ${extractData.pageUrl.slice(0, 60)}...`)
+            }
+
+            return {
+              ...result,
+              data: {
+                ...result.data,
+                jobsExtracted: extractedJobs.length,
+                totalJobs: state.collectedJobs.length
+              }
+            }
+          }
+        }
+
+        return result
+      } catch (error) {
+        if (attempt === maxRetries) {
+          return {
+            success: false,
+            error: `Failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown'}`
+          }
+        }
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 500 * attempt))
+      }
+    }
+  }
+
+  return {
+    success: false,
+    error: `Unknown tool: ${toolName}`
+  }
+}
+
+function createUserPrompt(config: AgentConfig): string {
+  return `Please find job postings that match my profile and preferences.
+
+Target Roles: ${config.searchPreferences.targetRoles.join(', ')}
+Preferred Locations: ${config.searchPreferences.locations.join(', ')}
+Experience Level: ${config.userProfile.yearsExperience ? `${config.userProfile.yearsExperience} years` : 'Not specified'}
+
+Starting URLs to explore:
+${config.startingUrls.map(url => `- ${url}`).join('\n')}
+
+Goal: Find ${config.targetJobCount} relevant job postings.
+
+Instructions:
+1. Navigate to the starting URLs
+2. Use search functionality if available, or scroll through listings
+3. Click into job details to get full descriptions when needed
+4. Extract structured job data using the extract_jobs tool
+5. Navigate back to continue searching
+6. Continue until you've found ${config.targetJobCount} relevant jobs or exhausted options
+
+Focus on recent postings that match the target roles and locations.`
+}

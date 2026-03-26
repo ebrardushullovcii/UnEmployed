@@ -81,7 +81,8 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       fontPreset: 'inter_requisite',
       humanReviewRequired: true,
       keepSessionAlive: true,
-      allowAutoSubmitOverride: false
+      allowAutoSubmitOverride: false,
+      discoveryOnly: false
     })
   }
 }

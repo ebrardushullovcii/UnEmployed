@@ -41,6 +41,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() => window.unemployed.jobFinder.analyzeProfileFromResume()),
       openBrowserSession: () =>
         runWorkspaceAction(() => window.unemployed.jobFinder.openBrowserSession()),
+      checkBrowserSession: () =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.checkBrowserSession()),
       approveApply: (jobId: string) =>
         runWorkspaceAction(() => window.unemployed.jobFinder.approveApply(jobId)),
       dismissDiscoveryJob: (jobId: string) =>
@@ -52,7 +54,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() => window.unemployed.jobFinder.queueJobForReview(jobId)),
       refreshWorkspace: () => runWorkspaceAction(() => window.unemployed.jobFinder.getWorkspace()),
       resetWorkspace: () => runWorkspaceAction(() => window.unemployed.jobFinder.resetWorkspace()),
-      runDiscovery: () => runWorkspaceAction(() => window.unemployed.jobFinder.runDiscovery()),
+      runAgentDiscovery: (onProgress) =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.runAgentDiscovery(onProgress)),
       saveProfile: (profile: CandidateProfile) =>
         runWorkspaceAction(() => window.unemployed.jobFinder.saveProfile(profile)),
       saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) =>

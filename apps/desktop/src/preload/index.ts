@@ -6,7 +6,8 @@ import type {
   JobFinderSettings,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
-  JobSearchPreferences
+  JobSearchPreferences,
+  AgentDiscoveryProgress
 } from '@unemployed/contracts'
 
 const testApiEnabled = process.env.UNEMPLOYED_ENABLE_TEST_API === '1' || process.env.UNEMPLOYED_ENABLE_TEST_API === 'true'
@@ -62,6 +63,8 @@ const desktopApi = {
       ipcRenderer.invoke('job-finder:get-workspace') as Promise<JobFinderWorkspaceSnapshot>,
     openBrowserSession: () =>
       ipcRenderer.invoke('job-finder:open-browser-session') as Promise<JobFinderWorkspaceSnapshot>,
+    checkBrowserSession: () =>
+      ipcRenderer.invoke('job-finder:check-browser-session') as Promise<JobFinderWorkspaceSnapshot>,
     saveProfile: (profile: CandidateProfile) =>
       ipcRenderer.invoke('job-finder:save-profile', profile) as Promise<JobFinderWorkspaceSnapshot>,
     saveWorkspaceInputs: (
@@ -82,6 +85,31 @@ const desktopApi = {
       ipcRenderer.invoke('job-finder:import-resume') as Promise<JobFinderWorkspaceSnapshot>,
     runDiscovery: () =>
       ipcRenderer.invoke('job-finder:run-discovery') as Promise<JobFinderWorkspaceSnapshot>,
+    runAgentDiscovery: (
+      onProgress?: (progress: AgentDiscoveryProgress) => void
+    ) => {
+      const progressHandler = onProgress
+        ? (_event: Electron.IpcRendererEvent, progress: AgentDiscoveryProgress) => {
+            onProgress(progress)
+          }
+        : null
+
+      if (progressHandler) {
+        ipcRenderer.on('job-finder:agent-discovery-progress', progressHandler)
+      }
+
+      const cleanup = () => {
+        if (progressHandler) {
+          ipcRenderer.off('job-finder:agent-discovery-progress', progressHandler)
+        }
+      }
+
+      const promise = ipcRenderer
+        .invoke('job-finder:run-agent-discovery')
+        .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>
+
+      return promise
+    },
     resetWorkspace: () =>
       ipcRenderer.invoke('job-finder:reset-workspace') as Promise<JobFinderWorkspaceSnapshot>,
     queueJobForReview: (jobId: string) =>

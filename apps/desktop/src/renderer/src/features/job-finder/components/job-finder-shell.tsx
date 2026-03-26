@@ -243,7 +243,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
             ))}
             <Button
               className={cn(
-                'h-11 rounded-[var(--radius-button)] px-4 text-[0.72rem] tracking-[var(--tracking-caps)] xl:h-12',
+                'mr-2 h-11 rounded-[var(--radius-button)] px-4 text-[0.72rem] tracking-[var(--tracking-caps)] xl:h-12',
                 activeScreen === 'settings'
                   ? 'border-primary/35 bg-primary/15 text-[var(--text-headline)]'
                   : 'border-[var(--surface-panel-border)] bg-[var(--surface-panel)] text-[var(--text-headline)] hover:bg-[var(--surface-panel-raised)]'

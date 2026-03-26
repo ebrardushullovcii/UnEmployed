@@ -233,7 +233,8 @@ function createSeed(): JobFinderRepositorySeed {
       fontPreset: 'inter_requisite',
       humanReviewRequired: true,
       allowAutoSubmitOverride: false,
-      keepSessionAlive: true
+      keepSessionAlive: true,
+      discoveryOnly: false
     }
   }
 }
@@ -349,7 +350,7 @@ function createExtractionAiClient(extraction: ResumeProfileExtraction): JobFinde
 
   return {
     ...fallbackClient,
-    extractProfileFromResume: async () => extraction
+    extractProfileFromResume: () => Promise.resolve(extraction)
   }
 }
 

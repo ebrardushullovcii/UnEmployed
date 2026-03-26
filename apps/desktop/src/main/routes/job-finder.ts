@@ -30,6 +30,13 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   })
 
+  ipcMain.handle('job-finder:check-browser-session', async () => {
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const snapshot = await jobFinderWorkspaceService.checkBrowserSession()
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  })
+
   ipcMain.handle('job-finder:save-profile', async (_event, payload: unknown) => {
     const profile = CandidateProfileSchema.parse(payload)
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
@@ -111,6 +118,19 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle('job-finder:run-discovery', async () => {
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
     const snapshot = await jobFinderWorkspaceService.runDiscovery()
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  })
+
+  ipcMain.handle('job-finder:run-agent-discovery', async (event) => {
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const window = event.sender
+
+    const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
+      (progress) => {
+        window.send('job-finder:agent-discovery-progress', progress)
+      }
+    )
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   })

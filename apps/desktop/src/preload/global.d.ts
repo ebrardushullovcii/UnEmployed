@@ -1,4 +1,5 @@
 import type {
+  AgentDiscoveryProgress,
   CandidateProfile,
   DesktopPlatformPing,
   DesktopWindowControlsState,
@@ -22,6 +23,7 @@ declare global {
       jobFinder: {
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
         openBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>
+        checkBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>
         saveProfile: (profile: CandidateProfile) => Promise<JobFinderWorkspaceSnapshot>
         saveWorkspaceInputs: {
           (profile: CandidateProfile, searchPreferences: JobSearchPreferences): Promise<JobFinderWorkspaceSnapshot>
@@ -32,6 +34,7 @@ declare global {
         saveSettings: (settings: JobFinderSettings) => Promise<JobFinderWorkspaceSnapshot>
         importResume: () => Promise<JobFinderWorkspaceSnapshot>
         runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>
+        runAgentDiscovery: (onProgress?: (progress: AgentDiscoveryProgress) => void) => Promise<JobFinderWorkspaceSnapshot>
         resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
         queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
         dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>

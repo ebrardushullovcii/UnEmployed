@@ -106,7 +106,8 @@ function createSeed(): JobFinderRepositorySeed {
       fontPreset: 'inter_requisite' as const,
       humanReviewRequired: true,
       allowAutoSubmitOverride: false,
-      keepSessionAlive: true
+      keepSessionAlive: true,
+      discoveryOnly: false
     }
   }
 }

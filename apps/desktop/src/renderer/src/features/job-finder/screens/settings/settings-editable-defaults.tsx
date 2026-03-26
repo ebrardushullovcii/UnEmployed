@@ -80,6 +80,12 @@ export function SettingsEditableDefaults({
           label="Auto-submit override"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, allowAutoSubmitOverride: checked }))}
         />
+        <ToggleField
+          checked={settingsForm.discoveryOnly}
+          description="Browse discovered jobs without saving them to your database. Use the review queue to save specific jobs."
+          label="Discovery only"
+          onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
+        />
       </div>
       {availableResumeTemplates.length > 0 ? (
         <PreferenceList label="Template notes" values={availableResumeTemplates.map((template) => `${template.label}: ${template.description}`)} />

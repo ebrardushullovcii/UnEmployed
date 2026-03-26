@@ -21,6 +21,11 @@ export default defineConfig({
   main: {
     resolve: {
       alias: workspaceAliases
+    },
+    build: {
+      rollupOptions: {
+        external: ['playwright', 'playwright-core', 'chromium-bidi']
+      }
     }
   },
   preload: {

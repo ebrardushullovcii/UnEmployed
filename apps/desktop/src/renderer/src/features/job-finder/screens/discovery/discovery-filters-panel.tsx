@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react'
+import { RefreshCw, Search } from 'lucide-react'
 import type { BrowserSessionState, JobSearchPreferences } from '@unemployed/contracts'
 import { Chip } from '@renderer/components/ui/chip'
 import { Button } from '@renderer/components/ui/button'
@@ -9,8 +9,9 @@ interface DiscoveryFiltersPanelProps {
   actionMessage: string | null
   browserSession: BrowserSessionState
   busy: boolean
+  onCheckBrowserSession: () => void
   onOpenBrowserSession: () => void
-  onRefreshDiscovery: () => void
+  onRunAgentDiscovery: (() => void) | undefined
   searchPreferences: JobSearchPreferences
 }
 
@@ -18,8 +19,9 @@ export function DiscoveryFiltersPanel({
   actionMessage,
   browserSession,
   busy,
+  onCheckBrowserSession,
   onOpenBrowserSession,
-  onRefreshDiscovery,
+  onRunAgentDiscovery,
   searchPreferences
 }: DiscoveryFiltersPanelProps) {
   const sections = [
@@ -27,6 +29,11 @@ export function DiscoveryFiltersPanel({
     { label: 'Locations', values: searchPreferences.locations, empty: 'No preferred locations configured yet.' },
     { label: 'Work modes', values: searchPreferences.workModes, empty: 'No work modes configured yet.' }
   ]
+
+  const isChromeAgent = browserSession.driver === 'chrome_profile_agent'
+  const isReady = browserSession.status === 'ready'
+  const needsLogin = browserSession.status === 'login_required'
+  const isBlocked = browserSession.status === 'blocked'
 
   return (
     <section className="grid min-h-[31rem] min-w-0 content-start gap-4 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5">
@@ -36,6 +43,25 @@ export function DiscoveryFiltersPanel({
         <div className="grid min-w-0 gap-3 border-b border-[var(--surface-panel-border)] px-4 py-4">
           <StatusBadge tone={getSessionTone(browserSession)}>{browserSession.label}</StatusBadge>
           <p className="max-w-[28rem] text-[0.9rem] leading-7 text-foreground-soft">{browserSession.detail}</p>
+
+          {isChromeAgent ? (
+            <div className="grid gap-2">
+              {needsLogin || isBlocked ? (
+                <div className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
+                  Log into LinkedIn in the Chrome window that opened, then click <strong>Check login status</strong> below.
+                </div>
+              ) : null}
+              {isReady ? (
+                <div className="rounded-[var(--radius-small)] border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[0.85rem] leading-6 text-emerald-600 dark:text-emerald-400">
+                  LinkedIn session is active. You can run discovery or check login again at any time.
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
+              Browser agent is not enabled. Set <strong>UNEMPLOYED_LINKEDIN_BROWSER_AGENT=1</strong> in your <strong>.env.local</strong> and restart the app.
+            </div>
+          )}
         </div>
 
         <div className="grid min-w-0 content-start gap-0">
@@ -60,15 +86,40 @@ export function DiscoveryFiltersPanel({
         </div>
 
         <div className="mt-auto grid gap-3 border-t border-[var(--surface-panel-border)] px-4 py-4">
-          {browserSession.driver !== 'catalog_seed' ? (
-            <Button className="h-11 w-full" disabled={busy} onClick={onOpenBrowserSession} type="button" variant="secondary">
-              <Search className="size-4" />
-              Open Chrome profile
-            </Button>
+          {isChromeAgent ? (
+            <div className="grid gap-2">
+              <Button
+                className="h-11 w-full"
+                disabled={busy}
+                onClick={onOpenBrowserSession}
+                type="button"
+                variant="secondary"
+              >
+                <Search className="size-4" />
+                {isReady ? 'Reopen Chrome profile' : 'Open Chrome profile'}
+              </Button>
+
+              <Button
+                className="h-11 w-full"
+                disabled={busy}
+                onClick={onCheckBrowserSession}
+                type="button"
+                variant="ghost"
+              >
+                <RefreshCw className="size-4" />
+                Check login status
+              </Button>
+            </div>
           ) : null}
 
-          <Button className="h-11 w-full" disabled={busy} onClick={onRefreshDiscovery} type="button" variant="primary">
-            Run LinkedIn discovery
+          <Button
+            className="h-11 w-full"
+            disabled={busy || !isReady}
+            onClick={onRunAgentDiscovery}
+            type="button"
+            variant="primary"
+          >
+            Run AI Agent Discovery
           </Button>
 
           {actionMessage ? (

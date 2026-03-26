@@ -25,6 +25,7 @@
     "@unemployed/db": "workspace:*",
     "@unemployed/job-finder": "workspace:*",
     "class-variance-authority": "^0.7.1",
+    "chromium-bidi": "^15.0.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.8.0",

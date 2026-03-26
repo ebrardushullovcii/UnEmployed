@@ -15,20 +15,23 @@ export async function createJobFinderWorkspaceServiceAsync() {
   const chromeDebugPort = process.env.UNEMPLOYED_CHROME_DEBUG_PORT
     ? Number.parseInt(process.env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
     : null
-  const browserRuntime = isLinkedInBrowserAgentEnabled()
+  const aiClient = createJobFinderAiClientFromEnvironment(process.env)
+  const linkedInAgentEnabled = isLinkedInBrowserAgentEnabled()
+  const browserRuntime = linkedInAgentEnabled
     ? createLinkedInBrowserAgentRuntime({
         userDataDir: getLinkedInBrowserProfileDirectory(),
         headless: isBrowserHeadlessEnabled(),
         ...(process.env.UNEMPLOYED_CHROME_PATH
           ? { chromeExecutablePath: process.env.UNEMPLOYED_CHROME_PATH }
           : {}),
-        ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {})
+        ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {}),
+        jobExtractor: (input) => aiClient.extractJobsFromPage(input),
+        aiClient
       })
     : createCatalogBrowserSessionRuntime({
         sessions: [],
         catalog: []
       })
-  const aiClient = createJobFinderAiClientFromEnvironment(process.env)
   const documentManager = createLocalJobFinderDocumentManager({
     outputDirectory: getGeneratedResumeDocumentsDirectory()
   })
