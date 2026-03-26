@@ -374,20 +374,40 @@ async function mergeDiscoveredPostings(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
   savedJobs: readonly SavedJob[],
-  discoveredPostings: readonly JobPosting[]
+  discoveredPostings: readonly JobPosting[],
+  signal?: AbortSignal
 ): Promise<SavedJob[]> {
+  // Check if already aborted
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
+  
   const savedJobsByPostingKey = new Map<string, SavedJob>()
+  const savedJobsBySourceId = new Map<string, SavedJob>()
 
   for (const job of savedJobs) {
+    // Full key with canonical URL
     const key = `${job.source}:${job.sourceJobId}:${job.canonicalUrl}`
     savedJobsByPostingKey.set(key, job)
+    // Fallback key without URL (for when canonical URL changes)
+    const sourceIdKey = `${job.source}:${job.sourceJobId}`
+    savedJobsBySourceId.set(sourceIdKey, job)
   }
 
   const nextJobsById = new Map(savedJobs.map((job) => [job.id, job]))
 
   for (const posting of discoveredPostings) {
+    // Check for cancellation periodically
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
+    
     const postingKey = `${posting.source}:${posting.sourceJobId}:${posting.canonicalUrl}`
-    const existingJob = savedJobsByPostingKey.get(postingKey)
+    const sourceIdKey = `${posting.source}:${posting.sourceJobId}`
+    
+    // Try full key first, then fallback to source+sourceId
+    const existingJob = savedJobsByPostingKey.get(postingKey) ?? savedJobsBySourceId.get(sourceIdKey)
+    
     const matchAssessment = await createMatchAssessmentAsync(
       aiClient,
       profile,
@@ -1117,14 +1137,17 @@ export function createJobFinderWorkspaceService(
       return getWorkspaceSnapshot()
     },
     async runDiscovery() {
-      const [profile, searchPreferences, savedJobs, settings] = await Promise.all([
+      const [profile, searchPreferences, settings] = await Promise.all([
         repository.getProfile(),
         repository.getSearchPreferences(),
-        repository.listSavedJobs(),
         repository.getSettings()
       ])
       const enrichedPreferences = enrichSearchPreferencesFromProfile(searchPreferences, profile)
       const discoveryResult = await browserRuntime.runDiscovery('linkedin', enrichedPreferences)
+      
+      // Reload saved jobs after discovery to get fresh snapshot
+      const savedJobs = await repository.listSavedJobs()
+      
       const mergedJobs = await mergeDiscoveredPostings(
         aiClient,
         profile,
@@ -1145,10 +1168,9 @@ export function createJobFinderWorkspaceService(
       return getWorkspaceSnapshot()
     },
     async runAgentDiscovery(onProgress, signal) {
-      const [profile, searchPreferences, savedJobs, settings] = await Promise.all([
+      const [profile, searchPreferences, settings] = await Promise.all([
         repository.getProfile(),
         repository.getSearchPreferences(),
-        repository.listSavedJobs(),
         repository.getSettings()
       ])
 
@@ -1200,12 +1222,16 @@ export function createJobFinderWorkspaceService(
         ...(signal && { signal })
       })
 
+      // Reload saved jobs after discovery to get fresh snapshot
+      const savedJobs = await repository.listSavedJobs()
+
       const mergedJobs = await mergeDiscoveredPostings(
         aiClient,
         profile,
         enrichedPreferences,
         savedJobs,
-        discoveryResult.jobs
+        discoveryResult.jobs,
+        signal
       )
 
       if (settings.discoveryOnly) {

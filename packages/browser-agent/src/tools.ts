@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { Page } from 'playwright'
 import type { ToolDefinition } from './types'
 
 // Helper to validate URLs against allowlist
@@ -65,7 +66,7 @@ const FinishSchema = z.object({
 
 // Recovery helper for when navigation goes off allowlist
 async function recoverFromOffAllowlist(
-  page: import('playwright').Page,
+  page: Page,
   invalidUrl: string,
   previousUrl: string
 ): Promise<{ recovered: boolean; error: string }> {
