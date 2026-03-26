@@ -1,30 +1,7 @@
 import { z } from 'zod'
 import type { Page } from 'playwright'
 import type { ToolDefinition } from './types'
-
-// Helper to validate URLs against allowlist
-const ALLOWED_HOSTNAMES = ['linkedin.com', 'www.linkedin.com']
-
-function isAllowedUrl(url: string): { valid: boolean; error?: string } {
-  try {
-    const parsedUrl = new URL(url)
-    // Only allow http/https schemes
-    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-      return { valid: false, error: `Invalid URL scheme: ${parsedUrl.protocol}` }
-    }
-    // Check hostname against allowlist
-    const hostname = parsedUrl.hostname.toLowerCase()
-    const isAllowed = ALLOWED_HOSTNAMES.some(allowed =>
-      hostname === allowed || hostname.endsWith(`.${allowed}`)
-    )
-    if (!isAllowed) {
-      return { valid: false, error: `Navigation to ${hostname} is not allowed. Only LinkedIn is permitted.` }
-    }
-    return { valid: true }
-  } catch {
-    return { valid: false, error: `Invalid URL format` }
-  }
-}
+import { isAllowedUrl } from './allowlist'
 
 // Maximum timeout for navigation operations (2 minutes)
 export const MAX_NAVIGATION_TIMEOUT = 120_000
@@ -195,7 +172,24 @@ You control the timeout strategy:
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Navigation failed'
         const currentUrl = page.url()
-        const isPartialLoad = currentUrl && currentUrl !== 'about:blank' && currentUrl !== url
+        
+        // Check for partial load by evaluating document state
+        let readyState = 'unknown'
+        let isPartialLoad = false
+        
+        try {
+          // Page may be in a bad state after navigation failure
+          readyState = await page.evaluate(() => document.readyState).catch(() => 'unknown')
+          // Partial load if URL changed or document isn't fully loaded
+          isPartialLoad = Boolean(
+            currentUrl && 
+            currentUrl !== 'about:blank' && 
+            (currentUrl !== url || readyState !== 'complete')
+          )
+        } catch {
+          // Fallback to URL-based check if evaluate fails
+          isPartialLoad = Boolean(currentUrl && currentUrl !== 'about:blank' && currentUrl !== url)
+        }
         
         return {
           success: false,
@@ -204,6 +198,7 @@ You control the timeout strategy:
             requestedUrl: url,
             currentUrl: currentUrl || null,
             partialLoad: isPartialLoad,
+            readyState,
             timeElapsed: Date.now() - startTime,
             errorType: errorMessage.includes('timeout') ? 'timeout' : 'navigation_error'
           }
@@ -235,17 +230,17 @@ Note: If multiple elements have the same role and name, use the index (0-based) 
 
         // Parse the snapshot to extract interactive elements
         const lines = snapshot.split('\n')
-        const elements: Array<{ role: string; name: string; ref: string }> = []
+        const elements: Array<{ role: string; name: string }> = []
 
         for (const line of lines) {
           // Parse lines like: - button "Apply" [ref=e5]
-          const match = line.match(/-\s+(\w+)\s+"([^"]+)"\s+\[ref=([^\]]+)\]/)
+          // Only capture role and name, discard the synthetic ref
+          const match = line.match(/-\s+(\w+)\s+"([^"]+)"\s+\[ref=[^\]]+\]/)
           if (match) {
             const role = match[1]
             const name = match[2]
-            const ref = match[3]
-            if (role && name && ref) {
-              elements.push({ role, name, ref })
+            if (role && name) {
+              elements.push({ role, name })
             }
           }
         }
@@ -256,7 +251,7 @@ Note: If multiple elements have the same role and name, use the index (0-based) 
           const key = `${el.role}:${el.name}`
           const index = roleNameIndices.get(key) ?? 0
           roleNameIndices.set(key, index + 1)
-          return { ...el, index }
+          return { role: el.role, name: el.name, index }
         })
 
         return {
@@ -672,9 +667,20 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
         
         // Heuristics to determine if page is ready for extraction
         const hasMinimumContent = pageTextLength > 500
-        const hasNoLoadingIndicators = !pageText.toLowerCase().includes('loading') && 
-                                       !pageText.toLowerCase().includes('spinner') &&
-                                       !pageText.toLowerCase().includes('please wait')
+        
+        // Check for genuine loading indicators (not false positives like "Loading dock technician")
+        // Use word boundaries and ellipses to detect real loading UIs
+        const loadingPatterns = [
+          /loading\.\.\./i,
+          /loading\s*$/i,  // "Loading" at end of line
+          /^loading$/i,    // Just "Loading" alone
+          /please wait/i,
+          /please wait\.\.\./i,
+          /spinner/i,  // Spinner is almost always a loading indicator
+          /fetching/i,
+          /retrieving/i
+        ]
+        const hasNoLoadingIndicators = !loadingPatterns.some(pattern => pattern.test(pageText))
         
         // Check for job-related content based on page type
         const lowerText = pageText.toLowerCase()

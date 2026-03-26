@@ -10,6 +10,7 @@ import type {
 } from './types'
 import { getToolDefinitions, getToolExecutor } from './tools'
 import { createSystemPrompt } from './prompts'
+import { isAllowedUrl } from './allowlist'
 
 export interface LLMClient {
   chatWithTools(
@@ -69,30 +70,11 @@ export async function runAgentDiscovery(
 
   const tools = getToolDefinitions()
 
-  // Helper to validate URLs against allowlist
-  const isAllowedUrl = (url: string): boolean => {
-    try {
-      const parsedUrl = new URL(url)
-      // Only allow http/https schemes
-      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-        return false
-      }
-      // Allowlist of safe hostnames (LinkedIn only for now)
-      const allowedHostnames = ['linkedin.com', 'www.linkedin.com']
-      const hostname = parsedUrl.hostname.toLowerCase()
-      return allowedHostnames.some(allowed =>
-        hostname === allowed || hostname.endsWith(`.${allowed}`)
-      )
-    } catch {
-      return false
-    }
-  }
-
   try {
     // Navigate to first starting URL
     const firstUrl = config.startingUrls[0]
     if (firstUrl) {
-      if (!isAllowedUrl(firstUrl)) {
+      if (!isAllowedUrl(firstUrl).valid) {
         console.error(`[Agent] Starting URL not allowed: ${firstUrl}`)
         return {
           jobs: [],

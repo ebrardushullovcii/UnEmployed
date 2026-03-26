@@ -60,6 +60,7 @@ export const PROFILE_PLACEHOLDER_LOCATION = 'Set your preferred location'
 export const DEFAULT_ROLE = 'software engineer'
 export const DEFAULT_TARGET_JOB_COUNT = 20
 export const DEFAULT_MAX_STEPS = 50
+export const DEFAULT_MAX_TARGET_ROLES = 4
 
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
@@ -104,7 +105,7 @@ function enrichSearchPreferencesFromProfile(
     }
 
     for (const role of profile.targetRoles) {
-      if (targetRoles.length < 4) {
+      if (targetRoles.length < DEFAULT_MAX_TARGET_ROLES) {
         targetRoles.push(role)
       }
     }
