@@ -9,6 +9,8 @@ import type { ProfileEditorValues } from '../../lib/profile-editor'
 import { formatStatusLabel, joinListInput, parseListInput } from '../../lib/job-finder-utils'
 import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
 import { ProfileListEditor } from './profile-list-editor'
+import { ProfileRecordCard } from './profile-record-card'
+import { ProfileSectionHeader } from './profile-section-header'
 
 interface ProfileExperienceTabProps {
   busy: boolean
@@ -19,44 +21,56 @@ interface ProfileExperienceTabProps {
 export function ProfileExperienceTab({ busy, experienceArray, profileForm }: ProfileExperienceTabProps) {
   const { control, register, setValue, watch } = profileForm
 
+  function buildRoleSummary(index: number) {
+    const title = watch(`records.experiences.${index}.title`)?.trim()
+    const company = watch(`records.experiences.${index}.companyName`)?.trim()
+    const location = watch(`records.experiences.${index}.location`)?.trim()
+    const startDate = watch(`records.experiences.${index}.startDate`)?.trim()
+    const endDate = watch(`records.experiences.${index}.endDate`)?.trim()
+    const isCurrent = watch(`records.experiences.${index}.isCurrent`)
+    const primaryLine = [title, company].filter(Boolean).join(' - ') || `Role ${index + 1}`
+    const detailLine = [location, [startDate, isCurrent ? 'Present' : endDate].filter(Boolean).join(' to ')].filter(Boolean).join(' | ')
+
+    return detailLine ? `${primaryLine}. ${detailLine}` : primaryLine
+  }
+
   return (
-    <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 grid content-start gap-[var(--gap-card)]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Experience timeline</p>
-          <p className="text-[var(--text-description)] leading-6 text-foreground-muted">
-            Field-by-field reusable work history for ATS alignment, tailoring, and future form-fill.
-          </p>
-        </div>
-        <Button
-          disabled={busy}
-          onClick={() =>
-            experienceArray.append({
-              id: `experience_${crypto.randomUUID().slice(0, 8)}`,
-              companyName: '',
-              companyUrl: '',
-              title: '',
-              employmentType: '',
-              location: '',
-              workMode: [],
-              startDate: '',
-              endDate: '',
-              isCurrent: false,
-              summary: '',
-              achievements: '',
-              skills: '',
-              domainTags: '',
-              peopleManagementScope: '',
-              ownershipScope: ''
-            })
-          }
-          type="button"
-          variant="secondary"
-          className="h-11 px-4"
-        >
-          Add experience
-        </Button>
-      </div>
+    <section className="grid content-start gap-[var(--gap-card)]">
+      <ProfileSectionHeader
+        eyebrow="Experience"
+        title="Work history"
+        description="Keep one role per card so you can review it quickly, then expand only the entries that need more detail."
+        action={
+          <Button
+            disabled={busy}
+            onClick={() =>
+              experienceArray.append({
+                id: `experience_${crypto.randomUUID().slice(0, 8)}`,
+                companyName: '',
+                companyUrl: '',
+                title: '',
+                employmentType: '',
+                location: '',
+                workMode: [],
+                startDate: '',
+                endDate: '',
+                isCurrent: false,
+                summary: '',
+                achievements: '',
+                skills: '',
+                domainTags: '',
+                peopleManagementScope: '',
+                ownershipScope: ''
+              })
+            }
+            type="button"
+            variant="secondary"
+            className="h-11 px-4"
+          >
+            Add experience
+          </Button>
+        }
+      />
 
       <div className="grid gap-4">
         {experienceArray.fields.length > 0 ? (
@@ -64,12 +78,14 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
             const currentRole = watch(`records.experiences.${index}.isCurrent`)
 
             return (
-              <article
+              <ProfileRecordCard
                 key={entry.id}
-                className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4"
+                defaultOpen={index === 0 || currentRole}
+                summary={buildRoleSummary(index)}
+                title={`Role ${index + 1}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Role {index + 1}</p>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
                   <Button disabled={busy} onClick={() => experienceArray.remove(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
@@ -137,7 +153,7 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
                     values={parseListInput(watch(`records.experiences.${index}.skills`))}
                   />
                 </div>
-              </article>
+              </ProfileRecordCard>
             )
           })
         ) : (
