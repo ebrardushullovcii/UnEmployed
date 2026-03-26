@@ -49,6 +49,9 @@ async function recoverFromOffAllowlist(
 ): Promise<{ recovered: boolean; error: string }> {
   const error = `Navigation went to disallowed URL: ${invalidUrl}`
   
+  // Check if previousUrl is valid for recovery
+  const previousUrlValid = previousUrl && isAllowedUrl(previousUrl).valid
+  
   // Try to go back
   try {
     await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 })
@@ -65,7 +68,7 @@ async function recoverFromOffAllowlist(
   }
   
   // If still off-allowlist, try to navigate to the previous allowed URL
-  if (previousUrl && isAllowedUrl(previousUrl).valid) {
+  if (previousUrlValid) {
     try {
       await page.goto(previousUrl, { waitUntil: 'domcontentloaded', timeout: 5000 })
       return { recovered: true, error: error + ` (recovered to ${previousUrl})` }
@@ -74,8 +77,12 @@ async function recoverFromOffAllowlist(
     }
   }
   
-  // Recovery failed
-  return { recovered: false, error: error + ' (recovery failed - session may need manual intervention)' }
+  // Recovery failed - provide clear error based on whether previousUrl was available
+  if (!previousUrlValid) {
+    return { recovered: false, error: error + ' (no previous allowed URL to recover to)' }
+  }
+  
+  return { recovered: false, error: error + ' (recovery failed)' }
 }
 
 export const browserTools: ToolDefinition[] = [
