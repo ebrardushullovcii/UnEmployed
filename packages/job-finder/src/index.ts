@@ -51,6 +51,16 @@ const assetStatusPriority: Record<AssetStatus, number> = {
   not_started: 4
 }
 
+// Profile placeholder strings - must stay in sync with UI defaults
+// These are set when no resume has been imported yet
+export const PROFILE_PLACEHOLDER_HEADLINE = 'Import your resume to begin'
+export const PROFILE_PLACEHOLDER_LOCATION = 'Set your preferred location'
+
+// Agent discovery defaults
+export const DEFAULT_ROLE = 'software engineer'
+export const DEFAULT_TARGET_JOB_COUNT = 20
+export const DEFAULT_MAX_STEPS = 50
+
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
@@ -89,7 +99,7 @@ function enrichSearchPreferencesFromProfile(
   const targetRoles = [...searchPreferences.targetRoles]
 
   if (targetRoles.length === 0) {
-    if (profile.headline && profile.headline !== 'Import your resume to begin') {
+    if (profile.headline && profile.headline !== PROFILE_PLACEHOLDER_HEADLINE) {
       targetRoles.push(profile.headline)
     }
 
@@ -102,7 +112,7 @@ function enrichSearchPreferencesFromProfile(
 
   const locations = [...searchPreferences.locations]
 
-  if (locations.length === 0 && profile.currentLocation && profile.currentLocation !== 'Set your preferred location') {
+  if (locations.length === 0 && profile.currentLocation && profile.currentLocation !== PROFILE_PLACEHOLDER_LOCATION) {
     locations.push(profile.currentLocation)
   }
 
@@ -1149,7 +1159,7 @@ export function createJobFinderWorkspaceService(
       const enrichedPreferences = enrichSearchPreferencesFromProfile(searchPreferences, profile)
       
       // Build LinkedIn jobs search URL with user's preferences
-      const primaryRole = enrichedPreferences.targetRoles[0] || 'software engineer'
+      const primaryRole = enrichedPreferences.targetRoles[0] || DEFAULT_ROLE
       const primaryLocation = enrichedPreferences.locations[0] || ''
       const searchQuery = encodeURIComponent(primaryRole)
       const locationQuery = encodeURIComponent(primaryLocation)
@@ -1167,8 +1177,8 @@ export function createJobFinderWorkspaceService(
           targetRoles: enrichedPreferences.targetRoles,
           locations: enrichedPreferences.locations
         },
-        targetJobCount: 20,
-        maxSteps: 50,
+        targetJobCount: DEFAULT_TARGET_JOB_COUNT,
+        maxSteps: DEFAULT_MAX_STEPS,
         startingUrls,
         aiClient,
         ...(onProgress && {

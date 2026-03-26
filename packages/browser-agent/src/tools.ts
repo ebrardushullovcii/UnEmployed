@@ -25,10 +25,13 @@ function isAllowedUrl(url: string): { valid: boolean; error?: string } {
   }
 }
 
+// Maximum timeout for navigation operations (2 minutes)
+export const MAX_NAVIGATION_TIMEOUT = 120_000
+
 // Tool payload schemas
 const NavigateSchema = z.object({
   url: z.string().url(),
-  timeout: z.number().int().positive().optional().default(30000),
+  timeout: z.number().int().positive().max(MAX_NAVIGATION_TIMEOUT).optional().default(30000),
   waitFor: z.enum(['domcontentloaded', 'load', 'networkidle']).optional().default('domcontentloaded')
 })
 
@@ -59,6 +62,43 @@ const ExtractJobsSchema = z.object({
 const FinishSchema = z.object({
   reason: z.string().min(1)
 })
+
+// Recovery helper for when navigation goes off allowlist
+async function recoverFromOffAllowlist(
+  page: import('playwright').Page,
+  invalidUrl: string,
+  previousUrl: string
+): Promise<{ recovered: boolean; error: string }> {
+  const error = `Navigation went to disallowed URL: ${invalidUrl}`
+  
+  // Try to go back
+  try {
+    await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 })
+    await page.waitForTimeout(500)
+    
+    // Check if we're back on an allowed URL
+    const currentUrl = page.url()
+    const urlCheck = isAllowedUrl(currentUrl)
+    if (urlCheck.valid) {
+      return { recovered: true, error }
+    }
+  } catch {
+    // goBack failed, try direct navigation
+  }
+  
+  // If still off-allowlist, try to navigate to the previous allowed URL
+  if (previousUrl && isAllowedUrl(previousUrl).valid) {
+    try {
+      await page.goto(previousUrl, { waitUntil: 'domcontentloaded', timeout: 5000 })
+      return { recovered: true, error: error + ` (recovered to ${previousUrl})` }
+    } catch {
+      // Navigation also failed
+    }
+  }
+  
+  // Recovery failed
+  return { recovered: false, error: error + ' (recovery failed - session may need manual intervention)' }
+}
 
 export const browserTools: ToolDefinition[] = [
   {
@@ -125,12 +165,16 @@ You control the timeout strategy:
         // Validate final URL after navigation (redirects could escape allowlist)
         const finalUrlValidation = isAllowedUrl(finalUrl)
         if (!finalUrlValidation.valid) {
+          // Redirect went off-allowlist - use recovery helper
+          const recovery = await recoverFromOffAllowlist(page, finalUrl, url)
+          state.currentUrl = page.url() // Update to whatever we recovered to
           return {
             success: false,
-            error: `Navigation redirected to disallowed URL: ${finalUrl}`,
+            error: recovery.error,
             data: {
               requestedUrl: url,
-              finalUrl: finalUrl
+              finalUrl: finalUrl,
+              recovered: recovery.recovered
             }
           }
         }
@@ -304,20 +348,17 @@ If the click fails, you'll get details about why so you can decide whether to re
           // Validate final URL after navigation
           const urlValidation = isAllowedUrl(newUrl)
           if (!urlValidation.valid) {
-            // Navigation went to disallowed URL - try to go back
-            try {
-              await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 })
-            } catch {
-              // Ignore errors from goBack
-            }
+            // Navigation went to disallowed URL - use recovery helper
+            const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl)
             return {
               success: false,
-              error: `Click navigated to disallowed URL: ${newUrl}`,
+              error: recovery.error,
               data: {
                 role,
                 name: name.slice(0, 50),
                 index,
-                invalidUrl: newUrl
+                invalidUrl: newUrl,
+                recovered: recovery.recovered
               }
             }
           }
@@ -416,16 +457,12 @@ If multiple elements have the same role and name, use the index to disambiguate 
             // Validate final URL after navigation
             const urlValidation = isAllowedUrl(newUrl)
             if (!urlValidation.valid) {
-              // Navigation went to disallowed URL - try to go back
-              try {
-                await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 })
-              } catch {
-                // Ignore errors from goBack
-              }
+              // Navigation went to disallowed URL - use recovery helper
+              const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl)
               return {
                 success: false,
-                error: `Submit navigated to disallowed URL: ${newUrl}`,
-                data: { role, name: name.slice(0, 30), index, text: text.slice(0, 50), invalidUrl: newUrl }
+                error: recovery.error,
+                data: { role, name: name.slice(0, 30), index, text: text.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered }
               }
             }
             
@@ -544,13 +581,17 @@ Use this after viewing a job detail to return to search results.`,
         if (urlChanged) {
           const urlValidation = isAllowedUrl(newUrl)
           if (!urlValidation.valid) {
+            // Back navigation went off-allowlist - use recovery helper
+            const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl)
+            state.currentUrl = page.url() // Update to whatever we recovered to
             return {
               success: false,
-              error: `Navigation back went to disallowed URL: ${newUrl}`,
+              error: recovery.error,
               data: {
                 wentBack: false,
                 previousUrl,
-                invalidUrl: newUrl
+                invalidUrl: newUrl,
+                recovered: recovery.recovered
               }
             }
           }
@@ -643,11 +684,11 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
           hasJobContent = ['job', 'position', 'apply', 'senior', 'engineer', 'developer', 'manager'].some(
             keyword => lowerText.includes(keyword)
           )
-        } else if (pageType === 'job_detail') {
-          // Job detail pages should have description and requirements
-          hasJobContent = ['description', 'requirements', 'qualifications', 'responsibilities'].some(
+        } else if (pageType === 'job_detail' || pageType === 'company_page') {
+          // Job detail pages and company pages should have description, requirements, or job listings
+          hasJobContent = ['description', 'requirements', 'qualifications', 'responsibilities', 'career', 'openings', 'hiring'].some(
             keyword => lowerText.includes(keyword)
-          ) || lowerText.includes('apply')
+          ) || lowerText.includes('apply') || lowerText.includes('job')
         } else {
           // For unknown types, require substantial content
           hasJobContent = pageTextLength > 1000
