@@ -135,7 +135,6 @@ Note: If multiple elements have the same role and name, use the ref to disambigu
         // Parse the snapshot to extract interactive elements
         const lines = snapshot.split('\n')
         const elements: Array<{ role: string; name: string; ref: string }> = []
-        const roleNameCounts = new Map<string, number>()
 
         for (const line of lines) {
           // Parse lines like: - button "Apply" [ref=e5]
