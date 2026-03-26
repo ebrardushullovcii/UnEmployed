@@ -179,10 +179,10 @@ Note: If multiple elements have the same role and name, use the ref to disambigu
     name: 'click',
     description: `Click an element by its role and name.
 
-You get role, name, and ref from get_interactive_elements().
+You get role, name, and index from get_interactive_elements().
 Use this to click buttons, links, job listings, etc.
 
-If multiple elements have the same role and name, use the ref to disambiguate.
+If multiple elements have the same role and name, use the index to disambiguate (0-based).
 
 If the click fails, you'll get details about why so you can decide whether to retry, scroll first, or try a different element.`,
     parameters: {
@@ -196,9 +196,10 @@ If the click fails, you'll get details about why so you can decide whether to re
           type: 'string',
           description: 'The accessible name/text of the element'
         },
-        ref: {
-          type: 'string',
-          description: 'The reference identifier from get_interactive_elements() for disambiguating duplicates (optional)',
+        index: {
+          type: 'number',
+          description: 'The occurrence index for disambiguating duplicates (0-based, optional)',
+          default: 0
         },
         retryIfNotVisible: {
           type: 'boolean',
@@ -209,20 +210,12 @@ If the click fails, you'll get details about why so you can decide whether to re
       required: ['role', 'name']
     },
     execute: async (args, context) => {
-      const { role, name, ref, retryIfNotVisible = true } = args as { role: string; name: string; ref?: string; retryIfNotVisible?: boolean }
+      const { role, name, index = 0, retryIfNotVisible = true } = args as { role: string; name: string; index?: number; retryIfNotVisible?: boolean }
       const { page, state } = context
 
       try {
-        // Use Playwright's accessibility-friendly locator
-        let locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name })
-
-        // If ref is provided, try to locate by ref attribute first
-        if (ref) {
-          const refLocator = page.locator(`[ref="${ref}"]`)
-          if (await refLocator.isVisible().catch(() => false)) {
-            locator = refLocator
-          }
-        }
+        // Use Playwright's accessibility-friendly locator with nth for disambiguation
+        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name }).nth(index)
 
         // Check if element is visible
         const isVisible = await locator.isVisible().catch(() => false)
@@ -252,7 +245,7 @@ If the click fails, you'll get details about why so you can decide whether to re
           data: {
             role,
             name: name.slice(0, 50),
-            ref,
+            index,
             text: text?.slice(0, 100),
             navigated,
             newUrl: navigated ? newUrl : undefined
@@ -265,7 +258,7 @@ If the click fails, you'll get details about why so you can decide whether to re
           data: {
             role,
             name: name.slice(0, 50),
-            ref,
+            index,
             errorType: error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'click_failed'
           }
         }
@@ -277,10 +270,10 @@ If the click fails, you'll get details about why so you can decide whether to re
     name: 'fill',
     description: `Fill an input field with text by its role and label/name.
 
-You get role, name, and ref from get_interactive_elements().
+You get role, name, and index from get_interactive_elements().
 Use this to fill search boxes, forms, etc.
 
-If multiple elements have the same role and name, use the ref to disambiguate.`,
+If multiple elements have the same role and name, use the index to disambiguate (0-based).`,
     parameters: {
       type: 'object',
       properties: {
@@ -296,9 +289,10 @@ If multiple elements have the same role and name, use the ref to disambiguate.`,
           type: 'string',
           description: 'The text to type into the field'
         },
-        ref: {
-          type: 'string',
-          description: 'The reference identifier from get_interactive_elements() for disambiguating duplicates (optional)',
+        index: {
+          type: 'number',
+          description: 'The occurrence index for disambiguating duplicates (0-based, optional)',
+          default: 0
         },
         submit: {
           type: 'boolean',
@@ -309,20 +303,12 @@ If multiple elements have the same role and name, use the ref to disambiguate.`,
       required: ['role', 'name', 'text']
     },
     execute: async (args, context) => {
-      const { role, name, text, ref, submit = false } = args as { role: string; name: string; text: string; ref?: string; submit?: boolean }
+      const { role, name, text, index = 0, submit = false } = args as { role: string; name: string; text: string; index?: number; submit?: boolean }
       const { page, state } = context
 
       try {
-        // Use Playwright's accessibility-friendly locator
-        let locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name })
-
-        // If ref is provided, try to locate by ref attribute first
-        if (ref) {
-          const refLocator = page.locator(`[ref="${ref}"]`)
-          if (await refLocator.isVisible().catch(() => false)) {
-            locator = refLocator
-          }
-        }
+        // Use Playwright's accessibility-friendly locator with nth for disambiguation
+        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name }).nth(index)
 
         await locator.fill(text)
 
@@ -339,13 +325,13 @@ If multiple elements have the same role and name, use the ref to disambiguate.`,
 
         return {
           success: true,
-          data: { role, name: name.slice(0, 30), ref, text: text.slice(0, 50), submitted: submit }
+          data: { role, name: name.slice(0, 30), index, text: text.slice(0, 50), submitted: submit }
         }
       } catch (error) {
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Fill failed',
-          data: { role, name: name.slice(0, 30), ref }
+          data: { role, name: name.slice(0, 30), index }
         }
       }
     }
@@ -489,6 +475,13 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
         const pageUrl = page.url()
         const pageTextLength = pageText.length
         
+        // Truncate page text to prevent conversation bloat
+        const MAX_PAGE_TEXT_CHARS = 8000
+        const pageTextTruncated = pageTextLength > MAX_PAGE_TEXT_CHARS
+        const truncatedPageText = pageTextTruncated 
+          ? pageText.slice(0, MAX_PAGE_TEXT_CHARS) + '\n... [content truncated]'
+          : pageText
+        
         // Heuristics to determine if page is ready for extraction
         const hasMinimumContent = pageTextLength > 500
         const hasNoLoadingIndicators = !pageText.toLowerCase().includes('loading') && 
@@ -521,8 +514,9 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
           data: {
             pageType,
             pageUrl,
-            pageText,
+            pageText: truncatedPageText,
             pageTextLength,
+            pageTextTruncated,
             readyForExtraction,
             maxJobs,
             checks: {
