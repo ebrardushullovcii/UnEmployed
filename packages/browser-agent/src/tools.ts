@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolContext, ToolResult } from './types'
+import type { ToolDefinition } from './types'
 
 export const browserTools: ToolDefinition[] = [
   {
@@ -113,38 +113,39 @@ You control the timeout strategy:
 
   {
     name: 'get_interactive_elements',
-    description: `Get a list of interactive elements on the page with their references. 
-    
+    description: `Get a list of interactive elements on the page with their accessibility role and name.
+
 Use this to understand what's clickable, fillable, or scrollable on the page.
-Returns elements like buttons, links, inputs with unique reference IDs (e.g., @e5, @e12) that you can use with click() or fill() tools.`,
+Returns elements with role and name that you can use with click(role, name) or fill(role, name) tools.
+
+Example: { role: 'button', name: 'Apply' } can be clicked with click('button', 'Apply')`,
     parameters: {
       type: 'object',
       properties: {}
     },
     execute: async (_args, context) => {
       const { page } = context
-      
+
       try {
         // Use ariaSnapshot to get accessible elements
         const snapshot = await page.locator('body').ariaSnapshot()
-        
+
         // Parse the snapshot to extract interactive elements
         const lines = snapshot.split('\n')
-        const elements: Array<{ ref: string; role: string; name: string }> = []
-        
+        const elements: Array<{ role: string; name: string }> = []
+
         for (const line of lines) {
           // Parse lines like: - button "Apply" [ref=e5]
           const match = line.match(/-\s+(\w+)\s+"([^"]+)"\s+\[ref=([^\]]+)\]/)
           if (match) {
             const role = match[1]
             const name = match[2]
-            const ref = match[3]
-            if (role && name && ref) {
-              elements.push({ ref, role, name })
+            if (role && name) {
+              elements.push({ role, name })
             }
           }
         }
-        
+
         return {
           success: true,
           data: {
@@ -208,8 +209,7 @@ If the click fails, you'll get details about why so you can decide whether to re
         
         // Get element info before clicking
         const text = await locator.textContent().catch(() => null)
-        const href = await locator.getAttribute('href').catch(() => null)
-        
+
         await locator.click({ timeout: 10000 })
         await page.waitForTimeout(1000) // Brief wait for navigation/state change
         
@@ -438,7 +438,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
     },
     execute: async (args, context) => {
       const { pageType, maxJobs = 5 } = args as { pageType: string; maxJobs?: number }
-      const { page, config } = context
+      const { page } = context
       
       try {
         // Get page content

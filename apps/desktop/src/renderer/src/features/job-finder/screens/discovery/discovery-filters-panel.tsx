@@ -112,15 +112,17 @@ export function DiscoveryFiltersPanel({
             </div>
           ) : null}
 
-          <Button
-            className="h-11 w-full"
-            disabled={busy || !isReady}
-            onClick={onRunAgentDiscovery}
-            type="button"
-            variant="primary"
-          >
-            Run AI Agent Discovery
-          </Button>
+          {onRunAgentDiscovery ? (
+            <Button
+              className="h-11 w-full"
+              disabled={busy || !isReady}
+              onClick={onRunAgentDiscovery}
+              type="button"
+              variant="primary"
+            >
+              Run AI Agent Discovery
+            </Button>
+          ) : null}
 
           {actionMessage ? (
             <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{actionMessage}</p>

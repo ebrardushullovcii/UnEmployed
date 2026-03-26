@@ -1125,12 +1125,16 @@ export function createLinkedInBrowserAgentRuntime(
           targetJobCount: options.targetJobCount,
           userProfile: options.userProfile,
           searchPreferences: {
-            ...options.searchPreferences,
-            workModes: [],
-            companyBlacklist: [],
-            minimumSalaryUsd: null
-          } as unknown as AgentConfig['searchPreferences'],
+            targetRoles: options.searchPreferences.targetRoles,
+            locations: options.searchPreferences.locations
+          },
           startingUrls: options.startingUrls
+        }
+
+        // Validate aiClient exists (already checked above, but capture for type safety)
+        const aiClient = options.aiClient
+        if (!aiClient?.chatWithTools) {
+          throw new Error('AI client not available')
         }
 
         const result = await runAgentDiscovery(
@@ -1138,9 +1142,10 @@ export function createLinkedInBrowserAgentRuntime(
           agentConfig,
           {
             chatWithTools: async (messages, tools, signal) => {
-              const response = await options.aiClient!.chatWithTools!(
+              // Cast tools to match the expected type
+              const response = await aiClient.chatWithTools!(
                 messages,
-                tools as unknown as AiTool[],
+                tools as AiTool[],
                 signal
               )
               return response

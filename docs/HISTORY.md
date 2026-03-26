@@ -6,14 +6,7 @@ Use this file for condensed repo milestones and notable completed changes.
 
 ## 2026-03-26
 
-- Implemented AI browser agent (`@unemployed/browser-agent`) for autonomous LinkedIn job discovery using LLM tool calling with 8 browser automation tools (navigate, click, fill, scroll, extract_jobs, etc.)
-- Replaced old deterministic "Run LinkedIn discovery" button with new "Run AI Agent Discovery" that uses AI to control browser navigation strategy, timeouts, and retry logic
-- Agent finds 20 jobs from LinkedIn search results using user's profile preferences (target roles, locations)
-- Added `chatWithTools()` to `@unemployed/ai-providers` for OpenAI-compatible tool calling
-- Extended `@unemployed/browser-runtime` with `runAgentDiscovery()` method for AI-driven discovery
-- Chrome profile authentication persists across sessions for authenticated LinkedIn access
-- Added cancellation support via AbortController and IPC listener for `job-finder:cancel-agent-discovery`
-- All changes pass lint, typecheck, and tests; PR merged after CodeRabbit review
+- Added AI-driven LinkedIn job discovery agent with persistent Chrome authentication and cancellation support
 
 ## 2026-03-24
 

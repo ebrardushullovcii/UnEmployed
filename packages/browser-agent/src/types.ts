@@ -1,11 +1,17 @@
-import type { JobPosting, CandidateProfile, JobSearchPreferences, AgentDiscoveryProgress } from '@unemployed/contracts'
+import type { JobPosting, CandidateProfile, AgentDiscoveryProgress } from '@unemployed/contracts'
 import type { Page } from 'playwright'
+
+// Narrow interface for search preferences used by the agent
+export interface AgentSearchPreferences {
+  targetRoles: string[]
+  locations: string[]
+}
 
 export interface AgentConfig {
   maxSteps: number
   targetJobCount: number
   userProfile: CandidateProfile
-  searchPreferences: JobSearchPreferences
+  searchPreferences: AgentSearchPreferences
   startingUrls: string[]
 }
 

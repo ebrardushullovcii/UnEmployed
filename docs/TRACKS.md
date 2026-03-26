@@ -57,7 +57,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - scope: build the generic browser primitives and the first LinkedIn discovery adapter boundary
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
 - code areas: `packages/browser-runtime`, `packages/job-finder`, `packages/browser-agent`
-- current focus: completed AI browser agent implementation with LLM tool calling for autonomous LinkedIn job discovery; agent controls navigation strategy, timeouts, retry logic; finds 20 jobs from LinkedIn using user's profile; includes URL validation (LinkedIn-only), AbortController cancellation, and compact conversation management
+- current focus: completed AI browser agent implementation with LLM tool calling for autonomous LinkedIn job discovery; agent controls navigation strategy, timeouts, retry logic; targets up to the configured job count from LinkedIn using user's profile; includes URL validation (LinkedIn-only), AbortController cancellation, and compact conversation management
 - next step: monitor real-world usage for edge cases in auth recovery, pagination handling, and selector robustness
 - blockers: none
 - notes: AI browser agent replaces old deterministic discovery; keeps LinkedIn selectors out of generic runtime; discovery writes through repository boundary with deduping; includes cancellation support via `job-finder:cancel-agent-discovery` IPC

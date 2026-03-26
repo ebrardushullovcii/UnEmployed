@@ -13,6 +13,7 @@ import {
   JobSearchPreferencesSchema,
   SavedJobSchema,
   TailoredAssetSchema,
+  type AgentDiscoveryProgress,
   type ApplicationAttempt,
   type ApplicationEvent,
   type ApplicationRecord,
@@ -354,6 +355,39 @@ function mergeDiscoveredJob(
     status: preserveJobStatus(existingJob),
     matchAssessment
   })
+}
+
+// Helper to merge discovered postings with existing jobs
+async function mergeDiscoveredPostings(
+  aiClient: JobFinderAiClient,
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  savedJobs: readonly SavedJob[],
+  discoveredPostings: readonly JobPosting[]
+): Promise<SavedJob[]> {
+  const savedJobsByPostingKey = new Map<string, SavedJob>()
+
+  for (const job of savedJobs) {
+    const key = `${job.source}:${job.sourceJobId}:${job.canonicalUrl}`
+    savedJobsByPostingKey.set(key, job)
+  }
+
+  const nextJobsById = new Map(savedJobs.map((job) => [job.id, job]))
+
+  for (const posting of discoveredPostings) {
+    const postingKey = `${posting.source}:${posting.sourceJobId}:${posting.canonicalUrl}`
+    const existingJob = savedJobsByPostingKey.get(postingKey)
+    const matchAssessment = await createMatchAssessmentAsync(
+      aiClient,
+      profile,
+      searchPreferences,
+      posting
+    )
+    const mergedJob = mergeDiscoveredJob(matchAssessment, posting, existingJob)
+    nextJobsById.set(mergedJob.id, mergedJob)
+  }
+
+  return [...nextJobsById.values()]
 }
 
 function buildTailoredResumeText(
@@ -881,13 +915,6 @@ function nextJobStatusFromAttempt(job: SavedJob, attemptState: ApplicationAttemp
   }
 }
 
-export interface AgentDiscoveryProgress {
-  currentUrl: string
-  jobsFound: number
-  stepCount: number
-  currentAction?: string | undefined
-}
-
 export interface JobFinderWorkspaceService {
   getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot>
   openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>
@@ -1019,7 +1046,7 @@ export function createJobFinderWorkspaceService(
       return getWorkspaceSnapshot()
     },
     async checkBrowserSession() {
-      await browserRuntime.openSession('linkedin')
+      await browserRuntime.getSessionState('linkedin')
       return getWorkspaceSnapshot()
     },
     async saveProfile(profile) {
@@ -1087,35 +1114,21 @@ export function createJobFinderWorkspaceService(
       ])
       const enrichedPreferences = enrichSearchPreferencesFromProfile(searchPreferences, profile)
       const discoveryResult = await browserRuntime.runDiscovery('linkedin', enrichedPreferences)
-      const savedJobsByPostingKey = new Map<string, SavedJob>()
-
-      for (const job of savedJobs) {
-        const key = `${job.source}:${job.sourceJobId}:${job.canonicalUrl}`
-        savedJobsByPostingKey.set(key, job)
-      }
-
-      const nextJobsById = new Map(savedJobs.map((job) => [job.id, job]))
-
-      for (const posting of discoveryResult.jobs) {
-        const postingKey = `${posting.source}:${posting.sourceJobId}:${posting.canonicalUrl}`
-        const existingJob = savedJobsByPostingKey.get(postingKey)
-        const matchAssessment = await createMatchAssessmentAsync(
-          aiClient,
-          profile,
-          enrichedPreferences,
-          posting
-        )
-        const mergedJob = mergeDiscoveredJob(matchAssessment, posting, existingJob)
-        nextJobsById.set(mergedJob.id, mergedJob)
-      }
+      const mergedJobs = await mergeDiscoveredPostings(
+        aiClient,
+        profile,
+        enrichedPreferences,
+        savedJobs,
+        discoveryResult.jobs
+      )
 
       if (settings.discoveryOnly) {
-        pendingDiscoveryJobs = [...nextJobsById.values()].filter(
+        pendingDiscoveryJobs = mergedJobs.filter(
           (job) => !savedJobs.some((saved) => saved.id === job.id)
         )
       } else {
         pendingDiscoveryJobs = []
-        await repository.replaceSavedJobs([...nextJobsById.values()])
+        await repository.replaceSavedJobs(mergedJobs)
       }
 
       return getWorkspaceSnapshot()
@@ -1170,35 +1183,21 @@ export function createJobFinderWorkspaceService(
         ...(signal && { signal })
       })
 
-      const savedJobsByPostingKey = new Map<string, SavedJob>()
-
-      for (const job of savedJobs) {
-        const key = `${job.source}:${job.sourceJobId}:${job.canonicalUrl}`
-        savedJobsByPostingKey.set(key, job)
-      }
-
-      const nextJobsById = new Map(savedJobs.map((job) => [job.id, job]))
-
-      for (const posting of discoveryResult.jobs) {
-        const postingKey = `${posting.source}:${posting.sourceJobId}:${posting.canonicalUrl}`
-        const existingJob = savedJobsByPostingKey.get(postingKey)
-        const matchAssessment = await createMatchAssessmentAsync(
-          aiClient,
-          profile,
-          enrichedPreferences,
-          posting
-        )
-        const mergedJob = mergeDiscoveredJob(matchAssessment, posting, existingJob)
-        nextJobsById.set(mergedJob.id, mergedJob)
-      }
+      const mergedJobs = await mergeDiscoveredPostings(
+        aiClient,
+        profile,
+        enrichedPreferences,
+        savedJobs,
+        discoveryResult.jobs
+      )
 
       if (settings.discoveryOnly) {
-        pendingDiscoveryJobs = [...nextJobsById.values()].filter(
+        pendingDiscoveryJobs = mergedJobs.filter(
           (job) => !savedJobs.some((saved) => saved.id === job.id)
         )
       } else {
         pendingDiscoveryJobs = []
-        await repository.replaceSavedJobs([...nextJobsById.values()])
+        await repository.replaceSavedJobs(mergedJobs)
       }
 
       return getWorkspaceSnapshot()

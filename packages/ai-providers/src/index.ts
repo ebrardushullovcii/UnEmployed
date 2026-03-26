@@ -1756,7 +1756,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
               description: toStr(raw.description),
               keySkills: Array.isArray(raw.keySkills) ? raw.keySkills : []
             })
-          } catch {
+          } catch (error) {
+            console.error(`[AI Provider] Failed to parse job ${toStr(raw.sourceJobId)}:`, error)
             return null
           }
         })
@@ -1768,7 +1769,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 60_000)
       
-      if (signal) {
+      // Check if signal is already aborted
+      if (signal?.aborted) {
+        clearTimeout(timeoutId)
+        controller.abort()
+      } else if (signal) {
         signal.addEventListener('abort', () => {
           clearTimeout(timeoutId)
           controller.abort()

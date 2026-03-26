@@ -35,6 +35,7 @@ declare global {
         importResume: () => Promise<JobFinderWorkspaceSnapshot>
         runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>
         runAgentDiscovery: (onProgress?: (progress: AgentDiscoveryProgress) => void) => Promise<JobFinderWorkspaceSnapshot>
+        cancelAgentDiscovery: () => void
         resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
         queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
         dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>

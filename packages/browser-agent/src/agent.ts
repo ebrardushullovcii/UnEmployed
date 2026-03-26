@@ -209,7 +209,16 @@ async function executeToolCall(
   onProgress?: OnProgressCallback
 ): Promise<unknown> {
   const toolName = toolCall.function.name
-  const args = JSON.parse(toolCall.function.arguments || '{}')
+  let args: Record<string, unknown> = {}
+  try {
+    args = JSON.parse(toolCall.function.arguments || '{}')
+  } catch (parseError) {
+    console.error(`[Agent] Failed to parse tool arguments for ${toolName}:`, toolCall.function.arguments, parseError)
+    return {
+      success: false,
+      error: `Invalid tool arguments for ${toolName}`
+    }
+  }
 
   onProgress?.({
     currentUrl: state.currentUrl,
@@ -256,8 +265,19 @@ async function executeToolCall(
                   title: job.title,
                   company: job.company,
                   location: job.location,
-                  workMode: (job.workMode as Array<'remote' | 'hybrid' | 'onsite' | 'flexible'> | undefined) ?? ['flexible'],
-                  applyPath: (job.applyPath as 'easy_apply' | 'external_redirect' | 'unknown' | undefined) ?? 'unknown',
+                  workMode: (Array.isArray(job.workMode)
+                    ? job.workMode.filter((m): m is 'remote' | 'hybrid' | 'onsite' | 'flexible' =>
+                        ['remote', 'hybrid', 'onsite', 'flexible'].includes(m as string)
+                      )
+                    : []
+                  ).length > 0
+                    ? (job.workMode as Array<'remote' | 'hybrid' | 'onsite' | 'flexible'>).filter((m) =>
+                        ['remote', 'hybrid', 'onsite', 'flexible'].includes(m)
+                      )
+                    : ['flexible'],
+                  applyPath: ['easy_apply', 'external_redirect', 'unknown'].includes(job.applyPath as string)
+                    ? (job.applyPath as 'easy_apply' | 'external_redirect' | 'unknown')
+                    : 'unknown',
                   easyApplyEligible: job.easyApplyEligible ?? false,
                   postedAt: job.postedAt || new Date().toISOString(),
                   discoveredAt: new Date().toISOString(),

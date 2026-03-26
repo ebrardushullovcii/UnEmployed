@@ -110,6 +110,9 @@ const desktopApi = {
 
       return promise
     },
+    cancelAgentDiscovery: () => {
+      ipcRenderer.send('job-finder:cancel-agent-discovery')
+    },
     resetWorkspace: () =>
       ipcRenderer.invoke('job-finder:reset-workspace') as Promise<JobFinderWorkspaceSnapshot>,
     queueJobForReview: (jobId: string) =>
