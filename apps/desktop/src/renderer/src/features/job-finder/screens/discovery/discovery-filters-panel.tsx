@@ -22,7 +22,7 @@ function resolveManagedSessionSource(target: JobSearchPreferences['discovery']['
     const hostname = new URL(target.startingUrl).hostname.toLowerCase()
     return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com') ? 'linkedin' : null
   } catch {
-    return 'linkedin'
+    return null
   }
 }
 
@@ -63,7 +63,8 @@ export function DiscoveryFiltersPanel({
   const needsLogin = browserSession.status === 'login_required'
   const isBlocked = browserSession.status === 'blocked'
   const enabledTargets = searchPreferences.discovery.targets.filter((target) => target.enabled)
-  const requiresManagedSession = enabledTargets.length === 0 || enabledTargets.some(targetRequiresManagedSession)
+  const hasRunnableTarget = enabledTargets.length > 0
+  const requiresManagedSession = enabledTargets.some(targetRequiresManagedSession)
   const managedSessionSources = Array.from(new Set(enabledTargets
     .map(resolveManagedSessionSource)
     .filter((source): source is JobSource => source !== null)))
@@ -83,7 +84,7 @@ export function DiscoveryFiltersPanel({
         lastCheckedAt: displaySession.lastCheckedAt
       }
   const requiredSessionsReady = managedSessionSources.length === 0 || managedSessions.every((session) => session?.status === 'ready')
-  const canRunDiscovery = Boolean(onRunAgentDiscovery) && !busy && (!requiresManagedSession || requiredSessionsReady)
+  const canRunDiscovery = Boolean(onRunAgentDiscovery) && hasRunnableTarget && !busy && (!requiresManagedSession || requiredSessionsReady)
 
   return (
     <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 xl:h-full xl:min-h-0">

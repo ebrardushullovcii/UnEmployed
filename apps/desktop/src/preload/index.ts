@@ -90,6 +90,10 @@ const desktopApi = {
     runAgentDiscovery: (
       onActivity?: (event: DiscoveryActivityEvent) => void
     ) => {
+      if (activeAgentDiscoveryRequestId) {
+        return Promise.reject(new Error('Agent discovery is already running.'))
+      }
+
       const requestId = `agent_discovery_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
       const activityChannel = `job-finder:discovery-activity:${requestId}`
       activeAgentDiscoveryRequestId = requestId

@@ -541,6 +541,7 @@ describe('createJobFinderWorkspaceService', () => {
     // Jobs should appear in discoveryJobs but not in savedJobs
     expect(snapshot.discoveryJobs).toHaveLength(2)
     expect(snapshot.discoveryJobs[0]?.status).toBe('discovered')
+    expect(snapshot.discoveryJobs[0]?.provenance).toHaveLength(1)
 
     // Verify jobs are pending (can be reviewed/queued) rather than auto-saved
     expect(snapshot.reviewQueue).toHaveLength(0)
@@ -549,6 +550,14 @@ describe('createJobFinderWorkspaceService', () => {
     // Ensure no application records or attempts were created
     expect(snapshot.applicationRecords).toHaveLength(0)
     expect(snapshot.applicationAttempts).toHaveLength(0)
+
+    const secondSnapshot = await workspaceService.runDiscovery()
+
+    expect(secondSnapshot.discoveryJobs).toHaveLength(2)
+    expect(secondSnapshot.discoveryJobs.filter((job) => job.sourceJobId === 'linkedin_signal_ready')).toHaveLength(1)
+    expect(secondSnapshot.discoveryJobs[0]?.provenance).toHaveLength(1)
+    expect(secondSnapshot.reviewQueue).toHaveLength(0)
+    await expect(repository.listSavedJobs()).resolves.toHaveLength(0)
   })
 
   test('agent discovery streams activity and keeps discovery-only jobs pending', async () => {

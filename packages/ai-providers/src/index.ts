@@ -194,7 +194,11 @@ export interface JobFinderAiClient {
   tailorResume(input: TailorResumeInput): Promise<TailoredResumeDraft>
   assessJobFit(input: AssessJobFitInput): Promise<JobFitAssessment | null>
   extractJobsFromPage(input: ExtractJobsFromPageInput): Promise<JobPosting[]>
-  chatWithTools?(
+  chatWithTools?: AgentCapableJobFinderAiClient['chatWithTools']
+}
+
+export interface AgentCapableJobFinderAiClient extends JobFinderAiClient {
+  chatWithTools(
     messages: AgentMessage[],
     tools: Tool[],
     signal?: AbortSignal
@@ -1676,7 +1680,7 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
 
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions
-): JobFinderAiClient {
+): AgentCapableJobFinderAiClient {
   const status = AgentProviderStatusSchema.parse({
     kind: 'openai_compatible',
     ready: true,
@@ -2125,7 +2129,7 @@ export function createJobFinderAiClientFromEnvironment(env: StringMap = process.
       }
     },
     async chatWithTools(messages, tools, signal) {
-      return primaryClient.chatWithTools!(messages, tools, signal)
+      return primaryClient.chatWithTools(messages, tools, signal)
     }
   }
 }

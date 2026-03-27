@@ -1388,12 +1388,16 @@ export function createJobFinderWorkspaceService(
     }
 
     if (JSON.stringify(nextSessions) !== JSON.stringify(currentDiscovery.sessions)) {
+      const latestDiscovery = await repository.getDiscoveryState()
+
+      if (JSON.stringify(nextSessions) !== JSON.stringify(latestDiscovery.sessions)) {
       await repository.saveDiscoveryState(
         JobFinderDiscoveryStateSchema.parse({
-          ...currentDiscovery,
+          ...latestDiscovery,
           sessions: nextSessions
         })
       )
+      }
     }
 
     return nextSessions
@@ -1559,10 +1563,11 @@ export function createJobFinderWorkspaceService(
       return getWorkspaceSnapshot()
     },
     async runDiscovery() {
-      const [profile, searchPreferences, settings] = await Promise.all([
+      const [profile, searchPreferences, settings, discoveryState] = await Promise.all([
         repository.getProfile(),
         repository.getSearchPreferences(),
-        repository.getSettings()
+        repository.getSettings(),
+        repository.getDiscoveryState()
       ])
       const enrichedPreferences = enrichSearchPreferencesFromProfile(searchPreferences, profile)
       const primaryTarget = getActiveDiscoveryTargets(enrichedPreferences)[0]
@@ -1578,11 +1583,15 @@ export function createJobFinderWorkspaceService(
 
       const discoveryResult = await browserRuntime.runDiscovery(adapterKind, enrichedPreferences)
       const savedJobs = await repository.listSavedJobs()
+      const persistedSavedJobIds = new Set(savedJobs.map((job) => job.id))
+      const mergeSeedJobs = settings.discoveryOnly
+        ? mergeSavedJobs(savedJobs, discoveryState.pendingDiscoveryJobs)
+        : savedJobs
       const mergeResult = await mergeDiscoveredPostings(
         aiClient,
         profile,
         enrichedPreferences,
-        savedJobs,
+        mergeSeedJobs,
         discoveryResult.jobs,
         () => ({
           targetId: primaryTarget.id,
@@ -1595,7 +1604,7 @@ export function createJobFinderWorkspaceService(
 
       if (settings.discoveryOnly) {
         await repository.replaceSavedJobs(mergeResult.mergedJobs.filter(
-          (job) => !mergeResult.newJobs.some((newJob) => newJob.id === job.id)
+          (job) => persistedSavedJobIds.has(job.id) && !mergeResult.newJobs.some((newJob) => newJob.id === job.id)
         ))
         await persistDiscoveryState((current) => ({
           ...current,
@@ -1867,11 +1876,15 @@ export function createJobFinderWorkspaceService(
             ...(signal ? { signal } : {})
           })
 
+          const persistedWorkingJobIds = new Set(workingSavedJobs.map((job) => job.id))
+          const mergeSeedJobs = settings.discoveryOnly
+            ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
+            : workingSavedJobs
           const mergeResult = await mergeDiscoveredPostings(
             aiClient,
             profile,
             enrichedPreferences,
-            workingSavedJobs,
+            mergeSeedJobs,
             discoveryResult.jobs,
             () => ({
               targetId: target.id,
@@ -1885,7 +1898,7 @@ export function createJobFinderWorkspaceService(
 
           const newJobIds = new Set(mergeResult.newJobs.map((job) => job.id))
           if (settings.discoveryOnly) {
-            workingSavedJobs = mergeResult.mergedJobs.filter((job) => !newJobIds.has(job.id))
+            workingSavedJobs = mergeResult.mergedJobs.filter((job) => persistedWorkingJobIds.has(job.id) && !newJobIds.has(job.id))
             workingPendingJobs = mergePendingJobs(workingPendingJobs, mergeResult.newJobs)
           } else {
             workingSavedJobs = mergeResult.mergedJobs

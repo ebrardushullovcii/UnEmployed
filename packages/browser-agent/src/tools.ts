@@ -385,6 +385,9 @@ If the click fails, you'll get details about why so you can decide whether to re
           if (!urlValidation.valid) {
             // Navigation went to disallowed URL - use recovery helper
             const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy)
+            if (recovery.recovered && recovery.recoveredUrl) {
+              state.currentUrl = recovery.recoveredUrl
+            }
             return {
               success: false,
               error: recovery.error,
@@ -420,7 +423,10 @@ If the click fails, you'll get details about why so you can decide whether to re
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
           if (!urlCheck.valid) {
             // Try to recover back to an allowed URL
-            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
+            const recovery = await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
+            if (recovery.recovered && recovery.recoveredUrl) {
+              state.currentUrl = recovery.recoveredUrl
+            }
           } else {
             // URL is allowed, update state
             state.currentUrl = currentUrl
@@ -507,6 +513,9 @@ If multiple elements have the same role and name, use the index to disambiguate 
             if (!urlValidation.valid) {
               // Navigation went to disallowed URL - use recovery helper
               const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy)
+              if (recovery.recovered && recovery.recoveredUrl) {
+                state.currentUrl = recovery.recoveredUrl
+              }
               return {
                 success: false,
                 error: recovery.error,
@@ -530,7 +539,10 @@ If multiple elements have the same role and name, use the index to disambiguate 
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
           if (!urlCheck.valid) {
             // Try to recover back to an allowed URL
-            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
+            const recovery = await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
+            if (recovery.recovered && recovery.recoveredUrl) {
+              state.currentUrl = recovery.recoveredUrl
+            }
           } else {
             // URL is allowed, update state
             state.currentUrl = currentUrl
@@ -676,7 +688,10 @@ Use this after viewing a job detail to return to search results.`,
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
           if (!urlCheck.valid) {
             // Try to recover back to an allowed URL
-            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
+            const recovery = await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
+            if (recovery.recovered && recovery.recoveredUrl) {
+              state.currentUrl = recovery.recoveredUrl
+            }
           } else {
             // URL is allowed, update state
             state.currentUrl = currentUrl
@@ -739,7 +754,11 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
         const pageTextLength = pageText.length
 
         const relevantUrlSubstrings = context.config.extractionContext?.relevantUrlSubstrings ?? []
-        const discoveredUrls = await page.evaluate((input: { allowedHostnames: string[]; relevantUrlSubstrings: string[] }) => {
+        const discoveredUrls = await page.evaluate((input: {
+          allowedHostnames: string[]
+          relevantUrlSubstrings: string[]
+          allowSubdomains: boolean
+        }) => {
           const urls = new Set<string>()
           for (const anchor of Array.from(document.querySelectorAll('a[href]'))) {
             const href = anchor.getAttribute('href')
@@ -749,7 +768,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               const parsedUrl = new URL(absoluteUrl)
               const hostname = parsedUrl.hostname.toLowerCase()
               const hostAllowed = input.allowedHostnames.some((allowedHostname) =>
-                hostname === allowedHostname || hostname.endsWith(`.${allowedHostname}`)
+                hostname === allowedHostname || (input.allowSubdomains && hostname.endsWith(`.${allowedHostname}`))
               )
               if (!hostAllowed) {
                 continue
@@ -770,7 +789,8 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
           return Array.from(urls).slice(0, 30)
         }, {
           allowedHostnames: context.config.navigationPolicy.allowedHostnames.map((hostname) => hostname.toLowerCase()),
-          relevantUrlSubstrings
+          relevantUrlSubstrings,
+          allowSubdomains: context.config.navigationPolicy.allowSubdomains === true
         })
 
         const MAX_PAGE_TEXT_CHARS = 8000
