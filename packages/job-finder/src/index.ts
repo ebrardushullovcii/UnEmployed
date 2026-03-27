@@ -1239,9 +1239,11 @@ export function createJobFinderWorkspaceService(
         pendingDiscoveryJobs = mergedJobs.filter(
           (job) => !savedJobs.some((saved) => saved.id === job.id)
         )
+        console.log(`[JobFinder] Agent discovery prepared ${pendingDiscoveryJobs.length} pending jobs (discovery-only mode)`)
       } else {
         pendingDiscoveryJobs = []
         await repository.replaceSavedJobs(mergedJobs)
+        console.log(`[JobFinder] Agent discovery saved ${mergedJobs.length} jobs`)
       }
 
       return getWorkspaceSnapshot()

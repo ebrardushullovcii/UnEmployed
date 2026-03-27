@@ -1511,6 +1511,25 @@ function buildChatCompletionsUrl(baseUrl: string): string {
   return new URL('chat/completions', normalizedBaseUrl).toString()
 }
 
+function extractLinkedInJobId(url: string): string {
+  const viewMatch = url.match(/\/jobs\/view\/(\d+)/)
+  if (viewMatch?.[1]) {
+    return viewMatch[1]
+  }
+
+  try {
+    const parsedUrl = new URL(url)
+    const currentJobId = parsedUrl.searchParams.get('currentJobId')
+    return currentJobId ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function buildLinkedInJobUrl(sourceJobId: string): string {
+  return sourceJobId ? `https://www.linkedin.com/jobs/view/${sourceJobId}` : ''
+}
+
 function buildDeterministicStatus(detail: string): AgentProviderStatus {
   return AgentProviderStatusSchema.parse({
     kind: 'deterministic',
@@ -1700,6 +1719,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
             'Each job must have: sourceJobId (extract from URL), canonicalUrl (full URL), title, company, location, salaryText (or null), description (short summary from listing).',
             'sourceJobId is the numeric ID from URLs like /jobs/view/12345 — extract just the number.',
             'canonicalUrl is the full https://www.linkedin.com/jobs/view/<id> URL.',
+            'The page text may include a "LinkedIn job URLs found on page" section - use those URLs to populate sourceJobId and canonicalUrl whenever available.',
+            'If you cannot determine both sourceJobId and canonicalUrl for a listing, omit that listing from the output.',
             'If the page text does not contain job listings, return { "jobs": [] }.',
             `Return at most ${input.maxJobs} jobs.`
           ].join(' ')
@@ -1707,6 +1728,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
             'You extract structured job details from a LinkedIn job posting page text.',
             'Return JSON with a "jobs" array containing one job object.',
             'Each job must have: sourceJobId, canonicalUrl, title, company, location, salaryText (or null), description (full job description text).',
+            'Use the page URL as the source of truth for sourceJobId and canonicalUrl when available.',
             'Extract all relevant details: title, company name, location, salary if mentioned, and the full job description.'
           ].join(' ')
 
@@ -1727,33 +1749,55 @@ export function createOpenAiCompatibleJobFinderAiClient(
         ? (payload as { jobs: Array<Record<string, unknown>> }).jobs
         : []
 
-      return rawJobs
-        .map((raw) => {
-          try {
-            return JobPostingSchema.parse({
-              source: 'linkedin',
-              sourceJobId: toStr(raw.sourceJobId),
-              discoveryMethod: 'browser_agent',
-              canonicalUrl: toStr(raw.canonicalUrl),
-              title: toStr(raw.title),
-              company: toStr(raw.company),
-              location: toStr(raw.location),
-              workMode: Array.isArray(raw.workMode) ? raw.workMode : [],
-              applyPath: raw.easyApplyEligible ? 'easy_apply' : 'unknown',
-              easyApplyEligible: Boolean(raw.easyApplyEligible),
-              postedAt: new Date().toISOString(),
-              discoveredAt: new Date().toISOString(),
-              salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
-              summary: toStr(raw.description).slice(0, 240),
-              description: toStr(raw.description),
-              keySkills: Array.isArray(raw.keySkills) ? raw.keySkills : []
-            })
-          } catch (error) {
-            console.error(`[AI Provider] Failed to parse job ${toStr(raw.sourceJobId)}:`, error)
-            return null
-          }
-        })
-        .filter((job): job is JobPosting => job !== null)
+      const parsedJobs: JobPosting[] = []
+      let skippedJobs = 0
+
+      for (const raw of rawJobs) {
+        const rawSourceJobId = toStr(raw.sourceJobId)
+        const rawCanonicalUrl = toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link)
+
+        const fallbackUrl = input.pageType === 'job_detail' ? input.pageUrl : ''
+        const derivedSourceJobId =
+          rawSourceJobId ||
+          extractLinkedInJobId(rawCanonicalUrl) ||
+          extractLinkedInJobId(fallbackUrl)
+        const derivedCanonicalUrl =
+          rawCanonicalUrl ||
+          (input.pageType === 'job_detail' ? buildLinkedInJobUrl(derivedSourceJobId) || fallbackUrl : buildLinkedInJobUrl(derivedSourceJobId))
+
+        const candidate = {
+          source: 'linkedin' as const,
+          sourceJobId: derivedSourceJobId,
+          discoveryMethod: 'browser_agent' as const,
+          canonicalUrl: derivedCanonicalUrl,
+          title: toStr(raw.title),
+          company: toStr(raw.company),
+          location: toStr(raw.location),
+          workMode: Array.isArray(raw.workMode) ? raw.workMode : [],
+          applyPath: raw.easyApplyEligible ? 'easy_apply' : 'unknown',
+          easyApplyEligible: Boolean(raw.easyApplyEligible),
+          postedAt: new Date().toISOString(),
+          discoveredAt: new Date().toISOString(),
+          salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
+          summary: toStr(raw.description).slice(0, 240),
+          description: toStr(raw.description),
+          keySkills: Array.isArray(raw.keySkills) ? raw.keySkills : []
+        }
+
+        const parsed = JobPostingSchema.safeParse(candidate)
+        if (parsed.success) {
+          parsedJobs.push(parsed.data)
+          continue
+        }
+
+        skippedJobs += 1
+      }
+
+      if (skippedJobs > 0) {
+        console.warn(`[AI Provider] Extracted ${parsedJobs.length} valid jobs, skipped ${skippedJobs} invalid jobs`)
+      }
+
+      return parsedJobs
     },
     async chatWithTools(messages, tools, signal) {
       // Compose caller signal with 60s safety timeout

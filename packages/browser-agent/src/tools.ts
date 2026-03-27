@@ -158,7 +158,10 @@ You control the timeout strategy:
         if (!finalUrlValidation.valid) {
           // Redirect went off-allowlist - use recovery helper
           const recovery = await recoverFromOffAllowlist(page, finalUrl, url)
-          state.currentUrl = page.url() // Update to whatever we recovered to
+          // Only update state if recovery was successful and landed on allowed URL
+          if (recovery.recovered && recovery.recoveredUrl && isAllowedUrl(recovery.recoveredUrl).valid) {
+            state.currentUrl = recovery.recoveredUrl
+          }
           return {
             success: false,
             error: recovery.error,
@@ -727,13 +730,35 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
         const pageText = await page.locator('body').innerText()
         const pageUrl = page.url()
         const pageTextLength = pageText.length
+
+        const linkedInJobUrls = await page.evaluate(() => {
+          const urls = new Set<string>()
+          for (const anchor of Array.from(document.querySelectorAll('a[href]'))) {
+            const href = anchor.getAttribute('href')
+            if (!href) continue
+            try {
+              const absoluteUrl = new URL(href, window.location.href).toString()
+              if (absoluteUrl.includes('/jobs/view/')) {
+                urls.add(absoluteUrl)
+              }
+            } catch {
+              // Ignore invalid href values.
+            }
+          }
+          return Array.from(urls).slice(0, 30)
+        })
+
+        const extractionContext = linkedInJobUrls.length > 0
+          ? `${pageText}\n\nLinkedIn job URLs found on page:\n${linkedInJobUrls.map((url) => `- ${url}`).join('\n')}`
+          : pageText
+        const extractionTextLength = extractionContext.length
         
         // Truncate page text to prevent conversation bloat
         const MAX_PAGE_TEXT_CHARS = 8000
-        const pageTextTruncated = pageTextLength > MAX_PAGE_TEXT_CHARS
+        const pageTextTruncated = extractionTextLength > MAX_PAGE_TEXT_CHARS
         const truncatedPageText = pageTextTruncated 
-          ? pageText.slice(0, MAX_PAGE_TEXT_CHARS) + '\n... [content truncated]'
-          : pageText
+          ? extractionContext.slice(0, MAX_PAGE_TEXT_CHARS) + '\n... [content truncated]'
+          : extractionContext
         
         // Heuristics to determine if page is ready for extraction
         const hasMinimumContent = pageTextLength > 500
@@ -780,10 +805,11 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             pageType,
             pageUrl,
             pageText: truncatedPageText,
-            pageTextLength,
+            pageTextLength: extractionTextLength,
             pageTextTruncated,
             readyForExtraction,
             maxJobs,
+            linkedInJobUrlsFound: linkedInJobUrls.length,
             checks: {
               hasMinimumContent,
               hasNoLoadingIndicators,
