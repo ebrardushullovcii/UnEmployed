@@ -15,7 +15,7 @@ export function isAllowedUrl(url: string, policy: AgentNavigationPolicy): Allowe
     const isAllowed = policy.allowedHostnames.some((allowedHostname) => {
       const normalizedAllowedHostname = allowedHostname.toLowerCase()
       return hostname === normalizedAllowedHostname || (
-        policy.allowSubdomains !== false && hostname.endsWith(`.${normalizedAllowedHostname}`)
+        policy.allowSubdomains === true && hostname.endsWith(`.${normalizedAllowedHostname}`)
       )
     })
 

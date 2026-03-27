@@ -38,7 +38,7 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {sessionNeedsAttention && jobs.length > 0 ? (
-        <div className="rounded-[var(--radius-panel)] border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[var(--text-description)] leading-6 text-amber-600 dark:text-amber-400">
+        <div className="rounded-[var(--radius-panel)] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-4 py-3 text-[var(--text-description)] leading-6 text-[color:var(--warning-text)]">
           Saved results are still available below. Open the browser profile again when you want to run a fresh discovery.
         </div>
       ) : null}

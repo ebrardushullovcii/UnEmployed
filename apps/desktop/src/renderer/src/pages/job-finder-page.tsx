@@ -103,6 +103,7 @@ export function JobFinderDiscoveryRoute() {
       actionState={context.actionState}
       busy={context.busy}
       browserSession={context.workspace.browserSession}
+      discoverySessions={context.workspace.discoverySessions}
       activeRun={context.workspace.activeDiscoveryRun}
       jobs={context.workspace.discoveryJobs}
       liveEvents={context.liveDiscoveryEvents}

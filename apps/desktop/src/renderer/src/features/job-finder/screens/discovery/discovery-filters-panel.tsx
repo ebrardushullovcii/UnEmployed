@@ -1,24 +1,28 @@
 import { History, Search } from 'lucide-react'
-import type { BrowserSessionState, JobSearchPreferences } from '@unemployed/contracts'
+import type { BrowserSessionState, DiscoveryAdapterSessionState, JobSearchPreferences, JobSource } from '@unemployed/contracts'
 import { Chip } from '@renderer/components/ui/chip'
 import { Button } from '@renderer/components/ui/button'
 import { StatusBadge } from '../../components/status-badge'
 import { getSessionTone } from '../../lib/job-finder-utils'
 
 function targetRequiresManagedSession(target: JobSearchPreferences['discovery']['targets'][number]): boolean {
+  return resolveManagedSessionSource(target) !== null
+}
+
+function resolveManagedSessionSource(target: JobSearchPreferences['discovery']['targets'][number]): JobSource | null {
   if (target.adapterKind === 'linkedin') {
-    return true
+    return 'linkedin'
   }
 
   if (target.adapterKind === 'generic_site') {
-    return false
+    return null
   }
 
   try {
     const hostname = new URL(target.startingUrl).hostname.toLowerCase()
-    return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com')
+    return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com') ? 'linkedin' : null
   } catch {
-    return true
+    return 'linkedin'
   }
 }
 
@@ -26,6 +30,7 @@ interface DiscoveryFiltersPanelProps {
   actionMessage: string | null
   browserSession: BrowserSessionState
   busy: boolean
+  discoverySessions: readonly DiscoveryAdapterSessionState[]
   onOpenBrowserSession: () => void
   onRunAgentDiscovery: (() => void) | undefined
   onViewProgress: () => void
@@ -36,6 +41,7 @@ export function DiscoveryFiltersPanel({
   actionMessage,
   browserSession,
   busy,
+  discoverySessions,
   onOpenBrowserSession,
   onRunAgentDiscovery,
   onViewProgress,
@@ -58,7 +64,26 @@ export function DiscoveryFiltersPanel({
   const isBlocked = browserSession.status === 'blocked'
   const enabledTargets = searchPreferences.discovery.targets.filter((target) => target.enabled)
   const requiresManagedSession = enabledTargets.length === 0 || enabledTargets.some(targetRequiresManagedSession)
-  const canRunDiscovery = Boolean(onRunAgentDiscovery) && !busy && (!requiresManagedSession || isReady)
+  const managedSessionSources = Array.from(new Set(enabledTargets
+    .map(resolveManagedSessionSource)
+    .filter((source): source is JobSource => source !== null)))
+  const managedSessions = managedSessionSources.map((source) =>
+    discoverySessions.find((session) => session.adapterKind === source)
+  )
+  const displaySession = managedSessions[0] ?? browserSession
+  const displaySessionSnapshot: BrowserSessionState = 'source' in displaySession
+    ? displaySession
+    : {
+        ...browserSession,
+        source: displaySession.adapterKind,
+        status: displaySession.status,
+        driver: displaySession.driver,
+        label: displaySession.label,
+        detail: displaySession.detail,
+        lastCheckedAt: displaySession.lastCheckedAt
+      }
+  const requiredSessionsReady = managedSessionSources.length === 0 || managedSessions.every((session) => session?.status === 'ready')
+  const canRunDiscovery = Boolean(onRunAgentDiscovery) && !busy && (!requiresManagedSession || requiredSessionsReady)
 
   return (
     <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 xl:h-full xl:min-h-0">
@@ -67,12 +92,12 @@ export function DiscoveryFiltersPanel({
       <div className="flex min-h-[26.5rem] min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] xl:min-h-0">
         <div className="grid min-w-0 gap-3 border-b border-[var(--surface-panel-border)] px-4 py-4">
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-            <StatusBadge tone={getSessionTone(browserSession)}>{browserSession.label}</StatusBadge>
+            <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>{displaySession.label}</StatusBadge>
             <span className="rounded-full border border-[var(--surface-panel-border)] px-2.5 py-1 text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">
               {requiresManagedSession ? (isChromeAgent ? 'Managed profile' : 'Session required') : 'Target-ready'}
             </span>
           </div>
-          <p className="max-w-full break-words text-[0.92rem] leading-7 text-foreground-soft">{browserSession.detail}</p>
+          <p className="max-w-full break-words text-[0.92rem] leading-7 text-foreground-soft">{displaySession.detail}</p>
 
           {requiresManagedSession ? (isChromeAgent ? (
             <div className="grid gap-2">

@@ -16,6 +16,19 @@ import {
   resetJobFinderWorkspace
 } from '../services/job-finder'
 
+function parseAgentDiscoveryRequestId(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Missing agent discovery request id payload')
+  }
+
+  const requestId = (payload as { requestId?: unknown }).requestId
+  if (typeof requestId !== 'string' || requestId.trim().length === 0) {
+    throw new Error('Invalid agent discovery request id payload')
+  }
+
+  return requestId
+}
+
 export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle('job-finder:get-workspace', async () => {
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
@@ -123,21 +136,34 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   })
 
-  ipcMain.handle('job-finder:run-agent-discovery', async (event) => {
+  ipcMain.handle('job-finder:run-agent-discovery', async (event, payload: unknown) => {
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
     const window = event.sender
+    const senderId = event.sender.id
+    const requestId = parseAgentDiscoveryRequestId(payload)
     const controller = new AbortController()
 
-    // Listen for cancellation requests
-    const cancelHandler = () => {
+    const cancelHandler = (cancelEvent: Electron.IpcMainEvent, cancelPayload: unknown) => {
+      const cancelRequestId = (() => {
+        try {
+          return parseAgentDiscoveryRequestId(cancelPayload)
+        } catch {
+          return null
+        }
+      })()
+
+      if (cancelEvent.sender.id !== senderId || cancelRequestId !== requestId) {
+        return
+      }
+
       controller.abort()
     }
-    ipcMain.once('job-finder:cancel-agent-discovery', cancelHandler)
+    ipcMain.on('job-finder:cancel-agent-discovery', cancelHandler)
 
     try {
       const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
         (eventPayload) => {
-          window.send('job-finder:discovery-activity', DiscoveryActivityEventSchema.parse(eventPayload))
+          window.send(`job-finder:discovery-activity:${requestId}`, DiscoveryActivityEventSchema.parse(eventPayload))
         },
         controller.signal
       )

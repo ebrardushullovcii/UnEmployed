@@ -27,7 +27,7 @@ function getLiveRunEvents(
     return []
   }
 
-  if (activeRun?.id === runId && liveEvents.length > 0) {
+  if (activeRun?.id === runId && liveEvents.length > 0 && liveEvents[0]?.runId === runId) {
     return liveEvents
   }
 

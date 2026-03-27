@@ -10,7 +10,6 @@ import {
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,
   DiscoveryRunRecordSchema,
-  DiscoveryRunStateSchema,
   DiscoveryTargetExecutionSchema,
   JobFinderDiscoveryStateSchema,
   JobFinderSettingsSchema,
@@ -34,7 +33,6 @@ import {
   type JobFinderDiscoveryState,
   type JobFinderWorkspaceSnapshot,
   type JobSource,
-  type JobSourceAdapterKind,
   type JobSearchPreferences,
   type JobPosting,
   type JobDiscoveryTarget,
@@ -1429,8 +1427,8 @@ export function createJobFinderWorkspaceService(
     )
 
     const persistedDiscoveryJobs = buildDiscoveryJobs(savedJobs)
-    const persistedIds = new Set(persistedDiscoveryJobs.map((job) => job.id))
-    const mergedPendingJobs = discovery.pendingDiscoveryJobs.filter((job) => !persistedIds.has(job.id))
+    const savedJobIds = new Set(savedJobs.map((job) => job.id))
+    const mergedPendingJobs = discovery.pendingDiscoveryJobs.filter((job) => !savedJobIds.has(job.id))
     const discoveryJobs = [...persistedDiscoveryJobs, ...mergedPendingJobs].sort(
       (left, right) => right.matchAssessment.score - left.matchAssessment.score
     )
@@ -1639,7 +1637,6 @@ export function createJobFinderWorkspaceService(
 
       let workingSavedJobs = [...startingSavedJobs]
       let workingPendingJobs = [...startingDiscovery.pendingDiscoveryJobs]
-      let workingDiscoveryState = JobFinderDiscoveryStateSchema.parse(startingDiscovery)
       let completedTargets = 0
 
       let activeRun = DiscoveryRunRecordSchema.parse({
@@ -1696,7 +1693,7 @@ export function createJobFinderWorkspaceService(
         invalidSkipped: 0
       }))
 
-      workingDiscoveryState = await persistDiscoveryState((current) => ({
+      await persistDiscoveryState((current) => ({
         ...current,
         runState: 'running',
         activeRun,
@@ -1710,10 +1707,16 @@ export function createJobFinderWorkspaceService(
             throw new DOMException('Aborted', 'AbortError')
           }
 
+          const targetStartedAt = new Date().toISOString()
           const adapterKind = resolveAdapterKind(target)
           const adapter = discoveryAdapters[adapterKind]
-          const targetUrl = new URL(target.startingUrl)
-          const targetStartedAt = new Date().toISOString()
+          const targetUrl = (() => {
+            try {
+              return new URL(target.startingUrl)
+            } catch {
+              return null
+            }
+          })()
 
           activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
             ...execution,
@@ -1738,6 +1741,33 @@ export function createJobFinderWorkspaceService(
             invalidSkipped: null
           }))
 
+          if (!targetUrl) {
+            const warning = `Target ${target.label} has an invalid starting URL and was skipped.`
+            activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+              ...execution,
+              state: 'failed',
+              completedAt: new Date().toISOString(),
+              warning
+            }))
+            emitActivity(createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: 'warning',
+              stage: 'target',
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message: warning,
+              url: null,
+              jobsFound: 0,
+              jobsPersisted: 0,
+              jobsStaged: 0,
+              duplicatesMerged: 0,
+              invalidSkipped: 0
+            }))
+            continue
+          }
+
           if (adapter.experimental) {
             emitActivity(createDiscoveryEvent({
               runId: activeRun.id,
@@ -1758,7 +1788,7 @@ export function createJobFinderWorkspaceService(
           }
 
           const session = await browserRuntime.getSessionState(adapterKind)
-          workingDiscoveryState = await persistDiscoveryState((current) => ({
+          await persistDiscoveryState((current) => ({
             ...current,
             sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session)),
             activeRun

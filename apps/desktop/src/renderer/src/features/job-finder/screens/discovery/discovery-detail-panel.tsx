@@ -1,4 +1,4 @@
-import type { SavedJob } from '@unemployed/contracts'
+import type { JobDiscoveryTarget, SavedJob } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
@@ -7,6 +7,7 @@ import { formatDateOnly, formatStatusLabel, getApplicationTone } from '../../lib
 
 interface DiscoveryDetailPanelProps {
   busy: boolean
+  discoveryTargets: readonly JobDiscoveryTarget[]
   onDismissJob: (jobId: string) => void
   onQueueJob: (jobId: string) => void
   selectedJob: SavedJob | null
@@ -14,10 +15,13 @@ interface DiscoveryDetailPanelProps {
 
 export function DiscoveryDetailPanel({
   busy,
+  discoveryTargets,
   onDismissJob,
   onQueueJob,
   selectedJob
 }: DiscoveryDetailPanelProps) {
+  const discoveryTargetLabels = new Map(discoveryTargets.map((target) => [target.id, target.label]))
+
   return (
     <section className="flex min-h-[31rem] min-w-0 flex-col gap-6 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -50,7 +54,7 @@ export function DiscoveryDetailPanel({
           <p className="text-[var(--text-body)] leading-7 text-foreground-soft">{selectedJob.summary}</p>
 
           <PreferenceList compact label="Discovery mode" values={[formatStatusLabel(selectedJob.discoveryMethod)]} />
-          <PreferenceList compact label="Provenance" values={selectedJob.provenance.map((entry) => `${entry.resolvedAdapterKind ?? entry.adapterKind} · ${entry.targetId}`)} />
+          <PreferenceList compact label="Provenance" values={selectedJob.provenance.map((entry) => `${entry.resolvedAdapterKind ?? entry.adapterKind} · ${discoveryTargetLabels.get(entry.targetId) ?? entry.targetId}`)} />
           <PreferenceList compact label="Key skills" values={selectedJob.keySkills} />
           <PreferenceList label="Fit reasons" values={selectedJob.matchAssessment.reasons} />
           <PreferenceList label="Watch-outs" values={selectedJob.matchAssessment.gaps} />

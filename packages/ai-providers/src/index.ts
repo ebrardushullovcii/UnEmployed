@@ -1859,15 +1859,28 @@ export function createOpenAiCompatibleJobFinderAiClient(
         return ''
       }
 
-      // Safely extract jobs array, defaulting to empty if not an array
-      const rawJobs = Array.isArray((payload as { jobs?: unknown }).jobs)
-        ? (payload as { jobs: Array<Record<string, unknown>> }).jobs
+      const rawJobCandidates = payload && typeof payload === 'object' && Array.isArray((payload as { jobs?: unknown }).jobs)
+        ? (payload as { jobs: unknown[] }).jobs
         : []
+      const rawJobs: Array<Record<string, unknown>> = []
 
       const parsedJobs: JobPosting[] = []
       let skippedJobs = 0
       const invalidFieldCounts = new Map<string, number>()
       const invalidSamples: string[] = []
+
+      for (const candidate of rawJobCandidates) {
+        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+          rawJobs.push(candidate as Record<string, unknown>)
+          continue
+        }
+
+        skippedJobs += 1
+        invalidFieldCounts.set('payload_shape', (invalidFieldCounts.get('payload_shape') ?? 0) + 1)
+        if (invalidSamples.length < 3) {
+          invalidSamples.push(JSON.stringify({ invalidItem: candidate }))
+        }
+      }
 
       for (const raw of rawJobs) {
         const rawSourceJobId = toStr(raw.sourceJobId)
@@ -1892,6 +1905,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           continue
         }
 
+        const easyApplyEligible = linkedInSource && raw.easyApplyEligible === true
         const candidate = {
           source: linkedInSource ? 'linkedin' as const : 'generic_site' as const,
           sourceJobId: derivedSourceJobId,
@@ -1901,8 +1915,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
           company: toStr(raw.company),
           location: toStr(raw.location),
           workMode: Array.isArray(raw.workMode) ? raw.workMode : [],
-          applyPath: linkedInSource && raw.easyApplyEligible ? 'easy_apply' : 'unknown',
-          easyApplyEligible: linkedInSource ? Boolean(raw.easyApplyEligible) : false,
+          applyPath: easyApplyEligible ? 'easy_apply' : 'unknown',
+          easyApplyEligible,
           postedAt: new Date().toISOString(),
           discoveredAt: new Date().toISOString(),
           salaryText: raw.salaryText ? toStr(raw.salaryText) : null,

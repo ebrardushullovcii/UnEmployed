@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type {
   BrowserSessionState,
+  DiscoveryAdapterSessionState,
   DiscoveryActivityEvent,
   DiscoveryRunRecord,
   JobSearchPreferences,
@@ -21,6 +22,7 @@ export function DiscoveryScreen(props: {
   activeRun: DiscoveryRunRecord | null
   busy: boolean
   browserSession: BrowserSessionState
+  discoverySessions: readonly DiscoveryAdapterSessionState[]
   jobs: readonly SavedJob[]
   liveEvents: readonly DiscoveryActivityEvent[]
   onDismissJob: (jobId: string) => void
@@ -37,6 +39,7 @@ export function DiscoveryScreen(props: {
     activeRun,
     browserSession,
     busy,
+    discoverySessions,
     jobs,
     liveEvents,
     onDismissJob,
@@ -90,6 +93,7 @@ export function DiscoveryScreen(props: {
               actionMessage={actionState.message}
               browserSession={browserSession}
               busy={busy}
+              discoverySessions={discoverySessions}
               onOpenBrowserSession={onOpenBrowserSession}
               onRunAgentDiscovery={onRunAgentDiscovery}
               onViewProgress={() => setShowHistory(true)}
@@ -117,6 +121,7 @@ export function DiscoveryScreen(props: {
               actionMessage={actionState.message}
               browserSession={browserSession}
               busy={busy}
+              discoverySessions={discoverySessions}
               onOpenBrowserSession={onOpenBrowserSession}
               onRunAgentDiscovery={onRunAgentDiscovery}
               onViewProgress={() => setShowHistory(true)}
@@ -130,6 +135,7 @@ export function DiscoveryScreen(props: {
             />
             <DiscoveryDetailPanel
               busy={busy}
+              discoveryTargets={searchPreferences.discovery.targets}
               onDismissJob={onDismissJob}
               onQueueJob={onQueueJob}
               selectedJob={selectedJob}

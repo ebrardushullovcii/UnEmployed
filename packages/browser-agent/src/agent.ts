@@ -271,10 +271,13 @@ async function executeToolCall(
           }
           
           if (extractData.readyForExtraction) {
+            const normalizedPageType = extractData.pageType === 'job_detail'
+              ? 'job_detail'
+              : 'search_results'
             const extractedJobs = await jobExtractor.extractJobsFromPage({
               pageText: extractData.pageText,
               pageUrl: extractData.pageUrl,
-              pageType: extractData.pageType,
+              pageType: normalizedPageType,
               maxJobs: config.targetJobCount - state.collectedJobs.length
             })
 

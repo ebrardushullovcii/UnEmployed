@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
+
+let activeAgentDiscoveryRequestId: string | null = null
 import type {
   CandidateProfile,
   DesktopPlatformPing,
@@ -88,6 +90,9 @@ const desktopApi = {
     runAgentDiscovery: (
       onActivity?: (event: DiscoveryActivityEvent) => void
     ) => {
+      const requestId = `agent_discovery_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+      const activityChannel = `job-finder:discovery-activity:${requestId}`
+      activeAgentDiscoveryRequestId = requestId
       const activityHandler = onActivity
         ? (_event: Electron.IpcRendererEvent, event: DiscoveryActivityEvent) => {
             onActivity(event)
@@ -95,23 +100,30 @@ const desktopApi = {
         : null
 
       if (activityHandler) {
-        ipcRenderer.on('job-finder:discovery-activity', activityHandler)
+        ipcRenderer.on(activityChannel, activityHandler)
       }
 
       const cleanup = () => {
         if (activityHandler) {
-          ipcRenderer.off('job-finder:discovery-activity', activityHandler)
+          ipcRenderer.off(activityChannel, activityHandler)
+        }
+        if (activeAgentDiscoveryRequestId === requestId) {
+          activeAgentDiscoveryRequestId = null
         }
       }
 
       const promise = ipcRenderer
-        .invoke('job-finder:run-agent-discovery')
+        .invoke('job-finder:run-agent-discovery', { requestId })
         .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>
 
       return promise
     },
     cancelAgentDiscovery: () => {
-      ipcRenderer.send('job-finder:cancel-agent-discovery')
+      if (!activeAgentDiscoveryRequestId) {
+        return
+      }
+
+      ipcRenderer.send('job-finder:cancel-agent-discovery', { requestId: activeAgentDiscoveryRequestId })
     },
     resetWorkspace: () =>
       ipcRenderer.invoke('job-finder:reset-workspace') as Promise<JobFinderWorkspaceSnapshot>,

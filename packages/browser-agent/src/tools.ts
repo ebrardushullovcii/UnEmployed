@@ -773,17 +773,17 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
           relevantUrlSubstrings
         })
 
-        const extractionContext = discoveredUrls.length > 0
-          ? `${pageText}\n\nRelevant in-scope URLs found on page:\n${discoveredUrls.map((url) => `- ${url}`).join('\n')}`
-          : pageText
-        const extractionTextLength = extractionContext.length
-        
-        // Truncate page text to prevent conversation bloat
         const MAX_PAGE_TEXT_CHARS = 8000
-        const pageTextTruncated = extractionTextLength > MAX_PAGE_TEXT_CHARS
-        const truncatedPageText = pageTextTruncated 
-          ? extractionContext.slice(0, MAX_PAGE_TEXT_CHARS) + '\n... [content truncated]'
-          : extractionContext
+        const urlAppendix = discoveredUrls.length > 0
+          ? `\n\nRelevant in-scope URLs found on page:\n${discoveredUrls.map((url) => `- ${url}`).join('\n')}`
+          : ''
+        const truncationNotice = '\n... [content truncated]'
+        const pageTextBudget = Math.max(0, MAX_PAGE_TEXT_CHARS - urlAppendix.length)
+        const pageTextTruncated = pageText.length + urlAppendix.length > MAX_PAGE_TEXT_CHARS
+        const truncatedPageText = pageTextTruncated
+          ? `${pageText.slice(0, Math.max(0, pageTextBudget - truncationNotice.length))}${truncationNotice}${urlAppendix}`
+          : `${pageText}${urlAppendix}`
+        const extractionTextLength = pageText.length + urlAppendix.length
         
         // Heuristics to determine if page is ready for extraction
         const hasMinimumContent = pageTextLength > 500
