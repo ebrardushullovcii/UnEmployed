@@ -421,7 +421,8 @@ export type JobPosting = z.infer<typeof JobPostingSchema>
 
 export const SavedJobDiscoveryProvenanceSchema = z.object({
   targetId: NonEmptyStringSchema,
-  adapterKind: JobSourceSchema,
+  adapterKind: JobSourceAdapterKindSchema,
+  resolvedAdapterKind: JobSourceSchema.nullable().default(null),
   startingUrl: UrlStringSchema,
   discoveredAt: IsoDateTimeSchema
 })
@@ -540,7 +541,8 @@ export type DiscoveryAdapterSessionState = z.infer<typeof DiscoveryAdapterSessio
 
 export const DiscoveryTargetExecutionSchema = z.object({
   targetId: NonEmptyStringSchema,
-  adapterKind: JobSourceSchema,
+  adapterKind: JobSourceAdapterKindSchema,
+  resolvedAdapterKind: JobSourceSchema.nullable().default(null),
   state: DiscoveryTargetExecutionStateSchema,
   startedAt: IsoDateTimeSchema.nullable().default(null),
   completedAt: IsoDateTimeSchema.nullable().default(null),
@@ -558,7 +560,8 @@ export const DiscoveryActivityEventSchema = z.object({
   kind: DiscoveryActivityKindSchema,
   stage: DiscoveryActivityStageSchema,
   targetId: NonEmptyStringSchema.nullable().default(null),
-  adapterKind: JobSourceSchema.nullable().default(null),
+  adapterKind: JobSourceAdapterKindSchema.nullable().default(null),
+  resolvedAdapterKind: JobSourceSchema.nullable().default(null),
   message: NonEmptyStringSchema,
   url: UrlStringSchema.nullable().default(null),
   jobsFound: z.number().int().nonnegative().nullable().default(null),

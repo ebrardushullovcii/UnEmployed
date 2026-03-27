@@ -470,8 +470,8 @@ describe('createJobFinderWorkspaceService', () => {
     expect(snapshot.discoveryJobs[0]?.status).toBe('discovered')
 
     // Verify jobs are pending (can be reviewed/queued) rather than auto-saved
-    // In discovery-only mode, jobs should be available for review
-    expect(snapshot.reviewQueue.length).toBeGreaterThanOrEqual(0)
+    expect(snapshot.reviewQueue).toHaveLength(0)
+    await expect(repository.listSavedJobs()).resolves.toHaveLength(0)
 
     // Ensure no application records or attempts were created
     expect(snapshot.applicationRecords).toHaveLength(0)

@@ -62,11 +62,19 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
     setPreferenceValue('discoveryTargets', nextTargets, listFieldOptions)
   }
 
+  const createDiscoveryTargetId = () => {
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+      return `target_${globalThis.crypto.randomUUID()}`
+    }
+
+    return `target_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  }
+
   const addDiscoveryTarget = () => {
     updateDiscoveryTargets([
       ...discoveryTargets,
       {
-        id: `target_${Date.now()}`,
+        id: createDiscoveryTargetId(),
         label: '',
         startingUrl: '',
         enabled: true,
@@ -274,6 +282,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
                   <p className="text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Target {index + 1}</p>
                   <div className="flex flex-wrap gap-2">
                     <Button
+                      aria-label={`Move ${target.label.trim() || target.id} up`}
                       disabled={index === 0}
                       onClick={() => {
                         const nextTargets = [...discoveryTargets]
@@ -292,6 +301,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
                       Move up
                     </Button>
                     <Button
+                      aria-label={`Move ${target.label.trim() || target.id} down`}
                       disabled={index === discoveryTargets.length - 1}
                       onClick={() => {
                         const nextTargets = [...discoveryTargets]
@@ -310,6 +320,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
                       Move down
                     </Button>
                     <Button
+                      aria-label={`Remove ${target.label.trim() || target.id}`}
                       onClick={() => updateDiscoveryTargets(discoveryTargets.filter((entry) => entry.id !== target.id))}
                       type="button"
                       variant="ghost"
@@ -331,29 +342,23 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
                       value={target.label}
                     />
                   </Field>
-                  <Controller
-                    control={preferenceControl}
-                    name="discoveryTargets"
-                    render={() => (
-                      <Field>
-                        <FieldLabel>Adapter</FieldLabel>
-                        <FormSelect
-                          onValueChange={(value) => {
-                            const nextTargets = [...discoveryTargets]
-                            nextTargets[index] = { ...target, adapterKind: value as SearchPreferencesEditorValues['discoveryTargets'][number]['adapterKind'] }
-                            updateDiscoveryTargets(nextTargets)
-                          }}
-                          options={jobSourceAdapterKindValues.map((adapterKind) => ({
-                            label: adapterKind === 'generic_site' ? 'Generic site (experimental)' : formatStatusLabel(adapterKind),
-                            value: adapterKind
-                          }))}
-                          placeholder="Select adapter"
-                          triggerClassName={profileSelectTriggerClassName}
-                          value={target.adapterKind}
-                        />
-                      </Field>
-                    )}
-                  />
+                  <Field>
+                    <FieldLabel>Adapter</FieldLabel>
+                    <FormSelect
+                      onValueChange={(value) => {
+                        const nextTargets = [...discoveryTargets]
+                        nextTargets[index] = { ...target, adapterKind: value as SearchPreferencesEditorValues['discoveryTargets'][number]['adapterKind'] }
+                        updateDiscoveryTargets(nextTargets)
+                      }}
+                      options={jobSourceAdapterKindValues.map((adapterKind) => ({
+                        label: adapterKind === 'generic_site' ? 'Generic site (experimental)' : formatStatusLabel(adapterKind),
+                        value: adapterKind
+                      }))}
+                      placeholder="Select adapter"
+                      triggerClassName={profileSelectTriggerClassName}
+                      value={target.adapterKind}
+                    />
+                  </Field>
                   <Field className="md:col-span-2">
                     <FieldLabel>Starting URL</FieldLabel>
                     <ProfileInput

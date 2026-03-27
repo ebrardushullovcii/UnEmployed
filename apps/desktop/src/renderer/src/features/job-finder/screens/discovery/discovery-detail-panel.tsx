@@ -50,7 +50,7 @@ export function DiscoveryDetailPanel({
           <p className="text-[var(--text-body)] leading-7 text-foreground-soft">{selectedJob.summary}</p>
 
           <PreferenceList compact label="Discovery mode" values={[formatStatusLabel(selectedJob.discoveryMethod)]} />
-          <PreferenceList compact label="Provenance" values={selectedJob.provenance.map((entry) => `${entry.adapterKind} · ${entry.targetId}`)} />
+          <PreferenceList compact label="Provenance" values={selectedJob.provenance.map((entry) => `${entry.resolvedAdapterKind ?? entry.adapterKind} · ${entry.targetId}`)} />
           <PreferenceList compact label="Key skills" values={selectedJob.keySkills} />
           <PreferenceList label="Fit reasons" values={selectedJob.matchAssessment.reasons} />
           <PreferenceList label="Watch-outs" values={selectedJob.matchAssessment.gaps} />

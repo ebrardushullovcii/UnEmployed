@@ -908,6 +908,19 @@ export function createLinkedInBrowserAgentRuntime(
     },
     openSession,
     async runDiscovery(source, searchPreferences) {
+      if (source === 'generic_site') {
+        const timestamp = new Date().toISOString()
+
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt: timestamp,
+          completedAt: timestamp,
+          querySummary: buildQuerySummary(searchPreferences),
+          warning: 'Discovery not supported for generic_site without the agent workflow.',
+          jobs: []
+        })
+      }
+
       let page: Page
 
       try {
@@ -934,6 +947,28 @@ export function createLinkedInBrowserAgentRuntime(
       return runDiscoveryWithSelectors(page, source, searchPreferences, startedAt)
     },
     async executeEasyApply(source, input: ExecuteEasyApplyInput): Promise<ApplyExecutionResult> {
+      if (source !== 'linkedin') {
+        const startedAt = new Date().toISOString()
+
+        return ApplyExecutionResultSchema.parse({
+          state: 'unsupported',
+          summary: 'Easy Apply is only supported for LinkedIn',
+          detail: 'The current browser runtime only supports Easy Apply automation for LinkedIn listings.',
+          submittedAt: null,
+          outcome: null,
+          nextActionLabel: 'Open the listing manually',
+          checkpoints: [
+            {
+              id: `checkpoint_${input.job.id}_unsupported_source`,
+              at: startedAt,
+              label: 'Unsupported source',
+              detail: 'Easy Apply automation is unavailable for non-LinkedIn sources.',
+              state: 'unsupported'
+            }
+          ]
+        })
+      }
+
       const page = await getReadyPage(source)
       const startedAt = new Date().toISOString()
       const checkpoints: ApplyExecutionResult['checkpoints'] = []
@@ -1197,7 +1232,8 @@ export function createLinkedInBrowserAgentRuntime(
 
         // Validate aiClient exists (already checked above, but capture for type safety)
         const aiClient = options.aiClient
-        if (!aiClient?.chatWithTools) {
+        const chatWithTools = aiClient?.chatWithTools
+        if (!chatWithTools) {
           throw new Error('AI client not available')
         }
 
@@ -1206,7 +1242,7 @@ export function createLinkedInBrowserAgentRuntime(
           agentConfig,
           {
             chatWithTools: async (messages, tools, signal) => {
-              const response = await aiClient.chatWithTools!(
+              const response = await chatWithTools(
                 messages,
                 tools,
                 signal

@@ -5,6 +5,23 @@ import { Button } from '@renderer/components/ui/button'
 import { StatusBadge } from '../../components/status-badge'
 import { getSessionTone } from '../../lib/job-finder-utils'
 
+function targetRequiresManagedSession(target: JobSearchPreferences['discovery']['targets'][number]): boolean {
+  if (target.adapterKind === 'linkedin') {
+    return true
+  }
+
+  if (target.adapterKind === 'generic_site') {
+    return false
+  }
+
+  try {
+    const hostname = new URL(target.startingUrl).hostname.toLowerCase()
+    return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com')
+  } catch {
+    return true
+  }
+}
+
 interface DiscoveryFiltersPanelProps {
   actionMessage: string | null
   browserSession: BrowserSessionState
@@ -39,6 +56,9 @@ export function DiscoveryFiltersPanel({
   const isReady = browserSession.status === 'ready'
   const needsLogin = browserSession.status === 'login_required'
   const isBlocked = browserSession.status === 'blocked'
+  const enabledTargets = searchPreferences.discovery.targets.filter((target) => target.enabled)
+  const requiresManagedSession = enabledTargets.length === 0 || enabledTargets.some(targetRequiresManagedSession)
+  const canRunDiscovery = Boolean(onRunAgentDiscovery) && !busy && (!requiresManagedSession || isReady)
 
   return (
     <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 xl:h-full xl:min-h-0">
@@ -49,12 +69,12 @@ export function DiscoveryFiltersPanel({
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
             <StatusBadge tone={getSessionTone(browserSession)}>{browserSession.label}</StatusBadge>
             <span className="rounded-full border border-[var(--surface-panel-border)] px-2.5 py-1 text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">
-              {isChromeAgent ? 'Managed profile' : 'Browser agent off'}
+              {requiresManagedSession ? (isChromeAgent ? 'Managed profile' : 'Session required') : 'Target-ready'}
             </span>
           </div>
           <p className="max-w-full break-words text-[0.92rem] leading-7 text-foreground-soft">{browserSession.detail}</p>
 
-          {isChromeAgent ? (
+          {requiresManagedSession ? (isChromeAgent ? (
             <div className="grid gap-2">
               {needsLogin || isBlocked ? (
                 <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
@@ -70,6 +90,10 @@ export function DiscoveryFiltersPanel({
           ) : (
             <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
               Browser agent is not enabled. Set <strong>UNEMPLOYED_LINKEDIN_BROWSER_AGENT=1</strong> in your <strong>.env.local</strong> and restart the app.
+            </div>
+          )) : (
+            <div role="status" className="rounded-[var(--radius-small)] border border-sky-500/20 bg-sky-500/5 px-3 py-3 text-[0.85rem] leading-6 text-sky-600 dark:text-sky-400">
+              The current target mix can run without a prevalidated managed session. Open Chrome only if the site needs a logged-in browser context.
             </div>
           )}
         </div>
@@ -126,7 +150,7 @@ export function DiscoveryFiltersPanel({
           {onRunAgentDiscovery ? (
             <Button
               className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-[0.01em]"
-              disabled={busy || !isReady}
+              disabled={!canRunDiscovery}
               onClick={onRunAgentDiscovery}
               size="sm"
               type="button"

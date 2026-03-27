@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Page } from 'playwright'
-import type { AgentConfig, AgentNavigationPolicy, ToolDefinition } from './types'
+import type { AgentNavigationPolicy, ToolDefinition } from './types'
 import { isAllowedUrl } from './allowlist'
 
 // Maximum timeout for navigation operations (2 minutes)
@@ -158,7 +158,7 @@ You control the timeout strategy:
         const finalUrlValidation = isAllowedUrl(finalUrl, context.config.navigationPolicy)
         if (!finalUrlValidation.valid) {
           // Redirect went off-allowlist - use recovery helper
-          const recovery = await recoverFromOffAllowlist(page, finalUrl, url, context.config.navigationPolicy)
+          const recovery = await recoverFromOffAllowlist(page, finalUrl, state.currentUrl, context.config.navigationPolicy)
           // Only update state if recovery was successful and landed on allowed URL
           if (
             recovery.recovered &&
@@ -200,7 +200,7 @@ You control the timeout strategy:
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
           if (!urlCheck.valid) {
             // Try to recover back to an allowed URL
-            const recovery = await recoverFromOffAllowlist(page, currentUrl, url, context.config.navigationPolicy)
+            const recovery = await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
             if (recovery.recovered && recovery.recoveredUrl) {
               finalUrl = recovery.recoveredUrl
             }
@@ -644,7 +644,9 @@ Use this after viewing a job detail to return to search results.`,
           if (!urlValidation.valid) {
             // Back navigation went off-allowlist - use recovery helper
             const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy)
-            state.currentUrl = page.url() // Update to whatever we recovered to
+            if (recovery.recovered && recovery.recoveredUrl) {
+              state.currentUrl = recovery.recoveredUrl
+            }
             return {
               success: false,
               error: recovery.error,
@@ -933,7 +935,7 @@ Call this when you've found enough jobs or can't find any more relevant position
   }
 ]
 
-export function getToolDefinitions(_config?: AgentConfig) {
+export function getToolDefinitions() {
   return browserTools.map(tool => ({
     type: 'function' as const,
     function: {
@@ -944,6 +946,6 @@ export function getToolDefinitions(_config?: AgentConfig) {
   }))
 }
 
-export function getToolExecutor(name: string, _config?: AgentConfig) {
+export function getToolExecutor(name: string) {
   return browserTools.find(tool => tool.name === name)
 }

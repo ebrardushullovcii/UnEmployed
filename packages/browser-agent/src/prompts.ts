@@ -1,6 +1,13 @@
 import type { AgentConfig } from './types'
 
 export function createSystemPrompt(config: AgentConfig): string {
+  const targetRoles = config.searchPreferences.targetRoles.length > 0
+    ? config.searchPreferences.targetRoles.join(', ')
+    : 'Not specified'
+  const preferredLocations = config.searchPreferences.locations.length > 0
+    ? config.searchPreferences.locations.join(', ')
+    : 'Not specified'
+
   const siteInstructions = config.promptContext.siteInstructions?.length
     ? config.promptContext.siteInstructions.map((instruction, index) => `${index + 1}. ${instruction}`).join('\n')
     : '1. Stay within the configured site boundary.\n2. Prefer stable job listing URLs.\n3. Stop once enough relevant jobs have been gathered.'
@@ -11,14 +18,15 @@ export function createSystemPrompt(config: AgentConfig): string {
   return `You are an autonomous job discovery agent. Your only job is to find job postings on ${config.promptContext.siteLabel}.
 
 USER PROFILE:
-- Target roles: ${config.searchPreferences.targetRoles.join(', ')}
-- Preferred locations: ${config.searchPreferences.locations.join(', ')}
-- Experience level: ${config.userProfile.yearsExperience ? `${config.userProfile.yearsExperience} years` : 'Not specified'}
+- Target roles: ${targetRoles}
+- Preferred locations: ${preferredLocations}
+- Experience level: ${config.userProfile.yearsExperience != null ? `${config.userProfile.yearsExperience} years` : 'Not specified'}
 - Skills: ${config.userProfile.skills?.join(', ') || 'Not specified'}
 
 CRITICAL INSTRUCTIONS:
 ${siteInstructions}
-${config.promptContext.experimental ? `${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.` : ''}
+${config.promptContext.experimental ? `
+${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.` : ''}
 Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
 Your goal: Find up to ${config.targetJobCount} relevant job postings.
 

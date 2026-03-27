@@ -68,7 +68,7 @@ export async function runAgentDiscovery(
     isRunning: true
   }
 
-  const tools = getToolDefinitions(config)
+  const tools = getToolDefinitions()
 
   try {
     // Navigate to first starting URL
@@ -84,7 +84,17 @@ export async function runAgentDiscovery(
       }
       await page.goto(firstUrl, { waitUntil: 'domcontentloaded' })
       await page.waitForTimeout(2000)
-      state.currentUrl = page.url()
+      const landedUrl = page.url()
+      const landedUrlValidation = isAllowedUrl(landedUrl, config.navigationPolicy)
+      if (!landedUrlValidation.valid) {
+        console.error(`[Agent] Starting URL redirected off-allowlist: ${landedUrl}`)
+        return {
+          jobs: [],
+          steps: 0,
+          error: landedUrlValidation.error
+        }
+      }
+      state.currentUrl = landedUrl
       state.visitedUrls.add(state.currentUrl)
       console.log(`[Agent] Started at: ${state.currentUrl}`)
     } else {
@@ -145,13 +155,15 @@ export async function runAgentDiscovery(
         for (const toolCall of response.toolCalls) {
           const result = await executeToolCall(toolCall, page, state, config, jobExtractor, onProgress)
 
-          // Add tool result (compact representation to prevent conversation bloat)
-          const compactResult = {
-            success: (result as { success?: boolean }).success,
-            error: (result as { error?: string }).error,
-            summary: (result as { data?: { jobsExtracted?: number; totalJobs?: number } }).data ? 
-              `jobs:${(result as { data?: { jobsExtracted?: number } }).data?.jobsExtracted ?? 0}` : undefined
-          }
+          const compactResult = toolCall.function.name === 'extract_jobs'
+            ? {
+                success: (result as { success?: boolean }).success,
+                error: (result as { error?: string }).error,
+                summary: (result as { data?: { jobsExtracted?: number } }).data
+                  ? `jobs:${(result as { data?: { jobsExtracted?: number } }).data?.jobsExtracted ?? 0}`
+                  : undefined
+              }
+            : result
           state.conversation.push({
             role: 'tool',
             toolCallId: toolCall.id,
@@ -159,7 +171,7 @@ export async function runAgentDiscovery(
           })
 
           // Check if we should finish
-          if (toolCall.function.name === 'finish') {
+          if (toolCall.function.name === 'finish' && (result as { success?: boolean }).success === true) {
             console.log(`[Agent] Finished: ${state.collectedJobs.length} jobs found`)
             return {
               jobs: state.collectedJobs,
@@ -242,7 +254,7 @@ async function executeToolCall(
   })
 
   // Handle browser tools
-  const tool = getToolExecutor(toolName, config)
+  const tool = getToolExecutor(toolName)
   if (tool) {
     const maxRetries = 3
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -357,11 +369,18 @@ async function executeToolCall(
 }
 
 function createUserPrompt(config: AgentConfig): string {
+  const targetRoles = config.searchPreferences.targetRoles.length > 0
+    ? config.searchPreferences.targetRoles.join(', ')
+    : 'Not specified'
+  const preferredLocations = config.searchPreferences.locations.length > 0
+    ? config.searchPreferences.locations.join(', ')
+    : 'Not specified'
+
   return `Please find job postings that match my profile and preferences.
 
-Target Roles: ${config.searchPreferences.targetRoles.join(', ')}
-Preferred Locations: ${config.searchPreferences.locations.join(', ')}
-Experience Level: ${config.userProfile.yearsExperience ? `${config.userProfile.yearsExperience} years` : 'Not specified'}
+Target Roles: ${targetRoles}
+Preferred Locations: ${preferredLocations}
+Experience Level: ${config.userProfile.yearsExperience != null ? `${config.userProfile.yearsExperience} years` : 'Not specified'}
 
 Starting URLs to explore:
 ${config.startingUrls.map(url => `- ${url}`).join('\n')}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { DiscoveryActivityEvent, DiscoveryRunRecord } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
@@ -54,7 +54,7 @@ function ActivityEventCard(props: { event: DiscoveryActivityEvent }) {
   return (
     <article className="grid gap-2 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[0.78rem] text-foreground-muted">
-        <span className="min-w-0 break-words">{event.targetId ? `${event.adapterKind ?? 'target'} · ${event.targetId}` : event.stage}</span>
+        <span className="min-w-0 break-words">{event.targetId ? `${event.resolvedAdapterKind ?? event.adapterKind ?? 'target'} · ${event.targetId}` : event.stage}</span>
         <span className="shrink-0">{formatTimestamp(event.timestamp)}</span>
       </div>
       <p className="text-[0.95rem] leading-6 text-[var(--text-headline)]">{event.message}</p>
@@ -77,6 +77,9 @@ export function DiscoveryHistoryModal(props: {
   open: boolean
   recentRuns: readonly DiscoveryRunRecord[]
 }) {
+  const dialogTitleId = useId()
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
   const runOptions = useMemo(() => getRunOptions(props.activeRun, props.recentRuns), [props.activeRun, props.recentRuns])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(runOptions[0]?.id ?? null)
 
@@ -93,9 +96,50 @@ export function DiscoveryHistoryModal(props: {
       return
     }
 
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    dialogRef.current?.focus()
+
+    return () => {
+      previousFocusRef.current?.focus()
+    }
+  }, [props.open])
+
+  useEffect(() => {
+    if (!props.open) {
+      return
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         props.onClose()
+        return
+      }
+
+      if (event.key !== 'Tab' || !dialogRef.current) {
+        return
+      }
+
+      const focusableElements = [...dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )].filter((element) => !element.hasAttribute('aria-hidden'))
+
+      if (focusableElements.length === 0) {
+        event.preventDefault()
+        return
+      }
+
+      const firstElement = focusableElements[0]
+      const lastElement = focusableElements[focusableElements.length - 1]
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault()
+        lastElement?.focus()
+        return
+      }
+
+      if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault()
+        firstElement?.focus()
       }
     }
 
@@ -114,17 +158,21 @@ export function DiscoveryHistoryModal(props: {
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-6 backdrop-blur-sm" onClick={props.onClose}>
       <div
-        className="mx-auto flex min-h-0 w-full max-w-6xl flex-col overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] shadow-[0_32px_120px_rgba(0,0,0,0.55)]"
+        aria-labelledby={dialogTitleId}
+        aria-modal="true"
+        className="mx-auto flex min-h-0 max-h-[var(--discovery-history-max-height)] w-full max-w-6xl flex-col overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] shadow-[0_32px_120px_rgba(0,0,0,0.55)]"
         onClick={(event) => event.stopPropagation()}
-        style={{ maxHeight: 'min(90vh, 56rem)' }}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
       >
         <div className="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-[var(--surface-panel-border)] px-5 py-4">
           <div className="grid gap-1">
             <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Full progress history</p>
-            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-[var(--text-headline)]">Every retained discovery event for the selected run</h2>
+            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-[var(--text-headline)]" id={dialogTitleId}>Every retained discovery event for the selected run</h2>
             <p className="text-[0.9rem] leading-6 text-foreground-soft">Use this view when you want the entire history instead of just the latest preview.</p>
           </div>
-          <Button className="size-10" onClick={props.onClose} size="icon" type="button" variant="ghost">
+          <Button aria-label="Close" className="size-10" onClick={props.onClose} size="icon" type="button" variant="ghost">
             <X className="size-4" />
           </Button>
         </div>

@@ -529,6 +529,8 @@ async function mergeDiscoveredPostings(
       newJobs.push(mergedJob)
     }
 
+    savedJobsByPostingKey.set(postingKey, mergedJob)
+    savedJobsBySourceId.set(sourceIdKey, mergedJob)
     nextJobsById.set(mergedJob.id, mergedJob)
   }
 
@@ -545,7 +547,7 @@ function uniqueProvenance(values: readonly SavedJobDiscoveryProvenance[]): Saved
 
   return values.flatMap((value) => {
     const parsed = SavedJobDiscoveryProvenanceSchema.parse(value)
-    const key = `${parsed.targetId}:${parsed.adapterKind}:${parsed.startingUrl}`
+    const key = `${parsed.targetId}:${parsed.adapterKind}:${parsed.resolvedAdapterKind ?? 'none'}:${parsed.startingUrl}`
 
     if (seen.has(key)) {
       return []
@@ -679,7 +681,9 @@ function summarizeProgressAction(
   return { message: `Continuing discovery on the current page${formatFoundSuffix(jobsFound)}`, stage: 'navigation' }
 }
 
-function createDiscoveryEvent(input: Omit<DiscoveryActivityEvent, 'id'>): DiscoveryActivityEvent {
+function createDiscoveryEvent(
+  input: Omit<DiscoveryActivityEvent, 'id' | 'resolvedAdapterKind'> & Pick<Partial<DiscoveryActivityEvent>, 'resolvedAdapterKind'>
+): DiscoveryActivityEvent {
   return DiscoveryActivityEventSchema.parse({
     ...input,
     id: `${input.runId}_${input.stage}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -1324,6 +1328,14 @@ export function createJobFinderWorkspaceService(
     return [...nextById.values()].sort((left, right) => right.matchAssessment.score - left.matchAssessment.score)
   }
 
+  function mergeSavedJobs(currentJobs: readonly SavedJob[], nextJobs: readonly SavedJob[]): SavedJob[] {
+    const nextById = new Map(currentJobs.map((job) => [job.id, job]))
+    for (const job of nextJobs) {
+      nextById.set(job.id, job)
+    }
+    return [...nextById.values()]
+  }
+
   function createBrowserSessionSnapshot(
     sessions: ReadonlyArray<JobFinderDiscoveryState['sessions'][number]>,
     preferredAdapter: JobSource
@@ -1576,7 +1588,8 @@ export function createJobFinderWorkspaceService(
         discoveryResult.jobs,
         () => ({
           targetId: primaryTarget.id,
-          adapterKind,
+          adapterKind: primaryTarget.adapterKind,
+          resolvedAdapterKind: adapterKind,
           startingUrl: primaryTarget.startingUrl,
           discoveredAt: new Date().toISOString()
         })
@@ -1594,7 +1607,7 @@ export function createJobFinderWorkspaceService(
         await repository.replaceSavedJobs(mergeResult.mergedJobs)
         await persistDiscoveryState((current) => ({
           ...current,
-          pendingDiscoveryJobs: []
+          pendingDiscoveryJobs: current.pendingDiscoveryJobs
         }))
       }
 
@@ -1611,6 +1624,10 @@ export function createJobFinderWorkspaceService(
 
       if (!browserRuntime.runAgentDiscovery) {
         throw new Error('Browser runtime does not support agent discovery')
+      }
+
+      if (!aiClient.chatWithTools) {
+        throw new Error('Configured AI client does not support chatWithTools / tool calling')
       }
 
       const enrichedPreferences = enrichSearchPreferencesFromProfile(searchPreferences, profile)
@@ -1633,7 +1650,8 @@ export function createJobFinderWorkspaceService(
         targetIds: targets.map((target) => target.id),
         targetExecutions: targets.map((target) => ({
           targetId: target.id,
-          adapterKind: resolveAdapterKind(target),
+          adapterKind: target.adapterKind,
+          resolvedAdapterKind: resolveAdapterKind(target),
           state: 'planned',
           startedAt: null,
           completedAt: null,
@@ -1668,6 +1686,7 @@ export function createJobFinderWorkspaceService(
         stage: 'planning',
         targetId: null,
         adapterKind: null,
+        resolvedAdapterKind: null,
         message: `Planning ${targets.length} discovery target${targets.length === 1 ? '' : 's'}`,
         url: null,
         jobsFound: 0,
@@ -1708,7 +1727,8 @@ export function createJobFinderWorkspaceService(
             kind: 'info',
             stage: 'target',
             targetId: target.id,
-            adapterKind,
+            adapterKind: target.adapterKind,
+            resolvedAdapterKind: adapterKind,
             message: `Starting target ${index + 1} of ${targets.length}: ${target.label}`,
             url: target.startingUrl,
             jobsFound: null,
@@ -1725,7 +1745,8 @@ export function createJobFinderWorkspaceService(
               kind: 'warning',
               stage: 'target',
               targetId: target.id,
-              adapterKind,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
               message: 'Generic site extraction is experimental and lower confidence on unfamiliar page structures',
               url: target.startingUrl,
               jobsFound: null,
@@ -1757,7 +1778,8 @@ export function createJobFinderWorkspaceService(
               kind: 'warning',
               stage: 'target',
               targetId: target.id,
-              adapterKind,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
               message: warning,
               url: target.startingUrl,
               jobsFound: 0,
@@ -1801,7 +1823,8 @@ export function createJobFinderWorkspaceService(
                 kind: 'progress',
                 stage: summary.stage,
                 targetId: target.id,
-                adapterKind,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: adapterKind,
                 message: summary.message,
                 url: progress.currentUrl,
                 jobsFound: progress.jobsFound,
@@ -1822,7 +1845,8 @@ export function createJobFinderWorkspaceService(
             discoveryResult.jobs,
             () => ({
               targetId: target.id,
-              adapterKind,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
               startingUrl: target.startingUrl,
               discoveredAt: new Date().toISOString()
             }),
@@ -1868,7 +1892,8 @@ export function createJobFinderWorkspaceService(
             kind: 'info',
             stage: 'scoring',
             targetId: target.id,
-            adapterKind,
+            adapterKind: target.adapterKind,
+            resolvedAdapterKind: adapterKind,
             message: `Scored ${discoveryResult.jobs.length} discovered job${discoveryResult.jobs.length === 1 ? '' : 's'}`,
             url: target.startingUrl,
             jobsFound: discoveryResult.jobs.length,
@@ -1884,7 +1909,8 @@ export function createJobFinderWorkspaceService(
             kind: discoveryResult.warning ? 'warning' : 'success',
             stage: 'persistence',
             targetId: target.id,
-            adapterKind,
+            adapterKind: target.adapterKind,
+            resolvedAdapterKind: adapterKind,
             message: settings.discoveryOnly
               ? `Saved ${0} jobs and staged ${mergeResult.newJobs.length} for review-only mode`
               : `Saved ${mergeResult.newJobs.length} new job${mergeResult.newJobs.length === 1 ? '' : 's'} for this target`,
@@ -1929,6 +1955,7 @@ export function createJobFinderWorkspaceService(
           stage: 'run',
           targetId: null,
           adapterKind: null,
+          resolvedAdapterKind: null,
           message: aborted ? 'Discovery run cancelled before completion' : `Discovery run failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
           url: null,
           jobsFound: null,
@@ -1938,11 +1965,14 @@ export function createJobFinderWorkspaceService(
           invalidSkipped: null
         }))
 
-        await repository.replaceSavedJobs(workingSavedJobs)
-        workingDiscoveryState = await repository.getDiscoveryState()
+        const [latestSavedJobs, latestDiscoveryState] = await Promise.all([
+          repository.listSavedJobs(),
+          repository.getDiscoveryState()
+        ])
+        await repository.replaceSavedJobs(mergeSavedJobs(latestSavedJobs, workingSavedJobs))
         await repository.saveDiscoveryState(finalizeDiscoveryState({
-          ...workingDiscoveryState,
-          pendingDiscoveryJobs: workingPendingJobs
+          ...latestDiscoveryState,
+          pendingDiscoveryJobs: mergePendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs)
         }, activeRun, enrichedPreferences))
 
         if (!aborted) {
@@ -1950,9 +1980,14 @@ export function createJobFinderWorkspaceService(
         }
       }
 
+      const [latestSavedJobs, latestDiscoveryState] = await Promise.all([
+        repository.listSavedJobs(),
+        repository.getDiscoveryState()
+      ])
+      await repository.replaceSavedJobs(mergeSavedJobs(latestSavedJobs, workingSavedJobs))
       await repository.saveDiscoveryState(finalizeDiscoveryState({
-        ...workingDiscoveryState,
-        pendingDiscoveryJobs: workingPendingJobs
+        ...latestDiscoveryState,
+        pendingDiscoveryJobs: mergePendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs)
       }, activeRun, enrichedPreferences))
 
       return getWorkspaceSnapshot()

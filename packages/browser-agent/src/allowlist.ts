@@ -1,6 +1,10 @@
 import type { AgentNavigationPolicy } from './types'
 
-export function isAllowedUrl(url: string, policy: AgentNavigationPolicy): { valid: boolean; error?: string } {
+type AllowedUrlResult =
+  | { valid: true }
+  | { valid: false; error: string }
+
+export function isAllowedUrl(url: string, policy: AgentNavigationPolicy): AllowedUrlResult {
   try {
     const parsedUrl = new URL(url)
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {

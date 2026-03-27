@@ -1807,9 +1807,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
                 'You extract job listings from LinkedIn search results page text.',
                 'Return JSON with a "jobs" array.',
                 'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
-                'Each job must have: sourceJobId (extract from URL), canonicalUrl (full URL), title, company, location, salaryText (or null), description (short summary from listing).',
+                'Each job must have: sourceJobId (extract from URL), canonicalUrl (full URL), title, company, location, salaryText (or null), description (short summary from listing), and easyApplyEligible (boolean).',
                 'sourceJobId is the numeric ID from URLs like /jobs/view/12345 — extract just the number.',
                 'canonicalUrl is the full https://www.linkedin.com/jobs/view/<id> URL.',
+                'Set easyApplyEligible to true only when the listing clearly indicates Easy Apply, otherwise false.',
                 'The page text may include a "Relevant in-scope URLs found on page" section - use those URLs to populate sourceJobId and canonicalUrl whenever available.',
                 'If you cannot determine both sourceJobId and canonicalUrl for a listing, omit that listing from the output.',
                 'If the page text does not contain job listings, return { "jobs": [] }.',
@@ -1831,8 +1832,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
                 'You extract structured job details from a LinkedIn job posting page text.',
                 'Return JSON with a "jobs" array containing one job object.',
                 'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
-                'Each job must have: sourceJobId, canonicalUrl, title, company, location, salaryText (or null), description (full job description text).',
+                'Each job must have: sourceJobId, canonicalUrl, title, company, location, salaryText (or null), description (full job description text), and easyApplyEligible (boolean).',
                 'Use the page URL as the source of truth for sourceJobId and canonicalUrl when available.',
+                'Set easyApplyEligible to true only when the page clearly exposes an Easy Apply path, otherwise false.',
                 'Extract all relevant details: title, company name, location, salary if mentioned, and the full job description.'
               ]
             : [

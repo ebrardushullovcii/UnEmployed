@@ -38,7 +38,7 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {sessionNeedsAttention && jobs.length > 0 ? (
-        <div className="rounded-[var(--radius-panel)] border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[0.86rem] leading-6 text-amber-600 dark:text-amber-400">
+        <div className="rounded-[var(--radius-panel)] border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[var(--text-description)] leading-6 text-amber-600 dark:text-amber-400">
           Saved results are still available below. Open the browser profile again when you want to run a fresh discovery.
         </div>
       ) : null}
@@ -75,7 +75,7 @@ export function DiscoveryResultsPanel({
                       {job.company} - {job.location}
                     </span>
                   </div>
-                  <span className="text-[1rem] font-semibold text-[var(--text-headline)]">
+                  <span className="text-[var(--text-body)] font-semibold text-[var(--text-headline)]">
                     Match {job.matchAssessment.score}%
                   </span>
                 </div>

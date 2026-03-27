@@ -153,6 +153,7 @@
   --text-headline: #f6f2e8;
   --text-badge: #f4efe4;
   --button-close-hover: #8a1f17;
+  --discovery-history-max-height: min(90vh, 56rem);
 
   background: var(--background);
   color: var(--foreground);

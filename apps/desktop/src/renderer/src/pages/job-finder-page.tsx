@@ -300,8 +300,9 @@ export function JobFinderPage() {
         },
         'Job moved into the review queue.'
       ),
-    onRunAgentDiscovery: () =>
-      void (setLiveDiscoveryEvents([]), runAction(
+    onRunAgentDiscovery: () => {
+      setLiveDiscoveryEvents([])
+      void runAction(
         () => actions.runAgentDiscovery((event) => {
           setLiveDiscoveryEvents((current) => [...current, event])
         }),
@@ -309,7 +310,8 @@ export function JobFinderPage() {
           setLiveDiscoveryEvents([])
         },
         'AI Agent discovery run completed and saved locally.'
-      )),
+      )
+    },
     onResetWorkspace: () =>
       void runAction(
         actions.resetWorkspace,
