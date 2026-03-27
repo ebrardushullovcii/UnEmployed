@@ -68,13 +68,13 @@ export async function runAgentDiscovery(
     isRunning: true
   }
 
-  const tools = getToolDefinitions()
+  const tools = getToolDefinitions(config)
 
   try {
     // Navigate to first starting URL
     const firstUrl = config.startingUrls[0]
     if (firstUrl) {
-      if (!isAllowedUrl(firstUrl).valid) {
+      if (!isAllowedUrl(firstUrl, config.navigationPolicy).valid) {
         console.error(`[Agent] Starting URL not allowed: ${firstUrl}`)
         return {
           jobs: [],
@@ -115,7 +115,9 @@ export async function runAgentDiscovery(
         currentUrl: state.currentUrl,
         jobsFound: state.collectedJobs.length,
         stepCount: state.stepCount,
-        currentAction: 'Thinking...'
+        currentAction: 'Thinking...',
+        targetId: null,
+        adapterKind: config.source
       })
 
       // Get LLM decision
@@ -234,11 +236,13 @@ async function executeToolCall(
     currentUrl: state.currentUrl,
     jobsFound: state.collectedJobs.length,
     stepCount: state.stepCount,
-    currentAction: `${toolName}: ${JSON.stringify(args)}`
+    currentAction: `${toolName}: ${JSON.stringify(args)}`,
+    targetId: null,
+    adapterKind: config.source
   })
 
   // Handle browser tools
-  const tool = getToolExecutor(toolName)
+  const tool = getToolExecutor(toolName, config)
   if (tool) {
     const maxRetries = 3
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -269,7 +273,7 @@ async function executeToolCall(
               if (!exists) {
                 // Build job object and validate before adding
                 const jobToAdd = {
-                  source: 'linkedin' as const,
+                  source: config.source,
                   sourceJobId: job.sourceJobId,
                   discoveryMethod: 'browser_agent' as const,
                   canonicalUrl: job.url,
@@ -311,6 +315,15 @@ async function executeToolCall(
             if (addedCount > 0) {
               console.log(`[Agent] +${addedCount} jobs (${state.collectedJobs.length} total) from ${extractData.pageUrl.slice(0, 60)}...`)
             }
+
+            onProgress?.({
+              currentUrl: extractData.pageUrl,
+              jobsFound: state.collectedJobs.length,
+              stepCount: state.stepCount,
+              currentAction: `extract_result:${addedCount}:${state.collectedJobs.length}:${extractedJobs.length}`,
+              targetId: null,
+              adapterKind: config.source
+            })
 
             return {
               ...result,
@@ -354,6 +367,8 @@ Starting URLs to explore:
 ${config.startingUrls.map(url => `- ${url}`).join('\n')}
 
 Goal: Find ${config.targetJobCount} relevant job postings.
+
+The site may present listings in any language. Treat multilingual and non-English jobs as valid candidates when they match the target roles and locations.
 
 Instructions:
 1. Navigate to the starting URLs

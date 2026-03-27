@@ -3,11 +3,13 @@ import {
   JobSearchPreferencesSchema,
   type CandidateProfile,
   type CandidateLinkKind,
+  type JobDiscoveryTarget,
   type JobSearchPreferences
 } from '@unemployed/contracts'
 import type {
   BooleanSelectValue,
   CertificationFormEntry,
+  DiscoveryTargetEditorValue,
   EducationFormEntry,
   ExperienceFormEntry,
   LanguageFormEntry,
@@ -103,9 +105,32 @@ export interface SearchPreferencesEditorValues {
   tailoringMode: JobSearchPreferences['tailoringMode']
   targetCompanyStages: string
   targetIndustries: string
+  discoveryTargets: DiscoveryTargetEditorValue[]
   targetRoles: string
   targetSalaryUsd: string
   workModes: JobSearchPreferences['workModes']
+}
+
+function toDiscoveryTargetEditorValues(searchPreferences: JobSearchPreferences): DiscoveryTargetEditorValue[] {
+  return searchPreferences.discovery.targets.map((target) => ({
+    id: target.id,
+    label: target.label,
+    startingUrl: target.startingUrl,
+    enabled: target.enabled,
+    adapterKind: target.adapterKind,
+    customInstructions: target.customInstructions ?? ''
+  }))
+}
+
+function toDiscoveryTargets(values: readonly DiscoveryTargetEditorValue[]): JobDiscoveryTarget[] {
+  return values.map((target) => ({
+    id: target.id,
+    label: target.label.trim(),
+    startingUrl: target.startingUrl.trim(),
+    enabled: target.enabled,
+    adapterKind: target.adapterKind,
+    customInstructions: target.customInstructions.trim() || null
+  }))
 }
 
 export function createProfileEditorValues(profile: CandidateProfile): ProfileEditorValues {
@@ -184,6 +209,7 @@ export function createSearchPreferencesEditorValues(
     salaryCurrency: searchPreferences.salaryCurrency ?? 'USD',
     seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
     tailoringMode: searchPreferences.tailoringMode,
+    discoveryTargets: toDiscoveryTargetEditorValues(searchPreferences),
     targetCompanyStages: joinListInput(searchPreferences.targetCompanyStages),
     targetIndustries: joinListInput(searchPreferences.targetIndustries),
     targetRoles: joinListInput(searchPreferences.targetRoles),
@@ -392,7 +418,11 @@ export function buildSearchPreferencesPayload(
     salaryCurrency: values.salaryCurrency.trim() || null,
     tailoringMode: values.tailoringMode,
     companyBlacklist: parseListInput(values.companyBlacklist),
-    companyWhitelist: parseListInput(values.companyWhitelist)
+    companyWhitelist: parseListInput(values.companyWhitelist),
+    discovery: {
+      ...searchPreferences.discovery,
+      targets: toDiscoveryTargets(values.discoveryTargets)
+    }
   }
 
   const parsedPayload = JobSearchPreferencesSchema.safeParse(payload)

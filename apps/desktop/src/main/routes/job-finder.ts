@@ -1,6 +1,7 @@
 import { dialog, type IpcMain } from 'electron'
 import {
   CandidateProfileSchema,
+  DiscoveryActivityEventSchema,
   JobFinderJobActionInputSchema,
   JobFinderSettingsSchema,
   SaveJobFinderWorkspaceInputSchema,
@@ -134,9 +135,9 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     ipcMain.once('job-finder:cancel-agent-discovery', cancelHandler)
 
     try {
-      const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
-        (progress) => {
-          window.send('job-finder:agent-discovery-progress', progress)
+        const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
+        (eventPayload) => {
+          window.send('job-finder:discovery-activity', DiscoveryActivityEventSchema.parse(eventPayload))
         },
         controller.signal
       )

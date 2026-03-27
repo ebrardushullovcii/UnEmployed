@@ -40,10 +40,15 @@ export const tailoringModeValues = ['conservative', 'balanced', 'aggressive'] as
 export const TailoringModeSchema = z.enum(tailoringModeValues)
 export type TailoringMode = z.infer<typeof TailoringModeSchema>
 
-export const jobSourceValues = ['linkedin'] as const
+export const jobSourceValues = ['linkedin', 'generic_site'] as const
 
 export const JobSourceSchema = z.enum(jobSourceValues)
 export type JobSource = z.infer<typeof JobSourceSchema>
+
+export const jobSourceAdapterKindValues = ['auto', 'linkedin', 'generic_site'] as const
+
+export const JobSourceAdapterKindSchema = z.enum(jobSourceAdapterKindValues)
+export type JobSourceAdapterKind = z.infer<typeof JobSourceAdapterKindSchema>
 
 export const workModeValues = ['remote', 'hybrid', 'onsite', 'flexible'] as const
 
@@ -97,6 +102,41 @@ export const jobDiscoveryMethodValues = ['catalog_seed', 'browser_agent'] as con
 
 export const JobDiscoveryMethodSchema = z.enum(jobDiscoveryMethodValues)
 export type JobDiscoveryMethod = z.infer<typeof JobDiscoveryMethodSchema>
+
+export const discoveryRunStateValues = ['idle', 'running', 'completed', 'cancelled', 'failed'] as const
+
+export const DiscoveryRunStateSchema = z.enum(discoveryRunStateValues)
+export type DiscoveryRunState = z.infer<typeof DiscoveryRunStateSchema>
+
+export const discoveryTargetExecutionStateValues = [
+  'planned',
+  'running',
+  'completed',
+  'cancelled',
+  'failed',
+  'skipped'
+] as const
+
+export const DiscoveryTargetExecutionStateSchema = z.enum(discoveryTargetExecutionStateValues)
+export type DiscoveryTargetExecutionState = z.infer<typeof DiscoveryTargetExecutionStateSchema>
+
+export const discoveryActivityKindValues = ['info', 'progress', 'warning', 'success', 'error'] as const
+
+export const DiscoveryActivityKindSchema = z.enum(discoveryActivityKindValues)
+export type DiscoveryActivityKind = z.infer<typeof DiscoveryActivityKindSchema>
+
+export const discoveryActivityStageValues = [
+  'planning',
+  'target',
+  'navigation',
+  'extraction',
+  'scoring',
+  'persistence',
+  'run'
+] as const
+
+export const DiscoveryActivityStageSchema = z.enum(discoveryActivityStageValues)
+export type DiscoveryActivityStage = z.infer<typeof DiscoveryActivityStageSchema>
 
 export const assetGenerationMethodValues = ['deterministic', 'ai_assisted'] as const
 
@@ -315,6 +355,22 @@ export const CandidateProfileSchema = z.object({
 })
 export type CandidateProfile = z.infer<typeof CandidateProfileSchema>
 
+export const JobDiscoveryTargetSchema = z.object({
+  id: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  startingUrl: UrlStringSchema,
+  enabled: z.boolean().default(true),
+  adapterKind: JobSourceAdapterKindSchema.default('auto'),
+  customInstructions: NonEmptyStringSchema.nullable().default(null)
+})
+export type JobDiscoveryTarget = z.infer<typeof JobDiscoveryTargetSchema>
+
+export const JobDiscoveryPreferencesSchema = z.object({
+  targets: z.array(JobDiscoveryTargetSchema).default([]),
+  historyLimit: z.number().int().min(1).max(10).default(5)
+})
+export type JobDiscoveryPreferences = z.infer<typeof JobDiscoveryPreferencesSchema>
+
 export const JobSearchPreferencesSchema = z.object({
   targetRoles: z.array(NonEmptyStringSchema).default([]),
   jobFamilies: z.array(NonEmptyStringSchema).default([]),
@@ -331,7 +387,8 @@ export const JobSearchPreferencesSchema = z.object({
   approvalMode: ApprovalModeSchema,
   tailoringMode: TailoringModeSchema,
   companyBlacklist: z.array(NonEmptyStringSchema).default([]),
-  companyWhitelist: z.array(NonEmptyStringSchema).default([])
+  companyWhitelist: z.array(NonEmptyStringSchema).default([]),
+  discovery: JobDiscoveryPreferencesSchema.default({})
 })
 export type JobSearchPreferences = z.infer<typeof JobSearchPreferencesSchema>
 
@@ -362,10 +419,19 @@ export const JobPostingSchema = z.object({
 })
 export type JobPosting = z.infer<typeof JobPostingSchema>
 
+export const SavedJobDiscoveryProvenanceSchema = z.object({
+  targetId: NonEmptyStringSchema,
+  adapterKind: JobSourceSchema,
+  startingUrl: UrlStringSchema,
+  discoveredAt: IsoDateTimeSchema
+})
+export type SavedJobDiscoveryProvenance = z.infer<typeof SavedJobDiscoveryProvenanceSchema>
+
 export const SavedJobSchema = JobPostingSchema.extend({
   id: NonEmptyStringSchema,
   status: ApplicationStatusSchema,
-  matchAssessment: MatchAssessmentSchema
+  matchAssessment: MatchAssessmentSchema,
+  provenance: z.array(SavedJobDiscoveryProvenanceSchema).default([])
 })
 export type SavedJob = z.infer<typeof SavedJobSchema>
 
@@ -462,6 +528,72 @@ export const DiscoveryRunResultSchema = z.object({
 })
 export type DiscoveryRunResult = z.infer<typeof DiscoveryRunResultSchema>
 
+export const DiscoveryAdapterSessionStateSchema = z.object({
+  adapterKind: JobSourceSchema,
+  status: BrowserSessionStatusSchema,
+  driver: BrowserDriverSchema.default('catalog_seed'),
+  label: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema.nullable().default(null),
+  lastCheckedAt: IsoDateTimeSchema
+})
+export type DiscoveryAdapterSessionState = z.infer<typeof DiscoveryAdapterSessionStateSchema>
+
+export const DiscoveryTargetExecutionSchema = z.object({
+  targetId: NonEmptyStringSchema,
+  adapterKind: JobSourceSchema,
+  state: DiscoveryTargetExecutionStateSchema,
+  startedAt: IsoDateTimeSchema.nullable().default(null),
+  completedAt: IsoDateTimeSchema.nullable().default(null),
+  jobsFound: z.number().int().nonnegative().default(0),
+  jobsPersisted: z.number().int().nonnegative().default(0),
+  jobsStaged: z.number().int().nonnegative().default(0),
+  warning: NonEmptyStringSchema.nullable().default(null)
+})
+export type DiscoveryTargetExecution = z.infer<typeof DiscoveryTargetExecutionSchema>
+
+export const DiscoveryActivityEventSchema = z.object({
+  id: NonEmptyStringSchema,
+  runId: NonEmptyStringSchema,
+  timestamp: IsoDateTimeSchema,
+  kind: DiscoveryActivityKindSchema,
+  stage: DiscoveryActivityStageSchema,
+  targetId: NonEmptyStringSchema.nullable().default(null),
+  adapterKind: JobSourceSchema.nullable().default(null),
+  message: NonEmptyStringSchema,
+  url: UrlStringSchema.nullable().default(null),
+  jobsFound: z.number().int().nonnegative().nullable().default(null),
+  jobsPersisted: z.number().int().nonnegative().nullable().default(null),
+  jobsStaged: z.number().int().nonnegative().nullable().default(null),
+  duplicatesMerged: z.number().int().nonnegative().nullable().default(null),
+  invalidSkipped: z.number().int().nonnegative().nullable().default(null)
+})
+export type DiscoveryActivityEvent = z.infer<typeof DiscoveryActivityEventSchema>
+
+export const DiscoveryRunSummarySchema = z.object({
+  targetsPlanned: z.number().int().nonnegative().default(0),
+  targetsCompleted: z.number().int().nonnegative().default(0),
+  validJobsFound: z.number().int().nonnegative().default(0),
+  jobsPersisted: z.number().int().nonnegative().default(0),
+  jobsStaged: z.number().int().nonnegative().default(0),
+  duplicatesMerged: z.number().int().nonnegative().default(0),
+  invalidSkipped: z.number().int().nonnegative().default(0),
+  durationMs: z.number().int().nonnegative().default(0),
+  outcome: DiscoveryRunStateSchema.default('idle')
+})
+export type DiscoveryRunSummary = z.infer<typeof DiscoveryRunSummarySchema>
+
+export const DiscoveryRunRecordSchema = z.object({
+  id: NonEmptyStringSchema,
+  state: DiscoveryRunStateSchema,
+  startedAt: IsoDateTimeSchema,
+  completedAt: IsoDateTimeSchema.nullable().default(null),
+  targetIds: z.array(NonEmptyStringSchema).default([]),
+  targetExecutions: z.array(DiscoveryTargetExecutionSchema).default([]),
+  activity: z.array(DiscoveryActivityEventSchema).default([]),
+  summary: DiscoveryRunSummarySchema.default({})
+})
+export type DiscoveryRunRecord = z.infer<typeof DiscoveryRunRecordSchema>
+
 export const ApplicationRecordSchema = z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
@@ -519,6 +651,15 @@ export const JobFinderSettingsSchema = z.object({
 })
 export type JobFinderSettings = z.infer<typeof JobFinderSettingsSchema>
 
+export const JobFinderDiscoveryStateSchema = z.object({
+  sessions: z.array(DiscoveryAdapterSessionStateSchema).default([]),
+  runState: DiscoveryRunStateSchema.default('idle'),
+  activeRun: DiscoveryRunRecordSchema.nullable().default(null),
+  recentRuns: z.array(DiscoveryRunRecordSchema).default([]),
+  pendingDiscoveryJobs: z.array(SavedJobSchema).default([])
+})
+export type JobFinderDiscoveryState = z.infer<typeof JobFinderDiscoveryStateSchema>
+
 export const JobFinderRepositoryStateSchema = z.object({
   profile: CandidateProfileSchema,
   searchPreferences: JobSearchPreferencesSchema,
@@ -526,7 +667,8 @@ export const JobFinderRepositoryStateSchema = z.object({
   tailoredAssets: z.array(TailoredAssetSchema).default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
   applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
-  settings: JobFinderSettingsSchema
+  settings: JobFinderSettingsSchema,
+  discovery: JobFinderDiscoveryStateSchema.default({})
 })
 export type JobFinderRepositoryState = z.infer<typeof JobFinderRepositoryStateSchema>
 
@@ -538,6 +680,10 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   profile: CandidateProfileSchema,
   searchPreferences: JobSearchPreferencesSchema,
   browserSession: BrowserSessionStateSchema,
+  discoverySessions: z.array(DiscoveryAdapterSessionStateSchema).default([]),
+  discoveryRunState: DiscoveryRunStateSchema.default('idle'),
+  activeDiscoveryRun: DiscoveryRunRecordSchema.nullable().default(null),
+  recentDiscoveryRuns: z.array(DiscoveryRunRecordSchema).default([]),
   discoveryJobs: z.array(SavedJobSchema).default([]),
   selectedDiscoveryJobId: NonEmptyStringSchema.nullable(),
   reviewQueue: z.array(ReviewQueueItemSchema).default([]),
@@ -583,7 +729,9 @@ export const AgentDiscoveryProgressSchema = z.object({
   currentUrl: z.string().min(1),
   jobsFound: z.number().int().nonnegative(),
   stepCount: z.number().int().nonnegative(),
-  currentAction: z.string().optional()
+  currentAction: z.string().optional(),
+  targetId: NonEmptyStringSchema.nullable().default(null),
+  adapterKind: JobSourceSchema.nullable().default(null)
 })
 export type AgentDiscoveryProgress = z.infer<typeof AgentDiscoveryProgressSchema>
 

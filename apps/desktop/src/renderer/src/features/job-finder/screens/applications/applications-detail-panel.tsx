@@ -13,7 +13,7 @@ interface ApplicationsDetailPanelProps {
 
 export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: ApplicationsDetailPanelProps) {
   return (
-    <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] px-8 pt-5 pb-8 grid content-start gap-6 min-w-0">
+    <section className="flex min-h-[31rem] min-w-0 flex-col gap-6 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] px-8 py-5 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
           <p className="font-mono text-[10px] font-bold uppercase tracking-[var(--tracking-badge)] text-muted-foreground">Current record</p>
@@ -26,7 +26,7 @@ export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: App
         </StatusBadge>
       </div>
       {selectedRecord ? (
-        <>
+        <div className="grid min-h-0 flex-1 content-start gap-6 overflow-y-auto pr-1">
            <div className="grid gap-2">
              <h2 className="text-[1.7rem] font-semibold tracking-[-0.03em] text-[var(--text-headline)]">{selectedRecord.title}</h2>
              <p className="text-[var(--text-field)] text-foreground-muted">{selectedRecord.company}</p>
@@ -67,12 +67,14 @@ export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: App
             <p className="mb-4 text-[11px] leading-relaxed text-foreground">Based on historical data for this entity, the next interview step will likely focus on concurrent process management.</p>
             <Button className="w-full" variant="secondary" type="button">Run simulation</Button>
           </div>
-        </>
+        </div>
       ) : (
-        <EmptyState
-          title="Choose an application record"
-          description="Select a tracked application to inspect the latest events and determine what needs attention next."
-        />
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <EmptyState
+            title="Choose an application record"
+            description="Select a tracked application to inspect the latest events and determine what needs attention next."
+          />
+        </div>
       )}
     </section>
   )

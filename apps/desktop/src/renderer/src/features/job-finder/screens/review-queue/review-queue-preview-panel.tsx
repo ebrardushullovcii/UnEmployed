@@ -16,7 +16,7 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
   const showGenerationState = needsGeneration || isGenerating
 
   return (
-    <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] grid content-start gap-4 min-w-0 min-h-[38rem] overflow-hidden">
+    <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
         <p className="font-display text-[11px] font-bold uppercase tracking-[var(--tracking-caps)] text-foreground">Asset Preview</p>
         <StatusBadge tone={selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'}>
@@ -24,7 +24,7 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
         </StatusBadge>
       </div>
       {queue.length === 0 ? (
-        <div className="mx-5 mb-5 flex flex-1 items-center justify-center">
+        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
             title="Review queue is empty"
             description="Once a saved job moves into drafting or ready-for-review status, its asset preview will appear here."
@@ -32,7 +32,7 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
         </div>
       ) : null}
       {queue.length > 0 && selectedItem && showGenerationState ? (
-        <div className="mx-5 mb-5 flex flex-1 items-center justify-center">
+        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <div className="grid w-full min-h-full place-items-center content-center gap-4 bg-[rgba(255,255,255,0.02)] rounded-[var(--radius-field)] p-8 text-center">
             <div className="grid aspect-square w-40 place-items-center rounded-full border-[3px] border-border/30 border-t-primary text-[1.1rem] font-semibold text-[var(--text-headline)]">
               <span>{selectedItem.progressPercent ?? 0}%</span>
@@ -47,7 +47,7 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
         </div>
       ) : null}
       {queue.length > 0 && selectedItem && !showGenerationState && selectedAsset ? (
-        <div className="mx-5 mb-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           <div className="relative grid gap-4 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-6 text-[var(--text-body)] leading-[1.48] text-foreground">
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.03]">
               <span className="-rotate-45 text-[120px] font-black tracking-tighter">TAILORED</span>

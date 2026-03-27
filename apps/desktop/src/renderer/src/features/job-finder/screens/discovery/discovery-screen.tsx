@@ -1,46 +1,61 @@
-import type { BrowserSessionState, JobSearchPreferences, SavedJob } from '@unemployed/contracts'
+import { useState } from 'react'
+import type {
+  BrowserSessionState,
+  DiscoveryActivityEvent,
+  DiscoveryRunRecord,
+  JobSearchPreferences,
+  SavedJob
+} from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { EmptyState } from '../../components/empty-state'
+import { LockedScreenLayout } from '../../components/locked-screen-layout'
 import { PageHeader } from '../../components/page-header'
 import { formatCountLabel } from '../../lib/job-finder-utils'
+import { DiscoveryHistoryModal } from './discovery-activity-panel'
 import { DiscoveryDetailPanel } from './discovery-detail-panel'
 import { DiscoveryFiltersPanel } from './discovery-filters-panel'
 import { DiscoveryResultsPanel } from './discovery-results-panel'
 
 export function DiscoveryScreen(props: {
   actionState: { busy: boolean; message: string | null }
+  activeRun: DiscoveryRunRecord | null
   busy: boolean
   browserSession: BrowserSessionState
   jobs: readonly SavedJob[]
-  onCheckBrowserSession: () => void
+  liveEvents: readonly DiscoveryActivityEvent[]
   onDismissJob: (jobId: string) => void
   onOpenBrowserSession: () => void
   onQueueJob: (jobId: string) => void
   onRunAgentDiscovery: (() => void) | undefined
   onSelectJob: (jobId: string) => void
+  recentRuns: readonly DiscoveryRunRecord[]
   searchPreferences: JobSearchPreferences
   selectedJob: SavedJob | null
 }) {
   const {
     actionState,
+    activeRun,
     browserSession,
     busy,
     jobs,
-    onCheckBrowserSession,
+    liveEvents,
     onDismissJob,
     onOpenBrowserSession,
     onQueueJob,
     onRunAgentDiscovery,
     onSelectJob,
+    recentRuns,
     searchPreferences,
     selectedJob
   } = props
+  const [showHistory, setShowHistory] = useState(false)
 
   const showEmptyDiscoveryState = jobs.length === 0
   const configuredFilters = [
     formatCountLabel(searchPreferences.targetRoles.length, 'role'),
     formatCountLabel(searchPreferences.locations.length, 'location'),
-    formatCountLabel(searchPreferences.workModes.length, 'work mode')
+    formatCountLabel(searchPreferences.workModes.length, 'work mode'),
+    formatCountLabel(searchPreferences.discovery.targets.length, 'target')
   ]
 
   const emptyStateContent =
@@ -48,78 +63,88 @@ export function DiscoveryScreen(props: {
       ? {
           title: 'No jobs saved yet',
           description:
-            'The LinkedIn session is ready, but this search has not written any saved results yet. Refine roles, locations, or work modes in Profile preferences, then run discovery again.'
+            'The active discovery adapter is ready, but this search has not written any saved results yet. Refine roles, locations, work modes, or discovery targets in Profile preferences, then run discovery again.'
         }
       : {
           title: 'Discovery is waiting on the browser session',
           description:
-            'The search controls are configured, but saved results will stay empty until the LinkedIn browser runtime reports a ready session for the current adapter.'
+            'The search controls are configured, but saved results will stay empty until the active adapter session reports a ready state.'
         }
 
   return (
-    <section className="grid gap-[var(--gap-section)]">
-      <PageHeader
-        eyebrow="Discovery"
-        title="LinkedIn results"
-        description="Search preferences, browser session status, and the highest-fit saved jobs for the current MVP source adapter."
-      />
+    <>
+      <LockedScreenLayout
+        contentClassName="xl:overflow-hidden"
+        topClassName="pb-[var(--gap-section)] pt-8"
+        topContent={(
+          <PageHeader
+            eyebrow="Discovery"
+            title="Adapter-driven discovery"
+            description="Run ordered discovery targets and review the highest-fit jobs across LinkedIn and experimental generic-site paths."
+          />
+        )}
+      >
+        {showEmptyDiscoveryState ? (
+          <div className="grid min-h-[31rem] min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
+            <DiscoveryFiltersPanel
+              actionMessage={actionState.message}
+              browserSession={browserSession}
+              busy={busy}
+              onOpenBrowserSession={onOpenBrowserSession}
+              onRunAgentDiscovery={onRunAgentDiscovery}
+              onViewProgress={() => setShowHistory(true)}
+              searchPreferences={searchPreferences}
+            />
+            <section className="flex min-h-[31rem] min-w-0 flex-col gap-5 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 xl:h-full xl:min-h-0">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Saved results</p>
+                <span className="inline-flex items-center rounded-[var(--radius-small)] border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-[var(--tracking-heading)] text-muted-foreground">0 jobs</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {configuredFilters.map((item) => (
+                  <Badge key={item} variant="outline">{item}</Badge>
+                ))}
+              </div>
+              <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto pr-1">
+                <EmptyState className="min-h-[20rem]" description={emptyStateContent.description} title={emptyStateContent.title} />
+                <p className="max-w-[44rem] text-[var(--text-description)] leading-6 text-foreground-soft">Configure discovery targets in Profile preferences, validate the active browser session when needed, then rerun discovery from the left rail.</p>
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="grid min-h-[31rem] min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
+            <DiscoveryFiltersPanel
+              actionMessage={actionState.message}
+              browserSession={browserSession}
+              busy={busy}
+              onOpenBrowserSession={onOpenBrowserSession}
+              onRunAgentDiscovery={onRunAgentDiscovery}
+              onViewProgress={() => setShowHistory(true)}
+              searchPreferences={searchPreferences}
+            />
+            <DiscoveryResultsPanel
+              browserSession={browserSession}
+              jobs={jobs}
+              onSelectJob={onSelectJob}
+              selectedJob={selectedJob}
+            />
+            <DiscoveryDetailPanel
+              busy={busy}
+              onDismissJob={onDismissJob}
+              onQueueJob={onQueueJob}
+              selectedJob={selectedJob}
+            />
+          </div>
+        )}
+      </LockedScreenLayout>
 
-      {showEmptyDiscoveryState ? (
-        <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)]">
-          <DiscoveryFiltersPanel
-            actionMessage={actionState.message}
-            browserSession={browserSession}
-            busy={busy}
-            onCheckBrowserSession={onCheckBrowserSession}
-            onOpenBrowserSession={onOpenBrowserSession}
-            onRunAgentDiscovery={onRunAgentDiscovery}
-            searchPreferences={searchPreferences}
-          />
-          <section className="grid min-h-[31rem] content-start gap-5 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Saved results</p>
-              <span className="inline-flex items-center rounded-[var(--radius-small)] border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-[var(--tracking-heading)] text-muted-foreground">
-                0 jobs
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {configuredFilters.map((item) => (
-                <Badge key={item} variant="outline">
-                  {item}
-                </Badge>
-              ))}
-            </div>
-            <EmptyState className="min-h-[20rem]" description={emptyStateContent.description} title={emptyStateContent.title} />
-            <p className="max-w-[44rem] text-[var(--text-description)] leading-6 text-foreground-soft">
-              Keep the discovery surface lean: fill out Profile preferences first, validate the browser session, then rerun discovery from the left rail.
-            </p>
-          </section>
-        </div>
-      ) : (
-        <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
-          <DiscoveryFiltersPanel
-            actionMessage={actionState.message}
-            browserSession={browserSession}
-            busy={busy}
-            onCheckBrowserSession={onCheckBrowserSession}
-            onOpenBrowserSession={onOpenBrowserSession}
-            onRunAgentDiscovery={onRunAgentDiscovery}
-            searchPreferences={searchPreferences}
-          />
-          <DiscoveryResultsPanel
-            browserSession={browserSession}
-            jobs={jobs}
-            onSelectJob={onSelectJob}
-            selectedJob={selectedJob}
-          />
-          <DiscoveryDetailPanel
-            busy={busy}
-            onDismissJob={onDismissJob}
-            onQueueJob={onQueueJob}
-            selectedJob={selectedJob}
-          />
-        </div>
-      )}
-    </section>
+      <DiscoveryHistoryModal
+        activeRun={activeRun}
+        liveEvents={liveEvents}
+        onClose={() => setShowHistory(false)}
+        open={showHistory}
+        recentRuns={recentRuns}
+      />
+    </>
   )
 }

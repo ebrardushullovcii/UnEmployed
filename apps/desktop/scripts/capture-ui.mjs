@@ -20,7 +20,7 @@ const screens = [
   {
     buttonName: /^Discovery\s+\d+$/,
     fileName: 'discovery.png',
-    heading: 'LinkedIn results'
+    heading: 'Adapter-driven discovery'
   },
   {
     buttonName: /^Review Queue\s+\d+$/,

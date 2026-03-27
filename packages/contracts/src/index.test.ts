@@ -62,6 +62,30 @@ describe('contracts', () => {
     expect(preferences.workModes).toEqual([])
   })
 
+  test('parses discovery targets with optional custom instructions', () => {
+    const preferences = JobSearchPreferencesSchema.parse({
+      approvalMode: 'review_before_submit',
+      tailoringMode: 'balanced',
+      minimumSalaryUsd: null,
+      discovery: {
+        targets: [
+          {
+            id: 'target_1',
+            label: 'KosovaJob',
+            startingUrl: 'https://kosovajob.com/',
+            enabled: true,
+            adapterKind: 'generic_site',
+            customInstructions: 'Open the job cards from the homepage list before extracting details.'
+          }
+        ]
+      }
+    })
+
+    expect(preferences.discovery.targets[0]?.customInstructions).toBe(
+      'Open the job cards from the homepage list before extracting details.'
+    )
+  })
+
   test('rejects malformed link metadata and url fields', () => {
     expect(() =>
       CandidateProfileSchema.parse({

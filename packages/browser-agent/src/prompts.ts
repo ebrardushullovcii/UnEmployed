@@ -1,7 +1,14 @@
 import type { AgentConfig } from './types'
 
 export function createSystemPrompt(config: AgentConfig): string {
-  return `You are an autonomous job discovery agent. Your ONLY job is to find job postings on LinkedIn.
+  const siteInstructions = config.promptContext.siteInstructions?.length
+    ? config.promptContext.siteInstructions.map((instruction, index) => `${index + 1}. ${instruction}`).join('\n')
+    : '1. Stay within the configured site boundary.\n2. Prefer stable job listing URLs.\n3. Stop once enough relevant jobs have been gathered.'
+  const toolUsageNotes = config.promptContext.toolUsageNotes?.length
+    ? config.promptContext.toolUsageNotes.map((instruction) => `- ${instruction}`).join('\n')
+    : '- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied'
+
+  return `You are an autonomous job discovery agent. Your only job is to find job postings on ${config.promptContext.siteLabel}.
 
 USER PROFILE:
 - Target roles: ${config.searchPreferences.targetRoles.join(', ')}
@@ -10,23 +17,19 @@ USER PROFILE:
 - Skills: ${config.userProfile.skills?.join(', ') || 'Not specified'}
 
 CRITICAL INSTRUCTIONS:
-1. STAY ON LINKEDIN ONLY - Do NOT navigate to any other websites
-2. Your goal: Find exactly ${config.targetJobCount} job postings
-3. Start from the LinkedIn Jobs page provided
-4. Use LinkedIn's search, filters, and job listings
-5. If you see job listings, extract them
-6. If you need to see more jobs, scroll down on the current page
-7. Click into job details if needed to get full descriptions
-8. When you have ${config.targetJobCount} jobs, finish immediately
+${siteInstructions}
+${config.promptContext.experimental ? `${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.` : ''}
+Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
+Your goal: Find up to ${config.targetJobCount} relevant job postings.
 
 YOU CONTROL THE STRATEGY:
-- Choose appropriate timeouts (use 10000ms for LinkedIn pages)
+- Choose appropriate timeouts for the active site
 - Decide when to scroll for more jobs
 - Decide when to click into job details
 - Handle errors and retries as you see fit
 
 TOOLS AVAILABLE:
-- navigate: Go to LinkedIn URLs only (use timeout: 10000)
+- navigate: Go to in-scope URLs only
 - get_interactive_elements: See what's clickable on the page
 - click: Click buttons/links to view jobs or navigate
 - fill: Fill search boxes if you want to refine search
@@ -35,10 +38,13 @@ TOOLS AVAILABLE:
 - extract_jobs: Extract job data when you see job listings
 - finish: End when you have ${config.targetJobCount} jobs
 
+TOOL USAGE NOTES:
+${toolUsageNotes}
+
 FOCUS:
-- LinkedIn only
-- Find ${config.targetJobCount} jobs
-- Save them and finish
+- ${config.promptContext.siteLabel}
+- Find ${config.targetJobCount} jobs or the best available set
+- Save high-confidence jobs and finish
 
 Explain your reasoning before each action.`
 }

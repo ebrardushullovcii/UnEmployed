@@ -3,6 +3,7 @@ import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
+import { LockedScreenLayout } from '../components/locked-screen-layout'
 import { ProfileBackgroundTab } from '../components/profile/profile-background-tab'
 import { ProfileCoreTab } from '../components/profile/profile-core-tab'
 import { ProfileExperienceTab } from '../components/profile/profile-experience-tab'
@@ -440,22 +441,28 @@ export function ProfileScreen(props: {
   }
 
   return (
-    <section className="grid gap-[var(--gap-section)]">
-      <PageHeader
-        eyebrow="Profile"
-        title="Candidate setup"
-        description="Import your resume once, then review the structured profile it creates. Each tab below focuses on one part of the candidate record so the form feels lighter and easier to edit."
-      />
+    <LockedScreenLayout
+      contentClassName="xl:overflow-hidden"
+      topClassName="grid gap-[var(--gap-section)] pb-[var(--gap-section)] pt-8"
+      topContent={(
+        <>
+          <PageHeader
+            eyebrow="Profile"
+            title="Candidate setup"
+            description="Import your resume once, then review the structured profile it creates. Each tab below focuses on one part of the candidate record so the form feels lighter and easier to edit."
+          />
 
-      <ProfileResumePanel
-        busy={busy}
-        onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
-        onImportResume={onImportResume}
-        profile={overviewProfile}
-      />
-
-      <section className="grid gap-[var(--gap-content)]">
-        <div className="px-3 pt-3 pb-2 sm:px-4 sm:pt-4 sm:pb-2">
+          <ProfileResumePanel
+            busy={busy}
+            onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
+            onImportResume={onImportResume}
+            profile={overviewProfile}
+          />
+        </>
+      )}
+    >
+      <section className="grid min-h-[31rem] min-w-0 gap-[var(--gap-content)] xl:h-full xl:min-h-0 xl:grid-rows-[auto_minmax(0,1fr)]">
+        <div className="px-3 pb-2 sm:px-4 sm:pb-2">
           <div aria-label="Profile sections" className="grid items-start gap-2 sm:grid-cols-2 xl:grid-cols-4" onKeyDown={handleSectionKeyDown} role="tablist">
               {sections.map((section) => (
                 <div key={section.id} className={cn(activeSection === section.id ? 'relative z-30 w-full' : 'relative w-full')}>
@@ -521,8 +528,10 @@ export function ProfileScreen(props: {
           </div>
         </div>
 
-        <div className="relative rounded-[var(--radius-field)] border border-[var(--surface-panel-border-active-soft)] bg-[var(--surface-panel)]">
-          <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">{activeSectionContent[activeSection]}</div>
+        <div className="relative flex min-h-0 flex-col overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border-active-soft)] bg-[var(--surface-panel)]">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">{activeSectionContent[activeSection]}</div>
+          </div>
 
           <div className="border-t border-[var(--surface-panel-border)] bg-[var(--surface-overlay-medium)] px-4 py-4 sm:px-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -556,6 +565,6 @@ export function ProfileScreen(props: {
           </div>
         </div>
       </section>
-    </section>
+    </LockedScreenLayout>
   )
 }

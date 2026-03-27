@@ -1,8 +1,9 @@
 import type {
-  AgentDiscoveryProgress,
   CandidateProfile,
+  DiscoveryActivityEvent,
   JobFinderSettings,
   JobSearchPreferences,
+  JobSourceAdapterKind,
   WorkMode
 } from '@unemployed/contracts'
 
@@ -19,7 +20,7 @@ export interface JobFinderShellActions {
   checkBrowserSession: () => Promise<void>
   refreshWorkspace: () => Promise<void>
   resetWorkspace: () => Promise<void>
-  runAgentDiscovery: (onProgress?: (progress: AgentDiscoveryProgress) => void) => Promise<void>
+  runAgentDiscovery: (onActivity?: (event: DiscoveryActivityEvent) => void) => Promise<void>
   importResume: () => Promise<void>
   saveProfile: (profile: CandidateProfile) => Promise<void>
   saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => Promise<void>
@@ -102,6 +103,15 @@ export type LanguageFormEntry = {
   proficiency: string
   interviewPreference: boolean
   notes: string
+}
+
+export type DiscoveryTargetEditorValue = {
+  id: string
+  label: string
+  startingUrl: string
+  enabled: boolean
+  adapterKind: JobSourceAdapterKind
+  customInstructions: string
 }
 
 export type BooleanSelectValue = '' | 'yes' | 'no'

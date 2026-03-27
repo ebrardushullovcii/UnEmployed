@@ -68,6 +68,10 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
   })
 
   const activeScreen = useMemo(() => getActiveScreen(location.pathname), [location.pathname])
+  const usesLockedScreenLayout = activeScreen === 'profile'
+    || activeScreen === 'discovery'
+    || activeScreen === 'review-queue'
+    || activeScreen === 'applications'
 
   const screenDefinitions = useMemo(
     () => [
@@ -264,8 +268,11 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
       </header>
 
       <div className="flex h-full flex-col pt-[6.75rem]">
-        <main className="screen-scroll-area flex-1 overflow-y-auto overflow-x-hidden px-4 pb-12 pt-8 sm:px-6">
-          <div className="mx-auto w-full max-w-[118rem]">{children}</div>
+        <main className={cn(
+          'flex-1 overflow-x-hidden px-4 sm:px-6',
+          usesLockedScreenLayout ? 'overflow-hidden pb-4 pt-0' : 'screen-scroll-area overflow-y-auto pb-12 pt-8'
+        )}>
+          <div className="mx-auto h-full w-full max-w-[118rem] min-h-full">{children}</div>
         </main>
 
         <footer className="border-t border-border/10 px-4 py-3 text-[var(--text-tiny)] uppercase tracking-[var(--tracking-caps)] text-muted-foreground sm:px-6">

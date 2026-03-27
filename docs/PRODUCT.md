@@ -12,6 +12,7 @@ The shared platform owns profile data, document ingestion, search, AI providers,
 
 - Import and normalize resumes and supporting documents
 - Discover jobs through a browser-driven workflow
+- Bootstrap unfamiliar job sources with a debug agent that learns auth, navigation, search, filter, and job-detail instructions for later runs
 - Draft tailored application materials
 - Fill forms and queue applications for batch approval
 - Track statuses, notes, and reminders in a first-class application table

@@ -96,7 +96,20 @@ function createPreferences(): JobSearchPreferences {
     approvalMode: 'review_before_submit' as const,
     tailoringMode: 'balanced' as const,
     companyBlacklist: [],
-    companyWhitelist: []
+    companyWhitelist: [],
+    discovery: {
+      historyLimit: 5,
+      targets: [
+        {
+          id: 'target_linkedin_default',
+          label: 'LinkedIn Jobs',
+          startingUrl: 'https://www.linkedin.com/jobs/search/',
+          enabled: true,
+          adapterKind: 'auto',
+          customInstructions: null
+        }
+      ]
+    }
   }
 }
 

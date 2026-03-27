@@ -18,8 +18,8 @@ import {
   type JobSource
 } from '@unemployed/contracts'
 import type { JobFinderAiClient } from '@unemployed/ai-providers'
-import { runAgentDiscovery, type AgentConfig, type AgentProgress } from '@unemployed/browser-agent'
-import type { BrowserSessionRuntime, ExecuteEasyApplyInput } from './index'
+import { runAgentDiscovery, type AgentConfig } from '@unemployed/browser-agent'
+import type { AgentDiscoveryOptions, BrowserSessionRuntime, ExecuteEasyApplyInput } from './index'
 
 const knownSkillPhrases = [
   'React',
@@ -58,20 +58,6 @@ export interface LinkedInBrowserAgentRuntimeOptions {
   chromeExecutablePath?: string
   debugPort?: number
   jobExtractor?: JobPageExtractor
-  aiClient?: JobFinderAiClient
-}
-
-export interface AgentDiscoveryOptions {
-  userProfile: CandidateProfile
-  searchPreferences: {
-    targetRoles: string[]
-    locations: string[]
-  }
-  targetJobCount: number
-  maxSteps: number
-  startingUrls: string[]
-  onProgress?: (progress: AgentProgress) => void
-  signal?: AbortSignal
   aiClient?: JobFinderAiClient
 }
 
@@ -596,22 +582,58 @@ export function createLinkedInBrowserAgentRuntime(
   const jobExtractor = options.jobExtractor ?? null
   let browserPromise: Promise<Browser> | null = null
   let launchedChromeProcess: ChildProcess | null = null
-  let currentSessionState = BrowserSessionStateSchema.parse({
-    source: 'linkedin',
+  const createInitialSessionState = (source: JobSource): BrowserSessionState => BrowserSessionStateSchema.parse({
+    source,
     status: 'unknown',
     driver: 'chrome_profile_agent',
-    label: 'Chrome profile not started',
-    detail: 'Open the dedicated Chrome profile to log into LinkedIn and let the browser agent reuse that session.',
+    label: source === 'linkedin' ? 'Chrome profile not started' : 'Browser profile not started',
+    detail:
+      source === 'linkedin'
+        ? 'Open the dedicated Chrome profile to log into LinkedIn and let the browser agent reuse that session.'
+        : 'Open the dedicated Chrome profile to let the experimental generic-site agent browse within the configured hostname.',
     lastCheckedAt: new Date().toISOString()
   })
+  const currentSessionStates = new Map<JobSource, BrowserSessionState>([
+    ['linkedin', createInitialSessionState('linkedin')],
+    ['generic_site', createInitialSessionState('generic_site')]
+  ])
+
+  function resetBrowserConnection(): void {
+    browserPromise = null
+    launchedChromeProcess = null
+    currentSessionStates.set('linkedin', createInitialSessionState('linkedin'))
+    currentSessionStates.set('generic_site', createInitialSessionState('generic_site'))
+  }
+
+  function attachBrowserLifecycle(browser: Browser): Browser {
+    browser.once('disconnected', () => {
+      resetBrowserConnection()
+    })
+
+    return browser
+  }
 
   async function connectBrowser(): Promise<Browser> {
     const { chromium } = await import('playwright')
-    return chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`)
+    return attachBrowserLifecycle(await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`))
   }
 
   async function ensureBrowser(): Promise<Browser> {
-    browserPromise ??= (async () => {
+    if (browserPromise) {
+      try {
+        const browser = await browserPromise
+
+        if (browser.isConnected()) {
+          return browser
+        }
+      } catch {
+        resetBrowserConnection()
+      }
+
+      resetBrowserConnection()
+    }
+
+    browserPromise = (async () => {
       if (!(await isDebuggerEndpointReady(debugPort))) {
         const chromeExecutable = await resolveChromeExecutable(options.chromeExecutablePath)
 
@@ -635,6 +657,9 @@ export function createLinkedInBrowserAgentRuntime(
           stdio: 'ignore',
           windowsHide: false
         })
+        launchedChromeProcess.once('exit', () => {
+          resetBrowserConnection()
+        })
         launchedChromeProcess.unref()
 
         await waitForDebuggerEndpoint(debugPort)
@@ -642,7 +667,7 @@ export function createLinkedInBrowserAgentRuntime(
 
       return connectBrowser()
     })().catch((error: unknown) => {
-      browserPromise = null
+      resetBrowserConnection()
       throw error
     })
 
@@ -663,7 +688,7 @@ export function createLinkedInBrowserAgentRuntime(
   async function updateSessionStateFromPage(page: Page): Promise<BrowserSessionState> {
     const authenticated = await pageLooksAuthenticated(page)
 
-    currentSessionState = BrowserSessionStateSchema.parse({
+    const nextState = BrowserSessionStateSchema.parse({
       source: 'linkedin',
       status: authenticated ? 'ready' : 'login_required',
       driver: 'chrome_profile_agent',
@@ -674,7 +699,8 @@ export function createLinkedInBrowserAgentRuntime(
       lastCheckedAt: new Date().toISOString()
     })
 
-    return currentSessionState
+    currentSessionStates.set('linkedin', nextState)
+    return nextState
   }
 
   async function openSession(source: JobSource): Promise<BrowserSessionState> {
@@ -682,7 +708,24 @@ export function createLinkedInBrowserAgentRuntime(
       const context = await getContext()
       const page = await getPrimaryPage(context)
 
-      await ensureLinkedInLandingPage(page)
+      if (source === 'linkedin') {
+        await ensureLinkedInLandingPage(page)
+      } else {
+        await page.bringToFront()
+      }
+
+      if (source === 'generic_site') {
+        const nextState = BrowserSessionStateSchema.parse({
+          source,
+          status: 'ready',
+          driver: 'chrome_profile_agent',
+          label: 'Chrome profile ready',
+          detail: 'The dedicated Chrome profile is available for bounded experimental generic-site discovery.',
+          lastCheckedAt: new Date().toISOString()
+        })
+        currentSessionStates.set(source, nextState)
+        return nextState
+      }
 
       return BrowserSessionStateSchema.parse({
         ...(await updateSessionStateFromPage(page)),
@@ -691,21 +734,22 @@ export function createLinkedInBrowserAgentRuntime(
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'The dedicated Chrome profile could not be opened.'
 
-      currentSessionState = BrowserSessionStateSchema.parse({
+      const nextState = BrowserSessionStateSchema.parse({
         source,
         status: 'blocked',
         driver: 'chrome_profile_agent',
-        label: 'Chrome profile unavailable',
+        label: source === 'linkedin' ? 'Chrome profile unavailable' : 'Browser profile unavailable',
         detail,
         lastCheckedAt: new Date().toISOString()
       })
 
-      return currentSessionState
+      currentSessionStates.set(source, nextState)
+      return nextState
     }
   }
 
-  async function getReadyPage(): Promise<Page> {
-    const session = await openSession('linkedin')
+  async function getReadyPage(source: JobSource): Promise<Page> {
+    const session = await openSession(source)
 
     if (session.status !== 'ready') {
       throw buildSessionBlockedResult(session)
@@ -714,7 +758,9 @@ export function createLinkedInBrowserAgentRuntime(
     const context = await getContext()
     const page = await getPrimaryPage(context)
 
-    await ensureLinkedInLandingPage(page)
+    if (source === 'linkedin') {
+      await ensureLinkedInLandingPage(page)
+    }
     return page
   }
 
@@ -725,16 +771,7 @@ export function createLinkedInBrowserAgentRuntime(
 
     const browser = await browserPromise
     await browser.close()
-    browserPromise = null
-    launchedChromeProcess = null
-    currentSessionState = BrowserSessionStateSchema.parse({
-      source: 'linkedin',
-      status: 'unknown',
-      driver: 'chrome_profile_agent',
-      label: 'Chrome profile disconnected',
-      detail: 'The agent browser was disconnected because session persistence is disabled.',
-      lastCheckedAt: new Date().toISOString()
-    })
+    resetBrowserConnection()
   }
 
   async function runDiscoveryWithExtractor(
@@ -752,7 +789,7 @@ export function createLinkedInBrowserAgentRuntime(
       await page.goto(url, { waitUntil: 'domcontentloaded' })
       await updateSessionStateFromPage(page)
 
-      if (currentSessionState.status !== 'ready') {
+      if ((currentSessionStates.get('linkedin') ?? createInitialSessionState('linkedin')).status !== 'ready') {
         sessionExpired = true
         break
       }
@@ -817,7 +854,7 @@ export function createLinkedInBrowserAgentRuntime(
       await page.goto(url, { waitUntil: 'domcontentloaded' })
       await updateSessionStateFromPage(page)
 
-      if (currentSessionState.status !== 'ready') {
+      if ((currentSessionStates.get('linkedin') ?? createInitialSessionState('linkedin')).status !== 'ready') {
         sessionExpired = true
         break
       }
@@ -867,19 +904,14 @@ export function createLinkedInBrowserAgentRuntime(
 
   return {
     getSessionState(source: JobSource) {
-      return Promise.resolve(
-        BrowserSessionStateSchema.parse({
-          ...currentSessionState,
-          source
-        })
-      )
+      return Promise.resolve(currentSessionStates.get(source) ?? createInitialSessionState(source))
     },
     openSession,
     async runDiscovery(source, searchPreferences) {
       let page: Page
 
       try {
-        page = await getReadyPage()
+        page = await getReadyPage(source)
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'The LinkedIn session could not be opened.'
 
@@ -902,15 +934,15 @@ export function createLinkedInBrowserAgentRuntime(
       return runDiscoveryWithSelectors(page, source, searchPreferences, startedAt)
     },
     async executeEasyApply(source, input: ExecuteEasyApplyInput): Promise<ApplyExecutionResult> {
-      const page = await getReadyPage()
+      const page = await getReadyPage(source)
       const startedAt = new Date().toISOString()
       const checkpoints: ApplyExecutionResult['checkpoints'] = []
 
       await page.goto(input.job.canonicalUrl, { waitUntil: 'domcontentloaded' })
       await updateSessionStateFromPage(page)
 
-      if (currentSessionState.status !== 'ready') {
-        throw buildSessionBlockedResult(currentSessionState)
+      if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
+        throw buildSessionBlockedResult(currentSessionStates.get(source) ?? createInitialSessionState(source))
       }
 
       const easyApplyButton = page.getByRole('button', { name: /easy apply/i }).first()
@@ -1132,9 +1164,10 @@ export function createLinkedInBrowserAgentRuntime(
       }
 
       try {
-        const page = await getReadyPage()
+        const page = await getReadyPage(source)
 
         const agentConfig: AgentConfig = {
+          source,
           maxSteps: options.maxSteps,
           targetJobCount: options.targetJobCount,
           userProfile: options.userProfile,
@@ -1142,7 +1175,24 @@ export function createLinkedInBrowserAgentRuntime(
             targetRoles: options.searchPreferences.targetRoles,
             locations: options.searchPreferences.locations
           },
-          startingUrls: options.startingUrls
+          startingUrls: options.startingUrls,
+          navigationPolicy: {
+            allowedHostnames: options.navigationHostnames,
+            allowSubdomains: true
+          },
+          promptContext: {
+            siteLabel: options.siteLabel,
+            ...(options.siteInstructions ? { siteInstructions: options.siteInstructions } : {}),
+            ...(options.toolUsageNotes ? { toolUsageNotes: options.toolUsageNotes } : {}),
+            ...(options.experimental ? { experimental: true } : {})
+          },
+          ...(options.relevantUrlSubstrings
+            ? {
+                extractionContext: {
+                  relevantUrlSubstrings: options.relevantUrlSubstrings
+                }
+              }
+            : {})
         }
 
         // Validate aiClient exists (already checked above, but capture for type safety)

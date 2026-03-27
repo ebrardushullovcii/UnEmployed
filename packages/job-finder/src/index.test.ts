@@ -135,7 +135,20 @@ function createSeed(): JobFinderRepositorySeed {
       approvalMode: 'review_before_submit',
       tailoringMode: 'balanced',
       companyBlacklist: [],
-      companyWhitelist: ['Signal Systems']
+      companyWhitelist: ['Signal Systems'],
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: 'target_linkedin_default',
+            label: 'LinkedIn Jobs',
+            startingUrl: 'https://www.linkedin.com/jobs/search/',
+            enabled: true,
+            adapterKind: 'auto',
+            customInstructions: null
+          }
+        ]
+      }
     },
     savedJobs: [
       {
@@ -161,7 +174,8 @@ function createSeed(): JobFinderRepositorySeed {
           score: 96,
           reasons: ['Strong design systems overlap'],
           gaps: []
-        }
+        },
+        provenance: []
       },
       {
         id: 'job_generating',
@@ -186,7 +200,8 @@ function createSeed(): JobFinderRepositorySeed {
           score: 88,
           reasons: ['Strong platform overlap'],
           gaps: ['Accessibility leadership']
-        }
+        },
+        provenance: []
       }
     ],
     tailoredAssets: [
@@ -235,6 +250,13 @@ function createSeed(): JobFinderRepositorySeed {
       allowAutoSubmitOverride: false,
       keepSessionAlive: true,
       discoveryOnly: false
+    },
+    discovery: {
+      sessions: [],
+      runState: 'idle',
+      activeRun: null,
+      recentRuns: [],
+      pendingDiscoveryJobs: []
     }
   }
 }
@@ -501,7 +523,8 @@ describe('createJobFinderWorkspaceService', () => {
         score: 91,
         reasons: ['Strong UI platform overlap'],
         gaps: []
-      }
+      },
+      provenance: []
     })
     seed.tailoredAssets.push({
       id: 'asset_pause_case',

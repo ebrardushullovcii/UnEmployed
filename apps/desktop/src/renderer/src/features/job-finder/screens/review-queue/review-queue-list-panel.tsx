@@ -14,18 +14,20 @@ interface ReviewQueueListPanelProps {
 
 export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: ReviewQueueListPanelProps) {
   return (
-    <section className="rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 grid content-start gap-4 min-w-0">
+    <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="font-display text-[11px] font-bold uppercase tracking-[var(--tracking-caps)] text-foreground">Active Queue</p>
         <Badge variant="section">{formatCountLabel(queue.length, 'item')}</Badge>
       </div>
       {queue.length === 0 ? (
-        <EmptyState
-          title="No jobs in review yet"
-          description="Discovery and tailoring are wired to support review queue items once jobs move beyond the shortlist stage."
-        />
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <EmptyState
+            title="No jobs in review yet"
+            description="Discovery and tailoring are wired to support review queue items once jobs move beyond the shortlist stage."
+          />
+        </div>
       ) : (
-        <div className="grid gap-2">
+        <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1">
           {queue.map((item) => (
             <Button
               key={item.jobId}

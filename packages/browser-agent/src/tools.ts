@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Page } from 'playwright'
-import type { ToolDefinition } from './types'
+import type { AgentConfig, AgentNavigationPolicy, ToolDefinition } from './types'
 import { isAllowedUrl } from './allowlist'
 
 // Maximum timeout for navigation operations (2 minutes)
@@ -45,12 +45,13 @@ const FinishSchema = z.object({
 async function recoverFromOffAllowlist(
   page: Page,
   invalidUrl: string,
-  previousUrl: string
+  previousUrl: string,
+  policy: AgentNavigationPolicy
 ): Promise<{ recovered: boolean; error: string; recoveredUrl?: string }> {
   const error = `Navigation went to disallowed URL: ${invalidUrl}`
   
   // Check if previousUrl is valid for recovery
-  const previousUrlValid = previousUrl && isAllowedUrl(previousUrl).valid
+  const previousUrlValid = previousUrl && isAllowedUrl(previousUrl, policy).valid
   
   // Try to go back
   try {
@@ -59,7 +60,7 @@ async function recoverFromOffAllowlist(
     
     // Verify we landed on an allowed URL
     const currentUrl = page.url()
-    const urlCheck = isAllowedUrl(currentUrl)
+    const urlCheck = isAllowedUrl(currentUrl, policy)
     if (urlCheck.valid) {
       return { recovered: true, error, recoveredUrl: currentUrl }
     }
@@ -74,7 +75,7 @@ async function recoverFromOffAllowlist(
       
       // Verify we landed on an allowed URL
       const finalUrl = page.url()
-      const urlCheck = isAllowedUrl(finalUrl)
+      const urlCheck = isAllowedUrl(finalUrl, policy)
       if (urlCheck.valid) {
         return { recovered: true, error: error + ` (recovered to ${previousUrl})`, recoveredUrl: finalUrl }
       }
@@ -136,7 +137,7 @@ You control the timeout strategy:
       const startTime = Date.now()
       
       // Validate URL before navigation
-      const urlValidation = isAllowedUrl(url)
+      const urlValidation = isAllowedUrl(url, context.config.navigationPolicy)
       if (!urlValidation.valid) {
         return {
           success: false,
@@ -154,12 +155,16 @@ You control the timeout strategy:
         const loadTime = Date.now() - startTime
         
         // Validate final URL after navigation (redirects could escape allowlist)
-        const finalUrlValidation = isAllowedUrl(finalUrl)
+        const finalUrlValidation = isAllowedUrl(finalUrl, context.config.navigationPolicy)
         if (!finalUrlValidation.valid) {
           // Redirect went off-allowlist - use recovery helper
-          const recovery = await recoverFromOffAllowlist(page, finalUrl, url)
+          const recovery = await recoverFromOffAllowlist(page, finalUrl, url, context.config.navigationPolicy)
           // Only update state if recovery was successful and landed on allowed URL
-          if (recovery.recovered && recovery.recoveredUrl && isAllowedUrl(recovery.recoveredUrl).valid) {
+          if (
+            recovery.recovered &&
+            recovery.recoveredUrl &&
+            isAllowedUrl(recovery.recoveredUrl, context.config.navigationPolicy).valid
+          ) {
             state.currentUrl = recovery.recoveredUrl
           }
           return {
@@ -192,10 +197,10 @@ You control the timeout strategy:
         // Check if we ended up on a disallowed URL and recover
         let finalUrl = currentUrl
         if (currentUrl) {
-          const urlCheck = isAllowedUrl(currentUrl)
+          const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
           if (!urlCheck.valid) {
             // Try to recover back to an allowed URL
-            const recovery = await recoverFromOffAllowlist(page, currentUrl, url)
+            const recovery = await recoverFromOffAllowlist(page, currentUrl, url, context.config.navigationPolicy)
             if (recovery.recovered && recovery.recoveredUrl) {
               finalUrl = recovery.recoveredUrl
             }
@@ -221,7 +226,7 @@ You control the timeout strategy:
         }
         
         // Update state to reflect current URL after recovery
-        if (finalUrl && isAllowedUrl(finalUrl).valid) {
+        if (finalUrl && isAllowedUrl(finalUrl, context.config.navigationPolicy).valid) {
           state.currentUrl = finalUrl
         }
         
@@ -376,10 +381,10 @@ If the click fails, you'll get details about why so you can decide whether to re
 
         if (navigated) {
           // Validate final URL after navigation
-          const urlValidation = isAllowedUrl(newUrl)
+          const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy)
           if (!urlValidation.valid) {
             // Navigation went to disallowed URL - use recovery helper
-            const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl)
+            const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy)
             return {
               success: false,
               error: recovery.error,
@@ -412,10 +417,10 @@ If the click fails, you'll get details about why so you can decide whether to re
         // Check if we ended up on a disallowed URL and recover
         const currentUrl = page.url()
         if (currentUrl) {
-          const urlCheck = isAllowedUrl(currentUrl)
+          const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
           if (!urlCheck.valid) {
             // Try to recover back to an allowed URL
-            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl)
+            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
           } else {
             // URL is allowed, update state
             state.currentUrl = currentUrl
@@ -498,10 +503,10 @@ If multiple elements have the same role and name, use the index to disambiguate 
           const newUrl = page.url()
           if (newUrl !== state.currentUrl) {
             // Validate final URL after navigation
-            const urlValidation = isAllowedUrl(newUrl)
+            const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy)
             if (!urlValidation.valid) {
               // Navigation went to disallowed URL - use recovery helper
-              const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl)
+              const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy)
               return {
                 success: false,
                 error: recovery.error,
@@ -522,10 +527,10 @@ If multiple elements have the same role and name, use the index to disambiguate 
         // Check if we ended up on a disallowed URL and recover
         const currentUrl = page.url()
         if (currentUrl) {
-          const urlCheck = isAllowedUrl(currentUrl)
+          const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
           if (!urlCheck.valid) {
             // Try to recover back to an allowed URL
-            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl)
+            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
           } else {
             // URL is allowed, update state
             state.currentUrl = currentUrl
@@ -635,10 +640,10 @@ Use this after viewing a job detail to return to search results.`,
         
         // Only update state if URL actually changed and is allowed
         if (urlChanged) {
-          const urlValidation = isAllowedUrl(newUrl)
+          const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy)
           if (!urlValidation.valid) {
             // Back navigation went off-allowlist - use recovery helper
-            const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl)
+            const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy)
             state.currentUrl = page.url() // Update to whatever we recovered to
             return {
               success: false,
@@ -666,10 +671,10 @@ Use this after viewing a job detail to return to search results.`,
         // Check if we ended up on a disallowed URL and recover
         const currentUrl = page.url()
         if (currentUrl) {
-          const urlCheck = isAllowedUrl(currentUrl)
+          const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
           if (!urlCheck.valid) {
             // Try to recover back to an allowed URL
-            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl)
+            await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
           } else {
             // URL is allowed, update state
             state.currentUrl = currentUrl
@@ -731,14 +736,29 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
         const pageUrl = page.url()
         const pageTextLength = pageText.length
 
-        const linkedInJobUrls = await page.evaluate(() => {
+        const relevantUrlSubstrings = context.config.extractionContext?.relevantUrlSubstrings ?? []
+        const discoveredUrls = await page.evaluate((input: { allowedHostnames: string[]; relevantUrlSubstrings: string[] }) => {
           const urls = new Set<string>()
           for (const anchor of Array.from(document.querySelectorAll('a[href]'))) {
             const href = anchor.getAttribute('href')
             if (!href) continue
             try {
               const absoluteUrl = new URL(href, window.location.href).toString()
-              if (absoluteUrl.includes('/jobs/view/')) {
+              const parsedUrl = new URL(absoluteUrl)
+              const hostname = parsedUrl.hostname.toLowerCase()
+              const hostAllowed = input.allowedHostnames.some((allowedHostname) =>
+                hostname === allowedHostname || hostname.endsWith(`.${allowedHostname}`)
+              )
+              if (!hostAllowed) {
+                continue
+              }
+
+              const haystack = `${parsedUrl.pathname}${parsedUrl.search}`.toLowerCase()
+              const matchesRelevantUrl =
+                input.relevantUrlSubstrings.length === 0 ||
+                input.relevantUrlSubstrings.some((substring) => haystack.includes(substring.toLowerCase()))
+
+              if (matchesRelevantUrl) {
                 urls.add(absoluteUrl)
               }
             } catch {
@@ -746,10 +766,13 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             }
           }
           return Array.from(urls).slice(0, 30)
+        }, {
+          allowedHostnames: context.config.navigationPolicy.allowedHostnames.map((hostname) => hostname.toLowerCase()),
+          relevantUrlSubstrings
         })
 
-        const extractionContext = linkedInJobUrls.length > 0
-          ? `${pageText}\n\nLinkedIn job URLs found on page:\n${linkedInJobUrls.map((url) => `- ${url}`).join('\n')}`
+        const extractionContext = discoveredUrls.length > 0
+          ? `${pageText}\n\nRelevant in-scope URLs found on page:\n${discoveredUrls.map((url) => `- ${url}`).join('\n')}`
           : pageText
         const extractionTextLength = extractionContext.length
         
@@ -783,15 +806,65 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
         let hasJobContent = false
         
         if (pageType === 'search_results') {
-          // Look for job-related keywords common in search results
-          hasJobContent = ['job', 'position', 'apply', 'senior', 'engineer', 'developer', 'manager'].some(
-            keyword => lowerText.includes(keyword)
-          )
+          // Look for job-related keywords across common multilingual listing pages.
+          hasJobContent = [
+            'job',
+            'jobs',
+            'position',
+            'positions',
+            'apply',
+            'career',
+            'careers',
+            'opening',
+            'openings',
+            'vacancy',
+            'vacancies',
+            'role',
+            'roles',
+            'konkurs',
+            'pune',
+            'pune ',
+            'punes',
+            'punesim',
+            'punetor',
+            'pozit',
+            'pozita',
+            'pozite',
+            'karriere',
+            'karrier',
+            'apliko',
+            'aplikim',
+            'vende te lira',
+            'vende pune'
+          ].some((keyword) => lowerText.includes(keyword))
         } else if (pageType === 'job_detail' || pageType === 'company_page') {
-          // Job detail pages and company pages should have description, requirements, or job listings
-          hasJobContent = ['description', 'requirements', 'qualifications', 'responsibilities', 'career', 'openings', 'hiring'].some(
-            keyword => lowerText.includes(keyword)
-          ) || lowerText.includes('apply') || lowerText.includes('job')
+          // Job detail pages and company pages should have description, requirements, or job listings.
+          hasJobContent = [
+            'description',
+            'requirements',
+            'qualifications',
+            'responsibilities',
+            'career',
+            'careers',
+            'openings',
+            'hiring',
+            'job',
+            'position',
+            'apply',
+            'pershkrim',
+            'detyr',
+            'kualifik',
+            'kerkes',
+            'kerkesa',
+            'pergjegjes',
+            'pergjegjesi',
+            'apliko',
+            'konkurs',
+            'pune',
+            'pozit',
+            'karriere',
+            'orari'
+          ].some((keyword) => lowerText.includes(keyword))
         } else {
           // For unknown types, require substantial content
           hasJobContent = pageTextLength > 1000
@@ -809,7 +882,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             pageTextTruncated,
             readyForExtraction,
             maxJobs,
-            linkedInJobUrlsFound: linkedInJobUrls.length,
+            linkedInJobUrlsFound: discoveredUrls.length,
             checks: {
               hasMinimumContent,
               hasNoLoadingIndicators,
@@ -860,7 +933,7 @@ Call this when you've found enough jobs or can't find any more relevant position
   }
 ]
 
-export function getToolDefinitions() {
+export function getToolDefinitions(_config?: AgentConfig) {
   return browserTools.map(tool => ({
     type: 'function' as const,
     function: {
@@ -871,6 +944,6 @@ export function getToolDefinitions() {
   }))
 }
 
-export function getToolExecutor(name: string) {
+export function getToolExecutor(name: string, _config?: AgentConfig) {
   return browserTools.find(tool => tool.name === name)
 }

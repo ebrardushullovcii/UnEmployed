@@ -1,4 +1,4 @@
-import { RefreshCw, Search } from 'lucide-react'
+import { History, Search } from 'lucide-react'
 import type { BrowserSessionState, JobSearchPreferences } from '@unemployed/contracts'
 import { Chip } from '@renderer/components/ui/chip'
 import { Button } from '@renderer/components/ui/button'
@@ -9,9 +9,9 @@ interface DiscoveryFiltersPanelProps {
   actionMessage: string | null
   browserSession: BrowserSessionState
   busy: boolean
-  onCheckBrowserSession: () => void
   onOpenBrowserSession: () => void
   onRunAgentDiscovery: (() => void) | undefined
+  onViewProgress: () => void
   searchPreferences: JobSearchPreferences
 }
 
@@ -19,15 +19,20 @@ export function DiscoveryFiltersPanel({
   actionMessage,
   browserSession,
   busy,
-  onCheckBrowserSession,
   onOpenBrowserSession,
   onRunAgentDiscovery,
+  onViewProgress,
   searchPreferences
 }: DiscoveryFiltersPanelProps) {
   const sections = [
     { label: 'Roles', values: searchPreferences.targetRoles, empty: 'No role targets configured yet.' },
     { label: 'Locations', values: searchPreferences.locations, empty: 'No preferred locations configured yet.' },
-    { label: 'Work modes', values: searchPreferences.workModes, empty: 'No work modes configured yet.' }
+    { label: 'Work modes', values: searchPreferences.workModes, empty: 'No work modes configured yet.' },
+    {
+      label: 'Discovery targets',
+      values: searchPreferences.discovery.targets.map((target) => `${target.label}${target.enabled ? '' : ' (disabled)'}`),
+      empty: 'No discovery targets configured yet.'
+    }
   ]
 
   const isChromeAgent = browserSession.driver === 'chrome_profile_agent'
@@ -36,35 +41,40 @@ export function DiscoveryFiltersPanel({
   const isBlocked = browserSession.status === 'blocked'
 
   return (
-    <section className="grid min-h-[31rem] min-w-0 content-start gap-4 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5">
+    <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 xl:h-full xl:min-h-0">
       <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Search controls</p>
 
-      <div className="grid min-h-[26.5rem] min-w-0 overflow-hidden rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)]">
+      <div className="flex min-h-[26.5rem] min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] xl:min-h-0">
         <div className="grid min-w-0 gap-3 border-b border-[var(--surface-panel-border)] px-4 py-4">
-          <StatusBadge tone={getSessionTone(browserSession)}>{browserSession.label}</StatusBadge>
-          <p className="max-w-[28rem] text-[0.9rem] leading-7 text-foreground-soft">{browserSession.detail}</p>
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+            <StatusBadge tone={getSessionTone(browserSession)}>{browserSession.label}</StatusBadge>
+            <span className="rounded-full border border-[var(--surface-panel-border)] px-2.5 py-1 text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">
+              {isChromeAgent ? 'Managed profile' : 'Browser agent off'}
+            </span>
+          </div>
+          <p className="max-w-full break-words text-[0.92rem] leading-7 text-foreground-soft">{browserSession.detail}</p>
 
           {isChromeAgent ? (
             <div className="grid gap-2">
               {needsLogin || isBlocked ? (
-                <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
-                  Log into LinkedIn in the Chrome window that opened, then click <strong>Check login status</strong> below.
+                <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
+                  Open the browser profile, finish the login if needed, and this same action will refresh the session state for you.
                 </div>
               ) : null}
               {isReady ? (
-                <div role="status" className="rounded-[var(--radius-small)] border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[0.85rem] leading-6 text-emerald-600 dark:text-emerald-400">
-                  LinkedIn session is active. You can run discovery or check login again at any time.
+                <div role="status" className="rounded-[var(--radius-small)] border border-emerald-500/20 bg-emerald-500/5 px-3 py-3 text-[0.85rem] leading-6 text-emerald-600 dark:text-emerald-400">
+                  The active adapter session is ready. Open the profile any time if you want to confirm the browser state before another run.
                 </div>
               ) : null}
             </div>
           ) : (
-            <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
+            <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
               Browser agent is not enabled. Set <strong>UNEMPLOYED_LINKEDIN_BROWSER_AGENT=1</strong> in your <strong>.env.local</strong> and restart the app.
             </div>
           )}
         </div>
 
-        <div className="grid min-w-0 content-start gap-0">
+        <div className="grid min-h-0 min-w-0 flex-1 content-start gap-0 overflow-y-auto">
           {sections.map((section, index) => (
             <div key={section.label} className={index === 0 ? 'min-w-0 px-4 py-4' : 'min-w-0 border-t border-[var(--surface-panel-border)] px-4 py-4'}>
               <div className="grid min-w-0 gap-3">
@@ -89,38 +99,40 @@ export function DiscoveryFiltersPanel({
           {isChromeAgent ? (
             <div className="grid gap-2">
               <Button
-                className="h-11 w-full"
+                className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-[0.01em]"
                 disabled={busy}
                 onClick={onOpenBrowserSession}
+                size="sm"
                 type="button"
                 variant="secondary"
               >
                 <Search className="size-4" />
-                {isReady ? 'Reopen Chrome profile' : 'Open Chrome profile'}
-              </Button>
-
-              <Button
-                className="h-11 w-full"
-                disabled={busy}
-                onClick={onCheckBrowserSession}
-                type="button"
-                variant="ghost"
-              >
-                <RefreshCw className="size-4" />
-                Check login status
+                {isReady ? 'Refresh Chrome session' : 'Open Chrome profile'}
               </Button>
             </div>
           ) : null}
 
+          <Button
+            className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-[0.01em]"
+            onClick={onViewProgress}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <History className="size-4" />
+            View progress and full history
+          </Button>
+
           {onRunAgentDiscovery ? (
             <Button
-              className="h-11 w-full"
+              className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-[0.01em]"
               disabled={busy || !isReady}
               onClick={onRunAgentDiscovery}
+              size="sm"
               type="button"
               variant="primary"
             >
-              Run AI Agent Discovery
+              Run discovery across targets
             </Button>
           ) : null}
 

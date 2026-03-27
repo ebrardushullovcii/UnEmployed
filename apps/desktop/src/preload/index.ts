@@ -3,11 +3,11 @@ import type {
   CandidateProfile,
   DesktopPlatformPing,
   DesktopWindowControlsState,
+  DiscoveryActivityEvent,
   JobFinderSettings,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
-  JobSearchPreferences,
-  AgentDiscoveryProgress
+  JobSearchPreferences
 } from '@unemployed/contracts'
 
 const testApiEnabled = process.env.UNEMPLOYED_ENABLE_TEST_API === '1' || process.env.UNEMPLOYED_ENABLE_TEST_API === 'true'
@@ -86,21 +86,21 @@ const desktopApi = {
     runDiscovery: () =>
       ipcRenderer.invoke('job-finder:run-discovery') as Promise<JobFinderWorkspaceSnapshot>,
     runAgentDiscovery: (
-      onProgress?: (progress: AgentDiscoveryProgress) => void
+      onActivity?: (event: DiscoveryActivityEvent) => void
     ) => {
-      const progressHandler = onProgress
-        ? (_event: Electron.IpcRendererEvent, progress: AgentDiscoveryProgress) => {
-            onProgress(progress)
+      const activityHandler = onActivity
+        ? (_event: Electron.IpcRendererEvent, event: DiscoveryActivityEvent) => {
+            onActivity(event)
           }
         : null
 
-      if (progressHandler) {
-        ipcRenderer.on('job-finder:agent-discovery-progress', progressHandler)
+      if (activityHandler) {
+        ipcRenderer.on('job-finder:discovery-activity', activityHandler)
       }
 
       const cleanup = () => {
-        if (progressHandler) {
-          ipcRenderer.off('job-finder:agent-discovery-progress', progressHandler)
+        if (activityHandler) {
+          ipcRenderer.off('job-finder:discovery-activity', activityHandler)
         }
       }
 

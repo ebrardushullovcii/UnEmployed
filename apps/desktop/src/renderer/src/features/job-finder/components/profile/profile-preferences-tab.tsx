@@ -1,6 +1,7 @@
-import { workModeValues } from '@unemployed/contracts'
+import { jobSourceAdapterKindValues, workModeValues } from '@unemployed/contracts'
 import type { Control, UseFormReturn } from 'react-hook-form'
 import { Controller } from 'react-hook-form'
+import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { CheckboxField } from '../checkbox-field'
 import { FormSelect } from '../form-select'
@@ -55,6 +56,25 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
   const { control: preferenceControl, register: registerPreferences, setValue: setPreferenceValue, watch: watchPreferences } = preferencesForm
   const { control: profileControl, register: registerProfile } = profileForm
   const listFieldOptions = { shouldDirty: true, shouldTouch: true, shouldValidate: true } as const
+  const discoveryTargets = watchPreferences('discoveryTargets')
+
+  const updateDiscoveryTargets = (nextTargets: SearchPreferencesEditorValues['discoveryTargets']) => {
+    setPreferenceValue('discoveryTargets', nextTargets, listFieldOptions)
+  }
+
+  const addDiscoveryTarget = () => {
+    updateDiscoveryTargets([
+      ...discoveryTargets,
+      {
+        id: `target_${Date.now()}`,
+        label: '',
+        startingUrl: '',
+        enabled: true,
+        adapterKind: 'auto',
+        customInstructions: ''
+      }
+    ])
+  }
 
   return (
     <div className="grid gap-6">
@@ -231,6 +251,152 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
             <Field><FieldLabel>Minimum salary</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerPreferences('minimumSalaryUsd')} /></Field>
             <Field><FieldLabel>Target salary</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerPreferences('targetSalaryUsd')} /></Field>
             <Field><FieldLabel>Salary currency</FieldLabel><ProfileInput {...registerPreferences('salaryCurrency')} /></Field>
+          </div>
+        </article>
+
+        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="grid gap-1">
+              <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Discovery targets</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">Configure the ordered site entrypoints the discovery agent should run through. Generic sites stay explicitly experimental.</p>
+            </div>
+            <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add target</Button>
+          </div>
+
+          <div className="grid gap-3">
+            {discoveryTargets.length === 0 ? (
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">No discovery targets configured yet. Add a LinkedIn or experimental generic-site entrypoint.</p>
+            ) : null}
+
+            {discoveryTargets.map((target, index) => (
+              <div key={target.id} className="grid gap-3 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Target {index + 1}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      disabled={index === 0}
+                      onClick={() => {
+                        const nextTargets = [...discoveryTargets]
+                        const currentTarget = nextTargets[index]
+                        const previousTarget = nextTargets[index - 1]
+                        if (!currentTarget || !previousTarget) {
+                          return
+                        }
+                        nextTargets[index - 1] = currentTarget
+                        nextTargets[index] = previousTarget
+                        updateDiscoveryTargets(nextTargets)
+                      }}
+                      type="button"
+                      variant="ghost"
+                    >
+                      Move up
+                    </Button>
+                    <Button
+                      disabled={index === discoveryTargets.length - 1}
+                      onClick={() => {
+                        const nextTargets = [...discoveryTargets]
+                        const currentTarget = nextTargets[index]
+                        const followingTarget = nextTargets[index + 1]
+                        if (!currentTarget || !followingTarget) {
+                          return
+                        }
+                        nextTargets[index] = followingTarget
+                        nextTargets[index + 1] = currentTarget
+                        updateDiscoveryTargets(nextTargets)
+                      }}
+                      type="button"
+                      variant="ghost"
+                    >
+                      Move down
+                    </Button>
+                    <Button
+                      onClick={() => updateDiscoveryTargets(discoveryTargets.filter((entry) => entry.id !== target.id))}
+                      type="button"
+                      variant="ghost"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+                  <Field>
+                    <FieldLabel>Site label</FieldLabel>
+                    <ProfileInput
+                      onChange={(event) => {
+                        const nextTargets = [...discoveryTargets]
+                        nextTargets[index] = { ...target, label: event.target.value }
+                        updateDiscoveryTargets(nextTargets)
+                      }}
+                      value={target.label}
+                    />
+                  </Field>
+                  <Controller
+                    control={preferenceControl}
+                    name="discoveryTargets"
+                    render={() => (
+                      <Field>
+                        <FieldLabel>Adapter</FieldLabel>
+                        <FormSelect
+                          onValueChange={(value) => {
+                            const nextTargets = [...discoveryTargets]
+                            nextTargets[index] = { ...target, adapterKind: value as SearchPreferencesEditorValues['discoveryTargets'][number]['adapterKind'] }
+                            updateDiscoveryTargets(nextTargets)
+                          }}
+                          options={jobSourceAdapterKindValues.map((adapterKind) => ({
+                            label: adapterKind === 'generic_site' ? 'Generic site (experimental)' : formatStatusLabel(adapterKind),
+                            value: adapterKind
+                          }))}
+                          placeholder="Select adapter"
+                          triggerClassName={profileSelectTriggerClassName}
+                          value={target.adapterKind}
+                        />
+                      </Field>
+                    )}
+                  />
+                  <Field className="md:col-span-2">
+                    <FieldLabel>Starting URL</FieldLabel>
+                    <ProfileInput
+                      onChange={(event) => {
+                        const nextTargets = [...discoveryTargets]
+                        nextTargets[index] = { ...target, startingUrl: event.target.value }
+                        updateDiscoveryTargets(nextTargets)
+                      }}
+                      placeholder="https://www.linkedin.com/jobs/search/"
+                      value={target.startingUrl}
+                    />
+                  </Field>
+                  <Field className="md:col-span-2">
+                    <FieldLabel>Custom navigation instructions</FieldLabel>
+                    <ProfileTextarea
+                      className="min-h-[var(--textarea-tall)]"
+                      onChange={(event) => {
+                        const nextTargets = [...discoveryTargets]
+                        nextTargets[index] = { ...target, customInstructions: event.target.value }
+                        updateDiscoveryTargets(nextTargets)
+                      }}
+                      placeholder="Optional: explain how this site exposes jobs, where to click, what sections to trust, or what to avoid."
+                      rows={4}
+                      value={target.customInstructions}
+                    />
+                  </Field>
+                  <div className="grid gap-2 md:col-span-2">
+                    <CheckboxField
+                      checked={target.enabled}
+                      label="Enabled for sequential discovery runs"
+                      onCheckedChange={(checked) => {
+                        const nextTargets = [...discoveryTargets]
+                        nextTargets[index] = { ...target, enabled: checked }
+                        updateDiscoveryTargets(nextTargets)
+                      }}
+                    />
+                    {target.adapterKind === 'generic_site' ? (
+                      <p className="text-[0.82rem] leading-6 text-amber-600 dark:text-amber-400">Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </article>
       </section>

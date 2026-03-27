@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
   CandidateProfile,
+  DiscoveryActivityEvent,
   JobFinderSettings,
   JobSearchPreferences,
   JobFinderWorkspaceSnapshot
@@ -70,6 +71,7 @@ export interface JobFinderPageContext {
   selectedReviewItem: JobFinderWorkspaceSnapshot['reviewQueue'][number] | null
   selectedReviewJob: JobFinderWorkspaceSnapshot['discoveryJobs'][number] | null
   selectedTailoredAsset: JobFinderWorkspaceSnapshot['tailoredAssets'][number] | null
+  liveDiscoveryEvents: readonly DiscoveryActivityEvent[]
   workspace: JobFinderWorkspaceSnapshot
 }
 
@@ -101,13 +103,15 @@ export function JobFinderDiscoveryRoute() {
       actionState={context.actionState}
       busy={context.busy}
       browserSession={context.workspace.browserSession}
+      activeRun={context.workspace.activeDiscoveryRun}
       jobs={context.workspace.discoveryJobs}
-      onCheckBrowserSession={context.onCheckBrowserSession}
+      liveEvents={context.liveDiscoveryEvents}
       onDismissJob={context.onDismissJob}
       onOpenBrowserSession={context.onOpenBrowserSession}
       onQueueJob={context.onQueueJob}
       onRunAgentDiscovery={context.onRunAgentDiscovery}
       onSelectJob={context.onSelectDiscoveryJob}
+      recentRuns={context.workspace.recentDiscoveryRuns}
       searchPreferences={context.workspace.searchPreferences}
       selectedJob={context.selectedDiscoveryJob}
     />
@@ -167,6 +171,7 @@ export function JobFinderPage() {
   const navigate = useNavigate()
   const workspaceState = useJobFinderWorkspace()
   const [actionState, setActionState] = useState<ActionState>({ busy: false, message: null })
+  const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<DiscoveryActivityEvent[]>([])
 
   const [selectedDiscoveryJobId, setSelectedDiscoveryJobId] = useResettableSelection(
     workspaceState.status === 'ready' ? workspaceState.workspace.selectedDiscoveryJobId : null
@@ -282,7 +287,9 @@ export function JobFinderPage() {
       void runAction(
         actions.openBrowserSession,
         () => undefined,
-        'Dedicated Chrome profile opened for the LinkedIn agent.'
+        workspace.browserSession.status === 'ready'
+          ? 'Chrome session refreshed.'
+          : 'Chrome profile opened and session status refreshed.'
       ),
     onQueueJob: (jobId: string) =>
       void runAction(
@@ -294,13 +301,15 @@ export function JobFinderPage() {
         'Job moved into the review queue.'
       ),
     onRunAgentDiscovery: () =>
-      // TODO: Wire up onProgress callback to show real-time discovery progress in UI
-      // Currently progress is sent via IPC but not consumed by the UI
-      void runAction(
-        () => actions.runAgentDiscovery(),
-        () => undefined,
+      void (setLiveDiscoveryEvents([]), runAction(
+        () => actions.runAgentDiscovery((event) => {
+          setLiveDiscoveryEvents((current) => [...current, event])
+        }),
+        () => {
+          setLiveDiscoveryEvents([])
+        },
         'AI Agent discovery run completed and saved locally.'
-      ),
+      )),
     onResetWorkspace: () =>
       void runAction(
         actions.resetWorkspace,
@@ -331,6 +340,7 @@ export function JobFinderPage() {
     selectedApplicationAttempt,
     selectedApplicationRecord,
     selectedDiscoveryJob,
+    liveDiscoveryEvents,
     selectedReviewItem,
     selectedReviewJob,
     selectedTailoredAsset,

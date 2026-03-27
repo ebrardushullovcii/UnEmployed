@@ -3,6 +3,7 @@ import {
   BrowserSessionStateSchema,
   DiscoveryRunResultSchema,
   JobPostingSchema,
+  type AgentDiscoveryProgress,
   type ApplyExecutionResult,
   type BrowserSessionState,
   type CandidateProfile,
@@ -90,7 +91,8 @@ function parseSalaryFloor(salaryText: string | null): number | null {
 
 function buildSessionBlockedResult(session: BrowserSessionState): Error {
   const detail = session.detail ? ` ${session.detail}` : ''
-  return new Error(`LinkedIn session is not ready for automation.${detail}`.trim())
+  const sourceLabel = session.source === 'linkedin' ? 'LinkedIn session' : 'Browser session'
+  return new Error(`${sourceLabel} is not ready for automation.${detail}`.trim())
 }
 
 function buildDiscoveryQuerySummary(searchPreferences: JobSearchPreferences): string {
@@ -125,8 +127,14 @@ export interface AgentDiscoveryOptions {
   targetJobCount: number
   maxSteps: number
   startingUrls: string[]
+  siteLabel: string
+  navigationHostnames: string[]
+  siteInstructions?: string[]
+  toolUsageNotes?: string[]
+  relevantUrlSubstrings?: string[]
+  experimental?: boolean
   aiClient?: JobFinderAiClient
-  onProgress?: (progress: { currentUrl: string; jobsFound: number; stepCount: number; currentAction?: string }) => void
+  onProgress?: (progress: AgentDiscoveryProgress) => void
   signal?: AbortSignal
 }
 
@@ -337,6 +345,51 @@ export function createCatalogBrowserSessionRuntime(
           }
         ]
       }))
+    },
+    async runAgentDiscovery(source, options) {
+      const session = getSession(source)
+
+      if (session.status !== 'ready') {
+        throw buildSessionBlockedResult(session)
+      }
+
+      options.onProgress?.({
+        currentUrl: options.startingUrls[0] ?? 'about:blank',
+        jobsFound: 0,
+        stepCount: 1,
+        currentAction: 'navigate',
+        targetId: null,
+        adapterKind: source
+      })
+
+      const startedAt = new Date().toISOString()
+      const filteredJobs = catalog.filter((job) => {
+        if (job.source !== source) {
+          return false
+        }
+
+        const matchesRole = matchesAnyPhrase(job.title, options.searchPreferences.targetRoles)
+        const matchesLocation = matchesAnyPhrase(job.location, options.searchPreferences.locations)
+        return matchesRole && matchesLocation
+      }).slice(0, options.targetJobCount)
+
+      options.onProgress?.({
+        currentUrl: options.startingUrls[0] ?? 'about:blank',
+        jobsFound: filteredJobs.length,
+        stepCount: 2,
+        currentAction: 'extract_jobs',
+        targetId: null,
+        adapterKind: source
+      })
+
+      return DiscoveryRunResultSchema.parse({
+        source,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        querySummary: `${options.searchPreferences.targetRoles.join(', ') || 'all roles'} | ${options.searchPreferences.locations.join(', ') || 'all locations'} | ${options.siteLabel}`,
+        warning: filteredJobs.length === 0 ? `No catalog jobs matched the current ${options.siteLabel} target.` : null,
+        jobs: filteredJobs
+      })
     }
   }
 }

@@ -94,21 +94,41 @@ function createSeed(): JobFinderRepositorySeed {
       approvalMode: 'review_before_submit' as const,
       tailoringMode: 'balanced' as const,
       companyBlacklist: [],
-      companyWhitelist: []
+      companyWhitelist: [],
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: 'target_linkedin_default',
+            label: 'LinkedIn Jobs',
+            startingUrl: 'https://www.linkedin.com/jobs/search/',
+            enabled: true,
+            adapterKind: 'auto' as const,
+            customInstructions: null
+          }
+        ]
+      }
     },
     savedJobs: [],
     tailoredAssets: [],
     applicationRecords: [],
     applicationAttempts: [],
-    settings: {
+      settings: {
       resumeFormat: 'html' as const,
       resumeTemplateId: 'classic_ats' as const,
       fontPreset: 'inter_requisite' as const,
       humanReviewRequired: true,
       allowAutoSubmitOverride: false,
-      keepSessionAlive: true,
-      discoveryOnly: false
-    }
+        keepSessionAlive: true,
+        discoveryOnly: false
+      },
+      discovery: {
+        sessions: [],
+        runState: 'idle' as const,
+        activeRun: null,
+        recentRuns: [],
+        pendingDiscoveryJobs: []
+      }
   }
 }
 
@@ -265,12 +285,13 @@ describe('createInMemoryJobFinderRepository', () => {
               description: 'Lead product design for operational software.',
               keySkills: ['Figma'],
               status: 'ready_for_review',
-              matchAssessment: {
-                score: 94,
-                reasons: ['Strong overlap'],
-                gaps: []
+               matchAssessment: {
+                 score: 94,
+                 reasons: ['Strong overlap'],
+                 gaps: []
+                },
+                provenance: []
               }
-            }
           ]
         })
       )
@@ -317,13 +338,14 @@ describe('createInMemoryJobFinderRepository', () => {
           description: 'Lead product design for operational software.',
           keySkills: ['Figma'],
           status: 'ready_for_review',
-          matchAssessment: {
-            score: 94,
-            reasons: ['Strong overlap'],
-            gaps: []
+            matchAssessment: {
+              score: 94,
+              reasons: ['Strong overlap'],
+              gaps: []
+            },
+            provenance: []
           }
-        }
-      ])
+        ])
 
       await firstRepository.upsertApplicationAttempt({
         id: 'attempt_1',

@@ -69,7 +69,20 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       approvalMode: 'review_before_submit',
       tailoringMode: 'balanced',
       companyBlacklist: [],
-      companyWhitelist: []
+      companyWhitelist: [],
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: 'target_linkedin_default',
+            label: 'LinkedIn Jobs',
+            startingUrl: 'https://www.linkedin.com/jobs/search/',
+            enabled: true,
+            adapterKind: 'auto',
+            customInstructions: null
+          }
+        ]
+      }
     }),
     savedJobs: [],
     tailoredAssets: [],
@@ -83,6 +96,13 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       keepSessionAlive: true,
       allowAutoSubmitOverride: false,
       discoveryOnly: false
-    })
+    }),
+    discovery: {
+      sessions: [],
+      runState: 'idle',
+      activeRun: null,
+      recentRuns: [],
+      pendingDiscoveryJobs: []
+    }
   }
 }

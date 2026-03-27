@@ -1,4 +1,11 @@
-import type { JobPosting, CandidateProfile, AgentDiscoveryProgress, Tool, ToolCall } from '@unemployed/contracts'
+import type {
+  JobPosting,
+  CandidateProfile,
+  AgentDiscoveryProgress,
+  JobSource,
+  Tool,
+  ToolCall
+} from '@unemployed/contracts'
 import type { Page } from 'playwright'
 
 // Re-export shared types from contracts
@@ -10,12 +17,32 @@ export interface AgentSearchPreferences {
   locations: string[]
 }
 
+export interface AgentNavigationPolicy {
+  allowedHostnames: string[]
+  allowSubdomains?: boolean
+}
+
+export interface AgentPromptContext {
+  siteLabel: string
+  siteInstructions?: string[]
+  toolUsageNotes?: string[]
+  experimental?: boolean
+}
+
+export interface AgentExtractionContext {
+  relevantUrlSubstrings?: string[]
+}
+
 export interface AgentConfig {
+  source: JobSource
   maxSteps: number
   targetJobCount: number
   userProfile: CandidateProfile
   searchPreferences: AgentSearchPreferences
   startingUrls: string[]
+  navigationPolicy: AgentNavigationPolicy
+  promptContext: AgentPromptContext
+  extractionContext?: AgentExtractionContext
 }
 
 export interface AgentState {
