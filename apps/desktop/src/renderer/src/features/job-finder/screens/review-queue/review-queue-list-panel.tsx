@@ -30,6 +30,7 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
         <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1">
           {queue.map((item) => (
             <Button
+              aria-current={selectedItem?.jobId === item.jobId ? 'true' : undefined}
               key={item.jobId}
               className={cn(
                 'h-auto grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 text-left text-foreground transition-colors hover:bg-(--field)',

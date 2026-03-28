@@ -156,17 +156,17 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
               {suiteModules.map((moduleName, index) => (
                 <div key={moduleName} className="flex items-center gap-4">
                   {index > 0 ? <span aria-hidden="true" className="h-4 w-px bg-border/50" /> : null}
-                  <Button
+                  <span
+                    aria-current={moduleName === 'job-finder' ? 'page' : undefined}
                     className={cn(
                       'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[10px] font-semibold tracking-(--tracking-badge) shadow-none',
                       moduleName === 'job-finder'
                         ? 'text-(--text-headline)'
-                        : 'text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground'
                     )}
-                    type="button"
                   >
                     {formatStatusLabel(moduleName)}
-                  </Button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -260,7 +260,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
               <Settings2 className="size-4" />
               Settings
             </Button>
-            <Button className="h-10 w-10 rounded-(--radius-button) border-(--surface-panel-border) bg-(--surface-panel) text-(--text-headline) hover:bg-(--surface-panel-raised) md:hidden" size="icon-sm" type="button" variant="secondary">
+            <Button aria-label="Notifications coming soon" className="h-10 w-10 rounded-(--radius-button) border-(--surface-panel-border) bg-(--surface-panel) text-(--text-headline) hover:bg-(--surface-panel-raised) md:hidden" disabled size="icon-sm" type="button" variant="secondary">
               <Bell className="size-4" />
             </Button>
           </div>

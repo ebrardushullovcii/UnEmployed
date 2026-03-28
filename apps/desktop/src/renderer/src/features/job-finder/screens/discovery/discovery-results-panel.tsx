@@ -70,7 +70,7 @@ export function DiscoveryResultsPanel({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="grid gap-1">
-                    <strong className="text-[1.15rem] text-(--text-headline)">{job.title}</strong>
+                    <strong className="text-(length:--text-section-title) text-(--text-headline)">{job.title}</strong>
                     <span className="text-(length:--text-description) text-foreground-muted">
                       {job.company} - {job.location}
                     </span>

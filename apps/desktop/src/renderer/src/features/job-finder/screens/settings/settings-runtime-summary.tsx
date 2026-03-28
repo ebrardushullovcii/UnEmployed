@@ -26,7 +26,7 @@ export function SettingsRuntimeSummary({
       <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <KeyRound className="size-4 text-primary" />
-          <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Session management</p>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Session management</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SettingsStat label="Keep session alive" value={settings.keepSessionAlive ? 'Enabled' : 'Disabled'} />
@@ -37,7 +37,7 @@ export function SettingsRuntimeSummary({
       <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <FileText className="size-4 text-primary" />
-          <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Automation runtime</p>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Automation runtime</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SettingsStat label="Model provider" value={agentProvider.label} />
@@ -51,7 +51,7 @@ export function SettingsRuntimeSummary({
       <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <FileText className="size-4 text-primary" />
-          <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Document defaults</p>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Document defaults</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SettingsStat label="Export format" value={settings.resumeFormat.toUpperCase()} />
@@ -66,7 +66,7 @@ export function SettingsRuntimeSummary({
       <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8 md:col-span-2">
         <div className="flex items-center gap-3">
           <ShieldAlert className="size-4 text-destructive" />
-          <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Safety protocols</p>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Safety protocols</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SettingsStat label="Human in the loop" value={settings.humanReviewRequired ? 'Required' : 'Disabled'} />

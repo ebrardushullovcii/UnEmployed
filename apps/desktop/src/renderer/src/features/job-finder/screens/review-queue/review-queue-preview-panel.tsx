@@ -46,6 +46,22 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
           </div>
         </div>
       ) : null}
+      {queue.length > 0 && !selectedItem ? (
+        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+          <EmptyState
+            title="Select a job to preview"
+            description="Choose a queued job to inspect the generated asset preview and review-ready resume sections."
+          />
+        </div>
+      ) : null}
+      {queue.length > 0 && selectedItem && !showGenerationState && !selectedAsset ? (
+        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+          <EmptyState
+            title="Loading preview"
+            description="The tailored asset is still syncing into the preview panel. Try again in a moment."
+          />
+        </div>
+      ) : null}
       {queue.length > 0 && selectedItem && !showGenerationState && selectedAsset ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           <div className="relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-6 text-(length:--text-body) leading-[1.48] text-foreground">
@@ -59,8 +75,8 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
             {selectedAsset.previewSections.map((section) => (
               <div key={section.heading} className="grid gap-2">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">{section.heading}</p>
-                {section.lines.map((line) => (
-                  <p key={line} className="text-(length:--text-body) leading-7 text-foreground-soft">{line}</p>
+                {section.lines.map((line, lineIndex) => (
+                  <p key={`${section.heading}-${lineIndex}-${line}`} className="text-(length:--text-body) leading-7 text-foreground-soft">{line}</p>
                 ))}
               </div>
             ))}

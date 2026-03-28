@@ -64,7 +64,7 @@ export function ProfileListEditor({
     >
       <div className="flex items-baseline justify-between gap-3">
         <FieldLabel className="text-(length:--text-tiny) font-medium tracking-(--tracking-label) text-foreground-muted" htmlFor={inputId}>{label}</FieldLabel>
-        <span className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">{formatCountLabel(values.length)}</span>
+        <span className="text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">{formatCountLabel(values.length)}</span>
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_5rem] gap-3">
@@ -105,13 +105,13 @@ export function ProfileListEditor({
             displayMode === 'chips' ? (
               <div
                 key={`${label}_${value}`}
-                className="inline-flex max-w-full items-center gap-2 rounded-full border border-(--border) bg-(--surface-fill-chip) px-3 py-2 text-[0.9rem] text-foreground-soft"
+                className="inline-flex max-w-full items-center gap-2 rounded-full border border-(--border) bg-(--surface-fill-chip) px-3 py-2 text-(length:--text-item) text-foreground-soft"
                 title={value}
               >
                 <span className="truncate whitespace-nowrap">{value}</span>
                 <button
                   aria-label={`Remove ${value}`}
-                  className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[0.8rem] leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full text-(length:--text-icon-small) leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"
                   onClick={() => updateValues(values.filter((entry) => entry !== value))}
                   type="button"
                 >
@@ -121,13 +121,13 @@ export function ProfileListEditor({
             ) : (
               <div
                 key={`${label}_${value}`}
-                className="grid gap-2 rounded-(--radius-field) border border-border/60 bg-(--surface-fill-soft) px-3 py-2.5 text-[0.9rem] leading-6 text-foreground-soft"
+                className="grid gap-2 rounded-(--radius-field) border border-border/60 bg-(--surface-fill-soft) px-3 py-2.5 text-(length:--text-item) leading-6 text-foreground-soft"
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="min-w-0 whitespace-pre-wrap wrap-break-word">{value}</span>
                   <button
                     aria-label={`Remove ${value}`}
-                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.8rem] leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-(length:--text-icon-small) leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"
                     onClick={() => updateValues(values.filter((entry) => entry !== value))}
                     type="button"
                   >

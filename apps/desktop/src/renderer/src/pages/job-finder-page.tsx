@@ -36,8 +36,8 @@ function WorkspaceStateScreen(props: {
 }) {
   return (
     <main className="grid min-h-full place-items-center bg-canvas px-6 py-10">
-      <div className={props.tone === 'error' ? 'grid max-w-136 gap-3 rounded-[0.55rem] border border-critical/35 bg-[rgba(22,12,11,0.86)] p-8 shadow-[0_30px_80px_rgba(0,0,0,0.32)]' : 'grid max-w-136 gap-3 rounded-[0.55rem] border border-border-subtle bg-[rgba(16,16,16,0.9)] p-8 shadow-[0_30px_80px_rgba(0,0,0,0.32)]'}>
-        <p className="text-[0.68rem] uppercase tracking-[0.24em] text-foreground-muted">{props.kicker}</p>
+      <div className={props.tone === 'error' ? 'grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-critical/35 bg-(--workspace-state-card-bg-error) p-8 shadow-(--workspace-state-card-shadow)' : 'grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-border-subtle bg-(--workspace-state-card-bg-default) p-8 shadow-(--workspace-state-card-shadow)'}>
+        <p className="text-(length:--text-tiny) uppercase tracking-[0.24em] text-foreground-muted">{props.kicker}</p>
         <h1>{props.title}</h1>
         <p>{props.message}</p>
       </div>

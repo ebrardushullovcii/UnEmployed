@@ -127,6 +127,9 @@
   --text-small: 0.78rem;
   --text-tiny: 0.68rem;
   --text-label: 0.58rem;
+  --text-count: 0.72rem;
+  --text-item: 0.9rem;
+  --text-icon-small: 0.8rem;
 
   /* Component tokens - Tracking */
   --tracking-label: 0.11em;
@@ -157,6 +160,11 @@
   --warning-border: rgba(227, 202, 127, 0.24);
   --warning-surface: rgba(227, 202, 127, 0.08);
   --warning-text: #e6c86f;
+  --workspace-state-card-max-width: 34rem;
+  --workspace-state-card-radius: var(--radius-panel);
+  --workspace-state-card-bg-default: rgba(16, 16, 16, 0.9);
+  --workspace-state-card-bg-error: rgba(22, 12, 11, 0.86);
+  --workspace-state-card-shadow: 0 30px 80px rgba(0, 0, 0, 0.32);
 
   background: var(--background);
   color: var(--foreground);

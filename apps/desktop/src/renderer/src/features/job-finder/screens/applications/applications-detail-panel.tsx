@@ -1,6 +1,4 @@
-import { Bolt } from 'lucide-react'
 import type { ApplicationAttempt, ApplicationRecord } from '@unemployed/contracts'
-import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/utils'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
@@ -58,14 +56,6 @@ export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: App
                 </div>
               </article>
             ))}
-          </div>
-           <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Bolt className="size-4 text-primary" />
-              <span className="font-display text-[10px] font-bold uppercase tracking-(--tracking-mono) text-primary">Predictive next step</span>
-            </div>
-            <p className="mb-4 text-[11px] leading-relaxed text-foreground">Based on historical data for this entity, the next interview step will likely focus on concurrent process management.</p>
-            <Button className="w-full" variant="secondary" type="button">Run simulation</Button>
           </div>
         </div>
       ) : (

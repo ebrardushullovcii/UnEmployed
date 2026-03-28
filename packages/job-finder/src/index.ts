@@ -89,6 +89,7 @@ interface ResolvedDiscoveryAdapter {
 interface MergeDiscoveryResult {
   mergedJobs: SavedJob[]
   newJobs: SavedJob[]
+  validatedCount: number
   duplicatesMerged: number
   invalidSkipped: number
 }
@@ -471,6 +472,7 @@ async function mergeDiscoveredPostings(
   const savedJobsByPostingKey = new Map<string, SavedJob>()
   const savedJobsBySourceId = new Map<string, SavedJob>()
   const newJobs: SavedJob[] = []
+  let validatedCount = 0
   let duplicatesMerged = 0
   let invalidSkipped = 0
 
@@ -508,6 +510,8 @@ async function mergeDiscoveredPostings(
       invalidSkipped += 1
       continue
     }
+
+    validatedCount += 1
     
     const matchAssessment = await createMatchAssessmentAsync(
       aiClient,
@@ -535,6 +539,7 @@ async function mergeDiscoveredPostings(
   return {
     mergedJobs: [...nextJobsById.values()],
     newJobs,
+    validatedCount,
     duplicatesMerged,
     invalidSkipped
   }
@@ -1837,46 +1842,48 @@ export function createJobFinderWorkspaceService(
               }))
             }
 
-            const session = await browserRuntime.getSessionState(adapterKind)
-            await persistDiscoveryState((current) => ({
-              ...current,
-              sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session)),
-              activeRun
-            }))
+            if (adapter.requiresManagedSession) {
+              const session = await browserRuntime.getSessionState(adapterKind)
+              await persistDiscoveryState((current) => ({
+                ...current,
+                sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session)),
+                activeRun
+              }))
 
-            if (adapter.requiresManagedSession && session.status !== 'ready') {
-              const warning = `${adapter.label} session is not ready. ${session.detail ?? 'Open the browser profile and try again.'}`
-              activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
-                ...execution,
-                state: 'failed',
-                completedAt: new Date().toISOString(),
-                warning
-              }))
-              activeRun = DiscoveryRunRecordSchema.parse({
-                ...activeRun,
-                summary: {
-                  ...activeRun.summary,
-                  targetsCompleted: countCompletedTargetExecutions(activeRun)
-                }
-              })
-              emitActivity(createDiscoveryEvent({
-                runId: activeRun.id,
-                timestamp: new Date().toISOString(),
-                kind: 'warning',
-                stage: 'target',
-                targetId: target.id,
-                adapterKind: target.adapterKind,
-                resolvedAdapterKind: adapterKind,
-                message: warning,
-                terminalState: 'failed',
-                url: target.startingUrl,
-                jobsFound: 0,
-                jobsPersisted: 0,
-                jobsStaged: 0,
-                duplicatesMerged: 0,
-                invalidSkipped: 0
-              }))
-              continue
+              if (session.status !== 'ready') {
+                const warning = `${adapter.label} session is not ready. ${session.detail ?? 'Open the browser profile and try again.'}`
+                activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+                  ...execution,
+                  state: 'failed',
+                  completedAt: new Date().toISOString(),
+                  warning
+                }))
+                activeRun = DiscoveryRunRecordSchema.parse({
+                  ...activeRun,
+                  summary: {
+                    ...activeRun.summary,
+                    targetsCompleted: countCompletedTargetExecutions(activeRun)
+                  }
+                })
+                emitActivity(createDiscoveryEvent({
+                  runId: activeRun.id,
+                  timestamp: new Date().toISOString(),
+                  kind: 'warning',
+                  stage: 'target',
+                  targetId: target.id,
+                  adapterKind: target.adapterKind,
+                  resolvedAdapterKind: adapterKind,
+                  message: warning,
+                  terminalState: 'failed',
+                  url: target.startingUrl,
+                  jobsFound: 0,
+                  jobsPersisted: 0,
+                  jobsStaged: 0,
+                  duplicatesMerged: 0,
+                  invalidSkipped: 0
+                }))
+                continue
+              }
             }
 
             const customInstructions = splitCustomDiscoveryInstructions(target.customInstructions)
@@ -1978,7 +1985,7 @@ export function createJobFinderWorkspaceService(
               summary: {
                 ...activeRun.summary,
                 targetsCompleted: countCompletedTargetExecutions(activeRun),
-                validJobsFound: activeRun.summary.validJobsFound + discoveryResult.jobs.length,
+                validJobsFound: activeRun.summary.validJobsFound + mergeResult.validatedCount,
                 jobsPersisted: activeRun.summary.jobsPersisted + (settings.discoveryOnly ? 0 : mergeResult.newJobs.length),
                 jobsStaged: activeRun.summary.jobsStaged + (settings.discoveryOnly ? mergeResult.newJobs.length : 0),
                 duplicatesMerged: activeRun.summary.duplicatesMerged + mergeResult.duplicatesMerged,
@@ -2143,7 +2150,7 @@ export function createJobFinderWorkspaceService(
           ...pendingJob,
           status: 'shortlisted'
         })
-        await repository.replaceSavedJobs([...savedJobs, nextJob])
+        await repository.replaceSavedJobs(mergeSavedJobs(savedJobs, [nextJob]))
         await persistDiscoveryState((current) => ({
           ...current,
           pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter((job) => job.id !== jobId)

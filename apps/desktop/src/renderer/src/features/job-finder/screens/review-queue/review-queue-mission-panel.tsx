@@ -71,7 +71,9 @@ export function ReviewQueueMissionPanel({
             <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
               <h3 className="mb-4 block font-display text-[10px] font-bold uppercase tracking-(--tracking-caps) text-muted-foreground">Telemetry Stream</h3>
               <div className="space-y-1 font-mono text-[9px] leading-relaxed text-foreground-soft">
-                {selectedAsset?.notes.length ? selectedAsset.notes.map((note, index) => <div key={`${note}-${index}`}>{`14:22:0${index + 1}`} # {note.toUpperCase()}</div>) : <div>14:22:05 # ASSET_READY_FOR_OPERATOR_SIGNOFF</div>}
+                {selectedAsset?.notes.length
+                  ? selectedAsset.notes.map((note, index) => <div key={`telemetry_${index}`}>{note}</div>)
+                  : <div>No telemetry recorded yet.</div>}
               </div>
             </div>
             {actionMessage ? <p className="font-mono text-[10px] uppercase tracking-(--tracking-normal) text-primary">{actionMessage}</p> : null}
