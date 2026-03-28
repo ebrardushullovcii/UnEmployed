@@ -28,7 +28,6 @@ function resolveManagedSessionSource(target: JobSearchPreferences['discovery']['
 
 interface DiscoveryFiltersPanelProps {
   actionMessage: string | null
-  browserSession: BrowserSessionState
   busy: boolean
   discoverySessions: readonly DiscoveryAdapterSessionState[]
   onOpenBrowserSession: () => void
@@ -46,7 +45,6 @@ type SectionValue =
 
 export function DiscoveryFiltersPanel({
   actionMessage,
-  browserSession,
   busy,
   discoverySessions,
   onOpenBrowserSession,

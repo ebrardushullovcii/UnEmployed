@@ -91,7 +91,6 @@ export function DiscoveryScreen(props: {
           <div className="grid min-h-[31rem] min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
             <DiscoveryFiltersPanel
               actionMessage={actionState.message}
-              browserSession={browserSession}
               busy={busy}
               discoverySessions={discoverySessions}
               onOpenBrowserSession={onOpenBrowserSession}
@@ -119,7 +118,6 @@ export function DiscoveryScreen(props: {
           <div className="grid min-h-[31rem] min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
             <DiscoveryFiltersPanel
               actionMessage={actionState.message}
-              browserSession={browserSession}
               busy={busy}
               discoverySessions={discoverySessions}
               onOpenBrowserSession={onOpenBrowserSession}

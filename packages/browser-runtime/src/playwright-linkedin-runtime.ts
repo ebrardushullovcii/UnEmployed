@@ -51,6 +51,23 @@ export interface JobPageExtractionInput {
 
 export type JobPageExtractor = (input: JobPageExtractionInput) => Promise<JobPosting[]>
 
+function validateJobPostings(values: readonly unknown[], context: string): JobPosting[] {
+  const parsedJobs: JobPosting[] = []
+
+  for (const value of values) {
+    const parsed = JobPostingSchema.safeParse(value)
+
+    if (parsed.success) {
+      parsedJobs.push(parsed.data)
+      continue
+    }
+
+    console.warn(`[BrowserRuntime] Skipping invalid job posting from ${context}:`, parsed.error.flatten())
+  }
+
+  return parsedJobs
+}
+
 export interface LinkedInBrowserAgentRuntimeOptions {
   userDataDir: string
   headless?: boolean
@@ -580,6 +597,7 @@ export function createLinkedInBrowserAgentRuntime(
   const maxJobsPerRun = Math.max(1, options.maxJobsPerRun ?? 8)
   const debugPort = options.debugPort ?? 9333
   const jobExtractor = options.jobExtractor ?? null
+  const runtimeAiClient = options.aiClient ?? null
   let browserPromise: Promise<Browser> | null = null
   let launchedChromeProcess: ChildProcess | null = null
   const createInitialSessionState = (source: JobSource): BrowserSessionState => BrowserSessionStateSchema.parse({
@@ -715,10 +733,10 @@ export function createLinkedInBrowserAgentRuntime(
       if (source === 'generic_site') {
         const nextState = BrowserSessionStateSchema.parse({
           source,
-          status: 'ready',
+          status: 'unknown',
           driver: 'chrome_profile_agent',
-          label: 'Chrome profile ready',
-          detail: 'The dedicated Chrome profile is available for bounded experimental generic-site discovery.',
+          label: 'Browser profile opened',
+          detail: 'The dedicated Chrome profile is open for bounded experimental generic-site discovery. Target-site readiness is validated when navigation begins.',
           lastCheckedAt: new Date().toISOString()
         })
         currentSessionStates.set(source, nextState)
@@ -748,6 +766,13 @@ export function createLinkedInBrowserAgentRuntime(
 
   async function getReadyPage(source: JobSource): Promise<Page> {
     const session = await openSession(source)
+
+    if (source === 'generic_site') {
+      const context = await getContext()
+      const page = await getPrimaryPage(context)
+      await page.bringToFront()
+      return page
+    }
 
     if (session.status !== 'ready') {
       throw buildSessionBlockedResult(session)
@@ -798,12 +823,15 @@ export function createLinkedInBrowserAgentRuntime(
       // Wrap extractor call to handle transient errors gracefully
       let extractedJobs: JobPosting[] = []
       try {
-        extractedJobs = await extractor({
-          pageText,
-          pageUrl: page.url(),
-          pageType: 'search_results',
-          maxJobs: maxJobsPerRun
-        })
+        extractedJobs = validateJobPostings(
+          await extractor({
+            pageText,
+            pageUrl: page.url(),
+            pageType: 'search_results',
+            maxJobs: maxJobsPerRun
+          }),
+          page.url()
+        )
       } catch (extractError) {
         console.error(`[Discovery] Extraction failed for ${page.url()}:`, extractError)
         // Continue to next URL, preserving any previously accumulated results
@@ -1165,17 +1193,18 @@ export function createLinkedInBrowserAgentRuntime(
         ]
       })
     },
-    async runAgentDiscovery(source: JobSource, options: AgentDiscoveryOptions): Promise<DiscoveryRunResult> {
+    async runAgentDiscovery(source: JobSource, agentOptions: AgentDiscoveryOptions): Promise<DiscoveryRunResult> {
       const startedAt = new Date().toISOString()
+      const aiClient = agentOptions.aiClient ?? runtimeAiClient
 
-      if (!options.aiClient?.chatWithTools) {
+      if (!aiClient?.chatWithTools) {
         return DiscoveryRunResultSchema.parse({
           source,
           startedAt,
           completedAt: new Date().toISOString(),
           querySummary: buildQuerySummary({
-            targetRoles: options.searchPreferences.targetRoles,
-            locations: options.searchPreferences.locations
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
           }),
           warning: 'AI client does not support tool calling. Cannot run agent discovery.',
           jobs: []
@@ -1188,8 +1217,8 @@ export function createLinkedInBrowserAgentRuntime(
           startedAt,
           completedAt: new Date().toISOString(),
           querySummary: buildQuerySummary({
-            targetRoles: options.searchPreferences.targetRoles,
-            locations: options.searchPreferences.locations
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
           }),
           warning: 'No job extractor configured. Cannot run agent discovery.',
           jobs: []
@@ -1201,36 +1230,34 @@ export function createLinkedInBrowserAgentRuntime(
 
         const agentConfig: AgentConfig = {
           source,
-          maxSteps: options.maxSteps,
-          targetJobCount: options.targetJobCount,
-          userProfile: options.userProfile,
+          maxSteps: agentOptions.maxSteps,
+          targetJobCount: agentOptions.targetJobCount,
+          userProfile: agentOptions.userProfile,
           searchPreferences: {
-            targetRoles: options.searchPreferences.targetRoles,
-            locations: options.searchPreferences.locations
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
           },
-          startingUrls: options.startingUrls,
+          startingUrls: agentOptions.startingUrls,
           navigationPolicy: {
-            allowedHostnames: options.navigationHostnames,
+            allowedHostnames: agentOptions.navigationHostnames,
             allowSubdomains: true
           },
           promptContext: {
-            siteLabel: options.siteLabel,
-            ...(options.siteInstructions ? { siteInstructions: options.siteInstructions } : {}),
-            ...(options.toolUsageNotes ? { toolUsageNotes: options.toolUsageNotes } : {}),
-            ...(options.experimental ? { experimental: true } : {})
+            siteLabel: agentOptions.siteLabel,
+            ...(agentOptions.siteInstructions ? { siteInstructions: agentOptions.siteInstructions } : {}),
+            ...(agentOptions.toolUsageNotes ? { toolUsageNotes: agentOptions.toolUsageNotes } : {}),
+            ...(agentOptions.experimental ? { experimental: true } : {})
           },
-          ...(options.relevantUrlSubstrings
+          ...(agentOptions.relevantUrlSubstrings
             ? {
                 extractionContext: {
-                  relevantUrlSubstrings: options.relevantUrlSubstrings
+                  relevantUrlSubstrings: agentOptions.relevantUrlSubstrings
                 }
               }
             : {})
         }
 
-        // Validate aiClient exists (already checked above, but capture for type safety)
-        const aiClient = options.aiClient
-        const chatWithTools = aiClient?.chatWithTools
+        const chatWithTools = aiClient.chatWithTools
         if (!chatWithTools) {
           throw new Error('AI client not available')
         }
@@ -1255,13 +1282,17 @@ export function createLinkedInBrowserAgentRuntime(
               const normalizedPageType = validPageTypes.includes(input.pageType as typeof validPageTypes[number])
                 ? (input.pageType as typeof validPageTypes[number])
                 : 'search_results' // Default fallback
-              
-              const jobs = await jobExtractor({
-                pageText: input.pageText,
-                pageUrl: input.pageUrl,
-                pageType: normalizedPageType,
-                maxJobs: input.maxJobs
-              })
+
+              const jobs = validateJobPostings(
+                await jobExtractor({
+                  pageText: input.pageText,
+                  pageUrl: input.pageUrl,
+                  pageType: normalizedPageType,
+                  maxJobs: input.maxJobs
+                }),
+                input.pageUrl
+              )
+
               return jobs.map((job) => ({
                 sourceJobId: job.sourceJobId,
                 canonicalUrl: job.canonicalUrl,
@@ -1279,8 +1310,8 @@ export function createLinkedInBrowserAgentRuntime(
               }))
             }
           },
-          options.onProgress,
-          options.signal
+          agentOptions.onProgress,
+          agentOptions.signal
         )
 
         return DiscoveryRunResultSchema.parse({
@@ -1288,8 +1319,8 @@ export function createLinkedInBrowserAgentRuntime(
           startedAt,
           completedAt: new Date().toISOString(),
           querySummary: buildQuerySummary({
-            targetRoles: options.searchPreferences.targetRoles,
-            locations: options.searchPreferences.locations
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
           }),
           warning: [
             result.incomplete
@@ -1302,7 +1333,7 @@ export function createLinkedInBrowserAgentRuntime(
           jobs: result.jobs
         })
       } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
+        if ((error instanceof DOMException && error.name === 'AbortError') || agentOptions.signal?.aborted) {
           throw error
         }
 
@@ -1313,8 +1344,8 @@ export function createLinkedInBrowserAgentRuntime(
           startedAt,
           completedAt: new Date().toISOString(),
           querySummary: buildQuerySummary({
-            targetRoles: options.searchPreferences.targetRoles,
-            locations: options.searchPreferences.locations
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
           }),
           warning: `Agent discovery failed: ${detail}`,
           jobs: []
