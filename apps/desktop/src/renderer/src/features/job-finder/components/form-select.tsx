@@ -11,9 +11,9 @@ interface FormSelectProps {
   onValueChange: (value: string) => void
   options: ReadonlyArray<{ label: string; value: string }>
   placeholder?: string
-  triggerAriaDescribedBy?: string | undefined
-  triggerId?: string | undefined
-  triggerClassName?: string | undefined
+  triggerAriaDescribedBy?: string
+  triggerId?: string
+  triggerClassName?: string
   value: string
 }
 

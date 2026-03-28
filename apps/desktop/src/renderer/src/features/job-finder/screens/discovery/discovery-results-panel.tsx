@@ -47,13 +47,13 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {sessionNeedsAttention && jobs.length > 0 ? (
-        <div className="rounded-(--radius-panel) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--warning-text)">
+        <div aria-atomic="true" className="rounded-(--radius-panel) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--warning-text)" role="alert">
           Saved results are still available below. Open the browser profile again when you want to run a fresh discovery.
         </div>
       ) : null}
 
       {sessionWaitingOnRuntime && jobs.length > 0 ? (
-        <div className="rounded-(--radius-panel) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--info-text)">
+        <div aria-atomic="true" aria-live="polite" className="rounded-(--radius-panel) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--info-text)" role="status">
           Saved results are available below while the browser runtime finishes publishing the latest session snapshot.
         </div>
       ) : null}
@@ -67,7 +67,7 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {jobs.length > 0 ? (
-        <ul className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto pr-1">
+        <ul className="m-0 grid min-h-0 flex-1 list-none content-start gap-3 overflow-y-auto p-0 pr-1">
           {jobs.map((job) => {
             const isSelected = selectedJob?.id === job.id
 

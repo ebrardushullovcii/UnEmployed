@@ -4,12 +4,14 @@ import { StatusBadge } from '../../components/status-badge'
 import { formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
 
 interface ReviewQueuePreviewPanelProps {
-  previewState: 'missing' | null
+  previewState: PreviewState
   queue: readonly ReviewQueueItem[]
   selectedAsset: TailoredAsset | null
   selectedItem: ReviewQueueItem | null
   selectedJob: SavedJob | null
 }
+
+type PreviewState = 'error' | 'missing' | 'syncing' | null
 
 export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
