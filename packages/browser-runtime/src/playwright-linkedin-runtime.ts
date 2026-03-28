@@ -52,6 +52,14 @@ export interface JobPageExtractionInput {
 export type JobPageExtractor = (input: JobPageExtractionInput) => Promise<JobPosting[]>
 
 function validateJobPostings(values: readonly unknown[], context: string): JobPosting[] {
+  if (!Array.isArray(values)) {
+    console.warn(
+      `[BrowserRuntime] Expected an array of job postings from ${context}, received ${typeof values}:`,
+      values
+    )
+    return []
+  }
+
   const parsedJobs: JobPosting[] = []
 
   for (const value of values) {
@@ -809,21 +817,19 @@ export function createLinkedInBrowserAgentRuntime(
     const seenJobIds = new Set<string>()
 
     for (const url of buildDiscoveryUrls(searchPreferences)) {
-      await page.goto(url, { waitUntil: 'domcontentloaded' })
-      await updateSessionStateFromPage(page)
-
-      if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
-        sessionExpired = true
-        break
-      }
-
-      await page.waitForTimeout(2000)
-      const pageText = await page.evaluate(() => document.body.innerText)
-
-      // Wrap extractor call to handle transient errors gracefully
-      let extractedJobs: JobPosting[] = []
       try {
-        extractedJobs = validateJobPostings(
+        await page.goto(url, { waitUntil: 'domcontentloaded' })
+        await updateSessionStateFromPage(page)
+
+        if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
+          sessionExpired = true
+          break
+        }
+
+        await page.waitForTimeout(2000)
+        const pageText = await page.evaluate(() => document.body.innerText)
+
+        const extractedJobs = validateJobPostings(
           await extractor({
             pageText,
             pageUrl: page.url(),
@@ -832,16 +838,16 @@ export function createLinkedInBrowserAgentRuntime(
           }),
           page.url()
         )
-      } catch (extractError) {
-        console.error(`[Discovery] Extraction failed for ${page.url()}:`, extractError)
-        // Continue to next URL, preserving any previously accumulated results
-      }
 
-      for (const job of extractedJobs) {
-        if (!seenJobIds.has(job.sourceJobId)) {
-          seenJobIds.add(job.sourceJobId)
-          allJobs.push(job)
+        for (const job of extractedJobs) {
+          if (!seenJobIds.has(job.sourceJobId)) {
+            seenJobIds.add(job.sourceJobId)
+            allJobs.push(job)
+          }
         }
+      } catch (error) {
+        console.error(`[Discovery] Failed to process ${url}:`, error)
+        continue
       }
 
       if (allJobs.length >= maxJobsPerRun) {
@@ -877,16 +883,21 @@ export function createLinkedInBrowserAgentRuntime(
     let sessionExpired = false
 
     for (const url of buildDiscoveryUrls(searchPreferences)) {
-      await page.goto(url, { waitUntil: 'domcontentloaded' })
-      await updateSessionStateFromPage(page)
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded' })
+        await updateSessionStateFromPage(page)
 
-      if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
-        sessionExpired = true
-        break
+        if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
+          sessionExpired = true
+          break
+        }
+
+        await page.waitForTimeout(1500)
+        candidates.push(...(await collectSearchCandidates(page, maxJobsPerRun)))
+      } catch (error) {
+        console.error(`[Discovery] Failed to collect candidates from ${url}:`, error)
+        continue
       }
-
-      await page.waitForTimeout(1500)
-      candidates.push(...(await collectSearchCandidates(page, maxJobsPerRun)))
 
       if (uniqueByKey(candidates, (candidate) => candidate.sourceJobId).length >= maxJobsPerRun) {
         break
@@ -905,8 +916,12 @@ export function createLinkedInBrowserAgentRuntime(
         const job = await extractJobDetail(page, candidate)
 
         if (job === null) {
-          sessionExpired = true
-          break
+          if (!(await pageLooksAuthenticated(page))) {
+            sessionExpired = true
+            break
+          }
+
+          continue
         }
 
         jobs.push(job)
@@ -1241,8 +1256,10 @@ export function createLinkedInBrowserAgentRuntime(
         })
       }
 
+      let page: Page | null = null
+
       try {
-        const page = await getReadyPage(source)
+        page = await getReadyPage(source)
 
         const agentConfig: AgentConfig = {
           source,
@@ -1362,6 +1379,14 @@ export function createLinkedInBrowserAgentRuntime(
           warning: `Agent discovery failed: ${detail}`,
           jobs: []
         })
+      } finally {
+        if (source === 'linkedin' && page) {
+          try {
+            await updateSessionStateFromPage(page)
+          } catch {
+            // Ignore final session refresh failures so discovery result wins.
+          }
+        }
       }
     }
   }
