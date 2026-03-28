@@ -150,8 +150,8 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
         <div className="grid grid-cols-[15.5rem_minmax(0,1fr)_auto] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:grid-cols-[18.5rem_minmax(0,1fr)_auto] sm:pl-3 sm:pr-0">
           <div className="row-span-2 flex min-w-0 items-center pl-2 sm:pl-3" style={dragRegionStyle}>
             <div className="flex min-w-0 flex-col">
-              <span className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-(--headline-primary) sm:text-[2.7rem]">UNEMPLOYED</span>
-              <span className="text-[0.72rem] uppercase tracking-(--tracking-caps) text-muted-foreground sm:text-(length:--text-tiny)">Job Finder Desktop</span>
+              <span className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2.7rem]">UNEMPLOYED</span>
+              <span className="text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:text-(length:var(--text-tiny))">Job Finder Desktop</span>
             </div>
           </div>
 
