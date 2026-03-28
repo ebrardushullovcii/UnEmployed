@@ -9,7 +9,7 @@ Job Finder foundation with local persistence, structured profile editing, resume
 - The desktop shell is runnable and organized around typed Electron main, preload, and renderer boundaries.
 - `Job Finder` persists local state in SQLite and already supports profile editing, saved jobs, tailored assets, application records, and tracked apply attempts.
 - Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback and provenance tracking.
-- The browser-runtime layer now supports adapter-driven discovery with deterministic fixtures, an opt-in dedicated Chrome-profile LinkedIn agent, and an explicitly experimental hostname-bounded `generic_site` path.
+- The browser-runtime layer now supports adapter-driven discovery with deterministic fixtures, a dedicated Chrome-profile LinkedIn agent enabled by default in desktop builds unless explicitly disabled, and an explicitly experimental hostname-bounded `generic_site` path.
 - Discovery targets now have a clear next planned step: a job-source debug agent that can learn and verify reusable instructions for newly added sources when the user cannot author them manually.
 - The renderer now uses routed screen structure, feature-local composition, shared design tokens, and a repeatable Playwright screenshot workflow for UI QA.
 - The Profile screen now keeps resume import and analysis in a persistent top panel, with lighter review tabs for basics, experience, background, and preferences plus tab-level completion progress.

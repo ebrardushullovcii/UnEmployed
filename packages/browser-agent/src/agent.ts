@@ -1,5 +1,5 @@
 import type { Page } from 'playwright'
-import { JobPostingSchema } from '@unemployed/contracts'
+import { JobPostingSchema, type JobPosting } from '@unemployed/contracts'
 import type {
   AgentConfig,
   AgentState,
@@ -30,20 +30,22 @@ export interface JobExtractor {
     pageUrl: string
     pageType: string
     maxJobs: number
-  }): Promise<Array<{
-    sourceJobId: string
-    title: string
-    company: string
-    location: string
-    description: string
-    url: string
-    salary?: string
-    postedAt?: string
-    workMode?: string[]
-    applyPath?: string
-    easyApplyEligible?: boolean
-    keySkills?: string[]
-  }>>
+  }): Promise<Array<Pick<
+    JobPosting,
+    | 'sourceJobId'
+    | 'canonicalUrl'
+    | 'title'
+    | 'company'
+    | 'location'
+    | 'description'
+    | 'salaryText'
+    | 'summary'
+    | 'postedAt'
+    | 'workMode'
+    | 'applyPath'
+    | 'easyApplyEligible'
+    | 'keySkills'
+  >>>
 }
 
 export async function runAgentDiscovery(
@@ -291,7 +293,7 @@ async function executeToolCall(
                   source: config.source,
                   sourceJobId: job.sourceJobId,
                   discoveryMethod: 'browser_agent' as const,
-                  canonicalUrl: job.url,
+                  canonicalUrl: job.canonicalUrl,
                   title: job.title,
                   company: job.company,
                   location: job.location,
@@ -310,8 +312,8 @@ async function executeToolCall(
                   easyApplyEligible: job.easyApplyEligible ?? false,
                   postedAt: job.postedAt || new Date().toISOString(),
                   discoveredAt: new Date().toISOString(),
-                  salaryText: job.salary || null,
-                  summary: job.description.slice(0, 240),
+                  salaryText: job.salaryText || null,
+                  summary: job.summary || job.description.slice(0, 240),
                   description: job.description,
                   keySkills: job.keySkills ?? []
                 }

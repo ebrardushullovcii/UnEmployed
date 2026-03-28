@@ -92,6 +92,14 @@ export function DiscoveryHistoryModal(props: {
   }, [props.open, runOptions])
 
   useEffect(() => {
+    if (!props.open || props.activeRun?.state !== 'running') {
+      return
+    }
+
+    setSelectedRunId(props.activeRun.id)
+  }, [props.activeRun?.id, props.activeRun?.state, props.open])
+
+  useEffect(() => {
     if (!props.open) {
       return
     }

@@ -845,7 +845,6 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             'roles',
             'konkurs',
             'pune',
-            'pune ',
             'punes',
             'punesim',
             'punetor',

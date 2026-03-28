@@ -1603,12 +1603,13 @@ export function createJobFinderWorkspaceService(
       )
 
       if (settings.discoveryOnly) {
+        const nextPendingJobs = mergeResult.mergedJobs.filter((job) => !persistedSavedJobIds.has(job.id))
         await repository.replaceSavedJobs(mergeResult.mergedJobs.filter(
           (job) => persistedSavedJobIds.has(job.id) && !mergeResult.newJobs.some((newJob) => newJob.id === job.id)
         ))
         await persistDiscoveryState((current) => ({
           ...current,
-          pendingDiscoveryJobs: mergePendingJobs(current.pendingDiscoveryJobs, mergeResult.newJobs)
+          pendingDiscoveryJobs: mergePendingJobs(current.pendingDiscoveryJobs, nextPendingJobs)
         }))
       } else {
         await repository.replaceSavedJobs(mergeResult.mergedJobs)
@@ -1777,16 +1778,215 @@ export function createJobFinderWorkspaceService(
             continue
           }
 
-          if (adapter.experimental) {
+          try {
+            if (adapter.experimental) {
+              emitActivity(createDiscoveryEvent({
+                runId: activeRun.id,
+                timestamp: new Date().toISOString(),
+                kind: 'warning',
+                stage: 'target',
+                targetId: target.id,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: adapterKind,
+                message: 'Generic site extraction is experimental and lower confidence on unfamiliar page structures',
+                url: target.startingUrl,
+                jobsFound: null,
+                jobsPersisted: null,
+                jobsStaged: null,
+                duplicatesMerged: null,
+                invalidSkipped: null
+              }))
+            }
+
+            const session = await browserRuntime.getSessionState(adapterKind)
+            await persistDiscoveryState((current) => ({
+              ...current,
+              sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session)),
+              activeRun
+            }))
+
+            if (adapter.requiresManagedSession && session.status !== 'ready') {
+              const warning = `${adapter.label} session is not ready. ${session.detail ?? 'Open the browser profile and try again.'}`
+              activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+                ...execution,
+                state: 'failed',
+                completedAt: new Date().toISOString(),
+                warning
+              }))
+              emitActivity(createDiscoveryEvent({
+                runId: activeRun.id,
+                timestamp: new Date().toISOString(),
+                kind: 'warning',
+                stage: 'target',
+                targetId: target.id,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: adapterKind,
+                message: warning,
+                url: target.startingUrl,
+                jobsFound: 0,
+                jobsPersisted: 0,
+                jobsStaged: 0,
+                duplicatesMerged: 0,
+                invalidSkipped: 0
+              }))
+              continue
+            }
+
+            const customInstructions = splitCustomDiscoveryInstructions(target.customInstructions)
+            const discoveryResult = await browserRuntime.runAgentDiscovery(adapterKind, {
+              userProfile: profile,
+              searchPreferences: {
+                targetRoles: enrichedPreferences.targetRoles.length > 0 ? enrichedPreferences.targetRoles : [DEFAULT_ROLE],
+                locations: enrichedPreferences.locations
+              },
+              targetJobCount: DEFAULT_TARGET_JOB_COUNT,
+              maxSteps: DEFAULT_MAX_STEPS,
+              startingUrls: [target.startingUrl],
+              siteLabel: target.label,
+              navigationHostnames: [targetUrl.hostname],
+              siteInstructions: customInstructions.length > 0
+                ? [...customInstructions, ...adapter.siteInstructions]
+                : adapter.siteInstructions,
+              toolUsageNotes: adapter.toolUsageNotes,
+              relevantUrlSubstrings: adapter.relevantUrlSubstrings,
+              experimental: adapter.experimental,
+              aiClient,
+              onProgress: (progress) => {
+                const summary = summarizeProgressAction(
+                  progress.currentAction,
+                  target.label,
+                  progress.jobsFound,
+                  progress.stepCount
+                )
+                emitActivity(createDiscoveryEvent({
+                  runId: activeRun.id,
+                  timestamp: new Date().toISOString(),
+                  kind: 'progress',
+                  stage: summary.stage,
+                  targetId: target.id,
+                  adapterKind: target.adapterKind,
+                  resolvedAdapterKind: adapterKind,
+                  message: summary.message,
+                  url: progress.currentUrl,
+                  jobsFound: progress.jobsFound,
+                  jobsPersisted: null,
+                  jobsStaged: null,
+                  duplicatesMerged: null,
+                  invalidSkipped: null
+                }))
+              },
+              ...(signal ? { signal } : {})
+            })
+
+            const persistedWorkingJobIds = new Set(workingSavedJobs.map((job) => job.id))
+            const mergeSeedJobs = settings.discoveryOnly
+              ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
+              : workingSavedJobs
+            const mergeResult = await mergeDiscoveredPostings(
+              aiClient,
+              profile,
+              enrichedPreferences,
+              mergeSeedJobs,
+              discoveryResult.jobs,
+              () => ({
+                targetId: target.id,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: adapterKind,
+                startingUrl: target.startingUrl,
+                discoveredAt: new Date().toISOString()
+              }),
+              signal
+            )
+
+            const newJobIds = new Set(mergeResult.newJobs.map((job) => job.id))
+            if (settings.discoveryOnly) {
+              const nextPendingJobs = mergeResult.mergedJobs.filter((job) => !persistedWorkingJobIds.has(job.id))
+              workingSavedJobs = mergeResult.mergedJobs.filter((job) => persistedWorkingJobIds.has(job.id) && !newJobIds.has(job.id))
+              workingPendingJobs = mergePendingJobs(workingPendingJobs, nextPendingJobs)
+            } else {
+              workingSavedJobs = mergeResult.mergedJobs
+              workingPendingJobs = []
+            }
+
+            completedTargets += 1
+            activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+              ...execution,
+              state: 'completed',
+              completedAt: new Date().toISOString(),
+              jobsFound: discoveryResult.jobs.length,
+              jobsPersisted: settings.discoveryOnly ? 0 : mergeResult.newJobs.length,
+              jobsStaged: settings.discoveryOnly ? mergeResult.newJobs.length : 0,
+              warning: discoveryResult.warning
+            }))
+            activeRun = DiscoveryRunRecordSchema.parse({
+              ...activeRun,
+              summary: {
+                ...activeRun.summary,
+                targetsCompleted: completedTargets,
+                validJobsFound: activeRun.summary.validJobsFound + discoveryResult.jobs.length,
+                jobsPersisted: activeRun.summary.jobsPersisted + (settings.discoveryOnly ? 0 : mergeResult.newJobs.length),
+                jobsStaged: activeRun.summary.jobsStaged + (settings.discoveryOnly ? mergeResult.newJobs.length : 0),
+                duplicatesMerged: activeRun.summary.duplicatesMerged + mergeResult.duplicatesMerged,
+                invalidSkipped: activeRun.summary.invalidSkipped + mergeResult.invalidSkipped,
+                outcome: 'running'
+              }
+            })
+
             emitActivity(createDiscoveryEvent({
               runId: activeRun.id,
               timestamp: new Date().toISOString(),
-              kind: 'warning',
+              kind: 'info',
+              stage: 'scoring',
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message: `Scored ${discoveryResult.jobs.length} discovered job${discoveryResult.jobs.length === 1 ? '' : 's'}`,
+              url: target.startingUrl,
+              jobsFound: discoveryResult.jobs.length,
+              jobsPersisted: null,
+              jobsStaged: null,
+              duplicatesMerged: mergeResult.duplicatesMerged,
+              invalidSkipped: mergeResult.invalidSkipped
+            }))
+
+            emitActivity(createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: discoveryResult.warning ? 'warning' : 'success',
+              stage: 'persistence',
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message: settings.discoveryOnly
+                ? `Saved ${0} jobs and staged ${mergeResult.newJobs.length} for review-only mode`
+                : `Saved ${mergeResult.newJobs.length} new job${mergeResult.newJobs.length === 1 ? '' : 's'} for this target`,
+              url: target.startingUrl,
+              jobsFound: discoveryResult.jobs.length,
+              jobsPersisted: settings.discoveryOnly ? 0 : mergeResult.newJobs.length,
+              jobsStaged: settings.discoveryOnly ? mergeResult.newJobs.length : 0,
+              duplicatesMerged: mergeResult.duplicatesMerged,
+              invalidSkipped: mergeResult.invalidSkipped
+            }))
+          } catch (error) {
+            const aborted = error instanceof DOMException && error.name === 'AbortError'
+            const message = aborted
+              ? `Target ${target.label} was cancelled before completion`
+              : `Target ${target.label} failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+            activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+              ...execution,
+              state: aborted ? 'cancelled' : 'failed',
+              completedAt: new Date().toISOString(),
+              warning: message
+            }))
+            emitActivity(createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: aborted ? 'warning' : 'error',
               stage: 'target',
               targetId: target.id,
               adapterKind: target.adapterKind,
               resolvedAdapterKind: adapterKind,
-              message: 'Generic site extraction is experimental and lower confidence on unfamiliar page structures',
+              message,
               url: target.startingUrl,
               jobsFound: null,
               jobsPersisted: null,
@@ -1794,179 +1994,10 @@ export function createJobFinderWorkspaceService(
               duplicatesMerged: null,
               invalidSkipped: null
             }))
+            throw error
           }
-
-          const session = await browserRuntime.getSessionState(adapterKind)
-          await persistDiscoveryState((current) => ({
-            ...current,
-            sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session)),
-            activeRun
-          }))
-
-          if (adapter.requiresManagedSession && session.status !== 'ready') {
-            const warning = `${adapter.label} session is not ready. ${session.detail ?? 'Open the browser profile and try again.'}`
-            activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
-              ...execution,
-              state: 'failed',
-              completedAt: new Date().toISOString(),
-              warning
-            }))
-            emitActivity(createDiscoveryEvent({
-              runId: activeRun.id,
-              timestamp: new Date().toISOString(),
-              kind: 'warning',
-              stage: 'target',
-              targetId: target.id,
-              adapterKind: target.adapterKind,
-              resolvedAdapterKind: adapterKind,
-              message: warning,
-              url: target.startingUrl,
-              jobsFound: 0,
-              jobsPersisted: 0,
-              jobsStaged: 0,
-              duplicatesMerged: 0,
-              invalidSkipped: 0
-            }))
-            continue
-          }
-
-          const customInstructions = splitCustomDiscoveryInstructions(target.customInstructions)
-          const discoveryResult = await browserRuntime.runAgentDiscovery(adapterKind, {
-            userProfile: profile,
-            searchPreferences: {
-              targetRoles: enrichedPreferences.targetRoles.length > 0 ? enrichedPreferences.targetRoles : [DEFAULT_ROLE],
-              locations: enrichedPreferences.locations
-            },
-            targetJobCount: DEFAULT_TARGET_JOB_COUNT,
-            maxSteps: DEFAULT_MAX_STEPS,
-            startingUrls: [target.startingUrl],
-            siteLabel: target.label,
-            navigationHostnames: [targetUrl.hostname],
-            siteInstructions: customInstructions.length > 0
-              ? [...customInstructions, ...adapter.siteInstructions]
-              : adapter.siteInstructions,
-            toolUsageNotes: adapter.toolUsageNotes,
-            relevantUrlSubstrings: adapter.relevantUrlSubstrings,
-            experimental: adapter.experimental,
-            aiClient,
-            onProgress: (progress) => {
-              const summary = summarizeProgressAction(
-                progress.currentAction,
-                target.label,
-                progress.jobsFound,
-                progress.stepCount
-              )
-              emitActivity(createDiscoveryEvent({
-                runId: activeRun.id,
-                timestamp: new Date().toISOString(),
-                kind: 'progress',
-                stage: summary.stage,
-                targetId: target.id,
-                adapterKind: target.adapterKind,
-                resolvedAdapterKind: adapterKind,
-                message: summary.message,
-                url: progress.currentUrl,
-                jobsFound: progress.jobsFound,
-                jobsPersisted: null,
-                jobsStaged: null,
-                duplicatesMerged: null,
-                invalidSkipped: null
-              }))
-            },
-            ...(signal ? { signal } : {})
-          })
-
-          const persistedWorkingJobIds = new Set(workingSavedJobs.map((job) => job.id))
-          const mergeSeedJobs = settings.discoveryOnly
-            ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
-            : workingSavedJobs
-          const mergeResult = await mergeDiscoveredPostings(
-            aiClient,
-            profile,
-            enrichedPreferences,
-            mergeSeedJobs,
-            discoveryResult.jobs,
-            () => ({
-              targetId: target.id,
-              adapterKind: target.adapterKind,
-              resolvedAdapterKind: adapterKind,
-              startingUrl: target.startingUrl,
-              discoveredAt: new Date().toISOString()
-            }),
-            signal
-          )
-
-          const newJobIds = new Set(mergeResult.newJobs.map((job) => job.id))
-          if (settings.discoveryOnly) {
-            workingSavedJobs = mergeResult.mergedJobs.filter((job) => persistedWorkingJobIds.has(job.id) && !newJobIds.has(job.id))
-            workingPendingJobs = mergePendingJobs(workingPendingJobs, mergeResult.newJobs)
-          } else {
-            workingSavedJobs = mergeResult.mergedJobs
-            workingPendingJobs = []
-          }
-
-          completedTargets += 1
-          activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
-            ...execution,
-            state: 'completed',
-            completedAt: new Date().toISOString(),
-            jobsFound: discoveryResult.jobs.length,
-            jobsPersisted: settings.discoveryOnly ? 0 : mergeResult.newJobs.length,
-            jobsStaged: settings.discoveryOnly ? mergeResult.newJobs.length : 0,
-            warning: discoveryResult.warning
-          }))
-          activeRun = DiscoveryRunRecordSchema.parse({
-            ...activeRun,
-            summary: {
-              ...activeRun.summary,
-              targetsCompleted: completedTargets,
-              validJobsFound: activeRun.summary.validJobsFound + discoveryResult.jobs.length,
-              jobsPersisted: activeRun.summary.jobsPersisted + (settings.discoveryOnly ? 0 : mergeResult.newJobs.length),
-              jobsStaged: activeRun.summary.jobsStaged + (settings.discoveryOnly ? mergeResult.newJobs.length : 0),
-              duplicatesMerged: activeRun.summary.duplicatesMerged + mergeResult.duplicatesMerged,
-              invalidSkipped: activeRun.summary.invalidSkipped + mergeResult.invalidSkipped,
-              outcome: 'running'
-            }
-          })
-
-          emitActivity(createDiscoveryEvent({
-            runId: activeRun.id,
-            timestamp: new Date().toISOString(),
-            kind: 'info',
-            stage: 'scoring',
-            targetId: target.id,
-            adapterKind: target.adapterKind,
-            resolvedAdapterKind: adapterKind,
-            message: `Scored ${discoveryResult.jobs.length} discovered job${discoveryResult.jobs.length === 1 ? '' : 's'}`,
-            url: target.startingUrl,
-            jobsFound: discoveryResult.jobs.length,
-            jobsPersisted: null,
-            jobsStaged: null,
-            duplicatesMerged: mergeResult.duplicatesMerged,
-            invalidSkipped: mergeResult.invalidSkipped
-          }))
-
-          emitActivity(createDiscoveryEvent({
-            runId: activeRun.id,
-            timestamp: new Date().toISOString(),
-            kind: discoveryResult.warning ? 'warning' : 'success',
-            stage: 'persistence',
-            targetId: target.id,
-            adapterKind: target.adapterKind,
-            resolvedAdapterKind: adapterKind,
-            message: settings.discoveryOnly
-              ? `Saved ${0} jobs and staged ${mergeResult.newJobs.length} for review-only mode`
-              : `Saved ${mergeResult.newJobs.length} new job${mergeResult.newJobs.length === 1 ? '' : 's'} for this target`,
-            url: target.startingUrl,
-            jobsFound: discoveryResult.jobs.length,
-            jobsPersisted: settings.discoveryOnly ? 0 : mergeResult.newJobs.length,
-            jobsStaged: settings.discoveryOnly ? mergeResult.newJobs.length : 0,
-            duplicatesMerged: mergeResult.duplicatesMerged,
-            invalidSkipped: mergeResult.invalidSkipped
-          }))
         }
 
-        await repository.replaceSavedJobs(workingSavedJobs)
         const failedTargets = activeRun.targetExecutions.filter((execution) => execution.state === 'failed').length
         const runOutcome: DiscoveryRunState = failedTargets > 0 ? 'failed' : 'completed'
         activeRun = DiscoveryRunRecordSchema.parse({

@@ -58,10 +58,6 @@ export function DiscoveryFiltersPanel({
     }
   ]
 
-  const isChromeAgent = browserSession.driver === 'chrome_profile_agent'
-  const isReady = browserSession.status === 'ready'
-  const needsLogin = browserSession.status === 'login_required'
-  const isBlocked = browserSession.status === 'blocked'
   const enabledTargets = searchPreferences.discovery.targets.filter((target) => target.enabled)
   const hasRunnableTarget = enabledTargets.length > 0
   const requiresManagedSession = enabledTargets.some(targetRequiresManagedSession)
@@ -83,6 +79,10 @@ export function DiscoveryFiltersPanel({
         detail: displaySession.detail,
         lastCheckedAt: displaySession.lastCheckedAt
       }
+  const isChromeAgent = displaySessionSnapshot.driver === 'chrome_profile_agent'
+  const isReady = displaySessionSnapshot.status === 'ready'
+  const needsLogin = displaySessionSnapshot.status === 'login_required'
+  const isBlocked = displaySessionSnapshot.status === 'blocked'
   const requiredSessionsReady = managedSessionSources.length === 0 || managedSessions.every((session) => session?.status === 'ready')
   const canRunDiscovery = Boolean(onRunAgentDiscovery) && hasRunnableTarget && !busy && (!requiresManagedSession || requiredSessionsReady)
 
@@ -146,19 +146,26 @@ export function DiscoveryFiltersPanel({
         </div>
 
         <div className="mt-auto grid gap-3 border-t border-[var(--surface-panel-border)] px-4 py-4">
-          {isChromeAgent ? (
+          {requiresManagedSession ? (
             <div className="grid gap-2">
               <Button
                 className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-[0.01em]"
-                disabled={busy}
+                disabled={busy || !isChromeAgent}
                 onClick={onOpenBrowserSession}
                 size="sm"
                 type="button"
-                variant="secondary"
+                variant={isChromeAgent ? 'secondary' : 'ghost'}
               >
                 <Search className="size-4" />
-                {isReady ? 'Refresh Chrome session' : 'Open Chrome profile'}
+                {isChromeAgent
+                  ? (isReady ? 'Refresh Chrome session' : 'Open Chrome profile')
+                  : 'Chrome profile unavailable'}
               </Button>
+              {!isChromeAgent ? (
+                <p className="text-[0.82rem] leading-6 text-foreground-muted">
+                  Browser-profile discovery is disabled for this desktop session. Set `UNEMPLOYED_LINKEDIN_BROWSER_AGENT=1` only if you explicitly turned it off.
+                </p>
+              ) : null}
             </div>
           ) : null}
 

@@ -1797,6 +1797,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
       return JobFitAssessmentSchema.parse(payload)
     },
     async extractJobsFromPage(input) {
+      const maxJobs = Math.max(0, Math.floor(input.maxJobs))
+      if (maxJobs === 0) {
+        return []
+      }
+
       const linkedInSource = isLinkedInUrl(input.pageUrl)
       const pageHostLabel = (() => {
         try {
@@ -1818,7 +1823,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
                 'The page text may include a "Relevant in-scope URLs found on page" section - use those URLs to populate sourceJobId and canonicalUrl whenever available.',
                 'If you cannot determine both sourceJobId and canonicalUrl for a listing, omit that listing from the output.',
                 'If the page text does not contain job listings, return { "jobs": [] }.',
-                `Return at most ${input.maxJobs} jobs.`
+                `Return at most ${maxJobs} jobs.`
               ]
             : [
                 `You extract job listings from a careers or job-search page on ${pageHostLabel}.`,
@@ -1828,7 +1833,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
                 'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
                 'If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.',
                 'Do not invent companies, locations, or URLs.',
-                `Return at most ${input.maxJobs} jobs.`
+                `Return at most ${maxJobs} jobs.`
               ])
           .join(' ')
         : (linkedInSource
@@ -1887,6 +1892,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
       }
 
       for (const raw of rawJobs) {
+        if (parsedJobs.length >= maxJobs) {
+          break
+        }
+
         const rawSourceJobId = toStr(raw.sourceJobId)
         const rawCanonicalUrl = toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link)
 
@@ -2052,12 +2061,31 @@ export function createOpenAiCompatibleJobFinderAiClient(
           result.content = message.content
         }
 
-        if (message?.tool_calls && message.tool_calls.length > 0) {
-          result.toolCalls = message.tool_calls.map(tc => ({
-            id: tc.id,
-            type: tc.type as 'function',
-            function: tc.function
-          }))
+        if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
+          const toolCalls = message.tool_calls.flatMap((toolCall) => {
+            if (
+              toolCall?.type !== 'function' ||
+              typeof toolCall.id !== 'string' ||
+              !toolCall.function ||
+              typeof toolCall.function.name !== 'string' ||
+              typeof toolCall.function.arguments !== 'string'
+            ) {
+              return []
+            }
+
+            return [{
+              id: toolCall.id,
+              type: 'function' as const,
+              function: {
+                name: toolCall.function.name,
+                arguments: toolCall.function.arguments
+              }
+            }]
+          })
+
+          if (toolCalls.length > 0) {
+            result.toolCalls = toolCalls
+          }
         }
 
         return result

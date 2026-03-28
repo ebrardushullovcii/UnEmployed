@@ -1,6 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-
-let activeAgentDiscoveryRequestId: string | null = null
 import type {
   CandidateProfile,
   DesktopPlatformPing,
@@ -11,6 +9,8 @@ import type {
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences
 } from '@unemployed/contracts'
+
+let activeAgentDiscoveryRequestId: string | null = null
 
 const testApiEnabled = process.env.UNEMPLOYED_ENABLE_TEST_API === '1' || process.env.UNEMPLOYED_ENABLE_TEST_API === 'true'
 

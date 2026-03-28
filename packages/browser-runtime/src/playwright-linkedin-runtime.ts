@@ -1267,37 +1267,21 @@ export function createLinkedInBrowserAgentRuntime(
                 pageType: normalizedPageType,
                 maxJobs: input.maxJobs
               })
-              // Map JobPosting to the expected JobExtractor format, preserving all fields
-              return jobs.map(job => {
-                const mapped: {
-                  sourceJobId: string
-                  title: string
-                  company: string
-                  location: string
-                  description: string
-                  url: string
-                  postedAt: string
-                  salary?: string
-                  workMode?: ('remote' | 'hybrid' | 'onsite' | 'flexible')[]
-                  applyPath?: 'easy_apply' | 'external_redirect' | 'unknown'
-                  easyApplyEligible?: boolean
-                  keySkills?: string[]
-                } = {
-                  sourceJobId: job.sourceJobId,
-                  title: job.title,
-                  company: job.company,
-                  location: job.location,
-                  description: job.description,
-                  url: job.canonicalUrl,
-                  postedAt: job.postedAt
-                }
-                if (job.salaryText) mapped.salary = job.salaryText
-                if (job.workMode?.length) mapped.workMode = job.workMode
-                if (job.applyPath) mapped.applyPath = job.applyPath
-                if (job.easyApplyEligible !== undefined) mapped.easyApplyEligible = job.easyApplyEligible
-                if (job.keySkills?.length) mapped.keySkills = job.keySkills
-                return mapped
-              })
+              return jobs.map((job) => ({
+                sourceJobId: job.sourceJobId,
+                canonicalUrl: job.canonicalUrl,
+                title: job.title,
+                company: job.company,
+                location: job.location,
+                description: job.description,
+                summary: job.summary,
+                postedAt: job.postedAt,
+                salaryText: job.salaryText,
+                workMode: job.workMode,
+                applyPath: job.applyPath,
+                easyApplyEligible: job.easyApplyEligible,
+                keySkills: job.keySkills
+              }))
             }
           },
           options.onProgress,
