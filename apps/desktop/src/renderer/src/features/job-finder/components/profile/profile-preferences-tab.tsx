@@ -191,7 +191,7 @@ function TargetRow(props: {
             onCheckedChange={(checked) => updateTarget({ ...props.target, enabled: checked })}
           />
           {props.target.adapterKind === 'generic_site' ? (
-            <p className="text-[0.82rem] leading-6 text-amber-600 dark:text-amber-400" id={genericSiteWarningId}>Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
+            <p className="text-[0.82rem] leading-6 text-(--warning-text)" id={genericSiteWarningId}>Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
           ) : null}
         </div>
       </div>
@@ -384,8 +384,8 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Work mode and compensation</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-            <div className="grid gap-(--gap-field) md:col-span-2">
-              <FieldLabel>Work modes</FieldLabel>
+            <fieldset className="grid gap-(--gap-field) md:col-span-2">
+              <legend className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">Work modes</legend>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {workModeValues.map((workMode) => (
                   <Controller
@@ -408,7 +408,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
                   />
                 ))}
               </div>
-            </div>
+            </fieldset>
 
             <Controller
               control={preferenceControl}

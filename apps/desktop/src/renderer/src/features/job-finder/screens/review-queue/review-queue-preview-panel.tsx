@@ -11,7 +11,7 @@ interface ReviewQueuePreviewPanelProps {
   selectedJob: SavedJob | null
 }
 
-type PreviewState = 'error' | 'missing' | 'syncing' | null
+type PreviewState = 'missing' | null
 
 export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
