@@ -87,18 +87,27 @@ export function DiscoveryFiltersPanel({
   )
   const displaySessionSnapshot: BrowserSessionState = requiresManagedSession
     ? (() => {
-        const displaySession = managedSessions[0] ?? browserSession
-        return 'source' in displaySession
-          ? displaySession
-          : {
-              ...browserSession,
-              source: displaySession.adapterKind,
-              status: displaySession.status,
-              driver: displaySession.driver,
-              label: displaySession.label,
-              detail: displaySession.detail,
-              lastCheckedAt: displaySession.lastCheckedAt
-            }
+        const displaySession = managedSessions[0]
+
+        if (!displaySession) {
+          return {
+            source: managedSessionSources[0] ?? 'linkedin',
+            status: 'unknown',
+            driver: 'catalog_seed',
+            label: 'Session unavailable',
+            detail: 'The selected target requires a managed browser session, but no matching session snapshot is available yet.',
+            lastCheckedAt: new Date(0).toISOString()
+          }
+        }
+
+        return {
+          source: displaySession.adapterKind,
+          status: displaySession.status,
+          driver: displaySession.driver,
+          label: displaySession.label,
+          detail: displaySession.detail,
+          lastCheckedAt: displaySession.lastCheckedAt
+        }
       })()
     : neutralSessionSnapshot
   const isChromeAgent = displaySessionSnapshot.driver === 'chrome_profile_agent'
@@ -188,7 +197,7 @@ export function DiscoveryFiltersPanel({
               </Button>
               {!isChromeAgent ? (
                 <p className="text-[0.82rem] leading-6 text-foreground-muted">
-                  Browser-profile discovery is disabled for this desktop session. Remove `UNEMPLOYED_LINKEDIN_BROWSER_AGENT` or delete any `=0` / `=false` override to restore the default browser-agent runtime.
+                  Browser-profile discovery is disabled for this desktop session. Remove <code>UNEMPLOYED_LINKEDIN_BROWSER_AGENT</code> or delete any <code>=0</code> / <code>=false</code> override to restore the default browser-agent runtime.
                 </p>
               ) : null}
             </div>

@@ -787,7 +787,7 @@ export function createLinkedInBrowserAgentRuntime(
       await page.goto(url, { waitUntil: 'domcontentloaded' })
       await updateSessionStateFromPage(page)
 
-      if ((currentSessionStates.get('linkedin') ?? createInitialSessionState('linkedin')).status !== 'ready') {
+      if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
         sessionExpired = true
         break
       }
@@ -852,7 +852,7 @@ export function createLinkedInBrowserAgentRuntime(
       await page.goto(url, { waitUntil: 'domcontentloaded' })
       await updateSessionStateFromPage(page)
 
-      if ((currentSessionStates.get('linkedin') ?? createInitialSessionState('linkedin')).status !== 'ready') {
+      if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
         sessionExpired = true
         break
       }
