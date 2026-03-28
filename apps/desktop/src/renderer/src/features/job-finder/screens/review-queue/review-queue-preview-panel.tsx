@@ -4,18 +4,17 @@ import { StatusBadge } from '../../components/status-badge'
 import { formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
 
 interface ReviewQueuePreviewPanelProps {
+  previewState: 'missing' | null
   queue: readonly ReviewQueueItem[]
   selectedAsset: TailoredAsset | null
   selectedItem: ReviewQueueItem | null
   selectedJob: SavedJob | null
 }
 
-export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
+export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
   const isGenerating = selectedItem?.assetStatus === 'generating' || selectedItem?.assetStatus === 'queued'
   const showGenerationState = needsGeneration || isGenerating
-  const previewSyncing = Boolean(selectedItem && !showGenerationState && !selectedAsset && !selectedItem.resumeAssetId)
-  const previewMissing = Boolean(selectedItem && !showGenerationState && !selectedAsset && selectedItem.resumeAssetId)
 
   return (
     <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
@@ -56,15 +55,7 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
           />
         </div>
       ) : null}
-      {queue.length > 0 && previewSyncing ? (
-        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
-          <EmptyState
-            title="Loading preview"
-            description="The tailored asset is still syncing into the preview panel. Try again in a moment."
-          />
-        </div>
-      ) : null}
-      {queue.length > 0 && previewMissing ? (
+      {queue.length > 0 && previewState === 'missing' ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
             title="Asset not found"

@@ -53,7 +53,7 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {sessionWaitingOnRuntime && jobs.length > 0 ? (
-        <div className="rounded-(--radius-panel) border border-sky-500/20 bg-sky-500/5 px-4 py-3 text-(length:--text-description) leading-6 text-sky-600 dark:text-sky-400">
+        <div className="rounded-(--radius-panel) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--info-text)">
           Saved results are available below while the browser runtime finishes publishing the latest session snapshot.
         </div>
       ) : null}

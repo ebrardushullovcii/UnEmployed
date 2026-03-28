@@ -29,6 +29,7 @@ export function ReviewQueueScreen(props: {
     selectedItem,
     selectedJob
   } = props
+  const previewState = selectedItem && !selectedAsset && selectedItem.assetStatus === 'ready' ? 'missing' : null
 
   return (
     <LockedScreenLayout
@@ -44,7 +45,7 @@ export function ReviewQueueScreen(props: {
     >
       <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem] xl:overflow-hidden">
         <ReviewQueueListPanel onSelectItem={onSelectItem} queue={queue} selectedItem={selectedItem} />
-        <ReviewQueuePreviewPanel queue={queue} selectedAsset={selectedAsset} selectedItem={selectedItem} selectedJob={selectedJob} />
+        <ReviewQueuePreviewPanel previewState={previewState} queue={queue} selectedAsset={selectedAsset} selectedItem={selectedItem} selectedJob={selectedJob} />
         <ReviewQueueMissionPanel
           actionMessage={actionState.message}
           browserSession={browserSession}

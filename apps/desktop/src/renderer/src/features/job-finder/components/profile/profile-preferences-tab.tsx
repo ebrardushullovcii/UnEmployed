@@ -56,7 +56,7 @@ interface ProfilePreferencesTabProps {
 type DiscoveryTargetValue = SearchPreferencesEditorValues['discoveryTargets'][number]
 
 function TargetRow(props: {
-  discoveryTargets: SearchPreferencesEditorValues['discoveryTargets']
+  discoveryTargets: readonly DiscoveryTargetValue[]
   index: number
   profileSelectTriggerClassName: string
   target: DiscoveryTargetValue
@@ -67,6 +67,8 @@ function TargetRow(props: {
   const adapterId = `${baseId}-adapter`
   const startingUrlId = `${baseId}-starting-url`
   const instructionsId = `${baseId}-instructions`
+  const genericSiteWarningId = `${baseId}-generic-site-warning`
+  const adapterDescribedBy = props.target.adapterKind === 'generic_site' ? genericSiteWarningId : undefined
   const updateTarget = (nextTarget: DiscoveryTargetValue) => {
     const nextTargets = [...props.discoveryTargets]
     nextTargets[props.index] = nextTarget
@@ -150,6 +152,7 @@ function TargetRow(props: {
               value: adapterKind
             }))}
             placeholder="Select adapter"
+            triggerAriaDescribedBy={adapterDescribedBy}
             triggerClassName={props.profileSelectTriggerClassName}
             triggerId={adapterId}
             value={props.target.adapterKind}
@@ -182,7 +185,7 @@ function TargetRow(props: {
             onCheckedChange={(checked) => updateTarget({ ...props.target, enabled: checked })}
           />
           {props.target.adapterKind === 'generic_site' ? (
-            <p className="text-[0.82rem] leading-6 text-amber-600 dark:text-amber-400">Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
+            <p className="text-[0.82rem] leading-6 text-amber-600 dark:text-amber-400" id={genericSiteWarningId}>Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
           ) : null}
         </div>
       </div>

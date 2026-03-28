@@ -29,6 +29,7 @@ export function ReviewQueueMissionPanel({
 }: ReviewQueueMissionPanelProps) {
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
   const isGenerating = selectedItem?.assetStatus === 'generating' || selectedItem?.assetStatus === 'queued'
+  const canApproveApply = Boolean(selectedAsset) && browserSession.status === 'ready'
   const tailoringStateLabel = selectedItem ? formatStatusLabel(selectedItem.assetStatus) : 'No asset'
   const tailoringStateTone = selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'
 
@@ -54,7 +55,14 @@ export function ReviewQueueMissionPanel({
             <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Tailoring state</span>
             <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
           </div>
-          <div className="h-2 w-full rounded-full bg-(--surface-progress-track)">
+          <div
+            aria-label="Tailoring progress"
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={selectedItem?.progressPercent ?? 0}
+            className="h-2 w-full rounded-full bg-(--surface-progress-track)"
+            role="progressbar"
+          >
             <div className="h-full bg-primary shadow-[0_0_8px_rgba(198,198,199,0.3)]" style={{ width: `${selectedItem?.progressPercent ?? 0}%` }} />
           </div>
         </div>
@@ -80,10 +88,14 @@ export function ReviewQueueMissionPanel({
               <Button
                 className="h-11 w-full"
                 variant="primary"
-                disabled={busy || isGenerating || (!needsGeneration && browserSession.status !== 'ready')}
+                disabled={busy || isGenerating || (needsGeneration ? false : !canApproveApply)}
                 onClick={() => {
                   if (needsGeneration) {
                     onGenerateResume(selectedItem.jobId)
+                    return
+                  }
+
+                  if (!selectedAsset) {
                     return
                   }
 

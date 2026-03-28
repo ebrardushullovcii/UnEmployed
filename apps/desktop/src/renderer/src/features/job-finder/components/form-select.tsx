@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import {
   Select,
   SelectContent,
@@ -10,17 +11,29 @@ interface FormSelectProps {
   onValueChange: (value: string) => void
   options: ReadonlyArray<{ label: string; value: string }>
   placeholder?: string
-  triggerId?: string
-  triggerClassName?: string
+  triggerAriaDescribedBy?: string | undefined
+  triggerId?: string | undefined
+  triggerClassName?: string | undefined
   value: string
 }
 
 const EMPTY_VALUE = '__empty__'
 
-export function FormSelect({ onValueChange, options, placeholder, triggerClassName, triggerId, value }: FormSelectProps) {
+export function FormSelect({
+  onValueChange,
+  options,
+  placeholder,
+  triggerAriaDescribedBy,
+  triggerClassName,
+  triggerId,
+  value
+}: FormSelectProps) {
+  const fallbackId = useId()
+  const id = triggerId ?? fallbackId
+
   return (
     <Select onValueChange={(nextValue) => onValueChange(nextValue === EMPTY_VALUE ? '' : nextValue)} value={value || EMPTY_VALUE}>
-      <SelectTrigger className={triggerClassName} id={triggerId}>
+      <SelectTrigger aria-describedby={triggerAriaDescribedBy} className={triggerClassName} id={id}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

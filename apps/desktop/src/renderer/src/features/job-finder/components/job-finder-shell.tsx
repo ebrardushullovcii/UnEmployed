@@ -35,6 +35,13 @@ const screenRouteMap: Record<JobFinderScreen, string> = {
   settings: '/job-finder/settings'
 }
 
+const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
+  'profile',
+  'discovery',
+  'review-queue',
+  'applications'
+]
+
 function getActiveScreen(pathname: string): JobFinderScreen {
   if (pathname.endsWith('/discovery')) {
     return 'discovery'
@@ -68,10 +75,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
   })
 
   const activeScreen = useMemo(() => getActiveScreen(location.pathname), [location.pathname])
-  const usesLockedScreenLayout = activeScreen === 'profile'
-    || activeScreen === 'discovery'
-    || activeScreen === 'review-queue'
-    || activeScreen === 'applications'
+  const usesLockedScreenLayout = LOCKED_LAYOUT_SCREENS.includes(activeScreen)
 
   const screenDefinitions = useMemo(
     () => [
@@ -215,6 +219,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
             <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1">
               {primaryScreens.map((screen) => (
                 <button
+                  aria-current={activeScreen === screen.id ? 'page' : undefined}
                   key={screen.id}
                   className={cn(
                     'inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium text-muted-foreground transition-colors hover:text-foreground xl:px-4 xl:text-(length:--text-small)',
