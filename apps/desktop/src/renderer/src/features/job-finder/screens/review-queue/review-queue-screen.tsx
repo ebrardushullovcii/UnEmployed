@@ -1,4 +1,5 @@
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
+import { LockedScreenLayout } from '../../components/locked-screen-layout'
 import { PageHeader } from '../../components/page-header'
 import { ReviewQueueListPanel } from './review-queue-list-panel'
 import { ReviewQueueMissionPanel } from './review-queue-mission-panel'
@@ -28,18 +29,23 @@ export function ReviewQueueScreen(props: {
     selectedItem,
     selectedJob
   } = props
+  const previewState = selectedItem && !selectedAsset && selectedItem.assetStatus === 'ready' ? 'missing' : null
 
   return (
-    <section className="grid gap-[var(--gap-section)]">
-      <PageHeader
-        eyebrow="Review Queue"
-        title="Tailored asset review"
-        description="A supervised queue for generated resume variants before the first supported Easy Apply automation path begins."
-      />
-
-      <div className="grid items-stretch gap-4 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem]">
+    <LockedScreenLayout
+      contentClassName="xl:overflow-hidden"
+      topClassName="pb-(--gap-section) pt-8"
+      topContent={(
+        <PageHeader
+          eyebrow="Review Queue"
+          title="Tailored asset review"
+          description="A supervised queue for generated resume variants before the first supported Easy Apply automation path begins."
+        />
+      )}
+    >
+      <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem] xl:overflow-hidden">
         <ReviewQueueListPanel onSelectItem={onSelectItem} queue={queue} selectedItem={selectedItem} />
-        <ReviewQueuePreviewPanel queue={queue} selectedAsset={selectedAsset} selectedItem={selectedItem} selectedJob={selectedJob} />
+        <ReviewQueuePreviewPanel previewState={previewState} queue={queue} selectedAsset={selectedAsset} selectedItem={selectedItem} selectedJob={selectedJob} />
         <ReviewQueueMissionPanel
           actionMessage={actionState.message}
           browserSession={browserSession}
@@ -51,6 +57,6 @@ export function ReviewQueueScreen(props: {
           selectedJob={selectedJob}
         />
       </div>
-    </section>
+    </LockedScreenLayout>
   )
 }

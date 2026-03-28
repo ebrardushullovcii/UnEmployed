@@ -46,12 +46,14 @@ export function getDefaultDesktopEnvPaths(): string[] {
   const desktopDir = path.resolve(currentDir, '../..')
   const repoRoot = path.resolve(currentDir, '../../../..')
 
-  return [
+  const paths = [
     path.join(repoRoot, '.env'),
     path.join(repoRoot, '.env.local'),
     path.join(desktopDir, '.env'),
     path.join(desktopDir, '.env.local')
   ]
+
+  return paths
 }
 
 export function loadDesktopEnvironment(env: NodeJS.ProcessEnv = process.env, envPaths = getDefaultDesktopEnvPaths()): void {

@@ -3,6 +3,8 @@ import { describe, expect, test } from 'vitest'
 import { createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import { createInMemoryJobFinderRepository } from '@unemployed/db'
 import type { JobFinderRepositorySeed } from '@unemployed/db'
+import type { AgentDiscoveryOptions, BrowserSessionRuntime } from '@unemployed/browser-runtime'
+import type { AgentDiscoveryProgress, DiscoveryActivityEvent, DiscoveryRunResult, JobPosting } from '@unemployed/contracts'
 import { createJobFinderWorkspaceService } from './index'
 
 function createSeed(): JobFinderRepositorySeed {
@@ -135,7 +137,20 @@ function createSeed(): JobFinderRepositorySeed {
       approvalMode: 'review_before_submit',
       tailoringMode: 'balanced',
       companyBlacklist: [],
-      companyWhitelist: ['Signal Systems']
+      companyWhitelist: ['Signal Systems'],
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: 'target_linkedin_default',
+            label: 'LinkedIn Jobs',
+            startingUrl: 'https://www.linkedin.com/jobs/search/',
+            enabled: true,
+            adapterKind: 'auto',
+            customInstructions: null
+          }
+        ]
+      }
     },
     savedJobs: [
       {
@@ -161,7 +176,8 @@ function createSeed(): JobFinderRepositorySeed {
           score: 96,
           reasons: ['Strong design systems overlap'],
           gaps: []
-        }
+        },
+        provenance: []
       },
       {
         id: 'job_generating',
@@ -186,7 +202,8 @@ function createSeed(): JobFinderRepositorySeed {
           score: 88,
           reasons: ['Strong platform overlap'],
           gaps: ['Accessibility leadership']
-        }
+        },
+        provenance: []
       }
     ],
     tailoredAssets: [
@@ -233,7 +250,15 @@ function createSeed(): JobFinderRepositorySeed {
       fontPreset: 'inter_requisite',
       humanReviewRequired: true,
       allowAutoSubmitOverride: false,
-      keepSessionAlive: true
+      keepSessionAlive: true,
+      discoveryOnly: false
+    },
+    discovery: {
+      sessions: [],
+      runState: 'idle',
+      activeRun: null,
+      recentRuns: [],
+      pendingDiscoveryJobs: []
     }
   }
 }
@@ -295,6 +320,77 @@ function createAiClient() {
   return createDeterministicJobFinderAiClient('Tests use the deterministic fallback agent.')
 }
 
+function createAgentAiClient() {
+  const fallbackClient = createDeterministicJobFinderAiClient('Tests use the deterministic fallback agent.')
+
+  return {
+    ...fallbackClient,
+    chatWithTools: async () => ({ content: 'ok', toolCalls: [] })
+  } satisfies JobFinderAiClient
+}
+
+function createAgentBrowserRuntime(catalog: readonly JobPosting[]): BrowserSessionRuntime {
+  const baseRuntime = createCatalogBrowserSessionRuntime({
+    sessions: [
+      {
+        source: 'linkedin',
+        status: 'ready',
+        driver: 'catalog_seed',
+        label: 'Browser session ready',
+        detail: 'Validated recently.',
+        lastCheckedAt: '2026-03-20T10:04:00.000Z'
+      }
+    ],
+    catalog: [...catalog]
+  })
+
+  return {
+    ...baseRuntime,
+    async runAgentDiscovery(source, options: AgentDiscoveryOptions): Promise<DiscoveryRunResult> {
+      const emitProgress = (progress: AgentDiscoveryProgress) => {
+        options.onProgress?.(progress)
+      }
+
+      emitProgress({
+        currentUrl: options.startingUrls[0] ?? 'https://www.linkedin.com/jobs/search/',
+        jobsFound: 0,
+        stepCount: 1,
+        currentAction: 'navigate',
+        targetId: null,
+        adapterKind: source
+      })
+
+      if (options.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
+
+      await Promise.resolve()
+
+      emitProgress({
+        currentUrl: options.startingUrls[0] ?? 'https://www.linkedin.com/jobs/search/',
+        jobsFound: catalog.length,
+        stepCount: 2,
+        currentAction: `extract_result:${catalog.length}:${catalog.length}:${catalog.length}`,
+        targetId: null,
+        adapterKind: source
+      })
+
+      if (options.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
+
+      return {
+        source,
+        startedAt: '2026-03-20T10:00:00.000Z',
+        completedAt: '2026-03-20T10:01:00.000Z',
+        querySummary: 'Agent discovery test run',
+        warning: null,
+        jobs: [...catalog]
+      }
+    }
+  }
+}
+
 function createResumeExtraction(overrides: Partial<ResumeProfileExtraction> = {}): ResumeProfileExtraction {
   return {
     firstName: null,
@@ -349,7 +445,7 @@ function createExtractionAiClient(extraction: ResumeProfileExtraction): JobFinde
 
   return {
     ...fallbackClient,
-    extractProfileFromResume: async () => extraction
+    extractProfileFromResume: () => Promise.resolve(extraction)
   }
 }
 
@@ -415,6 +511,139 @@ describe('createJobFinderWorkspaceService', () => {
     expect(snapshot.discoveryJobs[0]?.matchAssessment.reasons.length).toBeGreaterThan(0)
   })
 
+  test('discovery-only mode treats jobs as pending and does not persist to saved jobs', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      settings: {
+        resumeFormat: 'html',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: true
+      },
+      savedJobs: [],
+      tailoredAssets: [],
+      applicationRecords: [],
+      applicationAttempts: []
+    })
+    const browserRuntime = createBrowserRuntime()
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.runDiscovery()
+
+    // Jobs should appear in discoveryJobs but not in savedJobs
+    expect(snapshot.discoveryJobs).toHaveLength(2)
+    expect(snapshot.discoveryJobs[0]?.status).toBe('discovered')
+    expect(snapshot.discoveryJobs[0]?.provenance).toHaveLength(1)
+
+    // Verify jobs are pending (can be reviewed/queued) rather than auto-saved
+    expect(snapshot.reviewQueue).toHaveLength(0)
+    await expect(repository.listSavedJobs()).resolves.toHaveLength(0)
+
+    // Ensure no application records or attempts were created
+    expect(snapshot.applicationRecords).toHaveLength(0)
+    expect(snapshot.applicationAttempts).toHaveLength(0)
+
+    const secondSnapshot = await workspaceService.runDiscovery()
+
+    expect(secondSnapshot.discoveryJobs).toHaveLength(2)
+    expect(secondSnapshot.discoveryJobs.filter((job) => job.sourceJobId === 'linkedin_signal_ready')).toHaveLength(1)
+    expect(secondSnapshot.discoveryJobs[0]?.provenance).toHaveLength(1)
+    expect(secondSnapshot.reviewQueue).toHaveLength(0)
+    await expect(repository.listSavedJobs()).resolves.toHaveLength(0)
+  })
+
+  test('agent discovery streams activity and keeps discovery-only jobs pending', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      settings: {
+        resumeFormat: 'html',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: true
+      },
+      savedJobs: [],
+      tailoredAssets: [],
+      applicationRecords: [],
+      applicationAttempts: []
+    })
+    const catalog = createBrowserRuntime().runDiscovery('linkedin', createSeed().searchPreferences)
+    const discoveryResult = await catalog
+    const browserRuntime = createAgentBrowserRuntime(discoveryResult.jobs)
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+      documentManager: createDocumentManager()
+    })
+    const streamedEvents: DiscoveryActivityEvent[] = []
+    const snapshot = await workspaceService.runAgentDiscovery((event) => {
+      streamedEvents.push(event)
+    }, new AbortController().signal)
+
+    expect(streamedEvents.length).toBeGreaterThan(0)
+    expect(streamedEvents.some((event) => event.kind === 'progress')).toBe(true)
+    expect(snapshot.discoveryJobs).toHaveLength(2)
+    expect(snapshot.discoveryJobs.every((job) => job.status === 'discovered')).toBe(true)
+    expect(snapshot.reviewQueue).toHaveLength(0)
+    await expect(repository.listSavedJobs()).resolves.toHaveLength(0)
+    expect(snapshot.applicationRecords).toHaveLength(0)
+    expect(snapshot.applicationAttempts).toHaveLength(0)
+  })
+
+  test('agent discovery abort keeps streamed activity and avoids persistence', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      settings: {
+        resumeFormat: 'html',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: true
+      },
+      savedJobs: [],
+      tailoredAssets: [],
+      applicationRecords: [],
+      applicationAttempts: []
+    })
+    const discoveryResult = await createBrowserRuntime().runDiscovery('linkedin', createSeed().searchPreferences)
+    const browserRuntime = createAgentBrowserRuntime(discoveryResult.jobs)
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+      documentManager: createDocumentManager()
+    })
+    const streamedEvents: DiscoveryActivityEvent[] = []
+    const controller = new AbortController()
+
+    const snapshot = await workspaceService.runAgentDiscovery((event) => {
+      streamedEvents.push(event)
+      if (event.kind === 'progress') {
+        controller.abort()
+      }
+    }, controller.signal)
+
+    expect(streamedEvents.some((event) => event.kind === 'progress')).toBe(true)
+    expect(snapshot.discoveryJobs).toHaveLength(0)
+    expect(snapshot.reviewQueue).toHaveLength(0)
+    await expect(repository.listSavedJobs()).resolves.toHaveLength(0)
+    expect(snapshot.applicationRecords).toHaveLength(0)
+    expect(snapshot.applicationAttempts).toHaveLength(0)
+  })
+
   test('generates a tailored resume and submits a supported Easy Apply attempt', async () => {
     const repository = createInMemoryJobFinderRepository(createSeed())
     const browserRuntime = createBrowserRuntime()
@@ -460,7 +689,8 @@ describe('createJobFinderWorkspaceService', () => {
         score: 91,
         reasons: ['Strong UI platform overlap'],
         gaps: []
-      }
+      },
+      provenance: []
     })
     seed.tailoredAssets.push({
       id: 'asset_pause_case',

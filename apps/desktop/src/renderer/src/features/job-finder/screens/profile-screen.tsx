@@ -3,6 +3,7 @@ import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
+import { LockedScreenLayout } from '../components/locked-screen-layout'
 import { ProfileBackgroundTab } from '../components/profile/profile-background-tab'
 import { ProfileCoreTab } from '../components/profile/profile-core-tab'
 import { ProfileExperienceTab } from '../components/profile/profile-experience-tab'
@@ -440,22 +441,28 @@ export function ProfileScreen(props: {
   }
 
   return (
-    <section className="grid gap-[var(--gap-section)]">
-      <PageHeader
-        eyebrow="Profile"
-        title="Candidate setup"
-        description="Import your resume once, then review the structured profile it creates. Each tab below focuses on one part of the candidate record so the form feels lighter and easier to edit."
-      />
+    <LockedScreenLayout
+      contentClassName="xl:overflow-hidden"
+      topClassName="grid gap-(--gap-section) pb-(--gap-section) pt-8"
+      topContent={(
+        <>
+          <PageHeader
+            eyebrow="Profile"
+            title="Candidate setup"
+            description="Import your resume once, then review the structured profile it creates. Each tab below focuses on one part of the candidate record so the form feels lighter and easier to edit."
+          />
 
-      <ProfileResumePanel
-        busy={busy}
-        onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
-        onImportResume={onImportResume}
-        profile={overviewProfile}
-      />
-
-      <section className="grid gap-[var(--gap-content)]">
-        <div className="px-3 pt-3 pb-2 sm:px-4 sm:pt-4 sm:pb-2">
+          <ProfileResumePanel
+            busy={busy}
+            onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
+            onImportResume={onImportResume}
+            profile={overviewProfile}
+          />
+        </>
+      )}
+    >
+      <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0 xl:grid-rows-[auto_minmax(0,1fr)]">
+        <div className="px-3 pb-2 sm:px-4 sm:pb-2">
           <div aria-label="Profile sections" className="grid items-start gap-2 sm:grid-cols-2 xl:grid-cols-4" onKeyDown={handleSectionKeyDown} role="tablist">
               {sections.map((section) => (
                 <div key={section.id} className={cn(activeSection === section.id ? 'relative z-30 w-full' : 'relative w-full')}>
@@ -466,8 +473,8 @@ export function ProfileScreen(props: {
                     className={cn(
                       'group relative w-full border text-left transition-all duration-200',
                       activeSection === section.id
-                        ? 'translate-y-1 overflow-hidden rounded-[var(--radius-button)] border-[var(--surface-panel-border-active)] bg-transparent text-[var(--text-headline)]'
-                        : 'overflow-hidden rounded-[var(--radius-button)] border-[var(--surface-panel-border-warm)] bg-[var(--surface-fill-subtle)] text-foreground-soft hover:border-[var(--surface-panel-border-warm-hover)] hover:bg-[var(--surface-tab-hover)] hover:text-foreground'
+                        ? 'translate-y-1 overflow-hidden rounded-(--radius-button) border-(--surface-panel-border-active) bg-transparent text-(--text-headline)'
+                        : 'overflow-hidden rounded-(--radius-button) border-(--surface-panel-border-warm) bg-(--surface-fill-subtle) text-foreground-soft hover:border-(--surface-panel-border-warm-hover) hover:bg-(--surface-tab-hover) hover:text-foreground'
                     )}
                     onClick={() => setActiveSection(section.id)}
                     role="tab"
@@ -490,19 +497,19 @@ export function ProfileScreen(props: {
                         activeSection === section.id ? 'opacity-0' : 'opacity-80'
                       )}
                     />
-                    <span className="relative grid gap-[var(--gap-field)] px-4 pt-3 pb-2.5">
+                    <span className="relative grid gap-(--gap-field) px-4 pt-3 pb-2.5">
                       <span className="flex items-center justify-between gap-3">
-                        <span className="text-[var(--text-body)] font-semibold tracking-[-0.02em]">{section.label}</span>
-                        <span className="text-[var(--text-tiny)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">
+                        <span className="text-(length:--text-body) font-semibold tracking-[-0.02em]">{section.label}</span>
+                        <span className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
                           {formatSectionProgressLabel(section.id, section.progress)}
                         </span>
                       </span>
 
                       <span className="flex items-center gap-2">
-                        <span className="text-[var(--text-tiny)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted">
+                        <span className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
                           {section.progress.percent}%
                         </span>
-                        <span className="h-1 flex-1 overflow-hidden rounded-[var(--radius-small)] bg-[var(--surface-overlay-track)]">
+                        <span className="h-1 flex-1 overflow-hidden rounded-(--radius-small) bg-(--surface-overlay-track)">
                           <span
                             className={cn(
                               'block h-full transition-[width] duration-300',
@@ -521,17 +528,19 @@ export function ProfileScreen(props: {
           </div>
         </div>
 
-        <div className="relative rounded-[var(--radius-field)] border border-[var(--surface-panel-border-active-soft)] bg-[var(--surface-panel)]">
-          <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">{activeSectionContent[activeSection]}</div>
+        <div className="relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft) bg-(--surface-panel)">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">{activeSectionContent[activeSection]}</div>
+          </div>
 
-          <div className="border-t border-[var(--surface-panel-border)] bg-[var(--surface-overlay-medium)] px-4 py-4 sm:px-5">
+          <div className="border-t border-(--surface-panel-border) bg-(--surface-overlay-medium) px-4 py-4 sm:px-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="grid gap-2">
                 {validationMessage ? (
                   <p
                     aria-atomic="true"
                     aria-live="polite"
-                    className="text-[var(--text-description)] leading-6 text-foreground-muted"
+                    className="text-(length:--text-description) leading-6 text-foreground-muted"
                     role="status"
                   >
                     {validationMessage}
@@ -541,7 +550,7 @@ export function ProfileScreen(props: {
                   <p
                     aria-atomic="true"
                     aria-live="polite"
-                    className="text-[var(--text-description)] leading-6 text-foreground-muted"
+                    className="text-(length:--text-description) leading-6 text-foreground-muted"
                     role="status"
                   >
                     {actionState.message}
@@ -556,6 +565,6 @@ export function ProfileScreen(props: {
           </div>
         </div>
       </section>
-    </section>
+    </LockedScreenLayout>
   )
 }

@@ -8,8 +8,14 @@ import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   CandidateProfileSchema,
+  DiscoveryActivityEventSchema,
+  DiscoveryRunRecordSchema,
+  DiscoveryTargetExecutionSchema,
+  JobFinderDiscoveryStateSchema,
   JobFinderSettingsSchema,
   JobFinderWorkspaceSnapshotSchema,
+  JobSourceAdapterKindSchema,
+  SavedJobDiscoveryProvenanceSchema,
   JobSearchPreferencesSchema,
   SavedJobSchema,
   TailoredAssetSchema,
@@ -19,13 +25,21 @@ import {
   type ApplicationStatus,
   type AssetStatus,
   type CandidateProfile,
+  type DiscoveryActivityEvent,
+  type DiscoveryRunRecord,
+  type DiscoveryRunState,
+  type DiscoveryTargetExecution,
   type JobFinderSettings,
+  type JobFinderDiscoveryState,
   type JobFinderWorkspaceSnapshot,
-  type JobPosting,
+  type JobSource,
   type JobSearchPreferences,
+  type JobPosting,
+  type JobDiscoveryTarget,
   type MatchAssessment,
   type ResumeTemplateDefinition,
   type ReviewQueueItem,
+  type SavedJobDiscoveryProvenance,
   type SavedJob,
   type TailoredAsset
 } from '@unemployed/contracts'
@@ -47,6 +61,90 @@ const assetStatusPriority: Record<AssetStatus, number> = {
   queued: 2,
   failed: 3,
   not_started: 4
+}
+
+// Profile placeholder strings - must stay in sync with UI defaults
+// These are set when no resume has been imported yet
+export const PROFILE_PLACEHOLDER_HEADLINE = 'Import your resume to begin'
+export const PROFILE_PLACEHOLDER_LOCATION = 'Set your preferred location'
+
+// Agent discovery defaults
+export const DEFAULT_ROLE = 'software engineer'
+export const DEFAULT_TARGET_JOB_COUNT = 20
+export const DEFAULT_MAX_STEPS = 50
+export const DEFAULT_MAX_TARGET_ROLES = 4
+export const DEFAULT_DISCOVERY_HISTORY_LIMIT = 5
+export const DEFAULT_LINKEDIN_STARTING_URL = 'https://www.linkedin.com/jobs/search/'
+
+interface ResolvedDiscoveryAdapter {
+  kind: JobSource
+  label: string
+  experimental: boolean
+  requiresManagedSession: boolean
+  siteInstructions: string[]
+  toolUsageNotes: string[]
+  relevantUrlSubstrings: string[]
+}
+
+interface MergeDiscoveryResult {
+  mergedJobs: SavedJob[]
+  newJobs: SavedJob[]
+  validatedCount: number
+  duplicatesMerged: number
+  invalidSkipped: number
+}
+
+const discoveryAdapters: Record<JobSource, ResolvedDiscoveryAdapter> = {
+  linkedin: {
+    kind: 'linkedin',
+    label: 'LinkedIn',
+    experimental: false,
+    requiresManagedSession: true,
+    siteInstructions: [
+      'Stay on LinkedIn job-search and job-detail pages only.',
+      'Prefer stable /jobs/view/ URLs and avoid recruiter/profile detours.',
+      'Use LinkedIn search controls and result pagination when helpful.'
+    ],
+    toolUsageNotes: [
+      'Use short navigations on LinkedIn result pages before retrying with longer waits.',
+      'Open detail pages when the results list does not expose stable job URLs.',
+      'Stop once enough strong-fit roles have been gathered.'
+    ],
+    relevantUrlSubstrings: ['/jobs/view/', '/jobs/search/']
+  },
+  generic_site: {
+    kind: 'generic_site',
+    label: 'Generic site',
+    experimental: true,
+    requiresManagedSession: false,
+    siteInstructions: [
+      'Stay within the configured hostname and do not roam to third-party domains.',
+      'Prefer pages that expose stable job titles, companies, and canonical job URLs.',
+      'If the page structure is unreliable, keep the result set small and high confidence.'
+    ],
+    toolUsageNotes: [
+      'Use navigation sparingly and stay bounded to the configured hostname.',
+      'Favor explicit careers, jobs, openings, or position pages when they exist.',
+      'Skip saving low-confidence results that do not expose a stable job identity.'
+    ],
+    relevantUrlSubstrings: [
+      '/job',
+      '/jobs',
+      '/career',
+      '/careers',
+      '/opening',
+      '/openings',
+      '/position',
+      '/positions',
+      '/vacancy',
+      '/vacancies',
+      '/konkurs',
+      '/pune',
+      '/pozit',
+      '/karriere',
+      '/apliko'
+    ]
+  }
 }
 
 function normalizeText(value: string): string {
@@ -78,6 +176,41 @@ function uniqueStrings(values: readonly string[]): string[] {
     seen.add(key)
     return [trimmedValue]
   })
+}
+
+function enrichSearchPreferencesFromProfile(
+  searchPreferences: JobSearchPreferences,
+  profile: CandidateProfile
+): JobSearchPreferences {
+  const targetRoles = [...searchPreferences.targetRoles]
+
+  if (targetRoles.length === 0) {
+    if (profile.headline && profile.headline !== PROFILE_PLACEHOLDER_HEADLINE) {
+      targetRoles.push(profile.headline)
+    }
+
+    for (const role of profile.targetRoles) {
+      if (targetRoles.length < DEFAULT_MAX_TARGET_ROLES) {
+        targetRoles.push(role)
+      }
+    }
+  }
+
+  const locations = [...searchPreferences.locations]
+
+  if (locations.length === 0 && profile.currentLocation && profile.currentLocation !== PROFILE_PLACEHOLDER_LOCATION) {
+    locations.push(profile.currentLocation)
+  }
+
+  if (targetRoles.length === 0 && locations.length === 0) {
+    return searchPreferences
+  }
+
+  return {
+    ...searchPreferences,
+    targetRoles: uniqueStrings(targetRoles),
+    locations: uniqueStrings(locations)
+  }
 }
 
 function clampScore(value: number): number {
@@ -318,6 +451,300 @@ function mergeDiscoveredJob(
     id: existingJob?.id ?? toSavedJobId(posting),
     status: preserveJobStatus(existingJob),
     matchAssessment
+  })
+}
+
+// Helper to merge discovered postings with existing jobs
+async function mergeDiscoveredPostings(
+  aiClient: JobFinderAiClient,
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  savedJobs: readonly SavedJob[],
+  discoveredPostings: readonly JobPosting[],
+  provenanceBuilder: (posting: JobPosting) => SavedJobDiscoveryProvenance,
+  signal?: AbortSignal
+): Promise<MergeDiscoveryResult> {
+  // Check if already aborted
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
+  
+  const savedJobsByPostingKey = new Map<string, SavedJob>()
+  const savedJobsBySourceId = new Map<string, SavedJob>()
+  const newJobs: SavedJob[] = []
+  let validatedCount = 0
+  let duplicatesMerged = 0
+  let invalidSkipped = 0
+
+  for (const job of savedJobs) {
+    // Full key with canonical URL
+    const key = `${job.source}:${job.sourceJobId}:${job.canonicalUrl}`
+    savedJobsByPostingKey.set(key, job)
+    // Fallback key without URL (for when canonical URL changes)
+    const sourceIdKey = `${job.source}:${job.sourceJobId}`
+    savedJobsBySourceId.set(sourceIdKey, job)
+  }
+
+  const nextJobsById = new Map(savedJobs.map((job) => [job.id, job]))
+
+  for (const posting of discoveredPostings) {
+    // Check for cancellation periodically
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
+    
+    const postingKey = `${posting.source}:${posting.sourceJobId}:${posting.canonicalUrl}`
+    const sourceIdKey = `${posting.source}:${posting.sourceJobId}`
+    
+    // Try full key first, then fallback to source+sourceId
+    const existingJob = savedJobsByPostingKey.get(postingKey) ?? savedJobsBySourceId.get(sourceIdKey)
+    const postingUrl = (() => {
+      try {
+        return new URL(posting.canonicalUrl)
+      } catch {
+        return null
+      }
+    })()
+
+    if (!posting.sourceJobId || !postingUrl) {
+      invalidSkipped += 1
+      continue
+    }
+
+    validatedCount += 1
+    
+    const matchAssessment = await createMatchAssessmentAsync(
+      aiClient,
+      profile,
+      searchPreferences,
+      posting
+    )
+    const provenance = provenanceBuilder(posting)
+    const mergedJob = SavedJobSchema.parse({
+      ...mergeDiscoveredJob(matchAssessment, posting, existingJob),
+      provenance: uniqueProvenance([...(existingJob?.provenance ?? []), provenance])
+    })
+
+    if (existingJob) {
+      duplicatesMerged += 1
+    } else {
+      newJobs.push(mergedJob)
+    }
+
+    savedJobsByPostingKey.set(postingKey, mergedJob)
+    savedJobsBySourceId.set(sourceIdKey, mergedJob)
+    nextJobsById.set(mergedJob.id, mergedJob)
+  }
+
+  return {
+    mergedJobs: [...nextJobsById.values()],
+    newJobs,
+    validatedCount,
+    duplicatesMerged,
+    invalidSkipped
+  }
+}
+
+function uniqueProvenance(values: readonly SavedJobDiscoveryProvenance[]): SavedJobDiscoveryProvenance[] {
+  const seen = new Set<string>()
+
+  return values.flatMap((value) => {
+    const parsed = SavedJobDiscoveryProvenanceSchema.parse(value)
+    const key = `${parsed.targetId}:${parsed.adapterKind}:${parsed.resolvedAdapterKind ?? 'none'}:${parsed.startingUrl}`
+
+    if (seen.has(key)) {
+      return []
+    }
+
+    seen.add(key)
+    return [parsed]
+  })
+}
+
+function resolveAdapterKind(target: JobDiscoveryTarget): JobSource {
+  if (target.adapterKind !== 'auto') {
+    return JobSourceAdapterKindSchema.parse(target.adapterKind) as JobSource
+  }
+
+  try {
+    const hostname = new URL(target.startingUrl).hostname.toLowerCase()
+    return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com') ? 'linkedin' : 'generic_site'
+  } catch {
+    return 'generic_site'
+  }
+}
+
+function getActiveDiscoveryTargets(searchPreferences: JobSearchPreferences): JobDiscoveryTarget[] {
+  const configuredTargets = searchPreferences.discovery.targets.length > 0
+    ? searchPreferences.discovery.targets
+    : [
+        {
+          id: 'target_linkedin_default',
+          label: 'LinkedIn Jobs',
+          startingUrl: DEFAULT_LINKEDIN_STARTING_URL,
+          enabled: true,
+          adapterKind: 'auto',
+          customInstructions: null
+        } satisfies JobDiscoveryTarget
+      ]
+
+  return configuredTargets.filter((target) => target.enabled)
+}
+
+function getPreferredSessionAdapter(searchPreferences: JobSearchPreferences): JobSource {
+  const targets = getActiveDiscoveryTargets(searchPreferences)
+  const preferredTarget = targets.find((target) => discoveryAdapters[resolveAdapterKind(target)].requiresManagedSession) ?? targets[0]
+
+  return resolveAdapterKind(preferredTarget ?? {
+    id: 'target_linkedin_default',
+    label: 'LinkedIn Jobs',
+    startingUrl: DEFAULT_LINKEDIN_STARTING_URL,
+    enabled: true,
+    adapterKind: 'linkedin',
+    customInstructions: null
+  })
+}
+
+function splitCustomDiscoveryInstructions(value: string | null): string[] {
+  return (value ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function toDiscoverySessionState(session: Awaited<ReturnType<BrowserSessionRuntime['getSessionState']>>) {
+  return {
+    adapterKind: session.source,
+    status: session.status,
+    driver: session.driver,
+    label: session.label,
+    detail: session.detail,
+    lastCheckedAt: session.lastCheckedAt
+  }
+}
+
+function formatFoundSuffix(jobsFound: number): string {
+  return jobsFound > 0 ? ` (${jobsFound} found so far)` : ''
+}
+
+function summarizeProgressAction(
+  action: string | undefined,
+  siteLabel: string,
+  jobsFound: number,
+  stepCount: number
+): { message: string; stage: DiscoveryActivityEvent['stage'] } {
+  const normalizedAction = (action ?? '').toLowerCase()
+
+  if (!normalizedAction || normalizedAction === 'thinking...') {
+    return { message: `Planning step ${stepCount}${formatFoundSuffix(jobsFound)}`, stage: 'planning' }
+  }
+
+  if (normalizedAction.startsWith('extract_result:')) {
+    const [, addedRaw = '0', totalRaw = String(jobsFound), attemptedRaw = totalRaw] = normalizedAction.split(':')
+    const addedCount = Number.parseInt(addedRaw, 10)
+    const totalCount = Number.parseInt(totalRaw, 10)
+    const attemptedCount = Number.parseInt(attemptedRaw, 10)
+
+    if (Number.isFinite(addedCount) && Number.isFinite(totalCount) && addedCount > 0) {
+      return {
+        message: `Found ${addedCount} new job${addedCount === 1 ? '' : 's'} on this pass (${totalCount} total so far)`,
+        stage: 'extraction'
+      }
+    }
+
+    if (Number.isFinite(attemptedCount) && Number.isFinite(totalCount)) {
+      return {
+        message: `No new jobs were kept from this pass (${attemptedCount} reviewed, ${totalCount} total so far)`,
+        stage: 'extraction'
+      }
+    }
+  }
+
+  if (normalizedAction.includes('navigate')) {
+    return { message: `Opening ${siteLabel}${formatFoundSuffix(jobsFound)}`, stage: 'navigation' }
+  }
+
+  if (normalizedAction.includes('extract_jobs')) {
+    return { message: `Gathering jobs from the current page${formatFoundSuffix(jobsFound)}`, stage: 'extraction' }
+  }
+
+  if (normalizedAction.includes('scroll_down')) {
+    return { message: `Loading more results${formatFoundSuffix(jobsFound)}`, stage: 'navigation' }
+  }
+
+  if (normalizedAction.includes('go_back')) {
+    return { message: `Returning to the previous results page${formatFoundSuffix(jobsFound)}`, stage: 'navigation' }
+  }
+
+  if (normalizedAction.includes('fill')) {
+    return { message: `Refining the search controls${formatFoundSuffix(jobsFound)}`, stage: 'navigation' }
+  }
+
+  if (normalizedAction.includes('click')) {
+    return { message: `Opening a job detail or result card${formatFoundSuffix(jobsFound)}`, stage: 'navigation' }
+  }
+
+  return { message: `Continuing discovery on the current page${formatFoundSuffix(jobsFound)}`, stage: 'navigation' }
+}
+
+function createDiscoveryEvent(
+  input: Omit<DiscoveryActivityEvent, 'id' | 'resolvedAdapterKind' | 'terminalState'>
+    & Pick<Partial<DiscoveryActivityEvent>, 'resolvedAdapterKind' | 'terminalState'>
+): DiscoveryActivityEvent {
+  return DiscoveryActivityEventSchema.parse({
+    ...input,
+    id: `${input.runId}_${input.stage}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  })
+}
+
+function appendDiscoveryEvent(run: DiscoveryRunRecord, event: DiscoveryActivityEvent): DiscoveryRunRecord {
+  const previousEvent = run.activity[run.activity.length - 1]
+
+  if (
+    previousEvent &&
+    previousEvent.message === event.message &&
+    previousEvent.stage === event.stage &&
+    previousEvent.targetId === event.targetId &&
+    previousEvent.url === event.url
+  ) {
+    return run
+  }
+
+  return DiscoveryRunRecordSchema.parse({
+    ...run,
+    activity: [...run.activity, event]
+  })
+}
+
+function updateTargetExecution(
+  run: DiscoveryRunRecord,
+  targetId: string,
+  updater: (target: DiscoveryTargetExecution) => DiscoveryTargetExecution
+): DiscoveryRunRecord {
+  return DiscoveryRunRecordSchema.parse({
+    ...run,
+    targetExecutions: run.targetExecutions.map((target) =>
+      target.targetId === targetId ? DiscoveryTargetExecutionSchema.parse(updater(target)) : target
+    )
+  })
+}
+
+function countCompletedTargetExecutions(run: DiscoveryRunRecord): number {
+  return run.targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
+}
+
+function finalizeDiscoveryState(
+  current: JobFinderDiscoveryState,
+  run: DiscoveryRunRecord,
+  searchPreferences: JobSearchPreferences
+): JobFinderDiscoveryState {
+  const historyLimit = searchPreferences.discovery.historyLimit || DEFAULT_DISCOVERY_HISTORY_LIMIT
+
+  return JobFinderDiscoveryStateSchema.parse({
+    ...current,
+    runState: run.state,
+    activeRun: run,
+    recentRuns: [run, ...current.recentRuns.filter((entry) => entry.id !== run.id)].slice(0, historyLimit)
   })
 }
 
@@ -849,6 +1276,7 @@ function nextJobStatusFromAttempt(job: SavedJob, attemptState: ApplicationAttemp
 export interface JobFinderWorkspaceService {
   getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot>
   openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>
+  checkBrowserSession(): Promise<JobFinderWorkspaceSnapshot>
   resetWorkspace(seed: JobFinderRepositorySeed): Promise<JobFinderWorkspaceSnapshot>
   saveProfile(profile: CandidateProfile): Promise<JobFinderWorkspaceSnapshot>
   saveProfileAndSearchPreferences(
@@ -859,6 +1287,7 @@ export interface JobFinderWorkspaceService {
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<JobFinderWorkspaceSnapshot>
   saveSettings(settings: JobFinderSettings): Promise<JobFinderWorkspaceSnapshot>
   runDiscovery(): Promise<JobFinderWorkspaceSnapshot>
+  runAgentDiscovery(onActivity?: (event: DiscoveryActivityEvent) => void, signal?: AbortSignal): Promise<JobFinderWorkspaceSnapshot>
   queueJobForReview(jobId: string): Promise<JobFinderWorkspaceSnapshot>
   dismissDiscoveryJob(jobId: string): Promise<JobFinderWorkspaceSnapshot>
   generateResume(jobId: string): Promise<JobFinderWorkspaceSnapshot>
@@ -893,6 +1322,122 @@ export function createJobFinderWorkspaceService(
 ): JobFinderWorkspaceService {
   const { aiClient, browserRuntime, documentManager, repository } = options
 
+  function mergeSessionStates(
+    currentSessions: ReadonlyArray<JobFinderDiscoveryState['sessions'][number]>,
+    nextSession: JobFinderDiscoveryState['sessions'][number]
+  ): JobFinderDiscoveryState['sessions'] {
+    const nextByKind = new Map(currentSessions.map((session) => [session.adapterKind, session]))
+    nextByKind.set(nextSession.adapterKind, nextSession)
+    return [...nextByKind.values()]
+  }
+
+  function mergePendingJobs(currentJobs: readonly SavedJob[], nextJobs: readonly SavedJob[]): SavedJob[] {
+    const nextById = new Map(currentJobs.map((job) => [job.id, job]))
+    for (const job of nextJobs) {
+      nextById.set(job.id, job)
+    }
+    return [...nextById.values()].sort((left, right) => right.matchAssessment.score - left.matchAssessment.score)
+  }
+
+  function mergeSavedJobs(currentJobs: readonly SavedJob[], nextJobs: readonly SavedJob[]): SavedJob[] {
+    const nextById = new Map(currentJobs.map((job) => [job.id, job]))
+    for (const job of nextJobs) {
+      nextById.set(job.id, job)
+    }
+    return [...nextById.values()]
+  }
+
+  function overlayTouchedSavedJobs(
+    currentJobs: readonly SavedJob[],
+    nextJobs: readonly SavedJob[],
+    touchedIds: ReadonlySet<string>
+  ): SavedJob[] {
+    return mergeSavedJobs(
+      currentJobs.filter((job) => !touchedIds.has(job.id)),
+      nextJobs.filter((job) => touchedIds.has(job.id))
+    )
+  }
+
+  function overlayTouchedPendingJobs(
+    currentJobs: readonly SavedJob[],
+    nextJobs: readonly SavedJob[],
+    touchedIds: ReadonlySet<string>
+  ): SavedJob[] {
+    return mergePendingJobs(
+      currentJobs.filter((job) => !touchedIds.has(job.id)),
+      nextJobs.filter((job) => touchedIds.has(job.id))
+    )
+  }
+
+  function createBrowserSessionSnapshot(
+    sessions: ReadonlyArray<JobFinderDiscoveryState['sessions'][number]>,
+    preferredAdapter: JobSource
+  ) {
+    const preferredSession = sessions.find((session) => session.adapterKind === preferredAdapter) ?? sessions[0]
+
+    if (preferredSession) {
+      return {
+        source: preferredSession.adapterKind,
+        status: preferredSession.status,
+        driver: preferredSession.driver,
+        label: preferredSession.label,
+        detail: preferredSession.detail,
+        lastCheckedAt: preferredSession.lastCheckedAt
+      }
+    }
+
+    return {
+      source: preferredAdapter,
+      status: 'unknown' as const,
+      driver: 'catalog_seed' as const,
+      label: 'Session status unavailable',
+      detail: 'No discovery adapter session has been initialized yet.',
+      lastCheckedAt: new Date(0).toISOString()
+    }
+  }
+
+  async function persistDiscoveryState(
+    updater: (current: JobFinderDiscoveryState) => JobFinderDiscoveryState
+  ): Promise<JobFinderDiscoveryState> {
+    const current = await repository.getDiscoveryState()
+    const next = JobFinderDiscoveryStateSchema.parse(updater(current))
+    await repository.saveDiscoveryState(next)
+    return next
+  }
+
+  async function refreshDiscoverySessions(searchPreferences: JobSearchPreferences): Promise<JobFinderDiscoveryState['sessions']> {
+    const targets = getActiveDiscoveryTargets(searchPreferences)
+    const adapterKinds = uniqueStrings(targets.map((target) => resolveAdapterKind(target))) as JobSource[]
+    const currentDiscovery = await repository.getDiscoveryState()
+    let nextSessions = currentDiscovery.sessions
+
+    const sessionKinds: JobSource[] = adapterKinds.length > 0 ? adapterKinds : ['linkedin']
+
+    for (const adapterKind of sessionKinds) {
+      try {
+        const session = await browserRuntime.getSessionState(adapterKind)
+        nextSessions = mergeSessionStates(nextSessions, toDiscoverySessionState(session))
+      } catch {
+        // Keep the last persisted session state if the runtime cannot refresh it right now.
+      }
+    }
+
+    if (JSON.stringify(nextSessions) !== JSON.stringify(currentDiscovery.sessions)) {
+      const latestDiscovery = await repository.getDiscoveryState()
+
+      if (JSON.stringify(nextSessions) !== JSON.stringify(latestDiscovery.sessions)) {
+      await repository.saveDiscoveryState(
+        JobFinderDiscoveryStateSchema.parse({
+          ...latestDiscovery,
+          sessions: nextSessions
+        })
+      )
+      }
+    }
+
+    return nextSessions
+  }
+
   async function getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot> {
     const [
       profile,
@@ -902,7 +1447,7 @@ export function createJobFinderWorkspaceService(
       applicationRecords,
       applicationAttempts,
       settings,
-      browserSession
+      discovery
     ] = await Promise.all([
       repository.getProfile(),
       repository.getSearchPreferences(),
@@ -911,10 +1456,21 @@ export function createJobFinderWorkspaceService(
       repository.listApplicationRecords(),
       repository.listApplicationAttempts(),
       repository.getSettings(),
-      browserRuntime.getSessionState('linkedin')
+      repository.getDiscoveryState()
     ])
 
-    const discoveryJobs = buildDiscoveryJobs(savedJobs)
+    const discoverySessions = await refreshDiscoverySessions(searchPreferences)
+    const browserSession = createBrowserSessionSnapshot(
+      discoverySessions,
+      getPreferredSessionAdapter(searchPreferences)
+    )
+
+    const persistedDiscoveryJobs = buildDiscoveryJobs(savedJobs)
+    const savedJobIds = new Set(savedJobs.map((job) => job.id))
+    const mergedPendingJobs = discovery.pendingDiscoveryJobs.filter((job) => !savedJobIds.has(job.id))
+    const discoveryJobs = [...persistedDiscoveryJobs, ...mergedPendingJobs].sort(
+      (left, right) => right.matchAssessment.score - left.matchAssessment.score
+    )
     const reviewQueue = buildReviewQueue(savedJobs, tailoredAssets)
     const orderedApplicationRecords = buildApplicationRecords(applicationRecords)
 
@@ -926,6 +1482,10 @@ export function createJobFinderWorkspaceService(
       profile,
       searchPreferences,
       browserSession,
+      discoverySessions,
+      discoveryRunState: discovery.runState,
+      activeDiscoveryRun: discovery.activeRun,
+      recentDiscoveryRuns: discovery.recentRuns,
       discoveryJobs,
       selectedDiscoveryJobId: discoveryJobs[0]?.id ?? null,
       reviewQueue,
@@ -964,7 +1524,21 @@ export function createJobFinderWorkspaceService(
       return getWorkspaceSnapshot()
     },
     async openBrowserSession() {
-      await browserRuntime.openSession('linkedin')
+      const searchPreferences = await repository.getSearchPreferences()
+      const session = await browserRuntime.openSession(getPreferredSessionAdapter(searchPreferences))
+      await persistDiscoveryState((current) => ({
+        ...current,
+        sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session))
+      }))
+      return getWorkspaceSnapshot()
+    },
+    async checkBrowserSession() {
+      const searchPreferences = await repository.getSearchPreferences()
+      const session = await browserRuntime.getSessionState(getPreferredSessionAdapter(searchPreferences))
+      await persistDiscoveryState((current) => ({
+        ...current,
+        sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session))
+      }))
       return getWorkspaceSnapshot()
     },
     async saveProfile(profile) {
@@ -1024,53 +1598,590 @@ export function createJobFinderWorkspaceService(
       return getWorkspaceSnapshot()
     },
     async runDiscovery() {
-      const [profile, searchPreferences, savedJobs] = await Promise.all([
+      const [profile, searchPreferences, settings, discoveryState] = await Promise.all([
         repository.getProfile(),
         repository.getSearchPreferences(),
-        repository.listSavedJobs()
+        repository.getSettings(),
+        repository.getDiscoveryState()
       ])
-      const discoveryResult = await browserRuntime.runDiscovery('linkedin', searchPreferences)
-      const savedJobsByPostingKey = new Map<string, SavedJob>()
+      const enrichedPreferences = enrichSearchPreferencesFromProfile(searchPreferences, profile)
+      const primaryTarget = getActiveDiscoveryTargets(enrichedPreferences)[0]
 
-      for (const job of savedJobs) {
-        const key = `${job.source}:${job.sourceJobId}:${job.canonicalUrl}`
-        savedJobsByPostingKey.set(key, job)
+      if (!primaryTarget) {
+        return getWorkspaceSnapshot()
       }
 
-      const nextJobsById = new Map(savedJobs.map((job) => [job.id, job]))
-
-      for (const posting of discoveryResult.jobs) {
-        const postingKey = `${posting.source}:${posting.sourceJobId}:${posting.canonicalUrl}`
-        const existingJob = savedJobsByPostingKey.get(postingKey)
-        const matchAssessment = await createMatchAssessmentAsync(
-          aiClient,
-          profile,
-          searchPreferences,
-          posting
-        )
-        const mergedJob = mergeDiscoveredJob(matchAssessment, posting, existingJob)
-        nextJobsById.set(mergedJob.id, mergedJob)
+      const adapterKind = resolveAdapterKind(primaryTarget)
+      if (adapterKind !== 'linkedin') {
+        throw new Error('Deterministic discovery is only available for the LinkedIn adapter.')
       }
 
-      await repository.replaceSavedJobs([...nextJobsById.values()])
+      const discoveryResult = await browserRuntime.runDiscovery(adapterKind, enrichedPreferences)
+      const savedJobs = await repository.listSavedJobs()
+      const persistedSavedJobIds = new Set(savedJobs.map((job) => job.id))
+      const mergeSeedJobs = settings.discoveryOnly
+        ? mergeSavedJobs(savedJobs, discoveryState.pendingDiscoveryJobs)
+        : savedJobs
+      const mergeResult = await mergeDiscoveredPostings(
+        aiClient,
+        profile,
+        enrichedPreferences,
+        mergeSeedJobs,
+        discoveryResult.jobs,
+        () => ({
+          targetId: primaryTarget.id,
+          adapterKind: primaryTarget.adapterKind,
+          resolvedAdapterKind: adapterKind,
+          startingUrl: primaryTarget.startingUrl,
+          discoveredAt: new Date().toISOString()
+        })
+      )
+
+      if (settings.discoveryOnly) {
+        const nextPendingJobs = mergeResult.mergedJobs.filter((job) => !persistedSavedJobIds.has(job.id))
+        await repository.replaceSavedJobs(mergeResult.mergedJobs.filter(
+          (job) => persistedSavedJobIds.has(job.id) && !mergeResult.newJobs.some((newJob) => newJob.id === job.id)
+        ))
+        await persistDiscoveryState((current) => ({
+          ...current,
+          pendingDiscoveryJobs: mergePendingJobs(current.pendingDiscoveryJobs, nextPendingJobs)
+        }))
+      } else {
+        await repository.replaceSavedJobs(mergeResult.mergedJobs)
+        await persistDiscoveryState((current) => ({
+          ...current,
+          pendingDiscoveryJobs: current.pendingDiscoveryJobs
+        }))
+      }
+
+      return getWorkspaceSnapshot()
+    },
+    async runAgentDiscovery(onActivity, signal) {
+      const [profile, searchPreferences, settings, startingSavedJobs, startingDiscovery] = await Promise.all([
+        repository.getProfile(),
+        repository.getSearchPreferences(),
+        repository.getSettings(),
+        repository.listSavedJobs(),
+        repository.getDiscoveryState()
+      ])
+
+      if (!browserRuntime.runAgentDiscovery) {
+        throw new Error('Browser runtime does not support agent discovery')
+      }
+
+      if (!aiClient.chatWithTools) {
+        throw new Error('Configured AI client does not support chatWithTools / tool calling')
+      }
+
+      const enrichedPreferences = enrichSearchPreferencesFromProfile(searchPreferences, profile)
+      const targets = getActiveDiscoveryTargets(enrichedPreferences)
+
+      if (targets.length === 0) {
+        return getWorkspaceSnapshot()
+      }
+
+      let workingSavedJobs = [...startingSavedJobs]
+      let workingPendingJobs = [...startingDiscovery.pendingDiscoveryJobs]
+      const touchedSavedJobIds = new Set<string>()
+      const touchedPendingJobIds = new Set<string>()
+
+      let activeRun = DiscoveryRunRecordSchema.parse({
+        id: `discovery_run_${Date.now()}`,
+        state: 'running',
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        targetIds: targets.map((target) => target.id),
+        targetExecutions: targets.map((target) => ({
+          targetId: target.id,
+          adapterKind: target.adapterKind,
+          resolvedAdapterKind: resolveAdapterKind(target),
+          state: 'planned',
+          startedAt: null,
+          completedAt: null,
+          jobsFound: 0,
+          jobsPersisted: 0,
+          jobsStaged: 0,
+          warning: null
+        })),
+        activity: [],
+        summary: {
+          targetsPlanned: targets.length,
+          targetsCompleted: 0,
+          validJobsFound: 0,
+          jobsPersisted: 0,
+          jobsStaged: 0,
+          duplicatesMerged: 0,
+          invalidSkipped: 0,
+          durationMs: 0,
+          outcome: 'running'
+        }
+      })
+
+      const emitActivity = (event: DiscoveryActivityEvent) => {
+        activeRun = appendDiscoveryEvent(activeRun, event)
+        onActivity?.(event)
+      }
+
+      emitActivity(createDiscoveryEvent({
+        runId: activeRun.id,
+        timestamp: new Date().toISOString(),
+        kind: 'info',
+        stage: 'planning',
+        targetId: null,
+        adapterKind: null,
+        resolvedAdapterKind: null,
+        message: `Planning ${targets.length} discovery target${targets.length === 1 ? '' : 's'}`,
+        url: null,
+        jobsFound: 0,
+        jobsPersisted: 0,
+        jobsStaged: 0,
+        duplicatesMerged: 0,
+        invalidSkipped: 0
+      }))
+
+      await persistDiscoveryState((current) => ({
+        ...current,
+        runState: 'running',
+        activeRun,
+        recentRuns: current.recentRuns,
+        pendingDiscoveryJobs: workingPendingJobs
+      }))
+
+      try {
+        for (const [index, target] of targets.entries()) {
+          if (signal?.aborted) {
+            throw new DOMException('Aborted', 'AbortError')
+          }
+
+          const targetStartedAt = new Date().toISOString()
+          const adapterKind = resolveAdapterKind(target)
+          const adapter = discoveryAdapters[adapterKind]
+          const targetUrl = (() => {
+            try {
+              return new URL(target.startingUrl)
+            } catch {
+              return null
+            }
+          })()
+
+          activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+            ...execution,
+            state: 'running',
+            startedAt: targetStartedAt
+          }))
+
+          emitActivity(createDiscoveryEvent({
+            runId: activeRun.id,
+            timestamp: targetStartedAt,
+            kind: 'info',
+            stage: 'target',
+            targetId: target.id,
+            adapterKind: target.adapterKind,
+            resolvedAdapterKind: adapterKind,
+            message: `Starting target ${index + 1} of ${targets.length}: ${target.label}`,
+            url: target.startingUrl,
+            jobsFound: null,
+            jobsPersisted: null,
+            jobsStaged: null,
+            duplicatesMerged: null,
+            invalidSkipped: null
+          }))
+
+          if (!targetUrl) {
+            const warning = `Target ${target.label} has an invalid starting URL and was skipped.`
+            activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+              ...execution,
+              state: 'skipped',
+              completedAt: new Date().toISOString(),
+              warning
+            }))
+            activeRun = DiscoveryRunRecordSchema.parse({
+              ...activeRun,
+              summary: {
+                ...activeRun.summary,
+                targetsCompleted: countCompletedTargetExecutions(activeRun)
+              }
+            })
+            emitActivity(createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: 'warning',
+              stage: 'target',
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message: warning,
+              terminalState: 'skipped',
+              url: null,
+              jobsFound: 0,
+              jobsPersisted: 0,
+              jobsStaged: 0,
+              duplicatesMerged: 0,
+              invalidSkipped: 0
+            }))
+            continue
+          }
+
+          try {
+            if (adapter.experimental) {
+              emitActivity(createDiscoveryEvent({
+                runId: activeRun.id,
+                timestamp: new Date().toISOString(),
+                kind: 'warning',
+                stage: 'target',
+                targetId: target.id,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: adapterKind,
+                message: 'Generic site extraction is experimental and lower confidence on unfamiliar page structures',
+                url: target.startingUrl,
+                jobsFound: null,
+                jobsPersisted: null,
+                jobsStaged: null,
+                duplicatesMerged: null,
+                invalidSkipped: null
+              }))
+            }
+
+            if (adapter.requiresManagedSession) {
+              const session = await browserRuntime.getSessionState(adapterKind)
+              await persistDiscoveryState((current) => ({
+                ...current,
+                sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session)),
+                activeRun
+              }))
+
+              if (session.status !== 'ready') {
+                const warning = `${adapter.label} session is not ready. ${session.detail ?? 'Open the browser profile and try again.'}`
+                activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+                  ...execution,
+                  state: 'failed',
+                  completedAt: new Date().toISOString(),
+                  warning
+                }))
+                activeRun = DiscoveryRunRecordSchema.parse({
+                  ...activeRun,
+                  summary: {
+                    ...activeRun.summary,
+                    targetsCompleted: countCompletedTargetExecutions(activeRun)
+                  }
+                })
+                emitActivity(createDiscoveryEvent({
+                  runId: activeRun.id,
+                  timestamp: new Date().toISOString(),
+                  kind: 'warning',
+                  stage: 'target',
+                  targetId: target.id,
+                  adapterKind: target.adapterKind,
+                  resolvedAdapterKind: adapterKind,
+                  message: warning,
+                  terminalState: 'failed',
+                  url: target.startingUrl,
+                  jobsFound: 0,
+                  jobsPersisted: 0,
+                  jobsStaged: 0,
+                  duplicatesMerged: 0,
+                  invalidSkipped: 0
+                }))
+                continue
+              }
+            }
+
+            const customInstructions = splitCustomDiscoveryInstructions(target.customInstructions)
+            const discoveryResult = await browserRuntime.runAgentDiscovery(adapterKind, {
+              userProfile: profile,
+              searchPreferences: {
+                targetRoles: enrichedPreferences.targetRoles.length > 0 ? enrichedPreferences.targetRoles : [DEFAULT_ROLE],
+                locations: enrichedPreferences.locations
+              },
+              targetJobCount: DEFAULT_TARGET_JOB_COUNT,
+              maxSteps: DEFAULT_MAX_STEPS,
+              startingUrls: [target.startingUrl],
+              siteLabel: target.label,
+              navigationHostnames: [targetUrl.hostname],
+              siteInstructions: customInstructions.length > 0
+                ? [...customInstructions, ...adapter.siteInstructions]
+                : adapter.siteInstructions,
+              toolUsageNotes: adapter.toolUsageNotes,
+              relevantUrlSubstrings: adapter.relevantUrlSubstrings,
+              experimental: adapter.experimental,
+              aiClient,
+              onProgress: (progress) => {
+                const summary = summarizeProgressAction(
+                  progress.currentAction,
+                  target.label,
+                  progress.jobsFound,
+                  progress.stepCount
+                )
+                emitActivity(createDiscoveryEvent({
+                  runId: activeRun.id,
+                  timestamp: new Date().toISOString(),
+                  kind: 'progress',
+                  stage: summary.stage,
+                  targetId: target.id,
+                  adapterKind: target.adapterKind,
+                  resolvedAdapterKind: adapterKind,
+                  message: summary.message,
+                  url: progress.currentUrl,
+                  jobsFound: progress.jobsFound,
+                  jobsPersisted: null,
+                  jobsStaged: null,
+                  duplicatesMerged: null,
+                  invalidSkipped: null
+                }))
+              },
+              ...(signal ? { signal } : {})
+            })
+
+            const persistedWorkingJobIds = new Set(workingSavedJobs.map((job) => job.id))
+            const mergeSeedJobs = settings.discoveryOnly
+              ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
+              : workingSavedJobs
+            const mergeResult = await mergeDiscoveredPostings(
+              aiClient,
+              profile,
+              enrichedPreferences,
+              mergeSeedJobs,
+              discoveryResult.jobs,
+              () => ({
+                targetId: target.id,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: adapterKind,
+                startingUrl: target.startingUrl,
+                discoveredAt: new Date().toISOString()
+              }),
+              signal
+            )
+
+          const newJobIds = new Set(mergeResult.newJobs.map((job) => job.id))
+          if (settings.discoveryOnly) {
+            const nextPendingJobs = mergeResult.mergedJobs.filter((job) => !persistedWorkingJobIds.has(job.id))
+            for (const job of mergeResult.mergedJobs.filter((job) => persistedWorkingJobIds.has(job.id))) {
+              touchedSavedJobIds.add(job.id)
+            }
+            for (const job of nextPendingJobs) {
+              touchedPendingJobIds.add(job.id)
+            }
+            workingSavedJobs = mergeResult.mergedJobs.filter((job) => persistedWorkingJobIds.has(job.id) && !newJobIds.has(job.id))
+            workingPendingJobs = mergePendingJobs(workingPendingJobs, nextPendingJobs)
+          } else {
+            for (const job of mergeResult.mergedJobs) {
+              touchedSavedJobIds.add(job.id)
+            }
+            workingSavedJobs = mergeResult.mergedJobs
+            workingPendingJobs = []
+          }
+
+            activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+              ...execution,
+              state: 'completed',
+              completedAt: new Date().toISOString(),
+              jobsFound: discoveryResult.jobs.length,
+              jobsPersisted: settings.discoveryOnly ? 0 : mergeResult.newJobs.length,
+              jobsStaged: settings.discoveryOnly ? mergeResult.newJobs.length : 0,
+              warning: discoveryResult.warning
+            }))
+            activeRun = DiscoveryRunRecordSchema.parse({
+              ...activeRun,
+              summary: {
+                ...activeRun.summary,
+                targetsCompleted: countCompletedTargetExecutions(activeRun),
+                validJobsFound: activeRun.summary.validJobsFound + mergeResult.validatedCount,
+                jobsPersisted: activeRun.summary.jobsPersisted + (settings.discoveryOnly ? 0 : mergeResult.newJobs.length),
+                jobsStaged: activeRun.summary.jobsStaged + (settings.discoveryOnly ? mergeResult.newJobs.length : 0),
+                duplicatesMerged: activeRun.summary.duplicatesMerged + mergeResult.duplicatesMerged,
+                invalidSkipped: activeRun.summary.invalidSkipped + mergeResult.invalidSkipped,
+                outcome: 'running'
+              }
+            })
+
+            emitActivity(createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: 'info',
+              stage: 'scoring',
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message: `Scored ${discoveryResult.jobs.length} discovered job${discoveryResult.jobs.length === 1 ? '' : 's'}`,
+              url: target.startingUrl,
+              jobsFound: discoveryResult.jobs.length,
+              jobsPersisted: null,
+              jobsStaged: null,
+              duplicatesMerged: mergeResult.duplicatesMerged,
+              invalidSkipped: mergeResult.invalidSkipped
+            }))
+
+            emitActivity(createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: discoveryResult.warning ? 'warning' : 'success',
+              stage: 'persistence',
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message: settings.discoveryOnly
+                ? `Saved ${0} jobs and staged ${mergeResult.newJobs.length} for review-only mode`
+                : `Saved ${mergeResult.newJobs.length} new job${mergeResult.newJobs.length === 1 ? '' : 's'} for this target`,
+              terminalState: 'completed',
+              url: target.startingUrl,
+              jobsFound: discoveryResult.jobs.length,
+              jobsPersisted: settings.discoveryOnly ? 0 : mergeResult.newJobs.length,
+              jobsStaged: settings.discoveryOnly ? mergeResult.newJobs.length : 0,
+              duplicatesMerged: mergeResult.duplicatesMerged,
+              invalidSkipped: mergeResult.invalidSkipped
+            }))
+          } catch (error) {
+            const aborted = error instanceof DOMException && error.name === 'AbortError'
+            const message = aborted
+              ? `Target ${target.label} was cancelled before completion`
+              : `Target ${target.label} failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+            activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
+              ...execution,
+              state: aborted ? 'cancelled' : 'failed',
+              completedAt: new Date().toISOString(),
+              warning: message
+            }))
+            activeRun = DiscoveryRunRecordSchema.parse({
+              ...activeRun,
+              summary: {
+                ...activeRun.summary,
+                targetsCompleted: countCompletedTargetExecutions(activeRun)
+              }
+            })
+            emitActivity(createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: aborted ? 'warning' : 'error',
+              stage: 'target',
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message,
+              terminalState: aborted ? 'cancelled' : 'failed',
+              url: target.startingUrl,
+              jobsFound: null,
+              jobsPersisted: null,
+              jobsStaged: null,
+              duplicatesMerged: null,
+              invalidSkipped: null
+            }))
+            throw error
+          }
+        }
+
+        const failedTargets = activeRun.targetExecutions.filter((execution) => execution.state === 'failed').length
+        const runOutcome: DiscoveryRunState = failedTargets > 0 ? 'failed' : 'completed'
+        activeRun = DiscoveryRunRecordSchema.parse({
+          ...activeRun,
+          state: runOutcome,
+          completedAt: new Date().toISOString(),
+          summary: {
+            ...activeRun.summary,
+            durationMs: new Date().getTime() - new Date(activeRun.startedAt).getTime(),
+            outcome: runOutcome
+          }
+        })
+      } catch (error) {
+        const aborted = error instanceof DOMException && error.name === 'AbortError'
+        activeRun = DiscoveryRunRecordSchema.parse({
+          ...activeRun,
+          state: aborted ? 'cancelled' : 'failed',
+          completedAt: new Date().toISOString(),
+          summary: {
+            ...activeRun.summary,
+            durationMs: new Date().getTime() - new Date(activeRun.startedAt).getTime(),
+            outcome: aborted ? 'cancelled' : 'failed'
+          }
+        })
+        emitActivity(createDiscoveryEvent({
+          runId: activeRun.id,
+          timestamp: new Date().toISOString(),
+          kind: aborted ? 'warning' : 'error',
+          stage: 'run',
+          targetId: null,
+          adapterKind: null,
+          resolvedAdapterKind: null,
+          message: aborted ? 'Discovery run cancelled before completion' : `Discovery run failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          url: null,
+          jobsFound: null,
+          jobsPersisted: null,
+          jobsStaged: null,
+          duplicatesMerged: null,
+          invalidSkipped: null
+        }))
+
+        const [latestSavedJobs, latestDiscoveryState] = await Promise.all([
+          repository.listSavedJobs(),
+          repository.getDiscoveryState()
+        ])
+        await repository.replaceSavedJobs(overlayTouchedSavedJobs(latestSavedJobs, workingSavedJobs, touchedSavedJobIds))
+        await repository.saveDiscoveryState(finalizeDiscoveryState({
+          ...latestDiscoveryState,
+          pendingDiscoveryJobs: overlayTouchedPendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs, touchedPendingJobIds)
+        }, activeRun, enrichedPreferences))
+
+        if (aborted) {
+          return getWorkspaceSnapshot()
+        }
+
+        throw error
+      }
+
+      const [latestSavedJobs, latestDiscoveryState] = await Promise.all([
+        repository.listSavedJobs(),
+        repository.getDiscoveryState()
+      ])
+      await repository.replaceSavedJobs(overlayTouchedSavedJobs(latestSavedJobs, workingSavedJobs, touchedSavedJobIds))
+      await repository.saveDiscoveryState(finalizeDiscoveryState({
+        ...latestDiscoveryState,
+        pendingDiscoveryJobs: overlayTouchedPendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs, touchedPendingJobIds)
+      }, activeRun, enrichedPreferences))
+
       return getWorkspaceSnapshot()
     },
     async queueJobForReview(jobId) {
-      const tailoredAssets = await repository.listTailoredAssets()
-      const asset = tailoredAssets.find((entry) => entry.jobId === jobId)
+      const discoveryState = await repository.getDiscoveryState()
+      const pendingIndex = discoveryState.pendingDiscoveryJobs.findIndex((job) => job.id === jobId)
 
-      await updateJob(jobId, (job) => ({
-        ...job,
-        status: asset?.status === 'ready' ? 'ready_for_review' : 'drafting'
-      }))
+      if (pendingIndex >= 0) {
+        const pendingJob = discoveryState.pendingDiscoveryJobs[pendingIndex]
+        const savedJobs = await repository.listSavedJobs()
+        const nextJob = SavedJobSchema.parse({
+          ...pendingJob,
+          status: 'shortlisted'
+        })
+        await repository.replaceSavedJobs(mergeSavedJobs(savedJobs, [nextJob]))
+        await persistDiscoveryState((current) => ({
+          ...current,
+          pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter((job) => job.id !== jobId)
+        }))
+      } else {
+        const tailoredAssets = await repository.listTailoredAssets()
+        const asset = tailoredAssets.find((entry) => entry.jobId === jobId)
+
+        await updateJob(jobId, (job) => ({
+          ...job,
+          status: asset?.status === 'ready' ? 'ready_for_review' : 'drafting'
+        }))
+      }
 
       return getWorkspaceSnapshot()
     },
     async dismissDiscoveryJob(jobId) {
-      await updateJob(jobId, (job) => ({
-        ...job,
-        status: 'archived'
-      }))
+      const discoveryState = await repository.getDiscoveryState()
+      const pendingIndex = discoveryState.pendingDiscoveryJobs.findIndex((job) => job.id === jobId)
+
+      if (pendingIndex >= 0) {
+        await persistDiscoveryState((current) => ({
+          ...current,
+          pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter((job) => job.id !== jobId)
+        }))
+      } else {
+        await updateJob(jobId, (job) => ({
+          ...job,
+          status: 'archived'
+        }))
+      }
 
       return getWorkspaceSnapshot()
     },
@@ -1159,6 +2270,10 @@ export function createJobFinderWorkspaceService(
 
       if (!asset || asset.status !== 'ready') {
         throw new Error(`A ready tailored resume is required before applying to '${job.title}'.`)
+      }
+
+      if (job.source !== 'linkedin') {
+        throw new Error(`Apply automation is currently supported only for LinkedIn jobs. '${job.title}' was discovered through ${job.source}.`)
       }
 
       const executionResult = await browserRuntime.executeEasyApply('linkedin', {

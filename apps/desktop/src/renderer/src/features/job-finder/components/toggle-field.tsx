@@ -24,7 +24,7 @@ export function ToggleField({
   return (
     <div
       className={cn(
-        'grid min-w-0 content-start gap-[var(--gap-field)] h-full rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-4',
+        'grid min-w-0 content-start gap-(--gap-field) h-full rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4',
         className
       )}
     >
@@ -32,7 +32,7 @@ export function ToggleField({
       <div className="flex min-w-0 flex-1 items-start justify-between gap-4">
         <span 
           id={descriptionId}
-          className="min-w-0 text-[var(--text-small)] leading-5 text-muted-foreground"
+          className="min-w-0 text-(length:--text-small) leading-5 text-muted-foreground"
         >
           {description}
         </span>

@@ -39,6 +39,7 @@ Agent-first Electron monorepo for two modules:
 ## Doc Update Rules
 
 - Update docs in the same task when code changes behavior, contracts, architecture, workflows, or delivery shape.
+- When PR or review feedback exposes a repeated mistake, checklist gap, or reusable implementation pattern, update the nearest relevant `AGENTS.md` or canonical doc in the same task so later agents inherit the lesson instead of re-learning it from comments.
 - Update `docs/PRODUCT.md` or module docs for user-facing behavior and scope changes.
 - Update `docs/ARCHITECTURE.md` for package boundaries, data flow, or ownership changes.
 - Update `docs/CONTRACTS.md` when schemas, DTOs, preload APIs, or adapter payloads change.

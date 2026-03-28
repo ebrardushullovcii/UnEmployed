@@ -16,16 +16,16 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
 
   return (
     <div className="grid gap-6">
-      <section className="grid content-start gap-[var(--gap-card)]">
+      <section className="grid content-start gap-(--gap-card)">
         <ProfileSectionHeader
           eyebrow="Basics"
           title="Personal details"
           description="Start with the basics people expect to see first: name, contact info, location, and public links."
         />
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Name and headline</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Name and headline</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>First name</FieldLabel><ProfileInput {...register('identity.firstName')} /></Field>
             <Field><FieldLabel>Last name</FieldLabel><ProfileInput {...register('identity.lastName')} /></Field>
             <Field><FieldLabel>Middle name</FieldLabel><ProfileInput {...register('identity.middleName')} /></Field>
@@ -35,9 +35,9 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Contact</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Contact</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>Primary email</FieldLabel><ProfileInput {...register('identity.email')} /></Field>
             <Field><FieldLabel>Secondary email</FieldLabel><ProfileInput {...register('identity.secondaryEmail')} /></Field>
             <Field><FieldLabel>Phone</FieldLabel><ProfileInput {...register('identity.phone')} /></Field>
@@ -45,9 +45,9 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Location</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Location</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>City</FieldLabel><ProfileInput {...register('identity.currentCity')} /></Field>
             <Field><FieldLabel>Region / state</FieldLabel><ProfileInput {...register('identity.currentRegion')} /></Field>
             <Field><FieldLabel>Country</FieldLabel><ProfileInput {...register('identity.currentCountry')} /></Field>
@@ -55,9 +55,9 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Public links</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Public links</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>LinkedIn URL</FieldLabel><ProfileInput {...register('identity.linkedinUrl')} /></Field>
             <Field><FieldLabel>Portfolio URL</FieldLabel><ProfileInput {...register('identity.portfolioUrl')} /></Field>
             <Field><FieldLabel>GitHub URL</FieldLabel><ProfileInput {...register('identity.githubUrl')} /></Field>
@@ -66,60 +66,60 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         </article>
       </section>
 
-      <section className="grid content-start gap-[var(--gap-card)]">
+      <section className="grid content-start gap-(--gap-card)">
         <ProfileSectionHeader
           eyebrow="Narrative"
           title="Summary"
           description="This is the part you would usually rewrite the most. Keep the short positioning clear, then expand into the fuller story."
         />
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Positioning</p>
-          <div className="grid gap-[var(--gap-content)]">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Positioning</p>
+          <div className="grid gap-(--gap-content)">
             <Field>
               <FieldLabel>Short value proposition</FieldLabel>
-              <ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={3} {...register('summary.shortValueProposition')} />
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={3} {...register('summary.shortValueProposition')} />
             </Field>
             <Field>
               <FieldLabel>Full summary</FieldLabel>
-              <ProfileTextarea className="min-h-[var(--textarea-default)] max-h-[var(--textarea-default)]" rows={5} {...register('summary.fullSummary')} />
+              <ProfileTextarea className="min-h-(--textarea-default) max-h-(--textarea-default)" rows={5} {...register('summary.fullSummary')} />
             </Field>
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Supporting angles</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Supporting angles</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field>
               <FieldLabel>Career themes</FieldLabel>
-              <ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...register('summary.careerThemes')} />
+              <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.careerThemes')} />
             </Field>
             <Field>
               <FieldLabel>Strengths / differentiators</FieldLabel>
-              <ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...register('summary.strengths')} />
+              <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.strengths')} />
             </Field>
             <Field>
               <FieldLabel>Leadership summary</FieldLabel>
-              <ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register('summary.leadershipSummary')} />
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('summary.leadershipSummary')} />
             </Field>
             <Field>
               <FieldLabel>Domain focus</FieldLabel>
-              <ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register('summary.domainFocusSummary')} />
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('summary.domainFocusSummary')} />
             </Field>
           </div>
         </article>
       </section>
 
-      <section className="grid content-start gap-[var(--gap-card)]">
+      <section className="grid content-start gap-(--gap-card)">
         <ProfileSectionHeader
           eyebrow="Skills"
           title="Skills"
           description="Keep your core skills tidy here so tailored resumes and future form fill stay grounded in the same set of facts."
         />
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Role-facing skills</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Role-facing skills</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <ProfileListEditor
               label="General skills"
               onChange={(values) => setValue('profileSkills', joinListInput(values), listFieldOptions)}
@@ -135,9 +135,9 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Grouped skills</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Grouped skills</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <ProfileListEditor
               label="Core skills"
               onChange={(values) => setValue('skillGroups.coreSkills', joinListInput(values), listFieldOptions)}

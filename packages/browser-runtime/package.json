@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@unemployed/contracts": "workspace:*",
+    "@unemployed/browser-agent": "workspace:*",
+    "@unemployed/ai-providers": "workspace:*",
     "playwright": "^1.52.0"
   }
 }

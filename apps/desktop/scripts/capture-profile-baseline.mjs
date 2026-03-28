@@ -214,7 +214,7 @@ const topLevelScreens = [
   {
     buttonName: /^Discovery\s+\d+$/,
     slug: 'discovery',
-    heading: 'LinkedIn results'
+    heading: 'Adapter-driven discovery'
   },
   {
     buttonName: /^Review Queue\s+\d+$/,

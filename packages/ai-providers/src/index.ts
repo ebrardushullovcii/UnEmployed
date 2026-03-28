@@ -1,11 +1,14 @@
 import {
   AgentProviderStatusSchema,
   candidateLinkKindValues,
+  JobPostingSchema,
   type AgentProviderStatus,
   type CandidateProfile,
   type JobFinderSettings,
   type JobPosting,
   type JobSearchPreferences,
+  type Tool,
+  type ToolCall,
   workModeValues
 } from '@unemployed/contracts'
 import { z } from 'zod'
@@ -167,11 +170,43 @@ export interface AssessJobFitInput {
   job: JobPosting
 }
 
+export interface ExtractJobsFromPageInput {
+  pageText: string
+  pageUrl: string
+  pageType: 'search_results' | 'job_detail'
+  maxJobs: number
+}
+
+// Discriminated union for agent messages - matches browser-agent types
+export type AgentMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
+  | { role: 'tool'; toolCallId: string; content: string }
+
+// Tool and ToolCall types are imported from @unemployed/contracts
+// Re-export them for backwards compatibility
+export type { Tool, ToolCall } from '@unemployed/contracts'
+
 export interface JobFinderAiClient {
   getStatus(): AgentProviderStatus
   extractProfileFromResume(input: ExtractProfileFromResumeInput): Promise<ResumeProfileExtraction>
   tailorResume(input: TailorResumeInput): Promise<TailoredResumeDraft>
   assessJobFit(input: AssessJobFitInput): Promise<JobFitAssessment | null>
+  extractJobsFromPage(input: ExtractJobsFromPageInput): Promise<JobPosting[]>
+  chatWithTools?: AgentCapableJobFinderAiClient['chatWithTools']
+}
+
+export interface AgentCapableJobFinderAiClient extends JobFinderAiClient {
+  chatWithTools(
+    messages: AgentMessage[],
+    tools: Tool[],
+    signal?: AbortSignal
+  ): Promise<{
+    content?: string
+    toolCalls?: ToolCall[]
+    reasoning?: string
+  }>
 }
 
 export interface OpenAiCompatibleJobFinderAiClientOptions {
@@ -623,7 +658,9 @@ function inferGithubUrl(resumeText: string): string | null {
       if (pathParts.length === 1) {
         return match.replace(/\/$/, '')
       }
-    } catch {}
+    } catch {
+      // Ignore URL parsing errors
+    }
   }
   return null
 }
@@ -1478,6 +1515,116 @@ function buildChatCompletionsUrl(baseUrl: string): string {
   return new URL('chat/completions', normalizedBaseUrl).toString()
 }
 
+function extractLinkedInJobId(url: string): string {
+  const viewMatch = url.match(/\/jobs\/view\/(\d+)/)
+  if (viewMatch?.[1]) {
+    return viewMatch[1]
+  }
+
+  try {
+    const parsedUrl = new URL(url)
+    const currentJobId = parsedUrl.searchParams.get('currentJobId')
+    return currentJobId ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function buildLinkedInJobUrl(sourceJobId: string): string {
+  return sourceJobId ? `https://www.linkedin.com/jobs/view/${sourceJobId}` : ''
+}
+
+function isLinkedInUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url)
+    const hostname = parsedUrl.hostname.toLowerCase()
+    return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com')
+  } catch {
+    return false
+  }
+}
+
+function buildGenericCanonicalUrl(url: string, baseUrl?: string): string {
+  const trimmedUrl = url.trim()
+
+  if (!trimmedUrl) {
+    return ''
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedUrl, baseUrl)
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return ''
+    }
+
+    for (const key of [...parsedUrl.searchParams.keys()]) {
+      if (key.toLowerCase().startsWith('utm_')) {
+        parsedUrl.searchParams.delete(key)
+      }
+    }
+
+    parsedUrl.hash = ''
+    return parsedUrl.toString()
+  } catch {
+    return ''
+  }
+}
+
+function buildGenericJobId(url: string): string {
+  const canonicalUrl = buildGenericCanonicalUrl(url)
+
+  try {
+    const parsedUrl = new URL(canonicalUrl)
+    const interestingParamKeys = ['id', 'job', 'jobid', 'job_id', 'gh_jid', 'req', 'reqid', 'opening']
+    const interestingParams = interestingParamKeys
+      .map((key) => parsedUrl.searchParams.get(key))
+      .filter((value): value is string => Boolean(value?.trim()))
+      .join('_')
+    const rawValue = [parsedUrl.hostname, parsedUrl.pathname, interestingParams].filter(Boolean).join('_')
+
+    return rawValue
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 160)
+  } catch {
+    return canonicalUrl
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 160)
+  }
+}
+
+function describeInvalidFieldCounts(fieldCounts: Map<string, number>): string {
+  const rankedFields = [...fieldCounts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 5)
+
+  return rankedFields.length > 0
+    ? rankedFields.map(([field, count]) => `${field}(${count})`).join(', ')
+    : 'unknown_validation_failure'
+}
+
+function buildInvalidJobSample(candidate: {
+  canonicalUrl: string
+  title: string
+  company: string
+  location: string
+  summary: string
+  description: string
+}): string {
+  return JSON.stringify({
+    url: candidate.canonicalUrl,
+    title: candidate.title,
+    company: candidate.company,
+    location: candidate.location,
+    summaryLength: candidate.summary.length,
+    descriptionLength: candidate.description.length
+  })
+}
+
 function buildDeterministicStatus(detail: string): AgentProviderStatus {
   return AgentProviderStatusSchema.parse({
     kind: 'deterministic',
@@ -1534,13 +1681,16 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
     },
     assessJobFit() {
       return Promise.resolve(null)
+    },
+    extractJobsFromPage() {
+      return Promise.resolve([])
     }
   }
 }
 
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions
-): JobFinderAiClient {
+): AgentCapableJobFinderAiClient {
   const status = AgentProviderStatusSchema.parse({
     kind: 'openai_compatible',
     ready: true,
@@ -1655,6 +1805,306 @@ export function createOpenAiCompatibleJobFinderAiClient(
         input
       )
       return JobFitAssessmentSchema.parse(payload)
+    },
+    async extractJobsFromPage(input) {
+      const maxJobs = Math.max(0, Math.floor(input.maxJobs))
+      if (maxJobs === 0) {
+        return []
+      }
+
+      const linkedInSource = isLinkedInUrl(input.pageUrl)
+      const pageHostLabel = (() => {
+        try {
+          return new URL(input.pageUrl).hostname
+        } catch {
+          return 'the configured job site'
+        }
+      })()
+      const systemPrompt = input.pageType === 'search_results'
+        ? (linkedInSource
+            ? [
+                'You extract job listings from LinkedIn search results page text.',
+                'Return JSON with a "jobs" array.',
+                'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
+                'Each job must have: sourceJobId (extract from URL), canonicalUrl (full URL), title, company, location, salaryText (or null), description (short summary from listing), and easyApplyEligible (boolean).',
+                'sourceJobId is the numeric ID from URLs like /jobs/view/12345 — extract just the number.',
+                'canonicalUrl is the full https://www.linkedin.com/jobs/view/<id> URL.',
+                'Set easyApplyEligible to true only when the listing clearly indicates Easy Apply, otherwise false.',
+                'The page text may include a "Relevant in-scope URLs found on page" section - use those URLs to populate sourceJobId and canonicalUrl whenever available.',
+                'If you cannot determine both sourceJobId and canonicalUrl for a listing, omit that listing from the output.',
+                'If the page text does not contain job listings, return { "jobs": [] }.',
+                `Return at most ${maxJobs} jobs.`
+              ]
+            : [
+                `You extract job listings from a careers or job-search page on ${pageHostLabel}.`,
+                'Return JSON with a "jobs" array.',
+                'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
+                'Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), and description (short summary from the listing).',
+                'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
+                'If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.',
+                'Do not invent companies, locations, or URLs.',
+                `Return at most ${maxJobs} jobs.`
+              ])
+          .join(' ')
+        : (linkedInSource
+            ? [
+                'You extract structured job details from a LinkedIn job posting page text.',
+                'Return JSON with a "jobs" array containing one job object.',
+                'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
+                'Each job must have: sourceJobId, canonicalUrl, title, company, location, salaryText (or null), description (full job description text), and easyApplyEligible (boolean).',
+                'Use the page URL as the source of truth for sourceJobId and canonicalUrl when available.',
+                'Set easyApplyEligible to true only when the page clearly exposes an Easy Apply path, otherwise false.',
+                'Extract all relevant details: title, company name, location, salary if mentioned, and the full job description.'
+              ]
+            : [
+                `You extract one structured job posting from a job-detail page on ${pageHostLabel}.`,
+                'Return JSON with a "jobs" array containing one job object.',
+                'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
+                'Each job should include canonicalUrl, title, company, location, salaryText (or null), and description (full job description text).',
+                'Use the page URL as the source of truth for canonicalUrl whenever available.',
+                'If the page is not clearly a job detail page, return { "jobs": [] }.'
+              ])
+          .join(' ')
+
+      const payload = await fetchModelJson(systemPrompt, {
+        pageUrl: input.pageUrl,
+        pageText: input.pageText.slice(0, 12000)
+      })
+
+      // Helper to safely convert unknown to string
+      const toStr = (value: unknown): string => {
+        if (typeof value === 'string') return value
+        if (typeof value === 'number') return String(value)
+        return ''
+      }
+
+      const rawJobCandidates = payload && typeof payload === 'object' && Array.isArray((payload as { jobs?: unknown }).jobs)
+        ? (payload as { jobs: unknown[] }).jobs
+        : []
+      const rawJobs: Array<Record<string, unknown>> = []
+
+      const parsedJobs: JobPosting[] = []
+      let skippedJobs = 0
+      const invalidFieldCounts = new Map<string, number>()
+      const invalidSamples: string[] = []
+
+      for (const candidate of rawJobCandidates) {
+        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+          rawJobs.push(candidate as Record<string, unknown>)
+          continue
+        }
+
+        skippedJobs += 1
+        invalidFieldCounts.set('payload_shape', (invalidFieldCounts.get('payload_shape') ?? 0) + 1)
+        if (invalidSamples.length < 3) {
+          invalidSamples.push(JSON.stringify({ invalidItem: candidate }))
+        }
+      }
+
+      for (const raw of rawJobs) {
+        if (parsedJobs.length >= maxJobs) {
+          break
+        }
+
+        const rawSourceJobId = toStr(raw.sourceJobId)
+        const rawCanonicalUrl = toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link)
+
+        const fallbackUrl = input.pageType === 'job_detail' ? input.pageUrl : ''
+        const derivedCanonicalUrl = linkedInSource
+          ? (
+              rawCanonicalUrl ||
+              (input.pageType === 'job_detail'
+                ? buildLinkedInJobUrl(rawSourceJobId || extractLinkedInJobId(fallbackUrl)) || fallbackUrl
+                : buildLinkedInJobUrl(rawSourceJobId || extractLinkedInJobId(rawCanonicalUrl)))
+            )
+          : buildGenericCanonicalUrl(rawCanonicalUrl || fallbackUrl, input.pageUrl)
+        const derivedSourceJobId = linkedInSource
+          ? rawSourceJobId || extractLinkedInJobId(rawCanonicalUrl) || extractLinkedInJobId(fallbackUrl)
+          : rawSourceJobId || buildGenericJobId(derivedCanonicalUrl)
+
+        if (!derivedCanonicalUrl || !derivedSourceJobId) {
+          skippedJobs += 1
+          invalidFieldCounts.set('stable_identity', (invalidFieldCounts.get('stable_identity') ?? 0) + 1)
+          continue
+        }
+
+        const easyApplyEligible = linkedInSource && raw.easyApplyEligible === true
+        const candidate = {
+          source: linkedInSource ? 'linkedin' as const : 'generic_site' as const,
+          sourceJobId: derivedSourceJobId,
+          discoveryMethod: 'browser_agent' as const,
+          canonicalUrl: derivedCanonicalUrl,
+          title: toStr(raw.title),
+          company: toStr(raw.company),
+          location: toStr(raw.location),
+          workMode: Array.isArray(raw.workMode) ? raw.workMode : [],
+          applyPath: easyApplyEligible ? 'easy_apply' : 'unknown',
+          easyApplyEligible,
+          postedAt: new Date().toISOString(),
+          discoveredAt: new Date().toISOString(),
+          salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
+          summary: toStr(raw.description).slice(0, 240),
+          description: toStr(raw.description),
+          keySkills: Array.isArray(raw.keySkills) ? raw.keySkills : []
+        }
+
+        const parsed = JobPostingSchema.safeParse(candidate)
+        if (parsed.success) {
+          parsedJobs.push(parsed.data)
+          continue
+        }
+
+        skippedJobs += 1
+        for (const issue of parsed.error.issues) {
+          const field = issue.path[0]
+          const normalizedField = typeof field === 'string' && field.length > 0 ? field : 'unknown'
+          invalidFieldCounts.set(normalizedField, (invalidFieldCounts.get(normalizedField) ?? 0) + 1)
+        }
+
+        if (invalidSamples.length < 3) {
+          invalidSamples.push(buildInvalidJobSample(candidate))
+        }
+      }
+
+      if (skippedJobs > 0) {
+        console.warn(
+          `[AI Provider] Model returned ${rawJobs.length} job candidates on ${pageHostLabel}; extracted ${parsedJobs.length} valid jobs and skipped ${skippedJobs} invalid jobs. Top invalid fields: ${describeInvalidFieldCounts(invalidFieldCounts)}`
+        )
+
+        if (invalidSamples.length > 0) {
+          console.warn(`[AI Provider] Invalid job samples: ${invalidSamples.join(' | ')}`)
+        }
+      }
+
+      return parsedJobs
+    },
+    async chatWithTools(messages, tools, signal) {
+      // Compose caller signal with 60s safety timeout
+      // AbortSignal.any is not universally available, so we create a composed controller
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60_000)
+      
+      // Named handler for cleanup
+      let onCallerAbort: (() => void) | null = null
+      
+      // Check if signal is already aborted
+      if (signal?.aborted) {
+        clearTimeout(timeoutId)
+        controller.abort()
+      } else if (signal) {
+        onCallerAbort = () => {
+          clearTimeout(timeoutId)
+          controller.abort()
+        }
+        signal.addEventListener('abort', onCallerAbort, { once: true })
+      }
+
+      try {
+        const response = await fetch(buildChatCompletionsUrl(options.baseUrl), {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${options.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: options.model,
+            temperature: 0.2,
+            messages: messages.map(msg => {
+              const base = { role: msg.role, content: msg.content }
+              if (msg.role === 'assistant' && msg.toolCalls) {
+                return {
+                  ...base,
+                  tool_calls: msg.toolCalls.map(tc => ({
+                    id: tc.id,
+                    type: tc.type,
+                    function: tc.function
+                  }))
+                }
+              }
+              if (msg.role === 'tool') {
+                return {
+                  ...base,
+                  tool_call_id: msg.toolCallId
+                }
+              }
+              return base
+            }),
+            tools: tools.map(tool => ({
+              type: tool.type,
+              function: {
+                name: tool.function.name,
+                description: tool.function.description,
+                parameters: tool.function.parameters
+              }
+            })),
+            tool_choice: 'auto'
+          })
+        })
+
+        if (!response.ok) {
+          const errorPayload = (await response.json().catch(() => ({}))) as { error?: { message?: string } }
+          throw new Error(errorPayload.error?.message ?? `Chat request failed with status ${response.status}.`)
+        }
+
+        const payload = (await response.json()) as {
+          choices?: Array<{
+            message?: {
+              content?: string
+              tool_calls?: Array<{
+                id: string
+                type: string
+                function: {
+                  name: string
+                  arguments: string
+                }
+              }>
+            }
+          }>
+        }
+
+        const message = payload.choices?.[0]?.message
+
+        const result: { content?: string; toolCalls?: ToolCall[]; reasoning?: string } = {}
+
+        if (message?.content) {
+          result.content = message.content
+        }
+
+        if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
+          const toolCalls = message.tool_calls.flatMap((toolCall) => {
+            if (
+              toolCall?.type !== 'function' ||
+              typeof toolCall.id !== 'string' ||
+              !toolCall.function ||
+              typeof toolCall.function.name !== 'string' ||
+              typeof toolCall.function.arguments !== 'string'
+            ) {
+              return []
+            }
+
+            return [{
+              id: toolCall.id,
+              type: 'function' as const,
+              function: {
+                name: toolCall.function.name,
+                arguments: toolCall.function.arguments
+              }
+            }]
+          })
+
+          if (toolCalls.length > 0) {
+            result.toolCalls = toolCalls
+          }
+        }
+
+        return result
+      } finally {
+        clearTimeout(timeoutId)
+        if (signal && onCallerAbort) {
+          signal.removeEventListener('abort', onCallerAbort)
+        }
+      }
     }
   }
 }
@@ -1708,6 +2158,16 @@ export function createJobFinderAiClientFromEnvironment(env: StringMap = process.
       } catch {
         return fallbackClient.assessJobFit(input)
       }
+    },
+    async extractJobsFromPage(input) {
+      try {
+        return await primaryClient.extractJobsFromPage(input)
+      } catch {
+        return fallbackClient.extractJobsFromPage(input)
+      }
+    },
+    async chatWithTools(messages, tools, signal) {
+      return primaryClient.chatWithTools(messages, tools, signal)
     }
   }
 }

@@ -35,7 +35,7 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
   }
 
   return (
-    <section className="grid content-start gap-[var(--gap-card)]">
+    <section className="grid content-start gap-(--gap-card)">
       <ProfileSectionHeader
         eyebrow="Experience"
         title="Work history"
@@ -91,13 +91,13 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
                   </Button>
                 </div>
 
-                <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+                <div className="grid gap-(--gap-content) md:grid-cols-2">
                   <Field><FieldLabel>Company</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyName`)} /></Field>
                   <Field><FieldLabel>Company URL</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyUrl`)} /></Field>
                   <Field><FieldLabel>Title</FieldLabel><ProfileInput {...register(`records.experiences.${index}.title`)} /></Field>
                   <Field><FieldLabel>Employment type</FieldLabel><ProfileInput {...register(`records.experiences.${index}.employmentType`)} /></Field>
                   <Field><FieldLabel>Location</FieldLabel><ProfileInput {...register(`records.experiences.${index}.location`)} /></Field>
-                  <div className="grid gap-[var(--gap-field)]">
+                  <div className="grid gap-(--gap-field)">
                     <FieldLabel>Work mode</FieldLabel>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {workModeValues.map((workMode) => (
@@ -133,8 +133,8 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
                   <Field><FieldLabel>End date</FieldLabel><ProfileInput disabled={currentRole} placeholder="YYYY-MM" {...register(`records.experiences.${index}.endDate`)} /></Field>
                   <Field><FieldLabel>People-management scope</FieldLabel><ProfileInput {...register(`records.experiences.${index}.peopleManagementScope`)} /></Field>
                   <Field><FieldLabel>Ownership / budget scope</FieldLabel><ProfileInput {...register(`records.experiences.${index}.ownershipScope`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Domain / industry tags</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...register(`records.experiences.${index}.domainTags`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Role summary</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`records.experiences.${index}.summary`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Domain / industry tags</FieldLabel><ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register(`records.experiences.${index}.domainTags`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Role summary</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.experiences.${index}.summary`)} /></Field>
                   <ProfileListEditor
                     className="md:col-span-2"
                     displayMode="rows"

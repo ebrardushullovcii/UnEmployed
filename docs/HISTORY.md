@@ -4,6 +4,10 @@ Use this file for condensed repo milestones and notable completed changes.
 
 `docs/STATUS.md` stays short and current.
 
+## 2026-03-26
+
+- Added AI-driven LinkedIn job discovery agent with persistent Chrome authentication and cancellation support
+
 ## 2026-03-24
 
 - Tightened repo guidance so `AGENTS.md`, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `apps/desktop/AGENTS.md` are clearer, less duplicative, and better aligned with current agent-doc best practices.

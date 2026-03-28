@@ -2,6 +2,7 @@ import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   CandidateProfileSchema,
+  JobFinderDiscoveryStateSchema,
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
@@ -10,6 +11,7 @@ import {
   type ApplicationAttempt,
   type ApplicationRecord,
   type CandidateProfile,
+  type JobFinderDiscoveryState,
   type JobFinderRepositoryState,
   type JobFinderSettings,
   type JobSearchPreferences,
@@ -19,7 +21,7 @@ import {
 import { chmod, readFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 
-type StateTableKey = 'profile' | 'search_preferences' | 'settings'
+type StateTableKey = 'profile' | 'search_preferences' | 'settings' | 'discovery_state'
 
 const stateTableNames = {
   application_attempts: 'application_attempts',
@@ -153,6 +155,8 @@ export interface JobFinderRepository {
   upsertApplicationAttempt(applicationAttempt: ApplicationAttempt): Promise<void>
   getSettings(): Promise<JobFinderSettings>
   saveSettings(settings: JobFinderSettings): Promise<void>
+  getDiscoveryState(): Promise<JobFinderDiscoveryState>
+  saveDiscoveryState(discoveryState: JobFinderDiscoveryState): Promise<void>
 }
 
 interface FileJobFinderRepositoryOptions {
@@ -230,6 +234,7 @@ async function readLegacySeed(
     const profile = CandidateProfileSchema.safeParse(migratedData.profile)
     const searchPreferences = JobSearchPreferencesSchema.safeParse(migratedData.searchPreferences)
     const settings = JobFinderSettingsSchema.safeParse(migratedData.settings)
+    const discovery = JobFinderDiscoveryStateSchema.safeParse(migratedData.discovery)
     const savedJobs = SavedJobSchema.array().safeParse(migratedData.savedJobs)
     const tailoredAssets = TailoredAssetSchema.array().safeParse(migratedData.tailoredAssets)
     const applicationRecords = ApplicationRecordSchema.array().safeParse(migratedData.applicationRecords)
@@ -248,7 +253,8 @@ async function readLegacySeed(
       applicationAttempts: applicationAttempts.success
         ? applicationAttempts.data
         : cloneValue(seed.applicationAttempts),
-      settings: settings.success ? settings.data : cloneValue(seed.settings)
+      settings: settings.success ? settings.data : cloneValue(seed.settings),
+      discovery: discovery.success ? discovery.data : cloneValue(seed.discovery)
     })
   } catch (error) {
     const errorCode = error instanceof Error && 'code' in error ? error.code : null
@@ -321,6 +327,7 @@ function writeState(database: DatabaseSync, state: JobFinderRepositoryState): vo
     saveSingletonValue(database, 'profile', state.profile)
     saveSingletonValue(database, 'search_preferences', state.searchPreferences)
     saveSingletonValue(database, 'settings', state.settings)
+    saveSingletonValue(database, 'discovery_state', state.discovery)
     replaceCollection(database, 'saved_jobs', state.savedJobs)
     replaceCollection(database, 'tailored_assets', state.tailoredAssets)
     replaceCollection(database, 'application_records', state.applicationRecords)
@@ -356,6 +363,8 @@ function readState(database: DatabaseSync, fallbackSeed: JobFinderRepositorySeed
     getSingletonValue(database, 'search_preferences', JobSearchPreferencesSchema) ??
     fallbackSeed.searchPreferences
   const settings = getSingletonValue(database, 'settings', JobFinderSettingsSchema) ?? fallbackSeed.settings
+  const discovery =
+    getSingletonValue(database, 'discovery_state', JobFinderDiscoveryStateSchema) ?? fallbackSeed.discovery
 
   return JobFinderRepositoryStateSchema.parse({
     profile,
@@ -364,7 +373,8 @@ function readState(database: DatabaseSync, fallbackSeed: JobFinderRepositorySeed
     tailoredAssets: listValues(database, 'tailored_assets', TailoredAssetSchema),
     applicationRecords: listValues(database, 'application_records', ApplicationRecordSchema),
     applicationAttempts: listValues(database, 'application_attempts', ApplicationAttemptSchema),
-    settings
+    settings,
+    discovery
   })
 }
 
@@ -385,6 +395,7 @@ export function createInMemoryJobFinderRepository(seed: JobFinderRepositorySeed)
       state.applicationRecords = normalizedSeed.applicationRecords
       state.applicationAttempts = normalizedSeed.applicationAttempts
       state.settings = normalizedSeed.settings
+      state.discovery = normalizedSeed.discovery
 
       return Promise.resolve()
     },
@@ -470,6 +481,13 @@ export function createInMemoryJobFinderRepository(seed: JobFinderRepositorySeed)
     },
     saveSettings(settings) {
       state.settings = JobFinderSettingsSchema.parse(cloneValue(settings))
+      return Promise.resolve()
+    },
+    getDiscoveryState() {
+      return Promise.resolve(cloneValue(state.discovery))
+    },
+    saveDiscoveryState(discoveryState) {
+      state.discovery = JobFinderDiscoveryStateSchema.parse(cloneValue(discoveryState))
       return Promise.resolve()
     }
   }
@@ -597,6 +615,14 @@ export async function createFileJobFinderRepository(
     saveSettings(settings) {
       return persist((state) => {
         state.settings = JobFinderSettingsSchema.parse(cloneValue(settings))
+      })
+    },
+    getDiscoveryState() {
+      return Promise.resolve(cloneValue(readState(database, normalizedSeed).discovery))
+    },
+    saveDiscoveryState(discoveryState) {
+      return persist((state) => {
+        state.discovery = JobFinderDiscoveryStateSchema.parse(cloneValue(discoveryState))
       })
     }
   }

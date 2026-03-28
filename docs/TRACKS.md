@@ -52,15 +52,15 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `JF-03 Browser Runtime And LinkedIn Discovery`
 
-- status: `in_progress`
-- last updated: `2026-03-20`
+- status: `done`
+- last updated: `2026-03-26`
 - scope: build the generic browser primitives and the first LinkedIn discovery adapter boundary
 - linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
-- code areas: `packages/browser-runtime`, `packages/job-finder`
-- current focus: browser-runtime now supports both the deterministic catalog path and an opt-in dedicated Chrome-profile LinkedIn browser agent that can launch its own profile, prompt for login, and extract live jobs through that session
-- next step: harden selector coverage, add better auth recovery, and support broader search/result pagination without weakening the safe-stop behavior
-- blockers: live LinkedIn execution still depends on user-authenticated sessions and selector hardening against real page variation
-- notes: keep LinkedIn selectors and recovery logic out of the generic runtime; discovery already writes back through the repository boundary, dedupes by source job identity, and now records whether jobs came from the catalog seed or the live Chrome-profile agent
+- code areas: `packages/browser-runtime`, `packages/job-finder`, `packages/browser-agent`
+- current focus: completed AI browser agent implementation with LLM tool calling for autonomous LinkedIn job discovery; agent controls navigation strategy, timeouts, retry logic; targets up to the configured job count from LinkedIn using user's profile; includes URL validation (LinkedIn-only), AbortController cancellation, and compact conversation management
+- next step: monitor real-world usage for edge cases in auth recovery, pagination handling, and selector robustness
+- blockers: none
+- notes: AI browser agent replaces old deterministic discovery; keeps LinkedIn selectors out of generic runtime; discovery writes through repository boundary with deduping; includes cancellation support via `job-finder:cancel-agent-discovery` IPC
 
 ### `JF-04 Tailored Resume Path`
 
@@ -110,6 +110,42 @@ Use one track per meaningful workstream, not per person or per chat.
 - blockers: none
 - notes: the refined plan now leans on current LinkedIn, Greenhouse, Workable, and Ashby field patterns; the live implementation keeps backward compatibility by extending `CandidateProfile` and `JobSearchPreferences` with structured sections rather than replacing them outright, while still avoiding unnecessary sensitive-data collection by default; the current preferred imported-profile visual state is documented locally via `docs/Design/job-finder-profile/current-branch-baseline-2026-03-23.md` and `apps/desktop/test-artifacts/ui/profile-visual-baseline-2026-03-23/`; the profile page now treats resume import as the source layer above the edit tabs instead of a sibling tab, Discovery zero-results now intentionally collapses into a two-column state so blank searches no longer render a broken empty detail column, the left rail is now a single contained control card with the action footer inside it, compact desktop captures at `1024x768` and `1100x720` now complete without the title-row nav being blocked by top-right stat cards, and the current PR-review hardening pass also tightened keyboard/ARIA semantics for record selection and list editing, fixed singular-vs-plural application-record labels, and prevents invalid extracted link/project/language payloads from wiping saved profile data while review-only actions stay visibly disabled until implemented
 
+### `JF-08 Adapter-Driven Discovery And Activity Timeline`
+
+- status: `in_progress`
+- last updated: `2026-03-28`
+- scope: refactor the current LinkedIn-only browser agent into an adapter-driven multi-target discovery system with a chat-like activity timeline and future-ready worker orchestration
+- linked plan: `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md`
+- code areas: `packages/contracts`, `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `apps/desktop`
+- current focus: nested discovery contracts, retained run history, activity-event translation, adapter-scoped session state, LinkedIn adapterization, sequential multi-target orchestration, experimental `generic_site`, and desktop target/timeline UI are now landed together, including a full-history modal that can keep following the current live run
+- next step: run broader live QA against authenticated LinkedIn plus a few bounded generic sites, then tighten selector robustness, low-confidence skips, and timeline wording based on real traces
+- blockers: none
+- notes: multi-target discovery shipped sequentially first with persisted pending jobs, recent run history, discovery provenance, and a read-only activity timeline; the full-history modal now includes the current live run with auto-follow-until-scroll-away behavior; `generic_site` remains explicitly experimental with hostname-bounded navigation plus visible UX caveats, and bounded parallel workers remain a later feature once event ordering, cancellation, and session behavior are stable
+
+### `JF-09 Job Source Debug Agent`
+
+- status: `ready`
+- last updated: `2026-03-27`
+- scope: bootstrap reusable source instructions for newly added discovery targets when the user cannot author them manually
+- linked plan: `docs/exec-plans/active/005-job-source-debug-agent.md`
+- code areas: `packages/contracts`, `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `apps/desktop`
+- current focus: define the next discovery slice around a debug-agent workflow that can probe a new target from Profile Preferences, learn auth/navigation/search/filter behavior, and synthesize reusable instructions for the real discovery agents
+- next step: add typed debug-session and source-instruction artifacts, then wire a Profile Preferences entrypoint that launches a sequential orchestrator and saves verified findings back onto the target
+- blockers: none
+- notes: the planned flow stays hostname-bounded, can run specialized agents or phases sequentially with findings handed forward between steps, and should keep testing until it can reach job results, vary search/filter state, open detail pages, and prove the saved instructions are replayable
+
+### `JF-10 Profile And Discovery Production Copy Pass`
+
+- status: `ready`
+- last updated: `2026-03-27`
+- scope: remove low-value, verbose, and developer-oriented text from the Profile and Discovery flows so the shipped UI reads like a product rather than an internal prototype
+- linked plan: `docs/exec-plans/active/006-profile-discovery-production-copy-pass.md`
+- code areas: `apps/desktop`, `packages/job-finder`, `docs/Design`
+- current focus: define a cleanup pass that keeps the current fields and overall UI structure but trims noisy statuses, over-explained helper copy, and internal-language labels that do not help end users
+- next step: audit every visible label, helper text, badge, status, empty state, and timeline phrase in Profile and Discovery, then group each item into keep, rewrite, simplify, or remove before implementation starts
+- blockers: none
+- notes: this pass should bias toward shorter user-facing copy, fewer badges and status callouts, and less exposure of implementation concepts unless they directly help the user complete a task or recover from a problem
+
 ## Ready Queue
 
 - Add richer tailored resume export/storage beyond persisted preview content.
@@ -119,6 +155,7 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ## Recently Completed
 
+- `2026-03-26`: completed AI browser agent for autonomous LinkedIn job discovery with LLM tool calling; new `@unemployed/browser-agent` package; replaced deterministic discovery with AI-driven "Run AI Agent Discovery" button; targets up to the configured job count from LinkedIn using user's profile preferences; includes cancellation support and URL validation
 - `2026-03-24`: tightened repo guidance so the root and desktop `AGENTS.md` files, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `docs/STATUS.md` now separate navigation, handoff, and history more cleanly
 - `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, added repo-local CodeRabbit defaults, and checked in `.github/CODEOWNERS` naming `@ebrardushullovcii` plus `@vigani1` as the intended merge maintainers
 - `2026-03-24`: added a root `pnpm desktop:dev` shortcut and updated repo docs so local desktop startup no longer depends on the longer workspace-filter command

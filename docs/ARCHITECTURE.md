@@ -29,3 +29,4 @@
 - Keep module packages thin until real workflows land
 - Grow package internals behind stable contracts instead of letting the app become a direct-import mesh
 - Current Job Finder flow uses `packages/ai-providers` for structured resume extraction, fit assessment, and tailoring, `apps/desktop` for local resume ingestion/extraction plus template-file rendering, and `packages/browser-runtime` for switching between deterministic catalog fixtures and a dedicated Chrome-profile LinkedIn browser agent connected over CDP
+- Job Finder discovery now runs through discovery adapters, keeps `packages/browser-agent` generic through policy/config injection, uses adapter-scoped session state instead of a single browser-session assumption, translates raw browser/runtime progress into retained user-facing discovery events, and executes multi-target discovery sequentially by default; `generic_site` is implemented as an explicitly experimental adapter on top of that foundation

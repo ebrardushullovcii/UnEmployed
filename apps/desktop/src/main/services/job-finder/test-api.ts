@@ -6,12 +6,26 @@ function isEnabled(value: string | undefined): boolean {
   return value === '1' || value === 'true'
 }
 
+function isDisabled(value: string | undefined): boolean {
+  return value === '0' || value === 'false'
+}
+
 export function isDesktopTestApiEnabled(): boolean {
   return isEnabled(process.env.UNEMPLOYED_ENABLE_TEST_API)
 }
 
 export function isLinkedInBrowserAgentEnabled(): boolean {
-  return isEnabled(process.env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT)
+  const configuredValue = process.env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT
+
+  if (configuredValue == null) {
+    return true
+  }
+
+  if (isDisabled(configuredValue)) {
+    return false
+  }
+
+  return isEnabled(configuredValue)
 }
 
 export function isBrowserHeadlessEnabled(): boolean {

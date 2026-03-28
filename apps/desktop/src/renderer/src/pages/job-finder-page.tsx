@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
   CandidateProfile,
+  DiscoveryActivityEvent,
   JobFinderSettings,
   JobSearchPreferences,
   JobFinderWorkspaceSnapshot
@@ -35,8 +36,8 @@ function WorkspaceStateScreen(props: {
 }) {
   return (
     <main className="grid min-h-full place-items-center bg-canvas px-6 py-10">
-      <div className={props.tone === 'error' ? 'grid max-w-[34rem] gap-3 rounded-[0.55rem] border border-critical/35 bg-[rgba(22,12,11,0.86)] p-8 shadow-[0_30px_80px_rgba(0,0,0,0.32)]' : 'grid max-w-[34rem] gap-3 rounded-[0.55rem] border border-border-subtle bg-[rgba(16,16,16,0.9)] p-8 shadow-[0_30px_80px_rgba(0,0,0,0.32)]'}>
-        <p className="text-[0.68rem] uppercase tracking-[0.24em] text-foreground-muted">{props.kicker}</p>
+      <div className={props.tone === 'error' ? 'grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-critical/35 bg-(--workspace-state-card-bg-error) p-8 shadow-(--workspace-state-card-shadow)' : 'grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-border-subtle bg-(--workspace-state-card-bg-default) p-8 shadow-(--workspace-state-card-shadow)'}>
+        <p className="text-(length:--text-tiny) uppercase tracking-[0.24em] text-foreground-muted">{props.kicker}</p>
         <h1>{props.title}</h1>
         <p>{props.message}</p>
       </div>
@@ -49,13 +50,14 @@ export interface JobFinderPageContext {
   busy: boolean
   onAnalyzeProfileFromResume: () => void
   onApproveApply: (jobId: string) => void
+  onCheckBrowserSession: () => void
   onDismissJob: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
   onImportResume: () => void
   onOpenBrowserSession: () => void
   onQueueJob: (jobId: string) => void
-  onRefreshDiscovery: () => void
   onResetWorkspace: () => void
+  onRunAgentDiscovery: (() => void) | undefined
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onSaveProfile: (profile: CandidateProfile) => void
   onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
@@ -69,6 +71,7 @@ export interface JobFinderPageContext {
   selectedReviewItem: JobFinderWorkspaceSnapshot['reviewQueue'][number] | null
   selectedReviewJob: JobFinderWorkspaceSnapshot['discoveryJobs'][number] | null
   selectedTailoredAsset: JobFinderWorkspaceSnapshot['tailoredAssets'][number] | null
+  liveDiscoveryEvents: readonly DiscoveryActivityEvent[]
   workspace: JobFinderWorkspaceSnapshot
 }
 
@@ -100,12 +103,16 @@ export function JobFinderDiscoveryRoute() {
       actionState={context.actionState}
       busy={context.busy}
       browserSession={context.workspace.browserSession}
+      discoverySessions={context.workspace.discoverySessions}
+      activeRun={context.workspace.activeDiscoveryRun}
       jobs={context.workspace.discoveryJobs}
+      liveEvents={context.liveDiscoveryEvents}
       onDismissJob={context.onDismissJob}
       onOpenBrowserSession={context.onOpenBrowserSession}
       onQueueJob={context.onQueueJob}
-      onRefreshDiscovery={context.onRefreshDiscovery}
+      onRunAgentDiscovery={context.onRunAgentDiscovery}
       onSelectJob={context.onSelectDiscoveryJob}
+      recentRuns={context.workspace.recentDiscoveryRuns}
       searchPreferences={context.workspace.searchPreferences}
       selectedJob={context.selectedDiscoveryJob}
     />
@@ -165,6 +172,7 @@ export function JobFinderPage() {
   const navigate = useNavigate()
   const workspaceState = useJobFinderWorkspace()
   const [actionState, setActionState] = useState<ActionState>({ busy: false, message: null })
+  const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<DiscoveryActivityEvent[]>([])
 
   const [selectedDiscoveryJobId, setSelectedDiscoveryJobId] = useResettableSelection(
     workspaceState.status === 'ready' ? workspaceState.workspace.selectedDiscoveryJobId : null
@@ -252,6 +260,12 @@ export function JobFinderPage() {
         },
         'Easy Apply marked as submitted and moved into Applications.'
       ),
+    onCheckBrowserSession: () =>
+      void runAction(
+        actions.checkBrowserSession,
+        () => undefined,
+        'Browser session status refreshed.'
+      ),
     onDismissJob: (jobId: string) =>
       void runAction(
         () => actions.dismissDiscoveryJob(jobId),
@@ -274,7 +288,9 @@ export function JobFinderPage() {
       void runAction(
         actions.openBrowserSession,
         () => undefined,
-        'Dedicated Chrome profile opened for the LinkedIn agent.'
+        workspace.browserSession.status === 'ready'
+          ? 'Chrome session refreshed.'
+          : 'Chrome profile opened and session status refreshed.'
       ),
     onQueueJob: (jobId: string) =>
       void runAction(
@@ -285,12 +301,18 @@ export function JobFinderPage() {
         },
         'Job moved into the review queue.'
       ),
-    onRefreshDiscovery: () =>
+    onRunAgentDiscovery: () => {
+      setLiveDiscoveryEvents([])
       void runAction(
-        actions.runDiscovery,
-        () => undefined,
-        'LinkedIn discovery run completed and saved locally.'
-      ),
+        () => actions.runAgentDiscovery((event) => {
+          setLiveDiscoveryEvents((current) => [...current, event])
+        }),
+        () => {
+          setLiveDiscoveryEvents([])
+        },
+        'AI Agent discovery run completed and saved locally.'
+      )
+    },
     onResetWorkspace: () =>
       void runAction(
         actions.resetWorkspace,
@@ -321,6 +343,7 @@ export function JobFinderPage() {
     selectedApplicationAttempt,
     selectedApplicationRecord,
     selectedDiscoveryJob,
+    liveDiscoveryEvents,
     selectedReviewItem,
     selectedReviewJob,
     selectedTailoredAsset,

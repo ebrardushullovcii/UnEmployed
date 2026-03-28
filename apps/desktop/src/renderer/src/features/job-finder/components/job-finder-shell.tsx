@@ -35,6 +35,13 @@ const screenRouteMap: Record<JobFinderScreen, string> = {
   settings: '/job-finder/settings'
 }
 
+const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
+  'profile',
+  'discovery',
+  'review-queue',
+  'applications'
+]
+
 function getActiveScreen(pathname: string): JobFinderScreen {
   if (pathname.endsWith('/discovery')) {
     return 'discovery'
@@ -68,6 +75,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
   })
 
   const activeScreen = useMemo(() => getActiveScreen(location.pathname), [location.pathname])
+  const usesLockedScreenLayout = LOCKED_LAYOUT_SCREENS.includes(activeScreen)
 
   const screenDefinitions = useMemo(
     () => [
@@ -142,27 +150,27 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
         <div className="grid grid-cols-[15.5rem_minmax(0,1fr)_auto] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:grid-cols-[18.5rem_minmax(0,1fr)_auto] sm:pl-3 sm:pr-0">
           <div className="row-span-2 flex min-w-0 items-center pl-2 sm:pl-3" style={dragRegionStyle}>
             <div className="flex min-w-0 flex-col">
-              <span className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-[var(--headline-primary)] sm:text-[2.7rem]">UNEMPLOYED</span>
-              <span className="text-[0.72rem] uppercase tracking-[var(--tracking-caps)] text-muted-foreground sm:text-[var(--text-tiny)]">Job Finder Desktop</span>
+              <span className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2.7rem]">UNEMPLOYED</span>
+              <span className="text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:text-(length:var(--text-tiny))">Job Finder Desktop</span>
             </div>
           </div>
 
           <div className="col-start-2 row-start-1 flex items-center justify-center" style={dragRegionStyle}>
-            <div className="flex items-center gap-4" style={noDragRegionStyle}>
+            <div className="flex items-center gap-4" role="list" style={noDragRegionStyle}>
               {suiteModules.map((moduleName, index) => (
-                <div key={moduleName} className="flex items-center gap-4">
+                <div key={moduleName} className="flex items-center gap-4" role="listitem">
                   {index > 0 ? <span aria-hidden="true" className="h-4 w-px bg-border/50" /> : null}
-                  <Button
+                  <span
+                    aria-current={moduleName === 'job-finder' ? 'page' : undefined}
                     className={cn(
-                      'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[10px] font-semibold tracking-[var(--tracking-badge)] shadow-none',
+                      'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[10px] font-semibold tracking-(--tracking-badge) shadow-none',
                       moduleName === 'job-finder'
-                        ? 'text-[var(--text-headline)]'
-                        : 'text-muted-foreground hover:text-foreground'
+                        ? 'text-(--text-headline)'
+                        : 'text-muted-foreground'
                     )}
-                    type="button"
                   >
                     {formatStatusLabel(moduleName)}
-                  </Button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -173,7 +181,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
               <div className="flex h-full items-stretch gap-0" role="group" aria-label="Window controls" style={noDragRegionStyle}>
                 <Button
                   aria-label="Minimize window"
-                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-[var(--surface-panel-raised)] hover:text-foreground"
+                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--surface-panel-raised) hover:text-foreground"
                   disabled={!windowControlsState.isMinimizable}
                   onClick={minimizeWindow}
                   size="icon-xs"
@@ -184,7 +192,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
                 </Button>
                 <Button
                   aria-label={windowControlsState.isMaximized ? 'Restore window' : 'Maximize window'}
-                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-[var(--surface-panel-raised)] hover:text-foreground"
+                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--surface-panel-raised) hover:text-foreground"
                   onClick={toggleWindowExpand}
                   size="icon-xs"
                   type="button"
@@ -194,7 +202,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
                 </Button>
                 <Button
                   aria-label="Close window"
-                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-[var(--button-close-hover)] hover:text-white"
+                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--button-close-hover) hover:text-white"
                   disabled={!windowControlsState.isClosable}
                   onClick={closeWindow}
                   size="icon-xs"
@@ -208,12 +216,13 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
           </div>
 
           <nav className="col-start-2 row-start-2 hidden min-w-0 items-center justify-center lg:flex" style={noDragRegionStyle}>
-            <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-1">
+            <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1">
               {primaryScreens.map((screen) => (
                 <button
+                  aria-current={activeScreen === screen.id ? 'page' : undefined}
                   key={screen.id}
                   className={cn(
-                    'inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium text-muted-foreground transition-colors hover:text-foreground xl:px-4 xl:text-[var(--text-small)]',
+                    'inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium text-muted-foreground transition-colors hover:text-foreground xl:px-4 xl:text-(length:--text-small)',
                     activeScreen === screen.id ? 'bg-secondary text-foreground' : ''
                   )}
                   onClick={() => handleScreenChange(screen.id)}
@@ -221,7 +230,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
                 >
                   <span>{screen.label}</span>
                   {screen.count !== null ? (
-                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--input)] px-1.5 text-[0.65rem] text-[var(--text-badge)]">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-(--text-badge)">
                       {screen.count}
                     </span>
                   ) : null}
@@ -236,17 +245,17 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
               ['Queue', workspace.reviewQueue.length],
               ['Tracked', workspace.applicationRecords.length]
             ].map(([label, value]) => (
-              <div key={label} className="hidden h-12 min-w-[4.35rem] rounded-[var(--radius-button)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] px-2.5 xl:grid xl:content-center xl:text-center">
-                <div className="text-[0.58rem] uppercase leading-none tracking-[var(--tracking-caps)] text-muted-foreground">{label}</div>
-                <div className="mt-1 text-[1.05rem] font-semibold leading-none text-[var(--text-headline)]">{value}</div>
+              <div key={label} className="hidden h-12 min-w-[4.35rem] rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-2.5 xl:grid xl:content-center xl:text-center">
+                <div className="text-[0.58rem] uppercase leading-none tracking-(--tracking-caps) text-muted-foreground">{label}</div>
+                <div className="mt-1 text-[1.05rem] font-semibold leading-none text-(--text-headline)">{value}</div>
               </div>
             ))}
             <Button
               className={cn(
-                'h-11 rounded-[var(--radius-button)] px-4 text-[0.72rem] tracking-[var(--tracking-caps)] xl:h-12',
+                'mr-2 h-11 rounded-(--radius-button) px-4 text-[0.72rem] tracking-(--tracking-caps) xl:h-12',
                 activeScreen === 'settings'
-                  ? 'border-primary/35 bg-primary/15 text-[var(--text-headline)]'
-                  : 'border-[var(--surface-panel-border)] bg-[var(--surface-panel)] text-[var(--text-headline)] hover:bg-[var(--surface-panel-raised)]'
+                  ? 'border-primary/35 bg-primary/15 text-(--text-headline)'
+                  : 'border-(--surface-panel-border) bg-(--surface-panel) text-(--text-headline) hover:bg-(--surface-panel-raised)'
               )}
               onClick={() => handleScreenChange('settings')}
               size="default"
@@ -256,7 +265,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
               <Settings2 className="size-4" />
               Settings
             </Button>
-            <Button className="h-10 w-10 rounded-[var(--radius-button)] border-[var(--surface-panel-border)] bg-[var(--surface-panel)] text-[var(--text-headline)] hover:bg-[var(--surface-panel-raised)] md:hidden" size="icon-sm" type="button" variant="secondary">
+            <Button aria-label="Notifications coming soon" className="h-10 w-10 rounded-(--radius-button) border-(--surface-panel-border) bg-(--surface-panel) text-(--text-headline) hover:bg-(--surface-panel-raised) md:hidden" disabled size="icon-sm" type="button" variant="secondary">
               <Bell className="size-4" />
             </Button>
           </div>
@@ -264,12 +273,15 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
       </header>
 
       <div className="flex h-full flex-col pt-[6.75rem]">
-        <main className="screen-scroll-area flex-1 overflow-y-auto overflow-x-hidden px-4 pb-12 pt-8 sm:px-6">
-          <div className="mx-auto w-full max-w-[118rem]">{children}</div>
+        <main className={cn(
+          'flex-1 overflow-x-hidden px-4 sm:px-6',
+          usesLockedScreenLayout ? 'overflow-hidden pb-4 pt-0' : 'screen-scroll-area overflow-y-auto pb-12 pt-8'
+        )}>
+          <div className="mx-auto h-full w-full max-w-472 min-h-full">{children}</div>
         </main>
 
-        <footer className="border-t border-border/10 px-4 py-3 text-[var(--text-tiny)] uppercase tracking-[var(--tracking-caps)] text-muted-foreground sm:px-6">
-          <div className="mx-auto flex max-w-[118rem] items-center justify-between gap-3">
+        <footer className="border-t border-border/10 px-4 py-3 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground sm:px-6">
+          <div className="mx-auto flex max-w-472 items-center justify-between gap-3">
             <span>Job Finder MVP</span>
             {actionMessage ? <span className="truncate text-foreground-soft">{actionMessage}</span> : null}
           </div>

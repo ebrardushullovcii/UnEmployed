@@ -21,7 +21,7 @@ export function ProfileRecordCard({ children, className, defaultOpen = false, su
   return (
     <details
       className={cn(
-        'group rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4 [&_summary::-webkit-details-marker]:hidden',
+        'group rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4 [&_summary::-webkit-details-marker]:hidden',
         className
       )}
       onToggle={(event) => setIsOpen(event.currentTarget.open)}
@@ -29,17 +29,17 @@ export function ProfileRecordCard({ children, className, defaultOpen = false, su
     >
       <summary className="flex items-start justify-between gap-3 list-none cursor-pointer">
         <span className="grid gap-1 min-w-0">
-          <span className="text-[0.96rem] font-semibold text-[var(--text-headline)]">{title}</span>
-          <span className="text-[var(--text-description)] leading-6 text-foreground-muted">{detailSummary}</span>
+          <span className="text-[0.96rem] font-semibold text-(--text-headline)">{title}</span>
+          <span className="text-(length:--text-description) leading-6 text-foreground-muted">{detailSummary}</span>
         </span>
 
-        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--field-border)] bg-[var(--field)] px-2.5 py-1 text-[var(--text-tiny)] font-medium uppercase tracking-[var(--tracking-mono)] text-foreground-muted transition-transform group-open:[&_svg]:rotate-180">
+        <span className="inline-flex items-center gap-1 rounded-full border border-(--field-border) bg-(--field) px-2.5 py-1 text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted transition-transform group-open:[&_svg]:rotate-180">
           <ChevronDown className="size-3 transition-transform duration-200" />
           <span>Details</span>
         </span>
       </summary>
 
-      <div className="mt-4 grid gap-4 border-t border-[var(--surface-panel-border)] pt-4">{children}</div>
+      <div className="mt-4 grid gap-4 border-t border-(--surface-panel-border) pt-4">{children}</div>
     </details>
   )
 }

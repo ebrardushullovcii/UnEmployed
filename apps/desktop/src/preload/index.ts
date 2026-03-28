@@ -3,11 +3,14 @@ import type {
   CandidateProfile,
   DesktopPlatformPing,
   DesktopWindowControlsState,
+  DiscoveryActivityEvent,
   JobFinderSettings,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences
 } from '@unemployed/contracts'
+
+let activeAgentDiscoveryRequestId: string | null = null
 
 const testApiEnabled = process.env.UNEMPLOYED_ENABLE_TEST_API === '1' || process.env.UNEMPLOYED_ENABLE_TEST_API === 'true'
 
@@ -62,6 +65,8 @@ const desktopApi = {
       ipcRenderer.invoke('job-finder:get-workspace') as Promise<JobFinderWorkspaceSnapshot>,
     openBrowserSession: () =>
       ipcRenderer.invoke('job-finder:open-browser-session') as Promise<JobFinderWorkspaceSnapshot>,
+    checkBrowserSession: () =>
+      ipcRenderer.invoke('job-finder:check-browser-session') as Promise<JobFinderWorkspaceSnapshot>,
     saveProfile: (profile: CandidateProfile) =>
       ipcRenderer.invoke('job-finder:save-profile', profile) as Promise<JobFinderWorkspaceSnapshot>,
     saveWorkspaceInputs: (
@@ -82,6 +87,48 @@ const desktopApi = {
       ipcRenderer.invoke('job-finder:import-resume') as Promise<JobFinderWorkspaceSnapshot>,
     runDiscovery: () =>
       ipcRenderer.invoke('job-finder:run-discovery') as Promise<JobFinderWorkspaceSnapshot>,
+    runAgentDiscovery: (
+      onActivity?: (event: DiscoveryActivityEvent) => void
+    ) => {
+      if (activeAgentDiscoveryRequestId) {
+        return Promise.reject(new Error('Agent discovery is already running.'))
+      }
+
+      const requestId = `agent_discovery_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+      const activityChannel = `job-finder:discovery-activity:${requestId}`
+      activeAgentDiscoveryRequestId = requestId
+      const activityHandler = onActivity
+        ? (_event: Electron.IpcRendererEvent, event: DiscoveryActivityEvent) => {
+            onActivity(event)
+          }
+        : null
+
+      if (activityHandler) {
+        ipcRenderer.on(activityChannel, activityHandler)
+      }
+
+      const cleanup = () => {
+        if (activityHandler) {
+          ipcRenderer.off(activityChannel, activityHandler)
+        }
+        if (activeAgentDiscoveryRequestId === requestId) {
+          activeAgentDiscoveryRequestId = null
+        }
+      }
+
+      const promise = ipcRenderer
+        .invoke('job-finder:run-agent-discovery', { requestId })
+        .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>
+
+      return promise
+    },
+    cancelAgentDiscovery: () => {
+      if (!activeAgentDiscoveryRequestId) {
+        return
+      }
+
+      ipcRenderer.send('job-finder:cancel-agent-discovery', { requestId: activeAgentDiscoveryRequestId })
+    },
     resetWorkspace: () =>
       ipcRenderer.invoke('job-finder:reset-workspace') as Promise<JobFinderWorkspaceSnapshot>,
     queueJobForReview: (jobId: string) =>

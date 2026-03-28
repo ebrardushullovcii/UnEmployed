@@ -1,6 +1,7 @@
 import { dialog, type IpcMain } from 'electron'
 import {
   CandidateProfileSchema,
+  DiscoveryActivityEventSchema,
   JobFinderJobActionInputSchema,
   JobFinderSettingsSchema,
   SaveJobFinderWorkspaceInputSchema,
@@ -15,6 +16,19 @@ import {
   resetJobFinderWorkspace
 } from '../services/job-finder'
 
+function parseAgentDiscoveryRequestId(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Missing agent discovery request id payload')
+  }
+
+  const requestId = (payload as { requestId?: unknown }).requestId
+  if (typeof requestId !== 'string' || requestId.trim().length === 0) {
+    throw new Error('Invalid agent discovery request id payload')
+  }
+
+  return requestId
+}
+
 export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle('job-finder:get-workspace', async () => {
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
@@ -26,6 +40,13 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle('job-finder:open-browser-session', async () => {
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
     const snapshot = await jobFinderWorkspaceService.openBrowserSession()
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  })
+
+  ipcMain.handle('job-finder:check-browser-session', async () => {
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const snapshot = await jobFinderWorkspaceService.checkBrowserSession()
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   })
@@ -113,6 +134,52 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     const snapshot = await jobFinderWorkspaceService.runDiscovery()
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  })
+
+  ipcMain.handle('job-finder:run-agent-discovery', async (event, payload: unknown) => {
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const window = event.sender
+    const senderId = event.sender.id
+    const requestId = parseAgentDiscoveryRequestId(payload)
+    const controller = new AbortController()
+
+    const cancelHandler = (cancelEvent: Electron.IpcMainEvent, cancelPayload: unknown) => {
+      const cancelRequestId = (() => {
+        try {
+          return parseAgentDiscoveryRequestId(cancelPayload)
+        } catch {
+          return null
+        }
+      })()
+
+      if (cancelEvent.sender.id !== senderId || cancelRequestId !== requestId) {
+        return
+      }
+
+      controller.abort()
+    }
+    ipcMain.on('job-finder:cancel-agent-discovery', cancelHandler)
+
+    try {
+      const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
+        (eventPayload) => {
+          window.send(`job-finder:discovery-activity:${requestId}`, DiscoveryActivityEventSchema.parse(eventPayload))
+        },
+        controller.signal
+      )
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[JobFinder] Agent discovery cancelled')
+        // Return current workspace snapshot even on abort
+        const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
+        return JobFinderWorkspaceSnapshotSchema.parse(currentSnapshot)
+      }
+      throw error
+    } finally {
+      ipcMain.removeListener('job-finder:cancel-agent-discovery', cancelHandler)
+    }
   })
 
   ipcMain.handle('job-finder:queue-job-for-review', async (_event, payload: unknown) => {

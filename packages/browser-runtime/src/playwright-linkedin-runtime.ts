@@ -11,12 +11,15 @@ import {
   type ApplyExecutionResult,
   type BrowserSessionState,
   type CandidateProfile,
+  type DiscoveryRunResult,
   type JobFinderSettings,
   type JobPosting,
   type JobSearchPreferences,
   type JobSource
 } from '@unemployed/contracts'
-import type { BrowserSessionRuntime, ExecuteEasyApplyInput } from './index'
+import type { JobFinderAiClient } from '@unemployed/ai-providers'
+import { runAgentDiscovery, type AgentConfig, type AgentExtractorPageType } from '@unemployed/browser-agent'
+import type { AgentDiscoveryOptions, BrowserSessionRuntime, ExecuteEasyApplyInput } from './index'
 
 const knownSkillPhrases = [
   'React',
@@ -39,12 +42,48 @@ const knownSkillPhrases = [
 
 const linkedInJobsUrl = 'https://www.linkedin.com/jobs/search/'
 
+export interface JobPageExtractionInput {
+  pageText: string
+  pageUrl: string
+  pageType: 'search_results' | 'job_detail'
+  maxJobs: number
+}
+
+export type JobPageExtractor = (input: JobPageExtractionInput) => Promise<JobPosting[]>
+
+function validateJobPostings(values: readonly unknown[], context: string): JobPosting[] {
+  if (!Array.isArray(values)) {
+    console.warn(
+      `[BrowserRuntime] Expected an array of job postings from ${context}, received ${typeof values}:`,
+      values
+    )
+    return []
+  }
+
+  const parsedJobs: JobPosting[] = []
+
+  for (const value of values) {
+    const parsed = JobPostingSchema.safeParse(value)
+
+    if (parsed.success) {
+      parsedJobs.push(parsed.data)
+      continue
+    }
+
+    console.warn(`[BrowserRuntime] Skipping invalid job posting from ${context}:`, parsed.error.flatten())
+  }
+
+  return parsedJobs
+}
+
 export interface LinkedInBrowserAgentRuntimeOptions {
   userDataDir: string
   headless?: boolean
   maxJobsPerRun?: number
   chromeExecutablePath?: string
   debugPort?: number
+  jobExtractor?: JobPageExtractor
+  aiClient?: JobFinderAiClient
 }
 
 interface SearchCandidate {
@@ -166,7 +205,7 @@ function buildDiscoveryUrls(searchPreferences: JobSearchPreferences): string[] {
   return uniqueByKey(urls, (value) => value)
 }
 
-function buildQuerySummary(searchPreferences: JobSearchPreferences): string {
+function buildQuerySummary(searchPreferences: Pick<JobSearchPreferences, 'targetRoles' | 'locations'>): string {
   const roles = searchPreferences.targetRoles.join(', ') || 'all roles'
   const locations = searchPreferences.locations.join(', ') || 'all locations'
   return `${roles} | ${locations} | chrome profile agent`
@@ -403,7 +442,10 @@ async function extractJobDetail(page: Page, candidate: SearchCandidate): Promise
       '.jobs-description__content',
       '.jobs-box__html-content',
       '.jobs-description-content__text',
-      '.jobs-description'
+      '.jobs-description',
+      '[class*="jobs-description"]',
+      '.job-details-about-the-job-module',
+      '#job-details'
     ])
     const easyApplyEligible = Array.from(document.querySelectorAll('button')).some((button) =>
       /easy apply/i.test(button.textContent ?? '')
@@ -426,9 +468,9 @@ async function extractJobDetail(page: Page, candidate: SearchCandidate): Promise
   const title = cleanText(detail.title) || candidate.title
   const company = cleanText(detail.company) || candidate.company
   const location = cleanText(detail.location) || candidate.location || 'Location unavailable'
-  const description = cleanText(detail.description)
+  const description = cleanText(detail.description) || `${title} position at ${company}. See full listing on LinkedIn for details.`
 
-  if (!title || !company || !description) {
+  if (!title || !company) {
     return null
   }
 
@@ -562,24 +604,60 @@ export function createLinkedInBrowserAgentRuntime(
 ): BrowserSessionRuntime {
   const maxJobsPerRun = Math.max(1, options.maxJobsPerRun ?? 8)
   const debugPort = options.debugPort ?? 9333
+  const jobExtractor = options.jobExtractor ?? null
+  const runtimeAiClient = options.aiClient ?? null
   let browserPromise: Promise<Browser> | null = null
   let launchedChromeProcess: ChildProcess | null = null
-  let currentSessionState = BrowserSessionStateSchema.parse({
-    source: 'linkedin',
+  const createInitialSessionState = (source: JobSource): BrowserSessionState => BrowserSessionStateSchema.parse({
+    source,
     status: 'unknown',
     driver: 'chrome_profile_agent',
-    label: 'Chrome profile not started',
-    detail: 'Open the dedicated Chrome profile to log into LinkedIn and let the browser agent reuse that session.',
+    label: source === 'linkedin' ? 'Chrome profile not started' : 'Browser profile not started',
+    detail:
+      source === 'linkedin'
+        ? 'Open the dedicated Chrome profile to log into LinkedIn and let the browser agent reuse that session.'
+        : 'Open the dedicated Chrome profile to let the experimental generic-site agent browse within the configured hostname.',
     lastCheckedAt: new Date().toISOString()
   })
+  const currentSessionStates = new Map<JobSource, BrowserSessionState>([
+    ['linkedin', createInitialSessionState('linkedin')],
+    ['generic_site', createInitialSessionState('generic_site')]
+  ])
+
+  function resetBrowserConnection(): void {
+    browserPromise = null
+    launchedChromeProcess = null
+    currentSessionStates.set('linkedin', createInitialSessionState('linkedin'))
+    currentSessionStates.set('generic_site', createInitialSessionState('generic_site'))
+  }
+
+  function attachBrowserLifecycle(browser: Browser): Browser {
+    browser.once('disconnected', () => {
+      resetBrowserConnection()
+    })
+
+    return browser
+  }
 
   async function connectBrowser(): Promise<Browser> {
     const { chromium } = await import('playwright')
-    return chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`)
+    return attachBrowserLifecycle(await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`))
   }
 
   async function ensureBrowser(): Promise<Browser> {
-    browserPromise ??= (async () => {
+    if (browserPromise) {
+      try {
+        const browser = await browserPromise
+
+        if (browser.isConnected()) {
+          return browser
+        }
+      } catch {
+        resetBrowserConnection()
+      }
+    }
+
+    browserPromise = (async () => {
       if (!(await isDebuggerEndpointReady(debugPort))) {
         const chromeExecutable = await resolveChromeExecutable(options.chromeExecutablePath)
 
@@ -603,6 +681,9 @@ export function createLinkedInBrowserAgentRuntime(
           stdio: 'ignore',
           windowsHide: false
         })
+        launchedChromeProcess.once('exit', () => {
+          resetBrowserConnection()
+        })
         launchedChromeProcess.unref()
 
         await waitForDebuggerEndpoint(debugPort)
@@ -610,7 +691,7 @@ export function createLinkedInBrowserAgentRuntime(
 
       return connectBrowser()
     })().catch((error: unknown) => {
-      browserPromise = null
+      resetBrowserConnection()
       throw error
     })
 
@@ -631,7 +712,7 @@ export function createLinkedInBrowserAgentRuntime(
   async function updateSessionStateFromPage(page: Page): Promise<BrowserSessionState> {
     const authenticated = await pageLooksAuthenticated(page)
 
-    currentSessionState = BrowserSessionStateSchema.parse({
+    const nextState = BrowserSessionStateSchema.parse({
       source: 'linkedin',
       status: authenticated ? 'ready' : 'login_required',
       driver: 'chrome_profile_agent',
@@ -642,7 +723,8 @@ export function createLinkedInBrowserAgentRuntime(
       lastCheckedAt: new Date().toISOString()
     })
 
-    return currentSessionState
+    currentSessionStates.set('linkedin', nextState)
+    return nextState
   }
 
   async function openSession(source: JobSource): Promise<BrowserSessionState> {
@@ -650,7 +732,24 @@ export function createLinkedInBrowserAgentRuntime(
       const context = await getContext()
       const page = await getPrimaryPage(context)
 
-      await ensureLinkedInLandingPage(page)
+      if (source === 'linkedin') {
+        await ensureLinkedInLandingPage(page)
+      } else {
+        await page.bringToFront()
+      }
+
+      if (source === 'generic_site') {
+        const nextState = BrowserSessionStateSchema.parse({
+          source,
+          status: 'unknown',
+          driver: 'chrome_profile_agent',
+          label: 'Browser profile opened',
+          detail: 'The dedicated Chrome profile is open for bounded experimental generic-site discovery. Target-site readiness is validated when navigation begins.',
+          lastCheckedAt: new Date().toISOString()
+        })
+        currentSessionStates.set(source, nextState)
+        return nextState
+      }
 
       return BrowserSessionStateSchema.parse({
         ...(await updateSessionStateFromPage(page)),
@@ -659,21 +758,29 @@ export function createLinkedInBrowserAgentRuntime(
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'The dedicated Chrome profile could not be opened.'
 
-      currentSessionState = BrowserSessionStateSchema.parse({
+      const nextState = BrowserSessionStateSchema.parse({
         source,
         status: 'blocked',
         driver: 'chrome_profile_agent',
-        label: 'Chrome profile unavailable',
+        label: source === 'linkedin' ? 'Chrome profile unavailable' : 'Browser profile unavailable',
         detail,
         lastCheckedAt: new Date().toISOString()
       })
 
-      return currentSessionState
+      currentSessionStates.set(source, nextState)
+      return nextState
     }
   }
 
-  async function getReadyPage(): Promise<Page> {
-    const session = await openSession('linkedin')
+  async function getReadyPage(source: JobSource): Promise<Page> {
+    const session = await openSession(source)
+
+    if (source === 'generic_site') {
+      const context = await getContext()
+      const page = await getPrimaryPage(context)
+      await page.bringToFront()
+      return page
+    }
 
     if (session.status !== 'ready') {
       throw buildSessionBlockedResult(session)
@@ -682,7 +789,9 @@ export function createLinkedInBrowserAgentRuntime(
     const context = await getContext()
     const page = await getPrimaryPage(context)
 
-    await ensureLinkedInLandingPage(page)
+    if (source === 'linkedin') {
+      await ensureLinkedInLandingPage(page)
+    }
     return page
   }
 
@@ -693,79 +802,240 @@ export function createLinkedInBrowserAgentRuntime(
 
     const browser = await browserPromise
     await browser.close()
-    browserPromise = null
-    launchedChromeProcess = null
-    currentSessionState = BrowserSessionStateSchema.parse({
-      source: 'linkedin',
-      status: 'unknown',
-      driver: 'chrome_profile_agent',
-      label: 'Chrome profile disconnected',
-      detail: 'The agent browser was disconnected because session persistence is disabled.',
-      lastCheckedAt: new Date().toISOString()
+    resetBrowserConnection()
+  }
+
+  async function runDiscoveryWithExtractor(
+    page: Page,
+    source: JobSource,
+    searchPreferences: JobSearchPreferences,
+    startedAt: string,
+    extractor: JobPageExtractor
+  ): Promise<DiscoveryRunResult> {
+    let sessionExpired = false
+    const allJobs: JobPosting[] = []
+    const seenJobIds = new Set<string>()
+
+    for (const url of buildDiscoveryUrls(searchPreferences)) {
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded' })
+        await updateSessionStateFromPage(page)
+
+        if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
+          sessionExpired = true
+          break
+        }
+
+        await page.waitForTimeout(2000)
+        const pageText = await page.evaluate(() => document.body.innerText)
+
+        const extractedJobs = validateJobPostings(
+          await extractor({
+            pageText,
+            pageUrl: page.url(),
+            pageType: 'search_results',
+            maxJobs: maxJobsPerRun
+          }),
+          page.url()
+        )
+
+        for (const job of extractedJobs) {
+          if (!seenJobIds.has(job.sourceJobId)) {
+            seenJobIds.add(job.sourceJobId)
+            allJobs.push(job)
+          }
+        }
+      } catch (error) {
+        console.error(`[Discovery] Failed to process ${url}:`, error)
+        continue
+      }
+
+      if (allJobs.length >= maxJobsPerRun) {
+        break
+      }
+    }
+
+    const jobs = allJobs.slice(0, maxJobsPerRun)
+
+    const warning = sessionExpired
+      ? 'LinkedIn session expired during discovery. Log back in and run discovery again to continue.'
+      : jobs.length === 0
+        ? 'The dedicated Chrome profile reached LinkedIn but did not extract any supported job listings.'
+        : null
+
+    return DiscoveryRunResultSchema.parse({
+      source,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      querySummary: buildQuerySummary(searchPreferences),
+      warning,
+      jobs
+    })
+  }
+
+  async function runDiscoveryWithSelectors(
+    page: Page,
+    source: JobSource,
+    searchPreferences: JobSearchPreferences,
+    startedAt: string
+  ): Promise<DiscoveryRunResult> {
+    const candidates: SearchCandidate[] = []
+    let sessionExpired = false
+
+    for (const url of buildDiscoveryUrls(searchPreferences)) {
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded' })
+        await updateSessionStateFromPage(page)
+
+        if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
+          sessionExpired = true
+          break
+        }
+
+        await page.waitForTimeout(1500)
+        candidates.push(...(await collectSearchCandidates(page, maxJobsPerRun)))
+      } catch (error) {
+        console.error(`[Discovery] Failed to collect candidates from ${url}:`, error)
+        continue
+      }
+
+      if (uniqueByKey(candidates, (candidate) => candidate.sourceJobId).length >= maxJobsPerRun) {
+        break
+      }
+    }
+
+    const uniqueCandidates = uniqueByKey(candidates, (candidate) => candidate.sourceJobId).slice(0, maxJobsPerRun)
+    const jobs: JobPosting[] = []
+
+    for (const candidate of uniqueCandidates) {
+      if (sessionExpired) {
+        break
+      }
+
+      try {
+        const job = await extractJobDetail(page, candidate)
+
+        if (job === null) {
+          if (!(await pageLooksAuthenticated(page))) {
+            await updateSessionStateFromPage(page)
+            sessionExpired = true
+            break
+          }
+
+          continue
+        }
+
+        jobs.push(job)
+      } catch {
+        // Skip individual job extraction failures
+      }
+    }
+
+    const warning = sessionExpired
+      ? 'LinkedIn session expired during discovery. Log back in and run discovery again to continue.'
+      : jobs.length === 0
+        ? 'The dedicated Chrome profile reached LinkedIn but did not extract any supported job listings.'
+        : null
+
+    return DiscoveryRunResultSchema.parse({
+      source,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      querySummary: buildQuerySummary(searchPreferences),
+      warning,
+      jobs
     })
   }
 
   return {
     getSessionState(source: JobSource) {
-      return Promise.resolve(
-        BrowserSessionStateSchema.parse({
-          ...currentSessionState,
-          source
-        })
-      )
+      return Promise.resolve(currentSessionStates.get(source) ?? createInitialSessionState(source))
     },
     openSession,
     async runDiscovery(source, searchPreferences) {
-      const page = await getReadyPage()
+      if (source === 'generic_site') {
+        const timestamp = new Date().toISOString()
+
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt: timestamp,
+          completedAt: timestamp,
+          querySummary: buildQuerySummary(searchPreferences),
+          warning: 'Discovery not supported for generic_site without the agent workflow.',
+          jobs: []
+        })
+      }
+
+      let page: Page
+
+      try {
+        page = await getReadyPage(source)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'The LinkedIn session could not be opened.'
+
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          querySummary: buildQuerySummary(searchPreferences),
+          warning: `Discovery could not start: ${detail}`,
+          jobs: []
+        })
+      }
+
       const startedAt = new Date().toISOString()
-      const candidates: SearchCandidate[] = []
 
-      for (const url of buildDiscoveryUrls(searchPreferences)) {
-        await page.goto(url, { waitUntil: 'domcontentloaded' })
-        await updateSessionStateFromPage(page)
-
-        if (currentSessionState.status !== 'ready') {
-          throw buildSessionBlockedResult(currentSessionState)
+      try {
+        if (jobExtractor) {
+          return await runDiscoveryWithExtractor(page, source, searchPreferences, startedAt, jobExtractor)
         }
 
-        await page.waitForTimeout(1500)
-        candidates.push(...(await collectSearchCandidates(page, maxJobsPerRun)))
+        return await runDiscoveryWithSelectors(page, source, searchPreferences, startedAt)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Unknown error during discovery'
 
-        if (uniqueByKey(candidates, (candidate) => candidate.sourceJobId).length >= maxJobsPerRun) {
-          break
-        }
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: buildQuerySummary(searchPreferences),
+          warning: `Discovery failed: ${detail}`,
+          jobs: []
+        })
       }
-
-      const uniqueCandidates = uniqueByKey(candidates, (candidate) => candidate.sourceJobId).slice(0, maxJobsPerRun)
-      const jobs: JobPosting[] = []
-
-      for (const candidate of uniqueCandidates) {
-        const job = await extractJobDetail(page, candidate)
-
-        if (job) {
-          jobs.push(job)
-        }
-      }
-
-      return DiscoveryRunResultSchema.parse({
-        source,
-        startedAt,
-        completedAt: new Date().toISOString(),
-        querySummary: buildQuerySummary(searchPreferences),
-        warning: jobs.length === 0 ? 'The dedicated Chrome profile reached LinkedIn but did not extract any supported job listings.' : null,
-        jobs
-      })
     },
     async executeEasyApply(source, input: ExecuteEasyApplyInput): Promise<ApplyExecutionResult> {
-      const page = await getReadyPage()
+      if (source !== 'linkedin') {
+        const startedAt = new Date().toISOString()
+
+        return ApplyExecutionResultSchema.parse({
+          state: 'unsupported',
+          summary: 'Easy Apply is only supported for LinkedIn',
+          detail: 'The current browser runtime only supports Easy Apply automation for LinkedIn listings.',
+          submittedAt: null,
+          outcome: null,
+          nextActionLabel: 'Open the listing manually',
+          checkpoints: [
+            {
+              id: `checkpoint_${input.job.id}_unsupported_source`,
+              at: startedAt,
+              label: 'Unsupported source',
+              detail: 'Easy Apply automation is unavailable for non-LinkedIn sources.',
+              state: 'unsupported'
+            }
+          ]
+        })
+      }
+
+      const page = await getReadyPage(source)
       const startedAt = new Date().toISOString()
       const checkpoints: ApplyExecutionResult['checkpoints'] = []
 
       await page.goto(input.job.canonicalUrl, { waitUntil: 'domcontentloaded' })
       await updateSessionStateFromPage(page)
 
-      if (currentSessionState.status !== 'ready') {
-        throw buildSessionBlockedResult(currentSessionState)
+      if ((currentSessionStates.get(source) ?? createInitialSessionState(source)).status !== 'ready') {
+        throw buildSessionBlockedResult(currentSessionStates.get(source) ?? createInitialSessionState(source))
       }
 
       const easyApplyButton = page.getByRole('button', { name: /easy apply/i }).first()
@@ -954,6 +1224,171 @@ export function createLinkedInBrowserAgentRuntime(
           }
         ]
       })
+    },
+    async runAgentDiscovery(source: JobSource, agentOptions: AgentDiscoveryOptions): Promise<DiscoveryRunResult> {
+      const startedAt = new Date().toISOString()
+        const aiClient = agentOptions.aiClient ?? runtimeAiClient
+
+      if (!aiClient?.chatWithTools) {
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: buildQuerySummary({
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
+          }),
+          warning: 'AI client does not support tool calling. Cannot run agent discovery.',
+          jobs: []
+        })
+      }
+
+      if (!jobExtractor) {
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: buildQuerySummary({
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
+          }),
+          warning: 'No job extractor configured. Cannot run agent discovery.',
+          jobs: []
+        })
+      }
+
+      let page: Page | null = null
+
+      try {
+        page = await getReadyPage(source)
+
+        const agentConfig: AgentConfig = {
+          source,
+          maxSteps: agentOptions.maxSteps,
+          targetJobCount: agentOptions.targetJobCount,
+          userProfile: agentOptions.userProfile,
+          searchPreferences: {
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
+          },
+          startingUrls: agentOptions.startingUrls,
+          navigationPolicy: {
+            allowedHostnames: agentOptions.navigationHostnames,
+            allowSubdomains: true
+          },
+          promptContext: {
+            siteLabel: agentOptions.siteLabel,
+            ...(agentOptions.siteInstructions ? { siteInstructions: agentOptions.siteInstructions } : {}),
+            ...(agentOptions.toolUsageNotes ? { toolUsageNotes: agentOptions.toolUsageNotes } : {}),
+            ...(agentOptions.experimental ? { experimental: true } : {})
+          },
+          ...(agentOptions.relevantUrlSubstrings
+            ? {
+                extractionContext: {
+                  relevantUrlSubstrings: agentOptions.relevantUrlSubstrings
+                }
+              }
+            : {})
+        }
+
+        const chatWithTools = aiClient.chatWithTools
+
+        const result = await runAgentDiscovery(
+          page,
+          agentConfig,
+          {
+            chatWithTools: async (messages, tools, signal) => {
+              const response = await chatWithTools(
+                messages,
+                tools,
+                signal
+              )
+              return response
+            }
+          },
+          {
+            extractJobsFromPage: async (input: {
+              pageText: string
+              pageUrl: string
+              pageType: AgentExtractorPageType
+              maxJobs: number
+            }) => {
+              const jobs = validateJobPostings(
+                await jobExtractor({
+                  pageText: input.pageText,
+                  pageUrl: input.pageUrl,
+                  pageType: input.pageType,
+                  maxJobs: input.maxJobs
+                }),
+                input.pageUrl
+              )
+
+              return jobs.map((job) => ({
+                sourceJobId: job.sourceJobId,
+                canonicalUrl: job.canonicalUrl,
+                title: job.title,
+                company: job.company,
+                location: job.location,
+                description: job.description,
+                summary: job.summary,
+                postedAt: job.postedAt,
+                salaryText: job.salaryText,
+                workMode: job.workMode,
+                applyPath: job.applyPath,
+                easyApplyEligible: job.easyApplyEligible,
+                keySkills: job.keySkills
+              }))
+            }
+          },
+          agentOptions.onProgress,
+          agentOptions.signal
+        )
+
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: buildQuerySummary({
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
+          }),
+          warning: [
+            result.incomplete
+              ? `Agent discovery stopped after ${result.steps} steps. Found ${result.jobs.length} jobs.`
+              : null,
+            result.error
+              ? `Discovery encountered an error: ${result.error}`
+              : null
+          ].filter(Boolean).join(' ') || null,
+          jobs: result.jobs
+        })
+      } catch (error) {
+        if ((error instanceof DOMException && error.name === 'AbortError') || agentOptions.signal?.aborted) {
+          throw error
+        }
+
+        const detail = error instanceof Error ? error.message : 'Unknown error during agent discovery'
+
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: buildQuerySummary({
+            targetRoles: agentOptions.searchPreferences.targetRoles,
+            locations: agentOptions.searchPreferences.locations
+          }),
+          warning: `Agent discovery failed: ${detail}`,
+          jobs: []
+        })
+      } finally {
+        if (source === 'linkedin' && page) {
+          try {
+            await updateSessionStateFromPage(page)
+          } catch {
+            // Ignore final session refresh failures so discovery result wins.
+          }
+        }
+      }
     }
   }
 }

@@ -44,7 +44,7 @@ function Switch({
       style={switchStyle}
       className={cn(
         "peer group/switch inline-flex shrink-0 items-center rounded-none border border-border bg-input transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50",
-        "h-[var(--switch-track-height)] w-[var(--switch-track-width)]",
+        "h-(--switch-track-height) w-(--switch-track-width)",
         "data-[state=checked]:bg-primary data-[state=unchecked]:bg-border",
         className
       )}
@@ -54,8 +54,8 @@ function Switch({
         data-slot="switch-thumb"
         className={cn(
           "pointer-events-none block rounded-none bg-background ring-0 transition-transform",
-          "size-[var(--switch-thumb-size)]",
-          "data-[state=checked]:translate-x-[var(--switch-thumb-travel)]",
+          "size-(--switch-thumb-size)",
+          "data-[state=checked]:translate-x-(--switch-thumb-travel)",
           "data-[state=unchecked]:translate-x-[2px]",
           "my-auto"
         )}

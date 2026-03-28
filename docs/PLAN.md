@@ -104,6 +104,7 @@ The product should feel like one cohesive system, not two unrelated tools bundle
 
 - Import and normalize CV/resume data.
 - Search for jobs through browser-driven workflows.
+- Bootstrap unfamiliar job sources with a debug-agent workflow that learns reusable site instructions before normal discovery agents depend on them.
 - Score and summarize jobs against profile and preferences.
 - Generate tailored resumes, cover letters, and screener answers.
 - Fill applications and queue them for batch approval by default.
@@ -126,6 +127,7 @@ The product should feel like one cohesive system, not two unrelated tools bundle
 #### Job Finder Workflow Defaults
 
 - Discovery is browser-agent-first, with structured connectors added where clearly useful.
+- If a user adds a target without usable instructions, run a bounded debug-agent workflow to map auth, navigation, search, filters, and job-detail access before treating that source as reusable.
 - Submission mode defaults to batch approval.
 - Generated outputs should stay grounded in imported documents and saved preferences.
 - Long-form generated answers are allowed as part of the workflow, but they should still be source-backed.
