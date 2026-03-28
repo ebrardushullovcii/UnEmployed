@@ -629,8 +629,6 @@ export function createLinkedInBrowserAgentRuntime(
       } catch {
         resetBrowserConnection()
       }
-
-      resetBrowserConnection()
     }
 
     browserPromise = (async () => {
@@ -1252,9 +1250,6 @@ export function createLinkedInBrowserAgentRuntime(
           },
           {
             extractJobsFromPage: async (input: { pageText: string; pageUrl: string; pageType: string; maxJobs: number }) => {
-              if (!jobExtractor) {
-                return []
-              }
               // Normalize pageType to valid values
               const validPageTypes = ['search_results', 'job_detail'] as const
               const normalizedPageType = validPageTypes.includes(input.pageType as typeof validPageTypes[number])
@@ -1296,11 +1291,14 @@ export function createLinkedInBrowserAgentRuntime(
             targetRoles: options.searchPreferences.targetRoles,
             locations: options.searchPreferences.locations
           }),
-          warning: result.incomplete
-            ? `Agent discovery stopped after ${result.steps} steps. Found ${result.jobs.length} jobs.`
-            : result.error
-              ? `Discovery encountered an error: ${result.error}`
+          warning: [
+            result.incomplete
+              ? `Agent discovery stopped after ${result.steps} steps. Found ${result.jobs.length} jobs.`
               : null,
+            result.error
+              ? `Discovery encountered an error: ${result.error}`
+              : null
+          ].filter(Boolean).join(' ') || null,
           jobs: result.jobs
         })
       } catch (error) {

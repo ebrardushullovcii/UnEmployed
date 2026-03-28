@@ -587,7 +587,10 @@ function getActiveDiscoveryTargets(searchPreferences: JobSearchPreferences): Job
 }
 
 function getPreferredSessionAdapter(searchPreferences: JobSearchPreferences): JobSource {
-  return resolveAdapterKind(getActiveDiscoveryTargets(searchPreferences)[0] ?? {
+  const targets = getActiveDiscoveryTargets(searchPreferences)
+  const preferredTarget = targets.find((target) => resolveAdapterKind(target) === 'linkedin') ?? targets[0]
+
+  return resolveAdapterKind(preferredTarget ?? {
     id: 'target_linkedin_default',
     label: 'LinkedIn Jobs',
     startingUrl: DEFAULT_LINKEDIN_STARTING_URL,
@@ -1334,6 +1337,28 @@ export function createJobFinderWorkspaceService(
     return [...nextById.values()]
   }
 
+  function overlayTouchedSavedJobs(
+    currentJobs: readonly SavedJob[],
+    nextJobs: readonly SavedJob[],
+    touchedIds: ReadonlySet<string>
+  ): SavedJob[] {
+    return mergeSavedJobs(
+      currentJobs.filter((job) => !touchedIds.has(job.id)),
+      nextJobs.filter((job) => touchedIds.has(job.id))
+    )
+  }
+
+  function overlayTouchedPendingJobs(
+    currentJobs: readonly SavedJob[],
+    nextJobs: readonly SavedJob[],
+    touchedIds: ReadonlySet<string>
+  ): SavedJob[] {
+    return mergePendingJobs(
+      currentJobs.filter((job) => !touchedIds.has(job.id)),
+      nextJobs.filter((job) => touchedIds.has(job.id))
+    )
+  }
+
   function createBrowserSessionSnapshot(
     sessions: ReadonlyArray<JobFinderDiscoveryState['sessions'][number]>,
     preferredAdapter: JobSource
@@ -1647,6 +1672,8 @@ export function createJobFinderWorkspaceService(
 
       let workingSavedJobs = [...startingSavedJobs]
       let workingPendingJobs = [...startingDiscovery.pendingDiscoveryJobs]
+      const touchedSavedJobIds = new Set<string>()
+      const touchedPendingJobIds = new Set<string>()
       let completedTargets = 0
 
       let activeRun = DiscoveryRunRecordSchema.parse({
@@ -1898,15 +1925,24 @@ export function createJobFinderWorkspaceService(
               signal
             )
 
-            const newJobIds = new Set(mergeResult.newJobs.map((job) => job.id))
-            if (settings.discoveryOnly) {
-              const nextPendingJobs = mergeResult.mergedJobs.filter((job) => !persistedWorkingJobIds.has(job.id))
-              workingSavedJobs = mergeResult.mergedJobs.filter((job) => persistedWorkingJobIds.has(job.id) && !newJobIds.has(job.id))
-              workingPendingJobs = mergePendingJobs(workingPendingJobs, nextPendingJobs)
-            } else {
-              workingSavedJobs = mergeResult.mergedJobs
-              workingPendingJobs = []
+          const newJobIds = new Set(mergeResult.newJobs.map((job) => job.id))
+          if (settings.discoveryOnly) {
+            const nextPendingJobs = mergeResult.mergedJobs.filter((job) => !persistedWorkingJobIds.has(job.id))
+            for (const job of mergeResult.mergedJobs.filter((job) => persistedWorkingJobIds.has(job.id))) {
+              touchedSavedJobIds.add(job.id)
             }
+            for (const job of nextPendingJobs) {
+              touchedPendingJobIds.add(job.id)
+            }
+            workingSavedJobs = mergeResult.mergedJobs.filter((job) => persistedWorkingJobIds.has(job.id) && !newJobIds.has(job.id))
+            workingPendingJobs = mergePendingJobs(workingPendingJobs, nextPendingJobs)
+          } else {
+            for (const job of mergeResult.mergedJobs) {
+              touchedSavedJobIds.add(job.id)
+            }
+            workingSavedJobs = mergeResult.mergedJobs
+            workingPendingJobs = []
+          }
 
             completedTargets += 1
             activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
@@ -2043,10 +2079,10 @@ export function createJobFinderWorkspaceService(
           repository.listSavedJobs(),
           repository.getDiscoveryState()
         ])
-        await repository.replaceSavedJobs(mergeSavedJobs(latestSavedJobs, workingSavedJobs))
+        await repository.replaceSavedJobs(overlayTouchedSavedJobs(latestSavedJobs, workingSavedJobs, touchedSavedJobIds))
         await repository.saveDiscoveryState(finalizeDiscoveryState({
           ...latestDiscoveryState,
-          pendingDiscoveryJobs: mergePendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs)
+          pendingDiscoveryJobs: overlayTouchedPendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs, touchedPendingJobIds)
         }, activeRun, enrichedPreferences))
 
         if (!aborted) {
@@ -2058,10 +2094,10 @@ export function createJobFinderWorkspaceService(
         repository.listSavedJobs(),
         repository.getDiscoveryState()
       ])
-      await repository.replaceSavedJobs(mergeSavedJobs(latestSavedJobs, workingSavedJobs))
+      await repository.replaceSavedJobs(overlayTouchedSavedJobs(latestSavedJobs, workingSavedJobs, touchedSavedJobIds))
       await repository.saveDiscoveryState(finalizeDiscoveryState({
         ...latestDiscoveryState,
-        pendingDiscoveryJobs: mergePendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs)
+        pendingDiscoveryJobs: overlayTouchedPendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs, touchedPendingJobIds)
       }, activeRun, enrichedPreferences))
 
       return getWorkspaceSnapshot()
@@ -2078,10 +2114,10 @@ export function createJobFinderWorkspaceService(
           status: 'shortlisted'
         })
         await repository.replaceSavedJobs([...savedJobs, nextJob])
-        await repository.saveDiscoveryState({
-          ...discoveryState,
-          pendingDiscoveryJobs: discoveryState.pendingDiscoveryJobs.filter((job) => job.id !== jobId)
-        })
+        await persistDiscoveryState((current) => ({
+          ...current,
+          pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter((job) => job.id !== jobId)
+        }))
       } else {
         const tailoredAssets = await repository.listTailoredAssets()
         const asset = tailoredAssets.find((entry) => entry.jobId === jobId)
@@ -2099,10 +2135,10 @@ export function createJobFinderWorkspaceService(
       const pendingIndex = discoveryState.pendingDiscoveryJobs.findIndex((job) => job.id === jobId)
 
       if (pendingIndex >= 0) {
-        await repository.saveDiscoveryState({
-          ...discoveryState,
-          pendingDiscoveryJobs: discoveryState.pendingDiscoveryJobs.filter((job) => job.id !== jobId)
-        })
+        await persistDiscoveryState((current) => ({
+          ...current,
+          pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter((job) => job.id !== jobId)
+        }))
       } else {
         await updateJob(jobId, (job) => ({
           ...job,

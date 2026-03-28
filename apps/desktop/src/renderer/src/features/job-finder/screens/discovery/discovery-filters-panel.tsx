@@ -115,7 +115,7 @@ export function DiscoveryFiltersPanel({
             </div>
           ) : (
             <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
-              Browser agent is not enabled. Set <strong>UNEMPLOYED_LINKEDIN_BROWSER_AGENT=1</strong> in your <strong>.env.local</strong> and restart the app.
+              Browser agent is not enabled. Remove <strong>UNEMPLOYED_LINKEDIN_BROWSER_AGENT</strong> or delete any <strong>=0</strong>/<strong>=false</strong> override in your <strong>.env.local</strong>, then restart the app.
             </div>
           )) : (
             <div role="status" className="rounded-[var(--radius-small)] border border-sky-500/20 bg-sky-500/5 px-3 py-3 text-[0.85rem] leading-6 text-sky-600 dark:text-sky-400">
@@ -163,7 +163,7 @@ export function DiscoveryFiltersPanel({
               </Button>
               {!isChromeAgent ? (
                 <p className="text-[0.82rem] leading-6 text-foreground-muted">
-                  Browser-profile discovery is disabled for this desktop session. Set `UNEMPLOYED_LINKEDIN_BROWSER_AGENT=1` only if you explicitly turned it off.
+                  Browser-profile discovery is disabled for this desktop session. Remove `UNEMPLOYED_LINKEDIN_BROWSER_AGENT` or delete any `=0` / `=false` override to restore the default browser-agent runtime.
                 </p>
               ) : null}
             </div>

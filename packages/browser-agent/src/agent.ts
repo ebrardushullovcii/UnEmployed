@@ -12,6 +12,8 @@ import { getToolDefinitions, getToolExecutor } from './tools'
 import { createSystemPrompt } from './prompts'
 import { isAllowedUrl } from './allowlist'
 
+export type AgentExtractorPageType = 'search_results' | 'job_detail'
+
 export interface LLMClient {
   chatWithTools(
     messages: AgentMessage[],
@@ -28,7 +30,7 @@ export interface JobExtractor {
   extractJobsFromPage(input: {
     pageText: string
     pageUrl: string
-    pageType: string
+    pageType: AgentExtractorPageType
     maxJobs: number
   }): Promise<Array<Pick<
     JobPosting,
@@ -137,6 +139,9 @@ export async function runAgentDiscovery(
       try {
         response = await llmClient.chatWithTools(state.conversation, tools, signal)
       } catch (llmError) {
+        if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {
+          throw llmError
+        }
         console.error('[Agent] LLM call failed:', llmError instanceof Error ? llmError.message : 'Unknown')
         return {
           jobs: state.collectedJobs,
@@ -155,7 +160,7 @@ export async function runAgentDiscovery(
 
         // Execute tool calls and add results
         for (const toolCall of response.toolCalls) {
-          const result = await executeToolCall(toolCall, page, state, config, jobExtractor, onProgress)
+          const result = await executeToolCall(toolCall, page, state, config, jobExtractor, onProgress, signal)
 
           const compactResult = toolCall.function.name === 'extract_jobs'
             ? {
@@ -215,6 +220,9 @@ export async function runAgentDiscovery(
       incomplete: state.stepCount >= config.maxSteps
     }
   } catch (error) {
+    if ((error instanceof DOMException && error.name === 'AbortError') || signal?.aborted) {
+      throw error
+    }
     console.error('[Agent] Error:', error instanceof Error ? error.message : 'Unknown')
     return {
       jobs: state.collectedJobs,
@@ -232,7 +240,8 @@ async function executeToolCall(
   state: AgentState,
   config: AgentConfig,
   jobExtractor: JobExtractor,
-  onProgress?: OnProgressCallback
+  onProgress?: OnProgressCallback,
+  signal?: AbortSignal
 ): Promise<unknown> {
   const toolName = toolCall.function.name
   let args: Record<string, unknown> = {}
@@ -261,6 +270,9 @@ async function executeToolCall(
     const maxRetries = 3
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        if (signal?.aborted) {
+          throw new DOMException('Aborted', 'AbortError')
+        }
         const result = await tool.execute(args, { page, state, config })
         
         // Special handling for extract_jobs
@@ -355,6 +367,9 @@ async function executeToolCall(
 
         return result
       } catch (error) {
+        if ((error instanceof DOMException && error.name === 'AbortError') || signal?.aborted) {
+          throw error
+        }
         if (attempt === maxRetries) {
           return {
             success: false,
@@ -362,6 +377,9 @@ async function executeToolCall(
           }
         }
         // Wait before retry
+        if (signal?.aborted) {
+          throw new DOMException('Aborted', 'AbortError')
+        }
         await new Promise(resolve => setTimeout(resolve, 500 * attempt))
       }
     }

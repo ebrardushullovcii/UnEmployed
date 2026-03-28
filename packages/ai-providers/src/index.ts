@@ -1544,9 +1544,13 @@ function isLinkedInUrl(url: string): boolean {
   }
 }
 
-function buildGenericCanonicalUrl(url: string): string {
+function buildGenericCanonicalUrl(url: string, baseUrl?: string): string {
   try {
-    const parsedUrl = new URL(url)
+    const parsedUrl = new URL(url, baseUrl)
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      throw new Error('Unsupported URL scheme')
+    }
 
     for (const key of [...parsedUrl.searchParams.keys()]) {
       if (key.toLowerCase().startsWith('utm_')) {
@@ -1907,7 +1911,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
                 ? buildLinkedInJobUrl(rawSourceJobId || extractLinkedInJobId(fallbackUrl)) || fallbackUrl
                 : buildLinkedInJobUrl(rawSourceJobId || extractLinkedInJobId(rawCanonicalUrl)))
             )
-          : buildGenericCanonicalUrl(rawCanonicalUrl || fallbackUrl)
+          : buildGenericCanonicalUrl(rawCanonicalUrl || fallbackUrl, input.pageUrl)
         const derivedSourceJobId = linkedInSource
           ? rawSourceJobId || extractLinkedInJobId(rawCanonicalUrl) || extractLinkedInJobId(fallbackUrl)
           : rawSourceJobId || buildGenericJobId(derivedCanonicalUrl)
