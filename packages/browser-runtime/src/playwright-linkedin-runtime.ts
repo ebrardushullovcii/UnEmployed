@@ -917,6 +917,7 @@ export function createLinkedInBrowserAgentRuntime(
 
         if (job === null) {
           if (!(await pageLooksAuthenticated(page))) {
+            await updateSessionStateFromPage(page)
             sessionExpired = true
             break
           }
