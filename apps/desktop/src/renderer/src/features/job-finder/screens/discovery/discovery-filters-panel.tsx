@@ -144,7 +144,7 @@ export function DiscoveryFiltersPanel({
             </div>
           ) : (
             <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
-              Browser agent is not enabled. Remove <strong>UNEMPLOYED_LINKEDIN_BROWSER_AGENT</strong> or delete any <strong>=0</strong>/<strong>=false</strong> override in your <strong>.env.local</strong>, then restart the app.
+              Browser agent is not enabled. Remove <code>UNEMPLOYED_LINKEDIN_BROWSER_AGENT</code> or delete any <code>=0</code>/<code>=false</code> override in your <code>.env.local</code>, then restart the app.
             </div>
           )) : (
             <div role="status" className="rounded-[var(--radius-small)] border border-sky-500/20 bg-sky-500/5 px-3 py-3 text-[0.85rem] leading-6 text-sky-600 dark:text-sky-400">

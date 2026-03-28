@@ -18,7 +18,7 @@ import {
   type JobSource
 } from '@unemployed/contracts'
 import type { JobFinderAiClient } from '@unemployed/ai-providers'
-import { runAgentDiscovery, type AgentConfig } from '@unemployed/browser-agent'
+import { runAgentDiscovery, type AgentConfig, type AgentExtractorPageType } from '@unemployed/browser-agent'
 import type { AgentDiscoveryOptions, BrowserSessionRuntime, ExecuteEasyApplyInput } from './index'
 
 const knownSkillPhrases = [
@@ -1195,7 +1195,7 @@ export function createLinkedInBrowserAgentRuntime(
     },
     async runAgentDiscovery(source: JobSource, agentOptions: AgentDiscoveryOptions): Promise<DiscoveryRunResult> {
       const startedAt = new Date().toISOString()
-      const aiClient = agentOptions.aiClient ?? runtimeAiClient
+        const aiClient = agentOptions.aiClient ?? runtimeAiClient
 
       if (!aiClient?.chatWithTools) {
         return DiscoveryRunResultSchema.parse({
@@ -1258,9 +1258,6 @@ export function createLinkedInBrowserAgentRuntime(
         }
 
         const chatWithTools = aiClient.chatWithTools
-        if (!chatWithTools) {
-          throw new Error('AI client not available')
-        }
 
         const result = await runAgentDiscovery(
           page,
@@ -1276,18 +1273,17 @@ export function createLinkedInBrowserAgentRuntime(
             }
           },
           {
-            extractJobsFromPage: async (input: { pageText: string; pageUrl: string; pageType: string; maxJobs: number }) => {
-              // Normalize pageType to valid values
-              const validPageTypes = ['search_results', 'job_detail'] as const
-              const normalizedPageType = validPageTypes.includes(input.pageType as typeof validPageTypes[number])
-                ? (input.pageType as typeof validPageTypes[number])
-                : 'search_results' // Default fallback
-
+            extractJobsFromPage: async (input: {
+              pageText: string
+              pageUrl: string
+              pageType: AgentExtractorPageType
+              maxJobs: number
+            }) => {
               const jobs = validateJobPostings(
                 await jobExtractor({
                   pageText: input.pageText,
                   pageUrl: input.pageUrl,
-                  pageType: normalizedPageType,
+                  pageType: input.pageType,
                   maxJobs: input.maxJobs
                 }),
                 input.pageUrl
