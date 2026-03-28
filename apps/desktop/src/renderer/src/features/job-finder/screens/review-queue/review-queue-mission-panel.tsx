@@ -67,7 +67,6 @@ export function ReviewQueueMissionPanel({
             <p className="text-(length:--text-body) leading-7 text-foreground-soft">{selectedJob.summary}</p>
             {selectedAsset?.storagePath ? <p className="font-mono text-[10px] uppercase tracking-(--tracking-normal) text-muted-foreground">Template file: {selectedAsset.storagePath}</p> : null}
             <PreferenceList label="Role fit" values={selectedJob.matchAssessment.reasons} />
-            {selectedAsset?.notes.length ? <PreferenceList label="Agent notes" values={selectedAsset.notes} /> : null}
             <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
               <h3 className="mb-4 block font-display text-[10px] font-bold uppercase tracking-(--tracking-caps) text-muted-foreground">Telemetry Stream</h3>
               <div className="space-y-1 font-mono text-[9px] leading-relaxed text-foreground-soft">

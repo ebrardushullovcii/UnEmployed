@@ -152,9 +152,9 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
           </div>
 
           <div className="col-start-2 row-start-1 flex items-center justify-center" style={dragRegionStyle}>
-            <div className="flex items-center gap-4" style={noDragRegionStyle}>
+            <div className="flex items-center gap-4" role="list" style={noDragRegionStyle}>
               {suiteModules.map((moduleName, index) => (
-                <div key={moduleName} className="flex items-center gap-4">
+                <div key={moduleName} className="flex items-center gap-4" role="listitem">
                   {index > 0 ? <span aria-hidden="true" className="h-4 w-px bg-border/50" /> : null}
                   <span
                     aria-current={moduleName === 'job-finder' ? 'page' : undefined}

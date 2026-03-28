@@ -14,6 +14,8 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
   const isGenerating = selectedItem?.assetStatus === 'generating' || selectedItem?.assetStatus === 'queued'
   const showGenerationState = needsGeneration || isGenerating
+  const previewSyncing = Boolean(selectedItem && !showGenerationState && !selectedAsset && !selectedItem.resumeAssetId)
+  const previewMissing = Boolean(selectedItem && !showGenerationState && !selectedAsset && selectedItem.resumeAssetId)
 
   return (
     <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
@@ -54,11 +56,19 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
           />
         </div>
       ) : null}
-      {queue.length > 0 && selectedItem && !showGenerationState && !selectedAsset ? (
+      {queue.length > 0 && previewSyncing ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
             title="Loading preview"
             description="The tailored asset is still syncing into the preview panel. Try again in a moment."
+          />
+        </div>
+      ) : null}
+      {queue.length > 0 && previewMissing ? (
+        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+          <EmptyState
+            title="Asset not found"
+            description="The selected queue item points to a tailored asset that is not available right now. Refresh the workspace or regenerate the asset if this persists."
           />
         </div>
       ) : null}

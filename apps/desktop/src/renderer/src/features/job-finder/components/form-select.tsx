@@ -10,16 +10,17 @@ interface FormSelectProps {
   onValueChange: (value: string) => void
   options: ReadonlyArray<{ label: string; value: string }>
   placeholder?: string
+  triggerId?: string
   triggerClassName?: string
   value: string
 }
 
 const EMPTY_VALUE = '__empty__'
 
-export function FormSelect({ onValueChange, options, placeholder, triggerClassName, value }: FormSelectProps) {
+export function FormSelect({ onValueChange, options, placeholder, triggerClassName, triggerId, value }: FormSelectProps) {
   return (
     <Select onValueChange={(nextValue) => onValueChange(nextValue === EMPTY_VALUE ? '' : nextValue)} value={value || EMPTY_VALUE}>
-      <SelectTrigger className={triggerClassName}>
+      <SelectTrigger className={triggerClassName} id={triggerId}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

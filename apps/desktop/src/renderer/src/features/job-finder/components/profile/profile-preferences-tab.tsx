@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { jobSourceAdapterKindValues, workModeValues } from '@unemployed/contracts'
 import type { Control, UseFormReturn } from 'react-hook-form'
 import { Controller } from 'react-hook-form'
@@ -50,6 +51,143 @@ function BooleanSelectField(props: {
 interface ProfilePreferencesTabProps {
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>
   profileForm: UseFormReturn<ProfileEditorValues>
+}
+
+type DiscoveryTargetValue = SearchPreferencesEditorValues['discoveryTargets'][number]
+
+function TargetRow(props: {
+  discoveryTargets: SearchPreferencesEditorValues['discoveryTargets']
+  index: number
+  profileSelectTriggerClassName: string
+  target: DiscoveryTargetValue
+  updateDiscoveryTargets: (nextTargets: SearchPreferencesEditorValues['discoveryTargets']) => void
+}) {
+  const baseId = useId()
+  const labelId = `${baseId}-label`
+  const adapterId = `${baseId}-adapter`
+  const startingUrlId = `${baseId}-starting-url`
+  const instructionsId = `${baseId}-instructions`
+  const updateTarget = (nextTarget: DiscoveryTargetValue) => {
+    const nextTargets = [...props.discoveryTargets]
+    nextTargets[props.index] = nextTarget
+    props.updateDiscoveryTargets(nextTargets)
+  }
+
+  return (
+    <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            aria-label={`Move ${props.target.label.trim() || props.target.id} up`}
+            disabled={props.index === 0}
+            onClick={() => {
+              const nextTargets = [...props.discoveryTargets]
+              const currentTarget = nextTargets[props.index]
+              const previousTarget = nextTargets[props.index - 1]
+              if (!currentTarget || !previousTarget) {
+                return
+              }
+              nextTargets[props.index - 1] = currentTarget
+              nextTargets[props.index] = previousTarget
+              props.updateDiscoveryTargets(nextTargets)
+            }}
+            type="button"
+            variant="ghost"
+          >
+            Move up
+          </Button>
+          <Button
+            aria-label={`Move ${props.target.label.trim() || props.target.id} down`}
+            disabled={props.index === props.discoveryTargets.length - 1}
+            onClick={() => {
+              const nextTargets = [...props.discoveryTargets]
+              const currentTarget = nextTargets[props.index]
+              const followingTarget = nextTargets[props.index + 1]
+              if (!currentTarget || !followingTarget) {
+                return
+              }
+              nextTargets[props.index] = followingTarget
+              nextTargets[props.index + 1] = currentTarget
+              props.updateDiscoveryTargets(nextTargets)
+            }}
+            type="button"
+            variant="ghost"
+          >
+            Move down
+          </Button>
+          <Button
+            aria-label={`Remove ${props.target.label.trim() || props.target.id}`}
+            onClick={() => props.updateDiscoveryTargets(props.discoveryTargets.filter((entry) => entry.id !== props.target.id))}
+            type="button"
+            variant="ghost"
+          >
+            Remove
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-(--gap-content) md:grid-cols-2">
+        <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+          <FieldLabel htmlFor={labelId}>Site label</FieldLabel>
+          <ProfileInput
+            id={labelId}
+            onChange={(event) => updateTarget({ ...props.target, label: event.target.value })}
+            value={props.target.label}
+          />
+        </div>
+        <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+          <FieldLabel htmlFor={adapterId}>Adapter</FieldLabel>
+          <FormSelect
+            onValueChange={(value) => {
+              updateTarget({
+                ...props.target,
+                adapterKind: value as SearchPreferencesEditorValues['discoveryTargets'][number]['adapterKind']
+              })
+            }}
+            options={jobSourceAdapterKindValues.map((adapterKind) => ({
+              label: adapterKind === 'generic_site' ? 'Generic site (experimental)' : formatStatusLabel(adapterKind),
+              value: adapterKind
+            }))}
+            placeholder="Select adapter"
+            triggerClassName={props.profileSelectTriggerClassName}
+            triggerId={adapterId}
+            value={props.target.adapterKind}
+          />
+        </div>
+        <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2">
+          <FieldLabel htmlFor={startingUrlId}>Starting URL</FieldLabel>
+          <ProfileInput
+            id={startingUrlId}
+            onChange={(event) => updateTarget({ ...props.target, startingUrl: event.target.value })}
+            placeholder="https://www.linkedin.com/jobs/search/"
+            value={props.target.startingUrl}
+          />
+        </div>
+        <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2">
+          <FieldLabel htmlFor={instructionsId}>Custom navigation instructions</FieldLabel>
+          <ProfileTextarea
+            className="min-h-(--textarea-tall)"
+            id={instructionsId}
+            onChange={(event) => updateTarget({ ...props.target, customInstructions: event.target.value })}
+            placeholder="Optional: explain how this site exposes jobs, where to click, what sections to trust, or what to avoid."
+            rows={4}
+            value={props.target.customInstructions}
+          />
+        </div>
+        <div className="grid gap-2 md:col-span-2">
+          <CheckboxField
+            checked={props.target.enabled}
+            label="Enabled for sequential discovery runs"
+            onCheckedChange={(checked) => updateTarget({ ...props.target, enabled: checked })}
+          />
+          {props.target.adapterKind === 'generic_site' ? (
+            <p className="text-[0.82rem] leading-6 text-amber-600 dark:text-amber-400">Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfilePreferencesTabProps) {
@@ -277,130 +415,14 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
             ) : null}
 
             {discoveryTargets.map((target, index) => (
-              <div key={target.id} className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {index + 1}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      aria-label={`Move ${target.label.trim() || target.id} up`}
-                      disabled={index === 0}
-                      onClick={() => {
-                        const nextTargets = [...discoveryTargets]
-                        const currentTarget = nextTargets[index]
-                        const previousTarget = nextTargets[index - 1]
-                        if (!currentTarget || !previousTarget) {
-                          return
-                        }
-                        nextTargets[index - 1] = currentTarget
-                        nextTargets[index] = previousTarget
-                        updateDiscoveryTargets(nextTargets)
-                      }}
-                      type="button"
-                      variant="ghost"
-                    >
-                      Move up
-                    </Button>
-                    <Button
-                      aria-label={`Move ${target.label.trim() || target.id} down`}
-                      disabled={index === discoveryTargets.length - 1}
-                      onClick={() => {
-                        const nextTargets = [...discoveryTargets]
-                        const currentTarget = nextTargets[index]
-                        const followingTarget = nextTargets[index + 1]
-                        if (!currentTarget || !followingTarget) {
-                          return
-                        }
-                        nextTargets[index] = followingTarget
-                        nextTargets[index + 1] = currentTarget
-                        updateDiscoveryTargets(nextTargets)
-                      }}
-                      type="button"
-                      variant="ghost"
-                    >
-                      Move down
-                    </Button>
-                    <Button
-                      aria-label={`Remove ${target.label.trim() || target.id}`}
-                      onClick={() => updateDiscoveryTargets(discoveryTargets.filter((entry) => entry.id !== target.id))}
-                      type="button"
-                      variant="ghost"
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid gap-(--gap-content) md:grid-cols-2">
-                  <Field>
-                    <FieldLabel>Site label</FieldLabel>
-                    <ProfileInput
-                      onChange={(event) => {
-                        const nextTargets = [...discoveryTargets]
-                        nextTargets[index] = { ...target, label: event.target.value }
-                        updateDiscoveryTargets(nextTargets)
-                      }}
-                      value={target.label}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Adapter</FieldLabel>
-                    <FormSelect
-                      onValueChange={(value) => {
-                        const nextTargets = [...discoveryTargets]
-                        nextTargets[index] = { ...target, adapterKind: value as SearchPreferencesEditorValues['discoveryTargets'][number]['adapterKind'] }
-                        updateDiscoveryTargets(nextTargets)
-                      }}
-                      options={jobSourceAdapterKindValues.map((adapterKind) => ({
-                        label: adapterKind === 'generic_site' ? 'Generic site (experimental)' : formatStatusLabel(adapterKind),
-                        value: adapterKind
-                      }))}
-                      placeholder="Select adapter"
-                      triggerClassName={profileSelectTriggerClassName}
-                      value={target.adapterKind}
-                    />
-                  </Field>
-                  <Field className="md:col-span-2">
-                    <FieldLabel>Starting URL</FieldLabel>
-                    <ProfileInput
-                      onChange={(event) => {
-                        const nextTargets = [...discoveryTargets]
-                        nextTargets[index] = { ...target, startingUrl: event.target.value }
-                        updateDiscoveryTargets(nextTargets)
-                      }}
-                      placeholder="https://www.linkedin.com/jobs/search/"
-                      value={target.startingUrl}
-                    />
-                  </Field>
-                  <Field className="md:col-span-2">
-                    <FieldLabel>Custom navigation instructions</FieldLabel>
-                    <ProfileTextarea
-                      className="min-h-(--textarea-tall)"
-                      onChange={(event) => {
-                        const nextTargets = [...discoveryTargets]
-                        nextTargets[index] = { ...target, customInstructions: event.target.value }
-                        updateDiscoveryTargets(nextTargets)
-                      }}
-                      placeholder="Optional: explain how this site exposes jobs, where to click, what sections to trust, or what to avoid."
-                      rows={4}
-                      value={target.customInstructions}
-                    />
-                  </Field>
-                  <div className="grid gap-2 md:col-span-2">
-                    <CheckboxField
-                      checked={target.enabled}
-                      label="Enabled for sequential discovery runs"
-                      onCheckedChange={(checked) => {
-                        const nextTargets = [...discoveryTargets]
-                        nextTargets[index] = { ...target, enabled: checked }
-                        updateDiscoveryTargets(nextTargets)
-                      }}
-                    />
-                    {target.adapterKind === 'generic_site' ? (
-                      <p className="text-[0.82rem] leading-6 text-amber-600 dark:text-amber-400">Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
+              <TargetRow
+                discoveryTargets={discoveryTargets}
+                index={index}
+                key={target.id}
+                profileSelectTriggerClassName={profileSelectTriggerClassName}
+                target={target}
+                updateDiscoveryTargets={updateDiscoveryTargets}
+              />
             ))}
           </div>
         </article>
