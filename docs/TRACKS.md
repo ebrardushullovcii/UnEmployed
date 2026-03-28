@@ -113,14 +113,14 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `JF-08 Adapter-Driven Discovery And Activity Timeline`
 
 - status: `in_progress`
-- last updated: `2026-03-27`
+- last updated: `2026-03-28`
 - scope: refactor the current LinkedIn-only browser agent into an adapter-driven multi-target discovery system with a chat-like activity timeline and future-ready worker orchestration
 - linked plan: `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md`
 - code areas: `packages/contracts`, `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `apps/desktop`
-- current focus: nested discovery contracts, retained run history, activity-event translation, adapter-scoped session state, LinkedIn adapterization, sequential multi-target orchestration, experimental `generic_site`, and desktop target/timeline UI are now landed together
+- current focus: nested discovery contracts, retained run history, activity-event translation, adapter-scoped session state, LinkedIn adapterization, sequential multi-target orchestration, experimental `generic_site`, and desktop target/timeline UI are now landed together, including a full-history modal that can keep following the current live run
 - next step: run broader live QA against authenticated LinkedIn plus a few bounded generic sites, then tighten selector robustness, low-confidence skips, and timeline wording based on real traces
 - blockers: none
-- notes: multi-target discovery shipped sequentially first with persisted pending jobs, recent run history, discovery provenance, and a read-only activity timeline; `generic_site` remains explicitly experimental with hostname-bounded navigation plus visible UX caveats, and bounded parallel workers remain a later feature once event ordering, cancellation, and session behavior are stable
+- notes: multi-target discovery shipped sequentially first with persisted pending jobs, recent run history, discovery provenance, and a read-only activity timeline; the full-history modal now includes the current live run with auto-follow-until-scroll-away behavior; `generic_site` remains explicitly experimental with hostname-bounded navigation plus visible UX caveats, and bounded parallel workers remain a later feature once event ordering, cancellation, and session behavior are stable
 
 ### `JF-09 Job Source Debug Agent`
 

@@ -309,6 +309,7 @@ Important:
 - keep entries concise and user-readable
 - preserve enough detail to debug confusing runs later
 - show saved vs staged outcomes separately when discovery-only mode is enabled
+- the full-history view should include the current in-flight run, not only retained completed runs, and should auto-follow new events until the user intentionally scrolls away
 
 ## Sequential-First Orchestration
 

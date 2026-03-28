@@ -54,6 +54,7 @@ Job Finder foundation with local persistence, structured profile editing, resume
 
 ## Recently Completed
 
+- `2026-03-28`: updated the Discovery full-history modal so the current in-flight run stays visible alongside retained runs, with a clear live state and auto-follow behavior for new events until the user scrolls away
 - `2026-03-26`: implemented AI browser agent for autonomous LinkedIn job discovery with LLM tool calling, replacing the old deterministic discovery button; agent controls navigation strategy, timeouts, and retry logic; targets up to the configured job count from LinkedIn search results using the user's profile preferences
 - `2026-03-27`: completed the adapter-driven discovery refactor with nested discovery preferences, retained run history, activity timeline events, adapter-scoped session state, provenance tracking, sequential multi-target orchestration, and desktop target/timeline UI updates while keeping LinkedIn discovery working
 - `2026-03-25`: refocused the Profile screen around a persistent resume source panel, simpler tab labels, and collapsible record cards so resume-driven editing feels less dense

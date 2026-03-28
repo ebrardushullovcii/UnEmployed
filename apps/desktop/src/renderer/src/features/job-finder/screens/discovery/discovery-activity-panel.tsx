@@ -2,6 +2,12 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { DiscoveryActivityEvent, DiscoveryRunRecord } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import {
+  buildLiveRunRecord,
+  formatOutcomeLabel,
+  getRunOptions,
+  type DiscoveryTargetConfig
+} from './discovery-history-utils'
 
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -15,36 +21,6 @@ function formatRunLabel(value: string): string {
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
-  })
-}
-
-function getLiveRunEvents(
-  activeRun: DiscoveryRunRecord | null,
-  liveEvents: readonly DiscoveryActivityEvent[],
-  runId: string | null
-): readonly DiscoveryActivityEvent[] {
-  if (!runId) {
-    return []
-  }
-
-  if (activeRun?.id === runId && liveEvents.length > 0 && liveEvents[0]?.runId === runId) {
-    return liveEvents
-  }
-
-  return activeRun?.id === runId ? activeRun.activity : []
-}
-
-function getRunOptions(activeRun: DiscoveryRunRecord | null, recentRuns: readonly DiscoveryRunRecord[]): DiscoveryRunRecord[] {
-  const runs = [activeRun, ...recentRuns].filter((run): run is DiscoveryRunRecord => Boolean(run))
-  const seen = new Set<string>()
-
-  return runs.filter((run) => {
-    if (seen.has(run.id)) {
-      return false
-    }
-
-    seen.add(run.id)
-    return true
   })
 }
 
@@ -76,12 +52,20 @@ export function DiscoveryHistoryModal(props: {
   onClose: () => void
   open: boolean
   recentRuns: readonly DiscoveryRunRecord[]
+  targets: readonly DiscoveryTargetConfig[]
 }) {
   const dialogTitleId = useId()
   const dialogRef = useRef<HTMLDivElement | null>(null)
+  const eventStreamRef = useRef<HTMLDivElement | null>(null)
+  const eventStreamEndRef = useRef<HTMLDivElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
-  const runOptions = useMemo(() => getRunOptions(props.activeRun, props.recentRuns), [props.activeRun, props.recentRuns])
+  const liveRun = useMemo(() => buildLiveRunRecord(props.liveEvents, props.targets), [props.liveEvents, props.targets])
+  const runOptions = useMemo(
+    () => getRunOptions(liveRun, props.activeRun, props.recentRuns),
+    [liveRun, props.activeRun, props.recentRuns]
+  )
   const [selectedRunId, setSelectedRunId] = useState<string | null>(runOptions[0]?.id ?? null)
+  const [followLiveEvents, setFollowLiveEvents] = useState(true)
 
   useEffect(() => {
     if (!props.open) {
@@ -92,12 +76,19 @@ export function DiscoveryHistoryModal(props: {
   }, [props.open, runOptions])
 
   useEffect(() => {
-    if (!props.open || props.activeRun?.state !== 'running') {
+    if (!props.open) {
       return
     }
 
-    setSelectedRunId(props.activeRun.id)
-  }, [props.activeRun?.id, props.activeRun?.state, props.open])
+    if (liveRun) {
+      setSelectedRunId(liveRun.id)
+      return
+    }
+
+    if (props.activeRun?.state === 'running') {
+      setSelectedRunId(props.activeRun.id)
+    }
+  }, [liveRun?.id, props.activeRun?.id, props.activeRun?.state, props.open])
 
   useEffect(() => {
     if (!props.open) {
@@ -155,13 +146,49 @@ export function DiscoveryHistoryModal(props: {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [props.open, props.onClose])
 
+  const selectedRun = runOptions.find((run) => run.id === selectedRunId) ?? runOptions[0] ?? null
+  const displayedEvents = selectedRun?.activity ?? []
+  const selectedRunIsLive = Boolean(liveRun && selectedRun?.id === liveRun.id)
+
+  useEffect(() => {
+    if (!props.open) {
+      return
+    }
+
+    setFollowLiveEvents(selectedRunIsLive)
+  }, [props.open, selectedRun?.id, selectedRunIsLive])
+
+  useEffect(() => {
+    if (!props.open || !selectedRunIsLive || !followLiveEvents) {
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      eventStreamEndRef.current?.scrollIntoView({ block: 'end' })
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [displayedEvents.length, followLiveEvents, props.open, selectedRunIsLive])
+
   if (!props.open) {
     return null
   }
 
-  const selectedRun = runOptions.find((run) => run.id === selectedRunId) ?? runOptions[0] ?? null
-  const events = getLiveRunEvents(props.activeRun, props.liveEvents, selectedRun?.id ?? null)
-  const displayedEvents = events.length > 0 ? events : selectedRun?.activity ?? []
+  const handleEventStreamScroll = () => {
+    const container = eventStreamRef.current
+
+    if (!container || !selectedRunIsLive) {
+      return
+    }
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    setFollowLiveEvents(distanceFromBottom < 48)
+  }
+
+  const resumeLiveFollow = () => {
+    setFollowLiveEvents(true)
+    eventStreamEndRef.current?.scrollIntoView({ block: 'end' })
+  }
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-6 backdrop-blur-sm" onClick={props.onClose}>
@@ -178,7 +205,11 @@ export function DiscoveryHistoryModal(props: {
           <div className="grid gap-1">
             <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Full progress history</p>
             <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-[var(--text-headline)]" id={dialogTitleId}>Every retained discovery event for the selected run</h2>
-            <p className="text-[0.9rem] leading-6 text-foreground-soft">Use this view when you want the entire history instead of just the latest preview.</p>
+            <p className="text-[0.9rem] leading-6 text-foreground-soft">
+              {selectedRunIsLive
+                ? 'The current run stays visible here in real time, including live auto-scroll while new events arrive.'
+                : 'Use this view when you want the entire history instead of just the latest preview.'}
+            </p>
           </div>
           <Button aria-label="Close" className="size-10" onClick={props.onClose} size="icon" type="button" variant="ghost">
             <X className="size-4" />
@@ -191,6 +222,7 @@ export function DiscoveryHistoryModal(props: {
             <div className="grid gap-2 pb-1">
               {runOptions.length > 0 ? runOptions.map((run) => {
                 const isSelected = run.id === selectedRun?.id
+                const isLive = liveRun?.id === run.id
 
                 return (
                   <button
@@ -205,7 +237,14 @@ export function DiscoveryHistoryModal(props: {
                     onClick={() => setSelectedRunId(run.id)}
                     type="button"
                   >
-                    <span className="text-[0.94rem] font-semibold text-[var(--text-headline)]">{run.summary.outcome}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[0.94rem] font-semibold text-[var(--text-headline)]">{formatOutcomeLabel(run.summary.outcome)}</span>
+                      {isLive ? (
+                        <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[var(--tracking-label)] text-primary">
+                          Live
+                        </span>
+                      ) : null}
+                    </div>
                     <span className="text-[0.8rem] text-foreground-muted">{formatRunLabel(run.startedAt)}</span>
                     <span className="text-[0.8rem] text-foreground-muted">{run.summary.targetsCompleted}/{run.summary.targetsPlanned} targets · {run.summary.validJobsFound} found</span>
                   </button>
@@ -216,7 +255,7 @@ export function DiscoveryHistoryModal(props: {
             </div>
           </aside>
 
-          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden px-4 py-4">
+          <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden px-4 py-4">
             {selectedRun ? (
               <div className="grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-4 sm:grid-cols-4">
                 <div>
@@ -225,7 +264,7 @@ export function DiscoveryHistoryModal(props: {
                 </div>
                 <div>
                   <p className="text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Outcome</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-[var(--text-headline)]">{selectedRun.summary.outcome}</p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-[var(--text-headline)]">{formatOutcomeLabel(selectedRun.summary.outcome)}</p>
                 </div>
                 <div>
                   <p className="text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Found</p>
@@ -238,12 +277,30 @@ export function DiscoveryHistoryModal(props: {
               </div>
             ) : null}
 
-            <div className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-1">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+              <p className="text-[0.78rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">
+                {selectedRunIsLive ? 'Live event stream' : 'Retained event stream'}
+              </p>
+              {selectedRunIsLive ? (
+                followLiveEvents ? (
+                  <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[var(--tracking-label)] text-primary">
+                    Following latest events
+                  </span>
+                ) : (
+                  <Button onClick={resumeLiveFollow} size="sm" type="button" variant="secondary">
+                    Jump to latest
+                  </Button>
+                )
+              ) : null}
+            </div>
+
+            <div className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-1" onScroll={handleEventStreamScroll} ref={eventStreamRef}>
               {displayedEvents.length > 0 ? displayedEvents.map((event) => (
                 <ActivityEventCard event={event} key={event.id} />
               )) : (
                 <p className="text-[0.9rem] leading-6 text-foreground-soft">No activity events were retained for this run.</p>
               )}
+              <div aria-hidden="true" ref={eventStreamEndRef} />
             </div>
           </div>
         </div>

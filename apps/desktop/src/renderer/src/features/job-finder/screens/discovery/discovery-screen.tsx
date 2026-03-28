@@ -148,6 +148,7 @@ export function DiscoveryScreen(props: {
         onClose={() => setShowHistory(false)}
         open={showHistory}
         recentRuns={recentRuns}
+        targets={searchPreferences.discovery.targets}
       />
     </>
   )
