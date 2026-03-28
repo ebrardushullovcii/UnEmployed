@@ -18,7 +18,7 @@ export function PreferenceList({ compact = false, label, values }: PreferenceLis
           ))}
         </div>
       ) : (
-        <p className="font-mono text-[10px] uppercase tracking-[var(--tracking-normal)] text-muted-foreground">No values configured.</p>
+        <p className="font-mono text-[10px] uppercase tracking-(--tracking-normal) text-muted-foreground">No values configured.</p>
       )}
     </div>
   )

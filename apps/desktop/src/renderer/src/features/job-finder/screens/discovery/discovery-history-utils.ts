@@ -28,6 +28,21 @@ function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetE
   }
 }
 
+function createSyntheticExecution(event: DiscoveryActivityEvent): DiscoveryTargetExecution {
+  return {
+    targetId: event.targetId ?? 'unknown_target',
+    adapterKind: event.adapterKind ?? 'auto',
+    resolvedAdapterKind: event.resolvedAdapterKind,
+    state: 'planned',
+    startedAt: null,
+    completedAt: null,
+    jobsFound: 0,
+    jobsPersisted: 0,
+    jobsStaged: 0,
+    warning: null
+  }
+}
+
 function getTerminalExecutionState(event: DiscoveryActivityEvent): DiscoveryTargetExecution['state'] | null {
   if (event.terminalState) {
     return event.terminalState
@@ -69,6 +84,8 @@ export function buildLiveRunRecord(
   const runId = firstEvent.runId
   const runEvents = liveEvents.filter((event) => event.runId === runId)
   const enabledTargets = targets.filter((target) => target.enabled)
+  const targetIds = enabledTargets.map((target) => target.id)
+  const knownTargetIds = new Set(targetIds)
   const executions = new Map(enabledTargets.map((target) => [target.id, createPlannedExecution(target)]))
 
   for (const event of runEvents) {
@@ -76,10 +93,15 @@ export function buildLiveRunRecord(
       continue
     }
 
-    const currentExecution = executions.get(event.targetId)
+    let currentExecution = executions.get(event.targetId)
 
     if (!currentExecution) {
-      continue
+      currentExecution = createSyntheticExecution(event)
+      executions.set(event.targetId, currentExecution)
+      if (!knownTargetIds.has(event.targetId)) {
+        knownTargetIds.add(event.targetId)
+        targetIds.push(event.targetId)
+      }
     }
 
     const nextExecution: DiscoveryTargetExecution = {
@@ -112,7 +134,7 @@ export function buildLiveRunRecord(
     executions.set(event.targetId, nextExecution)
   }
 
-  const targetExecutions = enabledTargets.map((target) => executions.get(target.id) ?? createPlannedExecution(target))
+  const targetExecutions = targetIds.map((targetId) => executions.get(targetId)).filter((execution): execution is DiscoveryTargetExecution => Boolean(execution))
   const targetsCompleted = targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
 
   return {
@@ -120,11 +142,11 @@ export function buildLiveRunRecord(
     state: 'running',
     startedAt: firstEvent.timestamp,
     completedAt: null,
-    targetIds: enabledTargets.map((target) => target.id),
+    targetIds,
     targetExecutions,
     activity: runEvents,
     summary: {
-      targetsPlanned: enabledTargets.length,
+      targetsPlanned: targetIds.length,
       targetsCompleted,
       validJobsFound: targetExecutions.reduce((total, execution) => total + execution.jobsFound, 0),
       jobsPersisted: targetExecutions.reduce((total, execution) => total + execution.jobsPersisted, 0),

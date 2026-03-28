@@ -14,9 +14,9 @@ interface ReviewQueueListPanelProps {
 
 export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: ReviewQueueListPanelProps) {
   return (
-    <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 xl:h-full xl:min-h-0">
+    <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="font-display text-[11px] font-bold uppercase tracking-[var(--tracking-caps)] text-foreground">Active Queue</p>
+        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Active Queue</p>
         <Badge variant="section">{formatCountLabel(queue.length, 'item')}</Badge>
       </div>
       {queue.length === 0 ? (
@@ -32,8 +32,8 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
             <Button
               key={item.jobId}
               className={cn(
-                'h-auto grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] px-4 py-4 text-left text-foreground transition-colors hover:bg-[var(--field)]',
-                selectedItem?.jobId === item.jobId ? 'border-[var(--field-border)] bg-[var(--field)]' : ''
+                'h-auto grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 text-left text-foreground transition-colors hover:bg-(--field)',
+                selectedItem?.jobId === item.jobId ? 'border-(--field-border) bg-(--field)' : ''
               )}
               onClick={() => onSelectItem(item.jobId)}
               size="sm"
@@ -52,7 +52,7 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-[rgba(0,0,0,0.4)]">
                   <span className="block h-full bg-accent" style={{ width: `${item.progressPercent ?? 0}%` }} />
                 </div>
-                <span className="font-mono text-[9px] uppercase tracking-[var(--tracking-normal)] text-primary">{item.progressPercent ?? 0}%</span>
+                <span className="font-mono text-[9px] uppercase tracking-(--tracking-normal) text-primary">{item.progressPercent ?? 0}%</span>
               </div>
             </Button>
           ))}

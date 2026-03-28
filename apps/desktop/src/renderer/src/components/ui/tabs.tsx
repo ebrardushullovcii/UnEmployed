@@ -66,7 +66,7 @@ function TabsTrigger({
       className={cn(
         "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 border border-transparent px-2 py-1 whitespace-nowrap transition-all focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         "group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start",
-        "rounded-none px-4 py-3 text-[11px] font-medium uppercase tracking-[var(--tracking-normal)] text-muted-foreground hover:bg-secondary hover:text-foreground",
+        "rounded-none px-4 py-3 text-[11px] font-medium uppercase tracking-(--tracking-normal) text-muted-foreground hover:bg-secondary hover:text-foreground",
         "group-data-[orientation=horizontal]/tabs:px-4 group-data-[orientation=horizontal]/tabs:py-3 group-data-[orientation=horizontal]/tabs:text-center",
         "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[state=active]:bg-secondary group-data-[variant=line]/tabs-list:data-[state=active]:text-foreground",
         "group-data-[orientation=vertical]/tabs:data-[state=active]:border-l-2 group-data-[orientation=vertical]/tabs:data-[state=active]:border-primary group-data-[orientation=vertical]/tabs:data-[state=active]:bg-secondary",

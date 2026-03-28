@@ -86,51 +86,51 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
 
   return (
     <div className="grid gap-6">
-      <section className="grid content-start gap-[var(--gap-card)]">
+      <section className="grid content-start gap-(--gap-card)">
         <ProfileSectionHeader
           eyebrow="Preferences"
           title="Work eligibility"
           description="Keep the screening-style answers separate from your resume facts so they are easy to review when a form asks for them."
         />
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Authorization</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
-            <Field><FieldLabel>Authorized work countries</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...registerProfile('eligibility.authorizedWorkCountries')} /></Field>
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Authorization</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
+            <Field><FieldLabel>Authorized work countries</FieldLabel><ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...registerProfile('eligibility.authorizedWorkCountries')} /></Field>
             <BooleanSelectField control={profileControl} label="Requires visa sponsorship" name="eligibility.requiresVisaSponsorship" />
             <BooleanSelectField control={profileControl} label="Remote eligible" name="eligibility.remoteEligible" />
             <Field><FieldLabel>Security clearance</FieldLabel><ProfileInput {...registerProfile('eligibility.securityClearance')} /></Field>
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Relocation and travel</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Relocation and travel</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <BooleanSelectField control={profileControl} label="Willing to relocate" name="eligibility.willingToRelocate" />
             <BooleanSelectField control={profileControl} label="Willing to travel" name="eligibility.willingToTravel" />
-            <Field><FieldLabel>Preferred relocation regions</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-tall)] max-h-[var(--textarea-tall)]" rows={4} {...registerProfile('eligibility.preferredRelocationRegions')} /></Field>
+            <Field><FieldLabel>Preferred relocation regions</FieldLabel><ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...registerProfile('eligibility.preferredRelocationRegions')} /></Field>
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Availability</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Availability</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <Field><FieldLabel>Notice period (days)</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerProfile('eligibility.noticePeriodDays')} /></Field>
             <Field><FieldLabel>Available start date</FieldLabel><ProfileInput placeholder="YYYY-MM-DD" {...registerProfile('eligibility.availableStartDate')} /></Field>
           </div>
         </article>
       </section>
 
-      <section className="grid content-start gap-[var(--gap-card)]">
+      <section className="grid content-start gap-(--gap-card)">
         <ProfileSectionHeader
           eyebrow="Targeting"
           title="Job preferences"
           description="Use this section for search rules and job targeting once the core profile looks right."
         />
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Target roles</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Target roles</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Target roles"
               onChange={(values) => setPreferenceValue('targetRoles', joinListInput(values), listFieldOptions)}
@@ -158,9 +158,9 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Location preferences</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Location preferences</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Preferred locations"
               onChange={(values) => setPreferenceValue('locations', joinListInput(values), listFieldOptions)}
@@ -176,9 +176,9 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Company preferences</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Company preferences</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <ProfileListEditor
               label="Industries"
               onChange={(values) => setPreferenceValue('targetIndustries', joinListInput(values), listFieldOptions)}
@@ -206,10 +206,10 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
-          <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Work mode and compensation</p>
-          <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
-            <div className="grid gap-[var(--gap-field)] md:col-span-2">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Work mode and compensation</p>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
+            <div className="grid gap-(--gap-field) md:col-span-2">
               <FieldLabel>Work modes</FieldLabel>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {workModeValues.map((workMode) => (
@@ -262,10 +262,10 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-4">
+        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
-              <p className="text-[0.98rem] font-semibold text-[var(--text-headline)]">Discovery targets</p>
+              <p className="text-[0.98rem] font-semibold text-(--text-headline)">Discovery targets</p>
               <p className="text-[0.9rem] leading-6 text-foreground-soft">Configure the ordered site entrypoints the discovery agent should run through. Generic sites stay explicitly experimental.</p>
             </div>
             <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add target</Button>
@@ -277,9 +277,9 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
             ) : null}
 
             {discoveryTargets.map((target, index) => (
-              <div key={target.id} className="grid gap-3 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-4">
+              <div key={target.id} className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Target {index + 1}</p>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {index + 1}</p>
                   <div className="flex flex-wrap gap-2">
                     <Button
                       aria-label={`Move ${target.label.trim() || target.id} up`}
@@ -330,7 +330,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
                   </div>
                 </div>
 
-                <div className="grid gap-[var(--gap-content)] md:grid-cols-2">
+                <div className="grid gap-(--gap-content) md:grid-cols-2">
                   <Field>
                     <FieldLabel>Site label</FieldLabel>
                     <ProfileInput
@@ -374,7 +374,7 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
                   <Field className="md:col-span-2">
                     <FieldLabel>Custom navigation instructions</FieldLabel>
                     <ProfileTextarea
-                      className="min-h-[var(--textarea-tall)]"
+                      className="min-h-(--textarea-tall)"
                       onChange={(event) => {
                         const nextTargets = [...discoveryTargets]
                         nextTargets[index] = { ...target, customInstructions: event.target.value }

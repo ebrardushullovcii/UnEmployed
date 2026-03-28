@@ -33,7 +33,7 @@ export function ReviewQueueScreen(props: {
   return (
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
-      topClassName="pb-[var(--gap-section)] pt-8"
+      topClassName="pb-(--gap-section) pt-8"
       topContent={(
         <PageHeader
           eyebrow="Review Queue"
@@ -42,7 +42,7 @@ export function ReviewQueueScreen(props: {
         />
       )}
     >
-      <div className="grid min-h-[31rem] min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem] xl:overflow-hidden">
+      <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem] xl:overflow-hidden">
         <ReviewQueueListPanel onSelectItem={onSelectItem} queue={queue} selectedItem={selectedItem} />
         <ReviewQueuePreviewPanel queue={queue} selectedAsset={selectedAsset} selectedItem={selectedItem} selectedJob={selectedJob} />
         <ReviewQueueMissionPanel

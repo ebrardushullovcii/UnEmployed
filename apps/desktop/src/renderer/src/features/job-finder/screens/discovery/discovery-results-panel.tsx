@@ -20,32 +20,32 @@ export function DiscoveryResultsPanel({
   const jobCount = jobs.length
   const sessionNeedsAttention = browserSession.status !== 'ready'
   const baseButtonClasses =
-    'grid gap-3 rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] p-5 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30'
+    'grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30'
 
   return (
-    <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 xl:h-full xl:min-h-0">
+    <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Saved results</p>
+        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Saved results</p>
         <Badge variant="section">{jobCount} {jobCount === 1 ? 'job' : 'jobs'}</Badge>
       </div>
 
       {sessionNeedsAttention && jobs.length === 0 ? (
         <EmptyState
-          className="min-h-[18rem]"
+          className="min-h-72"
           description="Discovery is blocked until the browser runtime reports a ready session for the active adapter."
           title="Discovery session needs attention"
         />
       ) : null}
 
       {sessionNeedsAttention && jobs.length > 0 ? (
-        <div className="rounded-[var(--radius-panel)] border border-[color:var(--warning-border)] bg-[color:var(--warning-surface)] px-4 py-3 text-[var(--text-description)] leading-6 text-[color:var(--warning-text)]">
+        <div className="rounded-(--radius-panel) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--warning-text)">
           Saved results are still available below. Open the browser profile again when you want to run a fresh discovery.
         </div>
       ) : null}
 
       {!sessionNeedsAttention && jobs.length === 0 ? (
         <EmptyState
-          className="min-h-[18rem]"
+          className="min-h-72"
           description="The discovery surface is wired and ready, but there are no matching jobs in the current repository state."
           title="No jobs saved yet"
         />
@@ -62,20 +62,20 @@ export function DiscoveryResultsPanel({
                 key={job.id}
                 className={`${baseButtonClasses} ${
                   isSelected
-                    ? 'bg-[var(--surface-panel-raised)]'
-                    : 'bg-transparent hover:bg-[var(--surface-panel-raised)]'
+                    ? 'bg-(--surface-panel-raised)'
+                    : 'bg-transparent hover:bg-(--surface-panel-raised)'
                 }`}
                 onClick={() => onSelectJob(job.id)}
                 type="button"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="grid gap-1">
-                    <strong className="text-[1.15rem] text-[var(--text-headline)]">{job.title}</strong>
-                    <span className="text-[var(--text-description)] text-foreground-muted">
+                    <strong className="text-[1.15rem] text-(--text-headline)">{job.title}</strong>
+                    <span className="text-(length:--text-description) text-foreground-muted">
                       {job.company} - {job.location}
                     </span>
                   </div>
-                  <span className="text-[var(--text-body)] font-semibold text-[var(--text-headline)]">
+                  <span className="text-(length:--text-body) font-semibold text-(--text-headline)">
                     Match {job.matchAssessment.score}%
                   </span>
                 </div>

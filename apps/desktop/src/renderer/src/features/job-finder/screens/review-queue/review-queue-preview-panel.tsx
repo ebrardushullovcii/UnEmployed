@@ -16,9 +16,9 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
   const showGenerationState = needsGeneration || isGenerating
 
   return (
-    <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] xl:h-full xl:min-h-0">
+    <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
-        <p className="font-display text-[11px] font-bold uppercase tracking-[var(--tracking-caps)] text-foreground">Asset Preview</p>
+        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Asset Preview</p>
         <StatusBadge tone={selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'}>
           {selectedItem ? formatStatusLabel(selectedItem.assetStatus) : 'No asset'}
         </StatusBadge>
@@ -33,12 +33,12 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
       ) : null}
       {queue.length > 0 && selectedItem && showGenerationState ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
-          <div className="grid w-full min-h-full place-items-center content-center gap-4 bg-[rgba(255,255,255,0.02)] rounded-[var(--radius-field)] p-8 text-center">
-            <div className="grid aspect-square w-40 place-items-center rounded-full border-[3px] border-border/30 border-t-primary text-[1.1rem] font-semibold text-[var(--text-headline)]">
+          <div className="grid w-full min-h-full place-items-center content-center gap-4 bg-[rgba(255,255,255,0.02)] rounded-(--radius-field) p-8 text-center">
+            <div className="grid aspect-square w-40 place-items-center rounded-full border-[3px] border-border/30 border-t-primary text-[1.1rem] font-semibold text-(--text-headline)">
               <span>{selectedItem.progressPercent ?? 0}%</span>
             </div>
-            <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-[var(--text-headline)]">{needsGeneration ? 'Tailored resume required' : 'Tailored resume in progress'}</h2>
-            <p className="max-w-[34rem] text-[var(--text-body)] leading-7 text-foreground-soft">
+            <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{needsGeneration ? 'Tailored resume required' : 'Tailored resume in progress'}</h2>
+            <p className="max-w-136 text-(length:--text-body) leading-7 text-foreground-soft">
               {needsGeneration
                 ? `Generate a tailored resume for ${selectedItem.title} before the apply review step can continue.`
                 : `Resume generation is still running for ${selectedItem.title}. Approval stays locked until the asset reaches a ready state.`}
@@ -48,19 +48,19 @@ export function ReviewQueuePreviewPanel({ queue, selectedAsset, selectedItem, se
       ) : null}
       {queue.length > 0 && selectedItem && !showGenerationState && selectedAsset ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
-          <div className="relative grid gap-4 rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] p-6 text-[var(--text-body)] leading-[1.48] text-foreground">
+          <div className="relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-6 text-(length:--text-body) leading-[1.48] text-foreground">
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.03]">
               <span className="-rotate-45 text-[120px] font-black tracking-tighter">TAILORED</span>
             </div>
-            <div className="grid items-end gap-3 border-b border-[var(--surface-panel-border)] pb-4 sm:grid-cols-[1fr_auto]">
-              <strong className="text-[1.1rem] text-[var(--text-headline)]">{selectedJob?.title ?? selectedItem.title}</strong>
+            <div className="grid items-end gap-3 border-b border-(--surface-panel-border) pb-4 sm:grid-cols-[1fr_auto]">
+              <strong className="text-[1.1rem] text-(--text-headline)">{selectedJob?.title ?? selectedItem.title}</strong>
               <span className="text-[0.9rem] text-foreground-soft">{selectedAsset.label}</span>
             </div>
             {selectedAsset.previewSections.map((section) => (
               <div key={section.heading} className="grid gap-2">
-                <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">{section.heading}</p>
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">{section.heading}</p>
                 {section.lines.map((line) => (
-                  <p key={line} className="text-[var(--text-body)] leading-7 text-foreground-soft">{line}</p>
+                  <p key={line} className="text-(length:--text-body) leading-7 text-foreground-soft">{line}</p>
                 ))}
               </div>
             ))}

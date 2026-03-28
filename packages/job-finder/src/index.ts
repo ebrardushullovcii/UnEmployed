@@ -724,6 +724,10 @@ function updateTargetExecution(
   })
 }
 
+function countCompletedTargetExecutions(run: DiscoveryRunRecord): number {
+  return run.targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
+}
+
 function finalizeDiscoveryState(
   current: JobFinderDiscoveryState,
   run: DiscoveryRunRecord,
@@ -1675,7 +1679,6 @@ export function createJobFinderWorkspaceService(
       let workingPendingJobs = [...startingDiscovery.pendingDiscoveryJobs]
       const touchedSavedJobIds = new Set<string>()
       const touchedPendingJobIds = new Set<string>()
-      let completedTargets = 0
 
       let activeRun = DiscoveryRunRecordSchema.parse({
         id: `discovery_run_${Date.now()}`,
@@ -1783,10 +1786,17 @@ export function createJobFinderWorkspaceService(
             const warning = `Target ${target.label} has an invalid starting URL and was skipped.`
             activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
               ...execution,
-              state: 'failed',
+              state: 'skipped',
               completedAt: new Date().toISOString(),
               warning
             }))
+            activeRun = DiscoveryRunRecordSchema.parse({
+              ...activeRun,
+              summary: {
+                ...activeRun.summary,
+                targetsCompleted: countCompletedTargetExecutions(activeRun)
+              }
+            })
             emitActivity(createDiscoveryEvent({
               runId: activeRun.id,
               timestamp: new Date().toISOString(),
@@ -1842,6 +1852,13 @@ export function createJobFinderWorkspaceService(
                 completedAt: new Date().toISOString(),
                 warning
               }))
+              activeRun = DiscoveryRunRecordSchema.parse({
+                ...activeRun,
+                summary: {
+                  ...activeRun.summary,
+                  targetsCompleted: countCompletedTargetExecutions(activeRun)
+                }
+              })
               emitActivity(createDiscoveryEvent({
                 runId: activeRun.id,
                 timestamp: new Date().toISOString(),
@@ -1947,7 +1964,6 @@ export function createJobFinderWorkspaceService(
             workingPendingJobs = []
           }
 
-            completedTargets += 1
             activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
               ...execution,
               state: 'completed',
@@ -1961,7 +1977,7 @@ export function createJobFinderWorkspaceService(
               ...activeRun,
               summary: {
                 ...activeRun.summary,
-                targetsCompleted: completedTargets,
+                targetsCompleted: countCompletedTargetExecutions(activeRun),
                 validJobsFound: activeRun.summary.validJobsFound + discoveryResult.jobs.length,
                 jobsPersisted: activeRun.summary.jobsPersisted + (settings.discoveryOnly ? 0 : mergeResult.newJobs.length),
                 jobsStaged: activeRun.summary.jobsStaged + (settings.discoveryOnly ? mergeResult.newJobs.length : 0),
@@ -2018,6 +2034,13 @@ export function createJobFinderWorkspaceService(
               completedAt: new Date().toISOString(),
               warning: message
             }))
+            activeRun = DiscoveryRunRecordSchema.parse({
+              ...activeRun,
+              summary: {
+                ...activeRun.summary,
+                targetsCompleted: countCompletedTargetExecutions(activeRun)
+              }
+            })
             emitActivity(createDiscoveryEvent({
               runId: activeRun.id,
               timestamp: new Date().toISOString(),

@@ -28,10 +28,10 @@ export function ApplicationsRecordsPanel({
   const recordCount = applicationRecords.length
 
   return (
-    <section className="flex min-h-[31rem] min-w-0 flex-col overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] xl:h-full xl:min-h-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--surface-panel-border)] px-8 py-5">
+    <section className="flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-8 py-5">
         <div className="flex items-center gap-4">
-          <h2 className="font-display text-lg font-bold uppercase tracking-[var(--tracking-heading)] text-primary">Applications Log</h2>
+          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">Applications Log</h2>
           <Badge variant="section">{recordCount} {recordCount === 1 ? 'record' : 'records'}</Badge>
         </div>
         <div className="flex items-center gap-3 text-muted-foreground">
@@ -53,11 +53,11 @@ export function ApplicationsRecordsPanel({
         <div className="min-h-0 flex-1 overflow-auto">
           <Table>
             <TableHeader>
-              <TableRow className="border-[var(--surface-panel-border)] hover:bg-transparent">
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-[var(--tracking-mono)] text-muted-foreground">ID_STAMP</TableHead>
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-[var(--tracking-mono)] text-muted-foreground">Position entity</TableHead>
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-[var(--tracking-mono)] text-muted-foreground">Last action</TableHead>
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-[var(--tracking-mono)] text-muted-foreground">Status</TableHead>
+              <TableRow className="border-(--surface-panel-border) hover:bg-transparent">
+                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">ID_STAMP</TableHead>
+                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Position entity</TableHead>
+                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Last action</TableHead>
+                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -65,8 +65,8 @@ export function ApplicationsRecordsPanel({
                 <TableRow
                   key={record.id}
                   className={cn(
-                    'border-[var(--surface-panel-border)] text-[0.85rem] tracking-normal hover:bg-[var(--surface-panel-raised)]',
-                    selectedRecord?.id === record.id ? 'border-l-2 border-l-primary bg-[var(--surface-panel-raised)]' : ''
+                    'border-(--surface-panel-border) text-[0.85rem] tracking-normal hover:bg-(--surface-panel-raised)',
+                    selectedRecord?.id === record.id ? 'border-l-2 border-l-primary bg-(--surface-panel-raised)' : ''
                   )}
                 >
                   <TableCell className="px-4 py-4 font-mono text-[10px] text-muted-foreground">#{record.id.slice(0, 7).toUpperCase()}</TableCell>

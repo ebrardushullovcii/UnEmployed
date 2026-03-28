@@ -116,38 +116,38 @@ export function DiscoveryFiltersPanel({
   const canRunDiscovery = Boolean(onRunAgentDiscovery) && hasRunnableTarget && !busy && (!requiresManagedSession || requiredSessionsReady)
 
   return (
-    <section className="flex min-h-[31rem] min-w-0 flex-col gap-4 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-5 xl:h-full xl:min-h-0">
-      <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Search controls</p>
+    <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5 xl:h-full xl:min-h-0">
+      <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Search controls</p>
 
-      <div className="flex min-h-[26.5rem] min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] xl:min-h-0">
-        <div className="grid min-w-0 gap-3 border-b border-[var(--surface-panel-border)] px-4 py-4">
+      <div className="flex min-h-106 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) xl:min-h-0">
+        <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
             <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>{displaySessionSnapshot.label}</StatusBadge>
-            <span className="rounded-full border border-[var(--surface-panel-border)] px-2.5 py-1 text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">
+            <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
               {requiresManagedSession ? (isChromeAgent ? 'Managed profile' : 'Session required') : 'Target-ready'}
             </span>
           </div>
-          <p className="max-w-full break-words text-[0.92rem] leading-7 text-foreground-soft">{displaySessionSnapshot.detail}</p>
+          <p className="max-w-full wrap-break-word text-[0.92rem] leading-7 text-foreground-soft">{displaySessionSnapshot.detail}</p>
 
           {requiresManagedSession ? (isChromeAgent ? (
             <div className="grid gap-2">
               {needsLogin || isBlocked ? (
-                <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
+                <div role="status" className="rounded-(--radius-small) border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
                   Open the browser profile, finish the login if needed, and this same action will refresh the session state for you.
                 </div>
               ) : null}
               {isReady ? (
-                <div role="status" className="rounded-[var(--radius-small)] border border-emerald-500/20 bg-emerald-500/5 px-3 py-3 text-[0.85rem] leading-6 text-emerald-600 dark:text-emerald-400">
+                <div role="status" className="rounded-(--radius-small) border border-emerald-500/20 bg-emerald-500/5 px-3 py-3 text-[0.85rem] leading-6 text-emerald-600 dark:text-emerald-400">
                   The active adapter session is ready. Open the profile any time if you want to confirm the browser state before another run.
                 </div>
               ) : null}
             </div>
           ) : (
-            <div role="status" className="rounded-[var(--radius-small)] border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
+            <div role="status" className="rounded-(--radius-small) border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400">
               Browser agent is not enabled. Remove <code>UNEMPLOYED_LINKEDIN_BROWSER_AGENT</code> or delete any <code>=0</code>/<code>=false</code> override in your <code>.env.local</code>, then restart the app.
             </div>
           )) : (
-            <div role="status" className="rounded-[var(--radius-small)] border border-sky-500/20 bg-sky-500/5 px-3 py-3 text-[0.85rem] leading-6 text-sky-600 dark:text-sky-400">
+            <div role="status" className="rounded-(--radius-small) border border-sky-500/20 bg-sky-500/5 px-3 py-3 text-[0.85rem] leading-6 text-sky-600 dark:text-sky-400">
               The current target mix can run without a prevalidated managed session. Open Chrome only if the site needs a logged-in browser context.
             </div>
           )}
@@ -155,15 +155,15 @@ export function DiscoveryFiltersPanel({
 
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-0 overflow-y-auto">
           {sections.map((section, index) => (
-            <div key={section.label} className={index === 0 ? 'min-w-0 px-4 py-4' : 'min-w-0 border-t border-[var(--surface-panel-border)] px-4 py-4'}>
+            <div key={section.label} className={index === 0 ? 'min-w-0 px-4 py-4' : 'min-w-0 border-t border-(--surface-panel-border) px-4 py-4'}>
               <div className="grid min-w-0 gap-3">
-                <p className="text-[0.62rem] uppercase tracking-[var(--tracking-badge)] text-foreground-muted">{section.label}</p>
+                <p className="text-[0.62rem] uppercase tracking-(--tracking-badge) text-foreground-muted">{section.label}</p>
                 {section.values.length > 0 ? (
                   <div className="flex min-w-0 flex-wrap gap-2">
                     {section.values.map((value) => (
                       <Chip
                         key={typeof value === 'string' ? `${section.label}_${value}` : `${section.label}_${value.key}`}
-                        className="border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] text-foreground-soft"
+                        className="border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft"
                       >
                         {typeof value === 'string' ? value : value.label}
                       </Chip>
@@ -177,7 +177,7 @@ export function DiscoveryFiltersPanel({
           ))}
         </div>
 
-        <div className="mt-auto grid gap-3 border-t border-[var(--surface-panel-border)] px-4 py-4">
+        <div className="mt-auto grid gap-3 border-t border-(--surface-panel-border) px-4 py-4">
           {requiresManagedSession ? (
             <div className="grid gap-2">
               <Button
@@ -226,7 +226,7 @@ export function DiscoveryFiltersPanel({
           ) : null}
 
           {actionMessage ? (
-            <p className="text-[var(--text-description)] leading-6 text-foreground-muted">{actionMessage}</p>
+            <p className="text-(length:--text-description) leading-6 text-foreground-muted">{actionMessage}</p>
           ) : null}
         </div>
       </div>

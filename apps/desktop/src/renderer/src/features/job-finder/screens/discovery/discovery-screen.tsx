@@ -78,7 +78,7 @@ export function DiscoveryScreen(props: {
     <>
       <LockedScreenLayout
         contentClassName="xl:overflow-hidden"
-        topClassName="pb-[var(--gap-section)] pt-8"
+        topClassName="pb-(--gap-section) pt-8"
         topContent={(
           <PageHeader
             eyebrow="Discovery"
@@ -88,7 +88,7 @@ export function DiscoveryScreen(props: {
         )}
       >
         {showEmptyDiscoveryState ? (
-          <div className="grid min-h-[31rem] min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
+          <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
             <DiscoveryFiltersPanel
               actionMessage={actionState.message}
               busy={busy}
@@ -98,10 +98,10 @@ export function DiscoveryScreen(props: {
               onViewProgress={() => setShowHistory(true)}
               searchPreferences={searchPreferences}
             />
-            <section className="flex min-h-[31rem] min-w-0 flex-col gap-5 overflow-hidden rounded-[var(--radius-field)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel)] p-6 xl:h-full xl:min-h-0">
+            <section className="flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-6 xl:h-full xl:min-h-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-[var(--text-tiny)] uppercase tracking-[var(--tracking-label)] text-foreground-muted">Saved results</p>
-                <span className="inline-flex items-center rounded-[var(--radius-small)] border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-[var(--tracking-heading)] text-muted-foreground">0 jobs</span>
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Saved results</p>
+                <span className="inline-flex items-center rounded-(--radius-small) border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-(--tracking-heading) text-muted-foreground">0 jobs</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {configuredFilters.map((item) => (
@@ -109,13 +109,13 @@ export function DiscoveryScreen(props: {
                 ))}
               </div>
               <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto pr-1">
-                <EmptyState className="min-h-[20rem]" description={emptyStateContent.description} title={emptyStateContent.title} />
-                <p className="max-w-[44rem] text-[var(--text-description)] leading-6 text-foreground-soft">Configure discovery targets in Profile preferences, validate the active browser session when needed, then rerun discovery from the left rail.</p>
+                <EmptyState className="min-h-80" description={emptyStateContent.description} title={emptyStateContent.title} />
+                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">Configure discovery targets in Profile preferences, validate the active browser session when needed, then rerun discovery from the left rail.</p>
               </div>
             </section>
           </div>
         ) : (
-          <div className="grid min-h-[31rem] min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
+          <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
             <DiscoveryFiltersPanel
               actionMessage={actionState.message}
               busy={busy}

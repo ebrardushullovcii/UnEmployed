@@ -34,7 +34,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
 
   return (
     <div className="grid gap-6">
-      <section className="grid content-start gap-[var(--gap-card)]">
+      <section className="grid content-start gap-(--gap-card)">
         <ProfileSectionHeader
           eyebrow="Background"
           title="Education and credentials"
@@ -105,14 +105,14 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                     Remove
                   </Button>
                 </div>
-                <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+                <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
                   <Field><FieldLabel>School</FieldLabel><ProfileInput {...register(`records.education.${index}.schoolName`)} /></Field>
                   <Field><FieldLabel>Degree</FieldLabel><ProfileInput {...register(`records.education.${index}.degree`)} /></Field>
                   <Field><FieldLabel>Field of study</FieldLabel><ProfileInput {...register(`records.education.${index}.fieldOfStudy`)} /></Field>
                   <Field><FieldLabel>Location</FieldLabel><ProfileInput {...register(`records.education.${index}.location`)} /></Field>
                   <Field><FieldLabel>Start date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.education.${index}.startDate`)} /></Field>
                   <Field><FieldLabel>End date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.education.${index}.endDate`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Notes</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`records.education.${index}.summary`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Notes</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.education.${index}.summary`)} /></Field>
                 </div>
               </ProfileRecordCard>
             ))
@@ -139,7 +139,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   Remove
                 </Button>
               </div>
-              <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+              <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
                 <Field><FieldLabel>Name</FieldLabel><ProfileInput {...register(`records.certifications.${index}.name`)} /></Field>
                 <Field><FieldLabel>Issuer</FieldLabel><ProfileInput {...register(`records.certifications.${index}.issuer`)} /></Field>
                 <Field><FieldLabel>Issue date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.certifications.${index}.issueDate`)} /></Field>
@@ -151,7 +151,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
         </div>
       </section>
 
-      <section className="grid content-start gap-[var(--gap-card)]">
+      <section className="grid content-start gap-(--gap-card)">
         <ProfileSectionHeader
           eyebrow="Supporting detail"
           title="Projects, links, and languages"
@@ -235,16 +235,16 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   Remove
                 </Button>
               </div>
-                <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+                <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
                   <Field><FieldLabel>Project name</FieldLabel><ProfileInput {...register(`projects.${index}.name`)} /></Field>
                   <Field><FieldLabel>Project type</FieldLabel><ProfileInput {...register(`projects.${index}.projectType`)} /></Field>
                   <Field><FieldLabel>Role</FieldLabel><ProfileInput {...register(`projects.${index}.role`)} /></Field>
                   <Field><FieldLabel>Project URL</FieldLabel><ProfileInput {...register(`projects.${index}.projectUrl`)} /></Field>
                   <Field><FieldLabel>Repository URL</FieldLabel><ProfileInput {...register(`projects.${index}.repositoryUrl`)} /></Field>
                   <Field><FieldLabel>Case-study URL</FieldLabel><ProfileInput {...register(`projects.${index}.caseStudyUrl`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Skills used</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`projects.${index}.skills`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Summary</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`projects.${index}.summary`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Outcome / impact</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`projects.${index}.outcome`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Skills used</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.skills`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Summary</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.summary`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Outcome / impact</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.outcome`)} /></Field>
                 </div>
             </ProfileRecordCard>
           ))}
@@ -265,7 +265,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   Remove
                 </Button>
               </div>
-              <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+              <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
                 <Field><FieldLabel>Label</FieldLabel><ProfileInput {...register(`links.${index}.label`)} /></Field>
                 <Controller
                   control={control}
@@ -310,7 +310,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   Remove
                 </Button>
               </div>
-              <div className="grid gap-[var(--gap-content)] md:grid-cols-2 md:items-start">
+              <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
                 <Field><FieldLabel>Language</FieldLabel><ProfileInput {...register(`languages.${index}.language`)} /></Field>
                 <Field><FieldLabel>Proficiency</FieldLabel><ProfileInput {...register(`languages.${index}.proficiency`)} /></Field>
                 <Controller
@@ -320,7 +320,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                     <CheckboxField checked={field.value} label="Preferred interview language" onCheckedChange={field.onChange} />
                   )}
                 />
-                <Field className="md:col-span-2"><FieldLabel>Notes</FieldLabel><ProfileTextarea className="min-h-[var(--textarea-compact)] max-h-[var(--textarea-compact)]" rows={4} {...register(`languages.${index}.notes`)} /></Field>
+                <Field className="md:col-span-2"><FieldLabel>Notes</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`languages.${index}.notes`)} /></Field>
               </div>
             </ProfileRecordCard>
           ))}
