@@ -125,6 +125,11 @@ export const discoveryActivityKindValues = ['info', 'progress', 'warning', 'succ
 export const DiscoveryActivityKindSchema = z.enum(discoveryActivityKindValues)
 export type DiscoveryActivityKind = z.infer<typeof DiscoveryActivityKindSchema>
 
+export const discoveryActivityTerminalStateValues = ['completed', 'failed', 'cancelled', 'skipped'] as const
+
+export const DiscoveryActivityTerminalStateSchema = z.enum(discoveryActivityTerminalStateValues)
+export type DiscoveryActivityTerminalState = z.infer<typeof DiscoveryActivityTerminalStateSchema>
+
 export const discoveryActivityStageValues = [
   'planning',
   'target',
@@ -563,6 +568,7 @@ export const DiscoveryActivityEventSchema = z.object({
   adapterKind: JobSourceAdapterKindSchema.nullable().default(null),
   resolvedAdapterKind: JobSourceSchema.nullable().default(null),
   message: NonEmptyStringSchema,
+  terminalState: DiscoveryActivityTerminalStateSchema.nullable().default(null),
   url: UrlStringSchema.nullable().default(null),
   jobsFound: z.number().int().nonnegative().nullable().default(null),
   jobsPersisted: z.number().int().nonnegative().nullable().default(null),

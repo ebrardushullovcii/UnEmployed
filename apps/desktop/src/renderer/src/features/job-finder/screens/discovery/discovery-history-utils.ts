@@ -29,6 +29,10 @@ function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetE
 }
 
 function getTerminalExecutionState(event: DiscoveryActivityEvent): DiscoveryTargetExecution['state'] | null {
+  if (event.terminalState) {
+    return event.terminalState
+  }
+
   if (event.stage !== 'target') {
     return event.stage === 'persistence' ? 'completed' : null
   }

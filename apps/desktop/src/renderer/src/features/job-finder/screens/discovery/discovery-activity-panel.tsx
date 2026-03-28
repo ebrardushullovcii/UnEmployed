@@ -72,14 +72,6 @@ export function DiscoveryHistoryModal(props: {
       return
     }
 
-    setSelectedRunId((current) => current && runOptions.some((run) => run.id === current) ? current : runOptions[0]?.id ?? null)
-  }, [props.open, runOptions])
-
-  useEffect(() => {
-    if (!props.open) {
-      return
-    }
-
     if (liveRun) {
       setSelectedRunId(liveRun.id)
       return
@@ -87,8 +79,11 @@ export function DiscoveryHistoryModal(props: {
 
     if (props.activeRun?.state === 'running') {
       setSelectedRunId(props.activeRun.id)
+      return
     }
-  }, [liveRun?.id, props.activeRun?.id, props.activeRun?.state, props.open])
+
+    setSelectedRunId(runOptions[0]?.id ?? null)
+  }, [props.open, runOptions, liveRun?.id, props.activeRun?.id, props.activeRun?.state])
 
   useEffect(() => {
     if (!props.open) {
@@ -119,7 +114,7 @@ export function DiscoveryHistoryModal(props: {
       }
 
       const focusableElements = [...dialogRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="button"], [tabindex]:not([tabindex="-1"])'
       )].filter((element) => !element.hasAttribute('aria-hidden'))
 
       if (focusableElements.length === 0) {

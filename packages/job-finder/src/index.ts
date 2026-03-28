@@ -683,7 +683,8 @@ function summarizeProgressAction(
 }
 
 function createDiscoveryEvent(
-  input: Omit<DiscoveryActivityEvent, 'id' | 'resolvedAdapterKind'> & Pick<Partial<DiscoveryActivityEvent>, 'resolvedAdapterKind'>
+  input: Omit<DiscoveryActivityEvent, 'id' | 'resolvedAdapterKind' | 'terminalState'>
+    & Pick<Partial<DiscoveryActivityEvent>, 'resolvedAdapterKind' | 'terminalState'>
 ): DiscoveryActivityEvent {
   return DiscoveryActivityEventSchema.parse({
     ...input,
@@ -1795,6 +1796,7 @@ export function createJobFinderWorkspaceService(
               adapterKind: target.adapterKind,
               resolvedAdapterKind: adapterKind,
               message: warning,
+              terminalState: 'skipped',
               url: null,
               jobsFound: 0,
               jobsPersisted: 0,
@@ -1849,6 +1851,7 @@ export function createJobFinderWorkspaceService(
                 adapterKind: target.adapterKind,
                 resolvedAdapterKind: adapterKind,
                 message: warning,
+                terminalState: 'failed',
                 url: target.startingUrl,
                 jobsFound: 0,
                 jobsPersisted: 0,
@@ -1996,6 +1999,7 @@ export function createJobFinderWorkspaceService(
               message: settings.discoveryOnly
                 ? `Saved ${0} jobs and staged ${mergeResult.newJobs.length} for review-only mode`
                 : `Saved ${mergeResult.newJobs.length} new job${mergeResult.newJobs.length === 1 ? '' : 's'} for this target`,
+              terminalState: 'completed',
               url: target.startingUrl,
               jobsFound: discoveryResult.jobs.length,
               jobsPersisted: settings.discoveryOnly ? 0 : mergeResult.newJobs.length,
@@ -2023,6 +2027,7 @@ export function createJobFinderWorkspaceService(
               adapterKind: target.adapterKind,
               resolvedAdapterKind: adapterKind,
               message,
+              terminalState: aborted ? 'cancelled' : 'failed',
               url: target.startingUrl,
               jobsFound: null,
               jobsPersisted: null,
