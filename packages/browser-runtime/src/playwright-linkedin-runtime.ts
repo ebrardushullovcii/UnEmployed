@@ -904,9 +904,12 @@ export function createLinkedInBrowserAgentRuntime(
       try {
         const job = await extractJobDetail(page, candidate)
 
-        if (job) {
-          jobs.push(job)
+        if (job === null) {
+          sessionExpired = true
+          break
         }
+
+        jobs.push(job)
       } catch {
         // Skip individual job extraction failures
       }
@@ -966,11 +969,24 @@ export function createLinkedInBrowserAgentRuntime(
 
       const startedAt = new Date().toISOString()
 
-      if (jobExtractor) {
-        return runDiscoveryWithExtractor(page, source, searchPreferences, startedAt, jobExtractor)
-      }
+      try {
+        if (jobExtractor) {
+          return await runDiscoveryWithExtractor(page, source, searchPreferences, startedAt, jobExtractor)
+        }
 
-      return runDiscoveryWithSelectors(page, source, searchPreferences, startedAt)
+        return await runDiscoveryWithSelectors(page, source, searchPreferences, startedAt)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Unknown error during discovery'
+
+        return DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: buildQuerySummary(searchPreferences),
+          warning: `Discovery failed: ${detail}`,
+          jobs: []
+        })
+      }
     },
     async executeEasyApply(source, input: ExecuteEasyApplyInput): Promise<ApplyExecutionResult> {
       if (source !== 'linkedin') {
