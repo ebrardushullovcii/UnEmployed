@@ -163,6 +163,7 @@
   --info-border: rgba(86, 164, 255, 0.24);
   --info-surface: rgba(86, 164, 255, 0.08);
   --info-text: #74b7ff;
+  --surface-panel-tint: rgba(255, 255, 255, 0.02);
   --workspace-state-card-max-width: 34rem;
   --workspace-state-card-radius: var(--radius-panel);
   --workspace-state-card-bg-default: rgba(16, 16, 16, 0.9);

@@ -72,7 +72,7 @@ export function DiscoveryResultsPanel({
             const isSelected = selectedJob?.id === job.id
 
             return (
-              <li key={job.id} className="min-w-0 list-none">
+              <li key={job.id} className="min-w-0">
                 <button
                   aria-pressed={isSelected}
                   className={`${baseButtonClasses} w-full ${

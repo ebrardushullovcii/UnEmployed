@@ -17,15 +17,25 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
   const isGenerating = selectedItem?.assetStatus === 'generating' || selectedItem?.assetStatus === 'queued'
   const showGenerationState = needsGeneration || isGenerating
+  const previewTone = previewState === 'missing'
+    ? 'critical'
+    : selectedItem
+      ? getAssetTone(selectedItem.assetStatus)
+      : 'muted'
+  const previewLabel = previewState === 'missing'
+    ? 'Asset not found'
+    : selectedItem
+      ? formatStatusLabel(selectedItem.assetStatus)
+      : 'No asset'
 
   return (
     <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
-      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
-        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Asset Preview</p>
-        <StatusBadge tone={selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'}>
-          {selectedItem ? formatStatusLabel(selectedItem.assetStatus) : 'No asset'}
+      <header className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
+        <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Asset Preview</h2>
+        <StatusBadge tone={previewTone}>
+          {previewLabel}
         </StatusBadge>
-      </div>
+      </header>
       {queue.length === 0 ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
@@ -36,7 +46,7 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       ) : null}
       {queue.length > 0 && selectedItem && showGenerationState ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
-          <div className="grid w-full min-h-full place-items-center content-center gap-4 bg-[rgba(255,255,255,0.02)] rounded-(--radius-field) p-8 text-center">
+          <div className="grid w-full min-h-full place-items-center content-center gap-4 rounded-(--radius-field) bg-(--surface-panel-tint) p-8 text-center">
             <div className="grid aspect-square w-40 place-items-center rounded-full border-[3px] border-border/30 border-t-primary text-[1.1rem] font-semibold text-(--text-headline)">
               <span>{selectedItem.progressPercent ?? 0}%</span>
             </div>

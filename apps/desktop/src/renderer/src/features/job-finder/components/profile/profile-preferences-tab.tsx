@@ -3,7 +3,7 @@ import { jobSourceAdapterKindValues, workModeValues } from '@unemployed/contract
 import type { Control, UseFormReturn } from 'react-hook-form'
 import { Controller } from 'react-hook-form'
 import { Button } from '@renderer/components/ui/button'
-import { Field, FieldLabel } from '@renderer/components/ui/field'
+import { FieldLabel } from '@renderer/components/ui/field'
 import { CheckboxField } from '../checkbox-field'
 import { FormSelect } from '../form-select'
 import type { BooleanSelectValue } from '../../lib/job-finder-types'
@@ -21,6 +21,7 @@ const booleanSelectOptions = [
 
 function BooleanSelectField(props: {
   control: Control<ProfileEditorValues>
+  id?: string
   label: string
   name:
     | 'eligibility.remoteEligible'
@@ -28,21 +29,25 @@ function BooleanSelectField(props: {
     | 'eligibility.willingToRelocate'
     | 'eligibility.willingToTravel'
 }) {
+  const generatedId = useId()
+  const fieldId = props.id ?? generatedId
+
   return (
     <Controller
       control={props.control}
       name={props.name}
       render={({ field }) => (
-        <Field>
-          <FieldLabel>{props.label}</FieldLabel>
+        <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+          <FieldLabel htmlFor={fieldId}>{props.label}</FieldLabel>
           <FormSelect
             onValueChange={(value) => field.onChange(value as BooleanSelectValue)}
             options={booleanSelectOptions}
             placeholder="Not set"
             triggerClassName={profileSelectTriggerClassName}
+            triggerId={fieldId}
             value={field.value}
           />
-        </Field>
+        </div>
       )}
     />
   )
@@ -69,6 +74,7 @@ function TargetRow(props: {
   const instructionsId = `${baseId}-instructions`
   const genericSiteWarningId = `${baseId}-generic-site-warning`
   const adapterDescribedBy = props.target.adapterKind === 'generic_site' ? genericSiteWarningId : undefined
+  const displayName = props.target.label.trim() || `Target ${props.index + 1}`
   const updateTarget = (nextTarget: DiscoveryTargetValue) => {
     const nextTargets = [...props.discoveryTargets]
     nextTargets[props.index] = nextTarget
@@ -81,7 +87,7 @@ function TargetRow(props: {
         <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</p>
         <div className="flex flex-wrap gap-2">
           <Button
-            aria-label={`Move ${props.target.label.trim() || props.target.id} up`}
+            aria-label={`Move ${displayName} up`}
             disabled={props.index === 0}
             onClick={() => {
               const nextTargets = [...props.discoveryTargets]
@@ -100,7 +106,7 @@ function TargetRow(props: {
             Move up
           </Button>
           <Button
-            aria-label={`Move ${props.target.label.trim() || props.target.id} down`}
+            aria-label={`Move ${displayName} down`}
             disabled={props.index === props.discoveryTargets.length - 1}
             onClick={() => {
               const nextTargets = [...props.discoveryTargets]
@@ -119,7 +125,7 @@ function TargetRow(props: {
             Move down
           </Button>
           <Button
-            aria-label={`Remove ${props.target.label.trim() || props.target.id}`}
+            aria-label={`Remove ${displayName}`}
             onClick={() => props.updateDiscoveryTargets(props.discoveryTargets.filter((entry) => entry.id !== props.target.id))}
             type="button"
             variant="ghost"
@@ -198,6 +204,17 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
   const { control: profileControl, register: registerProfile } = profileForm
   const authorizedWorkCountriesId = useId()
   const preferredRelocationRegionsId = useId()
+  const requiresVisaSponsorshipId = useId()
+  const remoteEligibleId = useId()
+  const securityClearanceId = useId()
+  const willingToRelocateId = useId()
+  const willingToTravelId = useId()
+  const noticePeriodId = useId()
+  const availableStartDateId = useId()
+  const tailoringModeId = useId()
+  const minimumSalaryId = useId()
+  const targetSalaryId = useId()
+  const salaryCurrencyId = useId()
   const listFieldOptions = { shouldDirty: true, shouldTouch: true, shouldValidate: true } as const
   const discoveryTargets = watchPreferences('discoveryTargets')
 
@@ -243,17 +260,20 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
               <FieldLabel htmlFor={authorizedWorkCountriesId}>Authorized work countries</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" id={authorizedWorkCountriesId} rows={4} {...registerProfile('eligibility.authorizedWorkCountries')} />
             </div>
-            <BooleanSelectField control={profileControl} label="Requires visa sponsorship" name="eligibility.requiresVisaSponsorship" />
-            <BooleanSelectField control={profileControl} label="Remote eligible" name="eligibility.remoteEligible" />
-            <Field><FieldLabel>Security clearance</FieldLabel><ProfileInput {...registerProfile('eligibility.securityClearance')} /></Field>
+            <BooleanSelectField control={profileControl} id={requiresVisaSponsorshipId} label="Requires visa sponsorship" name="eligibility.requiresVisaSponsorship" />
+            <BooleanSelectField control={profileControl} id={remoteEligibleId} label="Remote eligible" name="eligibility.remoteEligible" />
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={securityClearanceId}>Security clearance</FieldLabel>
+              <ProfileInput id={securityClearanceId} {...registerProfile('eligibility.securityClearance')} />
+            </div>
           </div>
         </article>
 
         <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Relocation and travel</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-            <BooleanSelectField control={profileControl} label="Willing to relocate" name="eligibility.willingToRelocate" />
-            <BooleanSelectField control={profileControl} label="Willing to travel" name="eligibility.willingToTravel" />
+            <BooleanSelectField control={profileControl} id={willingToRelocateId} label="Willing to relocate" name="eligibility.willingToRelocate" />
+            <BooleanSelectField control={profileControl} id={willingToTravelId} label="Willing to travel" name="eligibility.willingToTravel" />
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
               <FieldLabel htmlFor={preferredRelocationRegionsId}>Preferred relocation regions</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" id={preferredRelocationRegionsId} rows={4} {...registerProfile('eligibility.preferredRelocationRegions')} />
@@ -264,8 +284,14 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Availability</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-            <Field><FieldLabel>Notice period (days)</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerProfile('eligibility.noticePeriodDays')} /></Field>
-            <Field><FieldLabel>Available start date</FieldLabel><ProfileInput placeholder="YYYY-MM-DD" {...registerProfile('eligibility.availableStartDate')} /></Field>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={noticePeriodId}>Notice period (days)</FieldLabel>
+              <ProfileInput id={noticePeriodId} min="0" step="1" type="number" {...registerProfile('eligibility.noticePeriodDays')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={availableStartDateId}>Available start date</FieldLabel>
+              <ProfileInput id={availableStartDateId} placeholder="YYYY-MM-DD" {...registerProfile('eligibility.availableStartDate')} />
+            </div>
           </div>
         </article>
       </section>
@@ -388,8 +414,8 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
               control={preferenceControl}
               name="tailoringMode"
               render={({ field }) => (
-                <Field>
-                  <FieldLabel>Tailoring mode</FieldLabel>
+                <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+                  <FieldLabel htmlFor={tailoringModeId}>Tailoring mode</FieldLabel>
                   <FormSelect
                     onValueChange={field.onChange}
                     options={[
@@ -399,15 +425,25 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
                     ]}
                     placeholder="Select mode"
                     triggerClassName={profileSelectTriggerClassName}
+                    triggerId={tailoringModeId}
                     value={field.value}
                   />
-                </Field>
+                </div>
               )}
             />
 
-            <Field><FieldLabel>Minimum salary</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerPreferences('minimumSalaryUsd')} /></Field>
-            <Field><FieldLabel>Target salary</FieldLabel><ProfileInput min="0" step="1" type="number" {...registerPreferences('targetSalaryUsd')} /></Field>
-            <Field><FieldLabel>Salary currency</FieldLabel><ProfileInput {...registerPreferences('salaryCurrency')} /></Field>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={minimumSalaryId}>Minimum salary</FieldLabel>
+              <ProfileInput id={minimumSalaryId} min="0" step="1" type="number" {...registerPreferences('minimumSalaryUsd')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={targetSalaryId}>Target salary</FieldLabel>
+              <ProfileInput id={targetSalaryId} min="0" step="1" type="number" {...registerPreferences('targetSalaryUsd')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={salaryCurrencyId}>Salary currency</FieldLabel>
+              <ProfileInput id={salaryCurrencyId} {...registerPreferences('salaryCurrency')} />
+            </div>
           </div>
         </article>
 
