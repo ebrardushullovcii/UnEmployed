@@ -1545,11 +1545,17 @@ function isLinkedInUrl(url: string): boolean {
 }
 
 function buildGenericCanonicalUrl(url: string, baseUrl?: string): string {
+  const trimmedUrl = url.trim()
+
+  if (!trimmedUrl) {
+    return ''
+  }
+
   try {
-    const parsedUrl = new URL(url, baseUrl)
+    const parsedUrl = new URL(trimmedUrl, baseUrl)
 
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-      throw new Error('Unsupported URL scheme')
+      return ''
     }
 
     for (const key of [...parsedUrl.searchParams.keys()]) {
@@ -1561,7 +1567,7 @@ function buildGenericCanonicalUrl(url: string, baseUrl?: string): string {
     parsedUrl.hash = ''
     return parsedUrl.toString()
   } catch {
-    return url.trim()
+    return ''
   }
 }
 

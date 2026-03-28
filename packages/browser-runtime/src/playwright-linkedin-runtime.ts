@@ -1302,6 +1302,10 @@ export function createLinkedInBrowserAgentRuntime(
           jobs: result.jobs
         })
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw error
+        }
+
         const detail = error instanceof Error ? error.message : 'Unknown error during agent discovery'
 
         return DiscoveryRunResultSchema.parse({

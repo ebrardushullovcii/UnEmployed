@@ -37,6 +37,13 @@ interface DiscoveryFiltersPanelProps {
   searchPreferences: JobSearchPreferences
 }
 
+type SectionValue =
+  | string
+  | {
+      key: string
+      label: string
+    }
+
 export function DiscoveryFiltersPanel({
   actionMessage,
   browserSession,
@@ -47,13 +54,24 @@ export function DiscoveryFiltersPanel({
   onViewProgress,
   searchPreferences
 }: DiscoveryFiltersPanelProps) {
-  const sections = [
+  const neutralSessionSnapshot: BrowserSessionState = {
+    source: 'generic_site',
+    status: 'unknown',
+    driver: 'catalog_seed',
+    label: 'No managed session required',
+    detail: 'The current target mix can run without opening a managed Chrome session first.',
+    lastCheckedAt: new Date(0).toISOString()
+  }
+  const sections: Array<{ label: string; values: SectionValue[]; empty: string }> = [
     { label: 'Roles', values: searchPreferences.targetRoles, empty: 'No role targets configured yet.' },
     { label: 'Locations', values: searchPreferences.locations, empty: 'No preferred locations configured yet.' },
     { label: 'Work modes', values: searchPreferences.workModes, empty: 'No work modes configured yet.' },
     {
       label: 'Discovery targets',
-      values: searchPreferences.discovery.targets.map((target) => `${target.label}${target.enabled ? '' : ' (disabled)'}`),
+      values: searchPreferences.discovery.targets.map((target) => ({
+        key: target.id,
+        label: `${target.label}${target.enabled ? '' : ' (disabled)'}`
+      })),
       empty: 'No discovery targets configured yet.'
     }
   ]
@@ -67,18 +85,22 @@ export function DiscoveryFiltersPanel({
   const managedSessions = managedSessionSources.map((source) =>
     discoverySessions.find((session) => session.adapterKind === source)
   )
-  const displaySession = managedSessions[0] ?? browserSession
-  const displaySessionSnapshot: BrowserSessionState = 'source' in displaySession
-    ? displaySession
-    : {
-        ...browserSession,
-        source: displaySession.adapterKind,
-        status: displaySession.status,
-        driver: displaySession.driver,
-        label: displaySession.label,
-        detail: displaySession.detail,
-        lastCheckedAt: displaySession.lastCheckedAt
-      }
+  const displaySessionSnapshot: BrowserSessionState = requiresManagedSession
+    ? (() => {
+        const displaySession = managedSessions[0] ?? browserSession
+        return 'source' in displaySession
+          ? displaySession
+          : {
+              ...browserSession,
+              source: displaySession.adapterKind,
+              status: displaySession.status,
+              driver: displaySession.driver,
+              label: displaySession.label,
+              detail: displaySession.detail,
+              lastCheckedAt: displaySession.lastCheckedAt
+            }
+      })()
+    : neutralSessionSnapshot
   const isChromeAgent = displaySessionSnapshot.driver === 'chrome_profile_agent'
   const isReady = displaySessionSnapshot.status === 'ready'
   const needsLogin = displaySessionSnapshot.status === 'login_required'
@@ -93,12 +115,12 @@ export function DiscoveryFiltersPanel({
       <div className="flex min-h-[26.5rem] min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] xl:min-h-0">
         <div className="grid min-w-0 gap-3 border-b border-[var(--surface-panel-border)] px-4 py-4">
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-            <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>{displaySession.label}</StatusBadge>
+            <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>{displaySessionSnapshot.label}</StatusBadge>
             <span className="rounded-full border border-[var(--surface-panel-border)] px-2.5 py-1 text-[0.72rem] uppercase tracking-[var(--tracking-label)] text-foreground-muted">
               {requiresManagedSession ? (isChromeAgent ? 'Managed profile' : 'Session required') : 'Target-ready'}
             </span>
           </div>
-          <p className="max-w-full break-words text-[0.92rem] leading-7 text-foreground-soft">{displaySession.detail}</p>
+          <p className="max-w-full break-words text-[0.92rem] leading-7 text-foreground-soft">{displaySessionSnapshot.detail}</p>
 
           {requiresManagedSession ? (isChromeAgent ? (
             <div className="grid gap-2">
@@ -132,8 +154,11 @@ export function DiscoveryFiltersPanel({
                 {section.values.length > 0 ? (
                   <div className="flex min-w-0 flex-wrap gap-2">
                     {section.values.map((value) => (
-                      <Chip key={`${section.label}_${value}`} className="border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] text-foreground-soft">
-                        {value}
+                      <Chip
+                        key={typeof value === 'string' ? `${section.label}_${value}` : `${section.label}_${value.key}`}
+                        className="border-[var(--surface-panel-border)] bg-[var(--surface-panel-raised)] text-foreground-soft"
+                      >
+                        {typeof value === 'string' ? value : value.label}
                       </Chip>
                     ))}
                   </div>

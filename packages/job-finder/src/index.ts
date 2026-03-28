@@ -588,7 +588,7 @@ function getActiveDiscoveryTargets(searchPreferences: JobSearchPreferences): Job
 
 function getPreferredSessionAdapter(searchPreferences: JobSearchPreferences): JobSource {
   const targets = getActiveDiscoveryTargets(searchPreferences)
-  const preferredTarget = targets.find((target) => resolveAdapterKind(target) === 'linkedin') ?? targets[0]
+  const preferredTarget = targets.find((target) => discoveryAdapters[resolveAdapterKind(target)].requiresManagedSession) ?? targets[0]
 
   return resolveAdapterKind(preferredTarget ?? {
     id: 'target_linkedin_default',
@@ -2085,9 +2085,11 @@ export function createJobFinderWorkspaceService(
           pendingDiscoveryJobs: overlayTouchedPendingJobs(latestDiscoveryState.pendingDiscoveryJobs, workingPendingJobs, touchedPendingJobIds)
         }, activeRun, enrichedPreferences))
 
-        if (!aborted) {
-          throw error
+        if (aborted) {
+          return getWorkspaceSnapshot()
         }
+
+        throw error
       }
 
       const [latestSavedJobs, latestDiscoveryState] = await Promise.all([
