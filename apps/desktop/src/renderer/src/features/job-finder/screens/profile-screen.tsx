@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { useFieldArray, useForm, useWatch } from 'react-hook-form'
-import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
+import type {
+  CandidateProfile,
+  JobSearchPreferences,
+  SourceDebugRunRecord,
+  SourceInstructionArtifact
+} from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
 import { LockedScreenLayout } from '../components/locked-screen-layout'
@@ -108,18 +113,24 @@ export function ProfileScreen(props: {
   busy: boolean
   onAnalyzeProfileFromResume: () => void
   onImportResume: () => void
+  onRunSourceDebug: (targetId: string) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   profile: CandidateProfile
+  recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   searchPreferences: JobSearchPreferences
+  sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
 }) {
   const {
     actionState,
     busy,
     onAnalyzeProfileFromResume,
     onImportResume,
+    onRunSourceDebug,
     onSaveAll,
     profile,
-    searchPreferences
+    recentSourceDebugRuns,
+    searchPreferences,
+    sourceInstructionArtifacts
   } = props
 
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
@@ -437,7 +448,16 @@ export function ProfileScreen(props: {
         profileForm={profileForm}
       />
     ),
-    preferences: <ProfilePreferencesTab preferencesForm={preferencesForm} profileForm={profileForm} />
+    preferences: (
+      <ProfilePreferencesTab
+        busy={busy}
+          onRunSourceDebug={onRunSourceDebug}
+          preferencesForm={preferencesForm}
+          profileForm={profileForm}
+          recentSourceDebugRuns={recentSourceDebugRuns}
+          sourceInstructionArtifacts={sourceInstructionArtifacts}
+        />
+      )
   }
 
   return (

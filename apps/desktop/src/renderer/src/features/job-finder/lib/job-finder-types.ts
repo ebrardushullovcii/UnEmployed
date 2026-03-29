@@ -3,6 +3,7 @@ import type {
   DiscoveryActivityEvent,
   JobFinderSettings,
   JobSearchPreferences,
+  JobFinderWorkspaceSnapshot,
   JobSourceAdapterKind,
   WorkMode
 } from '@unemployed/contracts'
@@ -15,21 +16,22 @@ export type JobFinderScreen =
   | 'settings'
 
 export interface JobFinderShellActions {
-  analyzeProfileFromResume: () => Promise<void>
-  openBrowserSession: () => Promise<void>
-  checkBrowserSession: () => Promise<void>
-  refreshWorkspace: () => Promise<void>
-  resetWorkspace: () => Promise<void>
-  runAgentDiscovery: (onActivity?: (event: DiscoveryActivityEvent) => void) => Promise<void>
-  importResume: () => Promise<void>
-  saveProfile: (profile: CandidateProfile) => Promise<void>
-  saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => Promise<void>
-  saveSearchPreferences: (searchPreferences: JobSearchPreferences) => Promise<void>
-  saveSettings: (settings: JobFinderSettings) => Promise<void>
-  queueJobForReview: (jobId: string) => Promise<void>
-  dismissDiscoveryJob: (jobId: string) => Promise<void>
-  generateResume: (jobId: string) => Promise<void>
-  approveApply: (jobId: string) => Promise<void>
+  analyzeProfileFromResume: () => Promise<JobFinderWorkspaceSnapshot>
+  openBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>
+  checkBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>
+  refreshWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
+  resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
+  runAgentDiscovery: (onActivity?: (event: DiscoveryActivityEvent) => void) => Promise<JobFinderWorkspaceSnapshot>
+  runSourceDebug: (targetId: string) => Promise<JobFinderWorkspaceSnapshot>
+  importResume: () => Promise<JobFinderWorkspaceSnapshot>
+  saveProfile: (profile: CandidateProfile) => Promise<JobFinderWorkspaceSnapshot>
+  saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => Promise<JobFinderWorkspaceSnapshot>
+  saveSearchPreferences: (searchPreferences: JobSearchPreferences) => Promise<JobFinderWorkspaceSnapshot>
+  saveSettings: (settings: JobFinderSettings) => Promise<JobFinderWorkspaceSnapshot>
+  queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
+  dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
+  generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
+  approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
 }
 
 export interface ScreenDefinition {
@@ -112,6 +114,12 @@ export type DiscoveryTargetEditorValue = {
   enabled: boolean
   adapterKind: JobSourceAdapterKind
   customInstructions: string
+  instructionStatus: string
+  validatedInstructionId: string | null
+  draftInstructionId: string | null
+  lastDebugRunId: string | null
+  lastVerifiedAt: string | null
+  staleReason: string | null
 }
 
 export type BooleanSelectValue = '' | 'yes' | 'no'

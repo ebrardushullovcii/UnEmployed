@@ -7,6 +7,10 @@ import {
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
   SavedJobSchema,
+  SourceDebugEvidenceRefSchema,
+  SourceDebugRunRecordSchema,
+  SourceDebugWorkerAttemptSchema,
+  SourceInstructionArtifactSchema,
   TailoredAssetSchema,
   type ApplicationAttempt,
   type ApplicationRecord,
@@ -16,6 +20,10 @@ import {
   type JobFinderSettings,
   type JobSearchPreferences,
   type SavedJob,
+  type SourceDebugEvidenceRef,
+  type SourceDebugRunRecord,
+  type SourceDebugWorkerAttempt,
+  type SourceInstructionArtifact,
   type TailoredAsset
 } from '@unemployed/contracts'
 import { chmod, readFile } from 'node:fs/promises'
@@ -28,6 +36,10 @@ const stateTableNames = {
   application_records: 'application_records',
   saved_jobs: 'saved_jobs',
   singleton_state: 'singleton_state',
+  source_debug_attempts: 'source_debug_attempts',
+  source_debug_evidence_refs: 'source_debug_evidence_refs',
+  source_debug_runs: 'source_debug_runs',
+  source_instruction_artifacts: 'source_instruction_artifacts',
   tailored_assets: 'tailored_assets'
 } as const
 
@@ -87,7 +99,7 @@ function runMigrations(database: DatabaseSync): void {
     .get() as { version?: number } | undefined
   const currentVersion = Number(versionRow?.version ?? 0)
 
-  if (currentVersion >= 1) {
+  if (currentVersion >= 2) {
     return
   }
 
@@ -121,9 +133,39 @@ function runMigrations(database: DatabaseSync): void {
       );
     `)
 
-    database
-      .prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)')
-      .run(1, 'job_finder_baseline')
+    if (currentVersion < 1) {
+      database
+        .prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)')
+        .run(1, 'job_finder_baseline')
+    }
+
+    if (currentVersion < 2) {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS source_debug_runs (
+          id TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS source_debug_attempts (
+          id TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS source_instruction_artifacts (
+          id TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS source_debug_evidence_refs (
+          id TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `)
+
+      database
+        .prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)')
+        .run(2, 'job_finder_source_debug_artifacts')
+    }
 
     database.exec('COMMIT')
   } catch (error) {
@@ -153,6 +195,14 @@ export interface JobFinderRepository {
   upsertApplicationRecord(applicationRecord: ApplicationRecord): Promise<void>
   listApplicationAttempts(): Promise<readonly ApplicationAttempt[]>
   upsertApplicationAttempt(applicationAttempt: ApplicationAttempt): Promise<void>
+  listSourceDebugRuns(): Promise<readonly SourceDebugRunRecord[]>
+  upsertSourceDebugRun(run: SourceDebugRunRecord): Promise<void>
+  listSourceDebugAttempts(): Promise<readonly SourceDebugWorkerAttempt[]>
+  upsertSourceDebugAttempt(attempt: SourceDebugWorkerAttempt): Promise<void>
+  listSourceInstructionArtifacts(): Promise<readonly SourceInstructionArtifact[]>
+  upsertSourceInstructionArtifact(artifact: SourceInstructionArtifact): Promise<void>
+  listSourceDebugEvidenceRefs(): Promise<readonly SourceDebugEvidenceRef[]>
+  upsertSourceDebugEvidenceRef(evidenceRef: SourceDebugEvidenceRef): Promise<void>
   getSettings(): Promise<JobFinderSettings>
   saveSettings(settings: JobFinderSettings): Promise<void>
   getDiscoveryState(): Promise<JobFinderDiscoveryState>
@@ -332,6 +382,10 @@ function writeState(database: DatabaseSync, state: JobFinderRepositoryState): vo
     replaceCollection(database, 'tailored_assets', state.tailoredAssets)
     replaceCollection(database, 'application_records', state.applicationRecords)
     replaceCollection(database, 'application_attempts', state.applicationAttempts)
+    replaceCollection(database, 'source_debug_runs', state.sourceDebugRuns)
+    replaceCollection(database, 'source_debug_attempts', state.sourceDebugAttempts)
+    replaceCollection(database, 'source_instruction_artifacts', state.sourceInstructionArtifacts)
+    replaceCollection(database, 'source_debug_evidence_refs', state.sourceDebugEvidenceRefs)
     database.exec('COMMIT')
   } catch (error) {
     database.exec('ROLLBACK')
@@ -373,6 +427,10 @@ function readState(database: DatabaseSync, fallbackSeed: JobFinderRepositorySeed
     tailoredAssets: listValues(database, 'tailored_assets', TailoredAssetSchema),
     applicationRecords: listValues(database, 'application_records', ApplicationRecordSchema),
     applicationAttempts: listValues(database, 'application_attempts', ApplicationAttemptSchema),
+    sourceDebugRuns: listValues(database, 'source_debug_runs', SourceDebugRunRecordSchema),
+    sourceDebugAttempts: listValues(database, 'source_debug_attempts', SourceDebugWorkerAttemptSchema),
+    sourceInstructionArtifacts: listValues(database, 'source_instruction_artifacts', SourceInstructionArtifactSchema),
+    sourceDebugEvidenceRefs: listValues(database, 'source_debug_evidence_refs', SourceDebugEvidenceRefSchema),
     settings,
     discovery
   })
@@ -394,6 +452,10 @@ export function createInMemoryJobFinderRepository(seed: JobFinderRepositorySeed)
       state.tailoredAssets = normalizedSeed.tailoredAssets
       state.applicationRecords = normalizedSeed.applicationRecords
       state.applicationAttempts = normalizedSeed.applicationAttempts
+      state.sourceDebugRuns = normalizedSeed.sourceDebugRuns
+      state.sourceDebugAttempts = normalizedSeed.sourceDebugAttempts
+      state.sourceInstructionArtifacts = normalizedSeed.sourceInstructionArtifacts
+      state.sourceDebugEvidenceRefs = normalizedSeed.sourceDebugEvidenceRefs
       state.settings = normalizedSeed.settings
       state.discovery = normalizedSeed.discovery
 
@@ -474,6 +536,74 @@ export function createInMemoryJobFinderRepository(seed: JobFinderRepositorySeed)
       }
 
       state.applicationAttempts = nextAttempts
+      return Promise.resolve()
+    },
+    listSourceDebugRuns() {
+      return Promise.resolve(cloneValue(state.sourceDebugRuns))
+    },
+    upsertSourceDebugRun(run) {
+      const normalizedRun = SourceDebugRunRecordSchema.parse(cloneValue(run))
+      const nextRuns = [...state.sourceDebugRuns]
+      const existingIndex = nextRuns.findIndex((entry) => entry.id === normalizedRun.id)
+
+      if (existingIndex >= 0) {
+        nextRuns[existingIndex] = normalizedRun
+      } else {
+        nextRuns.push(normalizedRun)
+      }
+
+      state.sourceDebugRuns = nextRuns
+      return Promise.resolve()
+    },
+    listSourceDebugAttempts() {
+      return Promise.resolve(cloneValue(state.sourceDebugAttempts))
+    },
+    upsertSourceDebugAttempt(attempt) {
+      const normalizedAttempt = SourceDebugWorkerAttemptSchema.parse(cloneValue(attempt))
+      const nextAttempts = [...state.sourceDebugAttempts]
+      const existingIndex = nextAttempts.findIndex((entry) => entry.id === normalizedAttempt.id)
+
+      if (existingIndex >= 0) {
+        nextAttempts[existingIndex] = normalizedAttempt
+      } else {
+        nextAttempts.push(normalizedAttempt)
+      }
+
+      state.sourceDebugAttempts = nextAttempts
+      return Promise.resolve()
+    },
+    listSourceInstructionArtifacts() {
+      return Promise.resolve(cloneValue(state.sourceInstructionArtifacts))
+    },
+    upsertSourceInstructionArtifact(artifact) {
+      const normalizedArtifact = SourceInstructionArtifactSchema.parse(cloneValue(artifact))
+      const nextArtifacts = [...state.sourceInstructionArtifacts]
+      const existingIndex = nextArtifacts.findIndex((entry) => entry.id === normalizedArtifact.id)
+
+      if (existingIndex >= 0) {
+        nextArtifacts[existingIndex] = normalizedArtifact
+      } else {
+        nextArtifacts.push(normalizedArtifact)
+      }
+
+      state.sourceInstructionArtifacts = nextArtifacts
+      return Promise.resolve()
+    },
+    listSourceDebugEvidenceRefs() {
+      return Promise.resolve(cloneValue(state.sourceDebugEvidenceRefs))
+    },
+    upsertSourceDebugEvidenceRef(evidenceRef) {
+      const normalizedEvidenceRef = SourceDebugEvidenceRefSchema.parse(cloneValue(evidenceRef))
+      const nextEvidenceRefs = [...state.sourceDebugEvidenceRefs]
+      const existingIndex = nextEvidenceRefs.findIndex((entry) => entry.id === normalizedEvidenceRef.id)
+
+      if (existingIndex >= 0) {
+        nextEvidenceRefs[existingIndex] = normalizedEvidenceRef
+      } else {
+        nextEvidenceRefs.push(normalizedEvidenceRef)
+      }
+
+      state.sourceDebugEvidenceRefs = nextEvidenceRefs
       return Promise.resolve()
     },
     getSettings() {
@@ -601,6 +731,74 @@ export async function createFileJobFinderRepository(
 
       try {
         upsertCollectionValue(database, 'application_attempts', normalizedAttempt)
+        database.exec('COMMIT')
+      } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+      }
+
+      return secureDatabaseFile(options.filePath)
+    },
+    listSourceDebugRuns() {
+      return Promise.resolve(cloneValue(readState(database, normalizedSeed).sourceDebugRuns))
+    },
+    upsertSourceDebugRun(run) {
+      const normalizedRun = SourceDebugRunRecordSchema.parse(cloneValue(run))
+      database.exec('BEGIN IMMEDIATE')
+
+      try {
+        upsertCollectionValue(database, 'source_debug_runs', normalizedRun)
+        database.exec('COMMIT')
+      } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+      }
+
+      return secureDatabaseFile(options.filePath)
+    },
+    listSourceDebugAttempts() {
+      return Promise.resolve(cloneValue(readState(database, normalizedSeed).sourceDebugAttempts))
+    },
+    upsertSourceDebugAttempt(attempt) {
+      const normalizedAttempt = SourceDebugWorkerAttemptSchema.parse(cloneValue(attempt))
+      database.exec('BEGIN IMMEDIATE')
+
+      try {
+        upsertCollectionValue(database, 'source_debug_attempts', normalizedAttempt)
+        database.exec('COMMIT')
+      } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+      }
+
+      return secureDatabaseFile(options.filePath)
+    },
+    listSourceInstructionArtifacts() {
+      return Promise.resolve(cloneValue(readState(database, normalizedSeed).sourceInstructionArtifacts))
+    },
+    upsertSourceInstructionArtifact(artifact) {
+      const normalizedArtifact = SourceInstructionArtifactSchema.parse(cloneValue(artifact))
+      database.exec('BEGIN IMMEDIATE')
+
+      try {
+        upsertCollectionValue(database, 'source_instruction_artifacts', normalizedArtifact)
+        database.exec('COMMIT')
+      } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+      }
+
+      return secureDatabaseFile(options.filePath)
+    },
+    listSourceDebugEvidenceRefs() {
+      return Promise.resolve(cloneValue(readState(database, normalizedSeed).sourceDebugEvidenceRefs))
+    },
+    upsertSourceDebugEvidenceRef(evidenceRef) {
+      const normalizedEvidenceRef = SourceDebugEvidenceRefSchema.parse(cloneValue(evidenceRef))
+      database.exec('BEGIN IMMEDIATE')
+
+      try {
+        upsertCollectionValue(database, 'source_debug_evidence_refs', normalizedEvidenceRef)
         database.exec('COMMIT')
       } catch (error) {
         database.exec('ROLLBACK')

@@ -104,7 +104,13 @@ function createSeed(): JobFinderRepositorySeed {
             startingUrl: 'https://www.linkedin.com/jobs/search/',
             enabled: true,
             adapterKind: 'auto' as const,
-            customInstructions: null
+            customInstructions: null,
+            instructionStatus: 'missing' as const,
+            validatedInstructionId: null,
+            draftInstructionId: null,
+            lastDebugRunId: null,
+            lastVerifiedAt: null,
+            staleReason: null
           }
         ]
       }
@@ -113,6 +119,10 @@ function createSeed(): JobFinderRepositorySeed {
     tailoredAssets: [],
     applicationRecords: [],
     applicationAttempts: [],
+    sourceDebugRuns: [],
+    sourceDebugAttempts: [],
+    sourceInstructionArtifacts: [],
+    sourceDebugEvidenceRefs: [],
     settings: {
       resumeFormat: 'html' as const,
       resumeTemplateId: 'classic_ats' as const,
@@ -127,6 +137,8 @@ function createSeed(): JobFinderRepositorySeed {
       runState: 'idle' as const,
       activeRun: null,
       recentRuns: [],
+      activeSourceDebugRun: null,
+      recentSourceDebugRuns: [],
       pendingDiscoveryJobs: []
     }
   }
@@ -372,6 +384,130 @@ describe('createInMemoryJobFinderRepository', () => {
       expect(savedJobs[0]?.canonicalUrl).toContain('linkedin_job_1')
       expect(attempts).toHaveLength(1)
       expect(attempts[0]?.summary).toBe('Easy Apply submitted')
+      await firstRepository.close()
+      await secondRepository.close()
+    } finally {
+      await rm(tempDirectory, { recursive: true, force: true })
+    }
+  })
+
+  test('persists source-debug artifacts outside the singleton discovery state blob', async () => {
+    const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-db-source-debug-'))
+    const filePath = path.join(tempDirectory, 'job-finder-state.sqlite')
+
+    try {
+      const firstRepository = await createFileJobFinderRepository({
+        filePath,
+        seed: createSeed()
+      })
+
+      await firstRepository.upsertSourceDebugRun({
+        id: 'source_debug_run_1',
+        targetId: 'target_linkedin_default',
+        state: 'completed',
+        startedAt: '2026-03-20T10:00:00.000Z',
+        updatedAt: '2026-03-20T10:02:00.000Z',
+        completedAt: '2026-03-20T10:02:00.000Z',
+        activePhase: null,
+        phases: ['access_auth_probe', 'site_structure_mapping', 'search_filter_probe', 'job_detail_validation', 'apply_path_validation', 'replay_verification'],
+        targetLabel: 'LinkedIn Jobs',
+        targetUrl: 'https://www.linkedin.com/jobs/search/',
+        targetHostname: 'www.linkedin.com',
+        manualPrerequisiteSummary: null,
+        finalSummary: 'Replay verification reached jobs again.',
+        attemptIds: ['source_debug_attempt_1'],
+        phaseSummaries: [],
+        instructionArtifactId: 'source_instruction_1'
+      })
+      await firstRepository.upsertSourceDebugAttempt({
+        id: 'source_debug_attempt_1',
+        runId: 'source_debug_run_1',
+        targetId: 'target_linkedin_default',
+        phase: 'job_detail_validation',
+        startedAt: '2026-03-20T10:01:00.000Z',
+        completedAt: '2026-03-20T10:01:30.000Z',
+        outcome: 'succeeded',
+        strategyLabel: 'Job Detail Validation',
+        strategyFingerprint: 'job_detail_validation:linkedin:job detail validation',
+        confirmedFacts: ['Observed canonical job detail URL https://www.linkedin.com/jobs/view/1.'],
+        attemptedActions: ['Opened the first job detail page.'],
+        blockerSummary: null,
+        resultSummary: 'Validated job detail routes.',
+        confidenceScore: 88,
+        nextRecommendedStrategies: ['Replay Verification'],
+        avoidStrategyFingerprints: ['job_detail_validation:linkedin:job detail validation'],
+        evidenceRefIds: ['source_debug_evidence_1'],
+        compactionState: null
+      })
+      await firstRepository.upsertSourceInstructionArtifact({
+        id: 'source_instruction_1',
+        targetId: 'target_linkedin_default',
+        status: 'validated',
+        createdAt: '2026-03-20T10:01:00.000Z',
+        updatedAt: '2026-03-20T10:02:00.000Z',
+        acceptedAt: '2026-03-20T10:02:00.000Z',
+        basedOnRunId: 'source_debug_run_1',
+        basedOnAttemptIds: ['source_debug_attempt_1'],
+        notes: 'Validated LinkedIn source guidance.',
+        navigationGuidance: ['Start from https://www.linkedin.com/jobs/search/.'],
+        searchGuidance: ['Use the jobs search route.'],
+        detailGuidance: ['Prefer stable /jobs/view/ URLs.'],
+        applyGuidance: ['Prefer Easy Apply when it appears on the detail page.'],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: 'source-debug-v1',
+          toolsetVersion: 'browser-tools-v1',
+          adapterVersion: 'linkedin',
+          appSchemaVersion: 'job-finder-source-debug-v1'
+        },
+        verification: {
+          id: 'source_instruction_verification_1',
+          replayRunId: 'source_debug_run_1',
+          verifiedAt: '2026-03-20T10:02:00.000Z',
+          outcome: 'passed',
+          proofSummary: 'Replay verification reached jobs again.',
+          reason: null,
+          versionInfo: {
+            promptProfileVersion: 'source-debug-v1',
+            toolsetVersion: 'browser-tools-v1',
+            adapterVersion: 'linkedin',
+            appSchemaVersion: 'job-finder-source-debug-v1'
+          }
+        }
+      })
+      await firstRepository.upsertSourceDebugEvidenceRef({
+        id: 'source_debug_evidence_1',
+        runId: 'source_debug_run_1',
+        attemptId: 'source_debug_attempt_1',
+        targetId: 'target_linkedin_default',
+        phase: 'job_detail_validation',
+        kind: 'url',
+        label: 'Validated job detail',
+        capturedAt: '2026-03-20T10:01:15.000Z',
+        url: 'https://www.linkedin.com/jobs/view/1',
+        storagePath: null,
+        excerpt: 'Stable LinkedIn job detail URL.'
+      })
+
+      const secondRepository = await createFileJobFinderRepository({
+        filePath,
+        seed: createSeed()
+      })
+      const [runs, attempts, artifacts, evidenceRefs, discoveryState] = await Promise.all([
+        secondRepository.listSourceDebugRuns(),
+        secondRepository.listSourceDebugAttempts(),
+        secondRepository.listSourceInstructionArtifacts(),
+        secondRepository.listSourceDebugEvidenceRefs(),
+        secondRepository.getDiscoveryState()
+      ])
+
+      expect(runs).toHaveLength(1)
+      expect(attempts).toHaveLength(1)
+      expect(artifacts).toHaveLength(1)
+      expect(evidenceRefs).toHaveLength(1)
+      expect(discoveryState.activeSourceDebugRun).toBeNull()
+      expect(discoveryState.recentSourceDebugRuns).toEqual([])
+
       await firstRepository.close()
       await secondRepository.close()
     } finally {

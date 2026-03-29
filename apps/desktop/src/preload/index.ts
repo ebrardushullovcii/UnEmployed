@@ -5,6 +5,7 @@ import type {
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
   JobFinderSettings,
+  SourceDebugRunRecord,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences
@@ -122,6 +123,18 @@ const desktopApi = {
 
       return promise
     },
+    runSourceDebug: (targetId: string) =>
+      ipcRenderer.invoke('job-finder:run-source-debug', { targetId }) as Promise<JobFinderWorkspaceSnapshot>,
+    cancelSourceDebug: (runId: string) =>
+      ipcRenderer.invoke('job-finder:cancel-source-debug', { runId }) as Promise<JobFinderWorkspaceSnapshot>,
+    getSourceDebugRun: (runId: string) =>
+      ipcRenderer.invoke('job-finder:get-source-debug-run', { runId }) as Promise<SourceDebugRunRecord>,
+    listSourceDebugRuns: (targetId: string) =>
+      ipcRenderer.invoke('job-finder:list-source-debug-runs', { targetId }) as Promise<readonly SourceDebugRunRecord[]>,
+    acceptSourceInstructionDraft: (targetId: string, instructionId: string) =>
+      ipcRenderer.invoke('job-finder:accept-source-instruction-draft', { targetId, instructionId }) as Promise<JobFinderWorkspaceSnapshot>,
+    verifySourceInstructions: (targetId: string, instructionId: string) =>
+      ipcRenderer.invoke('job-finder:verify-source-instructions', { targetId, instructionId }) as Promise<JobFinderWorkspaceSnapshot>,
     cancelAgentDiscovery: () => {
       if (!activeAgentDiscoveryRequestId) {
         return

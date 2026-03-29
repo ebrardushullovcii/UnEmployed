@@ -3,6 +3,9 @@ import {
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,
   JobFinderJobActionInputSchema,
+  JobFinderSourceDebugActionInputSchema,
+  JobFinderSourceDebugRunQuerySchema,
+  JobFinderSourceInstructionActionInputSchema,
   JobFinderSettingsSchema,
   SaveJobFinderWorkspaceInputSchema,
   JobFinderWorkspaceSnapshotSchema,
@@ -180,6 +183,54 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     } finally {
       ipcMain.removeListener('job-finder:cancel-agent-discovery', cancelHandler)
     }
+  })
+
+  ipcMain.handle('job-finder:run-source-debug', async (_event, payload: unknown) => {
+    const { targetId } = JobFinderSourceDebugActionInputSchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const snapshot = await jobFinderWorkspaceService.runSourceDebug(targetId)
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  })
+
+  ipcMain.handle('job-finder:cancel-source-debug', async (_event, payload: unknown) => {
+    const { runId } = JobFinderSourceDebugRunQuerySchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const snapshot = await jobFinderWorkspaceService.cancelSourceDebug(runId)
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  })
+
+  ipcMain.handle('job-finder:get-source-debug-run', async (_event, payload: unknown) => {
+    const { runId } = JobFinderSourceDebugRunQuerySchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const run = await jobFinderWorkspaceService.getSourceDebugRun(runId)
+
+    return run
+  })
+
+  ipcMain.handle('job-finder:list-source-debug-runs', async (_event, payload: unknown) => {
+    const { targetId } = JobFinderSourceDebugActionInputSchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const runs = await jobFinderWorkspaceService.listSourceDebugRuns(targetId)
+
+    return runs
+  })
+
+  ipcMain.handle('job-finder:accept-source-instruction-draft', async (_event, payload: unknown) => {
+    const { targetId, instructionId } = JobFinderSourceInstructionActionInputSchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const snapshot = await jobFinderWorkspaceService.acceptSourceInstructionDraft(targetId, instructionId)
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  })
+
+  ipcMain.handle('job-finder:verify-source-instructions', async (_event, payload: unknown) => {
+    const { targetId, instructionId } = JobFinderSourceInstructionActionInputSchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const snapshot = await jobFinderWorkspaceService.verifySourceInstructions(targetId, instructionId)
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   })
 
   ipcMain.handle('job-finder:queue-job-for-review', async (_event, payload: unknown) => {

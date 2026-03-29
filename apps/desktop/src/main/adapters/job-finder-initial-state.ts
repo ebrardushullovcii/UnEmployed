@@ -79,7 +79,13 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
             startingUrl: 'https://www.linkedin.com/jobs/search/',
             enabled: true,
             adapterKind: 'auto',
-            customInstructions: null
+            customInstructions: null,
+            instructionStatus: 'missing',
+            validatedInstructionId: null,
+            draftInstructionId: null,
+            lastDebugRunId: null,
+            lastVerifiedAt: null,
+            staleReason: null
           }
         ]
       }
@@ -88,6 +94,10 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
     tailoredAssets: [],
     applicationRecords: [],
     applicationAttempts: [],
+    sourceDebugRuns: [],
+    sourceDebugAttempts: [],
+    sourceInstructionArtifacts: [],
+    sourceDebugEvidenceRefs: [],
     settings: JobFinderSettingsSchema.parse({
       resumeTemplateId: 'classic_ats',
       resumeFormat: 'pdf',
@@ -102,6 +112,8 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       runState: 'idle',
       activeRun: null,
       recentRuns: [],
+      activeSourceDebugRun: null,
+      recentSourceDebugRuns: [],
       pendingDiscoveryJobs: []
     }
   }

@@ -1,6 +1,7 @@
 import {
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
+  SourceInstructionStatusSchema,
   type CandidateProfile,
   type CandidateLinkKind,
   type JobDiscoveryTarget,
@@ -118,7 +119,13 @@ function toDiscoveryTargetEditorValues(searchPreferences: JobSearchPreferences):
     startingUrl: target.startingUrl,
     enabled: target.enabled,
     adapterKind: target.adapterKind,
-    customInstructions: target.customInstructions ?? ''
+    customInstructions: target.customInstructions ?? '',
+    instructionStatus: target.instructionStatus,
+    validatedInstructionId: target.validatedInstructionId,
+    draftInstructionId: target.draftInstructionId,
+    lastDebugRunId: target.lastDebugRunId,
+    lastVerifiedAt: target.lastVerifiedAt,
+    staleReason: target.staleReason
   }))
 }
 
@@ -129,7 +136,13 @@ function toDiscoveryTargets(values: readonly DiscoveryTargetEditorValue[]): JobD
     startingUrl: target.startingUrl.trim(),
     enabled: target.enabled,
     adapterKind: target.adapterKind,
-    customInstructions: target.customInstructions.trim() || null
+    customInstructions: target.customInstructions.trim() || null,
+    instructionStatus: SourceInstructionStatusSchema.parse(target.instructionStatus),
+    validatedInstructionId: target.validatedInstructionId,
+    draftInstructionId: target.draftInstructionId,
+    lastDebugRunId: target.lastDebugRunId,
+    lastVerifiedAt: target.lastVerifiedAt,
+    staleReason: target.staleReason
   }))
 }
 

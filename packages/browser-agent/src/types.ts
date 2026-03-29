@@ -1,8 +1,10 @@
 import type {
+  AgentDebugFindings,
   JobPosting,
   CandidateProfile,
   AgentDiscoveryProgress,
   JobSource,
+  SourceDebugCompactionState,
   Tool,
   ToolCall
 } from '@unemployed/contracts'
@@ -27,10 +29,26 @@ export interface AgentPromptContext {
   siteInstructions?: string[]
   toolUsageNotes?: string[]
   experimental?: boolean
+  taskPacket?: {
+    phaseGoal: string
+    knownFacts: string[]
+    priorPhaseSummary?: string | null
+    avoidStrategyFingerprints: string[]
+    successCriteria: string[]
+    stopConditions: string[]
+    manualPrerequisiteState?: string | null
+    strategyLabel?: string | null
+  }
 }
 
 export interface AgentExtractionContext {
   relevantUrlSubstrings?: string[]
+}
+
+export interface AgentCompactionConfig {
+  maxTranscriptMessages: number
+  preserveRecentMessages: number
+  maxToolPayloadChars: number
 }
 
 export interface AgentConfig {
@@ -43,6 +61,7 @@ export interface AgentConfig {
   navigationPolicy: AgentNavigationPolicy
   promptContext: AgentPromptContext
   extractionContext?: AgentExtractionContext
+  compaction?: Partial<AgentCompactionConfig>
 }
 
 export interface AgentState {
@@ -52,6 +71,7 @@ export interface AgentState {
   stepCount: number
   currentUrl: string
   isRunning: boolean
+  compactionState: SourceDebugCompactionState | null
 }
 
 export interface AgentResult {
@@ -59,6 +79,9 @@ export interface AgentResult {
   steps: number
   incomplete?: boolean
   error?: string
+  transcriptMessageCount: number
+  compactionState?: SourceDebugCompactionState | null
+  debugFindings?: AgentDebugFindings | null
 }
 
 // Re-export AgentDiscoveryProgress from contracts for consistency

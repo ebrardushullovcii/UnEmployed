@@ -33,6 +33,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         workspace
       }
     })
+
+    return workspace
   }, [])
 
   const actions = useMemo<JobFinderShellActions>(
@@ -56,6 +58,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       resetWorkspace: () => runWorkspaceAction(() => window.unemployed.jobFinder.resetWorkspace()),
       runAgentDiscovery: (onProgress) =>
         runWorkspaceAction(() => window.unemployed.jobFinder.runAgentDiscovery(onProgress)),
+      runSourceDebug: (targetId: string) =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.runSourceDebug(targetId)),
       saveProfile: (profile: CandidateProfile) =>
         runWorkspaceAction(() => window.unemployed.jobFinder.saveProfile(profile)),
       saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) =>

@@ -37,8 +37,16 @@ const ExtractJobsSchema = z.object({
   maxJobs: z.number().int().positive().optional().default(5)
 }).strict()
 
+const FinishFindingListSchema = z.array(z.string().min(1)).max(6).optional().default([])
+
 const FinishSchema = z.object({
-  reason: z.string().min(1)
+  reason: z.string().min(1),
+  summary: z.string().min(1).optional(),
+  reliableControls: FinishFindingListSchema,
+  trickyFilters: FinishFindingListSchema,
+  navigationTips: FinishFindingListSchema,
+  applyTips: FinishFindingListSchema,
+  warnings: FinishFindingListSchema
 }).strict()
 
 // Recovery helper for when navigation goes off allowlist
@@ -931,6 +939,35 @@ Call this when you've found enough jobs or can't find any more relevant position
         reason: {
           type: 'string',
           description: 'Why you are finishing (e.g., "Found 20 jobs", "No more results", "Reached max steps")'
+        },
+        summary: {
+          type: 'string',
+          description: 'One concise site-specific summary of what was proven in this phase.'
+        },
+        reliableControls: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Reliable controls, entrypoints, or search actions that worked on this site.'
+        },
+        trickyFilters: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tricky, hidden, misleading, or unreliable filters and controls to remember.'
+        },
+        navigationTips: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Concrete navigation guidance such as route patterns, job card behavior, or detail-page rules.'
+        },
+        applyTips: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Safe apply-entry observations such as inline apply, external apply, or no reliable apply path.'
+        },
+        warnings: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Site-specific blockers, caveats, or uncertainty that later runs should respect.'
         }
       },
       required: ['reason']
@@ -944,11 +981,22 @@ Call this when you've found enough jobs or can't find any more relevant position
           error: `Invalid finish arguments: ${parseResult.error.issues.map(i => i.message).join(', ')}`
         }
       }
-      const { reason } = parseResult.data
+      const { reason, summary, reliableControls, trickyFilters, navigationTips, applyTips, warnings } = parseResult.data
       
       return {
         success: true,
-        data: { finished: true, reason }
+        data: {
+          finished: true,
+          reason,
+          debugFindings: {
+            summary: summary ?? null,
+            reliableControls,
+            trickyFilters,
+            navigationTips,
+            applyTips,
+            warnings
+          }
+        }
       }
     }
   }
