@@ -58,6 +58,7 @@ export interface JobFinderPageContext {
   onQueueJob: (jobId: string) => void
   onResetWorkspace: () => void
   onRunAgentDiscovery: (() => void) | undefined
+  onRunSourceDebug: (targetId: string) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onSaveProfile: (profile: CandidateProfile) => void
   onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
@@ -88,11 +89,47 @@ export function JobFinderProfileRoute() {
       busy={context.busy}
       onAnalyzeProfileFromResume={context.onAnalyzeProfileFromResume}
       onImportResume={context.onImportResume}
+      onRunSourceDebug={context.onRunSourceDebug}
       onSaveAll={context.onSaveAll}
       profile={context.workspace.profile}
+      recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       searchPreferences={context.workspace.searchPreferences}
+      sourceInstructionArtifacts={context.workspace.sourceInstructionArtifacts}
     />
   )
+}
+
+function buildSourceDebugOutcomeMessage(workspace: JobFinderWorkspaceSnapshot, targetId: string): string {
+  const target = workspace.searchPreferences.discovery.targets.find((entry) => entry.id === targetId)
+  const latestRun = target?.lastDebugRunId
+    ? workspace.recentSourceDebugRuns.find((run) => run.id === target.lastDebugRunId) ?? null
+    : null
+
+  if (latestRun?.state === 'paused_manual') {
+    return latestRun.manualPrerequisiteSummary ?? latestRun.finalSummary ?? 'Source debug paused until a manual step is completed.'
+  }
+
+  if (latestRun?.state === 'failed') {
+    return latestRun.finalSummary ?? 'Source debug finished without producing reusable instructions.'
+  }
+
+  if (latestRun?.state === 'interrupted') {
+    return latestRun.finalSummary ?? 'Source debug was interrupted before it could finish.'
+  }
+
+  if (target?.instructionStatus === 'validated') {
+    return 'Source debug completed and validated learned instructions.'
+  }
+
+  if (target?.instructionStatus === 'draft') {
+    return 'Source debug completed with a draft source profile. It needs stronger findings before validation.'
+  }
+
+  if (target?.instructionStatus === 'unsupported') {
+    return 'Source debug completed, but this source remains unsupported.'
+  }
+
+  return latestRun?.finalSummary ?? 'Source debug finished without producing reusable instructions.'
 }
 
 export function JobFinderDiscoveryRoute() {
@@ -184,7 +221,7 @@ export function JobFinderPage() {
     workspaceState.status === 'ready' ? workspaceState.workspace.selectedApplicationRecordId : null
   )
 
-  const runAction = useCallback(async (action: () => Promise<void>, onSuccess: () => void, successMessage: string | null) => {
+  const runAction = useCallback(async (action: () => Promise<unknown>, onSuccess: () => void, successMessage: string | null) => {
     try {
       setActionState({ busy: true, message: null })
       await action()
@@ -312,6 +349,18 @@ export function JobFinderPage() {
         },
         'AI Agent discovery run completed and saved locally.'
       )
+    },
+    onRunSourceDebug: (targetId: string) => {
+      void (async () => {
+        try {
+          setActionState({ busy: true, message: null })
+          const nextWorkspace = await actions.runSourceDebug(targetId)
+          setActionState({ busy: false, message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId) })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'The requested Job Finder action failed.'
+          setActionState({ busy: false, message })
+        }
+      })()
     },
     onResetWorkspace: () =>
       void runAction(

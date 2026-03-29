@@ -106,7 +106,13 @@ function createPreferences(): JobSearchPreferences {
           startingUrl: 'https://www.linkedin.com/jobs/search/',
           enabled: true,
           adapterKind: 'auto',
-          customInstructions: null
+          customInstructions: null,
+          instructionStatus: 'missing',
+          validatedInstructionId: null,
+          draftInstructionId: null,
+          lastDebugRunId: null,
+          lastVerifiedAt: null,
+          staleReason: null
         }
       ]
     }

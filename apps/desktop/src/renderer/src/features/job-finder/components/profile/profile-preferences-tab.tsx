@@ -1,5 +1,10 @@
 import { useId } from 'react'
-import { jobSourceAdapterKindValues, workModeValues } from '@unemployed/contracts'
+import {
+  jobSourceAdapterKindValues,
+  workModeValues,
+  type SourceDebugRunRecord,
+  type SourceInstructionArtifact
+} from '@unemployed/contracts'
 import type { Control, UseFormReturn } from 'react-hook-form'
 import { Controller } from 'react-hook-form'
 import { Button } from '@renderer/components/ui/button'
@@ -54,16 +59,81 @@ function BooleanSelectField(props: {
 }
 
 interface ProfilePreferencesTabProps {
+  busy: boolean
+  onRunSourceDebug: (targetId: string) => void
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>
   profileForm: UseFormReturn<ProfileEditorValues>
+  recentSourceDebugRuns: readonly SourceDebugRunRecord[]
+  sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
 }
 
 type DiscoveryTargetValue = SearchPreferencesEditorValues['discoveryTargets'][number]
 
+function normalizeLearnedInstructionLine(value: string): string {
+  return value
+    .replace(/^(Reliable control|Filter note|Navigation note|Apply note|Validated behavior|Validated navigation|Verification):\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildLearnedInstructionLines(artifact: SourceInstructionArtifact | null): string[] {
+  if (!artifact) {
+    return []
+  }
+
+  return Array.from(new Set([
+    ...artifact.navigationGuidance,
+    ...artifact.searchGuidance,
+    ...artifact.detailGuidance,
+    ...artifact.applyGuidance,
+    ...artifact.warnings.map((warning) => `Warning: ${warning}`)
+  ]
+    .map(normalizeLearnedInstructionLine)
+    .filter(Boolean)
+    .filter((line) => {
+      const normalized = line.toLowerCase().replace(/\s+/g, ' ').trim()
+    return !(
+      normalized.startsWith('start from ') ||
+      normalized.startsWith('started from ') ||
+      normalized.startsWith('stay within ') ||
+      normalized.startsWith('verify whether the site is reachable') ||
+      normalized.startsWith('find search controls or filters') ||
+      normalized.startsWith('open multiple job details') ||
+      normalized.startsWith('check whether discovered jobs expose') ||
+      normalized.startsWith('inspected discovered jobs for apply entry points') ||
+      normalized.startsWith('observed canonical job detail url ') ||
+      normalized.startsWith('no reliable apply path was confirmed for ') ||
+      normalized.startsWith('replay verification reached ') ||
+      normalized.startsWith('reliable control: no login or consent wall detected') ||
+      normalized.includes('fully accessible without login or consent walls') ||
+      normalized.includes('no authentication required') ||
+      normalized.includes('page is scrollable with substantial content') ||
+      normalized.includes('job extraction tool confirmed') ||
+      normalized.includes('site title is in albanian') ||
+      normalized.includes('means find jobs') ||
+      normalized.includes('interactive elements not detected') ||
+      normalized.includes('apply process not yet verified') ||
+      normalized.includes('job details not extracted') ||
+      normalized.includes('llm call failed') ||
+      normalized.includes('discovery encountered an error') ||
+      normalized.includes('unknown error') ||
+      normalized.includes('http://') ||
+      normalized.includes('https://') ||
+      normalized.startsWith('verification: ') ||
+      normalized.includes('produced no candidate jobs') ||
+      /produced \d+ candidate job result/.test(normalized)
+    )
+    })))
+}
+
 function TargetRow(props: {
+  busy: boolean
   discoveryTargets: readonly DiscoveryTargetValue[]
   index: number
+  instructionArtifact: SourceInstructionArtifact | null
+  onRunSourceDebug: (targetId: string) => void
   profileSelectTriggerClassName: string
+  recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   target: DiscoveryTargetValue
   updateDiscoveryTargets: (nextTargets: SearchPreferencesEditorValues['discoveryTargets']) => void
 }) {
@@ -75,6 +145,13 @@ function TargetRow(props: {
   const genericSiteWarningId = `${baseId}-generic-site-warning`
   const adapterDescribedBy = props.target.adapterKind === 'generic_site' ? genericSiteWarningId : undefined
   const displayName = props.target.label.trim() || `Target ${props.index + 1}`
+  const learnedInstructionLines = buildLearnedInstructionLines(props.instructionArtifact)
+  const latestDebugRun = props.target.lastDebugRunId
+    ? props.recentSourceDebugRuns.find((run) => run.id === props.target.lastDebugRunId) ?? null
+    : null
+  const latestDebugRunLabel = latestDebugRun
+    ? `${formatStatusLabel(latestDebugRun.state)}${latestDebugRun.completedAt ? ` • ${new Date(latestDebugRun.completedAt).toLocaleString()}` : ''}`
+    : null
   const updateTarget = (nextTarget: DiscoveryTargetValue) => {
     const nextTargets = [...props.discoveryTargets]
     nextTargets[props.index] = nextTarget
@@ -86,6 +163,14 @@ function TargetRow(props: {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</p>
         <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={props.busy || !props.target.startingUrl.trim()}
+            onClick={() => props.onRunSourceDebug(props.target.id)}
+            type="button"
+            variant="secondary"
+          >
+            Debug source
+          </Button>
           <Button
             aria-label={`Move ${displayName} up`}
             disabled={props.index === 0}
@@ -174,22 +259,67 @@ function TargetRow(props: {
           />
         </div>
         <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2">
-          <FieldLabel htmlFor={instructionsId}>Custom navigation instructions</FieldLabel>
+          <FieldLabel htmlFor={instructionsId}>Custom override instructions</FieldLabel>
           <ProfileTextarea
             className="min-h-(--textarea-tall)"
             id={instructionsId}
             onChange={(event) => updateTarget({ ...props.target, customInstructions: event.target.value })}
-            placeholder="Optional: explain how this site exposes jobs, where to click, what sections to trust, or what to avoid."
+            placeholder="Optional: add your own override notes. Learned source instructions are stored separately and used automatically."
             rows={4}
             value={props.target.customInstructions}
           />
+          <p className="text-[0.82rem] leading-6 text-foreground-soft">
+            This field is only for your manual overrides. Debug-source guidance is stored separately so it does not overwrite your notes.
+          </p>
         </div>
+        {latestDebugRun ? (
+          <div className="grid min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 h-full md:col-span-2">
+            <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
+              Last source-debug run
+            </p>
+            <p className="text-[0.88rem] leading-6 text-foreground">
+              {latestDebugRunLabel}
+            </p>
+            {latestDebugRun.manualPrerequisiteSummary || latestDebugRun.finalSummary ? (
+              <p className="text-[0.82rem] leading-6 text-foreground-soft">
+                {latestDebugRun.manualPrerequisiteSummary ?? latestDebugRun.finalSummary}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {learnedInstructionLines.length > 0 ? (
+          <div className="grid min-w-0 content-start gap-(--gap-field) rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 h-full md:col-span-2">
+            <div className="grid gap-1">
+              <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
+                Learned source instructions
+              </p>
+              <p className="text-[0.82rem] leading-6 text-foreground-soft">
+                Generated by the source-debug run and used automatically during discovery and supported apply flows.
+              </p>
+            </div>
+            <ul className="grid gap-2 text-[0.88rem] leading-6 text-foreground">
+              {learnedInstructionLines.map((line, lineIndex) => (
+                <li
+                  key={`${props.target.id}_instruction_${lineIndex}`}
+                  className="rounded-(--radius-small) border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2"
+                >
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="grid gap-2 md:col-span-2">
           <CheckboxField
             checked={props.target.enabled}
             label="Enabled for sequential discovery runs"
             onCheckedChange={(checked) => updateTarget({ ...props.target, enabled: checked })}
           />
+          <p className="text-[0.82rem] leading-6 text-foreground-soft">
+            Instruction status: <strong>{formatStatusLabel(props.target.instructionStatus)}</strong>
+            {props.target.lastVerifiedAt ? ` • Verified ${new Date(props.target.lastVerifiedAt).toLocaleString()}` : ''}
+            {props.target.staleReason ? ` • ${props.target.staleReason}` : ''}
+          </p>
           {props.target.adapterKind === 'generic_site' ? (
             <p className="text-[0.82rem] leading-6 text-(--warning-text)" id={genericSiteWarningId}>Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
           ) : null}
@@ -199,7 +329,14 @@ function TargetRow(props: {
   )
 }
 
-export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfilePreferencesTabProps) {
+export function ProfilePreferencesTab({
+  busy,
+  onRunSourceDebug,
+  preferencesForm,
+  profileForm,
+  recentSourceDebugRuns,
+  sourceInstructionArtifacts
+}: ProfilePreferencesTabProps) {
   const { control: preferenceControl, register: registerPreferences, setValue: setPreferenceValue, watch: watchPreferences } = preferencesForm
   const { control: profileControl, register: registerProfile } = profileForm
   const authorizedWorkCountriesId = useId()
@@ -239,7 +376,13 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
         startingUrl: '',
         enabled: true,
         adapterKind: 'auto',
-        customInstructions: ''
+        customInstructions: '',
+        instructionStatus: 'missing',
+        validatedInstructionId: null,
+        draftInstructionId: null,
+        lastDebugRunId: null,
+        lastVerifiedAt: null,
+        staleReason: null
       }
     ])
   }
@@ -461,16 +604,27 @@ export function ProfilePreferencesTab({ preferencesForm, profileForm }: ProfileP
               <p className="text-[0.9rem] leading-6 text-foreground-soft">No discovery targets configured yet. Add a LinkedIn or experimental generic-site entrypoint.</p>
             ) : null}
 
-            {discoveryTargets.map((target, index) => (
+            {discoveryTargets.map((target, index) => {
+              const instructionArtifactId = target.validatedInstructionId ?? target.draftInstructionId
+              const instructionArtifact = instructionArtifactId
+                ? sourceInstructionArtifacts.find((artifact) => artifact.id === instructionArtifactId) ?? null
+                : null
+
+              return (
               <TargetRow
+                busy={busy}
                 discoveryTargets={discoveryTargets}
                 index={index}
+                instructionArtifact={instructionArtifact}
                 key={target.id}
+                onRunSourceDebug={onRunSourceDebug}
                 profileSelectTriggerClassName={profileSelectTriggerClassName}
+                recentSourceDebugRuns={recentSourceDebugRuns}
                 target={target}
                 updateDiscoveryTargets={updateDiscoveryTargets}
               />
-            ))}
+              )
+            })}
           </div>
         </article>
       </section>

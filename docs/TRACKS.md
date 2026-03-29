@@ -124,15 +124,15 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `JF-09 Job Source Debug Agent`
 
-- status: `ready`
-- last updated: `2026-03-27`
+- status: `in_progress`
+- last updated: `2026-03-29`
 - scope: bootstrap reusable source instructions for newly added discovery targets when the user cannot author them manually
 - linked plan: `docs/exec-plans/active/005-job-source-debug-agent.md`
 - code areas: `packages/contracts`, `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `apps/desktop`
-- current focus: define the next discovery slice around a debug-agent workflow that can probe a new target from Profile Preferences, learn auth/navigation/search/filter behavior, and synthesize reusable instructions for the real discovery agents
-- next step: add typed debug-session and source-instruction artifacts, then wire a Profile Preferences entrypoint that launches a sequential orchestrator and saves verified findings back onto the target
+- current focus: the first source-debug slice is landed with typed run/attempt/evidence/instruction artifacts, a reusable sequential orchestrator helper in `packages/job-finder`, browser-agent transcript compaction, replay-gated instruction promotion, apply-path validation guidance, a Profile Preferences `Debug source` entrypoint, and a stricter promotion gate that keeps thin route-only findings in `draft` until reusable search/navigation and detail/apply guidance are both proven
+- next step: run broader desktop/live-site QA on manual-prerequisite pauses, draft acceptance/verification flows, stronger search/filter probing quality, apply-guidance quality, and instruction-status copy, then tighten the orchestration heuristics before parallel worker variants are considered
 - blockers: none
-- notes: the planned flow stays hostname-bounded, can run specialized agents or phases sequentially with findings handed forward between steps, and should keep testing until it can reach job results, vary search/filter state, open detail pages, and prove the saved instructions are replayable
+- notes: source-debug stays artifact-first and does not persist raw worker chat by default; the orchestrator stores active/recent run summaries in discovery state while dedicated repository collections retain runs, attempts, evidence refs, and instruction artifacts; replay verification is the current promotion gate for validated instructions, and apply-path guidance currently means safe apply-entry instructions rather than autonomous submission for arbitrary sources
 
 ### `JF-10 Profile And Discovery Production Copy Pass`
 

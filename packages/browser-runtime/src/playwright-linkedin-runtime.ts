@@ -110,6 +110,13 @@ function cleanText(value: string | null | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim()
 }
 
+function normalizeInstructionList(instructions: readonly string[] | undefined): string[] {
+  return uniqueByKey(
+    (instructions ?? []).map((instruction) => cleanText(instruction)).filter(Boolean),
+    (instruction) => normalizeText(instruction)
+  ).slice(0, 5)
+}
+
 function uniqueByKey<TValue>(values: readonly TValue[], getKey: (value: TValue) => string): TValue[] {
   const seen = new Set<string>()
 
@@ -1030,6 +1037,9 @@ export function createLinkedInBrowserAgentRuntime(
       const page = await getReadyPage(source)
       const startedAt = new Date().toISOString()
       const checkpoints: ApplyExecutionResult['checkpoints'] = []
+      const guidance = normalizeInstructionList(input.instructions)
+      const guidanceDetail =
+        guidance.length > 0 ? ` Guidance considered: ${guidance.join(' | ')}.` : ''
 
       await page.goto(input.job.canonicalUrl, { waitUntil: 'domcontentloaded' })
       await updateSessionStateFromPage(page)
@@ -1038,13 +1048,23 @@ export function createLinkedInBrowserAgentRuntime(
         throw buildSessionBlockedResult(currentSessionStates.get(source) ?? createInitialSessionState(source))
       }
 
+      if (guidance.length > 0) {
+        checkpoints.push({
+          id: `checkpoint_${input.job.id}_guidance_loaded`,
+          at: startedAt,
+          label: 'Loaded validated source guidance',
+          detail: `The dedicated Chrome profile loaded learned source guidance before entering the apply flow: ${guidance.join(' | ')}.`,
+          state: 'in_progress'
+        })
+      }
+
       const easyApplyButton = page.getByRole('button', { name: /easy apply/i }).first()
 
       if ((await easyApplyButton.count()) === 0) {
         return ApplyExecutionResultSchema.parse({
           state: 'unsupported',
           summary: 'Easy Apply path is unavailable',
-          detail: 'The live LinkedIn listing did not expose an Easy Apply button for the dedicated Chrome profile.',
+          detail: `The live LinkedIn listing did not expose an Easy Apply button for the dedicated Chrome profile.${guidanceDetail}`,
           submittedAt: null,
           outcome: null,
           nextActionLabel: 'Inspect the listing manually',
@@ -1064,7 +1084,7 @@ export function createLinkedInBrowserAgentRuntime(
         id: `checkpoint_${input.job.id}_open_listing`,
         at: startedAt,
         label: 'Opened Easy Apply',
-        detail: 'The dedicated Chrome profile opened the Easy Apply dialog for the selected job.',
+        detail: `The dedicated Chrome profile opened the Easy Apply dialog for the selected job.${guidanceDetail}`,
         state: 'in_progress'
       })
 
@@ -1104,7 +1124,7 @@ export function createLinkedInBrowserAgentRuntime(
         return ApplyExecutionResultSchema.parse({
           state: 'paused',
           summary: 'Easy Apply needs manual review',
-          detail: `The Chrome profile agent stopped because it found fields that are not safe to answer automatically: ${remainingIssues.join(', ')}.`,
+          detail: `The Chrome profile agent stopped because it found fields that are not safe to answer automatically: ${remainingIssues.join(', ')}.${guidanceDetail}`,
           submittedAt: null,
           outcome: null,
           nextActionLabel: 'Finish the unsupported fields manually in the dedicated Chrome profile',
@@ -1137,7 +1157,7 @@ export function createLinkedInBrowserAgentRuntime(
           return ApplyExecutionResultSchema.parse({
             state: 'paused',
             summary: 'Easy Apply needs manual review',
-            detail: `The review step exposed additional fields that require a human decision: ${issues.join(', ')}.`,
+            detail: `The review step exposed additional fields that require a human decision: ${issues.join(', ')}.${guidanceDetail}`,
             submittedAt: null,
             outcome: null,
             nextActionLabel: 'Finish the review step manually in the dedicated Chrome profile',
@@ -1161,7 +1181,7 @@ export function createLinkedInBrowserAgentRuntime(
         return ApplyExecutionResultSchema.parse({
           state: 'unsupported',
           summary: 'Submit button unavailable',
-          detail: 'The dedicated Chrome profile reached the Easy Apply flow but could not find a final submit action.',
+          detail: `The dedicated Chrome profile reached the Easy Apply flow but could not find a final submit action.${guidanceDetail}`,
           submittedAt: null,
           outcome: null,
           nextActionLabel: 'Finish the application manually',
@@ -1183,7 +1203,7 @@ export function createLinkedInBrowserAgentRuntime(
           state: 'paused',
           summary: 'Ready for final human submit',
           detail:
-            'The Chrome profile agent filled the supported fields and stopped at the final submit step because human review is still required for live submissions.',
+            `The Chrome profile agent filled the supported fields and stopped at the final submit step because human review is still required for live submissions.${guidanceDetail}`,
           submittedAt: null,
           outcome: null,
           nextActionLabel: 'Review the final LinkedIn application in the dedicated Chrome profile and submit manually',
@@ -1209,7 +1229,7 @@ export function createLinkedInBrowserAgentRuntime(
       return ApplyExecutionResultSchema.parse({
         state: 'submitted',
         summary: 'Easy Apply submitted',
-        detail: `The Chrome profile agent submitted ${input.job.title} at ${input.job.company} through the supported Easy Apply path.`,
+        detail: `The Chrome profile agent submitted ${input.job.title} at ${input.job.company} through the supported Easy Apply path.${guidanceDetail}`,
         submittedAt,
         outcome: 'submitted',
         nextActionLabel: 'Monitor your LinkedIn inbox and email for recruiter follow-up',
@@ -1280,8 +1300,10 @@ export function createLinkedInBrowserAgentRuntime(
             siteLabel: agentOptions.siteLabel,
             ...(agentOptions.siteInstructions ? { siteInstructions: agentOptions.siteInstructions } : {}),
             ...(agentOptions.toolUsageNotes ? { toolUsageNotes: agentOptions.toolUsageNotes } : {}),
+            ...(agentOptions.taskPacket ? { taskPacket: agentOptions.taskPacket } : {}),
             ...(agentOptions.experimental ? { experimental: true } : {})
           },
+          ...(agentOptions.compaction ? { compaction: agentOptions.compaction } : {}),
           ...(agentOptions.relevantUrlSubstrings
             ? {
                 extractionContext: {
@@ -1360,7 +1382,14 @@ export function createLinkedInBrowserAgentRuntime(
               ? `Discovery encountered an error: ${result.error}`
               : null
           ].filter(Boolean).join(' ') || null,
-          jobs: result.jobs
+          jobs: result.jobs,
+          agentMetadata: {
+            steps: result.steps,
+            incomplete: result.incomplete ?? false,
+            transcriptMessageCount: result.transcriptMessageCount,
+            compactionState: result.compactionState ?? null,
+            debugFindings: result.debugFindings ?? null
+          }
         })
       } catch (error) {
         if ((error instanceof DOMException && error.name === 'AbortError') || agentOptions.signal?.aborted) {
@@ -1378,7 +1407,8 @@ export function createLinkedInBrowserAgentRuntime(
             locations: agentOptions.searchPreferences.locations
           }),
           warning: `Agent discovery failed: ${detail}`,
-          jobs: []
+          jobs: [],
+          agentMetadata: null
         })
       } finally {
         if (source === 'linkedin' && page) {

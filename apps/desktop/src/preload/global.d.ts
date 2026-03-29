@@ -4,6 +4,7 @@ import type {
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
   JobFinderSettings,
+  SourceDebugRunRecord,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences
@@ -35,6 +36,12 @@ declare global {
         importResume: () => Promise<JobFinderWorkspaceSnapshot>
         runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>
         runAgentDiscovery: (onActivity?: (event: DiscoveryActivityEvent) => void) => Promise<JobFinderWorkspaceSnapshot>
+        runSourceDebug: (targetId: string) => Promise<JobFinderWorkspaceSnapshot>
+        cancelSourceDebug: (runId: string) => Promise<JobFinderWorkspaceSnapshot>
+        getSourceDebugRun: (runId: string) => Promise<SourceDebugRunRecord>
+        listSourceDebugRuns: (targetId: string) => Promise<readonly SourceDebugRunRecord[]>
+        acceptSourceInstructionDraft: (targetId: string, instructionId: string) => Promise<JobFinderWorkspaceSnapshot>
+        verifySourceInstructions: (targetId: string, instructionId: string) => Promise<JobFinderWorkspaceSnapshot>
         cancelAgentDiscovery: () => void
         resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
         queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>

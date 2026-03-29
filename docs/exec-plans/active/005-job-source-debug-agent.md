@@ -2,6 +2,24 @@
 
 Status: active
 
+## Implementation Status
+
+The first architecture slice is now landed:
+
+- typed source-debug run, attempt, evidence, compaction, instruction, and verification contracts exist
+- `packages/db` persists dedicated source-debug runs, attempts, evidence refs, and instruction artifacts outside the singleton discovery-state blob
+- `packages/job-finder` owns a sequential source-debug orchestrator with manual-prerequisite pauses, phase handoff, instruction synthesis, and replay verification
+- `packages/job-finder` now also factors the phase sequencing into a reusable artifact-oriented orchestrator helper
+- `packages/browser-agent` now supports worker-side transcript compaction and returns compacted metadata rather than exposing its full transcript to the orchestrator
+- Profile Preferences exposes a `Debug source` target action plus instruction-status metadata
+- desktop IPC/preload now exposes source-debug run, cancel, get/list, accept-draft, and verify actions for follow-on UI work
+- source-debug now includes a bounded `apply_path_validation` phase that records safe apply-entry guidance without submitting an application, and approved LinkedIn apply forwards validated guidance into the supported runtime
+- Profile Preferences now renders learned source instructions separately from manual override text so successful debug runs no longer look empty when `customInstructions` stays blank
+- The orchestrator now curates learned instructions more aggressively: exact sample URLs, per-job result counts, and raw phase boilerplate are filtered out in favor of reusable controls, filter gotchas, navigation patterns, and apply-entry guidance
+- The managed-session path now opens LinkedIn before source-debug phase execution begins, and internal agent/runtime failures no longer get persisted as learned instruction text
+
+The next work on this plan is QA/hardening rather than first implementation.
+
 ## Goal
 
 Add a job-source debug-agent workflow for Profile Preferences so the app can learn and verify reusable source instructions when a user adds a new job source but does not know how to author those instructions manually.
@@ -34,7 +52,7 @@ That creates five immediate problems:
 1. The user adds a new discovery target in Profile Preferences.
 2. If the target has no usable instructions, the UI offers `Debug source` or prompts the user to run it.
 3. The orchestrator opens a bounded debug session for that target.
-4. Sequential phases probe auth requirements, site layout, search inputs, filters, results lists, detail pages, and other navigation constraints.
+4. Sequential phases probe auth requirements, site layout, search inputs, filters, results lists, detail pages, apply-entry paths, and other navigation constraints.
 5. The system synthesizes a draft instruction artifact plus a readable evidence summary.
 6. A verification phase replays the draft instructions in a fresh pass and confirms they can still reach jobs and vary results.
 7. The user can review, accept, edit, rerun, or keep the instructions in draft mode.
@@ -47,7 +65,7 @@ That creates five immediate problems:
 - A Profile Preferences entrypoint for launching a debug run from a newly added source.
 - Sequential orchestration with explicit phase handoff and retained activity history.
 - Hostname-bounded exploration with safe-stop behavior.
-- Validation that the learned instructions can reach job results, open job details, and change result sets through search terms or filters when the site supports them.
+- Validation that the learned instructions can reach job results, open job details, change result sets through search terms or filters when the site supports them, and capture safe apply-entry guidance when the source exposes it.
 - Promotion of validated findings into target instructions that normal discovery agents can consume later.
 
 ### Out Of Scope
@@ -55,7 +73,7 @@ That creates five immediate problems:
 - Unbounded crawling across arbitrary external sites.
 - Bypassing captchas, paywalls, 2FA, or other site protections.
 - Storing credentials or raw secrets in findings artifacts.
-- Fully generic apply-flow authoring for arbitrary sites in v1.
+- Fully generic apply-flow authoring or submission for arbitrary sites in v1.
 - Making parallel multi-agent execution a requirement for the first delivery.
 
 ## UX Principles
@@ -65,6 +83,7 @@ That creates five immediate problems:
 - Activity entries should stay readable and user-facing rather than exposing raw model reasoning.
 - Auth requirements and manual user steps should be visible and explicit.
 - Low-confidence findings should stay draft or unsupported instead of being silently promoted into production instructions.
+- Replay success alone is not enough to validate a source; the retained artifact should also prove reusable search/navigation guidance plus reusable detail/apply guidance.
 
 ## Orchestration Model
 
@@ -106,6 +125,12 @@ Recommended phases:
 - rerun the learned instructions in a fresh pass
 - confirm the flow still reaches jobs, opens details, and changes results across multiple page states
 
+### 6. Apply Path Validation
+
+- inspect discovered jobs for inline apply, external redirect, or missing apply-entry patterns
+- capture safe apply-entry guidance without submitting an application
+- treat this as reusable instruction data, not as a green light for autonomous submission on arbitrary sources
+
 Each phase should emit structured findings that the next phase consumes. The orchestrator should store both the user-facing timeline and the structured handoff payloads.
 
 ## Findings And Instruction Artifacts
@@ -117,6 +142,7 @@ The debug-agent flow should persist artifacts that capture:
 - recommended navigation path to reach jobs
 - search inputs, filter controls, and result-changing recipes
 - job-card and job-detail navigation guidance
+- safe apply-entry guidance when the source exposes an apply path
 - stable job identity hints and canonical URL rules
 - unsupported areas, warnings, and confidence notes
 - last verified timestamp plus a short proof summary
@@ -163,11 +189,18 @@ Exact names can change, but the product shape should preserve three ideas:
 - persist target-level instruction artifacts and last verification state
 - keep artifacts narrow enough for preload/renderer boundaries
 
+Status:
+- done in the first source-debug implementation slice
+
 ### 2. Profile Preferences Entry Surface
 
 - add `Debug source` entrypoint for targets with missing or draft instructions
 - show current instruction status such as `missing`, `draft`, `validated`, or `unsupported`
 - surface retained summaries and rerun controls without turning Preferences into a noisy developer panel
+
+Status:
+- `Debug source` plus target instruction status is landed
+- retained summaries/review affordances still need broader UI follow-up
 
 ### 3. Sequential Debug Orchestrator
 
@@ -175,17 +208,27 @@ Exact names can change, but the product shape should preserve three ideas:
 - run phases in order with explicit handoff payloads
 - stop cleanly on auth blockers, unsupported layouts, or unstable navigation
 
+Status:
+- landed for the initial sequential phase set with manual-prerequisite pauses and replay verification
+
 ### 4. Instruction Synthesis And Review
 
 - synthesize curated source instructions from findings
 - keep the instructions editable and reviewable by the user
 - preserve warnings and unsupported edges instead of flattening everything into false certainty
 
+Status:
+- synthesis is landed
+- richer review/edit surfaces still need follow-up
+
 ### 5. Replay Verification Gate
 
 - rerun the learned instructions in a fresh pass
 - prove they can reach job results, open detail pages, and vary result sets
 - require successful replay before marking instructions as validated
+
+Status:
+- landed in the initial implementation slice
 
 ### 6. Testing And Hardening
 
@@ -194,6 +237,10 @@ Exact names can change, but the product shape should preserve three ideas:
 - verification tests for promotion rules
 - timeline tests for readable event wording
 - bounded-hostname and auth-blocker tests
+
+Status:
+- contract, persistence, orchestrator, manual-blocker, and worker-compaction coverage landed
+- live QA, wording cleanup, and broader hostile-site coverage remain
 
 ## Milestones
 
@@ -239,6 +286,7 @@ Exit signal:
 - Detect and surface auth requirements explicitly instead of pretending the site is public.
 - Do not mark instructions as validated until replay proves the flow can navigate more than one relevant page or result state.
 - When search or filters exist, prove they can change the result set rather than only loading the same default page twice.
+- Keep thin route-only findings in `draft` even if replay succeeds; require stronger reusable guidance about how to reach jobs plus how detail/apply behavior works before promotion.
 - Keep findings curated and user-readable; do not expose raw model thoughts.
 - Stop with a clear unsupported or draft outcome when the site cannot be mapped safely enough.
 - Update docs and tests in the same task as implementation.

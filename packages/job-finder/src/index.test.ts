@@ -4,7 +4,14 @@ import { createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import { createInMemoryJobFinderRepository } from '@unemployed/db'
 import type { JobFinderRepositorySeed } from '@unemployed/db'
 import type { AgentDiscoveryOptions, BrowserSessionRuntime } from '@unemployed/browser-runtime'
-import type { AgentDiscoveryProgress, DiscoveryActivityEvent, DiscoveryRunResult, JobPosting } from '@unemployed/contracts'
+import type {
+  AgentDebugFindings,
+  AgentDiscoveryProgress,
+  DiscoveryActivityEvent,
+  DiscoveryRunResult,
+  JobPosting,
+  SourceDebugCompactionState
+} from '@unemployed/contracts'
 import { createJobFinderWorkspaceService } from './index'
 
 function createSeed(): JobFinderRepositorySeed {
@@ -147,7 +154,13 @@ function createSeed(): JobFinderRepositorySeed {
             startingUrl: 'https://www.linkedin.com/jobs/search/',
             enabled: true,
             adapterKind: 'auto',
-            customInstructions: null
+            customInstructions: null,
+            instructionStatus: 'missing',
+            validatedInstructionId: null,
+            draftInstructionId: null,
+            lastDebugRunId: null,
+            lastVerifiedAt: null,
+            staleReason: null
           }
         ]
       }
@@ -244,6 +257,10 @@ function createSeed(): JobFinderRepositorySeed {
     ],
     applicationRecords: [],
     applicationAttempts: [],
+    sourceDebugRuns: [],
+    sourceDebugAttempts: [],
+    sourceInstructionArtifacts: [],
+    sourceDebugEvidenceRefs: [],
     settings: {
       resumeFormat: 'html',
       resumeTemplateId: 'classic_ats',
@@ -258,6 +275,8 @@ function createSeed(): JobFinderRepositorySeed {
       runState: 'idle',
       activeRun: null,
       recentRuns: [],
+      activeSourceDebugRun: null,
+      recentSourceDebugRuns: [],
       pendingDiscoveryJobs: []
     }
   }
@@ -325,19 +344,27 @@ function createAgentAiClient() {
 
   return {
     ...fallbackClient,
-    chatWithTools: async () => ({ content: 'ok', toolCalls: [] })
+    chatWithTools: () => Promise.resolve({ content: 'ok', toolCalls: [] })
   } satisfies JobFinderAiClient
 }
 
-function createAgentBrowserRuntime(catalog: readonly JobPosting[]): BrowserSessionRuntime {
+function createAgentBrowserRuntime(
+  catalog: readonly JobPosting[],
+  runtimeOptions?: {
+    sessionStatus?: 'ready' | 'login_required' | 'blocked'
+    sessionDetail?: string
+    compactionState?: SourceDebugCompactionState | null
+    debugFindingsByPhase?: Partial<Record<string, AgentDebugFindings | null>>
+  }
+): BrowserSessionRuntime {
   const baseRuntime = createCatalogBrowserSessionRuntime({
     sessions: [
       {
         source: 'linkedin',
-        status: 'ready',
+        status: runtimeOptions?.sessionStatus ?? 'ready',
         driver: 'catalog_seed',
         label: 'Browser session ready',
-        detail: 'Validated recently.',
+        detail: runtimeOptions?.sessionDetail ?? 'Validated recently.',
         lastCheckedAt: '2026-03-20T10:04:00.000Z'
       }
     ],
@@ -347,6 +374,12 @@ function createAgentBrowserRuntime(catalog: readonly JobPosting[]): BrowserSessi
   return {
     ...baseRuntime,
     async runAgentDiscovery(source, options: AgentDiscoveryOptions): Promise<DiscoveryRunResult> {
+      const phaseLabel = options.taskPacket?.strategyLabel ?? 'discovery'
+      const phaseKey = phaseLabel.toLowerCase().replace(/\s+/g, '_')
+      const debugFindings =
+        runtimeOptions?.debugFindingsByPhase?.[phaseKey] ??
+        runtimeOptions?.debugFindingsByPhase?.[phaseLabel] ??
+        null
       const emitProgress = (progress: AgentDiscoveryProgress) => {
         options.onProgress?.(progress)
       }
@@ -385,7 +418,14 @@ function createAgentBrowserRuntime(catalog: readonly JobPosting[]): BrowserSessi
         completedAt: '2026-03-20T10:01:00.000Z',
         querySummary: 'Agent discovery test run',
         warning: null,
-        jobs: [...catalog]
+        jobs: [...catalog],
+        agentMetadata: {
+          steps: 2,
+          incomplete: false,
+          transcriptMessageCount: 7,
+          compactionState: runtimeOptions?.compactionState ?? null,
+          debugFindings
+        }
       }
     }
   }
@@ -437,6 +477,88 @@ function createResumeExtraction(overrides: Partial<ResumeProfileExtraction> = {}
     analysisProviderLabel: 'Stub extraction',
     notes: [],
     ...overrides
+  }
+}
+
+function createStrongSourceDebugFindingsByPhase(): Partial<Record<string, AgentDebugFindings | null>> {
+  return {
+    access_auth_probe: {
+      summary: 'Public job browsing is available without login or consent blockers.',
+      reliableControls: ['The homepage and jobs navigation are accessible without authentication.'],
+      trickyFilters: [],
+      navigationTips: ['Confirm public access first, then move to the dedicated jobs/listings route for repeatable discovery.'],
+      applyTips: [],
+      warnings: []
+    },
+    site_structure_mapping: {
+      summary: 'Use the dedicated jobs/listings route instead of staying on the homepage.',
+      reliableControls: ['The jobs navigation link opens a dedicated listings page.'],
+      trickyFilters: [],
+      navigationTips: ['Start future discovery from the dedicated jobs/listings route rather than the homepage.'],
+      applyTips: [],
+      warnings: []
+    },
+    search_filter_probe: {
+      summary: 'Keyword search on the listings route changes the result set reliably.',
+      reliableControls: ['Use the keyword search box on the listings route to refresh the visible job set.'],
+      trickyFilters: ['Homepage promo chips did not reliably change the listing set and should be ignored.'],
+      navigationTips: [],
+      applyTips: [],
+      warnings: []
+    },
+    job_detail_validation: {
+      summary: 'Open the same-host detail page from the listing card to recover canonical job data.',
+      reliableControls: [],
+      trickyFilters: [],
+      navigationTips: ['Open the listing card detail page instead of relying on inline card previews.'],
+      applyTips: [],
+      warnings: []
+    },
+    apply_path_validation: {
+      summary: 'Sampled job details did not expose a reliable on-site apply entry.',
+      reliableControls: [],
+      trickyFilters: [],
+      navigationTips: [],
+      applyTips: ['Treat applications as manual unless a detail page clearly exposes a stable apply entry.'],
+      warnings: []
+    },
+    replay_verification: {
+      summary: 'Replay from the listings route reproduced the searchable job flow.',
+      reliableControls: ['The listings route and keyword search remained stable on replay.'],
+      trickyFilters: [],
+      navigationTips: ['Reuse the listings route and keyword search path during normal discovery.'],
+      applyTips: [],
+      warnings: []
+    }
+  }
+}
+
+function createThinSourceDebugFindingsByPhase(): Partial<Record<string, AgentDebugFindings | null>> {
+  return {
+    job_detail_validation: {
+      summary: 'Job details resolve to same-host detail pages instead of only inline cards.',
+      reliableControls: [],
+      trickyFilters: [],
+      navigationTips: ['Different listings resolve to distinct canonical detail URLs.'],
+      applyTips: [],
+      warnings: []
+    },
+    apply_path_validation: {
+      summary: 'Sampled job details did not expose a reliable apply entry on the site.',
+      reliableControls: [],
+      trickyFilters: [],
+      navigationTips: [],
+      applyTips: ['Treat applications as manual for now.'],
+      warnings: []
+    },
+    replay_verification: {
+      summary: 'Replay verification reached the same listings again.',
+      reliableControls: [],
+      trickyFilters: [],
+      navigationTips: [],
+      applyTips: [],
+      warnings: []
+    }
   }
 }
 
@@ -727,6 +849,98 @@ describe('createJobFinderWorkspaceService', () => {
     expect(snapshot.applicationAttempts.some((attempt) => attempt.state === 'paused')).toBe(true)
   })
 
+  test('forwards validated source guidance into apply execution', async () => {
+    const seed = createSeed()
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        instructionStatus: 'validated',
+        validatedInstructionId: 'instruction_linkedin_validated'
+      }
+    ]
+    seed.savedJobs = [
+      {
+        ...seed.savedJobs[0]!,
+        provenance: [
+          {
+            targetId: 'target_linkedin_default',
+            adapterKind: 'auto',
+            resolvedAdapterKind: 'linkedin',
+            startingUrl: 'https://www.linkedin.com/jobs/search/',
+            discoveredAt: '2026-03-20T10:04:00.000Z'
+          }
+        ]
+      },
+      ...seed.savedJobs.slice(1)
+    ]
+    seed.sourceInstructionArtifacts = [
+      {
+        id: 'instruction_linkedin_validated',
+        targetId: 'target_linkedin_default',
+        status: 'validated',
+        createdAt: '2026-03-20T10:04:00.000Z',
+        updatedAt: '2026-03-20T10:04:00.000Z',
+        acceptedAt: '2026-03-20T10:04:00.000Z',
+        basedOnRunId: 'debug_run_1',
+        basedOnAttemptIds: ['debug_attempt_1'],
+        notes: 'Validated apply guidance for the LinkedIn target.',
+        navigationGuidance: ['Open the job detail page before acting on apply controls.'],
+        searchGuidance: ['Use the jobs search entrypoint rather than the generic LinkedIn home feed.'],
+        detailGuidance: ['Prefer the dedicated jobs search entrypoint for this source.'],
+        applyGuidance: ['Use the Easy Apply branch when the listing exposes it; otherwise pause for review.'],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: 'v1',
+          toolsetVersion: 'v1',
+          adapterVersion: 'v1',
+          appSchemaVersion: 'v1'
+        },
+        verification: {
+          id: 'verification_linkedin_validated',
+          replayRunId: 'debug_run_replay_1',
+          verifiedAt: '2026-03-20T10:04:00.000Z',
+          outcome: 'passed',
+          proofSummary: 'Replay reached the apply path successfully.',
+          reason: null,
+          versionInfo: {
+            promptProfileVersion: 'v1',
+            toolsetVersion: 'v1',
+            adapterVersion: 'v1',
+            appSchemaVersion: 'v1'
+          }
+        }
+      }
+    ]
+
+    const repository = createInMemoryJobFinderRepository(seed)
+    const browserRuntime = createBrowserRuntime()
+    let capturedInstructions: readonly string[] = []
+    const instrumentedRuntime: BrowserSessionRuntime = {
+      ...browserRuntime,
+      async executeEasyApply(source, input) {
+        capturedInstructions = input.instructions ?? []
+        return browserRuntime.executeEasyApply(source, input)
+      }
+    }
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: instrumentedRuntime,
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    await workspaceService.approveApply('job_ready')
+
+    expect(capturedInstructions).toEqual(
+      expect.arrayContaining([
+        'Prefer the dedicated jobs search entrypoint for this source.',
+        'Use the jobs search entrypoint rather than the generic LinkedIn home feed.',
+        'Open the job detail page before acting on apply controls.',
+        'Use the Easy Apply branch when the listing exposes it; otherwise pause for review.'
+      ])
+    )
+  })
+
   test('extracts profile details from stored resume text', async () => {
     const repository = createInMemoryJobFinderRepository({
       ...createSeed(),
@@ -785,6 +999,238 @@ describe('createJobFinderWorkspaceService', () => {
     expect(snapshot.profile.currentCity).toBe('New York')
     expect(snapshot.profile.currentRegion).toBe('NY')
     expect(snapshot.profile.currentCountry).toBeNull()
+  })
+
+  test('runs source debug, persists artifacts, and validates learned instructions after replay', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: []
+    })
+    const browserRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: 'linkedin',
+          sourceJobId: 'linkedin_source_debug_1',
+          discoveryMethod: 'catalog_seed',
+          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_1',
+          title: 'Staff Product Designer',
+          company: 'Signal Systems',
+          location: 'Remote',
+          workMode: ['remote'],
+          applyPath: 'easy_apply',
+          easyApplyEligible: true,
+          postedAt: '2026-03-20T09:00:00.000Z',
+          discoveredAt: '2026-03-20T10:04:00.000Z',
+          salaryText: '$180k - $220k',
+          summary: 'Validate stable job detail routes.',
+          description: 'Validate stable job detail routes.',
+          keySkills: ['Figma', 'React']
+        }
+      ],
+      {
+        compactionState: {
+          compactedAt: '2026-03-20T10:00:30.000Z',
+          compactionCount: 1,
+          summary: 'Compacted execution summary.',
+          confirmedFacts: ['Visited 3 pages.'],
+          blockerNotes: [],
+          avoidStrategyFingerprints: ['site_structure_mapping:linkedin:site structure mapping'],
+          preservedContext: ['Staff Product Designer at Signal Systems']
+        },
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase()
+      }
+    )
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.runSourceDebug('target_linkedin_default')
+    const runs = await repository.listSourceDebugRuns()
+    const attempts = await repository.listSourceDebugAttempts()
+    const artifacts = await repository.listSourceInstructionArtifacts()
+    const evidenceRefs = await repository.listSourceDebugEvidenceRefs()
+    const validatedArtifact = artifacts.find((artifact) => artifact.status === 'validated')
+
+    expect(snapshot.activeSourceDebugRun).toBeNull()
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe('completed')
+    expect(snapshot.searchPreferences.discovery.targets[0]?.instructionStatus).toBe('validated')
+    expect(snapshot.searchPreferences.discovery.targets[0]?.validatedInstructionId).not.toBeNull()
+    expect(snapshot.searchPreferences.discovery.targets[0]?.draftInstructionId).toBeNull()
+    expect(runs).toHaveLength(1)
+    expect(attempts).toHaveLength(6)
+    expect(attempts.every((attempt) => attempt.runId === runs[0]?.id)).toBe(true)
+    expect(attempts[0]?.compactionState?.compactionCount).toBe(1)
+    expect(snapshot.sourceInstructionArtifacts.some((artifact) => artifact.status === 'validated')).toBe(true)
+    expect(artifacts.some((artifact) => artifact.status === 'validated')).toBe(true)
+    expect(validatedArtifact?.applyGuidance.length).toBeGreaterThan(0)
+    expect(
+      [
+        ...(validatedArtifact?.navigationGuidance ?? []),
+        ...(validatedArtifact?.searchGuidance ?? []),
+        ...(validatedArtifact?.detailGuidance ?? []),
+        ...(validatedArtifact?.applyGuidance ?? [])
+      ].some((line) => /candidate job result/i.test(line))
+    ).toBe(false)
+    const learnedLines = [
+      ...(validatedArtifact?.navigationGuidance ?? []),
+      ...(validatedArtifact?.searchGuidance ?? []),
+      ...(validatedArtifact?.detailGuidance ?? []),
+      ...(validatedArtifact?.applyGuidance ?? [])
+    ]
+    expect(new Set(learnedLines).size).toBe(learnedLines.length)
+    expect(evidenceRefs.length).toBeGreaterThan(0)
+  })
+
+  test('keeps learned instructions in draft when replay passes but reusable guidance is still too thin', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: []
+    })
+    const browserRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: 'linkedin',
+          sourceJobId: 'linkedin_source_debug_thin_1',
+          discoveryMethod: 'catalog_seed',
+          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_thin_1',
+          title: 'Product Designer',
+          company: 'Signal Systems',
+          location: 'Remote',
+          workMode: ['remote'],
+          applyPath: 'unknown',
+          easyApplyEligible: false,
+          postedAt: '2026-03-20T09:00:00.000Z',
+          discoveredAt: '2026-03-20T10:04:00.000Z',
+          salaryText: null,
+          summary: 'Thin source-debug coverage.',
+          description: 'Thin source-debug coverage.',
+          keySkills: ['Figma']
+        }
+      ],
+      {
+        debugFindingsByPhase: createThinSourceDebugFindingsByPhase()
+      }
+    )
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.runSourceDebug('target_linkedin_default')
+    const artifacts = await repository.listSourceInstructionArtifacts()
+    const latestArtifact = artifacts.at(-1)
+
+    expect(snapshot.searchPreferences.discovery.targets[0]?.instructionStatus).toBe('draft')
+    expect(snapshot.searchPreferences.discovery.targets[0]?.validatedInstructionId).toBeNull()
+    expect(snapshot.searchPreferences.discovery.targets[0]?.draftInstructionId).not.toBeNull()
+    expect(latestArtifact?.status).toBe('draft')
+    expect(latestArtifact?.warnings.some((warning) => /still too thin|still missing/i.test(warning))).toBe(true)
+    expect((latestArtifact?.searchGuidance ?? []).length).toBe(0)
+  })
+
+  test('pauses source debug when the managed session requires login', async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed())
+    const browserRuntime = createAgentBrowserRuntime([], {
+      sessionStatus: 'login_required',
+      sessionDetail: 'Sign in before source debugging can continue.'
+    })
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.runSourceDebug('target_linkedin_default')
+    const attempts = await repository.listSourceDebugAttempts()
+
+    expect(snapshot.activeSourceDebugRun?.state).toBe('paused_manual')
+    expect(snapshot.activeSourceDebugRun?.manualPrerequisiteSummary).toContain('Sign in')
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe('paused_manual')
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]?.outcome).toBe('blocked_auth')
+    expect(snapshot.searchPreferences.discovery.targets[0]?.instructionStatus).toBe('missing')
+  })
+
+  test('opens the managed session before source debug and keeps internal agent failures out of learned guidance', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: []
+    })
+    const baseRuntime = createCatalogBrowserSessionRuntime({
+      sessions: [
+        {
+          source: 'linkedin',
+          status: 'login_required',
+          driver: 'catalog_seed',
+          label: 'Browser session needs login',
+          detail: 'Sign in first.',
+          lastCheckedAt: '2026-03-20T10:04:00.000Z'
+        }
+      ],
+      catalog: []
+    })
+    let openSessionCalls = 0
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      openSession(source) {
+        openSessionCalls += 1
+        return Promise.resolve({
+          source,
+          status: 'ready',
+          driver: 'catalog_seed',
+          label: 'Browser session ready',
+          detail: 'Opened for source debug.',
+          lastCheckedAt: '2026-03-20T10:05:00.000Z'
+        })
+      },
+      runAgentDiscovery(source) {
+        return Promise.resolve({
+          source,
+          startedAt: '2026-03-20T10:00:00.000Z',
+          completedAt: '2026-03-20T10:01:00.000Z',
+          querySummary: 'Agent discovery test run',
+          warning: 'Discovery encountered an error: LLM call failed after 3 attempts: temporary upstream failure',
+          jobs: [],
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 5,
+            compactionState: null,
+            debugFindings: null
+          }
+        })
+      }
+    }
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    const snapshot = await workspaceService.runSourceDebug('target_linkedin_default')
+    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1)
+    const learnedLines = [
+      ...(latestArtifact?.navigationGuidance ?? []),
+      ...(latestArtifact?.searchGuidance ?? []),
+      ...(latestArtifact?.detailGuidance ?? []),
+      ...(latestArtifact?.applyGuidance ?? []),
+      ...(latestArtifact?.warnings ?? [])
+    ].join('\n')
+
+    expect(openSessionCalls).toBeGreaterThan(0)
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe('failed')
+    expect(learnedLines.toLowerCase()).not.toContain('llm call failed')
+    expect(learnedLines.toLowerCase()).not.toContain('discovery encountered an error')
   })
 
   test('keeps saved links, projects, and languages when extracted records are invalid', async () => {

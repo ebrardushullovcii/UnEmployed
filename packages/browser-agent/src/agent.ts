@@ -13,6 +13,12 @@ import { createSystemPrompt } from './prompts'
 import { isAllowedUrl } from './allowlist'
 
 export type AgentExtractorPageType = 'search_results' | 'job_detail'
+const DEFAULT_COMPACTION_CONFIG = {
+  maxTranscriptMessages: 18,
+  preserveRecentMessages: 8,
+  maxToolPayloadChars: 240
+} as const
+const MAX_LLM_RETRY_ATTEMPTS = 3
 
 export interface LLMClient {
   chatWithTools(
@@ -50,6 +56,68 @@ export interface JobExtractor {
   >>>
 }
 
+function getCompactionConfig(config: AgentConfig) {
+  return {
+    ...DEFAULT_COMPACTION_CONFIG,
+    ...config.compaction
+  }
+}
+
+function compactToolContent(content: string, maxLength: number): string {
+  return content.length <= maxLength ? content : `${content.slice(0, Math.max(0, maxLength - 12))}...[trimmed]`
+}
+
+function buildCompactionSummary(state: AgentState, config: AgentConfig) {
+  const taskPacket = config.promptContext.taskPacket
+  const knownFacts = [
+    ...(taskPacket?.knownFacts ?? []),
+    `Visited ${state.visitedUrls.size} page${state.visitedUrls.size === 1 ? '' : 's'}.`,
+    `Collected ${state.collectedJobs.length} job${state.collectedJobs.length === 1 ? '' : 's'}.`,
+    state.currentUrl ? `Current URL: ${state.currentUrl}` : null
+  ].filter((value): value is string => Boolean(value))
+
+  return {
+    compactedAt: new Date().toISOString(),
+    compactionCount: (state.compactionState?.compactionCount ?? 0) + 1,
+    summary: [
+      taskPacket?.phaseGoal ? `Phase goal: ${taskPacket.phaseGoal}.` : null,
+      taskPacket?.priorPhaseSummary ? `Prior summary: ${taskPacket.priorPhaseSummary}.` : null,
+      `Agent reached step ${state.stepCount}.`,
+      `Current URL is ${state.currentUrl || 'unknown'}.`
+    ]
+      .filter(Boolean)
+      .join(' '),
+    confirmedFacts: knownFacts,
+    blockerNotes: [],
+    avoidStrategyFingerprints: taskPacket?.avoidStrategyFingerprints ?? [],
+    preservedContext: state.collectedJobs.slice(0, 5).map((job) => `${job.title} at ${job.company}`)
+  }
+}
+
+function maybeCompactConversation(state: AgentState, config: AgentConfig) {
+  const compaction = getCompactionConfig(config)
+
+  if (state.conversation.length <= compaction.maxTranscriptMessages) {
+    return
+  }
+
+  state.compactionState = buildCompactionSummary(state, config)
+  const preservedMessages = state.conversation.slice(-compaction.preserveRecentMessages)
+  state.conversation = [
+    { role: 'system', content: createSystemPrompt(config) },
+    { role: 'user', content: createUserPrompt(config) },
+    {
+      role: 'assistant',
+      content: [
+        'Compacted execution summary:',
+        state.compactionState.summary,
+        ...state.compactionState.confirmedFacts.map((fact) => `- ${fact}`)
+      ].join('\n')
+    },
+    ...preservedMessages
+  ]
+}
+
 export async function runAgentDiscovery(
   page: Page,
   config: AgentConfig,
@@ -59,6 +127,8 @@ export async function runAgentDiscovery(
   signal?: AbortSignal
 ): Promise<AgentResult> {
   console.log(`[Agent] Starting discovery: ${config.targetJobCount} jobs target`)
+  let pendingDebugFindings: AgentResult['debugFindings'] = null
+  let awaitingStructuredFinish = false
 
   const state: AgentState = {
     conversation: [
@@ -69,7 +139,8 @@ export async function runAgentDiscovery(
     visitedUrls: new Set(),
     stepCount: 0,
     currentUrl: '',
-    isRunning: true
+    isRunning: true,
+    compactionState: null
   }
 
   const tools = getToolDefinitions()
@@ -83,7 +154,10 @@ export async function runAgentDiscovery(
         return {
           jobs: [],
           steps: 0,
-          error: `Starting URL not in allowlist: ${firstUrl}`
+          error: `Starting URL not in allowlist: ${firstUrl}`,
+          transcriptMessageCount: state.conversation.length,
+          compactionState: state.compactionState,
+          debugFindings: pendingDebugFindings
         }
       }
       await page.goto(firstUrl, { waitUntil: 'domcontentloaded' })
@@ -95,7 +169,10 @@ export async function runAgentDiscovery(
         return {
           jobs: [],
           steps: 0,
-          error: landedUrlValidation.error
+          error: landedUrlValidation.error,
+          transcriptMessageCount: state.conversation.length,
+          compactionState: state.compactionState,
+          debugFindings: pendingDebugFindings
         }
       }
       state.currentUrl = landedUrl
@@ -105,7 +182,10 @@ export async function runAgentDiscovery(
       return {
         jobs: [],
         steps: 0,
-        error: 'No starting URLs provided'
+        error: 'No starting URLs provided',
+        transcriptMessageCount: state.conversation.length,
+        compactionState: state.compactionState,
+        debugFindings: pendingDebugFindings
       }
     }
 
@@ -114,7 +194,10 @@ export async function runAgentDiscovery(
         return {
           jobs: state.collectedJobs,
           steps: state.stepCount,
-          incomplete: true
+          incomplete: true,
+          transcriptMessageCount: state.conversation.length,
+          compactionState: state.compactionState,
+          debugFindings: pendingDebugFindings
         }
       }
 
@@ -137,16 +220,44 @@ export async function runAgentDiscovery(
       // Get LLM decision
       let response: { content?: string; toolCalls?: ToolCall[]; reasoning?: string }
       try {
-        response = await llmClient.chatWithTools(state.conversation, tools, signal)
+        let llmResponse: { content?: string; toolCalls?: ToolCall[]; reasoning?: string } | null = null
+        let lastLlmError: unknown = null
+
+        for (let attempt = 0; attempt < MAX_LLM_RETRY_ATTEMPTS; attempt += 1) {
+          try {
+            llmResponse = await llmClient.chatWithTools(state.conversation, tools, signal)
+            break
+          } catch (llmError) {
+            if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {
+              throw llmError
+            }
+
+            lastLlmError = llmError
+
+            if (attempt < MAX_LLM_RETRY_ATTEMPTS - 1) {
+              await page.waitForTimeout(500 * (attempt + 1))
+            }
+          }
+        }
+
+        if (!llmResponse) {
+          throw lastLlmError instanceof Error ? lastLlmError : new Error('LLM call failed')
+        }
+
+        response = llmResponse
       } catch (llmError) {
         if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {
           throw llmError
         }
-        console.error('[Agent] LLM call failed:', llmError instanceof Error ? llmError.message : 'Unknown')
+        const errorMessage = llmError instanceof Error ? llmError.message : 'Unknown'
+        console.error('[Agent] LLM call failed:', errorMessage)
         return {
           jobs: state.collectedJobs,
           steps: state.stepCount,
-          error: 'LLM call failed'
+          error: `LLM call failed after ${MAX_LLM_RETRY_ATTEMPTS} attempts: ${errorMessage}`,
+          transcriptMessageCount: state.conversation.length,
+          compactionState: state.compactionState,
+          debugFindings: pendingDebugFindings
         }
       }
 
@@ -157,6 +268,7 @@ export async function runAgentDiscovery(
           content: response.content || '',
           toolCalls: response.toolCalls
         })
+        maybeCompactConversation(state, config)
 
         // Execute tool calls and add results
         for (const toolCall of response.toolCalls) {
@@ -174,25 +286,44 @@ export async function runAgentDiscovery(
           state.conversation.push({
             role: 'tool',
             toolCallId: toolCall.id,
-            content: JSON.stringify(compactResult)
+            content: compactToolContent(JSON.stringify(compactResult), getCompactionConfig(config).maxToolPayloadChars)
           })
+          maybeCompactConversation(state, config)
 
           // Check if we should finish
           if (toolCall.function.name === 'finish' && (result as { success?: boolean }).success === true) {
+            pendingDebugFindings =
+              (result as { data?: { debugFindings?: AgentResult['debugFindings'] } }).data?.debugFindings ?? pendingDebugFindings
             console.log(`[Agent] Finished: ${state.collectedJobs.length} jobs found`)
             return {
               jobs: state.collectedJobs,
-              steps: state.stepCount
+              steps: state.stepCount,
+              transcriptMessageCount: state.conversation.length,
+              compactionState: state.compactionState,
+              debugFindings: pendingDebugFindings
             }
           }
+        }
 
-          // Check if we have enough jobs
-          if (state.collectedJobs.length >= config.targetJobCount) {
-            console.log(`[Agent] Target reached: ${state.collectedJobs.length} jobs`)
-            return {
-              jobs: state.collectedJobs,
-              steps: state.stepCount
-            }
+        if (state.collectedJobs.length >= config.targetJobCount) {
+          if (config.promptContext.taskPacket && !awaitingStructuredFinish) {
+            awaitingStructuredFinish = true
+            state.conversation.push({
+              role: 'user',
+              content:
+                'Target job count is already satisfied. Do not keep browsing unless a specific control or detail page still needs verification. Call finish now with structured site findings, including any reliable controls, tricky filters, navigation rules, and apply caveats you proved.'
+            })
+            maybeCompactConversation(state, config)
+            continue
+          }
+
+          console.log(`[Agent] Target reached: ${state.collectedJobs.length} jobs`)
+          return {
+            jobs: state.collectedJobs,
+            steps: state.stepCount,
+            transcriptMessageCount: state.conversation.length,
+            compactionState: state.compactionState,
+            debugFindings: pendingDebugFindings
           }
         }
       } else {
@@ -201,13 +332,17 @@ export async function runAgentDiscovery(
           role: 'assistant',
           content: response.content || 'No action taken'
         })
+        maybeCompactConversation(state, config)
 
         // If no tool calls for multiple steps, we might be stuck
         if (state.stepCount >= config.maxSteps - 5) {
           return {
             jobs: state.collectedJobs,
             steps: state.stepCount,
-            incomplete: true
+            incomplete: true,
+            transcriptMessageCount: state.conversation.length,
+            compactionState: state.compactionState,
+            debugFindings: pendingDebugFindings
           }
         }
       }
@@ -217,7 +352,10 @@ export async function runAgentDiscovery(
     return {
       jobs: state.collectedJobs,
       steps: state.stepCount,
-      incomplete: state.stepCount >= config.maxSteps
+      incomplete: state.stepCount >= config.maxSteps,
+      transcriptMessageCount: state.conversation.length,
+      compactionState: state.compactionState,
+      debugFindings: pendingDebugFindings
     }
   } catch (error) {
     if ((error instanceof DOMException && error.name === 'AbortError') || signal?.aborted) {
@@ -227,7 +365,10 @@ export async function runAgentDiscovery(
     return {
       jobs: state.collectedJobs,
       steps: state.stepCount,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      transcriptMessageCount: state.conversation.length,
+      compactionState: state.compactionState,
+      debugFindings: pendingDebugFindings
     }
   } finally {
     state.isRunning = false
@@ -398,6 +539,7 @@ function createUserPrompt(config: AgentConfig): string {
   const preferredLocations = config.searchPreferences.locations.length > 0
     ? config.searchPreferences.locations.join(', ')
     : 'Not specified'
+  const taskPacket = config.promptContext.taskPacket
 
   return `Please find job postings that match my profile and preferences.
 
@@ -409,6 +551,15 @@ Starting URLs to explore:
 ${config.startingUrls.map(url => `- ${url}`).join('\n')}
 
 Goal: Find ${config.targetJobCount} relevant job postings.
+
+${taskPacket ? `Phase Goal: ${taskPacket.phaseGoal}
+Known facts:
+${taskPacket.knownFacts.length > 0 ? taskPacket.knownFacts.map((fact) => `- ${fact}`).join('\n') : '- None yet'}
+Success criteria:
+${taskPacket.successCriteria.length > 0 ? taskPacket.successCriteria.map((criterion) => `- ${criterion}`).join('\n') : '- Find credible evidence on the site'}
+Stop conditions:
+${taskPacket.stopConditions.length > 0 ? taskPacket.stopConditions.map((condition) => `- ${condition}`).join('\n') : '- Stop when progress stalls'}
+` : ''}
 
 The site may present listings in any language. Treat multilingual and non-English jobs as valid candidates when they match the target roles and locations.
 

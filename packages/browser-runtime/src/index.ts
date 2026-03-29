@@ -108,6 +108,7 @@ export interface ExecuteEasyApplyInput {
   asset: TailoredAsset
   profile: CandidateProfile
   settings: JobFinderSettings
+  instructions?: readonly string[]
 }
 
 export interface BrowserSessionRuntime {
@@ -131,6 +132,21 @@ export interface AgentDiscoveryOptions {
   navigationHostnames: string[]
   siteInstructions?: string[]
   toolUsageNotes?: string[]
+  taskPacket?: {
+    phaseGoal: string
+    knownFacts: string[]
+    priorPhaseSummary?: string | null
+    avoidStrategyFingerprints: string[]
+    successCriteria: string[]
+    stopConditions: string[]
+    manualPrerequisiteState?: string | null
+    strategyLabel?: string | null
+  }
+  compaction?: {
+    maxTranscriptMessages?: number
+    preserveRecentMessages?: number
+    maxToolPayloadChars?: number
+  }
   relevantUrlSubstrings?: string[]
   experimental?: boolean
   aiClient?: JobFinderAiClient
@@ -346,7 +362,7 @@ export function createCatalogBrowserSessionRuntime(
         ]
       }))
     },
-    async runAgentDiscovery(source, options) {
+    runAgentDiscovery(source, options) {
       const session = getSession(source)
 
       if (session.status !== 'ready') {
@@ -382,14 +398,21 @@ export function createCatalogBrowserSessionRuntime(
         adapterKind: source
       })
 
-      return DiscoveryRunResultSchema.parse({
+      return Promise.resolve(DiscoveryRunResultSchema.parse({
         source,
         startedAt,
         completedAt: new Date().toISOString(),
         querySummary: `${options.searchPreferences.targetRoles.join(', ') || 'all roles'} | ${options.searchPreferences.locations.join(', ') || 'all locations'} | ${options.siteLabel}`,
         warning: filteredJobs.length === 0 ? `No catalog jobs matched the current ${options.siteLabel} target.` : null,
-        jobs: filteredJobs
-      })
+        jobs: filteredJobs,
+        agentMetadata: {
+          steps: 2,
+          incomplete: false,
+          transcriptMessageCount: 0,
+          compactionState: null,
+          debugFindings: null
+        }
+      }))
     }
   }
 }
