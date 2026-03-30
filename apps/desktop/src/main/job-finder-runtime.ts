@@ -2,7 +2,7 @@ export {
   getGeneratedResumeDocumentsDirectory,
   getJobFinderDocumentsDirectory,
   getJobFinderWorkspaceFilePath,
-  getLinkedInBrowserProfileDirectory,
+  getBrowserAgentProfileDirectory,
   getJobFinderWorkspaceService,
   importResumeFromSourcePath,
   isDesktopTestApiEnabled,

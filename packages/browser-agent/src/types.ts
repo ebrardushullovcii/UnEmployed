@@ -68,6 +68,7 @@ export interface AgentConfig {
 
 export interface AgentState {
   conversation: AgentMessage[]
+  reviewTranscript: string[]
   collectedJobs: JobPosting[]
   visitedUrls: Set<string>
   stepCount: number
@@ -84,6 +85,7 @@ export interface AgentResult {
   incomplete?: boolean
   error?: string
   transcriptMessageCount: number
+  reviewTranscript?: string[]
   compactionState?: SourceDebugCompactionState | null
   phaseCompletionMode?: SourceDebugPhaseCompletionMode | null
   phaseCompletionReason?: string | null

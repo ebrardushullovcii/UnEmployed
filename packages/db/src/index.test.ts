@@ -99,9 +99,9 @@ function createSeed(): JobFinderRepositorySeed {
         historyLimit: 5,
         targets: [
           {
-            id: 'target_linkedin_default',
-            label: 'LinkedIn Jobs',
-            startingUrl: 'https://www.linkedin.com/jobs/search/',
+            id: 'target_primary',
+            label: 'Primary target',
+            startingUrl: 'https://jobs.example.com/search',
             enabled: true,
             adapterKind: 'auto' as const,
             customInstructions: null,
@@ -218,7 +218,7 @@ describe('createInMemoryJobFinderRepository', () => {
           savedJobs: [
             {
               id: 'legacy_job_1',
-              source: 'linkedin',
+              source: 'target_site',
               title: 'Legacy Role',
               company: 'Old Co',
               location: 'Remote',
@@ -280,10 +280,10 @@ describe('createInMemoryJobFinderRepository', () => {
           savedJobs: [
             {
               id: 'job_legacy',
-              source: 'linkedin',
-              sourceJobId: 'linkedin_job_legacy',
+              source: 'target_site',
+              sourceJobId: 'target_job_legacy',
               discoveryMethod: 'catalog_seed',
-              canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_legacy',
+              canonicalUrl: 'https://jobs.example.com/roles/target_job_legacy',
               title: 'Lead Designer',
               company: 'Signal Systems',
               location: 'Remote',
@@ -333,10 +333,10 @@ describe('createInMemoryJobFinderRepository', () => {
       await firstRepository.replaceSavedJobs([
         {
           id: 'job_1',
-          source: 'linkedin',
-          sourceJobId: 'linkedin_job_1',
+          source: 'target_site',
+          sourceJobId: 'target_job_1',
           discoveryMethod: 'catalog_seed',
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
+          canonicalUrl: 'https://jobs.example.com/roles/target_job_1',
           title: 'Lead Designer',
           company: 'Signal Systems',
           location: 'Remote',
@@ -381,7 +381,7 @@ describe('createInMemoryJobFinderRepository', () => {
       const attempts = await secondRepository.listApplicationAttempts()
 
       expect(savedJobs).toHaveLength(1)
-      expect(savedJobs[0]?.canonicalUrl).toContain('linkedin_job_1')
+      expect(savedJobs[0]?.canonicalUrl).toContain('target_job_1')
       expect(attempts).toHaveLength(1)
       expect(attempts[0]?.summary).toBe('Easy Apply submitted')
       await firstRepository.close()
@@ -403,16 +403,16 @@ describe('createInMemoryJobFinderRepository', () => {
 
       await firstRepository.upsertSourceDebugRun({
         id: 'source_debug_run_1',
-        targetId: 'target_linkedin_default',
+        targetId: 'target_primary',
         state: 'completed',
         startedAt: '2026-03-20T10:00:00.000Z',
         updatedAt: '2026-03-20T10:02:00.000Z',
         completedAt: '2026-03-20T10:02:00.000Z',
         activePhase: null,
         phases: ['access_auth_probe', 'site_structure_mapping', 'search_filter_probe', 'job_detail_validation', 'apply_path_validation', 'replay_verification'],
-        targetLabel: 'LinkedIn Jobs',
-        targetUrl: 'https://www.linkedin.com/jobs/search/',
-        targetHostname: 'www.linkedin.com',
+        targetLabel: 'Primary target',
+        targetUrl: 'https://jobs.example.com/search',
+        targetHostname: 'jobs.example.com',
         manualPrerequisiteSummary: null,
         finalSummary: 'Replay verification reached jobs again.',
         attemptIds: ['source_debug_attempt_1'],
@@ -422,42 +422,45 @@ describe('createInMemoryJobFinderRepository', () => {
       await firstRepository.upsertSourceDebugAttempt({
         id: 'source_debug_attempt_1',
         runId: 'source_debug_run_1',
-        targetId: 'target_linkedin_default',
+        targetId: 'target_primary',
         phase: 'job_detail_validation',
         startedAt: '2026-03-20T10:01:00.000Z',
         completedAt: '2026-03-20T10:01:30.000Z',
         outcome: 'succeeded',
+        completionMode: 'structured_finish',
+        completionReason: null,
         strategyLabel: 'Job Detail Validation',
-        strategyFingerprint: 'job_detail_validation:linkedin:job detail validation',
-        confirmedFacts: ['Observed canonical job detail URL https://www.linkedin.com/jobs/view/1.'],
+        strategyFingerprint: 'job_detail_validation:target_site:job detail validation',
+        confirmedFacts: ['Observed canonical job detail URL https://jobs.example.com/roles/1.'],
         attemptedActions: ['Opened the first job detail page.'],
         blockerSummary: null,
         resultSummary: 'Validated job detail routes.',
         confidenceScore: 88,
         nextRecommendedStrategies: ['Replay Verification'],
-        avoidStrategyFingerprints: ['job_detail_validation:linkedin:job detail validation'],
+        avoidStrategyFingerprints: ['job_detail_validation:target_site:job detail validation'],
         evidenceRefIds: ['source_debug_evidence_1'],
+        phaseEvidence: null,
         compactionState: null
       })
       await firstRepository.upsertSourceInstructionArtifact({
         id: 'source_instruction_1',
-        targetId: 'target_linkedin_default',
+        targetId: 'target_primary',
         status: 'validated',
         createdAt: '2026-03-20T10:01:00.000Z',
         updatedAt: '2026-03-20T10:02:00.000Z',
         acceptedAt: '2026-03-20T10:02:00.000Z',
         basedOnRunId: 'source_debug_run_1',
         basedOnAttemptIds: ['source_debug_attempt_1'],
-        notes: 'Validated LinkedIn source guidance.',
-        navigationGuidance: ['Start from https://www.linkedin.com/jobs/search/.'],
+        notes: 'Validated target-site source guidance.',
+        navigationGuidance: ['Start from https://jobs.example.com/search.'],
         searchGuidance: ['Use the jobs search route.'],
-        detailGuidance: ['Prefer stable /jobs/view/ URLs.'],
-        applyGuidance: ['Prefer Easy Apply when it appears on the detail page.'],
+        detailGuidance: ['Prefer stable detail URLs.'],
+        applyGuidance: ['Prefer the inline apply entry when it appears on the detail page.'],
         warnings: [],
         versionInfo: {
           promptProfileVersion: 'source-debug-v1',
           toolsetVersion: 'browser-tools-v1',
-          adapterVersion: 'linkedin',
+          adapterVersion: 'target_site',
           appSchemaVersion: 'job-finder-source-debug-v1'
         },
         verification: {
@@ -470,7 +473,7 @@ describe('createInMemoryJobFinderRepository', () => {
           versionInfo: {
             promptProfileVersion: 'source-debug-v1',
             toolsetVersion: 'browser-tools-v1',
-            adapterVersion: 'linkedin',
+            adapterVersion: 'target_site',
             appSchemaVersion: 'job-finder-source-debug-v1'
           }
         }
@@ -479,14 +482,14 @@ describe('createInMemoryJobFinderRepository', () => {
         id: 'source_debug_evidence_1',
         runId: 'source_debug_run_1',
         attemptId: 'source_debug_attempt_1',
-        targetId: 'target_linkedin_default',
+        targetId: 'target_primary',
         phase: 'job_detail_validation',
         kind: 'url',
         label: 'Validated job detail',
         capturedAt: '2026-03-20T10:01:15.000Z',
-        url: 'https://www.linkedin.com/jobs/view/1',
+        url: 'https://jobs.example.com/roles/1',
         storagePath: null,
-        excerpt: 'Stable LinkedIn job detail URL.'
+        excerpt: 'Stable target-site job detail URL.'
       })
 
       const secondRepository = await createFileJobFinderRepository({

@@ -91,8 +91,7 @@ function parseSalaryFloor(salaryText: string | null): number | null {
 
 function buildSessionBlockedResult(session: BrowserSessionState): Error {
   const detail = session.detail ? ` ${session.detail}` : ''
-  const sourceLabel = session.source === 'linkedin' ? 'LinkedIn session' : 'Browser session'
-  return new Error(`${sourceLabel} is not ready for automation.${detail}`.trim())
+  return new Error(`Browser session is not ready for automation.${detail}`.trim())
 }
 
 function buildDiscoveryQuerySummary(searchPreferences: JobSearchPreferences): string {
@@ -268,7 +267,7 @@ export function createCatalogBrowserSessionRuntime(
         querySummary: buildDiscoveryQuerySummary(searchPreferences),
         warning:
           filteredJobs.length === 0
-            ? 'No Easy Apply listings matched the current preferences in the configured LinkedIn source adapter.'
+            ? 'No supported listings matched the current preferences in the configured discovery target.'
             : null,
         jobs: filteredJobs
       }))
@@ -436,6 +435,7 @@ export function createCatalogBrowserSessionRuntime(
           steps: 2,
           incomplete: false,
           transcriptMessageCount: 0,
+          reviewTranscript: [],
           compactionState: null,
           phaseCompletionMode: null,
           phaseCompletionReason: null,
@@ -453,4 +453,4 @@ export function createStubBrowserSessionRuntime(
   return createCatalogBrowserSessionRuntime(seed)
 }
 
-export { createLinkedInBrowserAgentRuntime, type JobPageExtractor, type JobPageExtractionInput } from './playwright-linkedin-runtime'
+export { createBrowserAgentRuntime, type BrowserAgentRuntimeOptions, type JobPageExtractor, type JobPageExtractionInput } from './playwright-browser-runtime'

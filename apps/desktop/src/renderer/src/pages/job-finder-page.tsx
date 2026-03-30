@@ -245,7 +245,7 @@ export function JobFinderPage() {
     return (
       <WorkspaceStateScreen
         kicker="UnEmployed"
-        message="Loading the first LinkedIn Easy Apply slice and typed desktop context."
+        message="Loading the Job Finder workspace and typed desktop context."
         title="Booting Job Finder workspace"
       />
     )

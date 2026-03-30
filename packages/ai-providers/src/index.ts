@@ -1812,7 +1812,6 @@ export function createOpenAiCompatibleJobFinderAiClient(
         return []
       }
 
-      const linkedInSource = isLinkedInUrl(input.pageUrl)
       const pageHostLabel = (() => {
         try {
           return new URL(input.pageUrl).hostname
@@ -1821,49 +1820,25 @@ export function createOpenAiCompatibleJobFinderAiClient(
         }
       })()
       const systemPrompt = input.pageType === 'search_results'
-        ? (linkedInSource
-            ? [
-                'You extract job listings from LinkedIn search results page text.',
-                'Return JSON with a "jobs" array.',
-                'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
-                'Each job must have: sourceJobId (extract from URL), canonicalUrl (full URL), title, company, location, salaryText (or null), description (short summary from listing), and easyApplyEligible (boolean).',
-                'sourceJobId is the numeric ID from URLs like /jobs/view/12345 — extract just the number.',
-                'canonicalUrl is the full https://www.linkedin.com/jobs/view/<id> URL.',
-                'Set easyApplyEligible to true only when the listing clearly indicates Easy Apply, otherwise false.',
-                'The page text may include a "Relevant in-scope URLs found on page" section - use those URLs to populate sourceJobId and canonicalUrl whenever available.',
-                'If you cannot determine both sourceJobId and canonicalUrl for a listing, omit that listing from the output.',
-                'If the page text does not contain job listings, return { "jobs": [] }.',
-                `Return at most ${maxJobs} jobs.`
-              ]
-            : [
-                `You extract job listings from a careers or job-search page on ${pageHostLabel}.`,
-                'Return JSON with a "jobs" array.',
-                'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
-                'Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), and description (short summary from the listing).',
-                'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
-                'If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.',
-                'Do not invent companies, locations, or URLs.',
-                `Return at most ${maxJobs} jobs.`
-              ])
+        ? [
+            `You extract job listings from a careers or job-search page on ${pageHostLabel}.`,
+            'Return JSON with a "jobs" array.',
+            'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
+            'Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), and description (short summary from the listing).',
+            'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
+            'If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.',
+            'Do not invent companies, locations, or URLs.',
+            `Return at most ${maxJobs} jobs.`
+          ]
           .join(' ')
-        : (linkedInSource
-            ? [
-                'You extract structured job details from a LinkedIn job posting page text.',
-                'Return JSON with a "jobs" array containing one job object.',
-                'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
-                'Each job must have: sourceJobId, canonicalUrl, title, company, location, salaryText (or null), description (full job description text), and easyApplyEligible (boolean).',
-                'Use the page URL as the source of truth for sourceJobId and canonicalUrl when available.',
-                'Set easyApplyEligible to true only when the page clearly exposes an Easy Apply path, otherwise false.',
-                'Extract all relevant details: title, company name, location, salary if mentioned, and the full job description.'
-              ]
-            : [
-                `You extract one structured job posting from a job-detail page on ${pageHostLabel}.`,
-                'Return JSON with a "jobs" array containing one job object.',
-                'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
-                'Each job should include canonicalUrl, title, company, location, salaryText (or null), and description (full job description text).',
-                'Use the page URL as the source of truth for canonicalUrl whenever available.',
-                'If the page is not clearly a job detail page, return { "jobs": [] }.'
-              ])
+        : [
+            `You extract one structured job posting from a job-detail page on ${pageHostLabel}.`,
+            'Return JSON with a "jobs" array containing one job object.',
+            'Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.',
+            'Each job should include canonicalUrl, title, company, location, salaryText (or null), and description (full job description text).',
+            'Use the page URL as the source of truth for canonicalUrl whenever available.',
+            'If the page is not clearly a job detail page, return { "jobs": [] }.'
+          ]
           .join(' ')
 
       const payload = await fetchModelJson(systemPrompt, {
@@ -1910,17 +1885,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
         const rawCanonicalUrl = toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link)
 
         const fallbackUrl = input.pageType === 'job_detail' ? input.pageUrl : ''
-        const derivedCanonicalUrl = linkedInSource
-          ? (
-              rawCanonicalUrl ||
-              (input.pageType === 'job_detail'
-                ? buildLinkedInJobUrl(rawSourceJobId || extractLinkedInJobId(fallbackUrl)) || fallbackUrl
-                : buildLinkedInJobUrl(rawSourceJobId || extractLinkedInJobId(rawCanonicalUrl)))
-            )
-          : buildGenericCanonicalUrl(rawCanonicalUrl || fallbackUrl, input.pageUrl)
-        const derivedSourceJobId = linkedInSource
-          ? rawSourceJobId || extractLinkedInJobId(rawCanonicalUrl) || extractLinkedInJobId(fallbackUrl)
-          : rawSourceJobId || buildGenericJobId(derivedCanonicalUrl)
+        const derivedCanonicalUrl = buildGenericCanonicalUrl(rawCanonicalUrl || fallbackUrl, input.pageUrl)
+        const derivedSourceJobId = rawSourceJobId || buildGenericJobId(derivedCanonicalUrl)
 
         if (!derivedCanonicalUrl || !derivedSourceJobId) {
           skippedJobs += 1
@@ -1928,9 +1894,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
           continue
         }
 
-        const easyApplyEligible = linkedInSource && raw.easyApplyEligible === true
         const candidate = {
-          source: linkedInSource ? 'linkedin' as const : 'generic_site' as const,
+          source: 'target_site' as const,
           sourceJobId: derivedSourceJobId,
           discoveryMethod: 'browser_agent' as const,
           canonicalUrl: derivedCanonicalUrl,
@@ -1938,8 +1903,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
           company: toStr(raw.company),
           location: toStr(raw.location),
           workMode: Array.isArray(raw.workMode) ? raw.workMode : [],
-          applyPath: easyApplyEligible ? 'easy_apply' : 'unknown',
-          easyApplyEligible,
+          applyPath: 'unknown' as const,
+          easyApplyEligible: false,
           postedAt: new Date().toISOString(),
           discoveredAt: new Date().toISOString(),
           salaryText: raw.salaryText ? toStr(raw.salaryText) : null,

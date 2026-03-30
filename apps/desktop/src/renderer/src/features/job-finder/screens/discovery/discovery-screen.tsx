@@ -83,7 +83,7 @@ export function DiscoveryScreen(props: {
           <PageHeader
             eyebrow="Discovery"
             title="Adapter-driven discovery"
-            description="Run ordered discovery targets and review the highest-fit jobs across LinkedIn and experimental generic-site paths."
+            description="Run ordered discovery targets and review the highest-fit jobs across the site entrypoints you configured."
           />
         )}
       >

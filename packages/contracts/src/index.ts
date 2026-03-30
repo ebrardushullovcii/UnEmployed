@@ -40,12 +40,12 @@ export const tailoringModeValues = ['conservative', 'balanced', 'aggressive'] as
 export const TailoringModeSchema = z.enum(tailoringModeValues)
 export type TailoringMode = z.infer<typeof TailoringModeSchema>
 
-export const jobSourceValues = ['linkedin', 'generic_site'] as const
+export const jobSourceValues = ['target_site'] as const
 
 export const JobSourceSchema = z.enum(jobSourceValues)
 export type JobSource = z.infer<typeof JobSourceSchema>
 
-export const jobSourceAdapterKindValues = ['auto', 'linkedin', 'generic_site'] as const
+export const jobSourceAdapterKindValues = ['auto'] as const
 
 export const JobSourceAdapterKindSchema = z.enum(jobSourceAdapterKindValues)
 export type JobSourceAdapterKind = z.infer<typeof JobSourceAdapterKindSchema>
@@ -755,6 +755,7 @@ export const DiscoveryAgentMetadataSchema = z.object({
   steps: z.number().int().nonnegative().default(0),
   incomplete: z.boolean().default(false),
   transcriptMessageCount: z.number().int().nonnegative().default(0),
+  reviewTranscript: z.array(NonEmptyStringSchema).default([]),
   compactionState: SourceDebugCompactionStateSchema.nullable().default(null),
   phaseCompletionMode: SourceDebugPhaseCompletionModeSchema.nullable().default(null),
   phaseCompletionReason: NonEmptyStringSchema.nullable().default(null),

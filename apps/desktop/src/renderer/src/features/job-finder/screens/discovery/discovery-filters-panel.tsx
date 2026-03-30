@@ -32,7 +32,7 @@ export function DiscoveryFiltersPanel({
   searchPreferences
 }: DiscoveryFiltersPanelProps) {
   const neutralSessionSnapshot: BrowserSessionState = {
-    source: 'generic_site',
+    source: 'target_site',
     status: 'unknown',
     driver: 'catalog_seed',
     label: 'Browser profile optional',

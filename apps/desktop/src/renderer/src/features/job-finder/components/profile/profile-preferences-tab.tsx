@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import {
-  jobSourceAdapterKindValues,
   workModeValues,
   type SourceDebugRunDetails,
   type SourceDebugRunRecord,
@@ -276,18 +275,14 @@ function TargetRow(props: {
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
-  profileSelectTriggerClassName: string
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   target: DiscoveryTargetValue
   updateDiscoveryTargets: (nextTargets: SearchPreferencesEditorValues['discoveryTargets']) => void
 }) {
   const baseId = useId()
   const labelId = `${baseId}-label`
-  const adapterId = `${baseId}-adapter`
   const startingUrlId = `${baseId}-starting-url`
   const instructionsId = `${baseId}-instructions`
-  const genericSiteWarningId = `${baseId}-generic-site-warning`
-  const adapterDescribedBy = props.target.adapterKind === 'generic_site' ? genericSiteWarningId : undefined
   const displayName = props.target.label.trim() || `Target ${props.index + 1}`
   const learnedInstructionSections = buildLearnedInstructionSections(props.instructionArtifact)
   const targetRuns = useMemo(
@@ -315,7 +310,10 @@ function TargetRow(props: {
   const [editingInstructionValue, setEditingInstructionValue] = useState('')
   const updateTarget = (nextTarget: DiscoveryTargetValue) => {
     const nextTargets = [...props.discoveryTargets]
-    nextTargets[props.index] = nextTarget
+    nextTargets[props.index] = {
+      ...nextTarget,
+      adapterKind: 'auto'
+    }
     props.updateDiscoveryTargets(nextTargets)
   }
 
@@ -491,31 +489,17 @@ function TargetRow(props: {
           />
         </div>
         <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
-          <FieldLabel htmlFor={adapterId}>Adapter</FieldLabel>
-          <FormSelect
-            onValueChange={(value) => {
-              updateTarget({
-                ...props.target,
-                adapterKind: value as SearchPreferencesEditorValues['discoveryTargets'][number]['adapterKind']
-              })
-            }}
-            options={jobSourceAdapterKindValues.map((adapterKind) => ({
-              label: adapterKind === 'generic_site' ? 'Generic site (experimental)' : formatStatusLabel(adapterKind),
-              value: adapterKind
-            }))}
-            placeholder="Select adapter"
-            triggerClassName={props.profileSelectTriggerClassName}
-            triggerId={adapterId}
-            value={props.target.adapterKind}
-            {...(adapterDescribedBy ? { triggerAriaDescribedBy: adapterDescribedBy } : {})}
-          />
+          <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">Target handling</p>
+          <p className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-3 text-[0.92rem] leading-6 text-foreground-soft">
+            Resolved automatically from the starting URL and the learned source guidance for this target.
+          </p>
         </div>
         <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2">
           <FieldLabel htmlFor={startingUrlId}>Starting URL</FieldLabel>
           <ProfileInput
             id={startingUrlId}
             onChange={(event) => updateTarget({ ...props.target, startingUrl: event.target.value })}
-            placeholder="https://www.linkedin.com/jobs/search/"
+            placeholder="https://jobs.example.com/search"
             value={props.target.startingUrl}
           />
         </div>
@@ -653,9 +637,6 @@ function TargetRow(props: {
             {props.target.lastVerifiedAt ? ` • Verified ${new Date(props.target.lastVerifiedAt).toLocaleString()}` : ''}
             {props.target.staleReason ? ` • ${props.target.staleReason}` : ''}
           </p>
-          {props.target.adapterKind === 'generic_site' ? (
-            <p className="text-[0.82rem] leading-6 text-(--warning-text)" id={genericSiteWarningId}>Generic-site discovery stays bounded to this hostname and skips low-confidence jobs without a stable identity.</p>
-          ) : null}
         </div>
       </div>
       <ProfileSourceDebugReviewModal
@@ -947,14 +928,14 @@ export function ProfilePreferencesTab({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
               <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Discovery targets</h3>
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">Configure the ordered site entrypoints the discovery agent should run through. Generic sites stay explicitly experimental.</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">Configure the ordered entrypoints the discovery agent should run through. Each target is treated as a site-specific flow learned from its own starting URL and debug evidence.</p>
             </div>
             <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add target</Button>
           </div>
 
           <div className="grid gap-3">
             {discoveryTargets.length === 0 ? (
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">No discovery targets configured yet. Add a LinkedIn or experimental generic-site entrypoint.</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">No discovery targets configured yet. Add the first site entrypoint you want the debugger to learn and reuse.</p>
             ) : null}
 
             {discoveryTargets.map((target, index) => {
@@ -974,7 +955,6 @@ export function ProfilePreferencesTab({
                 onRunSourceDebug={onRunSourceDebug}
                 onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
                 onVerifySourceInstructions={onVerifySourceInstructions}
-                profileSelectTriggerClassName={profileSelectTriggerClassName}
                 recentSourceDebugRuns={recentSourceDebugRuns}
                 target={target}
                 updateDiscoveryTargets={updateDiscoveryTargets}

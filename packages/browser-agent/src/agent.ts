@@ -441,6 +441,27 @@ function maybeCompactConversation(state: AgentState, config: AgentConfig) {
   ]
 }
 
+function renderReviewTranscriptMessage(message: AgentMessage): string {
+  if (message.role === 'assistant' && message.toolCalls && message.toolCalls.length > 0) {
+    const toolNames = message.toolCalls.map((toolCall) => toolCall.function.name).join(', ')
+    const content = message.content.trim()
+    return content
+      ? `assistant: ${content} | tool_calls: ${toolNames}`
+      : `assistant: tool_calls: ${toolNames}`
+  }
+
+  if (message.role === 'tool') {
+    return `tool ${message.toolCallId}: ${message.content}`
+  }
+
+  return `${message.role}: ${message.content}`
+}
+
+function appendConversationMessage(state: AgentState, message: AgentMessage): void {
+  state.conversation.push(message)
+  state.reviewTranscript.push(renderReviewTranscriptMessage(message))
+}
+
 export async function runAgentDiscovery(
   page: Page,
   config: AgentConfig,
@@ -459,6 +480,10 @@ export async function runAgentDiscovery(
     conversation: [
       { role: 'system', content: createSystemPrompt(config) },
       { role: 'user', content: createUserPrompt(config) }
+    ],
+    reviewTranscript: [
+      renderReviewTranscriptMessage({ role: 'system', content: createSystemPrompt(config) }),
+      renderReviewTranscriptMessage({ role: 'user', content: createUserPrompt(config) })
     ],
     collectedJobs: [],
     visitedUrls: new Set(),
@@ -483,6 +508,7 @@ export async function runAgentDiscovery(
           steps: 0,
           error: `Starting URL not in allowlist: ${firstUrl}`,
           transcriptMessageCount: state.conversation.length,
+          reviewTranscript: state.reviewTranscript,
           compactionState: state.compactionState,
           phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
           phaseCompletionReason: requiresExplicitFinish ? `Starting URL not in allowlist: ${firstUrl}` : null,
@@ -501,6 +527,7 @@ export async function runAgentDiscovery(
           steps: 0,
           error: landedUrlValidation.error,
           transcriptMessageCount: state.conversation.length,
+          reviewTranscript: state.reviewTranscript,
           compactionState: state.compactionState,
           phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
           phaseCompletionReason: requiresExplicitFinish ? landedUrlValidation.error ?? 'Starting URL redirected off-allowlist.' : null,
@@ -517,9 +544,10 @@ export async function runAgentDiscovery(
       return {
         jobs: [],
         steps: 0,
-        error: 'No starting URLs provided',
-        transcriptMessageCount: state.conversation.length,
-        compactionState: state.compactionState,
+          error: 'No starting URLs provided',
+          transcriptMessageCount: state.conversation.length,
+          reviewTranscript: state.reviewTranscript,
+          compactionState: state.compactionState,
         phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
         phaseCompletionReason: requiresExplicitFinish ? 'No starting URLs provided' : null,
         phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
@@ -534,6 +562,7 @@ export async function runAgentDiscovery(
           steps: state.stepCount,
           incomplete: true,
           transcriptMessageCount: state.conversation.length,
+          reviewTranscript: state.reviewTranscript,
           compactionState: state.compactionState,
           phaseCompletionMode: requiresExplicitFinish ? 'interrupted' : null,
           phaseCompletionReason: requiresExplicitFinish ? 'The source-debug phase was interrupted before completion.' : null,
@@ -551,7 +580,7 @@ export async function runAgentDiscovery(
 
       if (requiresExplicitFinish && !forcedFinishPromptSent && state.stepCount >= Math.max(1, config.maxSteps - 2)) {
         forcedFinishPromptSent = true
-        state.conversation.push({
+        appendConversationMessage(state, {
           role: 'user',
           content: buildForcedFinishPrompt(state, config)
         })
@@ -606,6 +635,7 @@ export async function runAgentDiscovery(
           steps: state.stepCount,
           error: `LLM call failed after ${MAX_LLM_RETRY_ATTEMPTS} attempts: ${errorMessage}`,
           transcriptMessageCount: state.conversation.length,
+          reviewTranscript: state.reviewTranscript,
           compactionState: state.compactionState,
           phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
           phaseCompletionReason: requiresExplicitFinish ? `LLM call failed after ${MAX_LLM_RETRY_ATTEMPTS} attempts: ${errorMessage}` : null,
@@ -616,7 +646,7 @@ export async function runAgentDiscovery(
 
       if (response.toolCalls && response.toolCalls.length > 0) {
         // Add single assistant message with all tool calls
-        state.conversation.push({
+        appendConversationMessage(state, {
           role: 'assistant',
           content: response.content || '',
           toolCalls: response.toolCalls
@@ -646,7 +676,7 @@ export async function runAgentDiscovery(
                   : undefined
               }
             : result
-          state.conversation.push({
+          appendConversationMessage(state, {
             role: 'tool',
             toolCallId: toolCall.id,
             content: compactToolContent(JSON.stringify(compactResult), getCompactionConfig(config).maxToolPayloadChars)
@@ -662,6 +692,7 @@ export async function runAgentDiscovery(
               jobs: state.collectedJobs,
               steps: state.stepCount,
               transcriptMessageCount: state.conversation.length,
+              reviewTranscript: state.reviewTranscript,
               compactionState: state.compactionState,
               phaseCompletionMode: requiresExplicitFinish
                 ? (forcedFinishPromptSent ? 'forced_finish' : 'structured_finish')
@@ -679,7 +710,7 @@ export async function runAgentDiscovery(
           if (requiresExplicitFinish) {
             if (!awaitingStructuredFinish) {
               awaitingStructuredFinish = true
-              state.conversation.push({
+              appendConversationMessage(state, {
                 role: 'user',
                 content:
                   'The evidence sampling budget is already satisfied. Do not stop yet unless the phase goal is complete. Either keep probing the missing route/control/detail evidence or call finish with structured site findings, including any reliable controls, tricky filters, navigation rules, and apply caveats you proved.'
@@ -694,6 +725,7 @@ export async function runAgentDiscovery(
             jobs: state.collectedJobs,
             steps: state.stepCount,
             transcriptMessageCount: state.conversation.length,
+            reviewTranscript: state.reviewTranscript,
             compactionState: state.compactionState,
             phaseCompletionMode: null,
             phaseCompletionReason: null,
@@ -703,7 +735,7 @@ export async function runAgentDiscovery(
         }
       } else {
         // No tool calls, just text response
-        state.conversation.push({
+        appendConversationMessage(state, {
           role: 'assistant',
           content: response.content || 'No action taken'
         })
@@ -716,6 +748,7 @@ export async function runAgentDiscovery(
             steps: state.stepCount,
             incomplete: true,
             transcriptMessageCount: state.conversation.length,
+            reviewTranscript: state.reviewTranscript,
             compactionState: state.compactionState,
             phaseCompletionMode: null,
             phaseCompletionReason: null,
@@ -737,6 +770,7 @@ export async function runAgentDiscovery(
       steps: state.stepCount,
       incomplete: state.stepCount >= config.maxSteps,
       transcriptMessageCount: state.conversation.length,
+      reviewTranscript: state.reviewTranscript,
       compactionState: state.compactionState,
       phaseCompletionMode: requiresExplicitFinish
         ? (hasMeaningfulPhaseEvidence(state) ? 'timed_out_with_partial_evidence' : 'timed_out_without_evidence')
@@ -759,6 +793,7 @@ export async function runAgentDiscovery(
       steps: state.stepCount,
       error: error instanceof Error ? error.message : 'Unknown error',
       transcriptMessageCount: state.conversation.length,
+      reviewTranscript: state.reviewTranscript,
       compactionState: state.compactionState,
       phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
       phaseCompletionReason: requiresExplicitFinish ? (error instanceof Error ? error.message : 'Unknown error') : null,

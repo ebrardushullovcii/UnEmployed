@@ -17,6 +17,6 @@ export function getGeneratedResumeDocumentsDirectory() {
   return path.join(getJobFinderDocumentsDirectory(), 'generated')
 }
 
-export function getLinkedInBrowserProfileDirectory() {
-  return path.join(getUserDataDirectory(), 'browser-agent', 'linkedin')
+export function getBrowserAgentProfileDirectory() {
+  return path.join(getUserDataDirectory(), 'browser-agent', 'default')
 }

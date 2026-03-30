@@ -73,10 +73,10 @@ describe('contracts', () => {
         targets: [
           {
             id: 'target_1',
-            label: 'KosovaJob',
-            startingUrl: 'https://kosovajob.com/',
+            label: 'Primary target',
+            startingUrl: 'https://jobs.example.com/search',
             enabled: true,
-            adapterKind: 'generic_site',
+            adapterKind: 'auto',
             customInstructions: 'Open the job cards from the homepage list before extracting details.'
           }
         ]
@@ -122,7 +122,7 @@ describe('contracts', () => {
 
   test('parses a discovery run result and application attempt', () => {
     const discovery = DiscoveryRunResultSchema.parse({
-      source: 'linkedin',
+      source: 'target_site',
       startedAt: '2026-03-20T10:00:00.000Z',
       completedAt: '2026-03-20T10:01:00.000Z',
       querySummary: 'Designer | Remote | remote',
@@ -135,7 +135,7 @@ describe('contracts', () => {
           summary: 'Compacted execution summary.',
           confirmedFacts: ['Visited 3 pages.'],
           blockerNotes: [],
-          avoidStrategyFingerprints: ['search_filter_probe:linkedin:search filter probe'],
+          avoidStrategyFingerprints: ['search_filter_probe:target_site:search filter probe'],
           preservedContext: ['Senior Product Designer at Signal Systems']
         },
         debugFindings: {
@@ -149,9 +149,9 @@ describe('contracts', () => {
       },
       jobs: [
         {
-          source: 'linkedin',
-          sourceJobId: 'linkedin_job_1',
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
+          source: 'target_site',
+          sourceJobId: 'target_job_1',
+          canonicalUrl: 'https://jobs.example.com/roles/target_job_1',
           title: 'Senior Product Designer',
           company: 'Signal Systems',
           location: 'Remote',
@@ -234,7 +234,7 @@ describe('contracts', () => {
       versionInfo: {
         promptProfileVersion: 'source-debug-v1',
         toolsetVersion: 'browser-tools-v1',
-        adapterVersion: 'generic_site',
+        adapterVersion: 'target_site',
         appSchemaVersion: 'job-finder-source-debug-v1'
       },
       verification: {
@@ -247,7 +247,7 @@ describe('contracts', () => {
         versionInfo: {
           promptProfileVersion: 'source-debug-v1',
           toolsetVersion: 'browser-tools-v1',
-          adapterVersion: 'generic_site',
+          adapterVersion: 'target_site',
           appSchemaVersion: 'job-finder-source-debug-v1'
         }
       }
@@ -400,7 +400,7 @@ describe('contracts', () => {
         companyWhitelist: []
       },
       browserSession: {
-        source: 'linkedin',
+        source: 'target_site',
         status: 'ready',
         driver: 'catalog_seed',
         label: 'Browser session ready',
@@ -410,10 +410,10 @@ describe('contracts', () => {
       discoveryJobs: [
         {
           id: 'job_1',
-          source: 'linkedin',
-          sourceJobId: 'linkedin_job_1',
+          source: 'target_site',
+          sourceJobId: 'target_job_1',
           discoveryMethod: 'catalog_seed',
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
+          canonicalUrl: 'https://jobs.example.com/roles/target_job_1',
           title: 'Senior Product Designer',
           company: 'Signal Systems',
           location: 'Remote',

@@ -154,7 +154,7 @@ Replace the placeholder shell with the first Job Finder workflow surfaces in `ap
 
 Companion brief:
 
-- `docs/exec-plans/active/002-job-finder-linkedin-easy-apply-ui-brief.md`
+- `docs/exec-plans/active/002-job-finder-browser-apply-ui-brief.md`
 
 Expected screens:
 
@@ -290,3 +290,4 @@ Exit signal:
 - `docs/modules/JOB_FINDER.md`
 - `docs/CONTRACTS.md` when shared schemas expand
 - `docs/ARCHITECTURE.md` if package boundaries or ownership change
+

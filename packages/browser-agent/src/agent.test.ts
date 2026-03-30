@@ -81,7 +81,7 @@ function createProfile(): CandidateProfile {
 
 function createConfig(): AgentConfig {
   return {
-    source: 'linkedin',
+    source: 'target_site',
     maxSteps: 4,
     targetJobCount: 1,
     userProfile: createProfile(),
@@ -94,12 +94,12 @@ function createConfig(): AgentConfig {
       allowedHostnames: ['www.linkedin.com']
     },
     promptContext: {
-      siteLabel: 'LinkedIn Jobs',
+      siteLabel: 'Primary target',
       taskPacket: {
         phaseGoal: 'Verify job discovery routes.',
         knownFacts: ['Start from the search route.'],
         priorPhaseSummary: null,
-        avoidStrategyFingerprints: ['access_auth_probe:linkedin:access auth probe'],
+        avoidStrategyFingerprints: ['access_auth_probe:target_site:access auth probe'],
         successCriteria: ['Reach the site', 'Collect evidence'],
         stopConditions: ['Stop when enough evidence is collected.'],
         manualPrerequisiteState: null,
@@ -147,7 +147,7 @@ function createPage(): Pick<Page, 'goto' | 'waitForTimeout' | 'url' | 'title' | 
       return currentUrl
     },
     async title() {
-      return 'LinkedIn Jobs'
+      return 'Primary target'
     },
     locator() {
       return bodyLocator as never
@@ -207,7 +207,7 @@ describe('runAgentDiscovery', () => {
     expect(result.compactionState).not.toBeNull()
     expect(result.compactionState?.compactionCount).toBeGreaterThan(0)
     expect(result.compactionState?.confirmedFacts).toContain('Start from the search route.')
-    expect(result.compactionState?.avoidStrategyFingerprints).toContain('access_auth_probe:linkedin:access auth probe')
+    expect(result.compactionState?.avoidStrategyFingerprints).toContain('access_auth_probe:target_site:access auth probe')
     expect(result.transcriptMessageCount).toBeLessThanOrEqual(6)
     expect(result.debugFindings?.summary).toContain('Keyword search')
     expect(result.debugFindings?.trickyFilters[0]).toContain('category chips')
@@ -345,7 +345,7 @@ describe('runAgentDiscovery', () => {
       async extractJobsFromPage() {
         return [
           {
-            source: 'linkedin',
+            source: 'target_site',
             sourceJobId: 'job_1',
             discoveryMethod: 'catalog_seed',
             canonicalUrl: 'https://www.linkedin.com/jobs/view/job_1',
@@ -396,7 +396,7 @@ describe('runAgentDiscovery', () => {
       async extractJobsFromPage() {
         return [
           {
-            source: 'linkedin',
+            source: 'target_site',
             sourceJobId: 'job_partial_1',
             discoveryMethod: 'catalog_seed',
             canonicalUrl: 'https://www.linkedin.com/jobs/view/job_partial_1',
@@ -445,12 +445,12 @@ describe('runAgentDiscovery', () => {
         return currentUrl
       },
       async title() {
-        return currentUrl.includes('/404') ? '404 Not Found' : 'LinkedIn Jobs'
+        return currentUrl.includes('/404') ? '404 Not Found' : 'Primary target'
       },
       locator() {
         return {
           async innerText() {
-            return 'LinkedIn Jobs'
+            return 'Primary target'
           }
         } as never
       },
@@ -494,3 +494,5 @@ describe('runAgentDiscovery', () => {
     expect(result.debugFindings?.summary).toContain('Recovered from a broken route')
   })
 })
+
+

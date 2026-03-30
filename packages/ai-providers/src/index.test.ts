@@ -101,8 +101,8 @@ function createPreferences(): JobSearchPreferences {
       historyLimit: 5,
       targets: [
         {
-          id: 'target_linkedin_default',
-          label: 'LinkedIn Jobs',
+          id: 'target_primary',
+          label: 'Primary target',
           startingUrl: 'https://www.linkedin.com/jobs/search/',
           enabled: true,
           adapterKind: 'auto',
@@ -302,3 +302,4 @@ describe('ai providers', () => {
     })
   })
 })
+

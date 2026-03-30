@@ -2,7 +2,7 @@ export {
   getGeneratedResumeDocumentsDirectory,
   getJobFinderDocumentsDirectory,
   getJobFinderWorkspaceFilePath,
-  getLinkedInBrowserProfileDirectory
+  getBrowserAgentProfileDirectory
 } from './paths'
 export { createJobFinderWorkspaceServiceAsync } from './create-workspace-service'
 export { getJobFinderWorkspaceService } from './workspace-service'
@@ -11,7 +11,7 @@ export { resetJobFinderWorkspace } from './reset-workspace'
 export {
   isBrowserHeadlessEnabled,
   isDesktopTestApiEnabled,
-  isLinkedInBrowserAgentEnabled,
+  isBrowserAgentEnabled,
   parseResumeImportPathPayload,
   type ResumeImportPathPayload
 } from './test-api'
