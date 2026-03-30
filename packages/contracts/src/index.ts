@@ -149,6 +149,21 @@ export const sourceDebugAttemptOutcomeValues = [
 export const SourceDebugAttemptOutcomeSchema = z.enum(sourceDebugAttemptOutcomeValues)
 export type SourceDebugAttemptOutcome = z.infer<typeof SourceDebugAttemptOutcomeSchema>
 
+export const sourceDebugPhaseCompletionModeValues = [
+  'structured_finish',
+  'forced_finish',
+  'timed_out_with_partial_evidence',
+  'timed_out_without_evidence',
+  'blocked_auth',
+  'blocked_manual_step',
+  'blocked_site_protection',
+  'runtime_failed',
+  'interrupted'
+] as const
+
+export const SourceDebugPhaseCompletionModeSchema = z.enum(sourceDebugPhaseCompletionModeValues)
+export type SourceDebugPhaseCompletionMode = z.infer<typeof SourceDebugPhaseCompletionModeSchema>
+
 export const sourceInstructionStatusValues = ['missing', 'draft', 'validated', 'stale', 'unsupported'] as const
 
 export const SourceInstructionStatusSchema = z.enum(sourceInstructionStatusValues)
@@ -435,6 +450,15 @@ export const SourceDebugCompactionStateSchema = z.object({
 })
 export type SourceDebugCompactionState = z.infer<typeof SourceDebugCompactionStateSchema>
 
+export const SourceDebugPhaseEvidenceSchema = z.object({
+  visibleControls: z.array(NonEmptyStringSchema).default([]),
+  successfulInteractions: z.array(NonEmptyStringSchema).default([]),
+  routeSignals: z.array(NonEmptyStringSchema).default([]),
+  attemptedControls: z.array(NonEmptyStringSchema).default([]),
+  warnings: z.array(NonEmptyStringSchema).default([])
+})
+export type SourceDebugPhaseEvidence = z.infer<typeof SourceDebugPhaseEvidenceSchema>
+
 export const SourceDebugEvidenceRefSchema = z.object({
   id: NonEmptyStringSchema,
   runId: NonEmptyStringSchema,
@@ -458,6 +482,8 @@ export const SourceDebugWorkerAttemptSchema = z.object({
   startedAt: IsoDateTimeSchema,
   completedAt: IsoDateTimeSchema.nullable().default(null),
   outcome: SourceDebugAttemptOutcomeSchema,
+  completionMode: SourceDebugPhaseCompletionModeSchema.default('structured_finish'),
+  completionReason: NonEmptyStringSchema.nullable().default(null),
   strategyLabel: NonEmptyStringSchema,
   strategyFingerprint: NonEmptyStringSchema,
   confirmedFacts: z.array(NonEmptyStringSchema).default([]),
@@ -468,6 +494,7 @@ export const SourceDebugWorkerAttemptSchema = z.object({
   nextRecommendedStrategies: z.array(NonEmptyStringSchema).default([]),
   avoidStrategyFingerprints: z.array(NonEmptyStringSchema).default([]),
   evidenceRefIds: z.array(NonEmptyStringSchema).default([]),
+  phaseEvidence: SourceDebugPhaseEvidenceSchema.nullable().default(null),
   compactionState: SourceDebugCompactionStateSchema.nullable().default(null)
 })
 export type SourceDebugWorkerAttempt = z.infer<typeof SourceDebugWorkerAttemptSchema>
@@ -475,6 +502,8 @@ export type SourceDebugWorkerAttempt = z.infer<typeof SourceDebugWorkerAttemptSc
 export const SourceDebugPhaseSummarySchema = z.object({
   phase: SourceDebugPhaseSchema,
   summary: NonEmptyStringSchema,
+  completionMode: SourceDebugPhaseCompletionModeSchema.default('structured_finish'),
+  completionReason: NonEmptyStringSchema.nullable().default(null),
   confirmedFacts: z.array(NonEmptyStringSchema).default([]),
   blockerNotes: z.array(NonEmptyStringSchema).default([]),
   nextRecommendedStrategies: z.array(NonEmptyStringSchema).default([]),
@@ -533,6 +562,14 @@ export const SourceDebugRunRecordSchema = z.object({
   instructionArtifactId: NonEmptyStringSchema.nullable().default(null)
 })
 export type SourceDebugRunRecord = z.infer<typeof SourceDebugRunRecordSchema>
+
+export const SourceDebugRunDetailsSchema = z.object({
+  run: SourceDebugRunRecordSchema,
+  attempts: z.array(SourceDebugWorkerAttemptSchema).default([]),
+  evidenceRefs: z.array(SourceDebugEvidenceRefSchema).default([]),
+  instructionArtifact: SourceInstructionArtifactSchema.nullable().default(null)
+})
+export type SourceDebugRunDetails = z.infer<typeof SourceDebugRunDetailsSchema>
 
 export const JobDiscoveryTargetSchema = z.object({
   id: NonEmptyStringSchema,
@@ -719,6 +756,9 @@ export const DiscoveryAgentMetadataSchema = z.object({
   incomplete: z.boolean().default(false),
   transcriptMessageCount: z.number().int().nonnegative().default(0),
   compactionState: SourceDebugCompactionStateSchema.nullable().default(null),
+  phaseCompletionMode: SourceDebugPhaseCompletionModeSchema.nullable().default(null),
+  phaseCompletionReason: NonEmptyStringSchema.nullable().default(null),
+  phaseEvidence: SourceDebugPhaseEvidenceSchema.nullable().default(null),
   debugFindings: AgentDebugFindingsSchema.nullable().default(null)
 })
 export type DiscoveryAgentMetadata = z.infer<typeof DiscoveryAgentMetadataSchema>
@@ -837,6 +877,12 @@ export const JobFinderSourceInstructionActionInputSchema = z.object({
   instructionId: NonEmptyStringSchema
 })
 export type JobFinderSourceInstructionActionInput = z.infer<typeof JobFinderSourceInstructionActionInputSchema>
+
+export const JobFinderSaveSourceInstructionInputSchema = z.object({
+  targetId: NonEmptyStringSchema,
+  artifact: SourceInstructionArtifactSchema
+})
+export type JobFinderSaveSourceInstructionInput = z.infer<typeof JobFinderSaveSourceInstructionInputSchema>
 
 export const BrowserSessionStateSchema = z.object({
   source: JobSourceSchema,

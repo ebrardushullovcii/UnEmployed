@@ -28,16 +28,26 @@ const FillSchema = z.object({
   submit: z.boolean().optional().default(false)
 }).strict()
 
+const SelectOptionSchema = z.object({
+  role: z.string().min(1),
+  name: z.string().min(1),
+  optionText: z.string().min(1),
+  index: z.number().int().nonnegative().optional().default(0),
+  submit: z.boolean().optional().default(false)
+}).strict()
+
 const ScrollDownSchema = z.object({
   amount: z.number().int().positive().optional().default(800)
 }).strict()
+
+const ScrollToTopSchema = z.object({}).strict()
 
 const ExtractJobsSchema = z.object({
   pageType: z.enum(['search_results', 'job_detail', 'company_page', 'unknown']),
   maxJobs: z.number().int().positive().optional().default(5)
 }).strict()
 
-const FinishFindingListSchema = z.array(z.string().min(1)).max(6).optional().default([])
+const FinishFindingListSchema = z.array(z.string().min(1)).max(8).optional().default([])
 
 const FinishSchema = z.object({
   reason: z.string().min(1),
@@ -48,6 +58,209 @@ const FinishSchema = z.object({
   applyTips: FinishFindingListSchema,
   warnings: FinishFindingListSchema
 }).strict()
+
+export interface InteractiveElementCandidate {
+  role: string
+  name: string
+}
+
+const INTERACTIVE_ELEMENT_LIMIT = 30
+const INTERACTIVE_ELEMENT_ROLE_PRIORITY: Record<string, number> = {
+  searchbox: 140,
+  textbox: 120,
+  combobox: 110,
+  button: 90,
+  link: 80,
+  checkbox: 70,
+  radio: 70,
+  switch: 65,
+  tab: 60,
+  option: 55,
+  menuitem: 50
+}
+
+const INTERACTIVE_ELEMENT_PRIORITY_PATTERNS: Array<{ pattern: RegExp; boost: number }> = [
+  { pattern: /\b(show|see|view)\s+all\b/i, boost: 260 },
+  { pattern: /\bsearch\b/i, boost: 220 },
+  { pattern: /\bfilter(s)?\b/i, boost: 220 },
+  { pattern: /\blocation\b/i, boost: 210 },
+  { pattern: /\bindustry\b/i, boost: 210 },
+  { pattern: /\bcategory\b/i, boost: 200 },
+  { pattern: /\bdepartment\b/i, boost: 200 },
+  { pattern: /\bexperience\b/i, boost: 190 },
+  { pattern: /\b(remote|hybrid|on[- ]site|work mode)\b/i, boost: 180 },
+  { pattern: /\b(recommended|recommendation|collection|collections|top job picks)\b/i, boost: 175 },
+  { pattern: /\bjob(s)?\b/i, boost: 150 },
+  { pattern: /\b(next|load more|more results|see more|browse)\b/i, boost: 140 },
+  { pattern: /\bapply\b/i, boost: 80 }
+]
+
+const INTERACTIVE_ELEMENT_NOISE_PATTERNS: Array<{ pattern: RegExp; penalty: number }> = [
+  { pattern: /^(home|my network|messaging|notifications|me)$/i, penalty: 240 },
+  { pattern: /^(for business|try premium.*|premium)$/i, penalty: 220 },
+  { pattern: /\b(feed|advertisement|ad choice|sponsored)\b/i, penalty: 180 }
+]
+
+function normalizeInteractiveName(value: string): string {
+  return value
+    .replace(/\s+/g, ' ')
+    .replace(/[→←↗↘↙↖›»]+$/g, '')
+    .trim()
+}
+
+function makeInteractiveElementKey(role: string, name: string): string {
+  return `${role.trim().toLowerCase()}:${normalizeInteractiveName(name).toLowerCase()}`
+}
+
+function mergeInteractiveElementCandidates(
+  ...candidateLists: Array<readonly InteractiveElementCandidate[]>
+): InteractiveElementCandidate[] {
+  const merged = new Map<string, { role: string; name: string; counts: number[]; order: number }>()
+  let order = 0
+
+  candidateLists.forEach((candidateList, listIndex) => {
+    const counts = new Map<string, number>()
+
+    for (const candidate of candidateList) {
+      const role = candidate.role.trim().toLowerCase()
+      const name = normalizeInteractiveName(candidate.name)
+
+      if (!role || !name) {
+        continue
+      }
+
+      const key = makeInteractiveElementKey(role, name)
+      const nextCount = (counts.get(key) ?? 0) + 1
+      counts.set(key, nextCount)
+
+      const existing = merged.get(key)
+      if (existing) {
+        existing.counts[listIndex] = nextCount
+        continue
+      }
+
+      const sourceCounts = new Array(candidateLists.length).fill(0)
+      sourceCounts[listIndex] = nextCount
+      merged.set(key, { role, name, counts: sourceCounts, order })
+      order += 1
+    }
+  })
+
+  return [...merged.values()]
+    .sort((left, right) => left.order - right.order)
+    .flatMap((entry) => {
+      const maxCount = Math.max(...entry.counts, 1)
+      return Array.from({ length: maxCount }, () => ({ role: entry.role, name: entry.name }))
+    })
+}
+
+function scoreInteractiveElement(candidate: InteractiveElementCandidate): number {
+  const normalizedName = normalizeInteractiveName(candidate.name)
+  const compactName = normalizedName.toLowerCase()
+  const normalizedRole = candidate.role.trim().toLowerCase()
+
+  let score = INTERACTIVE_ELEMENT_ROLE_PRIORITY[normalizedRole] ?? 40
+
+  for (const { pattern, boost } of INTERACTIVE_ELEMENT_PRIORITY_PATTERNS) {
+    if (pattern.test(normalizedName)) {
+      score += boost
+    }
+  }
+
+  for (const { pattern, penalty } of INTERACTIVE_ELEMENT_NOISE_PATTERNS) {
+    if (pattern.test(normalizedName)) {
+      score -= penalty
+    }
+  }
+
+  if (compactName.length <= 1) {
+    score -= 80
+  } else if (compactName.length <= 3) {
+    score -= 30
+  }
+
+  return score
+}
+
+export function parseInteractiveElementsFromAriaSnapshot(snapshot: string): InteractiveElementCandidate[] {
+  const elements: InteractiveElementCandidate[] = []
+
+  for (const line of snapshot.split('\n')) {
+    const match = line.match(/-\s+([\w-]+)\s+"([^"]+)"(?:\s+\[ref=[^\]]+\])?/)
+    if (!match) {
+      continue
+    }
+
+    const role = match[1]?.trim().toLowerCase()
+    const name = normalizeInteractiveName(match[2] ?? '')
+
+    if (!role || !name) {
+      continue
+    }
+
+    elements.push({ role, name })
+  }
+
+  return elements
+}
+
+export function prioritizeInteractiveElements(
+  candidates: readonly InteractiveElementCandidate[],
+  limit = INTERACTIVE_ELEMENT_LIMIT
+): Array<InteractiveElementCandidate & { index: number }> {
+  const scored = candidates.map((candidate, order) => ({
+    ...candidate,
+    order,
+    score: scoreInteractiveElement(candidate)
+  }))
+
+  scored.sort((left, right) => right.score - left.score || left.order - right.order)
+
+  const roleNameIndices = new Map<string, number>()
+
+  return scored.slice(0, limit).map((candidate) => {
+    const key = makeInteractiveElementKey(candidate.role, candidate.name)
+    const index = roleNameIndices.get(key) ?? 0
+    roleNameIndices.set(key, index + 1)
+    return {
+      role: candidate.role,
+      name: candidate.name,
+      index
+    }
+  })
+}
+
+function buildLooseAccessibleNamePattern(name: string): RegExp {
+  const trimmedName = normalizeInteractiveName(name)
+  const escapedName = trimmedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const whitespaceTolerantName = escapedName.replace(/\s+/g, '\\s+')
+  return new RegExp(whitespaceTolerantName, 'i')
+}
+
+async function resolveRoleLocator(
+  page: Page,
+  role: string,
+  name: string,
+  index: number
+): Promise<ReturnType<Page['getByRole']>> {
+  const exactLocator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name, exact: true })
+  const exactCount = await exactLocator.count().catch(() => 0)
+
+  if (exactCount > index) {
+    return exactLocator.nth(index)
+  }
+
+  const looseLocator = page.getByRole(role as Parameters<typeof page.getByRole>[0], {
+    name: buildLooseAccessibleNamePattern(name)
+  })
+  const looseCount = await looseLocator.count().catch(() => 0)
+
+  if (looseCount > index) {
+    return looseLocator.nth(index)
+  }
+
+  return exactLocator.nth(index)
+}
 
 // Recovery helper for when navigation goes off allowlist
 async function recoverFromOffAllowlist(
@@ -272,41 +485,151 @@ Note: If multiple elements have the same role and name, use the index (0-based) 
       const { page } = context
 
       try {
-        // Use ariaSnapshot to get accessible elements
-        const snapshot = await page.locator('body').ariaSnapshot()
+        const snapshot = await page.locator('body').ariaSnapshot().catch(() => '')
+        const ariaElements = snapshot ? parseInteractiveElementsFromAriaSnapshot(snapshot) : []
+        const domElements = await page.evaluate(() => {
+          const roleFromInputType = (element: HTMLInputElement): string => {
+            const type = (element.getAttribute('type') ?? 'text').toLowerCase()
 
-        // Parse the snapshot to extract interactive elements
-        const lines = snapshot.split('\n')
-        const elements: Array<{ role: string; name: string }> = []
-
-        for (const line of lines) {
-          // Parse lines like: - button "Apply" [ref=e5]
-          // Only capture role and name, discard the synthetic ref
-          const match = line.match(/-\s+(\w+)\s+"([^"]+)"\s+\[ref=[^\]]+\]/)
-          if (match) {
-            const role = match[1]
-            const name = match[2]
-            if (role && name) {
-              elements.push({ role, name })
+            if (type === 'search') {
+              return 'searchbox'
             }
-          }
-        }
+            if (type === 'checkbox') {
+              return 'checkbox'
+            }
+            if (type === 'radio') {
+              return 'radio'
+            }
+            if (['button', 'submit', 'reset'].includes(type)) {
+              return 'button'
+            }
 
-        // Calculate occurrence index for duplicate role/name pairs
-        const roleNameIndices = new Map<string, number>()
-        const elementsWithIndex = elements.map(el => {
-          const key = `${el.role}:${el.name}`
-          const index = roleNameIndices.get(key) ?? 0
-          roleNameIndices.set(key, index + 1)
-          return { role: el.role, name: el.name, index }
+            return 'textbox'
+          }
+
+          const readLabelledByText = (element: HTMLElement): string => {
+            const labelledBy = element.getAttribute('aria-labelledby')
+            if (!labelledBy) {
+              return ''
+            }
+
+            return labelledBy
+              .split(/\s+/)
+              .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+              .filter(Boolean)
+              .join(' ')
+          }
+
+          const readElementName = (element: HTMLElement): string => {
+            const ariaLabel = element.getAttribute('aria-label')?.trim()
+            if (ariaLabel) {
+              return ariaLabel
+            }
+
+            const labelledByText = readLabelledByText(element)
+            if (labelledByText) {
+              return labelledByText
+            }
+
+            if ('labels' in element) {
+              const labels = Array.from((element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).labels ?? [])
+                .map((label) => label.textContent?.trim() ?? '')
+                .filter(Boolean)
+              if (labels.length > 0) {
+                return labels.join(' ')
+              }
+            }
+
+            const placeholder = element.getAttribute('placeholder')?.trim()
+            if (placeholder) {
+              return placeholder
+            }
+
+            const title = element.getAttribute('title')?.trim()
+            if (title) {
+              return title
+            }
+
+            if (element instanceof HTMLInputElement) {
+              const value = element.value.trim()
+              if (value) {
+                return value
+              }
+            }
+
+            return (element.textContent ?? '').replace(/\s+/g, ' ').trim()
+          }
+
+          const resolveRole = (element: HTMLElement): string => {
+            const explicitRole = element.getAttribute('role')?.trim().toLowerCase()
+            if (explicitRole) {
+              return explicitRole
+            }
+
+            if (element instanceof HTMLAnchorElement) {
+              return 'link'
+            }
+            if (element instanceof HTMLButtonElement) {
+              return 'button'
+            }
+            if (element instanceof HTMLSelectElement) {
+              return 'combobox'
+            }
+            if (element instanceof HTMLTextAreaElement) {
+              return 'textbox'
+            }
+            if (element instanceof HTMLInputElement) {
+              return roleFromInputType(element)
+            }
+            if (element.isContentEditable) {
+              return 'textbox'
+            }
+
+            return ''
+          }
+
+          const isVisible = (element: HTMLElement): boolean => {
+            if (element.hidden || element.getAttribute('aria-hidden') === 'true') {
+              return false
+            }
+
+            const style = window.getComputedStyle(element)
+            if (
+              style.display === 'none' ||
+              style.visibility === 'hidden' ||
+              Number(style.opacity) === 0 ||
+              style.pointerEvents === 'none'
+            ) {
+              return false
+            }
+
+            const rect = element.getBoundingClientRect()
+            return rect.width > 0 && rect.height > 0
+          }
+
+          return Array.from(
+            document.querySelectorAll<HTMLElement>(
+              'a[href], button, input, select, textarea, [role], [contenteditable="true"]'
+            )
+          )
+            .filter((element) => !element.closest('[aria-hidden="true"], [hidden], template'))
+            .filter(isVisible)
+            .map((element) => ({
+              role: resolveRole(element),
+              name: readElementName(element)
+            }))
+            .filter((element) => element.role && element.name)
         })
+
+        const mergedElements = mergeInteractiveElementCandidates(ariaElements, domElements)
+        const prioritizedElements = prioritizeInteractiveElements(mergedElements)
 
         return {
           success: true,
           data: {
-            elementCount: elements.length,
-            elements: elementsWithIndex.slice(0, 30), // Limit to first 30 to avoid overwhelming the agent
-            hasMore: elements.length > 30
+            elementCount: mergedElements.length,
+            elements: prioritizedElements,
+            hasMore: mergedElements.length > prioritizedElements.length
           }
         }
       } catch (error) {
@@ -366,8 +689,7 @@ If the click fails, you'll get details about why so you can decide whether to re
       const { page, state } = context
 
       try {
-        // Use Playwright's accessibility-friendly locator with nth for disambiguation
-        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name, exact: true }).nth(index)
+        const locator = await resolveRoleLocator(page, role, name, index)
 
         // Check if element is visible
         const isVisible = await locator.isVisible().catch(() => false)
@@ -505,8 +827,7 @@ If multiple elements have the same role and name, use the index to disambiguate 
       const { page, state } = context
 
       try {
-        // Use Playwright's accessibility-friendly locator with nth for disambiguation
-        const locator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name, exact: true }).nth(index)
+        const locator = await resolveRoleLocator(page, role, name, index)
 
         await locator.fill(text)
 
@@ -561,6 +882,173 @@ If multiple elements have the same role and name, use the index to disambiguate 
           success: false,
           error: error instanceof Error ? error.message : 'Fill failed',
           data: { role, name: name.slice(0, 30), index }
+        }
+      }
+    }
+  },
+
+  {
+    name: 'select_option',
+    description: `Select an option from a dropdown or combobox by its role and label/name.
+
+Use this for visible city, industry, category, or work-mode filters on the page.
+You get role, name, and index from get_interactive_elements().`,
+    parameters: {
+      type: 'object',
+      properties: {
+        role: {
+          type: 'string',
+          description: 'The accessibility role of the control, usually combobox'
+        },
+        name: {
+          type: 'string',
+          description: 'The accessible name/label of the dropdown'
+        },
+        optionText: {
+          type: 'string',
+          description: 'Visible option text to select'
+        },
+        index: {
+          type: 'number',
+          description: 'The occurrence index for disambiguating duplicates (0-based, optional)',
+          default: 0
+        },
+        submit: {
+          type: 'boolean',
+          description: 'Whether to press Enter after selecting (default: false)',
+          default: false
+        }
+      },
+      required: ['role', 'name', 'optionText']
+    },
+    execute: async (args, context) => {
+      const parseResult = SelectOptionSchema.safeParse(args)
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid select_option arguments: ${parseResult.error.issues.map((issue) => issue.message).join(', ')}`
+        }
+      }
+
+      const { role, name, optionText, index, submit } = parseResult.data
+      const { page, state } = context
+      const previousUrl = state.currentUrl
+
+      try {
+        const locator = await resolveRoleLocator(page, role, name, index)
+        const elementHandle = await locator.elementHandle()
+
+        if (!elementHandle) {
+          return {
+            success: false,
+            error: 'Dropdown element not found'
+          }
+        }
+
+        const selectionResult = await elementHandle.evaluate((element, targetOptionText) => {
+          const normalizedTarget = targetOptionText.trim().toLowerCase()
+          const matchOption = (text: string) => text.trim().toLowerCase() === normalizedTarget
+
+          if (element instanceof HTMLSelectElement) {
+            const option = Array.from(element.options).find(
+              (candidate) => matchOption(candidate.textContent ?? '') || matchOption(candidate.label ?? '')
+            )
+
+            if (!option) {
+              return { selected: false, availableOptions: Array.from(element.options).map((candidate) => candidate.textContent?.trim() ?? '') }
+            }
+
+            element.value = option.value
+            element.dispatchEvent(new Event('input', { bubbles: true }))
+            element.dispatchEvent(new Event('change', { bubbles: true }))
+            return { selected: true, selectedValue: option.value, selectedLabel: option.textContent?.trim() ?? option.label ?? '' }
+          }
+
+          return { selected: false, unsupportedTag: element.tagName.toLowerCase() }
+        }, optionText)
+
+        if (!selectionResult?.selected) {
+          return {
+            success: false,
+            error: selectionResult?.unsupportedTag
+              ? `select_option supports native select elements only; received ${selectionResult.unsupportedTag}`
+              : `Option "${optionText}" was not found`,
+            data: selectionResult
+          }
+        }
+
+        if (submit) {
+          await locator.press('Enter').catch(() => undefined)
+          await page.waitForTimeout(1500)
+        } else {
+          await page.waitForTimeout(750)
+        }
+
+        const newUrl = page.url()
+        const navigated = newUrl !== previousUrl
+
+        if (navigated) {
+          const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy)
+          if (!urlValidation.valid) {
+            const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy)
+            if (recovery.recovered && recovery.recoveredUrl) {
+              state.currentUrl = recovery.recoveredUrl
+            }
+            return {
+              success: false,
+              error: recovery.error,
+              data: {
+                role,
+                name: name.slice(0, 50),
+                index,
+                optionText: optionText.slice(0, 50),
+                invalidUrl: newUrl,
+                recovered: recovery.recovered
+              }
+            }
+          }
+
+          state.currentUrl = newUrl
+          state.visitedUrls.add(newUrl)
+        }
+
+        return {
+          success: true,
+          data: {
+            role,
+            name: name.slice(0, 50),
+            index,
+            optionText: optionText.slice(0, 50),
+            submitted: submit,
+            navigated,
+            newUrl: navigated ? newUrl : undefined,
+            selectedLabel: selectionResult.selectedLabel ?? optionText,
+            selectedValue: selectionResult.selectedValue ?? null
+          }
+        }
+      } catch (error) {
+        const currentUrl = page.url()
+        if (currentUrl) {
+          const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy)
+          if (!urlCheck.valid) {
+            const recovery = await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy)
+            if (recovery.recovered && recovery.recoveredUrl) {
+              state.currentUrl = recovery.recoveredUrl
+            }
+          } else {
+            state.currentUrl = currentUrl
+          }
+        }
+
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Select option failed',
+          data: {
+            role,
+            name: name.slice(0, 50),
+            index,
+            optionText: optionText.slice(0, 50)
+          }
         }
       }
     }
@@ -632,6 +1120,60 @@ Returns information about whether new content was loaded so you can decide wheth
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Scroll failed'
+        }
+      }
+    }
+  },
+
+  {
+    name: 'scroll_to_top',
+    description: `Scroll back to the top of the current page.
+
+Use this when search boxes, filters, or header controls may be above the current scroll position and need to be re-checked.`,
+    parameters: {
+      type: 'object',
+      properties: {}
+    },
+    execute: async (args, context) => {
+      const parseResult = ScrollToTopSchema.safeParse(args)
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid scroll_to_top arguments: ${parseResult.error.issues.map(i => i.message).join(', ')}`
+        }
+      }
+
+      const { page } = context
+
+      try {
+        const beforeInfo = await page.evaluate(() => ({
+          scrollY: window.scrollY,
+          scrollHeight: document.body.scrollHeight,
+          clientHeight: window.innerHeight
+        }))
+
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await page.waitForTimeout(800)
+
+        const afterInfo = await page.evaluate(() => ({
+          scrollY: window.scrollY,
+          scrollHeight: document.body.scrollHeight,
+          clientHeight: window.innerHeight
+        }))
+
+        return {
+          success: true,
+          data: {
+            previousScrollY: beforeInfo.scrollY,
+            newScrollY: afterInfo.scrollY,
+            totalHeight: afterInfo.scrollHeight,
+            returnedToTop: afterInfo.scrollY <= 10
+          }
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Scroll to top failed'
         }
       }
     }
@@ -930,9 +1472,9 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
   {
     name: 'finish',
-    description: `Finish the task and return the discovered jobs.
-    
-Call this when you've found enough jobs or can't find any more relevant positions.`,
+    description: `Finish the current task and return any discovered jobs plus structured site findings.
+
+Call this when the phase goal has been proven, safely blocked, or you have exhausted the useful evidence on the page.`,
     parameters: {
       type: 'object',
       properties: {

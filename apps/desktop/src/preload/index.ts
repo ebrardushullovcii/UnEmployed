@@ -6,6 +6,8 @@ import type {
   DiscoveryActivityEvent,
   JobFinderSettings,
   SourceDebugRunRecord,
+  SourceDebugRunDetails,
+  SourceInstructionArtifact,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences
@@ -129,6 +131,10 @@ const desktopApi = {
       ipcRenderer.invoke('job-finder:cancel-source-debug', { runId }) as Promise<JobFinderWorkspaceSnapshot>,
     getSourceDebugRun: (runId: string) =>
       ipcRenderer.invoke('job-finder:get-source-debug-run', { runId }) as Promise<SourceDebugRunRecord>,
+    getSourceDebugRunDetails: (runId: string) =>
+      ipcRenderer.invoke('job-finder:get-source-debug-run-details', { runId }) as Promise<SourceDebugRunDetails>,
+    saveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) =>
+      ipcRenderer.invoke('job-finder:save-source-instruction-artifact', { targetId, artifact }) as Promise<JobFinderWorkspaceSnapshot>,
     listSourceDebugRuns: (targetId: string) =>
       ipcRenderer.invoke('job-finder:list-source-debug-runs', { targetId }) as Promise<readonly SourceDebugRunRecord[]>,
     acceptSourceInstructionDraft: (targetId: string, instructionId: string) =>

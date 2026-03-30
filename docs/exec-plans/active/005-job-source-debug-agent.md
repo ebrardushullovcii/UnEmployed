@@ -12,11 +12,25 @@ The first architecture slice is now landed:
 - `packages/job-finder` now also factors the phase sequencing into a reusable artifact-oriented orchestrator helper
 - `packages/browser-agent` now supports worker-side transcript compaction and returns compacted metadata rather than exposing its full transcript to the orchestrator
 - Profile Preferences exposes a `Debug source` target action plus instruction-status metadata
-- desktop IPC/preload now exposes source-debug run, cancel, get/list, accept-draft, and verify actions for follow-on UI work
+- desktop IPC/preload now exposes source-debug run, cancel, get/list, save-artifact, and verify actions for follow-on UI work
 - source-debug now includes a bounded `apply_path_validation` phase that records safe apply-entry guidance without submitting an application, and approved LinkedIn apply forwards validated guidance into the supported runtime
 - Profile Preferences now renders learned source instructions separately from manual override text so successful debug runs no longer look empty when `customInstructions` stays blank
 - The orchestrator now curates learned instructions more aggressively: exact sample URLs, per-job result counts, and raw phase boilerplate are filtered out in favor of reusable controls, filter gotchas, navigation patterns, and apply-entry guidance
-- The managed-session path now opens LinkedIn before source-debug phase execution begins, and internal agent/runtime failures no longer get persisted as learned instruction text
+- Source-debug now forces stronger proof of repeatable entry paths, visible search/filter controls, recommendation or `show all` routes, and pagination behavior before promotion can pass
+- Source-debug no longer pre-pauses the run behind a LinkedIn-only session preflight; the worker now gets a chance to report auth blockers during the access/auth phase like any other target
+- Internal agent/runtime failures no longer get persisted as learned instruction text
+- The browser-agent now falls back to visible DOM controls and looser role-name matching when accessibility snapshots are too thin, so recommendation modules, `show all` links, and visible filters are less likely to be missed on sites like LinkedIn
+- Worker transcript compaction now preserves complete assistant/tool-call exchanges instead of leaving orphaned `tool` messages behind, which fixes the provider-side tool-calling failure that was truncating some live source-debug phases
+- Source-debug worker phases no longer auto-stop just because they sampled the first matching job; they now keep probing until they explicitly `finish`, which prevents site-structure/search-filter runs from collapsing into premature one-job summaries
+- Validation now requires at least one positively proven reusable search/filter or recommendation-route signal; runs that only say visible controls existed but were not proven stay `draft`
+- Workers are now instructed to prefer visible search/filter surfaces over hand-authored URL parameter recipes when the UI already exposes reusable controls
+- Source-debug task-packet runs now get a forced final closeout turn near their step limit; if the worker still fails to `finish`, the agent/runtime synthesizes typed partial-evidence findings instead of silently dropping the observed controls and routes
+- Attempt and phase-summary artifacts now persist explicit completion modes, completion reasons, and lightweight phase-evidence payloads so the orchestrator can distinguish structured finishes from partial timeouts and runtime failures
+- Desktop IPC/preload now exposes typed source-debug run-details payloads, and Profile Preferences has a compact per-target review modal for retained runs, per-phase outcomes, evidence counts, verification actions, and inline learned-instruction edit/remove controls on the target card
+- Live source-debug and agent-discovery runs now explicitly open the browser session at run start and close it again on completion, failure, or cancellation so the visible browser window reflects whether work is still active
+- Run shutdown now also terminates the spawned Chrome process instead of only closing the Playwright connection, and the worker can explicitly `scroll_to_top` so long homepage job boards can re-check header search/filter controls after deep scrolling
+- Live discovery and supported apply flows now only consume the active instruction artifact for the matching target: the current draft artifact applies automatically for that target, and validated artifacts apply when no newer draft has replaced them
+- Final learned-instruction curation now strips more runtime/tool chatter (`extract_jobs`, `get_interactive_elements`, pointer-event / timeout hints) and suppresses contradictory “no visible filters” claims when phase evidence already captured named controls
 
 The next work on this plan is QA/hardening rather than first implementation.
 
@@ -55,7 +69,7 @@ That creates five immediate problems:
 4. Sequential phases probe auth requirements, site layout, search inputs, filters, results lists, detail pages, apply-entry paths, and other navigation constraints.
 5. The system synthesizes a draft instruction artifact plus a readable evidence summary.
 6. A verification phase replays the draft instructions in a fresh pass and confirms they can still reach jobs and vary results.
-7. The user can review, accept, edit, rerun, or keep the instructions in draft mode.
+7. The user can review, edit, remove, rerun, or keep the instructions in draft mode while they are already active for that target.
 
 ## Scope
 
@@ -84,6 +98,7 @@ That creates five immediate problems:
 - Auth requirements and manual user steps should be visible and explicit.
 - Low-confidence findings should stay draft or unsupported instead of being silently promoted into production instructions.
 - Replay success alone is not enough to validate a source; the retained artifact should also prove reusable search/navigation guidance plus reusable detail/apply guidance.
+- Validation should bias toward real operator value: future agents should learn the best entry path, visible search/filter controls, recommendation-route behavior, and stable detail/apply rules rather than only a minimal “jobs exist here” summary.
 
 ## Orchestration Model
 
@@ -110,6 +125,9 @@ Recommended phases:
 
 - test keyword or role search
 - test location or work-mode filters when present
+- test obvious visible filters on simple pages before concluding there is no reusable control coverage
+- test recommendation rows, curated collections, chips, or `show all` links when they appear to create preselected job lists
+- when a jobs landing page starts with recommendation cards instead of a full result grid, follow `show all` or a reusable collection path before deciding the route is thin
 - test whether result changes are observable and reliable
 - note pagination, infinite-scroll, or lazy-load behavior
 
@@ -219,7 +237,8 @@ Status:
 
 Status:
 - synthesis is landed
-- richer review/edit surfaces still need follow-up
+- compact retained-run review UI is now landed
+- deeper edit/history affordances still need follow-up
 
 ### 5. Replay Verification Gate
 
@@ -240,6 +259,7 @@ Status:
 
 Status:
 - contract, persistence, orchestrator, manual-blocker, and worker-compaction coverage landed
+- forced-closeout, partial-evidence persistence, and review-UI coverage landed
 - live QA, wording cleanup, and broader hostile-site coverage remain
 
 ## Milestones

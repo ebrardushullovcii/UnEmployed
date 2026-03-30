@@ -20,6 +20,7 @@ import {
   SavedJobSchema,
   SourceDebugCompactionStateSchema,
   SourceDebugPhaseSummarySchema,
+  SourceDebugRunDetailsSchema,
   SourceDebugRunRecordSchema,
   SourceDebugWorkerAttemptSchema,
   SourceDebugEvidenceRefSchema,
@@ -44,8 +45,11 @@ import {
   type JobPosting,
   type JobDiscoveryTarget,
   type SourceDebugPhase,
+  type SourceDebugPhaseCompletionMode,
+  type SourceDebugPhaseEvidence,
   type SourceDebugPhaseSummary,
   type SourceDebugRunRecord,
+  type SourceDebugRunDetails,
   type SourceDebugWorkerAttempt,
   type SourceInstructionArtifact,
   type MatchAssessment,
@@ -105,7 +109,6 @@ interface ResolvedDiscoveryAdapter {
   kind: JobSource
   label: string
   experimental: boolean
-  requiresManagedSession: boolean
   siteInstructions: string[]
   toolUsageNotes: string[]
   relevantUrlSubstrings: string[]
@@ -131,32 +134,35 @@ const discoveryAdapters: Record<JobSource, ResolvedDiscoveryAdapter> = {
     kind: 'linkedin',
     label: 'LinkedIn',
     experimental: false,
-    requiresManagedSession: true,
     siteInstructions: [
-      'Stay on LinkedIn job-search and job-detail pages only.',
-      'Prefer stable /jobs/view/ URLs and avoid recruiter/profile detours.',
-      'Use LinkedIn search controls and result pagination when helpful.'
+      'Stay on in-scope LinkedIn jobs routes and avoid feed, profile, or recruiter detours unless they are the only path back to jobs.',
+      'Prefer repeatable job-list routes, recommendation collections, and canonical job-detail pages over one-off promo surfaces.',
+      'Treat the /jobs landing page as a staging surface: if it mainly shows recommendation modules, follow a reusable Show all or collection path before concluding the jobs route is thin.',
+      'Prefer visible LinkedIn jobs surfaces over handcrafted query-parameter URLs; only fall back to direct URL patterns when the visible search and filter controls fail or are blocked.',
+      'Use search inputs, filters, recommendation chips, and preselected routes only when they actually change the visible jobs.'
     ],
     toolUsageNotes: [
-      'Use short navigations on LinkedIn result pages before retrying with longer waits.',
+      'Use short navigations on result pages first, then retry with longer waits only if the surface is still loading.',
+      'On LinkedIn collection pages, look for the visible search box, category chips such as Remote or IT, and whether the collection leads into the fuller /jobs/search filter bar.',
       'Open detail pages when the results list does not expose stable job URLs.',
-      'Stop once enough strong-fit roles have been gathered.'
+      'On LinkedIn /jobs, inspect recommendation modules such as Top job picks and use Show all when it opens a reusable jobs list.',
+      'Test recommendation clusters or show-all routes if they appear to open reusable prefiltered job lists.'
     ],
-    relevantUrlSubstrings: ['/jobs/view/', '/jobs/search/']
+    relevantUrlSubstrings: ['/jobs/', '/jobs/view/', '/jobs/search/', '/jobs/collections/']
   },
   generic_site: {
     kind: 'generic_site',
     label: 'Generic site',
     experimental: true,
-    requiresManagedSession: false,
     siteInstructions: [
       'Stay within the configured hostname and do not roam to third-party domains.',
-      'Prefer pages that expose stable job titles, companies, and canonical job URLs.',
+      'Prefer repeatable job-list routes, canonical detail pages, and visible search or filter controls over one-off landing-page promos.',
       'If the page structure is unreliable, keep the result set small and high confidence.'
     ],
     toolUsageNotes: [
       'Use navigation sparingly and stay bounded to the configured hostname.',
       'Favor explicit careers, jobs, openings, or position pages when they exist.',
+      'On simple pages, test the obvious visible search box and top-level filters before concluding the site has no reusable controls.',
       'Skip saving low-confidence results that do not expose a stable job identity.'
     ],
     relevantUrlSubstrings: [
@@ -631,7 +637,7 @@ function getActiveDiscoveryTargets(searchPreferences: JobSearchPreferences): Job
 
 function getPreferredSessionAdapter(searchPreferences: JobSearchPreferences): JobSource {
   const targets = getActiveDiscoveryTargets(searchPreferences)
-  const preferredTarget = targets.find((target) => discoveryAdapters[resolveAdapterKind(target)].requiresManagedSession) ?? targets[0]
+  const preferredTarget = targets[0]
 
   return resolveAdapterKind(preferredTarget ?? {
     id: 'target_linkedin_default',
@@ -669,16 +675,36 @@ function splitCustomDiscoveryInstructions(value: string | null): string[] {
 function normalizeInstructionLine(value: string): string {
   return value
     .replace(/^(Reliable control|Filter note|Navigation note|Apply note|Validated behavior|Validated navigation|Verification):\s*/i, '')
+    .replace(/\s*\(index\s+\d+\)/gi, '')
+    .replace(/\s+at index\s+\d+\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
+function lineMentionsAnyKeyword(value: string, keywords: readonly string[]): boolean {
+  const normalized = normalizeText(value)
+  return keywords.some((keyword) => normalized.includes(keyword))
+}
+
 function isLowSignalSourceInstruction(value: string): boolean {
   const normalized = normalizeText(value)
+  const isUrlLiteral = normalized.includes('http://') || normalized.includes('https://')
+  const isOnlyStartingUrlRestatement =
+    (normalized.startsWith('start from ') || normalized.startsWith('started from ')) &&
+    (isUrlLiteral || normalized.includes('the starting url'))
 
   return (
-    normalized.startsWith('start from ') ||
-    normalized.startsWith('started from ') ||
+    /^(clicked|filled|selected|link|button|searchbox|textbox|combobox)\b/.test(normalized) ||
+    normalized.startsWith('click failed ') ||
+    normalized.includes('locator click') ||
+    normalized.includes('call log') ||
+    normalized.includes('waiting for getbyrole') ||
+    normalized.includes('element is not visible') ||
+    normalized.includes('retrying click action') ||
+    normalized.includes('waiting for element to be visible enabled and stable') ||
+    normalized.includes('dismiss ') ||
+    normalized.includes('promoted') ||
+    isOnlyStartingUrlRestatement ||
     normalized.startsWith('stay within ') ||
     normalized.startsWith('verify whether the site is reachable') ||
     normalized.startsWith('find search controls or filters') ||
@@ -692,16 +718,77 @@ function isLowSignalSourceInstruction(value: string): boolean {
     normalized.startsWith('prefer actions that change the result set') ||
     normalized.startsWith('record which search inputs or filters appear reliable') ||
     normalized.startsWith('focus on whether the source exposes an inline apply button') ||
+    normalized.startsWith('agent discovery stopped after ') ||
     normalized.startsWith('no login or consent wall detected') ||
     normalized.includes('fully accessible without login or consent walls') ||
+    normalized.includes('fully accessible without login or consent barriers') ||
     normalized.includes('no authentication required') ||
+    normalized.includes('without auth required') ||
+    normalized.includes('loads without auth') ||
+    normalized.includes('loads without login') ||
+    normalized.includes('without login or consent barriers') ||
+    normalized.includes('accessible without login barriers') ||
+    normalized.includes('no auth or consent blockers detected') ||
+    normalized.includes('no auth consent blockers detected') ||
+    normalized.includes('no auth consent popups') ||
+    normalized.includes('no login auth or consent blockers detected') ||
     normalized.includes('page is scrollable with substantial content') ||
     normalized.includes('job extraction tool confirmed') ||
+    normalized.includes('extract jobs tool') ||
+    normalized.includes('extract_jobs tool') ||
+    normalized.includes('extract_jobs returned') ||
+    normalized.includes('job extraction returned empty') ||
+    normalized.includes('get interactive elements') ||
+    normalized.includes('get_interactive_elements') ||
+    normalized.includes('interactive elements detection was unreliable') ||
+    normalized.includes('interactive elements were unreliable') ||
+    normalized.includes('interactive elements were not detected in the automation environment') ||
+    normalized.includes('interactive elements may be limited for automated navigation') ||
+    normalized.includes('some controls may not be fully accessible via automation') ||
+    normalized.includes('automation detection limited') ||
     normalized.includes('interactive elements not detected by get interactive elements tool') ||
+    normalized.includes('job availability may change frequently') ||
+    normalized.includes('rate limiting') ||
+    normalized.includes('geographic restrictions') ||
+    normalized.includes('previous agent discovery stopped after') ||
+    normalized.includes('interaction timed out') ||
+    normalized.includes('times out on interaction') ||
+    normalized.includes('multiple timeouts observed') ||
+    normalized.includes('requires longer timeout') ||
+    normalized.includes('may require longer timeout') ||
+    normalized.includes('different extraction timing') ||
+    normalized.includes('different extraction approach') ||
+    normalized.includes('different interaction method') ||
+    normalized.includes('manual dom inspection') ||
+    normalized.includes('pointer events') ||
+    normalized.includes('pointer event interception') ||
+    normalized.includes('pointer event intercepting') ||
+    normalized.includes('javascript enabled interaction') ||
+    normalized.includes('current extraction') ||
+    normalized.includes('no jobs matching target roles') ||
+    normalized.includes('only 1 job extracted') ||
+    normalized.includes('only 2 jobs found') ||
+    normalized.includes('location encoding') ||
+    normalized.includes('%2c') ||
+    normalized.includes('%20') ||
+    normalized.includes('geoid') ||
+    normalized.includes('currentjobid') ||
+    normalized.includes('domcontentloaded') ||
+    normalized.includes('jobs landing url') ||
+    normalized.includes('jobs url pattern') ||
+    normalized.includes('query parameters') ||
+    normalized.includes('bypasses the need to use the search box') ||
+    normalized.includes('site is a job board') ||
+    normalized.includes('page language is ') ||
+    normalized.includes('job listings appear to be in ') ||
     normalized.includes('site title is in albanian') ||
     normalized.includes('means find jobs') ||
     normalized.includes('apply process not yet verified') ||
+    normalized.includes('apply mechanism not yet verified') ||
     normalized.includes('job details not extracted') ||
+    normalized.includes('job details and apply flow not fully verified') ||
+    normalized.includes('agent runtime failed') ||
+    normalized.includes('did not complete because the agent runtime failed') ||
     normalized.includes('llm call failed') ||
     normalized.includes('discovery encountered an error') ||
     normalized.includes('unknown error') ||
@@ -712,8 +799,7 @@ function isLowSignalSourceInstruction(value: string): boolean {
     normalized.startsWith('apply path validation confirmed reusable apply guidance on ') ||
     normalized.startsWith('apply path validation did not confirm a reusable apply path') ||
     normalized.startsWith('observed ') && normalized.includes(' candidate job result') ||
-    normalized.includes('http://') ||
-    normalized.includes('https://') ||
+    isUrlLiteral ||
     normalized.includes('produced no candidate jobs') ||
     /produced \d+ candidate job result/.test(normalized)
   )
@@ -723,6 +809,7 @@ function isInternalSourceDebugFailure(value: string | null | undefined): boolean
   const normalized = normalizeText(value ?? '')
 
   return (
+    normalized.includes('agent runtime failed') ||
     normalized.includes('llm call failed') ||
     normalized.includes('discovery encountered an error') ||
     normalized.includes('unknown error') ||
@@ -738,6 +825,7 @@ function filterSourceDebugWarnings(values: readonly (string | null | undefined)[
       .filter((value): value is string => Boolean(value))
       .map((value) => normalizeInstructionLine(value))
       .filter(Boolean)
+      .filter((value) => !isLowSignalSourceInstruction(value))
       .filter((value) => !isInternalSourceDebugFailure(value))
   )
 }
@@ -801,12 +889,402 @@ function summarizeApplyPathBehavior(jobs: readonly JobPosting[]): string[] {
   ].filter((value): value is string => Boolean(value)))
 }
 
+function warningSuggestsAuthRestriction(value: string | null | undefined): boolean {
+  const normalized = normalizeText(value ?? '')
+
+  return (
+    normalized.includes('login required') ||
+    normalized.includes('logged in') ||
+    normalized.includes('authentication required') ||
+    normalized.includes('session is not ready') ||
+    normalized.includes('sign in') ||
+    normalized.includes('auth restriction') ||
+    normalized.includes('not authenticated')
+  )
+}
+
 function collectAttemptInstructionGuidance(attempt: SourceDebugWorkerAttempt | undefined): string[] {
+  const derivedEvidenceGuidance = deriveGuidanceFromPhaseEvidence(attempt)
+
   return filterSourceInstructionLines([
     attempt?.resultSummary ?? '',
     ...(attempt?.confirmedFacts ?? []),
-    ...(attempt?.attemptedActions ?? [])
+    ...derivedEvidenceGuidance
   ])
+}
+
+function extractControlName(control: string): string | null {
+  const match = control.match(/^[a-z]+\s+"([^"]+)"/i)
+  return match?.[1]?.trim() ?? null
+}
+
+function summarizeNamedVisibleControls(
+  controls: readonly string[],
+  keywords: readonly string[]
+): string[] {
+  return uniqueStrings(
+    controls
+      .map(extractControlName)
+      .filter((value): value is string => Boolean(value))
+      .filter((value) => value.length <= 32)
+      .filter((value) => lineMentionsAnyKeyword(value, keywords))
+  )
+}
+
+function deriveGuidanceFromPhaseEvidence(attempt: SourceDebugWorkerAttempt | undefined): string[] {
+  if (!attempt?.phaseEvidence) {
+    return []
+  }
+
+  const controls = attempt.phaseEvidence.visibleControls ?? []
+  const routeSignals = attempt.phaseEvidence.routeSignals ?? []
+  const successfulInteractions = attempt.phaseEvidence.successfulInteractions ?? []
+  const attemptedControls = attempt.phaseEvidence.attemptedControls ?? []
+  const warnings = attempt.phaseEvidence.warnings ?? []
+  const locationControls = summarizeNamedVisibleControls(controls, ['location', 'qyteti', 'prishtin', 'kosov', 'vendit'])
+  const industryControls = summarizeNamedVisibleControls(controls, ['industry', 'industria', 'category', 'department'])
+  const hasShowAllControl = controls.some((control) => /\bshow all\b/i.test(control))
+  const hasSearchBox = controls.some((control) => /\b(searchbox|textbox)\b/i.test(control))
+  const hasLocationCombobox = controls.some((control) => /\bcombobox\b/i.test(control) && /\b(location|qyteti)\b/i.test(control))
+  const hasIndustryCombobox = controls.some((control) => /\bcombobox\b/i.test(control) && /\b(industry|industria|category|department)\b/i.test(control))
+  const routeOpensCollection = routeSignals.some((signal) => /\/collections\//i.test(signal))
+  const routeOpensSearch = routeSignals.some((signal) => /\/jobs\/search\//i.test(signal))
+  const hit404LikeRoute = warnings.some((warning) => /not-found route|404/i.test(warning))
+  const interactedWithShowAll = successfulInteractions.some((value) => /\bshow all\b/i.test(value))
+  const attemptedSearchControl = attemptedControls.some((value) => /\b(searchbox|textbox)\b/i.test(value))
+  const attemptedLocationControl = attemptedControls.some((value) => /\b(location|qyteti)\b/i.test(value))
+  const attemptedIndustryControl = attemptedControls.some((value) => /\b(industry|industria|category|department)\b/i.test(value))
+  const hasTimeoutLikeWarning = warnings.some((warning) => /timeout|timed out/i.test(warning))
+  const hasVisibilityLikeWarning = warnings.some((warning) => /not visible|scroll/i.test(warning))
+  const scrollingHelped = successfulInteractions.some((value) => /\bscrolled down\b/i.test(value))
+  const hasVisibleSearchCoverageGap = hasSearchBox && attemptedSearchControl && (hasTimeoutLikeWarning || hasVisibilityLikeWarning)
+  const hasVisibleLocationCoverageGap =
+    (hasLocationCombobox || locationControls.length > 0) &&
+    attemptedLocationControl &&
+    (hasTimeoutLikeWarning || hasVisibilityLikeWarning)
+  const hasVisibleIndustryCoverageGap =
+    (hasIndustryCombobox || industryControls.length > 0) &&
+    attemptedIndustryControl &&
+    (hasTimeoutLikeWarning || hasVisibilityLikeWarning)
+
+  return uniqueStrings([
+    hasShowAllControl ? 'Visible Show all links can open fuller job lists or recommendation collections.' : null,
+    interactedWithShowAll ? 'Use reusable Show all or collection links from the landing page before assuming the jobs hub is thin.' : null,
+    routeOpensCollection ? 'Recommendation or show-all routes can open reusable collection pages.' : null,
+    routeOpensSearch ? 'The fuller results surface lives under the main jobs search route.' : null,
+    hasSearchBox ? 'A visible keyword search box is present on the landing or results surface.' : null,
+    hasLocationCombobox ? 'A visible location filter is present on the landing or results surface.' : null,
+    hasIndustryCombobox ? 'A visible industry or category filter is present on the landing or results surface.' : null,
+    locationControls.length > 0 ? `Visible location controls include ${locationControls.join(', ')}.` : null,
+    industryControls.length > 0 ? `Visible industry or category controls include ${industryControls.join(', ')}.` : null,
+    hasVisibleSearchCoverageGap ? 'A visible keyword search box exists, but this run did not prove it changes the result set reliably.' : null,
+    hasVisibleLocationCoverageGap ? 'Visible location filters exist, but this run did not prove they change the result set reliably.' : null,
+    hasVisibleIndustryCoverageGap ? 'Visible industry or category filters exist, but this run did not prove they change the result set reliably.' : null,
+    scrollingHelped || hasVisibilityLikeWarning ? 'Some job links or filters may need scrolling into view before interaction.' : null,
+    scrollingHelped ? 'Scrolling can reveal additional jobs on the current list surface before a separate route is needed.' : null,
+    hit404LikeRoute ? 'Direct path guesses can land on a not-found route; return to the last known jobs surface instead of relying on the broken path.' : null
+  ].filter((value): value is string => Boolean(value)))
+}
+
+function lineContradictsVisiblePhaseEvidence(value: string, attempts: readonly SourceDebugWorkerAttempt[]): boolean {
+  const normalized = normalizeText(value)
+  const visibleControls = attempts.flatMap((attempt) => attempt.phaseEvidence?.visibleControls ?? [])
+  const hasVisibleSearchBox = visibleControls.some((control) => /\b(searchbox|textbox)\b/i.test(control))
+  const hasVisibleLocationControl = visibleControls.some((control) => /\b(location|qyteti)\b/i.test(control))
+  const hasVisibleIndustryControl = visibleControls.some((control) => /\b(industry|industria|category|department)\b/i.test(control))
+
+  if (
+    hasVisibleSearchBox &&
+    (
+      normalized.includes('search box interaction failed') ||
+      normalized.includes('search textbox interaction failed') ||
+      normalized.includes('search textbox was not found') ||
+      normalized.includes('search textbox not found') ||
+      normalized.includes('no search textbox confirmed accessible') ||
+      normalized.includes('no search textbox or dropdown filters confirmed') ||
+      normalized.includes('search box exists in header but timed out')
+    )
+  ) {
+    return true
+  }
+
+  if (
+    hasVisibleLocationControl &&
+    (
+      normalized.includes('no visible dropdown filters for city') ||
+      normalized.includes('no visible dropdown filters for location') ||
+      normalized.includes('no visible dropdown filters for city industry or category') ||
+      normalized.includes('no visible dropdown filters')
+    )
+  ) {
+    return true
+  }
+
+  if (
+    hasVisibleIndustryControl &&
+    (
+      normalized.includes('no visible dropdown filters for industry') ||
+      normalized.includes('no visible dropdown filters for city industry or category') ||
+      normalized.includes('no visible dropdown filters')
+    )
+  ) {
+    return true
+  }
+
+  return false
+}
+
+function reconcileVisibleControlEvidence(input: {
+  attempts: readonly SourceDebugWorkerAttempt[]
+  navigationGuidance: readonly string[]
+  searchGuidance: readonly string[]
+  detailGuidance: readonly string[]
+  applyGuidance: readonly string[]
+}): {
+  navigationGuidance: string[]
+  searchGuidance: string[]
+  detailGuidance: string[]
+  applyGuidance: string[]
+} {
+  const filterLines = (lines: readonly string[]) =>
+    lines.filter((line) => !lineContradictsVisiblePhaseEvidence(line, input.attempts))
+
+  return {
+    navigationGuidance: filterLines(input.navigationGuidance),
+    searchGuidance: filterLines(input.searchGuidance),
+    detailGuidance: filterLines(input.detailGuidance),
+    applyGuidance: filterLines(input.applyGuidance)
+  }
+}
+
+function isAuthBarrierOnlySourceInstruction(value: string): boolean {
+  const normalized = normalizeText(value)
+
+  return (
+    normalized.includes('login form') ||
+    normalized.includes('sign in form') ||
+    normalized.includes('sign in dialog') ||
+    normalized.includes('sign in wall') ||
+    normalized.includes('only visible surface') ||
+    normalized.includes('no public access') ||
+    normalized.includes('no guest access') ||
+    normalized.includes('guest view') ||
+    normalized.includes('hidden behind a sign in') ||
+    normalized.includes('gated behind authentication') ||
+    normalized.includes('requires authentication') ||
+    normalized.includes('authentication required') ||
+    normalized.includes('without linkedin account') ||
+    normalized.includes('without being logged in')
+  )
+}
+
+function lineShowsExposedJobsSurface(value: string): boolean {
+  const normalized = normalizeText(value)
+
+  return (
+    normalized.includes('job listings') ||
+    normalized.includes('job cards') ||
+    normalized.includes('search box') ||
+    normalized.includes('filter') ||
+    normalized.includes('recommendation') ||
+    normalized.includes('show all') ||
+    normalized.includes('collection') ||
+    normalized.includes('easy apply') ||
+    normalized.includes('homepage') ||
+    normalized.includes('same host detail') ||
+    normalized.includes('same-host detail') ||
+    normalized.includes('canonical detail') ||
+    normalized.includes('jobs view') ||
+    normalized.includes('jobs search') ||
+    normalized.includes('jobs are listed directly') ||
+    normalized.includes('jobs appear directly')
+  )
+}
+
+function reconcileMixedAccessGuidance(input: {
+  navigationGuidance: readonly string[]
+  searchGuidance: readonly string[]
+  detailGuidance: readonly string[]
+  applyGuidance: readonly string[]
+}): {
+  navigationGuidance: string[]
+  searchGuidance: string[]
+  detailGuidance: string[]
+  applyGuidance: string[]
+  warnings: string[]
+} {
+  const allLines = [
+    ...input.navigationGuidance,
+    ...input.searchGuidance,
+    ...input.detailGuidance,
+    ...input.applyGuidance
+  ]
+  const hasExposedJobsSurface = allLines.some(lineShowsExposedJobsSurface)
+  const hasAuthBarrierOnlyGuidance = allLines.some(isAuthBarrierOnlySourceInstruction)
+
+  if (!hasExposedJobsSurface || !hasAuthBarrierOnlyGuidance) {
+    return {
+      navigationGuidance: [...input.navigationGuidance],
+      searchGuidance: [...input.searchGuidance],
+      detailGuidance: [...input.detailGuidance],
+      applyGuidance: [...input.applyGuidance],
+      warnings: []
+    }
+  }
+
+  const filterMixedLines = (lines: readonly string[]) => lines.filter((line) => !isAuthBarrierOnlySourceInstruction(line))
+
+  return {
+    navigationGuidance: filterMixedLines(input.navigationGuidance),
+    searchGuidance: filterMixedLines(input.searchGuidance),
+    detailGuidance: filterMixedLines(input.detailGuidance),
+    applyGuidance: filterMixedLines(input.applyGuidance),
+    warnings: ['This run crossed both guest/login and job-bearing surfaces; learned guidance was curated toward the surfaces that actually exposed jobs.']
+  }
+}
+
+const sourceDebugEntryPathKeywords = [
+  'homepage',
+  'jobs page',
+  'jobs route',
+  'job route',
+  'listing route',
+  'listings route',
+  'result route',
+  'results route',
+  'entry path',
+  'entrypoint',
+  'show all',
+  'showall',
+  'recommended',
+  'recommendation',
+  'collection',
+  'prefilter',
+  'preselected'
+] as const
+
+const sourceDebugSearchControlKeywords = [
+  'search',
+  'filter',
+  'keyword',
+  'location',
+  'industry',
+  'department',
+  'category',
+  'chip',
+  'dropdown',
+  'input',
+  'sort',
+  'pagination',
+  'all filters',
+  'date posted',
+  'experience',
+  'company',
+  'remote',
+  'load more',
+  'next page',
+  'infinite scroll',
+  'lazy load',
+  'show all',
+  'showall',
+  'recommended',
+  'recommendation',
+  'prefilter',
+  'preselected'
+] as const
+
+function isExplicitSearchProbeDisproof(value: string): boolean {
+  const normalized = normalizeText(value)
+  const hasNegativeSearchVerdict =
+    /(^|\s)no\s+[^.]*\b(proven|confirmed|working|reliable)\b/.test(normalized) ||
+    normalized.includes('no search filter control was proven') ||
+    normalized.includes('no working search filter controls confirmed') ||
+    normalized.includes('no filters confirmed to change result set')
+
+  return (
+    (
+      hasNegativeSearchVerdict ||
+      normalized.includes('no reliable') ||
+      normalized.includes('could not confirm') ||
+      normalized.includes('could not prove') ||
+      normalized.includes('did not confirm') ||
+      normalized.includes('did not prove') ||
+      normalized.includes('not proven') ||
+      normalized.includes('unproven') ||
+      normalized.includes('not confirmed') ||
+      normalized.includes('not clearly visible') ||
+      normalized.includes('not clearly proven') ||
+      normalized.includes('not conclusively proven') ||
+      normalized.includes('not identified') ||
+      normalized.includes('not tested') ||
+      normalized.includes('did not reliably change') ||
+      normalized.includes('did not change') ||
+      normalized.includes('not reliable') ||
+      normalized.includes('decorative')
+    ) &&
+    lineMentionsAnyKeyword(normalized, sourceDebugSearchControlKeywords)
+  )
+}
+
+function isVisibilityOnlySearchSignal(value: string): boolean {
+  const normalized = normalizeText(value)
+
+  return (
+    normalized.startsWith('a visible keyword search box is present') ||
+    normalized.startsWith('a visible location filter is present') ||
+    normalized.startsWith('a visible industry or category filter is present') ||
+    normalized.startsWith('visible location controls include') ||
+    normalized.startsWith('visible industry or category controls include') ||
+    normalized.startsWith('some job links or filters may need scrolling into view') ||
+    normalized.startsWith('scrolling can reveal additional jobs on the current list surface')
+  )
+}
+
+function isPositiveReusableSearchSignal(value: string): boolean {
+  const normalized = normalizeText(value)
+  const hasPositiveProofPhrase =
+    normalized.startsWith('use ') ||
+    normalized.startsWith('start at ') ||
+    normalized.startsWith('start from ') ||
+    normalized.startsWith('click ') ||
+    normalized.startsWith('open ') ||
+    normalized.includes('proven control') ||
+    normalized.includes('changes the result set') ||
+    normalized.includes('change the result set') ||
+    normalized.includes('opens reusable') ||
+    normalized.includes('open reusable') ||
+    normalized.includes('opens a reusable') ||
+    normalized.includes('can open reusable') ||
+    normalized.includes('works with authentication') ||
+    normalized.includes('works reliably') ||
+    normalized.includes('remained stable') ||
+    normalized.includes('refresh the visible job set') ||
+    normalized.includes('narrow the listings') ||
+    normalized.includes('access the fuller') ||
+    normalized.includes('access recommended jobs collection')
+
+  return (
+    lineMentionsAnyKeyword(normalized, sourceDebugSearchControlKeywords) &&
+    hasPositiveProofPhrase &&
+    !isVisibilityOnlySearchSignal(value) &&
+    !isExplicitSearchProbeDisproof(value) &&
+    !isUrlShortcutSourceInstruction(value)
+  )
+}
+
+function isUrlShortcutSourceInstruction(value: string): boolean {
+  const normalized = normalizeText(value)
+
+  return (
+    normalized.includes('geoid') ||
+    normalized.includes('currentjobid') ||
+    normalized.includes('query parameter') ||
+    normalized.includes('query url') ||
+    normalized.includes('jobs landing url') ||
+    normalized.includes('jobs url pattern') ||
+    normalized.includes('direct url') ||
+    normalized.includes('/jobs/search')
+  )
 }
 
 function evaluateSourceInstructionQuality(input: {
@@ -815,20 +1293,6 @@ function evaluateSourceInstructionQuality(input: {
   detailGuidance: readonly string[]
   applyGuidance: readonly string[]
 }): SourceInstructionQualityAssessment {
-  const routeKeywords = [
-    'route',
-    'path',
-    'listing',
-    'result',
-    'search',
-    'filter',
-    'keyword',
-    'pagination',
-    'scroll',
-    'job card',
-    'jobs page',
-    'detail page'
-  ]
   const accessOnlyKeywords = [
     'without login',
     'without auth',
@@ -838,14 +1302,26 @@ function evaluateSourceInstructionQuality(input: {
     'reachable',
     'accessible'
   ]
+  const entryPathSignals = uniqueStrings([
+    ...input.navigationGuidance,
+    ...input.searchGuidance
+  ].filter((line) => {
+    const normalized = normalizeText(line)
+    const matchesEntryPath = lineMentionsAnyKeyword(normalized, sourceDebugEntryPathKeywords)
+    const isAccessOnly = accessOnlyKeywords.some((keyword) => normalized.includes(keyword))
+    return matchesEntryPath && !isAccessOnly && !isUrlShortcutSourceInstruction(line)
+  }))
+  const searchControlSignals = uniqueStrings(input.searchGuidance.filter((line) => {
+    return isPositiveReusableSearchSignal(line)
+  }))
+  const searchProbeDisproofSignals = uniqueStrings(input.searchGuidance.filter(isExplicitSearchProbeDisproof))
+  const searchProbeCoverageSignals = uniqueStrings([
+    ...searchControlSignals,
+    ...searchProbeDisproofSignals
+  ])
   const highSignalNavigationOrSearch = uniqueStrings([
-    ...input.searchGuidance,
-    ...input.navigationGuidance.filter((line) => {
-      const normalized = normalizeText(line)
-      const matchesRoutePattern = routeKeywords.some((keyword) => normalized.includes(keyword))
-      const isAccessOnly = accessOnlyKeywords.some((keyword) => normalized.includes(keyword))
-      return matchesRoutePattern && !isAccessOnly
-    })
+    ...entryPathSignals,
+    ...searchProbeCoverageSignals
   ])
   const highSignalDetailOrApply = uniqueStrings([
     ...input.detailGuidance,
@@ -857,9 +1333,21 @@ function evaluateSourceInstructionQuality(input: {
   ])
   const qualityWarnings: string[] = []
 
-  if (highSignalNavigationOrSearch.length === 0) {
+  if (entryPathSignals.length === 0) {
     qualityWarnings.push(
-      'Reusable search or navigation guidance is still missing; keep this source in draft until the debug run proves the best entry path, search control, or filter behavior.'
+      'The best repeatable entry path is still missing; keep this source in draft until the debug run proves where future agents should start, including any jobs route, homepage path, or reusable recommendation list.'
+    )
+  }
+
+  if (searchProbeCoverageSignals.length === 0) {
+    qualityWarnings.push(
+      'Search and filter coverage is still missing; keep this source in draft until the debug run proves a real control, recommendation/show-all route, pagination behavior, or explicitly records that those probes were tried and not reusable.'
+    )
+  }
+
+  if (searchControlSignals.length === 0 && searchProbeDisproofSignals.length > 0) {
+    qualityWarnings.push(
+      'Search and filter behavior is still unproven; visible controls were mentioned but not confirmed, so keep this source in draft until the debug run proves at least one reusable control or route.'
     )
   }
 
@@ -869,9 +1357,9 @@ function evaluateSourceInstructionQuality(input: {
     )
   }
 
-  if (totalReusableSignals.length < 3) {
+  if (totalReusableSignals.length < 4) {
     qualityWarnings.push(
-      'The learned guidance is still too thin to validate; capture at least three distinct reusable findings across discovery, detail, and apply behavior.'
+      'The learned guidance is still too thin to validate; capture at least four distinct reusable findings across entry path, search or filter coverage, detail navigation, and apply behavior.'
     )
   }
 
@@ -879,11 +1367,42 @@ function evaluateSourceInstructionQuality(input: {
     highSignalNavigationOrSearch,
     highSignalDetailOrApply,
     qualifiesForValidation:
-      highSignalNavigationOrSearch.length > 0 &&
+      entryPathSignals.length > 0 &&
+      searchControlSignals.length > 0 &&
       highSignalDetailOrApply.length > 0 &&
-      totalReusableSignals.length >= 3,
+      totalReusableSignals.length >= 4,
     qualityWarnings
   }
+}
+
+function reconcileApplyGuidance(lines: readonly string[]): string[] {
+  const normalizedLines = uniqueStrings(lines)
+  const hasProvenOnSiteApply = normalizedLines.some((line) => {
+    const normalized = normalizeText(line)
+    return (
+      normalized.includes('easy apply') ||
+      normalized.includes('on site apply entry') ||
+      normalized.includes('on-site apply entry') ||
+      normalized.includes('primary apply entry point') ||
+      normalized.includes('use the on site apply entry') ||
+      normalized.includes('use the on-site apply entry')
+    )
+  })
+
+  if (!hasProvenOnSiteApply) {
+    return normalizedLines
+  }
+
+  return normalizedLines.filter((line) => {
+    const normalized = normalizeText(line)
+    return !(
+      normalized.includes('treat applications as manual') ||
+      normalized.includes('manual until a reliable on site apply entry is proven') ||
+      normalized.includes('manual until a reliable on-site apply entry is proven') ||
+      normalized.includes('did not expose a reliable on site apply entry') ||
+      normalized.includes('did not expose a reliable on-site apply entry')
+    )
+  })
 }
 
 function toDiscoverySessionState(session: Awaited<ReturnType<BrowserSessionRuntime['getSessionState']>>) {
@@ -1565,7 +2084,9 @@ export interface JobFinderWorkspaceService {
   runSourceDebug(targetId: string, signal?: AbortSignal): Promise<JobFinderWorkspaceSnapshot>
   cancelSourceDebug(runId: string): Promise<JobFinderWorkspaceSnapshot>
   getSourceDebugRun(runId: string): Promise<SourceDebugRunRecord>
+  getSourceDebugRunDetails(runId: string): Promise<SourceDebugRunDetails>
   listSourceDebugRuns(targetId: string): Promise<readonly SourceDebugRunRecord[]>
+  saveSourceInstructionArtifact(targetId: string, artifact: SourceInstructionArtifact): Promise<JobFinderWorkspaceSnapshot>
   acceptSourceInstructionDraft(targetId: string, instructionId: string): Promise<JobFinderWorkspaceSnapshot>
   verifySourceInstructions(targetId: string, instructionId: string, signal?: AbortSignal): Promise<JobFinderWorkspaceSnapshot>
   queueJobForReview(jobId: string): Promise<JobFinderWorkspaceSnapshot>
@@ -1743,6 +2264,33 @@ export function createJobFinderWorkspaceService(
     ])
   }
 
+  function resolveActiveSourceInstructionArtifact(
+    target: JobDiscoveryTarget,
+    artifacts: readonly SourceInstructionArtifact[]
+  ): SourceInstructionArtifact | null {
+    const draftInstruction = target.draftInstructionId
+      ? artifacts.find(
+          (artifact) =>
+            artifact.id === target.draftInstructionId &&
+            artifact.targetId === target.id &&
+            artifact.status === 'draft'
+        ) ?? null
+      : null
+
+    if (draftInstruction) {
+      return draftInstruction
+    }
+
+    return target.validatedInstructionId
+      ? artifacts.find(
+          (artifact) =>
+            artifact.id === target.validatedInstructionId &&
+            artifact.targetId === target.id &&
+            artifact.status === 'validated'
+        ) ?? null
+      : null
+  }
+
   function updateDiscoveryTarget(
     searchPreferences: JobSearchPreferences,
     targetId: string,
@@ -1798,6 +2346,23 @@ export function createJobFinderWorkspaceService(
     }))
   }
 
+  async function persistBrowserSessionState(session: Awaited<ReturnType<BrowserSessionRuntime['openSession']>>): Promise<void> {
+    await persistDiscoveryState((current) => ({
+      ...current,
+      sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session))
+    }))
+  }
+
+  async function openRunBrowserSession(source: JobSource): Promise<void> {
+    const session = await browserRuntime.openSession(source)
+    await persistBrowserSessionState(session)
+  }
+
+  async function closeRunBrowserSession(source: JobSource): Promise<void> {
+    const session = await browserRuntime.closeSession(source)
+    await persistBrowserSessionState(session)
+  }
+
   function buildSourceDebugPhasePacket(
     phase: SourceDebugPhase,
     phaseSummaries: readonly SourceDebugPhaseSummary[],
@@ -1816,14 +2381,25 @@ export function createJobFinderWorkspaceService(
     }
     const successCriteriaByPhase: Record<SourceDebugPhase, string[]> = {
       access_auth_probe: ['Reach the target site safely', 'Detect login or manual blockers honestly'],
-      site_structure_mapping: ['Find a jobs/result path', 'Identify a plausible detail path'],
+      site_structure_mapping: [
+        'Find the best repeatable jobs/result path',
+        'Identify a plausible detail path',
+        'Check whether recommendation rows, curated collections, or show-all links lead to reusable job lists'
+      ],
       search_filter_probe: [
-        'Prove at least one search or filter control changes the result set, or record that none could be confirmed',
-        'Record stable search/filter behavior and any misleading controls'
+        'Probe the obvious visible search box plus the first visible filters on the homepage and jobs/results route when those surfaces exist',
+        'Prove at least one search, filter, recommendation route, pagination pattern, or result-expansion control changes the result set, or record that none could be confirmed',
+        'Record stable search/filter behavior and any misleading or decorative controls'
       ],
       job_detail_validation: ['Open multiple job details', 'Confirm stable job identity or URL patterns'],
       apply_path_validation: ['Identify the apply path exposed by the source', 'Record safe apply-entry guidance without submitting'],
       replay_verification: ['Reach jobs again from scratch', 'Open details and recover stable identity again']
+    }
+    const phaseStopConditionsByPhase: Partial<Record<SourceDebugPhase, string[]>> = {
+      search_filter_probe: [
+        'Do not stop before checking the obvious visible search controls and top-level filters unless auth or site protection blocks progress.',
+        'If recommendation chips, curated collections, or show-all links are visible, check whether at least one leads to a reusable preselected list before stopping.'
+      ]
     }
 
     return {
@@ -1834,7 +2410,8 @@ export function createJobFinderWorkspaceService(
       successCriteria: successCriteriaByPhase[phase],
       stopConditions: [
         'Stop when progress stalls and no new evidence is produced.',
-        'Stop immediately if auth or a manual prerequisite blocks safe progress.'
+        'Stop immediately if auth or a manual prerequisite blocks safe progress.',
+        ...(phaseStopConditionsByPhase[phase] ?? [])
       ],
       manualPrerequisiteState,
       strategyLabel: formatStatusLabel(phase)
@@ -1855,13 +2432,25 @@ export function createJobFinderWorkspaceService(
       ],
       site_structure_mapping: [
         'Favor finding the main jobs landing page, results list, and detail path over collecting a large set of postings.',
+        'If the starting page already lists jobs directly, treat that landing page as a valid jobs surface before assuming a separate jobs route is required.',
+        'If the starting page is more general than a jobs page, first look for visible jobs, careers, openings, vacancies, or show-all entry paths.',
+        'Inspect the first visible landing surface for top-of-page controls before using extracted jobs as proof of the best route.',
         'Record stable route patterns and navigation anchors.',
+        'On jobs hubs that open on recommendation modules first, follow a reusable Show all or collection route before deciding the landing page is the best entry path.',
+        'If the homepage or jobs route exposes recommendation rows, curated collections, or show-all links, check whether they lead to a reusable list path and record the best one.',
         'Before finishing, capture the best repeatable entry path to the jobs list, especially if it is not the homepage.'
       ],
       search_filter_probe: [
         'Prefer actions that change the result set in observable ways.',
-        'Record which search inputs or filters appear reliable.',
+        'Inspect the visible controls on the current landing surface before using extracted jobs as evidence that no search/filter UI exists.',
+        'If the visible search or filter controls are likely above the current scroll position, return to the top of the page and probe them before concluding they are missing.',
+        'Explicitly test the obvious search box and the first visible location, industry, category, or work-mode filters when they are present.',
+        'On jobs landing pages that start with recommendation cards, follow Show all or a reusable collection first if that reveals the fuller search/filter surface.',
+        'Prefer visible search boxes, buttons, chips, dropdowns, and filter bars over inventing URL parameter recipes. Only keep a direct URL pattern if the visible UI is blocked or genuinely less reliable.',
+        'If the jobs page exposes recommendation chips, curated collections, or show-all links, test whether they open reusable preselected result lists.',
+        'Record which search inputs, recommendation routes, filters, pagination controls, or infinite-scroll behaviors appear reliable.',
         'If a filter is hidden, locale-specific, resets unexpectedly, or appears not to affect results, record that as a site-specific gotcha.',
+        'If a visible control looks promising but does not change jobs, say that explicitly instead of omitting it.',
         'Before finishing, either prove one reliable search/filter control or state clearly that no reliable control could be confirmed after trying alternatives.'
       ],
       job_detail_validation: [
@@ -1922,16 +2511,110 @@ export function createJobFinderWorkspaceService(
     return 'succeeded'
   }
 
+  function resolveSourceDebugCompletion(
+    result: Awaited<ReturnType<NonNullable<BrowserSessionRuntime['runAgentDiscovery']>>>
+  ): {
+    completionMode: SourceDebugPhaseCompletionMode
+    completionReason: string | null
+    phaseEvidence: SourceDebugPhaseEvidence | null
+  } {
+    const warning = result.warning ?? null
+    const metadata = result.agentMetadata
+
+    if (metadata?.phaseCompletionMode) {
+      return {
+        completionMode: metadata.phaseCompletionMode,
+        completionReason: metadata.phaseCompletionReason ?? warning,
+        phaseEvidence: metadata.phaseEvidence ?? null
+      }
+    }
+
+    const normalizedWarning = normalizeText(warning ?? '')
+
+    if (normalizedWarning.includes('login') || normalizedWarning.includes('session is not ready')) {
+      return {
+        completionMode: 'blocked_auth',
+        completionReason: warning,
+        phaseEvidence: metadata?.phaseEvidence ?? null
+      }
+    }
+
+    if (normalizedWarning.includes('manual') || normalizedWarning.includes('consent')) {
+      return {
+        completionMode: 'blocked_manual_step',
+        completionReason: warning,
+        phaseEvidence: metadata?.phaseEvidence ?? null
+      }
+    }
+
+    if (normalizedWarning.includes('interrupted')) {
+      return {
+        completionMode: 'interrupted',
+        completionReason: warning,
+        phaseEvidence: metadata?.phaseEvidence ?? null
+      }
+    }
+
+    if (warning) {
+      return {
+        completionMode: result.jobs.length > 0 ? 'timed_out_with_partial_evidence' : 'runtime_failed',
+        completionReason: warning,
+        phaseEvidence: metadata?.phaseEvidence ?? null
+      }
+    }
+
+    return {
+      completionMode: 'structured_finish',
+      completionReason: null,
+      phaseEvidence: metadata?.phaseEvidence ?? null
+    }
+  }
+
   function buildSourceDebugPhaseSummary(attempt: SourceDebugWorkerAttempt): SourceDebugPhaseSummary {
     return SourceDebugPhaseSummarySchema.parse({
       phase: attempt.phase,
       summary: attempt.resultSummary,
+      completionMode: attempt.completionMode,
+      completionReason: attempt.completionReason,
       confirmedFacts: attempt.confirmedFacts,
       blockerNotes: attempt.blockerSummary ? [attempt.blockerSummary] : [],
       nextRecommendedStrategies: attempt.nextRecommendedStrategies,
       avoidStrategyFingerprints: attempt.avoidStrategyFingerprints,
       producedAttemptIds: [attempt.id]
     })
+  }
+
+  function getSourceDebugTargetJobCount(phase: SourceDebugPhase): number {
+    switch (phase) {
+      case 'access_auth_probe':
+        return 1
+      case 'site_structure_mapping':
+      case 'search_filter_probe':
+        return 2
+      case 'job_detail_validation':
+      case 'apply_path_validation':
+      case 'replay_verification':
+        return 2
+      default:
+        return 1
+    }
+  }
+
+  function getSourceDebugMaxSteps(phase: SourceDebugPhase): number {
+    switch (phase) {
+      case 'access_auth_probe':
+        return 16
+      case 'site_structure_mapping':
+        return 24
+      case 'search_filter_probe':
+        return 36
+      case 'job_detail_validation':
+      case 'apply_path_validation':
+      case 'replay_verification':
+        return 24
+      default:
+        return 22
+    }
   }
 
   function synthesizeSourceInstructionArtifact(
@@ -1947,6 +2630,12 @@ export function createJobFinderWorkspaceService(
     const searchAttempt = byPhase.get('search_filter_probe')
     const detailAttempt = byPhase.get('job_detail_validation')
     const applyAttempt = byPhase.get('apply_path_validation')
+    const hasPartialTimeoutEvidence = attempts.some((attempt) => attempt.completionMode === 'timed_out_with_partial_evidence')
+    const hasUnstructuredFailure = attempts.some((attempt) =>
+      attempt.completionMode === 'timed_out_without_evidence' ||
+      attempt.completionMode === 'runtime_failed' ||
+      attempt.completionMode === 'interrupted'
+    )
     const draftWarnings = filterSourceDebugWarnings(
       attempts.flatMap((attempt) => [attempt.blockerSummary])
     )
@@ -1962,19 +2651,42 @@ export function createJobFinderWorkspaceService(
         usedGuidance.add(key)
         return true
       })
-    const navigationGuidance = takeUniqueGuidance(uniqueStrings([
+    const rawNavigationGuidance = takeUniqueGuidance(uniqueStrings([
       ...collectAttemptInstructionGuidance(accessAttempt),
       ...collectAttemptInstructionGuidance(structureAttempt)
     ]))
-    const searchGuidance = takeUniqueGuidance(uniqueStrings([
+    const rawSearchGuidance = takeUniqueGuidance(uniqueStrings([
       ...collectAttemptInstructionGuidance(searchAttempt)
     ]))
-    const detailGuidance = takeUniqueGuidance(uniqueStrings([
+    const rawDetailGuidance = takeUniqueGuidance(uniqueStrings([
       ...collectAttemptInstructionGuidance(detailAttempt)
     ]))
-    const applyGuidance = takeUniqueGuidance(uniqueStrings([
+    const rawApplyGuidance = takeUniqueGuidance(reconcileApplyGuidance(uniqueStrings([
       ...collectAttemptInstructionGuidance(applyAttempt)
-    ]))
+    ])))
+    const visibleControlReconciledGuidance = reconcileVisibleControlEvidence({
+      attempts,
+      navigationGuidance: rawNavigationGuidance,
+      searchGuidance: rawSearchGuidance,
+      detailGuidance: rawDetailGuidance,
+      applyGuidance: rawApplyGuidance
+    })
+    const reconciledGuidance = reconcileMixedAccessGuidance({
+      navigationGuidance: visibleControlReconciledGuidance.navigationGuidance,
+      searchGuidance: visibleControlReconciledGuidance.searchGuidance,
+      detailGuidance: visibleControlReconciledGuidance.detailGuidance,
+      applyGuidance: visibleControlReconciledGuidance.applyGuidance
+    })
+    const navigationGuidance = reconciledGuidance.navigationGuidance
+    const searchGuidance = reconciledGuidance.searchGuidance
+    const detailGuidance = reconciledGuidance.detailGuidance
+    const applyGuidance = reconciledGuidance.applyGuidance
+    const hasPositiveReusableSearchGuidance = searchGuidance.some(isPositiveReusableSearchSignal)
+    const hasSearchGuidanceWithoutPositiveProof = searchGuidance.length > 0 && !hasPositiveReusableSearchGuidance
+    const hasOnlyVisibilityOrDisproofSearchGuidance =
+      searchGuidance.length > 0 &&
+      !hasPositiveReusableSearchGuidance &&
+      searchGuidance.every((line) => isVisibilityOnlySearchSignal(line) || isExplicitSearchProbeDisproof(line))
     const quality = evaluateSourceInstructionQuality({
       navigationGuidance,
       searchGuidance,
@@ -1983,9 +2695,27 @@ export function createJobFinderWorkspaceService(
     })
     const warnings = uniqueStrings([
       ...draftWarnings,
+      ...(hasPartialTimeoutEvidence
+        ? ['A source-debug phase timed out before structured conclusion; keep this source in draft until a rerun confirms the partial evidence with an explicit finish.']
+        : []),
+      ...(hasUnstructuredFailure
+        ? ['A source-debug phase ended without structured evidence; keep this source in draft until the failing phase is rerun successfully.']
+        : []),
+      ...(hasSearchGuidanceWithoutPositiveProof
+        ? ['Search and filter behavior is still unproven; this run mentioned controls or routes but did not confirm a positive reusable search/filter action.']
+        : []),
+      ...(hasOnlyVisibilityOrDisproofSearchGuidance
+        ? ['Search and filter behavior is still unproven; visible controls were seen but no reusable result-changing control was confirmed in this run.']
+        : []),
+      ...reconciledGuidance.warnings,
       ...quality.qualityWarnings
     ])
-    const status = verification?.outcome === 'passed' && quality.qualifiesForValidation
+    const hasPromotionBlocker =
+      hasPartialTimeoutEvidence ||
+      hasUnstructuredFailure ||
+      hasSearchGuidanceWithoutPositiveProof ||
+      hasOnlyVisibilityOrDisproofSearchGuidance
+    const status = verification?.outcome === 'passed' && quality.qualifiesForValidation && !hasPromotionBlocker
       ? 'validated'
       : warnings.some((warning) => warning.toLowerCase().includes('unsupported'))
         ? 'unsupported'
@@ -2122,16 +2852,21 @@ export function createJobFinderWorkspaceService(
     await repository.replaceSavedJobs(nextJobs)
   }
 
-  async function runSourceDebugWorkflow(targetId: string, signal?: AbortSignal): Promise<JobFinderWorkspaceSnapshot> {
+  async function runSourceDebugWorkflow(
+    targetId: string,
+    signal?: AbortSignal,
+    options?: {
+      clearExistingInstructions?: boolean
+    }
+  ): Promise<JobFinderWorkspaceSnapshot> {
     const executionController = new AbortController()
     activeSourceDebugAbortController = executionController
     const onExternalAbort = () => executionController.abort()
     signal?.addEventListener('abort', onExternalAbort)
     const executionSignal = executionController.signal
-    const [profile, searchPreferences, instructionArtifacts] = await Promise.all([
+    const [profile, searchPreferences] = await Promise.all([
       repository.getProfile(),
-      repository.getSearchPreferences(),
-      repository.listSourceInstructionArtifacts()
+      repository.getSearchPreferences()
     ])
     const target = searchPreferences.discovery.targets.find((entry) => entry.id === targetId)
 
@@ -2151,32 +2886,58 @@ export function createJobFinderWorkspaceService(
       throw new Error(`Target '${target.label}' does not have a valid starting URL.`)
     }
 
-    const adapterKind = resolveAdapterKind(target)
+    const clearExistingInstructions = options?.clearExistingInstructions !== false
+
+    if (clearExistingInstructions) {
+      await repository.deleteSourceInstructionArtifactsForTarget(target.id)
+      await saveDiscoveryTargetUpdate(target.id, (currentTarget) => ({
+        ...currentTarget,
+        instructionStatus: 'missing',
+        validatedInstructionId: null,
+        draftInstructionId: null,
+        lastVerifiedAt: null,
+        staleReason: null
+      }))
+    }
+
+    const normalizedTarget: JobDiscoveryTarget = clearExistingInstructions
+      ? {
+          ...target,
+          instructionStatus: 'missing',
+          validatedInstructionId: null,
+          draftInstructionId: null,
+          lastVerifiedAt: null,
+          staleReason: null
+        }
+      : target
+    const instructionArtifacts = await repository.listSourceInstructionArtifacts()
+
+    const adapterKind = resolveAdapterKind(normalizedTarget)
     const adapter = discoveryAdapters[adapterKind]
-    const runId = `source_debug_${target.id}_${Date.now()}`
+    const runId = `source_debug_${normalizedTarget.id}_${Date.now()}`
     activeSourceDebugExecutionId = runId
 
     let run = SourceDebugRunRecordSchema.parse({
       id: runId,
-      targetId: target.id,
+      targetId: normalizedTarget.id,
       state: 'running',
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       completedAt: null,
       activePhase: SOURCE_DEBUG_PHASES[0],
       phases: SOURCE_DEBUG_PHASES,
-      targetLabel: target.label,
-      targetUrl: target.startingUrl,
+      targetLabel: normalizedTarget.label,
+      targetUrl: normalizedTarget.startingUrl,
       targetHostname: targetUrl.hostname,
       manualPrerequisiteSummary: null,
       finalSummary: null,
       attemptIds: [],
       phaseSummaries: [],
-      instructionArtifactId: target.draftInstructionId ?? target.validatedInstructionId ?? null
+      instructionArtifactId: normalizedTarget.draftInstructionId ?? normalizedTarget.validatedInstructionId ?? null
     })
 
     await persistSourceDebugRun(run)
-    await saveDiscoveryTargetUpdate(target.id, (currentTarget) => ({
+    await saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
       ...currentTarget,
       lastDebugRunId: run.id
     }))
@@ -2184,9 +2945,12 @@ export function createJobFinderWorkspaceService(
     const attempts: SourceDebugWorkerAttempt[] = []
     const strategyFingerprints: string[] = []
     let synthesizedInstruction: SourceInstructionArtifact | null =
-      instructionArtifacts.find((artifact) => artifact.id === target.validatedInstructionId) ?? null
+      instructionArtifacts.find((artifact) => artifact.id === normalizedTarget.validatedInstructionId) ?? null
+    let browserSessionOpened = false
 
     try {
+      await openRunBrowserSession(adapterKind)
+      browserSessionOpened = true
       await runSequentialArtifactOrchestrator<SourceDebugPhase, SourceDebugWorkerAttempt>({
         phases: SOURCE_DEBUG_PHASES,
         beforePhase: async (phase) => {
@@ -2204,41 +2968,6 @@ export function createJobFinderWorkspaceService(
         executePhase: async (phase, index) => {
           const now = new Date().toISOString()
 
-          if (adapter.requiresManagedSession) {
-            const session = await browserRuntime.openSession(adapterKind)
-            await persistDiscoveryState((current) => ({
-              ...current,
-              sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session)),
-              activeSourceDebugRun: run
-            }))
-
-            if (session.status !== 'ready') {
-              return {
-                artifact: SourceDebugWorkerAttemptSchema.parse({
-                  id: `source_debug_attempt_${phase}_${Date.now()}`,
-                  runId: run.id,
-                  targetId: target.id,
-                  phase,
-                  startedAt: now,
-                  completedAt: new Date().toISOString(),
-                  outcome: session.status === 'login_required' ? 'blocked_auth' : 'blocked_manual_step',
-                  strategyLabel: formatStatusLabel(phase),
-                  strategyFingerprint: `${phase}:${adapterKind}:session`,
-                  confirmedFacts: [`${adapter.label} session state is ${session.status}.`],
-                  attemptedActions: [`Checked ${adapter.label} session state before phase execution.`],
-                  blockerSummary: session.detail ?? `${adapter.label} session is not ready.`,
-                  resultSummary: `${adapter.label} needs a manual prerequisite before ${formatStatusLabel(phase)} can continue.`,
-                  confidenceScore: 100,
-                  nextRecommendedStrategies: [],
-                  avoidStrategyFingerprints: [],
-                  evidenceRefIds: [],
-                  compactionState: null
-                }),
-                stop: true
-              }
-            }
-          }
-
           const phasePacket = buildSourceDebugPhasePacket(
             phase,
             run.phaseSummaries,
@@ -2255,12 +2984,12 @@ export function createJobFinderWorkspaceService(
               targetRoles: searchPreferences.targetRoles.length > 0 ? searchPreferences.targetRoles : [DEFAULT_ROLE],
               locations: searchPreferences.locations
             },
-            targetJobCount: phase === 'access_auth_probe' ? 1 : phase === 'apply_path_validation' ? 2 : 3,
-            maxSteps: phase === 'replay_verification' ? 24 : 18,
-            startingUrls: [target.startingUrl],
-            siteLabel: `${target.label} ${formatStatusLabel(phase)}`,
+            targetJobCount: getSourceDebugTargetJobCount(phase),
+            maxSteps: getSourceDebugMaxSteps(phase),
+            startingUrls: [normalizedTarget.startingUrl],
+            siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
             navigationHostnames: [targetUrl.hostname],
-            siteInstructions: composeSourceDebugInstructions(target, adapter, phase, phaseInstructionArtifact, phasePacket),
+            siteInstructions: composeSourceDebugInstructions(normalizedTarget, adapter, phase, phaseInstructionArtifact, phasePacket),
             toolUsageNotes: uniqueStrings([
               ...adapter.toolUsageNotes,
               'Prefer concise, high-confidence evidence over broad exploration.',
@@ -2274,6 +3003,7 @@ export function createJobFinderWorkspaceService(
             },
             relevantUrlSubstrings: adapter.relevantUrlSubstrings,
             experimental: adapter.experimental,
+            skipSessionValidation: true,
             aiClient,
             signal: executionSignal
           })
@@ -2283,18 +3013,19 @@ export function createJobFinderWorkspaceService(
           }
 
           const outcome = classifySourceDebugAttemptOutcome(debugResult, phase)
+          const completion = resolveSourceDebugCompletion(debugResult)
           const attemptId = `source_debug_attempt_${phase}_${Date.now()}`
           const evidenceRefs = [
             SourceDebugEvidenceRefSchema.parse({
               id: `${attemptId}_start`,
               runId: run.id,
               attemptId,
-              targetId: target.id,
+              targetId: normalizedTarget.id,
               phase,
               kind: 'url',
               label: 'Starting URL',
               capturedAt: new Date().toISOString(),
-              url: target.startingUrl,
+              url: normalizedTarget.startingUrl,
               storagePath: null,
               excerpt: debugResult.warning ?? null
             }),
@@ -2303,7 +3034,7 @@ export function createJobFinderWorkspaceService(
                 id: `${attemptId}_job_${evidenceIndex + 1}`,
                 runId: run.id,
                 attemptId,
-                targetId: target.id,
+                targetId: normalizedTarget.id,
                 phase,
                 kind: 'url',
                 label: `${job.title} at ${job.company}`,
@@ -2323,14 +3054,15 @@ export function createJobFinderWorkspaceService(
             (job) => job.applyPath !== 'unknown' || job.easyApplyEligible
           ).length
           const debugFindings = debugResult.agentMetadata?.debugFindings ?? null
-          const hostname = new URL(target.startingUrl).hostname
+          const hostname = new URL(normalizedTarget.startingUrl).hostname
           const canonicalUrlBehavior =
             phase === 'job_detail_validation' || phase === 'replay_verification'
               ? summarizeCanonicalUrlBehavior(debugResult.jobs, hostname)
               : []
-          const applyPathBehavior = phase === 'apply_path_validation'
-            ? summarizeApplyPathBehavior(debugResult.jobs)
-            : []
+          const applyPathBehavior =
+            phase === 'apply_path_validation' && !warningSuggestsAuthRestriction(debugResult.warning)
+              ? summarizeApplyPathBehavior(debugResult.jobs)
+              : []
           const confirmedFacts = uniqueStrings([
             ...(debugFindings?.summary ? [debugFindings.summary] : []),
             ...prefixedLines('Reliable control: ', debugFindings?.reliableControls ?? []),
@@ -2350,23 +3082,32 @@ export function createJobFinderWorkspaceService(
             artifact: SourceDebugWorkerAttemptSchema.parse({
               id: attemptId,
               runId: run.id,
-              targetId: target.id,
+              targetId: normalizedTarget.id,
               phase,
               startedAt: now,
               completedAt: new Date().toISOString(),
               outcome,
+              completionMode: completion.completionMode,
+              completionReason: completion.completionReason,
               strategyLabel: phasePacket.strategyLabel ?? formatStatusLabel(phase),
               strategyFingerprint,
               confirmedFacts,
               attemptedActions: uniqueStrings([
-                `Started from ${target.startingUrl}.`,
+                `Started from ${normalizedTarget.startingUrl}.`,
                 ...(phase === 'apply_path_validation'
                   ? ['Inspected discovered jobs for apply entry points without submitting an application.']
                   : []),
+                ...(completion.phaseEvidence?.attemptedControls ?? []),
                 ...prefixedLines('Validated behavior: ', debugFindings?.reliableControls ?? []),
                 ...prefixedLines('Validated navigation: ', debugFindings?.navigationTips ?? [])
               ]),
-              blockerSummary: isInternalSourceDebugFailure(debugResult.warning) ? null : debugResult.warning,
+              blockerSummary:
+                isInternalSourceDebugFailure(debugResult.warning)
+                  ? null
+                  : (debugResult.warning ??
+                      (completion.completionMode !== 'structured_finish' && completion.completionMode !== 'forced_finish'
+                        ? completion.completionReason
+                        : null)),
               resultSummary:
                 debugFindings?.summary
                   ? debugFindings.summary
@@ -2401,10 +3142,12 @@ export function createJobFinderWorkspaceService(
                     : [],
               avoidStrategyFingerprints: [strategyFingerprint],
               evidenceRefIds: evidenceRefs.map((evidenceRef) => evidenceRef.id),
+              phaseEvidence: completion.phaseEvidence,
               compactionState: debugResult.agentMetadata?.compactionState
                 ? SourceDebugCompactionStateSchema.parse(debugResult.agentMetadata.compactionState)
                 : null
-            })
+            }),
+            stop: outcome === 'blocked_auth' || outcome === 'blocked_manual_step'
           }
         },
         afterPhase: async (phase, _index, attempt) => {
@@ -2429,7 +3172,7 @@ export function createJobFinderWorkspaceService(
             })
             await repository.upsertSourceDebugRun(run)
             await persistSourceDebugRun(run)
-            await saveDiscoveryTargetUpdate(target.id, (currentTarget) => ({
+            await saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
               ...currentTarget,
               instructionStatus: currentTarget.validatedInstructionId ? currentTarget.instructionStatus : 'missing',
               lastDebugRunId: run.id
@@ -2446,7 +3189,7 @@ export function createJobFinderWorkspaceService(
 
           if (phase !== 'replay_verification') {
             const nextSynthesizedInstruction = synthesizeSourceInstructionArtifact(
-              target,
+              normalizedTarget,
               run,
               attempts,
               adapterKind,
@@ -2458,7 +3201,7 @@ export function createJobFinderWorkspaceService(
               instructionArtifactId: nextSynthesizedInstruction.id
             })
             await repository.upsertSourceInstructionArtifact(nextSynthesizedInstruction)
-            await saveDiscoveryTargetUpdate(target.id, (currentTarget) => ({
+            await saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
               ...currentTarget,
               draftInstructionId: nextSynthesizedInstruction.id,
               instructionStatus: nextSynthesizedInstruction.status,
@@ -2487,7 +3230,7 @@ export function createJobFinderWorkspaceService(
       })
 
       const finalizedInstruction = synthesizeSourceInstructionArtifact(
-        target,
+        normalizedTarget,
         run,
         attempts,
         adapterKind,
@@ -2504,7 +3247,7 @@ export function createJobFinderWorkspaceService(
         instructionArtifactId: finalizedInstruction.id
       })
       await persistSourceDebugRun(run)
-      await saveDiscoveryTargetUpdate(target.id, (currentTarget) => ({
+      await saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
         ...currentTarget,
         instructionStatus: finalizedInstruction.status,
         draftInstructionId: finalizedInstruction.status === 'validated' ? null : finalizedInstruction.id,
@@ -2530,6 +3273,9 @@ export function createJobFinderWorkspaceService(
         throw error
       }
     } finally {
+      if (browserSessionOpened) {
+        await closeRunBrowserSession(adapterKind).catch(() => {})
+      }
       signal?.removeEventListener('abort', onExternalAbort)
       activeSourceDebugExecutionId = null
       activeSourceDebugAbortController = null
@@ -2547,19 +3293,13 @@ export function createJobFinderWorkspaceService(
     async openBrowserSession() {
       const searchPreferences = await repository.getSearchPreferences()
       const session = await browserRuntime.openSession(getPreferredSessionAdapter(searchPreferences))
-      await persistDiscoveryState((current) => ({
-        ...current,
-        sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session))
-      }))
+      await persistBrowserSessionState(session)
       return getWorkspaceSnapshot()
     },
     async checkBrowserSession() {
       const searchPreferences = await repository.getSearchPreferences()
       const session = await browserRuntime.getSessionState(getPreferredSessionAdapter(searchPreferences))
-      await persistDiscoveryState((current) => ({
-        ...current,
-        sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session))
-      }))
+      await persistBrowserSessionState(session)
       return getWorkspaceSnapshot()
     },
     async saveProfile(profile) {
@@ -2637,7 +3377,17 @@ export function createJobFinderWorkspaceService(
         throw new Error('Deterministic discovery is only available for the LinkedIn adapter.')
       }
 
-      const discoveryResult = await browserRuntime.runDiscovery(adapterKind, enrichedPreferences)
+      let discoveryResult: Awaited<ReturnType<BrowserSessionRuntime['runDiscovery']>>
+      let browserSessionOpened = false
+      try {
+        await openRunBrowserSession(adapterKind)
+        browserSessionOpened = true
+        discoveryResult = await browserRuntime.runDiscovery(adapterKind, enrichedPreferences)
+      } finally {
+        if (browserSessionOpened) {
+          await closeRunBrowserSession(adapterKind).catch(() => {})
+        }
+      }
       const savedJobs = await repository.listSavedJobs()
       const persistedSavedJobIds = new Set(savedJobs.map((job) => job.id))
       const mergeSeedJobs = settings.discoveryOnly
@@ -2768,6 +3518,7 @@ export function createJobFinderWorkspaceService(
         recentRuns: current.recentRuns,
         pendingDiscoveryJobs: workingPendingJobs
       }))
+      const openedSessionSources = new Set<JobSource>()
 
       try {
         for (const [index, target] of targets.entries()) {
@@ -2845,6 +3596,11 @@ export function createJobFinderWorkspaceService(
           }
 
           try {
+            if (!openedSessionSources.has(adapterKind)) {
+              await openRunBrowserSession(adapterKind)
+              openedSessionSources.add(adapterKind)
+            }
+
             if (adapter.experimental) {
               emitActivity(createDiscoveryEvent({
                 runId: activeRun.id,
@@ -2864,54 +3620,8 @@ export function createJobFinderWorkspaceService(
               }))
             }
 
-            if (adapter.requiresManagedSession) {
-              const session = await browserRuntime.getSessionState(adapterKind)
-              await persistDiscoveryState((current) => ({
-                ...current,
-                sessions: mergeSessionStates(current.sessions, toDiscoverySessionState(session)),
-                activeRun
-              }))
-
-              if (session.status !== 'ready') {
-                const warning = `${adapter.label} session is not ready. ${session.detail ?? 'Open the browser profile and try again.'}`
-                activeRun = updateTargetExecution(activeRun, target.id, (execution) => ({
-                  ...execution,
-                  state: 'failed',
-                  completedAt: new Date().toISOString(),
-                  warning
-                }))
-                activeRun = DiscoveryRunRecordSchema.parse({
-                  ...activeRun,
-                  summary: {
-                    ...activeRun.summary,
-                    targetsCompleted: countCompletedTargetExecutions(activeRun)
-                  }
-                })
-                emitActivity(createDiscoveryEvent({
-                  runId: activeRun.id,
-                  timestamp: new Date().toISOString(),
-                  kind: 'warning',
-                  stage: 'target',
-                  targetId: target.id,
-                  adapterKind: target.adapterKind,
-                  resolvedAdapterKind: adapterKind,
-                  message: warning,
-                  terminalState: 'failed',
-                  url: target.startingUrl,
-                  jobsFound: 0,
-                  jobsPersisted: 0,
-                  jobsStaged: 0,
-                  duplicatesMerged: 0,
-                  invalidSkipped: 0
-                }))
-                continue
-              }
-            }
-
             const customInstructions = splitCustomDiscoveryInstructions(target.customInstructions)
-            const validatedInstruction = sourceInstructionArtifacts.find(
-              (artifact) => artifact.id === target.validatedInstructionId && artifact.status === 'validated'
-            ) ?? null
+            const activeInstruction = resolveActiveSourceInstructionArtifact(target, sourceInstructionArtifacts)
             const discoveryResult = await browserRuntime.runAgentDiscovery(adapterKind, {
               userProfile: profile,
               searchPreferences: {
@@ -2925,7 +3635,7 @@ export function createJobFinderWorkspaceService(
               navigationHostnames: [targetUrl.hostname],
               siteInstructions: uniqueStrings([
                 ...adapter.siteInstructions,
-                ...buildInstructionGuidance(validatedInstruction),
+                ...buildInstructionGuidance(activeInstruction),
                 ...customInstructions
               ]),
               toolUsageNotes: adapter.toolUsageNotes,
@@ -3152,6 +3862,12 @@ export function createJobFinderWorkspaceService(
         }
 
         throw error
+      } finally {
+        await Promise.all(
+          [...openedSessionSources].map(async (source) => {
+            await closeRunBrowserSession(source).catch(() => {})
+          })
+        )
       }
 
       const [latestSavedJobs, latestDiscoveryState] = await Promise.all([
@@ -3167,7 +3883,7 @@ export function createJobFinderWorkspaceService(
       return getWorkspaceSnapshot()
     },
     async runSourceDebug(targetId, signal) {
-      return runSourceDebugWorkflow(targetId, signal)
+      return runSourceDebugWorkflow(targetId, signal, { clearExistingInstructions: true })
     },
     async cancelSourceDebug(runId) {
       if (activeSourceDebugExecutionId !== runId || !activeSourceDebugAbortController) {
@@ -3197,10 +3913,62 @@ export function createJobFinderWorkspaceService(
 
       return run
     },
+    async getSourceDebugRunDetails(runId) {
+      const [runs, attempts, evidenceRefs, instructionArtifacts] = await Promise.all([
+        repository.listSourceDebugRuns(),
+        repository.listSourceDebugAttempts(),
+        repository.listSourceDebugEvidenceRefs(),
+        repository.listSourceInstructionArtifacts()
+      ])
+      const run = runs.find((entry) => entry.id === runId)
+
+      if (!run) {
+        throw new Error(`Unknown source debug run '${runId}'.`)
+      }
+
+      return SourceDebugRunDetailsSchema.parse({
+        run,
+        attempts: attempts
+          .filter((entry) => entry.runId === runId)
+          .sort((left, right) => new Date(left.startedAt).getTime() - new Date(right.startedAt).getTime()),
+        evidenceRefs: evidenceRefs
+          .filter((entry) => entry.runId === runId)
+          .sort((left, right) => new Date(left.capturedAt).getTime() - new Date(right.capturedAt).getTime()),
+        instructionArtifact: instructionArtifacts.find((artifact) => artifact.id === run.instructionArtifactId) ?? null
+      })
+    },
     async listSourceDebugRuns(targetId) {
       return (await repository.listSourceDebugRuns())
         .filter((run) => run.targetId === targetId)
         .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    },
+    async saveSourceInstructionArtifact(targetId, artifact) {
+      const normalizedArtifact = SourceInstructionArtifactSchema.parse({
+        ...artifact,
+        updatedAt: new Date().toISOString()
+      })
+
+      if (normalizedArtifact.targetId !== targetId) {
+        throw new Error(`Source instruction '${normalizedArtifact.id}' does not belong to target '${targetId}'.`)
+      }
+
+      const searchPreferences = await repository.getSearchPreferences()
+      const target = searchPreferences.discovery.targets.find((entry) => entry.id === targetId)
+
+      if (!target) {
+        throw new Error(`Unknown discovery target '${targetId}'.`)
+      }
+
+      const isBoundInstruction =
+        normalizedArtifact.id === target.draftInstructionId ||
+        normalizedArtifact.id === target.validatedInstructionId
+
+      if (!isBoundInstruction) {
+        throw new Error(`Source instruction '${normalizedArtifact.id}' is not bound to target '${targetId}'.`)
+      }
+
+      await repository.upsertSourceInstructionArtifact(normalizedArtifact)
+      return getWorkspaceSnapshot()
     },
     async acceptSourceInstructionDraft(targetId, instructionId) {
       const artifact = (await repository.listSourceInstructionArtifacts()).find((entry) => entry.id === instructionId && entry.targetId === targetId)
@@ -3235,7 +4003,7 @@ export function createJobFinderWorkspaceService(
         draftInstructionId: artifact.id
       }))
 
-      return runSourceDebugWorkflow(targetId, signal)
+      return runSourceDebugWorkflow(targetId, signal, { clearExistingInstructions: false })
     },
     async queueJobForReview(jobId) {
       const discoveryState = await repository.getDiscoveryState()
@@ -3380,17 +4148,12 @@ export function createJobFinderWorkspaceService(
       const provenanceTarget = provenanceTargetId
         ? searchPreferences.discovery.targets.find((target) => target.id === provenanceTargetId) ?? null
         : null
-      const validatedInstruction = provenanceTarget?.validatedInstructionId
-        ? sourceInstructionArtifacts.find(
-            (artifact) =>
-              artifact.id === provenanceTarget.validatedInstructionId &&
-              artifact.targetId === provenanceTarget.id &&
-              artifact.status === 'validated'
-          ) ?? null
+      const activeInstruction = provenanceTarget
+        ? resolveActiveSourceInstructionArtifact(provenanceTarget, sourceInstructionArtifacts)
         : null
       const applyInstructions = uniqueStrings([
-        ...buildInstructionGuidance(validatedInstruction),
-        ...(validatedInstruction?.applyGuidance ?? [])
+        ...buildInstructionGuidance(activeInstruction),
+        ...(activeInstruction?.applyGuidance ?? [])
       ])
 
       const executionResult = await browserRuntime.executeEasyApply('linkedin', {

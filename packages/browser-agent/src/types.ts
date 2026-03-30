@@ -5,6 +5,8 @@ import type {
   AgentDiscoveryProgress,
   JobSource,
   SourceDebugCompactionState,
+  SourceDebugPhaseCompletionMode,
+  SourceDebugPhaseEvidence,
   Tool,
   ToolCall
 } from '@unemployed/contracts'
@@ -70,7 +72,9 @@ export interface AgentState {
   visitedUrls: Set<string>
   stepCount: number
   currentUrl: string
+  lastStableUrl: string
   isRunning: boolean
+  phaseEvidence: SourceDebugPhaseEvidence
   compactionState: SourceDebugCompactionState | null
 }
 
@@ -81,6 +85,9 @@ export interface AgentResult {
   error?: string
   transcriptMessageCount: number
   compactionState?: SourceDebugCompactionState | null
+  phaseCompletionMode?: SourceDebugPhaseCompletionMode | null
+  phaseCompletionReason?: string | null
+  phaseEvidence?: SourceDebugPhaseEvidence | null
   debugFindings?: AgentDebugFindings | null
 }
 

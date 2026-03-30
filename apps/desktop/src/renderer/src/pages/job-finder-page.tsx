@@ -4,7 +4,9 @@ import type {
   DiscoveryActivityEvent,
   JobFinderSettings,
   JobSearchPreferences,
-  JobFinderWorkspaceSnapshot
+  JobFinderWorkspaceSnapshot,
+  SourceDebugRunDetails,
+  SourceInstructionArtifact
 } from '@unemployed/contracts'
 import { Outlet, useNavigate, useOutletContext } from 'react-router-dom'
 import { JobFinderShell } from '../features/job-finder/components/job-finder-shell'
@@ -59,6 +61,9 @@ export interface JobFinderPageContext {
   onResetWorkspace: () => void
   onRunAgentDiscovery: (() => void) | undefined
   onRunSourceDebug: (targetId: string) => void
+  onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onSaveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => void
+  onVerifySourceInstructions: (targetId: string, instructionId: string) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onSaveProfile: (profile: CandidateProfile) => void
   onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
@@ -88,9 +93,12 @@ export function JobFinderProfileRoute() {
       actionState={context.actionState}
       busy={context.busy}
       onAnalyzeProfileFromResume={context.onAnalyzeProfileFromResume}
+      onGetSourceDebugRunDetails={context.onGetSourceDebugRunDetails}
       onImportResume={context.onImportResume}
       onRunSourceDebug={context.onRunSourceDebug}
+      onSaveSourceInstructionArtifact={context.onSaveSourceInstructionArtifact}
       onSaveAll={context.onSaveAll}
+      onVerifySourceInstructions={context.onVerifySourceInstructions}
       profile={context.workspace.profile}
       recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       searchPreferences={context.workspace.searchPreferences}
@@ -362,6 +370,19 @@ export function JobFinderPage() {
         }
       })()
     },
+    onGetSourceDebugRunDetails: actions.getSourceDebugRunDetails,
+    onSaveSourceInstructionArtifact: (targetId, artifact) =>
+      void runAction(
+        () => actions.saveSourceInstructionArtifact(targetId, artifact),
+        () => undefined,
+        'Source instructions updated.'
+      ),
+    onVerifySourceInstructions: (targetId: string, instructionId: string) =>
+      void runAction(
+        () => actions.verifySourceInstructions(targetId, instructionId),
+        () => undefined,
+        'Source instructions re-verified.'
+      ),
     onResetWorkspace: () =>
       void runAction(
         actions.resetWorkspace,

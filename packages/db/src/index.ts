@@ -201,6 +201,7 @@ export interface JobFinderRepository {
   upsertSourceDebugAttempt(attempt: SourceDebugWorkerAttempt): Promise<void>
   listSourceInstructionArtifacts(): Promise<readonly SourceInstructionArtifact[]>
   upsertSourceInstructionArtifact(artifact: SourceInstructionArtifact): Promise<void>
+  deleteSourceInstructionArtifactsForTarget(targetId: string): Promise<void>
   listSourceDebugEvidenceRefs(): Promise<readonly SourceDebugEvidenceRef[]>
   upsertSourceDebugEvidenceRef(evidenceRef: SourceDebugEvidenceRef): Promise<void>
   getSettings(): Promise<JobFinderSettings>
@@ -589,6 +590,10 @@ export function createInMemoryJobFinderRepository(seed: JobFinderRepositorySeed)
       state.sourceInstructionArtifacts = nextArtifacts
       return Promise.resolve()
     },
+    deleteSourceInstructionArtifactsForTarget(targetId) {
+      state.sourceInstructionArtifacts = state.sourceInstructionArtifacts.filter((artifact) => artifact.targetId !== targetId)
+      return Promise.resolve()
+    },
     listSourceDebugEvidenceRefs() {
       return Promise.resolve(cloneValue(state.sourceDebugEvidenceRefs))
     },
@@ -782,6 +787,22 @@ export async function createFileJobFinderRepository(
 
       try {
         upsertCollectionValue(database, 'source_instruction_artifacts', normalizedArtifact)
+        database.exec('COMMIT')
+      } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+      }
+
+      return secureDatabaseFile(options.filePath)
+    },
+    deleteSourceInstructionArtifactsForTarget(targetId) {
+      database.exec('BEGIN IMMEDIATE')
+
+      try {
+        const nextArtifacts = readState(database, normalizedSeed).sourceInstructionArtifacts.filter(
+          (artifact) => artifact.targetId !== targetId
+        )
+        replaceCollection(database, 'source_instruction_artifacts', nextArtifacts)
         database.exec('COMMIT')
       } catch (error) {
         database.exec('ROLLBACK')

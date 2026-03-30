@@ -3,6 +3,7 @@ import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import type {
   CandidateProfile,
   JobSearchPreferences,
+  SourceDebugRunDetails,
   SourceDebugRunRecord,
   SourceInstructionArtifact
 } from '@unemployed/contracts'
@@ -112,9 +113,12 @@ export function ProfileScreen(props: {
   actionState: { busy: boolean; message: string | null }
   busy: boolean
   onAnalyzeProfileFromResume: () => void
+  onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
   onRunSourceDebug: (targetId: string) => void
+  onSaveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
+  onVerifySourceInstructions: (targetId: string, instructionId: string) => void
   profile: CandidateProfile
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   searchPreferences: JobSearchPreferences
@@ -124,9 +128,12 @@ export function ProfileScreen(props: {
     actionState,
     busy,
     onAnalyzeProfileFromResume,
+    onGetSourceDebugRunDetails,
     onImportResume,
     onRunSourceDebug,
+    onSaveSourceInstructionArtifact,
     onSaveAll,
+    onVerifySourceInstructions,
     profile,
     recentSourceDebugRuns,
     searchPreferences,
@@ -449,9 +456,12 @@ export function ProfileScreen(props: {
       />
     ),
     preferences: (
-      <ProfilePreferencesTab
-        busy={busy}
+        <ProfilePreferencesTab
+          busy={busy}
+          onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
           onRunSourceDebug={onRunSourceDebug}
+          onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
+          onVerifySourceInstructions={onVerifySourceInstructions}
           preferencesForm={preferencesForm}
           profileForm={profileForm}
           recentSourceDebugRuns={recentSourceDebugRuns}

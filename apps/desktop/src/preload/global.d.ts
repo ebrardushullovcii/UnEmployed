@@ -5,6 +5,8 @@ import type {
   DiscoveryActivityEvent,
   JobFinderSettings,
   SourceDebugRunRecord,
+  SourceDebugRunDetails,
+  SourceInstructionArtifact,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences
@@ -39,6 +41,8 @@ declare global {
         runSourceDebug: (targetId: string) => Promise<JobFinderWorkspaceSnapshot>
         cancelSourceDebug: (runId: string) => Promise<JobFinderWorkspaceSnapshot>
         getSourceDebugRun: (runId: string) => Promise<SourceDebugRunRecord>
+        getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+        saveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => Promise<JobFinderWorkspaceSnapshot>
         listSourceDebugRuns: (targetId: string) => Promise<readonly SourceDebugRunRecord[]>
         acceptSourceInstructionDraft: (targetId: string, instructionId: string) => Promise<JobFinderWorkspaceSnapshot>
         verifySourceInstructions: (targetId: string, instructionId: string) => Promise<JobFinderWorkspaceSnapshot>

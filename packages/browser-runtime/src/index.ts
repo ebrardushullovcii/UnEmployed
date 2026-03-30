@@ -114,6 +114,7 @@ export interface ExecuteEasyApplyInput {
 export interface BrowserSessionRuntime {
   getSessionState(source: JobSource): Promise<BrowserSessionState>
   openSession(source: JobSource): Promise<BrowserSessionState>
+  closeSession(source: JobSource): Promise<BrowserSessionState>
   runDiscovery(source: JobSource, searchPreferences: JobSearchPreferences): Promise<DiscoveryRunResult>
   executeEasyApply(source: JobSource, input: ExecuteEasyApplyInput): Promise<ApplyExecutionResult>
   runAgentDiscovery?(source: JobSource, options: AgentDiscoveryOptions): Promise<DiscoveryRunResult>
@@ -149,6 +150,7 @@ export interface AgentDiscoveryOptions {
   }
   relevantUrlSubstrings?: string[]
   experimental?: boolean
+  skipSessionValidation?: boolean
   aiClient?: JobFinderAiClient
   onProgress?: (progress: AgentDiscoveryProgress) => void
   signal?: AbortSignal
@@ -164,9 +166,10 @@ export type StubBrowserSessionRuntimeSeed = CatalogBrowserSessionRuntimeSeed
 export function createCatalogBrowserSessionRuntime(
   seed: CatalogBrowserSessionRuntimeSeed
 ): BrowserSessionRuntime {
-  const sessions = new Map(
+  const initialSessions = new Map(
     seed.sessions.map((session) => [session.source, BrowserSessionStateSchema.parse(cloneValue(session))])
   )
+  const sessions = new Map(initialSessions)
   const catalog = JobPostingSchema.array().parse(cloneValue(seed.catalog))
 
   function getSession(source: JobSource): BrowserSessionState {
@@ -190,7 +193,31 @@ export function createCatalogBrowserSessionRuntime(
       return Promise.resolve(getSession(source))
     },
     openSession(source) {
-      return Promise.resolve(getSession(source))
+      const reopenedSession = cloneValue(
+        initialSessions.get(source) ??
+          BrowserSessionStateSchema.parse({
+            source,
+            status: 'unknown',
+            driver: 'catalog_seed',
+            label: 'Browser session unavailable',
+            detail: 'No browser runtime session has been configured for this source yet.',
+            lastCheckedAt: new Date().toISOString()
+          })
+      )
+      sessions.set(source, reopenedSession)
+      return Promise.resolve(reopenedSession)
+    },
+    closeSession(source) {
+      const closedState = BrowserSessionStateSchema.parse({
+        source,
+        status: 'unknown',
+        driver: 'catalog_seed',
+        label: 'Browser session closed',
+        detail: 'The browser session is closed. It will reopen when the next run starts.',
+        lastCheckedAt: new Date().toISOString()
+      })
+      sessions.set(source, closedState)
+      return Promise.resolve(closedState)
     },
     runDiscovery(source, searchPreferences) {
       const session = getSession(source)
@@ -410,6 +437,9 @@ export function createCatalogBrowserSessionRuntime(
           incomplete: false,
           transcriptMessageCount: 0,
           compactionState: null,
+          phaseCompletionMode: null,
+          phaseCompletionReason: null,
+          phaseEvidence: null,
           debugFindings: null
         }
       }))

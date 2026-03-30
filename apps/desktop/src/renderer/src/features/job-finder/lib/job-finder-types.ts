@@ -5,6 +5,8 @@ import type {
   JobSearchPreferences,
   JobFinderWorkspaceSnapshot,
   JobSourceAdapterKind,
+  SourceDebugRunDetails,
+  SourceInstructionArtifact,
   WorkMode
 } from '@unemployed/contracts'
 
@@ -23,6 +25,10 @@ export interface JobFinderShellActions {
   resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>
   runAgentDiscovery: (onActivity?: (event: DiscoveryActivityEvent) => void) => Promise<JobFinderWorkspaceSnapshot>
   runSourceDebug: (targetId: string) => Promise<JobFinderWorkspaceSnapshot>
+  getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  saveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => Promise<JobFinderWorkspaceSnapshot>
+  acceptSourceInstructionDraft: (targetId: string, instructionId: string) => Promise<JobFinderWorkspaceSnapshot>
+  verifySourceInstructions: (targetId: string, instructionId: string) => Promise<JobFinderWorkspaceSnapshot>
   importResume: () => Promise<JobFinderWorkspaceSnapshot>
   saveProfile: (profile: CandidateProfile) => Promise<JobFinderWorkspaceSnapshot>
   saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => Promise<JobFinderWorkspaceSnapshot>

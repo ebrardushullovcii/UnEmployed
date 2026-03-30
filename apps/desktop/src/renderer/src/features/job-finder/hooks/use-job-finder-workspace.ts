@@ -60,6 +60,14 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() => window.unemployed.jobFinder.runAgentDiscovery(onProgress)),
       runSourceDebug: (targetId: string) =>
         runWorkspaceAction(() => window.unemployed.jobFinder.runSourceDebug(targetId)),
+      getSourceDebugRunDetails: (runId: string) =>
+        window.unemployed.jobFinder.getSourceDebugRunDetails(runId),
+      saveSourceInstructionArtifact: (targetId, artifact) =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.saveSourceInstructionArtifact(targetId, artifact)),
+      acceptSourceInstructionDraft: (targetId: string, instructionId: string) =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.acceptSourceInstructionDraft(targetId, instructionId)),
+      verifySourceInstructions: (targetId: string, instructionId: string) =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.verifySourceInstructions(targetId, instructionId)),
       saveProfile: (profile: CandidateProfile) =>
         runWorkspaceAction(() => window.unemployed.jobFinder.saveProfile(profile)),
       saveWorkspaceInputs: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) =>

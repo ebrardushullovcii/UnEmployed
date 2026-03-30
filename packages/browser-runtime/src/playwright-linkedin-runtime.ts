@@ -331,15 +331,49 @@ async function pageLooksAuthenticated(page: Page): Promise<boolean> {
     return false
   }
 
-  return page.evaluate(() => {
-    if (document.querySelector('input[name="session_key"], form.login__form')) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const authenticated = await page.evaluate(() => {
+      if (document.querySelector('input[name="session_key"], input[name="session_password"], form.login__form')) {
+        return false
+      }
+
+      const authenticatedSelectors = [
+        '.global-nav',
+        '.global-nav__me',
+        '[class*="global-nav"]',
+        'nav[aria-label="Primary Navigation"]',
+        '[data-test-global-nav-link="jobs"]',
+        'a[href*="/feed/"]',
+        'a[href*="/mynetwork/"]',
+        'a[href*="/messaging/"]',
+        'a[href*="/notifications/"]',
+        'a[href*="/jobs/search/"]',
+        'a[href*="/jobs/collections/"]',
+        'a[href*="/jobs/view/"]',
+        '[data-view-name*="job"]'
+      ]
+
+      if (authenticatedSelectors.some((selector) => document.querySelector(selector))) {
+        return true
+      }
+
+      if (window.location.pathname.startsWith('/jobs') && document.querySelector('main')) {
+        return document.querySelectorAll('a[href*="/jobs/view/"], button').length > 3
+      }
+
       return false
+    })
+
+    if (authenticated) {
+      return true
     }
 
-    return Boolean(
-      document.querySelector('.global-nav, nav[aria-label="Primary Navigation"], a[href*="/jobs/search/"]')
-    )
-  })
+    if (attempt < 2) {
+      await page.waitForTimeout(600)
+    }
+  }
+
+  return false
 }
 
 async function collectSearchCandidates(page: Page, maxJobs: number): Promise<SearchCandidate[]> {
@@ -626,6 +660,17 @@ export function createLinkedInBrowserAgentRuntime(
         : 'Open the dedicated Chrome profile to let the experimental generic-site agent browse within the configured hostname.',
     lastCheckedAt: new Date().toISOString()
   })
+  const createClosedSessionState = (source: JobSource): BrowserSessionState => BrowserSessionStateSchema.parse({
+    source,
+    status: 'unknown',
+    driver: 'chrome_profile_agent',
+    label: source === 'linkedin' ? 'Chrome profile closed' : 'Browser profile closed',
+    detail:
+      source === 'linkedin'
+        ? 'The dedicated Chrome profile is closed. It will reopen automatically when the next discovery or source-debug run starts.'
+        : 'The dedicated browser profile is closed. It will reopen automatically when the next discovery or source-debug run starts.',
+    lastCheckedAt: new Date().toISOString()
+  })
   const currentSessionStates = new Map<JobSource, BrowserSessionState>([
     ['linkedin', createInitialSessionState('linkedin')],
     ['generic_site', createInitialSessionState('generic_site')]
@@ -644,6 +689,105 @@ export function createLinkedInBrowserAgentRuntime(
     })
 
     return browser
+  }
+
+  async function waitForChromeProcessExit(chromeProcess: ChildProcess, timeoutMs: number): Promise<boolean> {
+    if (chromeProcess.exitCode !== null || chromeProcess.killed) {
+      return true
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const onSettled = () => {
+        clearTimeout(timeout)
+        chromeProcess.off('exit', onExit)
+        chromeProcess.off('error', onError)
+      }
+      const onExit = () => {
+        onSettled()
+        resolve(true)
+      }
+      const onError = () => {
+        onSettled()
+        resolve(true)
+      }
+      const timeout = setTimeout(() => {
+        onSettled()
+        resolve(false)
+      }, timeoutMs)
+
+      chromeProcess.once('exit', onExit)
+      chromeProcess.once('error', onError)
+    })
+  }
+
+  async function terminateLaunchedChromeProcess(): Promise<void> {
+    const chromeProcess = launchedChromeProcess
+    launchedChromeProcess = null
+
+    if (!chromeProcess?.pid) {
+      await terminateChromeProcessesByFingerprint()
+      return
+    }
+
+    try {
+      if (process.platform === 'win32') {
+        const taskkill = spawn('taskkill', ['/PID', String(chromeProcess.pid), '/T', '/F'], {
+          stdio: 'ignore',
+          windowsHide: true
+        })
+        await new Promise<void>((resolve) => {
+          taskkill.once('exit', () => resolve())
+          taskkill.once('error', () => resolve())
+        })
+        return
+      }
+
+      process.kill(-chromeProcess.pid, 'SIGTERM')
+      const exitedAfterSigterm = await waitForChromeProcessExit(chromeProcess, 1_000)
+
+      if (!exitedAfterSigterm) {
+        process.kill(-chromeProcess.pid, 'SIGKILL')
+        await waitForChromeProcessExit(chromeProcess, 1_000)
+      }
+    } catch {
+      try {
+        chromeProcess.kill('SIGTERM')
+        const exitedAfterSigterm = await waitForChromeProcessExit(chromeProcess, 1_000)
+
+        if (!exitedAfterSigterm) {
+          chromeProcess.kill('SIGKILL')
+          await waitForChromeProcessExit(chromeProcess, 1_000)
+        }
+      } catch {
+        // Ignore cleanup failures here; session reset still clears local state.
+      }
+    }
+
+    await terminateChromeProcessesByFingerprint()
+  }
+
+  async function terminateChromeProcessesByFingerprint(): Promise<void> {
+    const runCommand = async (command: string, args: string[]): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        const child = spawn(command, args, {
+          stdio: 'ignore',
+          windowsHide: true
+        })
+
+        child.once('exit', () => resolve())
+        child.once('error', () => resolve())
+      })
+    }
+
+    const userDataFingerprint = `--user-data-dir=${options.userDataDir}`
+    const debugPortFingerprint = `--remote-debugging-port=${debugPort}`
+
+    if (process.platform === 'win32') {
+      return
+    }
+
+    await runCommand('pkill', ['-f', userDataFingerprint]).catch(() => undefined)
+    await runCommand('pkill', ['-f', debugPortFingerprint]).catch(() => undefined)
   }
 
   async function connectBrowser(): Promise<Browser> {
@@ -779,8 +923,9 @@ export function createLinkedInBrowserAgentRuntime(
     }
   }
 
-  async function getReadyPage(source: JobSource): Promise<Page> {
+  async function getReadyPage(source: JobSource, options?: { skipSessionValidation?: boolean }): Promise<Page> {
     const session = await openSession(source)
+    const skipSessionValidation = options?.skipSessionValidation === true
 
     if (source === 'generic_site') {
       const context = await getContext()
@@ -789,7 +934,7 @@ export function createLinkedInBrowserAgentRuntime(
       return page
     }
 
-    if (session.status !== 'ready') {
+    if (!skipSessionValidation && session.status !== 'ready') {
       throw buildSessionBlockedResult(session)
     }
 
@@ -809,7 +954,28 @@ export function createLinkedInBrowserAgentRuntime(
 
     const browser = await browserPromise
     await browser.close()
+    await terminateLaunchedChromeProcess()
     resetBrowserConnection()
+  }
+
+  async function closeSession(source: JobSource): Promise<BrowserSessionState> {
+    if (browserPromise) {
+      try {
+        const browser = await browserPromise
+        if (browser.isConnected()) {
+          await browser.close()
+        }
+      } catch {
+        // Always reset local state even if the browser was already gone.
+      }
+    }
+
+    await terminateLaunchedChromeProcess()
+
+    resetBrowserConnection()
+    currentSessionStates.set('linkedin', createClosedSessionState('linkedin'))
+    currentSessionStates.set('generic_site', createClosedSessionState('generic_site'))
+    return BrowserSessionStateSchema.parse(currentSessionStates.get(source) ?? createClosedSessionState(source))
   }
 
   async function runDiscoveryWithExtractor(
@@ -959,6 +1125,7 @@ export function createLinkedInBrowserAgentRuntime(
       return Promise.resolve(currentSessionStates.get(source) ?? createInitialSessionState(source))
     },
     openSession,
+    closeSession,
     async runDiscovery(source, searchPreferences) {
       if (source === 'generic_site') {
         const timestamp = new Date().toISOString()
@@ -1280,7 +1447,10 @@ export function createLinkedInBrowserAgentRuntime(
       let page: Page | null = null
 
       try {
-        page = await getReadyPage(source)
+        page = await getReadyPage(
+          source,
+          agentOptions.skipSessionValidation ? { skipSessionValidation: true } : undefined
+        )
 
         const agentConfig: AgentConfig = {
           source,
@@ -1388,6 +1558,9 @@ export function createLinkedInBrowserAgentRuntime(
             incomplete: result.incomplete ?? false,
             transcriptMessageCount: result.transcriptMessageCount,
             compactionState: result.compactionState ?? null,
+            phaseCompletionMode: result.phaseCompletionMode ?? null,
+            phaseCompletionReason: result.phaseCompletionReason ?? null,
+            phaseEvidence: result.phaseEvidence ?? null,
             debugFindings: result.debugFindings ?? null
           }
         })

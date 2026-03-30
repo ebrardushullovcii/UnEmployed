@@ -46,6 +46,8 @@ ${config.promptContext.experimental ? `
 ${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.` : ''}
 Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
 Your goal: Find up to ${config.targetJobCount} relevant job postings.
+${taskPacket ? 'When a TASK PACKET is present, the phase goal is more important than collecting a large job count. Do not stop at the first visible jobs if key controls, entry paths, or blockers still need to be proven.' : ''}
+${taskPacket ? 'When a TASK PACKET is present, reaching the sampled job budget is not completion. Keep exploring until you can call finish with proven phase findings or a clear blocker.' : ''}
 
 YOU CONTROL THE STRATEGY:
 - Choose appropriate timeouts for the active site
@@ -58,7 +60,9 @@ TOOLS AVAILABLE:
 - get_interactive_elements: See what's clickable on the page
 - click: Click buttons/links to view jobs or navigate
 - fill: Fill search boxes if you want to refine search
+- select_option: Use dropdowns or comboboxes such as city, industry, category, or work-mode filters
 - scroll_down: Load more job listings on the current page
+- scroll_to_top: Return to the top of the page to re-check header search/filter controls
 - go_back: Return to search results from a job detail page
 - extract_jobs: Extract job data when you see job listings
 - finish: End when you have ${config.targetJobCount} jobs
@@ -75,7 +79,18 @@ FOCUS:
 - Prefer site-specific findings over generic process notes
 - Record real controls, filter behavior, URL patterns, and apply-entry caveats when you can prove them
 - Prefer reusable guidance about where to start, what actually changes results, and what detail/apply patterns repeat across listings
+- If the starting page is a generic landing page, first look for visible Jobs, Careers, Open positions, Vacancies, or similar entry paths before concluding the site has no job surface
+- If jobs are already listed directly on the homepage or landing page, treat that page as a valid jobs surface and keep exploring there before hunting for a separate route
+- Explicitly probe obvious homepage and jobs-page controls before you conclude a site has no useful search or filters
+- On source-debug phases, inspect the visible controls on the starting surface before extracting jobs unless you are already on a clear detail page
+- If you see recommendation rows, category chips, curated job collections, or "show all" links, test whether they open reusable preselected job lists
+- If a jobs landing page starts with recommendation cards instead of the full results grid, treat that as a clue to open "show all" or the collection route before concluding the page is thin
+- If visible controls appear to live above the current scroll position, return to the top of the page and probe them before concluding they are missing
+- On simple pages, verify the top-level search box and the first visible location, industry, category, or work-mode filters before finishing
+- Prefer visible controls over hand-authored URL parameter tricks. Only rely on direct query URLs when the visible search/filter UI is blocked or genuinely less reliable.
+- Record whether pagination, infinite scroll, or lazy-loaded result expansion is real, flaky, decorative, or absent
 - If a filter looks misleading, hidden, locale-specific, or non-functional, record that explicitly
+- If the run crosses from a guest/login wall into a job-bearing surface later, base your findings on the surface that actually exposed jobs and mention the auth prerequisite only as context
 - Avoid repeating the phase goal, starting URL, or obvious boundary rules in your findings unless they are the only proven facts
 - Avoid exact job titles, company names, and full URLs in findings unless they are the only way to express a reusable rule or route pattern
 
@@ -88,6 +103,10 @@ ${taskPacket ? `WHEN YOU CALL finish:
 - Put safe apply-entry observations in "applyTips"
 - Put blockers or confidence caveats in "warnings"
 - For search/filter phases, do not finish without either a proven result-changing control or an explicit note that no reliable control could be confirmed after trying alternatives
+- For search/filter phases, say whether you checked the obvious visible controls on the homepage and the main jobs/results route when those surfaces exist
+- For search/filter phases, say whether recommendation chips, curated collections, or "show all" routes were reusable or just decorative when they are present
+- For search/filter phases on jobs hubs with recommendation modules, say whether opening "show all" exposed the fuller search/filter surface or not
+- For search/filter phases, do not present a direct URL pattern as the main guidance when a visible search box, chip, dropdown, or filter bar already worked
 - For structure/navigation phases, say which route or entry path is the best repeatable way to reach jobs if you can prove it
 - Leave arrays empty if you did not prove anything useful for that category` : ''}
 

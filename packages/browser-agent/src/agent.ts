@@ -1,5 +1,11 @@
 import type { Page } from 'playwright'
-import { JobPostingSchema, type JobPosting } from '@unemployed/contracts'
+import {
+  AgentDebugFindingsSchema,
+  JobPostingSchema,
+  SourceDebugPhaseEvidenceSchema,
+  type JobPosting,
+  type SourceDebugPhaseEvidence
+} from '@unemployed/contracts'
 import type {
   AgentConfig,
   AgentState,
@@ -67,6 +73,70 @@ function compactToolContent(content: string, maxLength: number): string {
   return content.length <= maxLength ? content : `${content.slice(0, Math.max(0, maxLength - 12))}...[trimmed]`
 }
 
+function uniqueStrings(values: readonly (string | null | undefined)[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const value of values) {
+    const normalized = value?.replace(/\s+/g, ' ').trim()
+    if (!normalized) {
+      continue
+    }
+
+    const key = normalized.toLowerCase()
+    if (seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    result.push(normalized)
+  }
+
+  return result
+}
+
+function preserveCoherentRecentMessages(
+  conversation: AgentMessage[],
+  preserveRecentMessages: number
+): AgentMessage[] {
+  if (conversation.length === 0 || preserveRecentMessages <= 0) {
+    return []
+  }
+
+  let startIndex = Math.max(0, conversation.length - preserveRecentMessages)
+
+  while (startIndex > 0 && conversation[startIndex]?.role === 'tool') {
+    const toolMessage = conversation[startIndex]
+    if (toolMessage?.role !== 'tool') {
+      break
+    }
+
+    let matchingAssistantIndex = -1
+
+    for (let index = startIndex - 1; index >= 0; index -= 1) {
+      const message = conversation[index]
+      if (message?.role !== 'assistant' || !message.toolCalls) {
+        continue
+      }
+
+      if (message.toolCalls.some((toolCall) => toolCall.id === toolMessage.toolCallId)) {
+        matchingAssistantIndex = index
+        break
+      }
+    }
+
+    if (matchingAssistantIndex === -1) {
+      startIndex += 1
+      continue
+    }
+
+    startIndex = matchingAssistantIndex
+    break
+  }
+
+  return conversation.slice(startIndex)
+}
+
 function buildCompactionSummary(state: AgentState, config: AgentConfig) {
   const taskPacket = config.promptContext.taskPacket
   const knownFacts = [
@@ -87,10 +157,263 @@ function buildCompactionSummary(state: AgentState, config: AgentConfig) {
     ]
       .filter(Boolean)
       .join(' '),
-    confirmedFacts: knownFacts,
+    confirmedFacts: uniqueStrings([
+      ...knownFacts,
+      ...state.phaseEvidence.routeSignals.slice(0, 4),
+      ...state.phaseEvidence.visibleControls.slice(0, 4)
+    ]),
     blockerNotes: [],
     avoidStrategyFingerprints: taskPacket?.avoidStrategyFingerprints ?? [],
     preservedContext: state.collectedJobs.slice(0, 5).map((job) => `${job.title} at ${job.company}`)
+  }
+}
+
+function createEmptyPhaseEvidence(): SourceDebugPhaseEvidence {
+  return SourceDebugPhaseEvidenceSchema.parse({})
+}
+
+function appendPhaseEvidence(
+  state: AgentState,
+  key: keyof SourceDebugPhaseEvidence,
+  values: readonly (string | null | undefined)[]
+) {
+  state.phaseEvidence[key] = uniqueStrings([...(state.phaseEvidence[key] ?? []), ...values])
+}
+
+function formatControlLabel(role: string | undefined, name: string | undefined, index?: number): string | null {
+  const trimmedRole = role?.trim()
+  const trimmedName = name?.trim()
+
+  if (!trimmedRole || !trimmedName) {
+    return null
+  }
+
+  return `${trimmedRole} "${trimmedName}"${typeof index === 'number' && index > 0 ? ` (#${index + 1})` : ''}`
+}
+
+function is404LikeUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url)
+    return /(^|\/)(404|not-found)(\/|$)/i.test(parsedUrl.pathname)
+  } catch {
+    return false
+  }
+}
+
+function is404LikeTitle(title: string): boolean {
+  return /\b(404|not found|page not found)\b/i.test(title)
+}
+
+async function recoverFrom404LikeSurface(page: Page, state: AgentState): Promise<void> {
+  const currentUrl = page.url()
+  const pageTitle = await page.title().catch(() => '')
+  const is404Like = is404LikeUrl(currentUrl) || is404LikeTitle(pageTitle)
+
+  if (!is404Like) {
+    if (currentUrl) {
+      state.lastStableUrl = currentUrl
+    }
+    return
+  }
+
+  appendPhaseEvidence(state, 'warnings', [
+    `Reached a not-found route at ${currentUrl}; returned to the last known jobs surface.`
+  ])
+
+  if (!state.lastStableUrl || state.lastStableUrl === currentUrl) {
+    return
+  }
+
+  try {
+    await page.goto(state.lastStableUrl, { waitUntil: 'domcontentloaded', timeout: 5000 })
+    await page.waitForTimeout(500)
+    state.currentUrl = page.url()
+    state.visitedUrls.add(state.currentUrl)
+    appendPhaseEvidence(state, 'routeSignals', [
+      `Recovered to the last known jobs surface after a not-found route: ${state.currentUrl}`
+    ])
+  } catch {
+    // Keep the warning only when recovery fails.
+  }
+}
+
+function buildForcedFinishPrompt(state: AgentState, config: AgentConfig): string {
+  const taskPacket = config.promptContext.taskPacket
+  const visibleControls = state.phaseEvidence.visibleControls.slice(0, 6)
+  const routeSignals = state.phaseEvidence.routeSignals.slice(0, 6)
+  const attemptedControls = state.phaseEvidence.attemptedControls.slice(0, 6)
+  const warnings = state.phaseEvidence.warnings.slice(0, 4)
+
+  return [
+    'Final phase-closeout turn.',
+    taskPacket?.phaseGoal ? `Phase goal: ${taskPacket.phaseGoal}` : null,
+    'Your next response must call finish.',
+    'Use the evidence you already observed. If no reusable control or route was proven, still call finish and say that explicitly.',
+    state.currentUrl ? `Current URL: ${state.currentUrl}` : null,
+    `Visited pages: ${state.visitedUrls.size}. Sampled jobs: ${state.collectedJobs.length}.`,
+    visibleControls.length > 0 ? `Visible controls seen:\n${visibleControls.map((value) => `- ${value}`).join('\n')}` : null,
+    routeSignals.length > 0 ? `Route signals seen:\n${routeSignals.map((value) => `- ${value}`).join('\n')}` : null,
+    attemptedControls.length > 0 ? `Controls attempted:\n${attemptedControls.map((value) => `- ${value}`).join('\n')}` : null,
+    warnings.length > 0 ? `Warnings:\n${warnings.map((value) => `- ${value}`).join('\n')}` : null
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join('\n\n')
+}
+
+function synthesizeFallbackDebugFindings(state: AgentState): NonNullable<AgentResult['debugFindings']> | null {
+  const reliableControls = state.phaseEvidence.visibleControls.slice(0, 4)
+  const navigationTips = uniqueStrings([
+    ...state.phaseEvidence.routeSignals.slice(0, 4),
+    state.currentUrl ? `Last observed jobs surface: ${state.currentUrl}` : null
+  ])
+  const applyTips = uniqueStrings([
+    state.collectedJobs.some((job) => job.applyPath === 'easy_apply' || job.easyApplyEligible)
+      ? 'Use the on-site apply entry when the detail page exposes it.'
+      : null,
+    state.collectedJobs.some((job) => job.applyPath === 'external_redirect')
+      ? 'Expect some listings to hand off apply to an external destination.'
+      : null,
+    state.collectedJobs.length > 0 &&
+    !state.collectedJobs.some((job) => job.applyPath === 'easy_apply' || job.easyApplyEligible || job.applyPath === 'external_redirect')
+      ? 'Treat applications as manual until a reliable on-site apply entry is proven.'
+      : null
+  ])
+  const warnings = state.phaseEvidence.warnings.slice(0, 4)
+
+  if (
+    reliableControls.length === 0 &&
+    navigationTips.length === 0 &&
+    applyTips.length === 0 &&
+    warnings.length === 0
+  ) {
+    return null
+  }
+
+  return AgentDebugFindingsSchema.parse({
+    summary: uniqueStrings([
+      navigationTips[0] ?? null,
+      reliableControls[0] ? 'Observed reusable controls on the jobs surface, but the phase timed out before a structured finish.' : null,
+      state.currentUrl ? `Observed a partial jobs surface at ${state.currentUrl}, but the phase timed out before structured completion.` : null
+    ])[0] ?? 'The phase timed out before structured completion.',
+    reliableControls,
+    trickyFilters: [],
+    navigationTips,
+    applyTips,
+    warnings
+  })
+}
+
+function hasMeaningfulPhaseEvidence(state: AgentState): boolean {
+  return (
+    state.phaseEvidence.visibleControls.length > 0 ||
+    state.phaseEvidence.successfulInteractions.length > 0 ||
+    state.phaseEvidence.routeSignals.length > 0 ||
+    state.phaseEvidence.attemptedControls.length > 0 ||
+    state.phaseEvidence.warnings.length > 0 ||
+    state.collectedJobs.length > 0
+  )
+}
+
+function recordToolEvidence(
+  toolName: string,
+  args: Record<string, unknown>,
+  result: unknown,
+  state: AgentState
+) {
+  const normalizedResult = (result ?? {}) as {
+    success?: boolean
+    error?: string
+    data?: Record<string, unknown>
+  }
+  const controlLabel = formatControlLabel(
+    typeof args.role === 'string' ? args.role : undefined,
+    typeof args.name === 'string' ? args.name : undefined,
+    typeof args.index === 'number' ? args.index : undefined
+  )
+
+  if (toolName === 'get_interactive_elements' && normalizedResult.success && normalizedResult.data) {
+    const elements = Array.isArray(normalizedResult.data.elements)
+      ? normalizedResult.data.elements as Array<{ role?: string; name?: string; index?: number }>
+      : []
+    appendPhaseEvidence(
+      state,
+      'visibleControls',
+      elements.slice(0, 8).map((element) => formatControlLabel(element.role, element.name, element.index))
+    )
+    return
+  }
+
+  if (toolName === 'navigate') {
+    appendPhaseEvidence(state, 'routeSignals', [
+      normalizedResult.success && typeof normalizedResult.data?.url === 'string'
+        ? `Navigation reached ${normalizedResult.data.url}`
+        : typeof normalizedResult.data?.requestedUrl === 'string'
+          ? `Tried navigation to ${normalizedResult.data.requestedUrl}`
+          : null
+    ])
+  }
+
+  if (toolName === 'click' || toolName === 'fill' || toolName === 'select_option') {
+    appendPhaseEvidence(state, 'attemptedControls', [
+      controlLabel
+        ? `${toolName === 'click' ? 'Clicked' : toolName === 'fill' ? 'Filled' : 'Selected'} ${controlLabel}`
+        : null
+    ])
+  }
+
+  if (toolName === 'click' && normalizedResult.success) {
+    appendPhaseEvidence(state, 'successfulInteractions', [controlLabel ? `Clicked ${controlLabel}` : null])
+  }
+
+  if (toolName === 'fill' && normalizedResult.success) {
+    const text = typeof args.text === 'string' ? args.text.trim() : ''
+    appendPhaseEvidence(state, 'successfulInteractions', [
+      controlLabel ? `Filled ${controlLabel}${text ? ` with "${text.slice(0, 40)}"` : ''}` : null
+    ])
+  }
+
+  if (toolName === 'select_option' && normalizedResult.success) {
+    const optionText = typeof args.optionText === 'string' ? args.optionText.trim() : ''
+    appendPhaseEvidence(state, 'successfulInteractions', [
+      controlLabel ? `Selected "${optionText}" from ${controlLabel}` : null
+    ])
+  }
+
+  if (toolName === 'scroll_down' && normalizedResult.success) {
+    appendPhaseEvidence(state, 'successfulInteractions', ['Scrolled down on the current jobs surface'])
+    appendPhaseEvidence(state, 'routeSignals', [
+      normalizedResult.data?.newContentLoaded === true && state.currentUrl
+        ? `Scrolling revealed additional content on ${state.currentUrl}`
+        : null
+    ])
+  }
+
+  if (toolName === 'scroll_to_top' && normalizedResult.success) {
+    appendPhaseEvidence(state, 'successfulInteractions', ['Returned to the top of the current page to re-check header controls'])
+    appendPhaseEvidence(state, 'routeSignals', [
+      state.currentUrl ? `Returned to the top of ${state.currentUrl} to probe header controls again` : null
+    ])
+  }
+
+  if ((toolName === 'click' || toolName === 'fill' || toolName === 'select_option') && normalizedResult.data) {
+    const newUrl = typeof normalizedResult.data.newUrl === 'string' ? normalizedResult.data.newUrl : null
+    if (newUrl) {
+      appendPhaseEvidence(state, 'routeSignals', [
+        `${toolName === 'click' ? 'Control click' : toolName === 'fill' ? 'Search submit' : 'Dropdown selection'} opened ${newUrl}`
+      ])
+    }
+  }
+
+  if (toolName === 'extract_jobs' && normalizedResult.success && normalizedResult.data) {
+    const jobsExtracted = typeof normalizedResult.data.jobsExtracted === 'number' ? normalizedResult.data.jobsExtracted : 0
+    const pageUrl = typeof normalizedResult.data.pageUrl === 'string' ? normalizedResult.data.pageUrl : state.currentUrl
+    appendPhaseEvidence(state, 'routeSignals', [
+      jobsExtracted > 0 ? `Job extraction found ${jobsExtracted} candidate jobs on ${pageUrl}` : null
+    ])
+  }
+
+  if (normalizedResult.error) {
+    appendPhaseEvidence(state, 'warnings', [`${toolName} failed: ${normalizedResult.error}`])
   }
 }
 
@@ -102,7 +425,7 @@ function maybeCompactConversation(state: AgentState, config: AgentConfig) {
   }
 
   state.compactionState = buildCompactionSummary(state, config)
-  const preservedMessages = state.conversation.slice(-compaction.preserveRecentMessages)
+  const preservedMessages = preserveCoherentRecentMessages(state.conversation, compaction.preserveRecentMessages)
   state.conversation = [
     { role: 'system', content: createSystemPrompt(config) },
     { role: 'user', content: createUserPrompt(config) },
@@ -127,8 +450,10 @@ export async function runAgentDiscovery(
   signal?: AbortSignal
 ): Promise<AgentResult> {
   console.log(`[Agent] Starting discovery: ${config.targetJobCount} jobs target`)
-  let pendingDebugFindings: AgentResult['debugFindings'] = null
+  let pendingDebugFindings: NonNullable<AgentResult['debugFindings']> | null = null
   let awaitingStructuredFinish = false
+  let forcedFinishPromptSent = false
+  const requiresExplicitFinish = Boolean(config.promptContext.taskPacket)
 
   const state: AgentState = {
     conversation: [
@@ -139,7 +464,9 @@ export async function runAgentDiscovery(
     visitedUrls: new Set(),
     stepCount: 0,
     currentUrl: '',
+    lastStableUrl: '',
     isRunning: true,
+    phaseEvidence: createEmptyPhaseEvidence(),
     compactionState: null
   }
 
@@ -157,6 +484,9 @@ export async function runAgentDiscovery(
           error: `Starting URL not in allowlist: ${firstUrl}`,
           transcriptMessageCount: state.conversation.length,
           compactionState: state.compactionState,
+          phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
+          phaseCompletionReason: requiresExplicitFinish ? `Starting URL not in allowlist: ${firstUrl}` : null,
+          phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
           debugFindings: pendingDebugFindings
         }
       }
@@ -172,11 +502,16 @@ export async function runAgentDiscovery(
           error: landedUrlValidation.error,
           transcriptMessageCount: state.conversation.length,
           compactionState: state.compactionState,
+          phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
+          phaseCompletionReason: requiresExplicitFinish ? landedUrlValidation.error ?? 'Starting URL redirected off-allowlist.' : null,
+          phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
           debugFindings: pendingDebugFindings
         }
       }
       state.currentUrl = landedUrl
+      state.lastStableUrl = landedUrl
       state.visitedUrls.add(state.currentUrl)
+      appendPhaseEvidence(state, 'routeSignals', [`Started on ${landedUrl}`])
       console.log(`[Agent] Started at: ${state.currentUrl}`)
     } else {
       return {
@@ -185,6 +520,9 @@ export async function runAgentDiscovery(
         error: 'No starting URLs provided',
         transcriptMessageCount: state.conversation.length,
         compactionState: state.compactionState,
+        phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
+        phaseCompletionReason: requiresExplicitFinish ? 'No starting URLs provided' : null,
+        phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
         debugFindings: pendingDebugFindings
       }
     }
@@ -197,6 +535,9 @@ export async function runAgentDiscovery(
           incomplete: true,
           transcriptMessageCount: state.conversation.length,
           compactionState: state.compactionState,
+          phaseCompletionMode: requiresExplicitFinish ? 'interrupted' : null,
+          phaseCompletionReason: requiresExplicitFinish ? 'The source-debug phase was interrupted before completion.' : null,
+          phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
           debugFindings: pendingDebugFindings
         }
       }
@@ -206,6 +547,15 @@ export async function runAgentDiscovery(
       // Report progress every 10 steps
       if (state.stepCount % 10 === 0) {
         console.log(`[Agent] Step ${state.stepCount}/${config.maxSteps} | Jobs: ${state.collectedJobs.length}`)
+      }
+
+      if (requiresExplicitFinish && !forcedFinishPromptSent && state.stepCount >= Math.max(1, config.maxSteps - 2)) {
+        forcedFinishPromptSent = true
+        state.conversation.push({
+          role: 'user',
+          content: buildForcedFinishPrompt(state, config)
+        })
+        maybeCompactConversation(state, config)
       }
 
       onProgress?.({
@@ -257,6 +607,9 @@ export async function runAgentDiscovery(
           error: `LLM call failed after ${MAX_LLM_RETRY_ATTEMPTS} attempts: ${errorMessage}`,
           transcriptMessageCount: state.conversation.length,
           compactionState: state.compactionState,
+          phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
+          phaseCompletionReason: requiresExplicitFinish ? `LLM call failed after ${MAX_LLM_RETRY_ATTEMPTS} attempts: ${errorMessage}` : null,
+          phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
           debugFindings: pendingDebugFindings
         }
       }
@@ -273,6 +626,16 @@ export async function runAgentDiscovery(
         // Execute tool calls and add results
         for (const toolCall of response.toolCalls) {
           const result = await executeToolCall(toolCall, page, state, config, jobExtractor, onProgress, signal)
+          let parsedArguments: Record<string, unknown> = {}
+          try {
+            parsedArguments = JSON.parse(toolCall.function.arguments || '{}') as Record<string, unknown>
+          } catch {
+            parsedArguments = {}
+          }
+          recordToolEvidence(toolCall.function.name, parsedArguments, result, state)
+          if (['navigate', 'click', 'fill', 'select_option', 'go_back'].includes(toolCall.function.name)) {
+            await recoverFrom404LikeSurface(page, state)
+          }
 
           const compactResult = toolCall.function.name === 'extract_jobs'
             ? {
@@ -300,20 +663,29 @@ export async function runAgentDiscovery(
               steps: state.stepCount,
               transcriptMessageCount: state.conversation.length,
               compactionState: state.compactionState,
+              phaseCompletionMode: requiresExplicitFinish
+                ? (forcedFinishPromptSent ? 'forced_finish' : 'structured_finish')
+                : null,
+              phaseCompletionReason: requiresExplicitFinish
+                ? ((result as { data?: { reason?: string } }).data?.reason ?? null)
+                : null,
+              phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
               debugFindings: pendingDebugFindings
             }
           }
         }
 
         if (state.collectedJobs.length >= config.targetJobCount) {
-          if (config.promptContext.taskPacket && !awaitingStructuredFinish) {
-            awaitingStructuredFinish = true
-            state.conversation.push({
-              role: 'user',
-              content:
-                'Target job count is already satisfied. Do not keep browsing unless a specific control or detail page still needs verification. Call finish now with structured site findings, including any reliable controls, tricky filters, navigation rules, and apply caveats you proved.'
-            })
-            maybeCompactConversation(state, config)
+          if (requiresExplicitFinish) {
+            if (!awaitingStructuredFinish) {
+              awaitingStructuredFinish = true
+              state.conversation.push({
+                role: 'user',
+                content:
+                  'The evidence sampling budget is already satisfied. Do not stop yet unless the phase goal is complete. Either keep probing the missing route/control/detail evidence or call finish with structured site findings, including any reliable controls, tricky filters, navigation rules, and apply caveats you proved.'
+              })
+              maybeCompactConversation(state, config)
+            }
             continue
           }
 
@@ -323,6 +695,9 @@ export async function runAgentDiscovery(
             steps: state.stepCount,
             transcriptMessageCount: state.conversation.length,
             compactionState: state.compactionState,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
             debugFindings: pendingDebugFindings
           }
         }
@@ -335,27 +710,44 @@ export async function runAgentDiscovery(
         maybeCompactConversation(state, config)
 
         // If no tool calls for multiple steps, we might be stuck
-        if (state.stepCount >= config.maxSteps - 5) {
+        if (!requiresExplicitFinish && state.stepCount >= config.maxSteps - 5) {
           return {
             jobs: state.collectedJobs,
             steps: state.stepCount,
             incomplete: true,
             transcriptMessageCount: state.conversation.length,
             compactionState: state.compactionState,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
             debugFindings: pendingDebugFindings
           }
+        }
+
+        if (requiresExplicitFinish && forcedFinishPromptSent) {
+          break
         }
       }
     }
 
     console.log(`[Agent] Max steps reached: ${state.collectedJobs.length} jobs`)
+    const fallbackDebugFindings = pendingDebugFindings ?? (requiresExplicitFinish ? synthesizeFallbackDebugFindings(state) : null)
     return {
       jobs: state.collectedJobs,
       steps: state.stepCount,
       incomplete: state.stepCount >= config.maxSteps,
       transcriptMessageCount: state.conversation.length,
       compactionState: state.compactionState,
-      debugFindings: pendingDebugFindings
+      phaseCompletionMode: requiresExplicitFinish
+        ? (hasMeaningfulPhaseEvidence(state) ? 'timed_out_with_partial_evidence' : 'timed_out_without_evidence')
+        : null,
+      phaseCompletionReason: requiresExplicitFinish
+        ? (hasMeaningfulPhaseEvidence(state)
+            ? 'The phase timed out before the worker returned a structured finish call.'
+            : 'The phase timed out before the worker produced structured findings or reusable evidence.')
+        : null,
+      phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
+      debugFindings: fallbackDebugFindings
     }
   } catch (error) {
     if ((error instanceof DOMException && error.name === 'AbortError') || signal?.aborted) {
@@ -368,6 +760,9 @@ export async function runAgentDiscovery(
       error: error instanceof Error ? error.message : 'Unknown error',
       transcriptMessageCount: state.conversation.length,
       compactionState: state.compactionState,
+      phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
+      phaseCompletionReason: requiresExplicitFinish ? (error instanceof Error ? error.message : 'Unknown error') : null,
+      phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
       debugFindings: pendingDebugFindings
     }
   } finally {
@@ -540,6 +935,7 @@ function createUserPrompt(config: AgentConfig): string {
     ? config.searchPreferences.locations.join(', ')
     : 'Not specified'
   const taskPacket = config.promptContext.taskPacket
+  const isPhaseDrivenDebugRun = Boolean(taskPacket)
 
   return `Please find job postings that match my profile and preferences.
 
@@ -550,7 +946,9 @@ Experience Level: ${config.userProfile.yearsExperience != null ? `${config.userP
 Starting URLs to explore:
 ${config.startingUrls.map(url => `- ${url}`).join('\n')}
 
-Goal: Find ${config.targetJobCount} relevant job postings.
+${isPhaseDrivenDebugRun
+    ? `Phase Evidence Budget: sample up to ${config.targetJobCount} relevant job postings only when they help prove the phase goal. Reaching the sampling budget is not completion by itself.`
+    : `Goal: Find ${config.targetJobCount} relevant job postings.`}
 
 ${taskPacket ? `Phase Goal: ${taskPacket.phaseGoal}
 Known facts:
@@ -564,12 +962,20 @@ ${taskPacket.stopConditions.length > 0 ? taskPacket.stopConditions.map((conditio
 The site may present listings in any language. Treat multilingual and non-English jobs as valid candidates when they match the target roles and locations.
 
 Instructions:
-1. Navigate to the starting URLs
+${isPhaseDrivenDebugRun
+    ? `1. Navigate to the starting URLs
+2. On landing pages or jobs hubs, inspect visible controls and reusable entry paths before you start extracting jobs
+3. Use search boxes, chips, dropdowns, filters, recommendation rows, and show-all routes when they are visible
+4. Use select_option for visible dropdowns or combobox filters such as city, industry, category, or work mode
+5. Extract structured job data only when it helps prove the current route, control, detail, or apply behavior
+6. Click into job details to confirm stable identity or apply-entry behavior when needed
+7. Call finish only after the phase goal is satisfied or you can clearly explain why progress is blocked`
+    : `1. Navigate to the starting URLs
 2. Use search functionality if available, or scroll through listings
 3. Click into job details to get full descriptions when needed
 4. Extract structured job data using the extract_jobs tool
 5. Navigate back to continue searching
-6. Continue until you've found ${config.targetJobCount} relevant jobs or exhausted options
+6. Continue until you've found ${config.targetJobCount} relevant jobs or exhausted options`}
 
 Focus on recent postings that match the target roles and locations.`
 }

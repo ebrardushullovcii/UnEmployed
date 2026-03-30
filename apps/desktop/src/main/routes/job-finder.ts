@@ -3,11 +3,13 @@ import {
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,
   JobFinderJobActionInputSchema,
+  JobFinderSaveSourceInstructionInputSchema,
   JobFinderSourceDebugActionInputSchema,
   JobFinderSourceDebugRunQuerySchema,
   JobFinderSourceInstructionActionInputSchema,
   JobFinderSettingsSchema,
   SaveJobFinderWorkspaceInputSchema,
+  SourceDebugRunDetailsSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema
 } from '@unemployed/contracts'
@@ -207,6 +209,22 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     const run = await jobFinderWorkspaceService.getSourceDebugRun(runId)
 
     return run
+  })
+
+  ipcMain.handle('job-finder:get-source-debug-run-details', async (_event, payload: unknown) => {
+    const { runId } = JobFinderSourceDebugRunQuerySchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const details = await jobFinderWorkspaceService.getSourceDebugRunDetails(runId)
+
+    return SourceDebugRunDetailsSchema.parse(details)
+  })
+
+  ipcMain.handle('job-finder:save-source-instruction-artifact', async (_event, payload: unknown) => {
+    const { targetId, artifact } = JobFinderSaveSourceInstructionInputSchema.parse(payload)
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
+    const snapshot = await jobFinderWorkspaceService.saveSourceInstructionArtifact(targetId, artifact)
+
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   })
 
   ipcMain.handle('job-finder:list-source-debug-runs', async (_event, payload: unknown) => {
