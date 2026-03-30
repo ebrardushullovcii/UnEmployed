@@ -33,6 +33,8 @@ The first architecture slice is now landed:
 - Final learned-instruction curation now strips more runtime/tool chatter (`extract_jobs`, `get_interactive_elements`, pointer-event / timeout hints) and suppresses contradictory “no visible filters” claims when phase evidence already captured named controls
 - Final learned-instruction curation now also has a dedicated end-of-run reviewer pass that receives richer per-phase timestamps, attempted actions, compaction summaries, and ephemeral review-transcript lines before persistence, so contradiction cleanup is based on more than the synthesized findings alone while raw worker chat still stays out of stored artifacts by default
 - Source-debug worker prompts and the final reviewer prompt now explicitly frame findings as reusable instructions for future discovery runs rather than reports about the sampled run, and the curation layer now strips extraction/sample-size chatter such as `0 or 1 jobs extracted` unless it actually reflects a durable site constraint
+- The final reviewer now acts as an organizer over the full sequence of phase tests, including each phase goal, success criteria, stop conditions, retained evidence, and review transcript snippets, so the final artifact is based on the whole debug run rather than only heuristic line merging
+- Re-verification now replays the selected instruction artifact as the instruction set under review and publishes a successor artifact from the new evidence instead of mutating the reviewed artifact in place mid-run
 
 The next work on this plan is QA/hardening rather than first implementation.
 

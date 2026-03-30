@@ -135,15 +135,19 @@ interface SourceInstructionQualityAssessment {
 }
 
 interface SourceInstructionReviewOverride {
-  navigationGuidance: string[]
-  searchGuidance: string[]
-  detailGuidance: string[]
-  applyGuidance: string[]
-  warnings: string[]
+  navigationGuidance: string[] | null
+  searchGuidance: string[] | null
+  detailGuidance: string[] | null
+  applyGuidance: string[] | null
+  warnings: string[] | null
 }
 
 interface SourceInstructionFinalReviewPhaseContext {
   phase: SourceDebugPhase
+  phaseGoal: string
+  successCriteria: string[]
+  stopConditions: string[]
+  knownFactsAtStart: string[]
   startedAt: string
   completedAt: string | null
   outcome: SourceDebugWorkerAttempt['outcome']
@@ -630,11 +634,15 @@ function normalizeDiscoveryTarget(target: JobDiscoveryTarget): JobDiscoveryTarge
 function readReviewOverrideStringArray(
   payload: Record<string, unknown>,
   key: keyof SourceInstructionReviewOverride
-): string[] {
+): string[] | null {
+  if (!(key in payload)) {
+    return null
+  }
+
   const value = payload[key]
 
   if (!Array.isArray(value)) {
-    return []
+    return null
   }
 
   return uniqueStrings(
@@ -1829,6 +1837,7 @@ function buildSourceInstructionFinalReviewPrompt(input: {
   run: SourceDebugRunRecord
   adapterKind: JobSource
   verification: SourceInstructionArtifact['verification']
+  instructionUnderReview: SourceInstructionArtifact | null
   heuristicInstruction: SourceInstructionArtifact
   phaseContexts: readonly SourceInstructionFinalReviewPhaseContext[]
 }): string {
@@ -1846,6 +1855,19 @@ function buildSourceInstructionFinalReviewPrompt(input: {
       phaseOrder: SOURCE_DEBUG_PHASES
     },
     verification: input.verification,
+    instructionUnderReview: input.instructionUnderReview
+      ? {
+          id: input.instructionUnderReview.id,
+          status: input.instructionUnderReview.status,
+          acceptedAt: input.instructionUnderReview.acceptedAt,
+          verification: input.instructionUnderReview.verification,
+          navigationGuidance: input.instructionUnderReview.navigationGuidance,
+          searchGuidance: input.instructionUnderReview.searchGuidance,
+          detailGuidance: input.instructionUnderReview.detailGuidance,
+          applyGuidance: input.instructionUnderReview.applyGuidance,
+          warnings: input.instructionUnderReview.warnings
+        }
+      : null,
     heuristicInstruction: {
       navigationGuidance: input.heuristicInstruction.navigationGuidance,
       searchGuidance: input.heuristicInstruction.searchGuidance,
@@ -1853,15 +1875,17 @@ function buildSourceInstructionFinalReviewPrompt(input: {
       applyGuidance: input.heuristicInstruction.applyGuidance,
       warnings: input.heuristicInstruction.warnings
     },
-    phases: input.phaseContexts
+    phaseTests: input.phaseContexts
   }
 
   return [
-    'Review the full source-debug evidence and produce the final curated instruction artifact.',
+    'Review the full source-debug evidence and organize it into the final instruction artifact.',
+    'You are seeing the full sequence of agent-led phase tests, their goals, outcomes, and evidence.',
     'Use the richer phase context, timestamps, compaction summaries, attempted actions, evidence, and review transcript to decide what is actually valid.',
     'Prefer later proven evidence over earlier failed or weaker notes when they describe the same control, route, detail pattern, or apply path.',
     'Drop duplicates, raw tool chatter, step-budget chatter, and superseded contradiction lines.',
     'These outputs are reusable instructions for future discovery runs on the same site, not a report about this specific run.',
+    'If an instruction artifact is already under review, compare it with the newer phase-test results and keep only the best supported guidance.',
     'If a line would not change how a future discovery run behaves, drop it.',
     'Keep uncertainty only when it still matters after reconciling the later evidence.',
     'Do not invent routes, controls, or outcomes that are not supported by the evidence.',
@@ -1872,6 +1896,7 @@ function buildSourceInstructionFinalReviewPrompt(input: {
     '- Prefer stable routes, visible controls, canonical detail behavior, and safe apply-entry rules.',
     '- When a control was first flaky or unproven but later worked, keep the proven instruction and drop the earlier failure note.',
     '- When a later phase disproves an earlier claim, keep the later warning and remove the stale claim.',
+    '- Empty arrays are intentional. If a category has no reliable instruction after organizing the evidence, return an empty array for that category instead of inheriting weaker lines.',
     '- Never keep extracted-job counts, sampled-job totals, step counts, tool names, or raw timeout/extraction chatter as final guidance unless they describe a durable site constraint future runs must remember.',
     '- Ask: if a future discovery run followed this line, would it behave better? If not, drop it.',
     '- Keep warnings factual and specific.',
@@ -1886,6 +1911,7 @@ async function reviewSourceInstructionArtifactWithAi(input: {
   run: SourceDebugRunRecord
   adapterKind: JobSource
   verification: SourceInstructionArtifact['verification']
+  instructionUnderReview: SourceInstructionArtifact | null
   heuristicInstruction: SourceInstructionArtifact
   phaseContexts: readonly SourceInstructionFinalReviewPhaseContext[]
   signal?: AbortSignal
@@ -1900,7 +1926,7 @@ async function reviewSourceInstructionArtifactWithAi(input: {
         {
           role: 'system',
           content:
-            'You are the final reviewer for learned source instructions. Reconcile conflicts, prefer stronger later evidence, and return strict JSON only.'
+            'You are the final organizer for learned source instructions. Review the full sequence of agent-led tests, reconcile conflicts, prefer stronger later evidence, and return strict JSON only.'
         },
         {
           role: 'user',
@@ -2781,8 +2807,7 @@ export function createJobFinderWorkspaceService(
       ...filterSourceInstructionLines(artifact.navigationGuidance),
       ...filterSourceInstructionLines(artifact.searchGuidance),
       ...filterSourceInstructionLines(artifact.detailGuidance),
-      ...filterSourceInstructionLines(artifact.applyGuidance),
-      ...artifact.warnings.map((warning) => `Warning: ${warning}`)
+      ...filterSourceInstructionLines(artifact.applyGuidance)
     ])
   }
 
@@ -3208,19 +3233,19 @@ export function createJobFinderWorkspaceService(
     })
     const reviewedGuidance = reconcileFinalSourceInstructionGuidance({
       navigationGuidance:
-        reviewOverride && reviewOverride.navigationGuidance.length > 0
+        reviewOverride && reviewOverride.navigationGuidance !== null
           ? filterSourceInstructionLines(reviewOverride.navigationGuidance)
           : finalReconciledGuidance.navigationGuidance,
       searchGuidance:
-        reviewOverride && reviewOverride.searchGuidance.length > 0
+        reviewOverride && reviewOverride.searchGuidance !== null
           ? filterSourceInstructionLines(reviewOverride.searchGuidance)
           : finalReconciledGuidance.searchGuidance,
       detailGuidance:
-        reviewOverride && reviewOverride.detailGuidance.length > 0
+        reviewOverride && reviewOverride.detailGuidance !== null
           ? filterSourceInstructionLines(reviewOverride.detailGuidance)
           : finalReconciledGuidance.detailGuidance,
       applyGuidance:
-        reviewOverride && reviewOverride.applyGuidance.length > 0
+        reviewOverride && reviewOverride.applyGuidance !== null
           ? filterSourceInstructionLines(reviewOverride.applyGuidance)
           : finalReconciledGuidance.applyGuidance
     })
@@ -3406,6 +3431,7 @@ export function createJobFinderWorkspaceService(
     signal?: AbortSignal,
     options?: {
       clearExistingInstructions?: boolean
+      reviewInstructionId?: string | null
     }
   ): Promise<JobFinderWorkspaceSnapshot> {
     const executionController = new AbortController()
@@ -3460,6 +3486,15 @@ export function createJobFinderWorkspaceService(
         }
       : target
     const instructionArtifacts = await repository.listSourceInstructionArtifacts()
+    const reviewInstructionArtifact = options?.reviewInstructionId
+      ? instructionArtifacts.find(
+          (artifact) => artifact.id === options.reviewInstructionId && artifact.targetId === normalizedTarget.id
+        ) ?? null
+      : null
+
+    if (options?.reviewInstructionId && !reviewInstructionArtifact) {
+      throw new Error(`Source instruction '${options.reviewInstructionId}' does not belong to target '${normalizedTarget.id}'.`)
+    }
 
     const adapterKind = resolveAdapterKind(normalizedTarget)
     const adapter = discoveryAdapters[adapterKind]
@@ -3482,7 +3517,8 @@ export function createJobFinderWorkspaceService(
       finalSummary: null,
       attemptIds: [],
       phaseSummaries: [],
-      instructionArtifactId: normalizedTarget.draftInstructionId ?? normalizedTarget.validatedInstructionId ?? null
+      instructionArtifactId:
+        reviewInstructionArtifact?.id ?? normalizedTarget.draftInstructionId ?? normalizedTarget.validatedInstructionId ?? null
     })
 
     await persistSourceDebugRun(run)
@@ -3495,7 +3531,7 @@ export function createJobFinderWorkspaceService(
     const strategyFingerprints: string[] = []
     const finalReviewContextsByAttemptId = new Map<string, SourceInstructionFinalReviewPhaseContext>()
     let synthesizedInstruction: SourceInstructionArtifact | null =
-      instructionArtifacts.find((artifact) => artifact.id === normalizedTarget.validatedInstructionId) ?? null
+      reviewInstructionArtifact ?? resolveActiveSourceInstructionArtifact(normalizedTarget, instructionArtifacts)
     let browserSessionOpened = false
 
     try {
@@ -3526,7 +3562,9 @@ export function createJobFinderWorkspaceService(
           )
           const strategyFingerprint = `${phase}:${adapterKind}:${phasePacket.strategyLabel?.toLowerCase() ?? 'default'}`
           strategyFingerprints.push(strategyFingerprint)
-          const phaseInstructionArtifact = phase === 'replay_verification' ? synthesizedInstruction : null
+          const phaseInstructionArtifact = phase === 'replay_verification'
+            ? reviewInstructionArtifact ?? synthesizedInstruction
+            : null
           const nextPhase = SOURCE_DEBUG_PHASES[index + 1] ?? null
           const debugResult = await browserRuntime.runAgentDiscovery?.(adapterKind, {
             userProfile: profile,
@@ -3696,6 +3734,10 @@ export function createJobFinderWorkspaceService(
 
           finalReviewContextsByAttemptId.set(artifact.id, {
             phase,
+            phaseGoal: phasePacket.phaseGoal,
+            successCriteria: [...phasePacket.successCriteria],
+            stopConditions: [...phasePacket.stopConditions],
+            knownFactsAtStart: [...phasePacket.knownFacts],
             startedAt: artifact.startedAt,
             completedAt: artifact.completedAt,
             outcome: artifact.outcome,
@@ -3761,17 +3803,20 @@ export function createJobFinderWorkspaceService(
               null
             )
             synthesizedInstruction = nextSynthesizedInstruction
-            run = SourceDebugRunRecordSchema.parse({
-              ...run,
-              instructionArtifactId: nextSynthesizedInstruction.id
-            })
-            await repository.upsertSourceInstructionArtifact(nextSynthesizedInstruction)
-            await saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
-              ...currentTarget,
-              draftInstructionId: nextSynthesizedInstruction.id,
-              instructionStatus: nextSynthesizedInstruction.status,
-              lastDebugRunId: run.id
-            }))
+
+            if (!reviewInstructionArtifact) {
+              run = SourceDebugRunRecordSchema.parse({
+                ...run,
+                instructionArtifactId: nextSynthesizedInstruction.id
+              })
+              await repository.upsertSourceInstructionArtifact(nextSynthesizedInstruction)
+              await saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
+                ...currentTarget,
+                draftInstructionId: nextSynthesizedInstruction.id,
+                instructionStatus: nextSynthesizedInstruction.status,
+                lastDebugRunId: run.id
+              }))
+            }
           }
 
           await persistSourceDebugRun(run)
@@ -3807,6 +3852,7 @@ export function createJobFinderWorkspaceService(
         run,
         adapterKind,
         verification,
+        instructionUnderReview: reviewInstructionArtifact,
         heuristicInstruction: heuristicFinalizedInstruction,
         phaseContexts: attempts.flatMap((attempt) => {
           const context = finalReviewContextsByAttemptId.get(attempt.id)
@@ -3824,7 +3870,19 @@ export function createJobFinderWorkspaceService(
             reviewOverride
           )
         : heuristicFinalizedInstruction
-      await repository.upsertSourceInstructionArtifact(finalizedInstruction)
+      const preserveExistingValidatedInstruction =
+        reviewInstructionArtifact?.status === 'validated' && verification.outcome !== 'passed'
+      const shouldCreateSuccessorArtifact = Boolean(reviewInstructionArtifact)
+      const instructionToPersist = shouldCreateSuccessorArtifact
+        ? SourceInstructionArtifactSchema.parse({
+            ...finalizedInstruction,
+            id: `source_instruction_${normalizedTarget.id}_${Date.now()}`,
+            status: preserveExistingValidatedInstruction ? 'draft' : finalizedInstruction.status,
+            acceptedAt: preserveExistingValidatedInstruction ? null : finalizedInstruction.acceptedAt,
+            updatedAt: new Date().toISOString()
+          })
+        : finalizedInstruction
+      await repository.upsertSourceInstructionArtifact(instructionToPersist)
       run = SourceDebugRunRecordSchema.parse({
         ...run,
         state: verification.outcome === 'passed' ? 'completed' : 'failed',
@@ -3832,14 +3890,22 @@ export function createJobFinderWorkspaceService(
         completedAt: new Date().toISOString(),
         activePhase: null,
         finalSummary: verification.proofSummary ?? 'Source debug workflow completed.',
-        instructionArtifactId: finalizedInstruction.id
+        instructionArtifactId: instructionToPersist.id
       })
       await persistSourceDebugRun(run)
       await saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
         ...currentTarget,
-        instructionStatus: finalizedInstruction.status,
-        draftInstructionId: finalizedInstruction.status === 'validated' ? null : finalizedInstruction.id,
-        validatedInstructionId: finalizedInstruction.status === 'validated' ? finalizedInstruction.id : currentTarget.validatedInstructionId,
+        instructionStatus: preserveExistingValidatedInstruction
+          ? (currentTarget.validatedInstructionId ? 'validated' : instructionToPersist.status)
+          : instructionToPersist.status,
+        draftInstructionId:
+          preserveExistingValidatedInstruction || instructionToPersist.status !== 'validated'
+            ? instructionToPersist.id
+            : null,
+        validatedInstructionId:
+          instructionToPersist.status === 'validated'
+            ? instructionToPersist.id
+            : currentTarget.validatedInstructionId,
         lastDebugRunId: run.id,
         lastVerifiedAt: verification.verifiedAt,
         staleReason: verification.outcome === 'passed' ? null : verification.reason
@@ -4564,12 +4630,10 @@ export function createJobFinderWorkspaceService(
         throw new Error(`Unknown source instruction '${instructionId}'.`)
       }
 
-      await saveDiscoveryTargetUpdate(targetId, (target) => ({
-        ...target,
-        draftInstructionId: artifact.id
-      }))
-
-      return runSourceDebugWorkflow(targetId, signal, { clearExistingInstructions: false })
+      return runSourceDebugWorkflow(targetId, signal, {
+        clearExistingInstructions: false,
+        reviewInstructionId: artifact.id
+      })
     },
     async queueJobForReview(jobId) {
       const discoveryState = await repository.getDiscoveryState()
