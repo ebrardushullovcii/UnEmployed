@@ -79,6 +79,7 @@ FOCUS:
 - Prefer site-specific findings over generic process notes
 - Record real controls, filter behavior, URL patterns, and apply-entry caveats when you can prove them
 - Prefer reusable guidance about where to start, what actually changes results, and what detail/apply patterns repeat across listings
+- Treat every finding as reusable guidance for a future discovery run on the same site; if a line would not change future agent behavior, do not include it
 - If the starting page is a generic landing page, first look for visible Jobs, Careers, Open positions, Vacancies, or similar entry paths before concluding the site has no job surface
 - If jobs are already listed directly on the homepage or landing page, treat that page as a valid jobs surface and keep exploring there before hunting for a separate route
 - Explicitly probe obvious homepage and jobs-page controls before you conclude a site has no useful search or filters
@@ -102,6 +103,9 @@ ${taskPacket ? `WHEN YOU CALL finish:
 - Put route/detail-page behavior in "navigationTips"
 - Put safe apply-entry observations in "applyTips"
 - Put blockers or confidence caveats in "warnings"
+- Write instructions, not a report about this run
+- Do not mention how many jobs were extracted, found, sampled, or observed unless the count itself proves a durable site constraint
+- Do not mention tool names, step counts, raw timeout logs, or one-off extraction failures unless they reveal a durable site constraint future runs must remember
 - For search/filter phases, do not finish without either a proven result-changing control or an explicit note that no reliable control could be confirmed after trying alternatives
 - For search/filter phases, say whether you checked the obvious visible controls on the homepage and the main jobs/results route when those surfaces exist
 - For search/filter phases, say whether recommendation chips, curated collections, or "show all" routes were reusable or just decorative when they are present

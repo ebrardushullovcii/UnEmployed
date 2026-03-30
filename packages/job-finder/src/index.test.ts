@@ -152,7 +152,7 @@ function createSeed(): JobFinderRepositorySeed {
         targets: [
           {
             id: 'target_linkedin_default',
-            label: 'LinkedIn Jobs',
+            label: 'Primary target',
             startingUrl: 'https://www.linkedin.com/jobs/search/',
             enabled: true,
             adapterKind: 'auto',
@@ -170,7 +170,7 @@ function createSeed(): JobFinderRepositorySeed {
     savedJobs: [
       {
         id: 'job_ready',
-        source: 'linkedin',
+        source: 'target_site',
         sourceJobId: 'linkedin_signal_ready',
         discoveryMethod: 'catalog_seed',
         canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_ready',
@@ -196,7 +196,7 @@ function createSeed(): JobFinderRepositorySeed {
       },
       {
         id: 'job_generating',
-        source: 'linkedin',
+        source: 'target_site',
         sourceJobId: 'linkedin_northwind_generating',
         discoveryMethod: 'catalog_seed',
         canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_northwind_generating',
@@ -288,7 +288,7 @@ function createBrowserRuntime() {
   return createCatalogBrowserSessionRuntime({
     sessions: [
       {
-        source: 'linkedin',
+        source: 'target_site',
         status: 'ready',
         driver: 'catalog_seed',
         label: 'Browser session ready',
@@ -298,7 +298,7 @@ function createBrowserRuntime() {
     ],
     catalog: [
       {
-        source: 'linkedin',
+        source: 'target_site',
         sourceJobId: 'linkedin_signal_ready',
         discoveryMethod: 'catalog_seed',
         canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_ready',
@@ -316,7 +316,7 @@ function createBrowserRuntime() {
         keySkills: ['Figma', 'Design Systems']
       },
       {
-        source: 'linkedin',
+        source: 'target_site',
         sourceJobId: 'linkedin_pause_case',
         discoveryMethod: 'catalog_seed',
         canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_pause_case',
@@ -357,6 +357,7 @@ function createAgentBrowserRuntime(
     sessionDetail?: string
     compactionState?: SourceDebugCompactionState | null
     debugFindingsByPhase?: Partial<Record<string, AgentDebugFindings | null>>
+    reviewTranscriptByPhase?: Partial<Record<string, string[]>>
     phaseCompletionModeByPhase?: Partial<Record<string, SourceDebugPhaseCompletionMode | null>>
     phaseCompletionReasonByPhase?: Partial<Record<string, string | null>>
     phaseEvidenceByPhase?: Partial<Record<string, SourceDebugPhaseEvidence | null>>
@@ -365,7 +366,7 @@ function createAgentBrowserRuntime(
   const baseRuntime = createCatalogBrowserSessionRuntime({
     sessions: [
       {
-        source: 'linkedin',
+        source: 'target_site',
         status: runtimeOptions?.sessionStatus ?? 'ready',
         driver: 'catalog_seed',
         label: 'Browser session ready',
@@ -397,6 +398,10 @@ function createAgentBrowserRuntime(
         runtimeOptions?.phaseEvidenceByPhase?.[phaseKey] ??
         runtimeOptions?.phaseEvidenceByPhase?.[phaseLabel] ??
         null
+      const reviewTranscript =
+        runtimeOptions?.reviewTranscriptByPhase?.[phaseKey] ??
+        runtimeOptions?.reviewTranscriptByPhase?.[phaseLabel] ??
+        []
       const emitProgress = (progress: AgentDiscoveryProgress) => {
         options.onProgress?.(progress)
       }
@@ -440,6 +445,7 @@ function createAgentBrowserRuntime(
           steps: 2,
           incomplete: false,
           transcriptMessageCount: 7,
+          reviewTranscript,
           compactionState: runtimeOptions?.compactionState ?? null,
           phaseCompletionMode,
           phaseCompletionReason,
@@ -524,7 +530,7 @@ function createStrongSourceDebugFindingsByPhase(): Partial<Record<string, AgentD
         'Use the keyword search box on the listings route to refresh the visible job set.',
         'Use the visible location filter to narrow the listings by city or region.',
         'Use the visible industry filter to narrow the listings by sector.',
-        'Recommendation show-all routes can open large reusable result sets with LinkedIn-preselected filters already applied.'
+        'Recommendation show-all routes can open large reusable result sets with site-preselected filters already applied.'
       ],
       trickyFilters: ['Homepage promo chips that do not open a full result list should be ignored.'],
       navigationTips: [],
@@ -689,7 +695,7 @@ function createMixedAuthSurfaceFindingsByPhase(): Partial<Record<string, AgentDe
       summary: 'The /jobs page showed a login form before authenticated browsing was available.',
       reliableControls: [
         'Login form is the only visible surface - no public job listings accessible',
-        'Authentication required - cannot access job listings without LinkedIn account'
+        'Authentication required - cannot access job listings without target site account'
       ],
       trickyFilters: [],
       navigationTips: [],
@@ -782,7 +788,7 @@ function createNoisySourceDebugFindingsByPhase(): Partial<Record<string, AgentDe
       warnings: []
     },
     apply_path_validation: {
-      summary: 'LinkedIn Jobs exposes a stable apply path via Easy Apply buttons on job cards.',
+      summary: 'Primary target exposes a stable apply path via Easy Apply buttons on job cards.',
       reliableControls: [],
       trickyFilters: [],
       navigationTips: [],
@@ -941,7 +947,7 @@ describe('createJobFinderWorkspaceService', () => {
       applicationRecords: [],
       applicationAttempts: []
     })
-    const catalog = createBrowserRuntime().runDiscovery('linkedin', createSeed().searchPreferences)
+    const catalog = createBrowserRuntime().runDiscovery('target_site', createSeed().searchPreferences)
     const discoveryResult = await catalog
     const baseAgentRuntime = createAgentBrowserRuntime(discoveryResult.jobs)
     let openSessionCalls = 0
@@ -986,7 +992,7 @@ describe('createJobFinderWorkspaceService', () => {
       {
         ...seed.searchPreferences.discovery.targets[0]!,
         id: 'target_linkedin_accepted_draft',
-        label: 'LinkedIn Draft',
+        label: 'Draft target',
         startingUrl: 'https://www.linkedin.com/jobs/',
         instructionStatus: 'draft',
         validatedInstructionId: null,
@@ -995,7 +1001,7 @@ describe('createJobFinderWorkspaceService', () => {
       {
         ...seed.searchPreferences.discovery.targets[0]!,
         id: 'target_linkedin_validated',
-        label: 'LinkedIn Validated',
+        label: 'Validated target',
         startingUrl: 'https://www.linkedin.com/jobs/search/',
         instructionStatus: 'validated',
         validatedInstructionId: 'instruction_linkedin_validated',
@@ -1065,7 +1071,7 @@ describe('createJobFinderWorkspaceService', () => {
     ]
 
     const repository = createInMemoryJobFinderRepository(seed)
-    const catalog = await createBrowserRuntime().runDiscovery('linkedin', createSeed().searchPreferences)
+    const catalog = await createBrowserRuntime().runDiscovery('target_site', createSeed().searchPreferences)
     const baseAgentRuntime = createAgentBrowserRuntime(catalog.jobs)
     const capturedInstructionsByLabel = new Map<string, readonly string[]>()
     const browserRuntime: BrowserSessionRuntime = {
@@ -1084,20 +1090,20 @@ describe('createJobFinderWorkspaceService', () => {
 
     await workspaceService.runAgentDiscovery(() => {}, new AbortController().signal)
 
-    expect(capturedInstructionsByLabel.get('LinkedIn Draft')).toEqual(
+    expect(capturedInstructionsByLabel.get('Draft target')).toEqual(
       expect.arrayContaining([
         'Use the accepted draft recommendation route first.',
         'Open the accepted draft collection before trying broader search.'
       ])
     )
-    expect(capturedInstructionsByLabel.get('LinkedIn Draft')?.join('\n')).not.toContain('validated jobs search route directly')
-    expect(capturedInstructionsByLabel.get('LinkedIn Validated')).toEqual(
+    expect(capturedInstructionsByLabel.get('Draft target')?.join('\n')).not.toContain('validated jobs search route directly')
+    expect(capturedInstructionsByLabel.get('Validated target')).toEqual(
       expect.arrayContaining([
         'Use the validated jobs search route directly.',
         'Use the validated location filter after opening the results page.'
       ])
     )
-    expect(capturedInstructionsByLabel.get('LinkedIn Validated')?.join('\n')).not.toContain('accepted draft recommendation route first')
+    expect(capturedInstructionsByLabel.get('Validated target')?.join('\n')).not.toContain('accepted draft recommendation route first')
   })
 
   test('saveSourceInstructionArtifact updates a bound target artifact and rejects unbound edits', async () => {
@@ -1179,7 +1185,7 @@ describe('createJobFinderWorkspaceService', () => {
       applicationRecords: [],
       applicationAttempts: []
     })
-    const discoveryResult = await createBrowserRuntime().runDiscovery('linkedin', createSeed().searchPreferences)
+    const discoveryResult = await createBrowserRuntime().runDiscovery('target_site', createSeed().searchPreferences)
     const browserRuntime = createAgentBrowserRuntime(discoveryResult.jobs)
     const workspaceService = createJobFinderWorkspaceService({
       repository,
@@ -1228,7 +1234,7 @@ describe('createJobFinderWorkspaceService', () => {
   test('pauses unsupported Easy Apply branches instead of submitting blindly', async () => {
     const seed = createSeed()
     seed.savedJobs.push({
-      source: 'linkedin',
+      source: 'target_site',
       sourceJobId: 'linkedin_pause_case',
       discoveryMethod: 'catalog_seed',
       canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_pause_case',
@@ -1304,7 +1310,7 @@ describe('createJobFinderWorkspaceService', () => {
           {
             targetId: 'target_linkedin_default',
             adapterKind: 'auto',
-            resolvedAdapterKind: 'linkedin',
+            resolvedAdapterKind: 'target_site',
             startingUrl: 'https://www.linkedin.com/jobs/search/',
             discoveredAt: '2026-03-20T10:04:00.000Z'
           }
@@ -1322,9 +1328,9 @@ describe('createJobFinderWorkspaceService', () => {
         acceptedAt: '2026-03-20T10:04:00.000Z',
         basedOnRunId: 'debug_run_1',
         basedOnAttemptIds: ['debug_attempt_1'],
-        notes: 'Validated apply guidance for the LinkedIn target.',
+        notes: 'Validated apply guidance for the target-site target.',
         navigationGuidance: ['Open the job detail page before acting on apply controls.'],
-        searchGuidance: ['Use the jobs search entrypoint rather than the generic LinkedIn home feed.'],
+        searchGuidance: ['Use the jobs search entrypoint rather than the site home feed.'],
         detailGuidance: ['Prefer the dedicated jobs search entrypoint for this source.'],
         applyGuidance: ['Use the Easy Apply branch when the listing exposes it; otherwise pause for review.'],
         warnings: [],
@@ -1373,7 +1379,7 @@ describe('createJobFinderWorkspaceService', () => {
     expect(capturedInstructions).toEqual(
       expect.arrayContaining([
         'Prefer the dedicated jobs search entrypoint for this source.',
-        'Use the jobs search entrypoint rather than the generic LinkedIn home feed.',
+        'Use the jobs search entrypoint rather than the site home feed.',
         'Open the job detail page before acting on apply controls.',
         'Use the Easy Apply branch when the listing exposes it; otherwise pause for review.'
       ])
@@ -1397,7 +1403,7 @@ describe('createJobFinderWorkspaceService', () => {
           {
             targetId: 'target_linkedin_default',
             adapterKind: 'auto',
-            resolvedAdapterKind: 'linkedin',
+            resolvedAdapterKind: 'target_site',
             startingUrl: 'https://www.linkedin.com/jobs/',
             discoveredAt: '2026-03-20T10:04:00.000Z'
           }
@@ -1415,7 +1421,7 @@ describe('createJobFinderWorkspaceService', () => {
         acceptedAt: null,
         basedOnRunId: 'debug_run_accepted_draft',
         basedOnAttemptIds: ['debug_attempt_accepted_draft'],
-        notes: 'Accepted draft apply guidance for the LinkedIn target.',
+        notes: 'Accepted draft apply guidance for the target-site target.',
         navigationGuidance: ['Open the accepted draft collection route first.'],
         searchGuidance: ['Use the accepted draft jobs surface before refining filters.'],
         detailGuidance: ['Open the job detail page after entering through the accepted draft route.'],
@@ -1529,7 +1535,7 @@ describe('createJobFinderWorkspaceService', () => {
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
-          source: 'linkedin',
+          source: 'target_site',
           sourceJobId: 'linkedin_source_debug_1',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_1',
@@ -1554,7 +1560,7 @@ describe('createJobFinderWorkspaceService', () => {
           summary: 'Compacted execution summary.',
           confirmedFacts: ['Visited 3 pages.'],
           blockerNotes: [],
-          avoidStrategyFingerprints: ['site_structure_mapping:linkedin:site structure mapping'],
+          avoidStrategyFingerprints: ['site_structure_mapping:target_site:site structure mapping'],
           preservedContext: ['Staff Product Designer at Signal Systems']
         },
         debugFindingsByPhase: createStrongSourceDebugFindingsByPhase()
@@ -1613,7 +1619,7 @@ describe('createJobFinderWorkspaceService', () => {
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
-          source: 'linkedin',
+          source: 'target_site',
           sourceJobId: 'linkedin_source_debug_thin_1',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_thin_1',
@@ -1661,7 +1667,7 @@ describe('createJobFinderWorkspaceService', () => {
       id: 'target_generic_default',
       label: 'KosovaJob',
       startingUrl: 'https://kosovajob.com/',
-      adapterKind: 'generic_site'
+      adapterKind: 'auto'
     }
     const repositoryWithGenericTarget = createInMemoryJobFinderRepository({
       ...seed,
@@ -1671,7 +1677,7 @@ describe('createJobFinderWorkspaceService', () => {
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
-          source: 'generic_site',
+          source: 'target_site',
           sourceJobId: 'generic_source_debug_1',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://kosovajob.com/jobs/view/generic_source_debug_1',
@@ -1734,7 +1740,7 @@ describe('createJobFinderWorkspaceService', () => {
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
-          source: 'linkedin',
+          source: 'target_site',
           sourceJobId: 'linkedin_source_debug_geoid',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_geoid',
@@ -1786,7 +1792,7 @@ describe('createJobFinderWorkspaceService', () => {
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
-          source: 'linkedin',
+          source: 'target_site',
           sourceJobId: 'linkedin_source_debug_mixed_auth',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_mixed_auth',
@@ -1827,7 +1833,7 @@ describe('createJobFinderWorkspaceService', () => {
     expect(learnedLines).toContain('show all')
     expect(learnedLines).toContain('search box')
     expect(learnedLines).not.toContain('login form is the only visible surface')
-    expect(learnedLines).not.toContain('cannot access job listings without linkedin account')
+    expect(learnedLines).not.toContain('cannot access job listings without target site account')
     expect(latestArtifact?.warnings.some((warning) => /crossed both guest\/login and job-bearing surfaces/i.test(warning))).toBe(true)
   })
 
@@ -1840,7 +1846,7 @@ describe('createJobFinderWorkspaceService', () => {
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
-          source: 'linkedin',
+          source: 'target_site',
           sourceJobId: 'linkedin_source_debug_cleaned',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_cleaned',
@@ -1930,6 +1936,291 @@ describe('createJobFinderWorkspaceService', () => {
     expect(learnedLines).not.toContain('treat applications as manual until a reliable on-site apply entry is proven')
   })
 
+  test('reconciles earlier search and detail failures away when later phases prove the reusable path', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: []
+    })
+    const browserRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: 'target_site',
+          sourceJobId: 'linkedin_reconcile_case',
+          discoveryMethod: 'catalog_seed',
+          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_reconcile_case',
+          title: 'Frontend Engineer',
+          company: 'Signal Systems',
+          location: 'Remote',
+          workMode: ['remote'],
+          applyPath: 'easy_apply',
+          easyApplyEligible: true,
+          postedAt: '2026-03-20T09:00:00.000Z',
+          discoveredAt: '2026-03-20T10:04:00.000Z',
+          salaryText: null,
+          summary: 'Reconciliation case.',
+          description: 'Reconciliation case.',
+          keySkills: ['React']
+        }
+      ],
+      {
+        debugFindingsByPhase: {
+          access_auth_probe: createStrongSourceDebugFindingsByPhase().access_auth_probe ?? null,
+          site_structure_mapping: {
+            summary: 'The jobs landing page shows recommendation modules and visible controls before the fuller results route is opened.',
+            reliableControls: ['Show all recommendation routes can open reusable collections.'],
+            trickyFilters: [
+              'A visible keyword search box exists, but this run did not prove it changes the result set reliably.',
+              'Visible location filters exist, but this run did not prove they change the result set reliably.',
+              'Visible industry or category filters exist, but this run did not prove they change the result set reliably.'
+            ],
+            navigationTips: ['Use Show all on recommendation modules to reach a reusable collection before broader search.'],
+            applyTips: [],
+            warnings: []
+          },
+          search_filter_probe: {
+            summary: 'Search textbox "Search everything" is a reliable control and changes the result set when submitted.',
+            reliableControls: [
+              'Use the keyword search box to change the result set reliably.',
+              'Use the visible location filter to narrow the listings by city.',
+              'Use the visible industry filter to narrow the listings by sector.'
+            ],
+            trickyFilters: [],
+            navigationTips: [],
+            applyTips: [],
+            warnings: []
+          },
+          job_detail_validation: {
+            summary: 'Job detail validation successful. Confirmed stable URL pattern: /jobs/view/{jobId}.',
+            reliableControls: [],
+            trickyFilters: ['Job extraction consistently returned 0 despite visible job cards - tool limitation.'],
+            navigationTips: ['Use same-host detail pages as the canonical source of job data.'],
+            applyTips: [],
+            warnings: []
+          },
+          apply_path_validation: {
+            summary: 'Easy Apply is visible on supported listings.',
+            reliableControls: [],
+            trickyFilters: [],
+            navigationTips: [],
+            applyTips: [
+              'Use the on-site apply entry when the detail page exposes it.',
+              'Treat applications as manual until a reliable on-site apply entry is proven.'
+            ],
+            warnings: []
+          },
+          replay_verification: {
+            summary: 'Replay verification reached the same listings again.',
+            reliableControls: [
+              'The keyword search box, visible location filter, and visible industry filter remained stable on replay.'
+            ],
+            trickyFilters: [],
+            navigationTips: [],
+            applyTips: [],
+            warnings: []
+          }
+        }
+      }
+    )
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+      documentManager: createDocumentManager()
+    })
+
+    await workspaceService.runSourceDebug('target_linkedin_default')
+    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1)
+    const learnedLines = [
+      ...(latestArtifact?.navigationGuidance ?? []),
+      ...(latestArtifact?.searchGuidance ?? []),
+      ...(latestArtifact?.detailGuidance ?? []),
+      ...(latestArtifact?.applyGuidance ?? [])
+    ].join('\n').toLowerCase()
+
+    expect(learnedLines).toContain('changes the result set when submitted')
+    expect(learnedLines).toContain('location filter')
+    expect(learnedLines).toContain('industry filter')
+    expect(learnedLines).toContain('confirmed stable url pattern')
+    expect(learnedLines).toContain('on-site apply entry')
+    expect(learnedLines).not.toContain('did not prove it changes the result set reliably')
+    expect(learnedLines).not.toContain('tool limitation')
+    expect(learnedLines).not.toContain('treat applications as manual until a reliable on-site apply entry is proven')
+  })
+
+  test('final source-instruction reviewer receives rich phase context and can override final curation', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: []
+    })
+    const reviewPrompts: string[] = []
+    const fallbackClient = createDeterministicJobFinderAiClient('Tests use the deterministic fallback agent.')
+    const aiClient: JobFinderAiClient = {
+      ...fallbackClient,
+      chatWithTools(messages) {
+        reviewPrompts.push(messages[1]?.content ?? '')
+        return Promise.resolve({
+          content: JSON.stringify({
+            navigationGuidance: ['Use the curated recommendation collection before broader search.'],
+            searchGuidance: ['Use the keyword search box and visible location filter to change the result set reliably.'],
+            detailGuidance: ['Use same-host detail pages as the canonical source of job data.'],
+            applyGuidance: ['Use the on-site apply entry when the detail page exposes it.'],
+            warnings: ['Keep the source in draft if a future replay loses the collection route.']
+          }),
+          toolCalls: []
+        })
+      }
+    }
+    const browserRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: 'target_site',
+          sourceJobId: 'linkedin_review_case',
+          discoveryMethod: 'catalog_seed',
+          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_review_case',
+          title: 'Frontend Engineer',
+          company: 'Signal Systems',
+          location: 'Remote',
+          workMode: ['remote'],
+          applyPath: 'easy_apply',
+          easyApplyEligible: true,
+          postedAt: '2026-03-20T09:00:00.000Z',
+          discoveredAt: '2026-03-20T10:04:00.000Z',
+          salaryText: null,
+          summary: 'Reviewer context case.',
+          description: 'Reviewer context case.',
+          keySkills: ['React']
+        }
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+        reviewTranscriptByPhase: {
+          search_filter_probe: [
+            'assistant: inspected the visible keyword search box and location filter',
+            'tool call search_submit: {"success":true,"summary":"query changed results"}'
+          ],
+          replay_verification: [
+            'assistant: replayed the same collection route and search flow',
+            'tool call finish: {"success":true,"reason":"replay stayed stable"}'
+          ]
+        }
+      }
+    )
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient,
+      documentManager: createDocumentManager()
+    })
+
+    await workspaceService.runSourceDebug('target_linkedin_default')
+    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1)
+
+    expect(reviewPrompts).toHaveLength(1)
+    expect(reviewPrompts[0]).toContain('2026-03-20T10:00:00.000Z')
+    expect(reviewPrompts[0]).toContain('assistant: inspected the visible keyword search box and location filter')
+    expect(reviewPrompts[0]).toContain('tool call finish')
+    expect(latestArtifact?.navigationGuidance).toContain('Use the curated recommendation collection before broader search.')
+    expect(latestArtifact?.warnings).toContain('Keep the source in draft if a future replay loses the collection route.')
+  })
+
+  test('final source-instruction reviewer is told to write future-run instructions and noisy extraction counts are filtered out', async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: []
+    })
+    const reviewPrompts: string[] = []
+    const fallbackClient = createDeterministicJobFinderAiClient('Tests use the deterministic fallback agent.')
+    const aiClient: JobFinderAiClient = {
+      ...fallbackClient,
+      chatWithTools(messages) {
+        reviewPrompts.push(messages[1]?.content ?? '')
+        return Promise.resolve({
+          content: JSON.stringify({
+            navigationGuidance: [
+              '0 or 1 jobs extracted from the current page.',
+              'Use the show all collection route before broader search.'
+            ],
+            searchGuidance: [
+              'Only 2 jobs found during this run.',
+              'Use the visible location filter to narrow the listings by city.'
+            ],
+            detailGuidance: [
+              'Job extraction consistently returned 0 despite visible job cards - tool limitation.',
+              'Open same-host detail pages as the canonical source of job data.'
+            ],
+            applyGuidance: [
+              'Use the on-site apply entry when the detail page exposes it.'
+            ],
+            warnings: [
+              'Keep the source in draft if a future replay loses the collection route.'
+            ]
+          }),
+          toolCalls: []
+        })
+      }
+    }
+    const browserRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: 'target_site',
+          sourceJobId: 'source_debug_reviewer_noise_case',
+          discoveryMethod: 'catalog_seed',
+          canonicalUrl: 'https://example.com/jobs/view/source_debug_reviewer_noise_case',
+          title: 'Frontend Engineer',
+          company: 'Signal Systems',
+          location: 'Remote',
+          workMode: ['remote'],
+          applyPath: 'easy_apply',
+          easyApplyEligible: true,
+          postedAt: '2026-03-20T09:00:00.000Z',
+          discoveredAt: '2026-03-20T10:04:00.000Z',
+          salaryText: null,
+          summary: 'Reviewer noise cleanup case.',
+          description: 'Reviewer noise cleanup case.',
+          keySkills: ['React']
+        }
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+        reviewTranscriptByPhase: {
+          search_filter_probe: [
+            'assistant: the visible location filter changes the result set',
+            'tool call extract_jobs: {"success":true,"summary":"0 or 1 jobs extracted"}'
+          ]
+        }
+      }
+    )
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient,
+      documentManager: createDocumentManager()
+    })
+
+    await workspaceService.runSourceDebug('target_linkedin_default')
+    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1)
+    const learnedLines = [
+      ...(latestArtifact?.navigationGuidance ?? []),
+      ...(latestArtifact?.searchGuidance ?? []),
+      ...(latestArtifact?.detailGuidance ?? []),
+      ...(latestArtifact?.applyGuidance ?? []),
+      ...(latestArtifact?.warnings ?? [])
+    ].join('\n').toLowerCase()
+
+    expect(reviewPrompts).toHaveLength(1)
+    expect(reviewPrompts[0]).toContain('reusable instructions for future discovery runs')
+    expect(reviewPrompts[0]).toContain('Never keep extracted-job counts')
+    expect(learnedLines).toContain('show all collection route')
+    expect(learnedLines).toContain('visible location filter')
+    expect(learnedLines).toContain('same-host detail pages')
+    expect(learnedLines).not.toContain('0 or 1 jobs extracted')
+    expect(learnedLines).not.toContain('only 2 jobs found')
+    expect(learnedLines).not.toContain('tool limitation')
+  })
+
   test('keeps timed-out partial evidence in draft and exposes completion metadata in run details', async () => {
     const repository = createInMemoryJobFinderRepository({
       ...createSeed(),
@@ -1939,7 +2230,7 @@ describe('createJobFinderWorkspaceService', () => {
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
-          source: 'linkedin',
+          source: 'target_site',
           sourceJobId: 'linkedin_source_debug_partial',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_partial',
@@ -2063,7 +2354,7 @@ describe('createJobFinderWorkspaceService', () => {
         versionInfo: {
           promptProfileVersion: 'source-debug-v1',
           toolsetVersion: 'browser-tools-v1',
-          adapterVersion: 'linkedin-adapter-v1',
+          adapterVersion: 'target-site-adapter-v1',
           appSchemaVersion: 'job-finder-source-debug-v1'
         },
         verification: null
@@ -2086,7 +2377,7 @@ describe('createJobFinderWorkspaceService', () => {
         versionInfo: {
           promptProfileVersion: 'source-debug-v1',
           toolsetVersion: 'browser-tools-v1',
-          adapterVersion: 'linkedin-adapter-v1',
+          adapterVersion: 'target-site-adapter-v1',
           appSchemaVersion: 'job-finder-source-debug-v1'
         },
         verification: null
@@ -2097,7 +2388,7 @@ describe('createJobFinderWorkspaceService', () => {
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
-          source: 'linkedin',
+          source: 'target_site',
           sourceJobId: 'linkedin_source_debug_reset_1',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_source_debug_reset_1',
@@ -2156,6 +2447,7 @@ describe('createJobFinderWorkspaceService', () => {
             steps: 1,
             incomplete: false,
             transcriptMessageCount: 3,
+            reviewTranscript: [],
             compactionState: null,
             phaseCompletionMode: 'blocked_auth',
             phaseCompletionReason: 'Login required: Sign in before source debugging can continue.',
@@ -2199,7 +2491,7 @@ describe('createJobFinderWorkspaceService', () => {
     const baseRuntime = createCatalogBrowserSessionRuntime({
       sessions: [
         {
-          source: 'linkedin',
+          source: 'target_site',
           status: 'login_required',
           driver: 'catalog_seed',
           label: 'Browser session needs login',
@@ -2249,6 +2541,7 @@ describe('createJobFinderWorkspaceService', () => {
             steps: 2,
             incomplete: false,
             transcriptMessageCount: 5,
+            reviewTranscript: [],
             compactionState: null,
             phaseCompletionMode: 'runtime_failed',
             phaseCompletionReason: 'Discovery encountered an error: LLM call failed after 3 attempts: temporary upstream failure',
@@ -2294,7 +2587,7 @@ describe('createJobFinderWorkspaceService', () => {
     const baseRuntime = createCatalogBrowserSessionRuntime({
       sessions: [
         {
-          source: 'linkedin',
+          source: 'target_site',
           status: 'ready',
           driver: 'catalog_seed',
           label: 'Browser session ready',
@@ -2304,7 +2597,7 @@ describe('createJobFinderWorkspaceService', () => {
       ],
       catalog: [
         {
-          source: 'linkedin',
+          source: 'target_site',
           sourceJobId: 'linkedin_noise_case',
           discoveryMethod: 'catalog_seed',
           canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_noise_case',
@@ -2334,7 +2627,7 @@ describe('createJobFinderWorkspaceService', () => {
           warning: 'Agent discovery stopped after 12 steps. Found 0 jobs.',
           jobs: [
             {
-              source: 'linkedin',
+              source: 'target_site',
               sourceJobId: 'linkedin_noise_case',
               discoveryMethod: 'catalog_seed',
               canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_noise_case',
@@ -2356,6 +2649,7 @@ describe('createJobFinderWorkspaceService', () => {
             steps: 12,
             incomplete: true,
             transcriptMessageCount: 7,
+            reviewTranscript: [],
             compactionState: null,
             phaseCompletionMode: 'timed_out_with_partial_evidence',
             phaseCompletionReason: 'The phase timed out before the worker returned a structured finish call.',
@@ -2473,3 +2767,5 @@ describe('createJobFinderWorkspaceService', () => {
     expect(snapshot.profile.spokenLanguages).toEqual(seed.profile.spokenLanguages)
   })
 })
+
+

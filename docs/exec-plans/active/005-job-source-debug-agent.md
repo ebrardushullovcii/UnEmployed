@@ -31,6 +31,8 @@ The first architecture slice is now landed:
 - Run shutdown now also terminates the spawned Chrome process instead of only closing the Playwright connection, and the worker can explicitly `scroll_to_top` so long homepage job boards can re-check header search/filter controls after deep scrolling
 - Live discovery and supported apply flows now only consume the active instruction artifact for the matching target: the current draft artifact applies automatically for that target, and validated artifacts apply when no newer draft has replaced them
 - Final learned-instruction curation now strips more runtime/tool chatter (`extract_jobs`, `get_interactive_elements`, pointer-event / timeout hints) and suppresses contradictory “no visible filters” claims when phase evidence already captured named controls
+- Final learned-instruction curation now also has a dedicated end-of-run reviewer pass that receives richer per-phase timestamps, attempted actions, compaction summaries, and ephemeral review-transcript lines before persistence, so contradiction cleanup is based on more than the synthesized findings alone while raw worker chat still stays out of stored artifacts by default
+- Source-debug worker prompts and the final reviewer prompt now explicitly frame findings as reusable instructions for future discovery runs rather than reports about the sampled run, and the curation layer now strips extraction/sample-size chatter such as `0 or 1 jobs extracted` unless it actually reflects a durable site constraint
 
 The next work on this plan is QA/hardening rather than first implementation.
 
