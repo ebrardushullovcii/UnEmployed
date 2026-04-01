@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { JobFinderRepositorySeed } from "./index";
 import {
   createFileJobFinderRepository,
@@ -430,6 +431,87 @@ describe("createInMemoryJobFinderRepository", () => {
     } finally {
       if (repository) {
         await repository.close();
+      }
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("normalizes persisted terminal source-debug runs that still carry an active phase", async () => {
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-db-persisted-source-debug-run-"),
+    );
+    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
+    let firstRepository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
+    let secondRepository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
+
+    try {
+      firstRepository = await createFileJobFinderRepository({
+        filePath,
+        seed: createSeed(),
+      });
+      await firstRepository.close();
+      firstRepository = null;
+
+      const legacyRun = {
+        id: "legacy_source_debug_run",
+        targetId: "target_primary",
+        state: "completed",
+        startedAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:10:00.000Z",
+        completedAt: "2026-03-20T10:10:00.000Z",
+        activePhase: "replay_verification",
+        phases: [
+          "access_auth_probe",
+          "site_structure_mapping",
+          "search_filter_probe",
+          "job_detail_validation",
+          "apply_path_validation",
+          "replay_verification",
+        ],
+        targetLabel: "Primary target",
+        targetUrl: "https://jobs.example.com/search",
+        targetHostname: "jobs.example.com",
+        manualPrerequisiteSummary: null,
+        finalSummary: "Legacy finished run.",
+        attemptIds: [],
+        phaseSummaries: [],
+        instructionArtifactId: null,
+      };
+      const database = new DatabaseSync(filePath);
+      database
+        .prepare(
+          "INSERT OR REPLACE INTO singleton_state (key, value) VALUES (?, ?)",
+        )
+        .run(
+          "discovery_state",
+          JSON.stringify({
+            ...createSeed().discovery,
+            activeSourceDebugRun: legacyRun,
+            recentSourceDebugRuns: [legacyRun],
+          }),
+        );
+      database.close();
+
+      secondRepository = await createFileJobFinderRepository({
+        filePath,
+        seed: createSeed(),
+      });
+
+      const discoveryState = await secondRepository.getDiscoveryState();
+
+      expect(discoveryState.activeSourceDebugRun?.state).toBe("completed");
+      expect(discoveryState.activeSourceDebugRun?.activePhase).toBeNull();
+      expect(discoveryState.recentSourceDebugRuns[0]?.activePhase).toBeNull();
+    } finally {
+      if (secondRepository) {
+        await secondRepository.close();
+      }
+      if (firstRepository) {
+        await firstRepository.close();
       }
       await rm(tempDirectory, { recursive: true, force: true });
     }

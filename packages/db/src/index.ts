@@ -69,6 +69,64 @@ function tryParseJsonValue<TValue>(
   }
 }
 
+function normalizeLegacySourceDebugRunRecord(
+  value: unknown,
+): SourceDebugRunRecord {
+  const parsedValue =
+    value && typeof value === "object"
+      ? ({ ...(value as Record<string, unknown>) } as Record<string, unknown>)
+      : value;
+
+  if (
+    parsedValue &&
+    typeof parsedValue === "object" &&
+    "state" in parsedValue &&
+    "activePhase" in parsedValue
+  ) {
+    const state = parsedValue.state;
+    const isTerminalState =
+      state === "completed" ||
+      state === "cancelled" ||
+      state === "failed" ||
+      state === "interrupted";
+
+    if (isTerminalState) {
+      parsedValue.activePhase = null;
+    }
+  }
+
+  return SourceDebugRunRecordSchema.parse(parsedValue);
+}
+
+function normalizeLegacyDiscoveryState(
+  value: unknown,
+): JobFinderDiscoveryState {
+  const parsedValue =
+    value && typeof value === "object"
+      ? ({ ...(value as Record<string, unknown>) } as Record<string, unknown>)
+      : {};
+
+  const activeSourceDebugRun =
+    parsedValue.activeSourceDebugRun == null
+      ? null
+      : normalizeLegacySourceDebugRunRecord(parsedValue.activeSourceDebugRun);
+  const recentSourceDebugRuns = Array.isArray(parsedValue.recentSourceDebugRuns)
+    ? parsedValue.recentSourceDebugRuns.flatMap((run) => {
+        try {
+          return [normalizeLegacySourceDebugRunRecord(run)];
+        } catch {
+          return [];
+        }
+      })
+    : [];
+
+  return JobFinderDiscoveryStateSchema.parse({
+    ...parsedValue,
+    activeSourceDebugRun,
+    recentSourceDebugRuns,
+  });
+}
+
 function secureDatabaseFile(filePath: string): Promise<void> {
   if (process.platform === "win32") {
     return Promise.resolve();
@@ -417,9 +475,16 @@ async function readLegacySeed(
       migratedData.searchPreferences,
     );
     const settings = JobFinderSettingsSchema.safeParse(migratedData.settings);
-    const discovery = JobFinderDiscoveryStateSchema.safeParse(
-      migratedData.discovery,
-    );
+    const discovery = (() => {
+      try {
+        return {
+          success: true as const,
+          data: normalizeLegacyDiscoveryState(migratedData.discovery),
+        };
+      } catch {
+        return { success: false as const, data: null };
+      }
+    })();
     const savedJobs = SavedJobSchema.array().safeParse(migratedData.savedJobs);
     const tailoredAssets = TailoredAssetSchema.array().safeParse(
       migratedData.tailoredAssets,
@@ -430,6 +495,25 @@ async function readLegacySeed(
     const applicationAttempts = ApplicationAttemptSchema.array().safeParse(
       migratedData.applicationAttempts ?? [],
     );
+    const sourceDebugAttempts = SourceDebugWorkerAttemptSchema.array().safeParse(
+      migratedData.sourceDebugAttempts ?? [],
+    );
+    const sourceInstructionArtifacts =
+      SourceInstructionArtifactSchema.array().safeParse(
+        migratedData.sourceInstructionArtifacts ?? [],
+      );
+    const sourceDebugEvidenceRefs = SourceDebugEvidenceRefSchema.array().safeParse(
+      migratedData.sourceDebugEvidenceRefs ?? [],
+    );
+    const sourceDebugRuns = Array.isArray(migratedData.sourceDebugRuns)
+      ? migratedData.sourceDebugRuns.flatMap((run) => {
+          try {
+            return [normalizeLegacySourceDebugRunRecord(run)];
+          } catch {
+            return [];
+          }
+        })
+      : cloneValue(seed.sourceDebugRuns);
 
     return JobFinderRepositoryStateSchema.parse({
       profile: profile.success ? profile.data : cloneValue(seed.profile),
@@ -448,6 +532,16 @@ async function readLegacySeed(
       applicationAttempts: applicationAttempts.success
         ? applicationAttempts.data
         : cloneValue(seed.applicationAttempts),
+      sourceDebugRuns,
+      sourceDebugAttempts: sourceDebugAttempts.success
+        ? sourceDebugAttempts.data
+        : cloneValue(seed.sourceDebugAttempts),
+      sourceInstructionArtifacts: sourceInstructionArtifacts.success
+        ? sourceInstructionArtifacts.data
+        : cloneValue(seed.sourceInstructionArtifacts),
+      sourceDebugEvidenceRefs: sourceDebugEvidenceRefs.success
+        ? sourceDebugEvidenceRefs.data
+        : cloneValue(seed.sourceDebugEvidenceRefs),
       settings: settings.success ? settings.data : cloneValue(seed.settings),
       discovery: discovery.success
         ? discovery.data
@@ -623,7 +717,7 @@ function readState(
     getSingletonValue(
       database,
       "discovery_state",
-      JobFinderDiscoveryStateSchema,
+      { parse: normalizeLegacyDiscoveryState },
     ) ?? fallbackSeed.discovery;
 
   return JobFinderRepositoryStateSchema.parse({
@@ -648,7 +742,7 @@ function readState(
     sourceDebugRuns: listValues(
       database,
       "source_debug_runs",
-      SourceDebugRunRecordSchema,
+      { parse: normalizeLegacySourceDebugRunRecord },
     ),
     sourceDebugAttempts: listValues(
       database,
