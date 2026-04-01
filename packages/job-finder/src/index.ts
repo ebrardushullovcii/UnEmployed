@@ -3939,6 +3939,7 @@ export function createJobFinderWorkspaceService(
           state: "interrupted",
           updatedAt: new Date().toISOString(),
           completedAt: new Date().toISOString(),
+          activePhase: null,
           finalSummary:
             activeSourceDebugRun.finalSummary ??
             "Source debug run was interrupted before completion.",

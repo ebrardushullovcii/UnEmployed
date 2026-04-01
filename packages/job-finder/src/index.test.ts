@@ -1873,6 +1873,80 @@ describe("createJobFinderWorkspaceService", () => {
     expect(evidenceRefs.length).toBeGreaterThan(0);
   });
 
+  test("marks lingering running source-debug runs as interrupted on workspace load", async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      discovery: {
+        ...createSeed().discovery,
+        activeSourceDebugRun: {
+          id: "source_debug_run_lingering",
+          targetId: "target_linkedin_default",
+          state: "running",
+          startedAt: "2026-03-20T10:00:00.000Z",
+          updatedAt: "2026-03-20T10:04:00.000Z",
+          completedAt: null,
+          activePhase: "job_detail_validation",
+          phases: [
+            "access_auth_probe",
+            "site_structure_mapping",
+            "search_filter_probe",
+            "job_detail_validation",
+          ],
+          targetLabel: "LinkedIn default",
+          targetUrl: "https://www.linkedin.com/jobs/search/",
+          targetHostname: "www.linkedin.com",
+          manualPrerequisiteSummary: null,
+          finalSummary: null,
+          attemptIds: [],
+          phaseSummaries: [],
+          instructionArtifactId: null,
+        },
+        recentSourceDebugRuns: [],
+      },
+      sourceDebugRuns: [
+        {
+          id: "source_debug_run_lingering",
+          targetId: "target_linkedin_default",
+          state: "running",
+          startedAt: "2026-03-20T10:00:00.000Z",
+          updatedAt: "2026-03-20T10:04:00.000Z",
+          completedAt: null,
+          activePhase: "job_detail_validation",
+          phases: [
+            "access_auth_probe",
+            "site_structure_mapping",
+            "search_filter_probe",
+            "job_detail_validation",
+          ],
+          targetLabel: "LinkedIn default",
+          targetUrl: "https://www.linkedin.com/jobs/search/",
+          targetHostname: "www.linkedin.com",
+          manualPrerequisiteSummary: null,
+          finalSummary: null,
+          attemptIds: [],
+          phaseSummaries: [],
+          instructionArtifactId: null,
+        },
+      ],
+    });
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: createBrowserRuntime(),
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager(),
+    });
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot();
+    const runs = await repository.listSourceDebugRuns();
+
+    expect(snapshot.activeSourceDebugRun).toBeNull();
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("interrupted");
+    expect(snapshot.recentSourceDebugRuns[0]?.activePhase).toBeNull();
+    expect(snapshot.recentSourceDebugRuns[0]?.completedAt).not.toBeNull();
+    expect(runs[0]?.state).toBe("interrupted");
+    expect(runs[0]?.activePhase).toBeNull();
+  });
+
   test("keeps learned instructions in draft when replay passes but reusable guidance is still too thin", async () => {
     const repository = createInMemoryJobFinderRepository({
       ...createSeed(),
