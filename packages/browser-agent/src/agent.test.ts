@@ -568,6 +568,51 @@ describe("runAgentDiscovery", () => {
     );
   });
 
+  test("delays the forced closeout prompt until after one exploratory turn", async () => {
+    const page = createPage() as Page;
+    let firstCallMessages: AgentMessage[] | null = null;
+    let secondCallMessages: AgentMessage[] | null = null;
+    const llmClient: LLMClient = {
+      chatWithTools: vi
+        .fn()
+        .mockImplementationOnce(async (messages) => {
+          firstCallMessages = structuredClone(messages);
+          return {
+            content: "inspect the current route first",
+            toolCalls: [],
+          };
+        })
+        .mockImplementationOnce(async (messages) => {
+          secondCallMessages = structuredClone(messages);
+          return {
+            content: "still no finish call",
+            toolCalls: [],
+          };
+        }),
+    };
+    const jobExtractor: JobExtractor = {
+      async extractJobsFromPage() {
+        return [];
+      },
+    };
+
+    const config = createConfig();
+    config.maxSteps = 2;
+
+    await runAgentDiscovery(page, config, llmClient, jobExtractor);
+
+    const countForcedCloseoutPrompts = (messages: AgentMessage[] | null): number =>
+      (messages ?? []).filter(
+        (message: AgentMessage) =>
+          message.role === "user" &&
+          message.content.includes("Final phase-closeout turn."),
+      ).length;
+
+    expect(
+      countForcedCloseoutPrompts(secondCallMessages),
+    ).toBeGreaterThan(countForcedCloseoutPrompts(firstCallMessages));
+  });
+
   test("records and recovers from 404-like routes during source-debug phases", async () => {
     let currentUrl = "about:blank";
     const page404 = {

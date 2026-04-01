@@ -130,26 +130,25 @@ function toDiscoveryTargetEditorValues(searchPreferences: JobSearchPreferences):
 }
 
 function toDiscoveryTargets(values: readonly DiscoveryTargetEditorValue[]): JobDiscoveryTarget[] {
-  return values.map((target) => ({
-    ...(() => {
-      const parsedStatus = SourceInstructionStatusSchema.safeParse(target.instructionStatus)
+  return values.map((target) => {
+    const parsedStatus = SourceInstructionStatusSchema.safeParse(target.instructionStatus)
+    const instructionStatus = parsedStatus.success ? parsedStatus.data : 'missing'
 
-      return {
-        instructionStatus: parsedStatus.success ? parsedStatus.data : 'missing'
-      }
-    })(),
-    id: target.id,
-    label: target.label.trim(),
-    startingUrl: target.startingUrl.trim(),
-    enabled: target.enabled,
-    adapterKind: 'auto',
-    customInstructions: target.customInstructions.trim() || null,
-    validatedInstructionId: target.validatedInstructionId,
-    draftInstructionId: target.draftInstructionId,
-    lastDebugRunId: target.lastDebugRunId,
-    lastVerifiedAt: target.lastVerifiedAt,
-    staleReason: target.staleReason
-  }))
+    return {
+      instructionStatus,
+      id: target.id,
+      label: target.label.trim(),
+      startingUrl: target.startingUrl.trim(),
+      enabled: target.enabled,
+      adapterKind: 'auto',
+      customInstructions: target.customInstructions.trim() || null,
+      validatedInstructionId: target.validatedInstructionId,
+      draftInstructionId: target.draftInstructionId,
+      lastDebugRunId: target.lastDebugRunId,
+      lastVerifiedAt: target.lastVerifiedAt,
+      staleReason: target.staleReason
+    }
+  })
 }
 
 function isValidSourceInstructionStatus(value: string): boolean {

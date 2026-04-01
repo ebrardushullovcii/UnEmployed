@@ -8,15 +8,15 @@ import type {
   JobFinderWorkspaceSnapshot,
   SourceDebugRunDetails,
 } from "@unemployed/contracts";
+import { JobFinderShell } from "@renderer/features/job-finder/components/job-finder-shell";
+import { useJobFinderWorkspace } from "@renderer/features/job-finder/hooks/use-job-finder-workspace";
+import type { ActionState } from "@renderer/features/job-finder/lib/job-finder-types";
+import { ApplicationsScreen } from "@renderer/features/job-finder/screens/applications-screen";
+import { DiscoveryScreen } from "@renderer/features/job-finder/screens/discovery-screen";
+import { ProfileScreen } from "@renderer/features/job-finder/screens/profile-screen";
+import { ReviewQueueScreen } from "@renderer/features/job-finder/screens/review-queue-screen";
+import { SettingsScreen } from "@renderer/features/job-finder/screens/settings-screen";
 import { Outlet, useNavigate, useOutletContext } from "react-router-dom";
-import { JobFinderShell } from "../features/job-finder/components/job-finder-shell";
-import { useJobFinderWorkspace } from "../features/job-finder/hooks/use-job-finder-workspace";
-import { ApplicationsScreen } from "../features/job-finder/screens/applications-screen";
-import { DiscoveryScreen } from "../features/job-finder/screens/discovery-screen";
-import { ProfileScreen } from "../features/job-finder/screens/profile-screen";
-import { ReviewQueueScreen } from "../features/job-finder/screens/review-queue-screen";
-import { SettingsScreen } from "../features/job-finder/screens/settings-screen";
-import type { ActionState } from "../features/job-finder/lib/job-finder-types";
 
 type SelectedState = string | null;
 
@@ -39,11 +39,14 @@ function WorkspaceStateScreen(props: {
   return (
     <main className="grid min-h-full place-items-center bg-canvas px-6 py-10">
       <div
+        aria-atomic="true"
+        aria-live={props.tone === "error" ? "assertive" : "polite"}
         className={
           props.tone === "error"
             ? "grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-critical/35 bg-(--workspace-state-card-bg-error) p-8 shadow-(--workspace-state-card-shadow)"
             : "grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-border-subtle bg-(--workspace-state-card-bg-default) p-8 shadow-(--workspace-state-card-shadow)"
         }
+        role={props.tone === "error" ? "alert" : "status"}
       >
         <p className="text-(length:--text-tiny) uppercase tracking-[0.24em] text-foreground-muted">
           {props.kicker}
@@ -137,9 +140,11 @@ function buildSourceDebugOutcomeMessage(
     (entry) => entry.id === targetId,
   );
   const latestRun = target?.lastDebugRunId
-    ? (workspace.recentSourceDebugRuns.find(
-        (run) => run.id === target.lastDebugRunId,
-      ) ?? null)
+    ? workspace.activeSourceDebugRun?.id === target.lastDebugRunId
+      ? workspace.activeSourceDebugRun
+      : (workspace.recentSourceDebugRuns.find(
+          (run) => run.id === target.lastDebugRunId,
+        ) ?? null)
     : null;
 
   if (latestRun?.state === "paused_manual") {
@@ -161,6 +166,13 @@ function buildSourceDebugOutcomeMessage(
     return (
       latestRun.finalSummary ??
       "Source debug was interrupted before it could finish."
+    );
+  }
+
+  if (latestRun?.state === "cancelled") {
+    return (
+      latestRun.finalSummary ??
+      "Source debug was cancelled before it could finish."
     );
   }
 
@@ -285,16 +297,25 @@ export function JobFinderPage() {
     );
 
   const runAction = useCallback(
-    async (
-      action: () => Promise<unknown>,
-      onSuccess: () => void,
-      successMessage: string | null,
+    async <TResult,>(
+      action: () => Promise<TResult>,
+      onSuccess: (result: TResult) => void,
+      successMessage:
+        | string
+        | null
+        | ((result: TResult) => string | null),
     ) => {
       try {
         setActionState({ busy: true, message: null });
-        await action();
-        onSuccess();
-        setActionState({ busy: false, message: successMessage });
+        const result = await action();
+        onSuccess(result);
+        setActionState({
+          busy: false,
+          message:
+            typeof successMessage === "function"
+              ? successMessage(result)
+              : successMessage,
+        });
       } catch (error) {
         const message =
           error instanceof Error
@@ -436,22 +457,12 @@ export function JobFinderPage() {
       );
     },
     onRunSourceDebug: (targetId: string) => {
-      void (async () => {
-        try {
-          setActionState({ busy: true, message: null });
-          const nextWorkspace = await actions.runSourceDebug(targetId);
-          setActionState({
-            busy: false,
-            message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
-          });
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "The requested Job Finder action failed.";
-          setActionState({ busy: false, message });
-        }
-      })();
+      void runAction(
+        () => actions.runSourceDebug(targetId),
+        () => undefined,
+        (nextWorkspace) =>
+          buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
+      );
     },
     onGetSourceDebugRunDetails: actions.getSourceDebugRunDetails,
     onSaveSourceInstructionArtifact: (targetId, artifact) =>

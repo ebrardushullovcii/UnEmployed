@@ -1,10 +1,12 @@
 import { z } from "zod";
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import type { AgentNavigationPolicy, ToolDefinition } from "./types";
 import { isAllowedUrl } from "./allowlist";
 
 // Maximum timeout for navigation operations (2 minutes)
 export const MAX_NAVIGATION_TIMEOUT = 120_000;
+const MAX_ACCESSIBLE_NAME_PATTERN_LENGTH = 200;
+const BOUNDED_WHITESPACE_PATTERN = "(?:\\s{1,8})";
 
 // Tool payload schemas
 const NavigateSchema = z
@@ -286,9 +288,116 @@ export function prioritizeInteractiveElements(
 
 function buildLooseAccessibleNamePattern(name: string): RegExp {
   const trimmedName = normalizeInteractiveName(name);
-  const escapedName = trimmedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const whitespaceTolerantName = escapedName.replace(/\s+/g, "\\s+");
+  if (!trimmedName) {
+    return /^$/i;
+  }
+
+  const safeName = trimmedName.slice(0, MAX_ACCESSIBLE_NAME_PATTERN_LENGTH);
+  const escapedName = safeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const whitespaceTolerantName = escapedName.replace(
+    /\s+/g,
+    BOUNDED_WHITESPACE_PATTERN,
+  );
   return new RegExp(whitespaceTolerantName, "i");
+}
+
+function escapeAttributeValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+async function fillComboboxValue(
+  locator: Locator,
+  page: Page,
+  optionText: string,
+): Promise<void> {
+  const inputLocator = locator.locator("input, textarea").first();
+  const inputCount = await inputLocator.count().catch(() => 0);
+
+  if (inputCount > 0) {
+    await inputLocator.click().catch(() => undefined);
+    await inputLocator.fill(optionText).catch(async () => {
+      await page.keyboard.press("ControlOrMeta+A").catch(() => undefined);
+      await page.keyboard.type(optionText).catch(() => undefined);
+    });
+    return;
+  }
+
+  await locator.click().catch(() => locator.focus().catch(() => undefined));
+  await page.keyboard.type(optionText).catch(() => undefined);
+}
+
+function buildComboboxOptionScopes(page: Page, popupId: string | null): Locator[] {
+  const scopes = [page.locator("body")];
+
+  if (popupId) {
+    scopes.unshift(page.locator(`[id="${escapeAttributeValue(popupId)}"]`));
+  }
+
+  return scopes;
+}
+
+async function clickMatchingComboboxOption(
+  scopes: readonly Locator[],
+  optionText: string,
+): Promise<boolean> {
+  const optionPattern = buildLooseAccessibleNamePattern(optionText);
+
+  for (const scope of scopes) {
+    const semanticOptions = scope.getByRole("option", { name: optionPattern });
+    const semanticOptionCount = await semanticOptions.count().catch(() => 0);
+
+    if (semanticOptionCount > 0) {
+      await semanticOptions.first().click();
+      return true;
+    }
+
+    const fallbackOptions = scope
+      .locator('[role="option"], [role="listitem"], li, button')
+      .filter({ hasText: optionPattern });
+    const fallbackOptionCount = await fallbackOptions.count().catch(() => 0);
+
+    if (fallbackOptionCount > 0) {
+      await fallbackOptions.first().click();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function readComboboxSelection(locator: Locator): Promise<{
+  selectedLabel: string | null;
+  selectedValue: string | null;
+}> {
+  return locator.evaluate((element) => {
+    const input =
+      element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        ? element
+        : (element.querySelector("input, textarea") as
+            | HTMLInputElement
+            | HTMLTextAreaElement
+            | null);
+
+    const activeDescendantId =
+      input?.getAttribute("aria-activedescendant") ??
+      element.getAttribute("aria-activedescendant");
+    const activeDescendant = activeDescendantId
+      ? document.getElementById(activeDescendantId)
+      : null;
+    const selectedLabel = [
+      activeDescendant?.textContent,
+      input?.value,
+      element.getAttribute("aria-valuetext"),
+      element.getAttribute("value"),
+      element.textContent,
+    ].find((value) => typeof value === "string" && value.trim().length > 0);
+
+    return {
+      selectedLabel: selectedLabel?.trim() ?? null,
+      selectedValue:
+        input?.value?.trim() ?? element.getAttribute("value")?.trim() ?? null,
+    };
+  });
 }
 
 async function resolveRoleLocator(
@@ -1158,24 +1267,140 @@ You get role, name, and index from get_interactive_elements().`,
               element.dispatchEvent(new Event("change", { bubbles: true }));
               return {
                 selected: true,
+                controlType: "native_select",
                 selectedValue: option.value,
                 selectedLabel: option.textContent?.trim() ?? option.label ?? "",
               };
             }
 
+            const input =
+              element instanceof HTMLInputElement ||
+              element instanceof HTMLTextAreaElement
+                ? element
+                : element.querySelector("input, textarea");
+            const popupId =
+              element.getAttribute("aria-controls") ??
+              element.getAttribute("aria-owns") ??
+              input?.getAttribute("aria-controls") ??
+              input?.getAttribute("aria-owns") ??
+              null;
+            const role =
+              element.getAttribute("role")?.trim().toLowerCase() ??
+              input?.getAttribute("role")?.trim().toLowerCase() ??
+              null;
+            const isCombobox =
+              role === "combobox" ||
+              Boolean(
+                input?.getAttribute("aria-autocomplete") ??
+                  element.getAttribute("aria-autocomplete") ??
+                  popupId,
+              );
+
+            if (isCombobox) {
+              return {
+                selected: false,
+                controlType: "combobox",
+                popupId,
+              };
+            }
+
             return {
               selected: false,
+              controlType: "unsupported",
               unsupportedTag: element.tagName.toLowerCase(),
             };
           },
           optionText,
         );
 
+        if (selectionResult?.controlType === "combobox") {
+          await locator.click().catch(() => locator.focus().catch(() => undefined));
+          await fillComboboxValue(locator, page, optionText);
+          await page.waitForTimeout(250);
+
+          let matchedOption = false;
+          try {
+            matchedOption = await clickMatchingComboboxOption(
+              buildComboboxOptionScopes(page, selectionResult.popupId ?? null),
+              optionText,
+            );
+          } catch {
+            matchedOption = false;
+          }
+
+          if (!matchedOption) {
+            await page.keyboard.press("ArrowDown").catch(() => undefined);
+            await page.keyboard.press("Enter").catch(() => undefined);
+          }
+
+          const comboboxSelection = await readComboboxSelection(locator);
+
+          if (submit) {
+            await page.keyboard
+              .press("Enter")
+              .catch(() => locator.press("Enter").catch(() => undefined));
+            await page.waitForTimeout(1500);
+          } else {
+            await page.waitForTimeout(750);
+          }
+
+          const newUrl = page.url();
+          const navigated = newUrl !== previousUrl;
+
+          if (navigated) {
+            const urlValidation = isAllowedUrl(
+              newUrl,
+              context.config.navigationPolicy,
+            );
+            if (!urlValidation.valid) {
+              const recovery = await recoverFromOffAllowlist(
+                page,
+                newUrl,
+                previousUrl,
+                context.config.navigationPolicy,
+              );
+              if (recovery.recovered && recovery.recoveredUrl) {
+                state.currentUrl = recovery.recoveredUrl;
+              }
+              return {
+                success: false,
+                error: recovery.error,
+                data: {
+                  role,
+                  name: name.slice(0, 50),
+                  index,
+                  optionText: optionText.slice(0, 50),
+                  invalidUrl: newUrl,
+                  recovered: recovery.recovered,
+                },
+              };
+            }
+
+            state.currentUrl = newUrl;
+            state.visitedUrls.add(newUrl);
+          }
+
+          return {
+            success: true,
+            data: {
+              role,
+              name: name.slice(0, 50),
+              index,
+              optionText: optionText.slice(0, 50),
+              submitted: submit,
+              navigated,
+              newUrl: navigated ? newUrl : undefined,
+              selectedLabel: comboboxSelection.selectedLabel ?? optionText,
+              selectedValue: comboboxSelection.selectedValue ?? null,
+            },
+          };
+        }
+
         if (!selectionResult?.selected) {
           return {
             success: false,
             error: selectionResult?.unsupportedTag
-              ? `select_option supports native select elements only; received ${selectionResult.unsupportedTag}`
+              ? `select_option supports native select elements and common combobox widgets; received ${selectionResult.unsupportedTag}`
               : `Option "${optionText}" was not found`,
             data: selectionResult,
           };

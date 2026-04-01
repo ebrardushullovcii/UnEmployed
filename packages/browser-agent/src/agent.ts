@@ -577,7 +577,7 @@ export async function runAgentDiscovery(
         console.log(`[Agent] Step ${state.stepCount}/${config.maxSteps} | Jobs: ${state.collectedJobs.length}`)
       }
 
-      if (requiresExplicitFinish && !forcedFinishPromptSent && state.stepCount >= Math.max(1, config.maxSteps - 2)) {
+      if (requiresExplicitFinish && !forcedFinishPromptSent && state.stepCount >= Math.max(2, config.maxSteps - 2)) {
         forcedFinishPromptSent = true
         appendConversationMessage(state, {
           role: 'user',

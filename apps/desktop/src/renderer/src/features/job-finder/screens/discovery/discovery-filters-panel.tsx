@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { History, Search } from "lucide-react";
 import type {
   BrowserSessionState,
@@ -8,6 +9,16 @@ import { Chip } from "@renderer/components/ui/chip";
 import { Button } from "@renderer/components/ui/button";
 import { StatusBadge } from "../../components/status-badge";
 import { getSessionTone } from "../../lib/job-finder-utils";
+
+const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
+  source: "target_site",
+  status: "unknown",
+  driver: "chrome_profile_agent",
+  label: "Browser profile available on demand",
+  detail:
+    "Discovery can run across targets without prevalidating a special session first. Open the dedicated Chrome profile when you want to warm up a site or sign in before the next run.",
+  lastCheckedAt: new Date(0).toISOString(),
+};
 
 interface DiscoveryFiltersPanelProps {
   actionMessage: string | null;
@@ -35,44 +46,40 @@ export function DiscoveryFiltersPanel({
   onViewProgress,
   searchPreferences,
 }: DiscoveryFiltersPanelProps) {
-  const neutralSessionSnapshot: BrowserSessionState = {
-    source: "target_site",
-    status: "unknown",
-    driver: "chrome_profile_agent",
-    label: "Browser profile available on demand",
-    detail:
-      "Discovery can run across targets without prevalidating a special session first. Open the dedicated Chrome profile when you want to warm up a site or sign in before the next run.",
-    lastCheckedAt: new Date(0).toISOString(),
-  };
-  const sections: Array<{
-    label: string;
-    values: SectionValue[];
-    empty: string;
-  }> = [
-    {
-      label: "Roles",
-      values: searchPreferences.targetRoles,
-      empty: "No role targets configured yet.",
-    },
-    {
-      label: "Locations",
-      values: searchPreferences.locations,
-      empty: "No preferred locations configured yet.",
-    },
-    {
-      label: "Work modes",
-      values: searchPreferences.workModes,
-      empty: "No work modes configured yet.",
-    },
-    {
-      label: "Discovery targets",
-      values: searchPreferences.discovery.targets.map((target) => ({
-        key: target.id,
-        label: `${target.label}${target.enabled ? "" : " (disabled)"}`,
-      })),
-      empty: "No discovery targets configured yet.",
-    },
-  ];
+  const sections = useMemo<
+    Array<{
+      label: string;
+      values: SectionValue[];
+      empty: string;
+    }>
+  >(
+    () => [
+      {
+        label: "Roles",
+        values: searchPreferences.targetRoles,
+        empty: "No role targets configured yet.",
+      },
+      {
+        label: "Locations",
+        values: searchPreferences.locations,
+        empty: "No preferred locations configured yet.",
+      },
+      {
+        label: "Work modes",
+        values: searchPreferences.workModes,
+        empty: "No work modes configured yet.",
+      },
+      {
+        label: "Discovery targets",
+        values: searchPreferences.discovery.targets.map((target) => ({
+          key: target.id,
+          label: `${target.label}${target.enabled ? "" : " (disabled)"}`,
+        })),
+        empty: "No discovery targets configured yet.",
+      },
+    ],
+    [searchPreferences],
+  );
 
   const enabledTargets = searchPreferences.discovery.targets.filter(
     (target) => target.enabled,
@@ -91,7 +98,7 @@ export function DiscoveryFiltersPanel({
         detail: chromeProfileSession.detail,
         lastCheckedAt: chromeProfileSession.lastCheckedAt,
       }
-    : neutralSessionSnapshot;
+    : NEUTRAL_SESSION_SNAPSHOT;
   const isChromeAgent =
     displaySessionSnapshot.driver === "chrome_profile_agent";
   const isReady = displaySessionSnapshot.status === "ready";

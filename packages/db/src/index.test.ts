@@ -212,6 +212,9 @@ describe("createInMemoryJobFinderRepository", () => {
     );
     const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
     const legacyPath = path.join(tempDirectory, "job-finder-state.json");
+    let repository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
 
     try {
       await writeFile(
@@ -236,15 +239,17 @@ describe("createInMemoryJobFinderRepository", () => {
         }),
       );
 
-      const repository = await createFileJobFinderRepository({
+      repository = await createFileJobFinderRepository({
         filePath,
         seed: createSeed(),
       });
       const savedJobs = await repository.listSavedJobs();
 
       expect(savedJobs).toEqual([]);
-      await repository.close();
     } finally {
+      if (repository) {
+        await repository.close();
+      }
       await rm(tempDirectory, { recursive: true, force: true });
     }
   });
@@ -255,6 +260,9 @@ describe("createInMemoryJobFinderRepository", () => {
     );
     const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
     const legacyPath = path.join(tempDirectory, "job-finder-state.json");
+    let repository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
 
     try {
       await writeFile(
@@ -316,7 +324,7 @@ describe("createInMemoryJobFinderRepository", () => {
         }),
       );
 
-      const repository = await createFileJobFinderRepository({
+      repository = await createFileJobFinderRepository({
         filePath,
         seed: createSeed(),
       });
@@ -327,9 +335,10 @@ describe("createInMemoryJobFinderRepository", () => {
 
       expect(profile.experiences[0]?.workMode).toEqual(["hybrid"]);
       expect(savedJobs[0]?.workMode).toEqual(["remote"]);
-
-      await repository.close();
     } finally {
+      if (repository) {
+        await repository.close();
+      }
       await rm(tempDirectory, { recursive: true, force: true });
     }
   });
@@ -431,9 +440,15 @@ describe("createInMemoryJobFinderRepository", () => {
       path.join(os.tmpdir(), "unemployed-db-"),
     );
     const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
+    let firstRepository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
+    let secondRepository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
 
     try {
-      const firstRepository = await createFileJobFinderRepository({
+      firstRepository = await createFileJobFinderRepository({
         filePath,
         seed: createSeed(),
       });
@@ -481,7 +496,7 @@ describe("createInMemoryJobFinderRepository", () => {
         checkpoints: [],
       });
 
-      const secondRepository = await createFileJobFinderRepository({
+      secondRepository = await createFileJobFinderRepository({
         filePath,
         seed: createSeed(),
       });
@@ -492,9 +507,13 @@ describe("createInMemoryJobFinderRepository", () => {
       expect(savedJobs[0]?.canonicalUrl).toContain("target_job_1");
       expect(attempts).toHaveLength(1);
       expect(attempts[0]?.summary).toBe("Easy Apply submitted");
-      await firstRepository.close();
-      await secondRepository.close();
     } finally {
+      if (secondRepository) {
+        await secondRepository.close();
+      }
+      if (firstRepository) {
+        await firstRepository.close();
+      }
       await rm(tempDirectory, { recursive: true, force: true });
     }
   });
@@ -504,9 +523,15 @@ describe("createInMemoryJobFinderRepository", () => {
       path.join(os.tmpdir(), "unemployed-db-source-debug-"),
     );
     const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
+    let firstRepository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
+    let secondRepository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
 
     try {
-      const firstRepository = await createFileJobFinderRepository({
+      firstRepository = await createFileJobFinderRepository({
         filePath,
         seed: createSeed(),
       });
@@ -616,7 +641,7 @@ describe("createInMemoryJobFinderRepository", () => {
         excerpt: "Stable target-site job detail URL.",
       });
 
-      const secondRepository = await createFileJobFinderRepository({
+      secondRepository = await createFileJobFinderRepository({
         filePath,
         seed: createSeed(),
       });
@@ -635,10 +660,13 @@ describe("createInMemoryJobFinderRepository", () => {
       expect(evidenceRefs).toHaveLength(1);
       expect(discoveryState.activeSourceDebugRun).toBeNull();
       expect(discoveryState.recentSourceDebugRuns).toEqual([]);
-
-      await firstRepository.close();
-      await secondRepository.close();
     } finally {
+      if (secondRepository) {
+        await secondRepository.close();
+      }
+      if (firstRepository) {
+        await firstRepository.close();
+      }
       await rm(tempDirectory, { recursive: true, force: true });
     }
   });

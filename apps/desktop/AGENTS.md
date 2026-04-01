@@ -101,6 +101,8 @@ import { StatusBadge } from "../../../../features/job-finder/components/status-b
 
 - Treat repeated PR feedback as a documentation bug, not just a code bug: when a desktop review issue looks reusable, update this file or the closest canonical doc in the same task.
 - Before finishing renderer UI work, do a quick pass for the patterns that have repeated in review: labeled controls need `useId()` + `htmlFor` / `triggerId`, status banners need the right live-region semantics, and active navigation or selection states need ARIA state in addition to visual styling.
+- Modal dialogs must trap focus, restore the previously focused element, and make the background inert or `aria-hidden` while open.
+- Single-selection controls should use `aria-current` or `aria-selected` instead of `aria-pressed`.
 - Use semantic structure for screen sections and collections (`header`, headings, `ul`/`li`, landmark-friendly `section` / `article`) instead of visually styled `div`/`p` wrappers when the content represents named regions or lists.
 - Do not leave non-functional interactive affordances exposed as enabled controls; if a button has no action yet, make it passive text or clearly disabled with an accessible label.
 - Prefer shared tokens from `src/renderer/src/styles/globals.css` over raw color literals, arbitrary RGBA utilities, or one-off surface treatments when polishing desktop UI.

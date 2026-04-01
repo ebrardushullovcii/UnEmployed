@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type {
   SourceDebugRunDetails,
@@ -7,6 +8,26 @@ import type {
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { formatStatusLabel } from "../../lib/job-finder-utils";
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[contenteditable="true"]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(
+    (element) =>
+      !element.hasAttribute("hidden") &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      element.tabIndex >= 0 &&
+      (element.offsetParent !== null || element === document.activeElement),
+  );
+}
 
 function formatTimestamp(value: string | null): string | null {
   if (!value) {
@@ -51,6 +72,7 @@ export function ProfileSourceDebugReviewModal(props: {
   targetLabel: string;
 }) {
   const dialogTitleId = useId();
+  const recentRunsLabelId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const selectedRun = useMemo(
@@ -66,30 +88,94 @@ export function ProfileSourceDebugReviewModal(props: {
       return;
     }
 
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+
     previousFocusRef.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
-    dialogRef.current?.focus();
 
-    return () => {
-      previousFocusRef.current?.focus();
-    };
-  }, [props.open]);
+    const appRoot = document.getElementById("root");
+    const previousAriaHidden = appRoot?.getAttribute("aria-hidden") ?? null;
+    const hadInert = appRoot?.hasAttribute("inert") ?? false;
 
-  useEffect(() => {
-    if (!props.open) {
-      return;
-    }
+    appRoot?.setAttribute("aria-hidden", "true");
+    appRoot?.setAttribute("inert", "");
+
+    const focusableElements = getFocusableElements(dialog);
+    (focusableElements[0] ?? dialog).focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         props.onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const nextFocusableElements = getFocusableElements(dialog);
+      if (nextFocusableElements.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstFocusable = nextFocusableElements[0];
+      const lastFocusable = nextFocusableElements[nextFocusableElements.length - 1];
+      if (!firstFocusable || !lastFocusable) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const activeElement =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+
+      if (!dialog.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? lastFocusable : firstFocusable).focus();
+        return;
+      }
+
+      if (!event.shiftKey && activeElement === lastFocusable) {
+        event.preventDefault();
+        firstFocusable.focus();
+        return;
+      }
+
+      if (event.shiftKey && activeElement === firstFocusable) {
+        event.preventDefault();
+        lastFocusable.focus();
       }
     };
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+
+      if (appRoot) {
+        if (previousAriaHidden === null) {
+          appRoot.removeAttribute("aria-hidden");
+        } else {
+          appRoot.setAttribute("aria-hidden", previousAriaHidden);
+        }
+
+        if (hadInert) {
+          appRoot.setAttribute("inert", "");
+        } else {
+          appRoot.removeAttribute("inert");
+        }
+      }
+
+      previousFocusRef.current?.focus();
+    };
   }, [props.onClose, props.open]);
 
   if (!props.open) {
@@ -100,7 +186,7 @@ export function ProfileSourceDebugReviewModal(props: {
   const primaryActionLabel = formatInstructionActionLabel(artifact);
   const details = props.details;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-6 backdrop-blur-sm"
       onClick={props.onClose}
@@ -154,41 +240,48 @@ export function ProfileSourceDebugReviewModal(props: {
         </div>
 
         <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
-          <aside className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r">
-            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+          <aside
+            aria-labelledby={recentRunsLabelId}
+            className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r"
+          >
+            <p
+              className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
+              id={recentRunsLabelId}
+            >
               Recent runs
             </p>
-            <div className="grid gap-2 pb-1">
+            <ul className="grid gap-2 pb-1">
               {props.recentRuns.map((run) => {
                 const isSelected = run.id === selectedRun?.id;
                 return (
-                  <button
-                    aria-pressed={isSelected}
-                    className={[
-                      "grid gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors",
-                      isSelected
-                        ? "border-primary/40 bg-primary/10 text-foreground"
-                        : "border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary",
-                    ].join(" ")}
-                    key={run.id}
-                    onClick={() => props.onLoadRun(run.id)}
-                    type="button"
-                  >
-                    <span className="text-[0.82rem] font-medium text-foreground">
-                      {formatStatusLabel(run.state)}
-                    </span>
-                    <span className="text-[0.76rem] text-foreground-muted">
-                      {formatTimestamp(run.completedAt ?? run.updatedAt)}
-                    </span>
-                    {run.finalSummary ? (
-                      <span className="line-clamp-3 text-[0.78rem] leading-5 text-foreground-soft">
-                        {run.finalSummary}
+                  <li key={run.id}>
+                    <button
+                      aria-current={isSelected ? "true" : undefined}
+                      className={[
+                        "grid w-full gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors",
+                        isSelected
+                          ? "border-primary/40 bg-primary/10 text-foreground"
+                          : "border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary",
+                      ].join(" ")}
+                      onClick={() => props.onLoadRun(run.id)}
+                      type="button"
+                    >
+                      <span className="text-[0.82rem] font-medium text-foreground">
+                        {formatStatusLabel(run.state)}
                       </span>
-                    ) : null}
-                  </button>
+                      <span className="text-[0.76rem] text-foreground-muted">
+                        {formatTimestamp(run.completedAt ?? run.updatedAt)}
+                      </span>
+                      {run.finalSummary ? (
+                        <span className="line-clamp-3 text-[0.78rem] leading-5 text-foreground-soft">
+                          {run.finalSummary}
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </aside>
 
           <section className="grid min-h-0 content-start gap-4 overflow-y-auto px-5 py-4">
@@ -339,6 +432,7 @@ export function ProfileSourceDebugReviewModal(props: {
           </section>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

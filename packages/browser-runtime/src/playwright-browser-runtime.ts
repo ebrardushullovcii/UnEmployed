@@ -10,6 +10,7 @@ import {
   type ApplyExecutionResult,
   type BrowserSessionState,
   type DiscoveryRunResult,
+  type JobPosting,
   type JobSource,
 } from "@unemployed/contracts";
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
@@ -33,7 +34,7 @@ export interface JobPageExtractionInput {
 
 export type JobPageExtractor = (
   input: JobPageExtractionInput,
-) => Promise<unknown[]>;
+) => Promise<JobPosting[]>;
 
 export interface BrowserAgentRuntimeOptions {
   userDataDir: string;
@@ -63,7 +64,7 @@ function uniqueByKey<TValue>(
   });
 }
 
-function validateJobPostings(values: readonly unknown[], context: string) {
+function validateJobPostings(values: readonly JobPosting[], context: string) {
   if (!Array.isArray(values)) {
     console.warn(
       `[BrowserRuntime] Expected an array of job postings from ${context}, received ${typeof values}.`,

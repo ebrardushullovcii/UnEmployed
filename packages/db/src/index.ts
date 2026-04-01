@@ -924,9 +924,53 @@ export async function createFileJobFinderRepository(
   function persist(
     mutator: (state: JobFinderRepositoryState) => void,
   ): Promise<void> {
-    const state = readState(database, normalizedSeed);
-    mutator(state);
-    writeState(database, state);
+    database.exec("BEGIN IMMEDIATE");
+
+    try {
+      const state = readState(database, normalizedSeed);
+      mutator(state);
+      saveSingletonValue(database, "profile", state.profile);
+      saveSingletonValue(
+        database,
+        "search_preferences",
+        state.searchPreferences,
+      );
+      saveSingletonValue(database, "settings", state.settings);
+      saveSingletonValue(database, "discovery_state", state.discovery);
+      replaceCollection(database, "saved_jobs", state.savedJobs);
+      replaceCollection(database, "tailored_assets", state.tailoredAssets);
+      replaceCollection(
+        database,
+        "application_records",
+        state.applicationRecords,
+      );
+      replaceCollection(
+        database,
+        "application_attempts",
+        state.applicationAttempts,
+      );
+      replaceCollection(database, "source_debug_runs", state.sourceDebugRuns);
+      replaceCollection(
+        database,
+        "source_debug_attempts",
+        state.sourceDebugAttempts,
+      );
+      replaceCollection(
+        database,
+        "source_instruction_artifacts",
+        state.sourceInstructionArtifacts,
+      );
+      replaceCollection(
+        database,
+        "source_debug_evidence_refs",
+        state.sourceDebugEvidenceRefs,
+      );
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+
     return secureDatabaseFile(options.filePath);
   }
 
