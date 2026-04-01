@@ -1,53 +1,75 @@
-import type { AgentConfig } from './types'
+import type { AgentConfig } from "./types";
 
 export function createSystemPrompt(config: AgentConfig): string {
-  const targetRoles = config.searchPreferences.targetRoles.length > 0
-    ? config.searchPreferences.targetRoles.join(', ')
-    : 'Not specified'
-  const preferredLocations = config.searchPreferences.locations.length > 0
-    ? config.searchPreferences.locations.join(', ')
-    : 'Not specified'
+  const targetRoles =
+    config.searchPreferences.targetRoles.length > 0
+      ? config.searchPreferences.targetRoles.join(", ")
+      : "Not specified";
+  const preferredLocations =
+    config.searchPreferences.locations.length > 0
+      ? config.searchPreferences.locations.join(", ")
+      : "Not specified";
 
   const siteInstructions = config.promptContext.siteInstructions?.length
-    ? config.promptContext.siteInstructions.map((instruction, index) => `${index + 1}. ${instruction}`).join('\n')
-    : '1. Stay within the configured site boundary.\n2. Prefer stable job listing URLs.\n3. Stop once enough relevant jobs have been gathered.'
+    ? config.promptContext.siteInstructions
+        .map((instruction, index) => `${index + 1}. ${instruction}`)
+        .join("\n")
+    : "1. Stay within the configured site boundary.\n2. Prefer stable job listing URLs.\n3. Stop once enough relevant jobs have been gathered.";
   const toolUsageNotes = config.promptContext.toolUsageNotes?.length
-    ? config.promptContext.toolUsageNotes.map((instruction) => `- ${instruction}`).join('\n')
-    : '- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied'
-  const taskPacket = config.promptContext.taskPacket
+    ? config.promptContext.toolUsageNotes
+        .map((instruction) => `- ${instruction}`)
+        .join("\n")
+    : "- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied";
+  const taskPacket = config.promptContext.taskPacket;
   const taskPacketBlock = taskPacket
     ? [
         `PHASE GOAL: ${taskPacket.phaseGoal}`,
-        taskPacket.strategyLabel ? `STRATEGY LABEL: ${taskPacket.strategyLabel}` : null,
-        taskPacket.manualPrerequisiteState ? `MANUAL PREREQUISITE STATE: ${taskPacket.manualPrerequisiteState}` : null,
-        taskPacket.priorPhaseSummary ? `PRIOR PHASE SUMMARY: ${taskPacket.priorPhaseSummary}` : null,
-        taskPacket.knownFacts.length > 0 ? `KNOWN FACTS:\n${taskPacket.knownFacts.map((fact) => `- ${fact}`).join('\n')}` : null,
-        taskPacket.successCriteria.length > 0 ? `SUCCESS CRITERIA:\n${taskPacket.successCriteria.map((criterion) => `- ${criterion}`).join('\n')}` : null,
-        taskPacket.stopConditions.length > 0 ? `STOP CONDITIONS:\n${taskPacket.stopConditions.map((condition) => `- ${condition}`).join('\n')}` : null,
+        taskPacket.strategyLabel
+          ? `STRATEGY LABEL: ${taskPacket.strategyLabel}`
+          : null,
+        taskPacket.manualPrerequisiteState
+          ? `MANUAL PREREQUISITE STATE: ${taskPacket.manualPrerequisiteState}`
+          : null,
+        taskPacket.priorPhaseSummary
+          ? `PRIOR PHASE SUMMARY: ${taskPacket.priorPhaseSummary}`
+          : null,
+        taskPacket.knownFacts.length > 0
+          ? `KNOWN FACTS:\n${taskPacket.knownFacts.map((fact) => `- ${fact}`).join("\n")}`
+          : null,
+        taskPacket.successCriteria.length > 0
+          ? `SUCCESS CRITERIA:\n${taskPacket.successCriteria.map((criterion) => `- ${criterion}`).join("\n")}`
+          : null,
+        taskPacket.stopConditions.length > 0
+          ? `STOP CONDITIONS:\n${taskPacket.stopConditions.map((condition) => `- ${condition}`).join("\n")}`
+          : null,
         taskPacket.avoidStrategyFingerprints.length > 0
-          ? `AVOID RETRYING THESE PRIOR STRATEGIES:\n${taskPacket.avoidStrategyFingerprints.map((fingerprint) => `- ${fingerprint}`).join('\n')}`
-          : null
+          ? `AVOID RETRYING THESE PRIOR STRATEGIES:\n${taskPacket.avoidStrategyFingerprints.map((fingerprint) => `- ${fingerprint}`).join("\n")}`
+          : null,
       ]
         .filter(Boolean)
-        .join('\n\n')
-    : null
+        .join("\n\n")
+    : null;
 
   return `You are an autonomous job discovery agent. Your only job is to find job postings on ${config.promptContext.siteLabel}.
 
 USER PROFILE:
 - Target roles: ${targetRoles}
 - Preferred locations: ${preferredLocations}
-- Experience level: ${config.userProfile.yearsExperience != null ? `${config.userProfile.yearsExperience} years` : 'Not specified'}
-- Skills: ${config.userProfile.skills?.join(', ') || 'Not specified'}
+- Experience level: ${config.userProfile.yearsExperience != null ? `${config.userProfile.yearsExperience} years` : "Not specified"}
+- Skills: ${config.userProfile.skills?.join(", ") || "Not specified"}
 
 CRITICAL INSTRUCTIONS:
 ${siteInstructions}
-${config.promptContext.experimental ? `
-${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.` : ''}
+${
+  config.promptContext.experimental
+    ? `
+${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.`
+    : ""
+}
 Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
 Your goal: Find up to ${config.targetJobCount} relevant job postings.
-${taskPacket ? 'When a TASK PACKET is present, the phase goal is more important than collecting a large job count. Do not stop at the first visible jobs if key controls, entry paths, or blockers still need to be proven.' : ''}
-${taskPacket ? 'When a TASK PACKET is present, reaching the sampled job budget is not completion. Keep exploring until you can call finish with proven phase findings or a clear blocker.' : ''}
+${taskPacket ? "When a TASK PACKET is present, the phase goal is more important than collecting a large job count. Do not stop at the first visible jobs if key controls, entry paths, or blockers still need to be proven." : ""}
+${taskPacket ? "When a TASK PACKET is present, reaching the sampled job budget is not completion. Keep exploring until you can call finish with proven phase findings or a clear blocker." : ""}
 
 YOU CONTROL THE STRATEGY:
 - Choose appropriate timeouts for the active site
@@ -70,7 +92,7 @@ TOOLS AVAILABLE:
 TOOL USAGE NOTES:
 ${toolUsageNotes}
 
-${taskPacketBlock ? `TASK PACKET:\n${taskPacketBlock}\n` : ''}
+${taskPacketBlock ? `TASK PACKET:\n${taskPacketBlock}\n` : ""}
 
 FOCUS:
 - ${config.promptContext.siteLabel}
@@ -95,7 +117,9 @@ FOCUS:
 - Avoid repeating the phase goal, starting URL, or obvious boundary rules in your findings unless they are the only proven facts
 - Avoid exact job titles, company names, and full URLs in findings unless they are the only way to express a reusable rule or route pattern
 
-${taskPacket ? `WHEN YOU CALL finish:
+${
+  taskPacket
+    ? `WHEN YOU CALL finish:
 - Put the reason in "reason"
 - Put one concise proven takeaway in "summary"
 - Put proven controls/search entrypoints in "reliableControls"
@@ -112,7 +136,9 @@ ${taskPacket ? `WHEN YOU CALL finish:
 - For search/filter phases on jobs hubs with recommendation modules, say whether opening "show all" exposed the fuller search/filter surface or not
 - For search/filter phases, do not present a direct URL pattern as the main guidance when a visible search box, chip, dropdown, or filter bar already worked
 - For structure/navigation phases, say which route or entry path is the best repeatable way to reach jobs if you can prove it
-- Leave arrays empty if you did not prove anything useful for that category` : ''}
+- Leave arrays empty if you did not prove anything useful for that category`
+    : ""
+}
 
-Explain your reasoning before each action.`
+Explain your reasoning before each action.`;
 }

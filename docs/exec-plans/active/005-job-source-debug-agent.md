@@ -13,7 +13,7 @@ The first architecture slice is now landed:
 - `packages/browser-agent` now supports worker-side transcript compaction and returns compacted metadata rather than exposing its full transcript to the orchestrator
 - Profile Preferences exposes a `Debug source` target action plus instruction-status metadata
 - desktop IPC/preload now exposes source-debug run, cancel, get/list, save-artifact, and verify actions for follow-on UI work
-- source-debug now includes a bounded `apply_path_validation` phase that records safe apply-entry guidance without submitting an application, and approved LinkedIn apply forwards validated guidance into the supported runtime
+- source-debug now includes a bounded `apply_path_validation` phase that records safe apply-entry guidance without submitting an application, and approved supported apply forwards the active matching-target guidance into the runtime
 - Profile Preferences now renders learned source instructions separately from manual override text so successful debug runs no longer look empty when `customInstructions` stays blank
 - The orchestrator now curates learned instructions more aggressively: exact sample URLs, per-job result counts, and raw phase boilerplate are filtered out in favor of reusable controls, filter gotchas, navigation patterns, and apply-entry guidance
 - Source-debug now forces stronger proof of repeatable entry paths, visible search/filter controls, recommendation or `show all` routes, and pagination behavior before promotion can pass
@@ -28,7 +28,7 @@ The first architecture slice is now landed:
 - Attempt and phase-summary artifacts now persist explicit completion modes, completion reasons, and lightweight phase-evidence payloads so the orchestrator can distinguish structured finishes from partial timeouts and runtime failures
 - Desktop IPC/preload now exposes typed source-debug run-details payloads, and Profile Preferences has a compact per-target review modal for retained runs, per-phase outcomes, evidence counts, verification actions, and inline learned-instruction edit/remove controls on the target card
 - Live source-debug and agent-discovery runs now explicitly open the browser session at run start and close it again on completion, failure, or cancellation so the visible browser window reflects whether work is still active
-- Run shutdown now also terminates the spawned Chrome process instead of only closing the Playwright connection, and the worker can explicitly `scroll_to_top` so long homepage job boards can re-check header search/filter controls after deep scrolling
+- Run shutdown now also terminates the spawned Chrome process when this runtime launched it instead of only closing the Playwright connection, and the worker can explicitly `scroll_to_top` so long homepage job boards can re-check header search/filter controls after deep scrolling
 - Live discovery and supported apply flows now only consume the active instruction artifact for the matching target: the current draft artifact applies automatically for that target, and validated artifacts apply when no newer draft has replaced them
 - Final learned-instruction curation now strips more runtime/tool chatter (`extract_jobs`, `get_interactive_elements`, pointer-event / timeout hints) and suppresses contradictory “no visible filters” claims when phase evidence already captured named controls
 - Final learned-instruction curation now also has a dedicated end-of-run reviewer pass that receives richer per-phase timestamps, attempted actions, compaction summaries, and ephemeral review-transcript lines before persistence, so contradiction cleanup is based on more than the synthesized findings alone while raw worker chat still stays out of stored artifacts by default
@@ -212,6 +212,7 @@ Exact names can change, but the product shape should preserve three ideas:
 - keep artifacts narrow enough for preload/renderer boundaries
 
 Status:
+
 - done in the first source-debug implementation slice
 
 ### 2. Profile Preferences Entry Surface
@@ -221,6 +222,7 @@ Status:
 - surface retained summaries and rerun controls without turning Preferences into a noisy developer panel
 
 Status:
+
 - `Debug source` plus target instruction status is landed
 - retained summaries/review affordances still need broader UI follow-up
 
@@ -231,6 +233,7 @@ Status:
 - stop cleanly on auth blockers, unsupported layouts, or unstable navigation
 
 Status:
+
 - landed for the initial sequential phase set with manual-prerequisite pauses and replay verification
 
 ### 4. Instruction Synthesis And Review
@@ -240,6 +243,7 @@ Status:
 - preserve warnings and unsupported edges instead of flattening everything into false certainty
 
 Status:
+
 - synthesis is landed
 - compact retained-run review UI is now landed
 - deeper edit/history affordances still need follow-up
@@ -251,6 +255,7 @@ Status:
 - require successful replay before marking instructions as validated
 
 Status:
+
 - landed in the initial implementation slice
 
 ### 6. Testing And Hardening
@@ -262,6 +267,7 @@ Status:
 - bounded-hostname and auth-blocker tests
 
 Status:
+
 - contract, persistence, orchestrator, manual-blocker, and worker-compaction coverage landed
 - forced-closeout, partial-evidence persistence, and review-UI coverage landed
 - live QA, wording cleanup, and broader hostile-site coverage remain

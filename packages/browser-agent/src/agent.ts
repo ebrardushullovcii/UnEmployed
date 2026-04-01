@@ -884,13 +884,13 @@ async function executeToolCall(
                     const allowedWorkModes = ['remote', 'hybrid', 'onsite', 'flexible'] as const
                     const validWorkModes = Array.isArray(job.workMode)
                       ? job.workMode.filter((m): m is typeof allowedWorkModes[number] =>
-                          allowedWorkModes.includes(m as typeof allowedWorkModes[number])
+                          allowedWorkModes.includes(m)
                         )
                       : []
                     return validWorkModes.length > 0 ? validWorkModes : ['flexible']
                   })(),
                   applyPath: ['easy_apply', 'external_redirect', 'unknown'].includes(job.applyPath as string)
-                    ? (job.applyPath as 'easy_apply' | 'external_redirect' | 'unknown')
+                    ? (job.applyPath)
                     : 'unknown',
                   easyApplyEligible: job.easyApplyEligible ?? false,
                   postedAt: job.postedAt || new Date().toISOString(),

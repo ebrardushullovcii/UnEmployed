@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from "react";
 import type {
   CandidateProfile,
   DiscoveryActivityEvent,
@@ -6,87 +6,109 @@ import type {
   JobSearchPreferences,
   JobFinderWorkspaceSnapshot,
   SourceDebugRunDetails,
-  SourceInstructionArtifact
-} from '@unemployed/contracts'
-import { Outlet, useNavigate, useOutletContext } from 'react-router-dom'
-import { JobFinderShell } from '../features/job-finder/components/job-finder-shell'
-import { useJobFinderWorkspace } from '../features/job-finder/hooks/use-job-finder-workspace'
-import { ApplicationsScreen } from '../features/job-finder/screens/applications-screen'
-import { DiscoveryScreen } from '../features/job-finder/screens/discovery-screen'
-import { ProfileScreen } from '../features/job-finder/screens/profile-screen'
-import { ReviewQueueScreen } from '../features/job-finder/screens/review-queue-screen'
-import { SettingsScreen } from '../features/job-finder/screens/settings-screen'
-import type { ActionState } from '../features/job-finder/lib/job-finder-types'
+  SourceInstructionArtifact,
+} from "@unemployed/contracts";
+import { Outlet, useNavigate, useOutletContext } from "react-router-dom";
+import { JobFinderShell } from "../features/job-finder/components/job-finder-shell";
+import { useJobFinderWorkspace } from "../features/job-finder/hooks/use-job-finder-workspace";
+import { ApplicationsScreen } from "../features/job-finder/screens/applications-screen";
+import { DiscoveryScreen } from "../features/job-finder/screens/discovery-screen";
+import { ProfileScreen } from "../features/job-finder/screens/profile-screen";
+import { ReviewQueueScreen } from "../features/job-finder/screens/review-queue-screen";
+import { SettingsScreen } from "../features/job-finder/screens/settings-screen";
+import type { ActionState } from "../features/job-finder/lib/job-finder-types";
 
-type SelectedState = string | null
+type SelectedState = string | null;
 
 function useResettableSelection(initialValue: SelectedState) {
-  const [value, setValue] = useState<SelectedState>(initialValue)
+  const [value, setValue] = useState<SelectedState>(initialValue);
 
   useEffect(() => {
-    setValue(initialValue)
-  }, [initialValue])
+    setValue(initialValue);
+  }, [initialValue]);
 
-  return [value, setValue] as const
+  return [value, setValue] as const;
 }
 
 function WorkspaceStateScreen(props: {
-  kicker: string
-  message: string
-  title: string
-  tone?: 'default' | 'error'
+  kicker: string;
+  message: string;
+  title: string;
+  tone?: "default" | "error";
 }) {
   return (
     <main className="grid min-h-full place-items-center bg-canvas px-6 py-10">
-      <div className={props.tone === 'error' ? 'grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-critical/35 bg-(--workspace-state-card-bg-error) p-8 shadow-(--workspace-state-card-shadow)' : 'grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-border-subtle bg-(--workspace-state-card-bg-default) p-8 shadow-(--workspace-state-card-shadow)'}>
-        <p className="text-(length:--text-tiny) uppercase tracking-[0.24em] text-foreground-muted">{props.kicker}</p>
+      <div
+        className={
+          props.tone === "error"
+            ? "grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-critical/35 bg-(--workspace-state-card-bg-error) p-8 shadow-(--workspace-state-card-shadow)"
+            : "grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-border-subtle bg-(--workspace-state-card-bg-default) p-8 shadow-(--workspace-state-card-shadow)"
+        }
+      >
+        <p className="text-(length:--text-tiny) uppercase tracking-[0.24em] text-foreground-muted">
+          {props.kicker}
+        </p>
         <h1>{props.title}</h1>
         <p>{props.message}</p>
       </div>
     </main>
-  )
+  );
 }
 
 export interface JobFinderPageContext {
-  actionState: ActionState
-  busy: boolean
-  onAnalyzeProfileFromResume: () => void
-  onApproveApply: (jobId: string) => void
-  onCheckBrowserSession: () => void
-  onDismissJob: (jobId: string) => void
-  onGenerateResume: (jobId: string) => void
-  onImportResume: () => void
-  onOpenBrowserSession: () => void
-  onQueueJob: (jobId: string) => void
-  onResetWorkspace: () => void
-  onRunAgentDiscovery: (() => void) | undefined
-  onRunSourceDebug: (targetId: string) => void
-  onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
-  onSaveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => void
-  onVerifySourceInstructions: (targetId: string, instructionId: string) => void
-  onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
-  onSaveProfile: (profile: CandidateProfile) => void
-  onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void
-  onSaveSettings: (settings: JobFinderSettings) => void
-  onSelectApplicationRecord: (recordId: string) => void
-  onSelectDiscoveryJob: (jobId: string) => void
-  onSelectReviewItem: (jobId: string) => void
-  selectedApplicationAttempt: JobFinderWorkspaceSnapshot['applicationAttempts'][number] | null
-  selectedApplicationRecord: JobFinderWorkspaceSnapshot['applicationRecords'][number] | null
-  selectedDiscoveryJob: JobFinderWorkspaceSnapshot['discoveryJobs'][number] | null
-  selectedReviewItem: JobFinderWorkspaceSnapshot['reviewQueue'][number] | null
-  selectedReviewJob: JobFinderWorkspaceSnapshot['discoveryJobs'][number] | null
-  selectedTailoredAsset: JobFinderWorkspaceSnapshot['tailoredAssets'][number] | null
-  liveDiscoveryEvents: readonly DiscoveryActivityEvent[]
-  workspace: JobFinderWorkspaceSnapshot
+  actionState: ActionState;
+  busy: boolean;
+  onAnalyzeProfileFromResume: () => void;
+  onApproveApply: (jobId: string) => void;
+  onCheckBrowserSession: () => void;
+  onDismissJob: (jobId: string) => void;
+  onGenerateResume: (jobId: string) => void;
+  onImportResume: () => void;
+  onOpenBrowserSession: () => void;
+  onQueueJob: (jobId: string) => void;
+  onResetWorkspace: () => void;
+  onRunAgentDiscovery: (() => void) | undefined;
+  onRunSourceDebug: (targetId: string) => void;
+  onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
+  onSaveSourceInstructionArtifact: (
+    targetId: string,
+    artifact: SourceInstructionArtifact,
+  ) => void;
+  onVerifySourceInstructions: (targetId: string, instructionId: string) => void;
+  onSaveAll: (
+    profile: CandidateProfile,
+    searchPreferences: JobSearchPreferences,
+  ) => void;
+  onSaveProfile: (profile: CandidateProfile) => void;
+  onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void;
+  onSaveSettings: (settings: JobFinderSettings) => void;
+  onSelectApplicationRecord: (recordId: string) => void;
+  onSelectDiscoveryJob: (jobId: string) => void;
+  onSelectReviewItem: (jobId: string) => void;
+  selectedApplicationAttempt:
+    | JobFinderWorkspaceSnapshot["applicationAttempts"][number]
+    | null;
+  selectedApplicationRecord:
+    | JobFinderWorkspaceSnapshot["applicationRecords"][number]
+    | null;
+  selectedDiscoveryJob:
+    | JobFinderWorkspaceSnapshot["discoveryJobs"][number]
+    | null;
+  selectedReviewItem: JobFinderWorkspaceSnapshot["reviewQueue"][number] | null;
+  selectedReviewJob: JobFinderWorkspaceSnapshot["discoveryJobs"][number] | null;
+  selectedTailoredAsset:
+    | JobFinderWorkspaceSnapshot["tailoredAssets"][number]
+    | null;
+  liveDiscoveryEvents: readonly DiscoveryActivityEvent[];
+  workspace: JobFinderWorkspaceSnapshot;
 }
 
 function useJobFinderPageContext() {
-  return useOutletContext<JobFinderPageContext>()
+  return useOutletContext<JobFinderPageContext>();
 }
 
 export function JobFinderProfileRoute() {
-  const context = useJobFinderPageContext()
+  const context = useJobFinderPageContext();
 
   return (
     <ProfileScreen
@@ -104,44 +126,64 @@ export function JobFinderProfileRoute() {
       searchPreferences={context.workspace.searchPreferences}
       sourceInstructionArtifacts={context.workspace.sourceInstructionArtifacts}
     />
-  )
+  );
 }
 
-function buildSourceDebugOutcomeMessage(workspace: JobFinderWorkspaceSnapshot, targetId: string): string {
-  const target = workspace.searchPreferences.discovery.targets.find((entry) => entry.id === targetId)
+function buildSourceDebugOutcomeMessage(
+  workspace: JobFinderWorkspaceSnapshot,
+  targetId: string,
+): string {
+  const target = workspace.searchPreferences.discovery.targets.find(
+    (entry) => entry.id === targetId,
+  );
   const latestRun = target?.lastDebugRunId
-    ? workspace.recentSourceDebugRuns.find((run) => run.id === target.lastDebugRunId) ?? null
-    : null
+    ? (workspace.recentSourceDebugRuns.find(
+        (run) => run.id === target.lastDebugRunId,
+      ) ?? null)
+    : null;
 
-  if (latestRun?.state === 'paused_manual') {
-    return latestRun.manualPrerequisiteSummary ?? latestRun.finalSummary ?? 'Source debug paused until a manual step is completed.'
+  if (latestRun?.state === "paused_manual") {
+    return (
+      latestRun.manualPrerequisiteSummary ??
+      latestRun.finalSummary ??
+      "Source debug paused until a manual step is completed."
+    );
   }
 
-  if (latestRun?.state === 'failed') {
-    return latestRun.finalSummary ?? 'Source debug finished without producing reusable instructions.'
+  if (latestRun?.state === "failed") {
+    return (
+      latestRun.finalSummary ??
+      "Source debug finished without producing reusable instructions."
+    );
   }
 
-  if (latestRun?.state === 'interrupted') {
-    return latestRun.finalSummary ?? 'Source debug was interrupted before it could finish.'
+  if (latestRun?.state === "interrupted") {
+    return (
+      latestRun.finalSummary ??
+      "Source debug was interrupted before it could finish."
+    );
   }
 
-  if (target?.instructionStatus === 'validated') {
-    return 'Source debug completed and validated learned instructions.'
+  if (target?.instructionStatus === "validated") {
+    return "Source debug completed and validated learned instructions.";
   }
 
-  if (target?.instructionStatus === 'draft') {
-    return 'Source debug completed with a draft source profile. It needs stronger findings before validation.'
+  if (target?.instructionStatus === "draft") {
+    return "Source debug completed with a draft source profile. It needs stronger findings before validation.";
   }
 
-  if (target?.instructionStatus === 'unsupported') {
-    return 'Source debug completed, but this source remains unsupported.'
+  if (target?.instructionStatus === "unsupported") {
+    return "Source debug completed, but this source remains unsupported.";
   }
 
-  return latestRun?.finalSummary ?? 'Source debug finished without producing reusable instructions.'
+  return (
+    latestRun?.finalSummary ??
+    "Source debug finished without producing reusable instructions."
+  );
 }
 
 export function JobFinderDiscoveryRoute() {
-  const context = useJobFinderPageContext()
+  const context = useJobFinderPageContext();
 
   return (
     <DiscoveryScreen
@@ -161,11 +203,11 @@ export function JobFinderDiscoveryRoute() {
       searchPreferences={context.workspace.searchPreferences}
       selectedJob={context.selectedDiscoveryJob}
     />
-  )
+  );
 }
 
 export function JobFinderReviewQueueRoute() {
-  const context = useJobFinderPageContext()
+  const context = useJobFinderPageContext();
 
   return (
     <ReviewQueueScreen
@@ -180,11 +222,11 @@ export function JobFinderReviewQueueRoute() {
       selectedItem={context.selectedReviewItem}
       selectedJob={context.selectedReviewJob}
     />
-  )
+  );
 }
 
 export function JobFinderApplicationsRoute() {
-  const context = useJobFinderPageContext()
+  const context = useJobFinderPageContext();
 
   return (
     <ApplicationsScreen
@@ -193,11 +235,11 @@ export function JobFinderApplicationsRoute() {
       selectedAttempt={context.selectedApplicationAttempt}
       selectedRecord={context.selectedApplicationRecord}
     />
-  )
+  );
 }
 
 export function JobFinderSettingsRoute() {
-  const context = useJobFinderPageContext()
+  const context = useJobFinderPageContext();
 
   return (
     <SettingsScreen
@@ -210,48 +252,71 @@ export function JobFinderSettingsRoute() {
       onSaveSettings={context.onSaveSettings}
       settings={context.workspace.settings}
     />
-  )
+  );
 }
 
 export function JobFinderPage() {
-  const navigate = useNavigate()
-  const workspaceState = useJobFinderWorkspace()
-  const [actionState, setActionState] = useState<ActionState>({ busy: false, message: null })
-  const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<DiscoveryActivityEvent[]>([])
+  const navigate = useNavigate();
+  const workspaceState = useJobFinderWorkspace();
+  const [actionState, setActionState] = useState<ActionState>({
+    busy: false,
+    message: null,
+  });
+  const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<
+    DiscoveryActivityEvent[]
+  >([]);
 
-  const [selectedDiscoveryJobId, setSelectedDiscoveryJobId] = useResettableSelection(
-    workspaceState.status === 'ready' ? workspaceState.workspace.selectedDiscoveryJobId : null
-  )
+  const [selectedDiscoveryJobId, setSelectedDiscoveryJobId] =
+    useResettableSelection(
+      workspaceState.status === "ready"
+        ? workspaceState.workspace.selectedDiscoveryJobId
+        : null,
+    );
   const [selectedReviewJobId, setSelectedReviewJobId] = useResettableSelection(
-    workspaceState.status === 'ready' ? workspaceState.workspace.selectedReviewJobId : null
-  )
-  const [selectedApplicationRecordId, setSelectedApplicationRecordId] = useResettableSelection(
-    workspaceState.status === 'ready' ? workspaceState.workspace.selectedApplicationRecordId : null
-  )
+    workspaceState.status === "ready"
+      ? workspaceState.workspace.selectedReviewJobId
+      : null,
+  );
+  const [selectedApplicationRecordId, setSelectedApplicationRecordId] =
+    useResettableSelection(
+      workspaceState.status === "ready"
+        ? workspaceState.workspace.selectedApplicationRecordId
+        : null,
+    );
 
-  const runAction = useCallback(async (action: () => Promise<unknown>, onSuccess: () => void, successMessage: string | null) => {
-    try {
-      setActionState({ busy: true, message: null })
-      await action()
-      onSuccess()
-      setActionState({ busy: false, message: successMessage })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'The requested Job Finder action failed.'
-      setActionState({ busy: false, message })
-    }
-  }, [])
+  const runAction = useCallback(
+    async (
+      action: () => Promise<unknown>,
+      onSuccess: () => void,
+      successMessage: string | null,
+    ) => {
+      try {
+        setActionState({ busy: true, message: null });
+        await action();
+        onSuccess();
+        setActionState({ busy: false, message: successMessage });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "The requested Job Finder action failed.";
+        setActionState({ busy: false, message });
+      }
+    },
+    [],
+  );
 
-  if (workspaceState.status === 'loading') {
+  if (workspaceState.status === "loading") {
     return (
       <WorkspaceStateScreen
         kicker="UnEmployed"
         message="Loading the Job Finder workspace and typed desktop context."
         title="Booting Job Finder workspace"
       />
-    )
+    );
   }
 
-  if (workspaceState.status === 'error') {
+  if (workspaceState.status === "error") {
     return (
       <WorkspaceStateScreen
         kicker="Workspace Error"
@@ -259,154 +324,183 @@ export function JobFinderPage() {
         title="Job Finder failed to load"
         tone="error"
       />
-    )
+    );
   }
 
-  const { actions, platform, workspace } = workspaceState
+  const { actions, platform, workspace } = workspaceState;
 
   const selectedDiscoveryJob =
-    workspace.discoveryJobs.find((job) => job.id === selectedDiscoveryJobId) ?? workspace.discoveryJobs[0] ?? null
+    workspace.discoveryJobs.find((job) => job.id === selectedDiscoveryJobId) ??
+    workspace.discoveryJobs[0] ??
+    null;
 
   const selectedReviewItem =
-    workspace.reviewQueue.find((item) => item.jobId === selectedReviewJobId) ?? workspace.reviewQueue[0] ?? null
+    workspace.reviewQueue.find((item) => item.jobId === selectedReviewJobId) ??
+    workspace.reviewQueue[0] ??
+    null;
 
   const selectedReviewJob =
-    workspace.discoveryJobs.find((job) => job.id === selectedReviewItem?.jobId) ?? selectedDiscoveryJob ?? null
+    workspace.discoveryJobs.find(
+      (job) => job.id === selectedReviewItem?.jobId,
+    ) ??
+    selectedDiscoveryJob ??
+    null;
 
   const selectedTailoredAsset =
-    workspace.tailoredAssets.find((asset) => asset.id === selectedReviewItem?.resumeAssetId) ?? null
+    workspace.tailoredAssets.find(
+      (asset) => asset.id === selectedReviewItem?.resumeAssetId,
+    ) ?? null;
 
   const selectedApplicationRecord =
-    workspace.applicationRecords.find((record) => record.id === selectedApplicationRecordId) ??
+    workspace.applicationRecords.find(
+      (record) => record.id === selectedApplicationRecordId,
+    ) ??
     workspace.applicationRecords[0] ??
-    null
+    null;
 
-  const selectedApplicationAttempt =
-    selectedApplicationRecord
-      ? [...workspace.applicationAttempts]
-          .filter((attempt) => attempt.jobId === selectedApplicationRecord.jobId)
-          .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0] ?? null
-      : null
+  const selectedApplicationAttempt = selectedApplicationRecord
+    ? ([...workspace.applicationAttempts]
+        .filter((attempt) => attempt.jobId === selectedApplicationRecord.jobId)
+        .sort(
+          (left, right) =>
+            new Date(right.updatedAt).getTime() -
+            new Date(left.updatedAt).getTime(),
+        )[0] ?? null)
+    : null;
 
   const context: JobFinderPageContext = {
     actionState,
     busy: actionState.busy,
     onAnalyzeProfileFromResume: () =>
-      void runAction(
-        actions.analyzeProfileFromResume,
-        () => undefined,
-        null
-      ),
+      void runAction(actions.analyzeProfileFromResume, () => undefined, null),
     onApproveApply: (jobId: string) =>
       void runAction(
         () => actions.approveApply(jobId),
         () => {
-          void navigate('/job-finder/applications')
+          void navigate("/job-finder/applications");
         },
-        'Easy Apply marked as submitted and moved into Applications.'
+        "Easy Apply marked as submitted and moved into Applications.",
       ),
     onCheckBrowserSession: () =>
       void runAction(
         actions.checkBrowserSession,
         () => undefined,
-        'Browser session status refreshed.'
+        "Browser session status refreshed.",
       ),
     onDismissJob: (jobId: string) =>
       void runAction(
         () => actions.dismissDiscoveryJob(jobId),
         () => undefined,
-        'Saved job archived from discovery.'
+        "Saved job archived from discovery.",
       ),
     onGenerateResume: (jobId: string) =>
       void runAction(
         () => actions.generateResume(jobId),
         () => setSelectedReviewJobId(jobId),
-        'A tailored resume was generated for the selected job.'
+        "A tailored resume was generated for the selected job.",
       ),
     onImportResume: () =>
       void runAction(
         actions.importResume,
         () => undefined,
-        'Base resume replaced from a local document.'
+        "Base resume replaced from a local document.",
       ),
     onOpenBrowserSession: () =>
       void runAction(
         actions.openBrowserSession,
         () => undefined,
-        workspace.browserSession.status === 'ready'
-          ? 'Chrome session refreshed.'
-          : 'Chrome profile opened and session status refreshed.'
+        workspace.browserSession.status === "ready"
+          ? "Chrome session refreshed."
+          : "Chrome profile opened and session status refreshed.",
       ),
     onQueueJob: (jobId: string) =>
       void runAction(
         () => actions.queueJobForReview(jobId),
         () => {
-          setSelectedReviewJobId(jobId)
-          void navigate('/job-finder/review-queue')
+          setSelectedReviewJobId(jobId);
+          void navigate("/job-finder/review-queue");
         },
-        'Job moved into the review queue.'
+        "Job moved into the review queue.",
       ),
     onRunAgentDiscovery: () => {
-      setLiveDiscoveryEvents([])
+      setLiveDiscoveryEvents([]);
       void runAction(
-        () => actions.runAgentDiscovery((event) => {
-          setLiveDiscoveryEvents((current) => [...current, event])
-        }),
+        () =>
+          actions.runAgentDiscovery((event) => {
+            setLiveDiscoveryEvents((current) => [...current, event]);
+          }),
         () => {
-          setLiveDiscoveryEvents([])
+          setLiveDiscoveryEvents([]);
         },
-        'AI Agent discovery run completed and saved locally.'
-      )
+        "AI Agent discovery run completed and saved locally.",
+      );
     },
     onRunSourceDebug: (targetId: string) => {
       void (async () => {
         try {
-          setActionState({ busy: true, message: null })
-          const nextWorkspace = await actions.runSourceDebug(targetId)
-          setActionState({ busy: false, message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId) })
+          setActionState({ busy: true, message: null });
+          const nextWorkspace = await actions.runSourceDebug(targetId);
+          setActionState({
+            busy: false,
+            message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
+          });
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'The requested Job Finder action failed.'
-          setActionState({ busy: false, message })
+          const message =
+            error instanceof Error
+              ? error.message
+              : "The requested Job Finder action failed.";
+          setActionState({ busy: false, message });
         }
-      })()
+      })();
     },
     onGetSourceDebugRunDetails: actions.getSourceDebugRunDetails,
     onSaveSourceInstructionArtifact: (targetId, artifact) =>
       void runAction(
         () => actions.saveSourceInstructionArtifact(targetId, artifact),
         () => undefined,
-        'Source instructions updated.'
+        "Source instructions updated.",
       ),
     onVerifySourceInstructions: (targetId: string, instructionId: string) =>
       void runAction(
         () => actions.verifySourceInstructions(targetId, instructionId),
         () => undefined,
-        'Source instructions re-verified.'
+        "Source instructions re-verified.",
       ),
     onResetWorkspace: () =>
       void runAction(
         actions.resetWorkspace,
         () => {
-          void navigate('/job-finder/profile')
+          void navigate("/job-finder/profile");
         },
-        'Workspace reset to a fresh profile, cleared resume state, and empty job history.'
+        "Workspace reset to a fresh profile, cleared resume state, and empty job history.",
       ),
-    onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) =>
+    onSaveAll: (
+      profile: CandidateProfile,
+      searchPreferences: JobSearchPreferences,
+    ) =>
       void runAction(
         () => actions.saveWorkspaceInputs(profile, searchPreferences),
         () => undefined,
-        null
+        null,
       ),
     onSaveProfile: (profile: CandidateProfile) =>
-      void runAction(() => actions.saveProfile(profile), () => undefined, null),
+      void runAction(
+        () => actions.saveProfile(profile),
+        () => undefined,
+        null,
+      ),
     onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
       void runAction(
         () => actions.saveSearchPreferences(searchPreferences),
         () => undefined,
-        null
+        null,
       ),
     onSaveSettings: (settings: JobFinderSettings) =>
-      void runAction(() => actions.saveSettings(settings), () => undefined, null),
+      void runAction(
+        () => actions.saveSettings(settings),
+        () => undefined,
+        null,
+      ),
     onSelectApplicationRecord: setSelectedApplicationRecordId,
     onSelectDiscoveryJob: setSelectedDiscoveryJobId,
     onSelectReviewItem: setSelectedReviewJobId,
@@ -417,12 +511,16 @@ export function JobFinderPage() {
     selectedReviewItem,
     selectedReviewJob,
     selectedTailoredAsset,
-    workspace
-  }
+    workspace,
+  };
 
   return (
-    <JobFinderShell actionMessage={actionState.message} platform={platform} workspace={workspace}>
+    <JobFinderShell
+      actionMessage={actionState.message}
+      platform={platform}
+      workspace={workspace}
+    >
       <Outlet context={context} />
     </JobFinderShell>
-  )
+  );
 }

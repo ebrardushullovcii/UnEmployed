@@ -16,6 +16,14 @@
 - `pnpm --filter @unemployed/desktop ui:resume-import`
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`
 
+## Source-Debug QA
+
+- Validate that Profile Preferences keeps `Debug source` disabled until a target has a valid absolute starting URL.
+- Validate that Discovery can open the dedicated Chrome profile even before any prior browser-profile session has been recorded.
+- Validate that source-debug completion copy matches the actual retained run state for `paused_manual`, `cancelled`, `failed`, and `interrupted` runs.
+- Validate that the Profile source-debug review modal announces loading and error states clearly and that inline learned-instruction edits only mutate the editable instruction fields.
+- Validate that `Verify` replays the selected learned-instruction artifact, leaves the reviewed artifact intact, and promotes or drafts a successor artifact based on the new replay result.
+
 ## Live Agent Config
 
 - `UNEMPLOYED_AI_API_KEY` enables the OpenAI-compatible provider path used for resume extraction and resume tailoring.

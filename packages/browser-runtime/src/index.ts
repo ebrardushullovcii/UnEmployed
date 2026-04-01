@@ -13,444 +13,515 @@ import {
   type JobSearchPreferences,
   type JobSource,
   type SavedJob,
-  type TailoredAsset
-} from '@unemployed/contracts'
-import type { JobFinderAiClient } from '@unemployed/ai-providers'
+  type TailoredAsset,
+} from "@unemployed/contracts";
+import type { JobFinderAiClient } from "@unemployed/ai-providers";
 
 function cloneValue<TValue>(value: TValue): TValue {
-  return structuredClone(value)
+  return structuredClone(value);
 }
 
 function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function tokenize(value: string): string[] {
-  return normalizeText(value)
-    .split(/\s+/)
-    .filter(Boolean)
+  return normalizeText(value).split(/\s+/).filter(Boolean);
 }
 
-function matchesAnyPhrase(candidate: string, desiredValues: readonly string[]): boolean {
+function matchesAnyPhrase(
+  candidate: string,
+  desiredValues: readonly string[],
+): boolean {
   if (desiredValues.length === 0) {
-    return true
+    return true;
   }
 
-  const normalizedCandidate = normalizeText(candidate)
-  const candidateTokens = new Set(tokenize(candidate))
+  const normalizedCandidate = normalizeText(candidate);
+  const candidateTokens = new Set(tokenize(candidate));
 
   return desiredValues.some((desiredValue) => {
-    const normalizedDesired = normalizeText(desiredValue)
+    const normalizedDesired = normalizeText(desiredValue);
 
     if (normalizedCandidate.includes(normalizedDesired)) {
-      return true
+      return true;
     }
 
-    return tokenize(desiredValue).every((token) => candidateTokens.has(token))
-  })
+    return tokenize(desiredValue).every((token) => candidateTokens.has(token));
+  });
 }
 
 function parseSalaryFloor(salaryText: string | null): number | null {
   if (!salaryText) {
-    return null
+    return null;
   }
 
-  const matches = [...salaryText.matchAll(/(\d[\d,]*)(?:\s*)(k|m)?/gi)]
+  const matches = [...salaryText.matchAll(/(\d[\d,]*)(?:\s*)(k|m)?/gi)];
 
   if (matches.length === 0) {
-    return null
+    return null;
   }
 
   const parsedNumbers = matches
     .map((match) => {
-      const baseValue = Number((match[1] ?? '').replaceAll(',', ''))
-      const suffix = (match[2] ?? '').toLowerCase()
+      const baseValue = Number((match[1] ?? "").replaceAll(",", ""));
+      const suffix = (match[2] ?? "").toLowerCase();
 
       if (!Number.isFinite(baseValue) || baseValue <= 0) {
-        return null
+        return null;
       }
 
-      if (suffix === 'k') {
-        return baseValue * 1000
+      if (suffix === "k") {
+        return baseValue * 1000;
       }
 
-      if (suffix === 'm') {
-        return baseValue * 1_000_000
+      if (suffix === "m") {
+        return baseValue * 1_000_000;
       }
 
-      return baseValue
+      return baseValue;
     })
-    .filter((value): value is number => value !== null)
+    .filter((value): value is number => value !== null);
 
   if (parsedNumbers.length === 0) {
-    return null
+    return null;
   }
 
-  return Math.min(...parsedNumbers)
+  return Math.min(...parsedNumbers);
 }
 
 function buildSessionBlockedResult(session: BrowserSessionState): Error {
-  const detail = session.detail ? ` ${session.detail}` : ''
-  return new Error(`Browser session is not ready for automation.${detail}`.trim())
+  const detail = session.detail ? ` ${session.detail}` : "";
+  return new Error(
+    `Browser session is not ready for automation.${detail}`.trim(),
+  );
 }
 
-function buildDiscoveryQuerySummary(searchPreferences: JobSearchPreferences): string {
-  const roles = searchPreferences.targetRoles.join(', ') || 'all roles'
-  const locations = searchPreferences.locations.join(', ') || 'all locations'
-  const workModes = searchPreferences.workModes.join(', ') || 'all work modes'
+function buildDiscoveryQuerySummary(
+  searchPreferences: JobSearchPreferences,
+): string {
+  const roles = searchPreferences.targetRoles.join(", ") || "all roles";
+  const locations = searchPreferences.locations.join(", ") || "all locations";
+  const workModes = searchPreferences.workModes.join(", ") || "all work modes";
 
-  return `${roles} | ${locations} | ${workModes}`
+  return `${roles} | ${locations} | ${workModes}`;
 }
 
 export interface ExecuteEasyApplyInput {
-  job: SavedJob
-  asset: TailoredAsset
-  profile: CandidateProfile
-  settings: JobFinderSettings
-  instructions?: readonly string[]
+  job: SavedJob;
+  asset: TailoredAsset;
+  profile: CandidateProfile;
+  settings: JobFinderSettings;
+  instructions?: readonly string[];
 }
 
 export interface BrowserSessionRuntime {
-  getSessionState(source: JobSource): Promise<BrowserSessionState>
-  openSession(source: JobSource): Promise<BrowserSessionState>
-  closeSession(source: JobSource): Promise<BrowserSessionState>
-  runDiscovery(source: JobSource, searchPreferences: JobSearchPreferences): Promise<DiscoveryRunResult>
-  executeEasyApply(source: JobSource, input: ExecuteEasyApplyInput): Promise<ApplyExecutionResult>
-  runAgentDiscovery?(source: JobSource, options: AgentDiscoveryOptions): Promise<DiscoveryRunResult>
+  getSessionState(source: JobSource): Promise<BrowserSessionState>;
+  openSession(source: JobSource): Promise<BrowserSessionState>;
+  closeSession(source: JobSource): Promise<BrowserSessionState>;
+  runDiscovery(
+    source: JobSource,
+    searchPreferences: JobSearchPreferences,
+  ): Promise<DiscoveryRunResult>;
+  executeEasyApply(
+    source: JobSource,
+    input: ExecuteEasyApplyInput,
+  ): Promise<ApplyExecutionResult>;
+  runAgentDiscovery?(
+    source: JobSource,
+    options: AgentDiscoveryOptions,
+  ): Promise<DiscoveryRunResult>;
 }
 
 export interface AgentDiscoveryOptions {
-  userProfile: CandidateProfile
+  userProfile: CandidateProfile;
   searchPreferences: {
-    targetRoles: string[]
-    locations: string[]
-  }
-  targetJobCount: number
-  maxSteps: number
-  startingUrls: string[]
-  siteLabel: string
-  navigationHostnames: string[]
-  siteInstructions?: string[]
-  toolUsageNotes?: string[]
+    targetRoles: string[];
+    locations: string[];
+  };
+  targetJobCount: number;
+  maxSteps: number;
+  startingUrls: string[];
+  siteLabel: string;
+  navigationHostnames: string[];
+  siteInstructions?: string[];
+  toolUsageNotes?: string[];
   taskPacket?: {
-    phaseGoal: string
-    knownFacts: string[]
-    priorPhaseSummary?: string | null
-    avoidStrategyFingerprints: string[]
-    successCriteria: string[]
-    stopConditions: string[]
-    manualPrerequisiteState?: string | null
-    strategyLabel?: string | null
-  }
+    phaseGoal: string;
+    knownFacts: string[];
+    priorPhaseSummary?: string | null;
+    avoidStrategyFingerprints: string[];
+    successCriteria: string[];
+    stopConditions: string[];
+    manualPrerequisiteState?: string | null;
+    strategyLabel?: string | null;
+  };
   compaction?: {
-    maxTranscriptMessages?: number
-    preserveRecentMessages?: number
-    maxToolPayloadChars?: number
-  }
-  relevantUrlSubstrings?: string[]
-  experimental?: boolean
-  skipSessionValidation?: boolean
-  aiClient?: JobFinderAiClient
-  onProgress?: (progress: AgentDiscoveryProgress) => void
-  signal?: AbortSignal
+    maxTranscriptMessages?: number;
+    preserveRecentMessages?: number;
+    maxToolPayloadChars?: number;
+  };
+  relevantUrlSubstrings?: string[];
+  experimental?: boolean;
+  skipSessionValidation?: boolean;
+  aiClient?: JobFinderAiClient;
+  onProgress?: (progress: AgentDiscoveryProgress) => void;
+  signal?: AbortSignal;
 }
 
 export interface CatalogBrowserSessionRuntimeSeed {
-  sessions: BrowserSessionState[]
-  catalog: JobPosting[]
+  sessions: BrowserSessionState[];
+  catalog: JobPosting[];
 }
 
-export type StubBrowserSessionRuntimeSeed = CatalogBrowserSessionRuntimeSeed
+export type StubBrowserSessionRuntimeSeed = CatalogBrowserSessionRuntimeSeed;
 
 export function createCatalogBrowserSessionRuntime(
-  seed: CatalogBrowserSessionRuntimeSeed
+  seed: CatalogBrowserSessionRuntimeSeed,
 ): BrowserSessionRuntime {
   const initialSessions = new Map(
-    seed.sessions.map((session) => [session.source, BrowserSessionStateSchema.parse(cloneValue(session))])
-  )
-  const sessions = new Map(initialSessions)
-  const catalog = JobPostingSchema.array().parse(cloneValue(seed.catalog))
+    seed.sessions.map((session) => [
+      session.source,
+      BrowserSessionStateSchema.parse(cloneValue(session)),
+    ]),
+  );
+  const sessions = new Map(initialSessions);
+  const catalog = JobPostingSchema.array().parse(cloneValue(seed.catalog));
 
   function getSession(source: JobSource): BrowserSessionState {
-    const session = sessions.get(source)
+    const session = sessions.get(source);
 
     if (session) {
-      return cloneValue(session)
+      return cloneValue(session);
     }
 
     return BrowserSessionStateSchema.parse({
       source,
-      status: 'unknown',
-      label: 'Session status unavailable',
-      detail: 'No browser runtime session has been configured for this source yet.',
-      lastCheckedAt: new Date(0).toISOString()
-    })
+      status: "unknown",
+      label: "Session status unavailable",
+      detail:
+        "No browser runtime session has been configured for this source yet.",
+      lastCheckedAt: new Date(0).toISOString(),
+    });
   }
 
   return {
     getSessionState(source) {
-      return Promise.resolve(getSession(source))
+      return Promise.resolve(getSession(source));
     },
     openSession(source) {
       const reopenedSession = cloneValue(
         initialSessions.get(source) ??
           BrowserSessionStateSchema.parse({
             source,
-            status: 'unknown',
-            driver: 'catalog_seed',
-            label: 'Browser session unavailable',
-            detail: 'No browser runtime session has been configured for this source yet.',
-            lastCheckedAt: new Date().toISOString()
-          })
-      )
-      sessions.set(source, reopenedSession)
-      return Promise.resolve(reopenedSession)
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Browser session unavailable",
+            detail:
+              "No browser runtime session has been configured for this source yet.",
+            lastCheckedAt: new Date().toISOString(),
+          }),
+      );
+      sessions.set(source, reopenedSession);
+      return Promise.resolve(reopenedSession);
     },
     closeSession(source) {
       const closedState = BrowserSessionStateSchema.parse({
         source,
-        status: 'unknown',
-        driver: 'catalog_seed',
-        label: 'Browser session closed',
-        detail: 'The browser session is closed. It will reopen when the next run starts.',
-        lastCheckedAt: new Date().toISOString()
-      })
-      sessions.set(source, closedState)
-      return Promise.resolve(closedState)
+        status: "unknown",
+        driver: "catalog_seed",
+        label: "Browser session closed",
+        detail:
+          "The browser session is closed. It will reopen when the next run starts.",
+        lastCheckedAt: new Date().toISOString(),
+      });
+      sessions.set(source, closedState);
+      return Promise.resolve(closedState);
     },
     runDiscovery(source, searchPreferences) {
-      const session = getSession(source)
+      const session = getSession(source);
 
-      if (session.status !== 'ready') {
-        throw buildSessionBlockedResult(session)
+      if (session.status !== "ready") {
+        throw buildSessionBlockedResult(session);
       }
 
-      const startedAt = new Date().toISOString()
+      const startedAt = new Date().toISOString();
       const filteredJobs = catalog.filter((job) => {
         if (job.source !== source) {
-          return false
+          return false;
         }
 
-        if (!job.easyApplyEligible || job.applyPath !== 'easy_apply') {
-          return false
+        if (!job.easyApplyEligible || job.applyPath !== "easy_apply") {
+          return false;
         }
 
         if (
           searchPreferences.companyBlacklist.some(
-            (company) => normalizeText(company) === normalizeText(job.company)
+            (company) => normalizeText(company) === normalizeText(job.company),
           )
         ) {
-          return false
+          return false;
         }
 
-        const matchesRole = matchesAnyPhrase(job.title, searchPreferences.targetRoles)
-        const matchesLocation = matchesAnyPhrase(job.location, searchPreferences.locations)
+        const matchesRole = matchesAnyPhrase(
+          job.title,
+          searchPreferences.targetRoles,
+        );
+        const matchesLocation = matchesAnyPhrase(
+          job.location,
+          searchPreferences.locations,
+        );
         const matchesWorkMode =
           searchPreferences.workModes.length === 0 ||
-          searchPreferences.workModes.includes('flexible') ||
-          job.workMode.some((mode) => searchPreferences.workModes.includes(mode))
-        const salaryFloor = parseSalaryFloor(job.salaryText)
+          searchPreferences.workModes.includes("flexible") ||
+          job.workMode.some((mode) =>
+            searchPreferences.workModes.includes(mode),
+          );
+        const salaryFloor = parseSalaryFloor(job.salaryText);
         const meetsSalaryExpectation =
           searchPreferences.minimumSalaryUsd === null ||
           salaryFloor === null ||
-          salaryFloor >= searchPreferences.minimumSalaryUsd
+          salaryFloor >= searchPreferences.minimumSalaryUsd;
 
-        return matchesRole && matchesLocation && matchesWorkMode && meetsSalaryExpectation
-      })
+        return (
+          matchesRole &&
+          matchesLocation &&
+          matchesWorkMode &&
+          meetsSalaryExpectation
+        );
+      });
 
-      const completedAt = new Date().toISOString()
+      const completedAt = new Date().toISOString();
 
-      return Promise.resolve(DiscoveryRunResultSchema.parse({
-        source,
-        startedAt,
-        completedAt,
-        querySummary: buildDiscoveryQuerySummary(searchPreferences),
-        warning:
-          filteredJobs.length === 0
-            ? 'No supported listings matched the current preferences in the configured discovery target.'
-            : null,
-        jobs: filteredJobs
-      }))
+      return Promise.resolve(
+        DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt,
+          querySummary: buildDiscoveryQuerySummary(searchPreferences),
+          warning:
+            filteredJobs.length === 0
+              ? "No supported listings matched the current preferences in the configured discovery target."
+              : null,
+          jobs: filteredJobs,
+        }),
+      );
     },
     executeEasyApply(source, input) {
-      const session = getSession(source)
+      const session = getSession(source);
 
-      if (session.status !== 'ready') {
-        throw buildSessionBlockedResult(session)
+      if (session.status !== "ready") {
+        throw buildSessionBlockedResult(session);
       }
 
-      const now = new Date().toISOString()
-      const { asset, job } = input
+      const now = new Date().toISOString();
+      const { asset, job } = input;
 
-      if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
-        return Promise.resolve(ApplyExecutionResultSchema.parse({
-          state: 'unsupported',
-          summary: 'Easy Apply path is unsupported',
-          detail: `${job.title} at ${job.company} no longer exposes a supported Easy Apply path for this slice.`,
-          submittedAt: null,
-          outcome: null,
-          nextActionLabel: 'Inspect the listing manually',
-          checkpoints: [
-            {
-              id: `checkpoint_${job.id}_unsupported`,
-              at: now,
-              label: 'Unsupported apply path',
-              detail: 'The adapter stopped before entering an unsupported or external branch.',
-              state: 'unsupported'
-            }
-          ]
-        }))
+      if (job.applyPath !== "easy_apply" || !job.easyApplyEligible) {
+        return Promise.resolve(
+          ApplyExecutionResultSchema.parse({
+            state: "unsupported",
+            summary: "Easy Apply path is unsupported",
+            detail: `${job.title} at ${job.company} no longer exposes a supported Easy Apply path for this slice.`,
+            submittedAt: null,
+            outcome: null,
+            nextActionLabel: "Inspect the listing manually",
+            checkpoints: [
+              {
+                id: `checkpoint_${job.id}_unsupported`,
+                at: now,
+                label: "Unsupported apply path",
+                detail:
+                  "The adapter stopped before entering an unsupported or external branch.",
+                state: "unsupported",
+              },
+            ],
+          }),
+        );
       }
 
-      if (asset.status !== 'ready') {
-        return Promise.resolve(ApplyExecutionResultSchema.parse({
-          state: 'failed',
-          summary: 'Tailored resume is not ready',
-          detail: 'The apply flow cannot continue until a ready tailored resume is available.',
-          submittedAt: null,
-          outcome: null,
-          nextActionLabel: 'Generate a tailored resume',
-          checkpoints: [
-            {
-              id: `checkpoint_${job.id}_asset_missing`,
-              at: now,
-              label: 'Resume readiness failed',
-              detail: 'The adapter refused to submit without a ready tailored asset.',
-              state: 'failed'
-            }
-          ]
-        }))
+      if (asset.status !== "ready") {
+        return Promise.resolve(
+          ApplyExecutionResultSchema.parse({
+            state: "failed",
+            summary: "Tailored resume is not ready",
+            detail:
+              "The apply flow cannot continue until a ready tailored resume is available.",
+            submittedAt: null,
+            outcome: null,
+            nextActionLabel: "Generate a tailored resume",
+            checkpoints: [
+              {
+                id: `checkpoint_${job.id}_asset_missing`,
+                at: now,
+                label: "Resume readiness failed",
+                detail:
+                  "The adapter refused to submit without a ready tailored asset.",
+                state: "failed",
+              },
+            ],
+          }),
+        );
       }
 
-      const normalizedDescription = normalizeText(job.description)
+      const normalizedDescription = normalizeText(job.description);
       const requiresHumanPause =
-        normalizedDescription.includes('portfolio') ||
-        normalizedDescription.includes('work authorization') ||
-        normalizedDescription.includes('visa sponsorship') ||
-        normalizedDescription.includes('salary expectation')
+        normalizedDescription.includes("portfolio") ||
+        normalizedDescription.includes("work authorization") ||
+        normalizedDescription.includes("visa sponsorship") ||
+        normalizedDescription.includes("salary expectation");
 
       if (requiresHumanPause) {
-        return Promise.resolve(ApplyExecutionResultSchema.parse({
-          state: 'paused',
-          summary: 'Easy Apply needs manual review',
-          detail: `${job.company} asks for additional information that the safe automation path will not guess.`,
-          submittedAt: null,
-          outcome: null,
-          nextActionLabel: 'Open the application and finish the unsupported fields manually',
+        return Promise.resolve(
+          ApplyExecutionResultSchema.parse({
+            state: "paused",
+            summary: "Easy Apply needs manual review",
+            detail: `${job.company} asks for additional information that the safe automation path will not guess.`,
+            submittedAt: null,
+            outcome: null,
+            nextActionLabel:
+              "Open the application and finish the unsupported fields manually",
+            checkpoints: [
+              {
+                id: `checkpoint_${job.id}_open_listing`,
+                at: now,
+                label: "Opened Easy Apply",
+                detail:
+                  "The adapter validated the listing and started the Easy Apply flow.",
+                state: "in_progress",
+              },
+              {
+                id: `checkpoint_${job.id}_manual_review`,
+                at: now,
+                label: "Paused for manual review",
+                detail:
+                  "Unsupported questions were detected before submission.",
+                state: "paused",
+              },
+            ],
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        ApplyExecutionResultSchema.parse({
+          state: "submitted",
+          summary: "Easy Apply submitted",
+          detail: `Submitted ${job.title} at ${job.company} with ${asset.label.toLowerCase()} ${asset.version}.`,
+          submittedAt: now,
+          outcome: "submitted",
+          nextActionLabel: "Monitor your inbox for recruiter follow-up",
           checkpoints: [
             {
               id: `checkpoint_${job.id}_open_listing`,
               at: now,
-              label: 'Opened Easy Apply',
-              detail: 'The adapter validated the listing and started the Easy Apply flow.',
-              state: 'in_progress'
+              label: "Opened Easy Apply",
+              detail:
+                "The adapter opened the Easy Apply workflow from the selected listing.",
+              state: "in_progress",
             },
             {
-              id: `checkpoint_${job.id}_manual_review`,
+              id: `checkpoint_${job.id}_resume_attached`,
               at: now,
-              label: 'Paused for manual review',
-              detail: 'Unsupported questions were detected before submission.',
-              state: 'paused'
-            }
-          ]
-        }))
-      }
-
-      return Promise.resolve(ApplyExecutionResultSchema.parse({
-        state: 'submitted',
-        summary: 'Easy Apply submitted',
-        detail: `Submitted ${job.title} at ${job.company} with ${asset.label.toLowerCase()} ${asset.version}.`,
-        submittedAt: now,
-        outcome: 'submitted',
-        nextActionLabel: 'Monitor your inbox for recruiter follow-up',
-        checkpoints: [
-          {
-            id: `checkpoint_${job.id}_open_listing`,
-            at: now,
-            label: 'Opened Easy Apply',
-            detail: 'The adapter opened the Easy Apply workflow from the selected listing.',
-            state: 'in_progress'
-          },
-          {
-            id: `checkpoint_${job.id}_resume_attached`,
-            at: now,
-            label: 'Attached tailored resume',
-            detail: `Attached ${asset.label.toLowerCase()} ${asset.version}.`,
-            state: 'in_progress'
-          },
-          {
-            id: `checkpoint_${job.id}_submitted`,
-            at: now,
-            label: 'Submission confirmed',
-            detail: 'The supported Easy Apply path completed successfully.',
-            state: 'submitted'
-          }
-        ]
-      }))
+              label: "Attached tailored resume",
+              detail: `Attached ${asset.label.toLowerCase()} ${asset.version}.`,
+              state: "in_progress",
+            },
+            {
+              id: `checkpoint_${job.id}_submitted`,
+              at: now,
+              label: "Submission confirmed",
+              detail: "The supported Easy Apply path completed successfully.",
+              state: "submitted",
+            },
+          ],
+        }),
+      );
     },
     runAgentDiscovery(source, options) {
-      const session = getSession(source)
+      const session = getSession(source);
 
-      if (session.status !== 'ready') {
-        throw buildSessionBlockedResult(session)
+      if (session.status !== "ready") {
+        throw buildSessionBlockedResult(session);
       }
 
       options.onProgress?.({
-        currentUrl: options.startingUrls[0] ?? 'about:blank',
+        currentUrl: options.startingUrls[0] ?? "about:blank",
         jobsFound: 0,
         stepCount: 1,
-        currentAction: 'navigate',
+        currentAction: "navigate",
         targetId: null,
-        adapterKind: source
-      })
+        adapterKind: source,
+      });
 
-      const startedAt = new Date().toISOString()
-      const filteredJobs = catalog.filter((job) => {
-        if (job.source !== source) {
-          return false
-        }
+      const startedAt = new Date().toISOString();
+      const filteredJobs = catalog
+        .filter((job) => {
+          if (job.source !== source) {
+            return false;
+          }
 
-        const matchesRole = matchesAnyPhrase(job.title, options.searchPreferences.targetRoles)
-        const matchesLocation = matchesAnyPhrase(job.location, options.searchPreferences.locations)
-        return matchesRole && matchesLocation
-      }).slice(0, options.targetJobCount)
+          const matchesRole = matchesAnyPhrase(
+            job.title,
+            options.searchPreferences.targetRoles,
+          );
+          const matchesLocation = matchesAnyPhrase(
+            job.location,
+            options.searchPreferences.locations,
+          );
+          return matchesRole && matchesLocation;
+        })
+        .slice(0, options.targetJobCount);
 
       options.onProgress?.({
-        currentUrl: options.startingUrls[0] ?? 'about:blank',
+        currentUrl: options.startingUrls[0] ?? "about:blank",
         jobsFound: filteredJobs.length,
         stepCount: 2,
-        currentAction: 'extract_jobs',
+        currentAction: "extract_jobs",
         targetId: null,
-        adapterKind: source
-      })
+        adapterKind: source,
+      });
 
-      return Promise.resolve(DiscoveryRunResultSchema.parse({
-        source,
-        startedAt,
-        completedAt: new Date().toISOString(),
-        querySummary: `${options.searchPreferences.targetRoles.join(', ') || 'all roles'} | ${options.searchPreferences.locations.join(', ') || 'all locations'} | ${options.siteLabel}`,
-        warning: filteredJobs.length === 0 ? `No catalog jobs matched the current ${options.siteLabel} target.` : null,
-        jobs: filteredJobs,
-        agentMetadata: {
-          steps: 2,
-          incomplete: false,
-          transcriptMessageCount: 0,
-          reviewTranscript: [],
-          compactionState: null,
-          phaseCompletionMode: null,
-          phaseCompletionReason: null,
-          phaseEvidence: null,
-          debugFindings: null
-        }
-      }))
-    }
-  }
+      return Promise.resolve(
+        DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: `${options.searchPreferences.targetRoles.join(", ") || "all roles"} | ${options.searchPreferences.locations.join(", ") || "all locations"} | ${options.siteLabel}`,
+          warning:
+            filteredJobs.length === 0
+              ? `No catalog jobs matched the current ${options.siteLabel} target.`
+              : null,
+          jobs: filteredJobs,
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 0,
+            reviewTranscript: [],
+            compactionState: null,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        }),
+      );
+    },
+  };
 }
 
 export function createStubBrowserSessionRuntime(
-  seed: StubBrowserSessionRuntimeSeed
+  seed: StubBrowserSessionRuntimeSeed,
 ): BrowserSessionRuntime {
-  return createCatalogBrowserSessionRuntime(seed)
+  return createCatalogBrowserSessionRuntime(seed);
 }
 
-export { createBrowserAgentRuntime, type BrowserAgentRuntimeOptions, type JobPageExtractor, type JobPageExtractionInput } from './playwright-browser-runtime'
+export {
+  createBrowserAgentRuntime,
+  type BrowserAgentRuntimeOptions,
+  type JobPageExtractor,
+  type JobPageExtractionInput,
+} from "./playwright-browser-runtime";

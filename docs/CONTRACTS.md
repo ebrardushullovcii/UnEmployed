@@ -13,7 +13,7 @@
 - Candidate profile and resume source metadata
 - Candidate contact fields, stored resume text, extraction status, and provider-visible profile state
 - Job search preferences, approval mode, and tailoring mode
-- Job posting, adapter-driven discovery targets with optional per-target custom navigation instructions, target-level source-instruction status/ids, source-debug run and attempt artifacts, per-phase completion modes and lightweight phase-evidence payloads, evidence refs, retained discovery runs, activity timeline events, fit assessment, discovery provenance, and review queue items, plus learned navigation/search/detail/apply guidance artifacts for each target; live discovery/apply consumes only the active instruction artifact for that exact target (`validated`, or a `draft` that the user explicitly accepted)
+- Job posting, adapter-driven discovery targets with optional per-target custom navigation instructions, target-level source-instruction status/ids, source-debug run and attempt artifacts, per-phase completion modes and lightweight phase-evidence payloads, evidence refs, retained discovery runs, activity timeline events, fit assessment, discovery provenance, and review queue items, plus learned navigation/search/detail/apply guidance artifacts for each target; live discovery/apply consumes only the active instruction artifact for that exact target (the newest bound `draft`, or `validated` when no newer draft is present)
 - Fixed resume template definitions, selected template settings, and template-driven tailored resume asset metadata
 - Tailored resume asset metadata, stored content, preview sections, generation-method notes, and saved artifact paths
 - Application record, event timeline, attempt checkpoints, and apply execution results
@@ -25,7 +25,7 @@
 
 - Browser extraction outputs must be normalized through schemas before they become saved jobs
 - Debug-agent findings and source-instruction drafts must be schema-validated and replay-verified before they become reusable target instructions
-- Draft source instructions for a target are injected into live discovery/apply runs for that same target by default; validated artifacts still take precedence only when no newer draft is bound
+- The newest bound draft source instructions for a target are injected into live discovery/apply runs for that same target by default; validated artifacts apply when no newer draft is bound
 - Source-debug artifacts should stay structured and curated: persist attempt artifacts, evidence refs, phase summaries, completion metadata, and instruction artifacts instead of raw worker transcripts
 - Resume-text extraction outputs must be normalized through schemas before they overwrite stored candidate details
 - Tailored assets and apply attempt checkpoints should be validated before persistence

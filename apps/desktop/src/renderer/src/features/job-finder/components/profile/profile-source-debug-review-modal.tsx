@@ -1,92 +1,110 @@
-import { useEffect, useId, useMemo, useRef } from 'react'
-import { X } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef } from "react";
+import { X } from "lucide-react";
 import type {
   SourceDebugRunDetails,
   SourceDebugRunRecord,
-  SourceInstructionArtifact
-} from '@unemployed/contracts'
-import { Button } from '@renderer/components/ui/button'
-import { formatStatusLabel } from '../../lib/job-finder-utils'
+  SourceInstructionArtifact,
+} from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
+import { formatStatusLabel } from "../../lib/job-finder-utils";
 
 function formatTimestamp(value: string | null): string | null {
   if (!value) {
-    return null
+    return null;
   }
 
-  return new Date(value).toLocaleString()
+  return new Date(value).toLocaleString();
 }
 
-function formatEvidenceCount(details: SourceDebugRunDetails, attemptId: string): number {
-  return details.evidenceRefs.filter((entry) => entry.attemptId === attemptId).length
+function formatEvidenceCount(
+  details: SourceDebugRunDetails,
+  attemptId: string,
+): number {
+  return details.evidenceRefs.filter((entry) => entry.attemptId === attemptId)
+    .length;
 }
 
-function formatInstructionActionLabel(artifact: SourceInstructionArtifact | null): string | null {
+function formatInstructionActionLabel(
+  artifact: SourceInstructionArtifact | null,
+): string | null {
   if (!artifact) {
-    return null
+    return null;
   }
 
-  return artifact.status === 'draft' || artifact.status === 'validated' ? 'Verify instructions' : null
+  return artifact.status === "draft" || artifact.status === "validated"
+    ? "Verify instructions"
+    : null;
 }
 
 export function ProfileSourceDebugReviewModal(props: {
-  busy: boolean
-  details: SourceDebugRunDetails | null
-  errorMessage: string | null
-  loading: boolean
-  onClose: () => void
-  onLoadRun: (runId: string) => void
-  onRerun: () => void
-  onVerify: (instructionId: string) => void
-  open: boolean
-  recentRuns: readonly SourceDebugRunRecord[]
-  selectedRunId: string | null
-  targetLabel: string
+  busy: boolean;
+  details: SourceDebugRunDetails | null;
+  errorMessage: string | null;
+  loading: boolean;
+  onClose: () => void;
+  onLoadRun: (runId: string) => void;
+  onRerun: () => void;
+  onVerify: (instructionId: string) => void;
+  open: boolean;
+  recentRuns: readonly SourceDebugRunRecord[];
+  selectedRunId: string | null;
+  targetLabel: string;
 }) {
-  const dialogTitleId = useId()
-  const dialogRef = useRef<HTMLDivElement | null>(null)
-  const previousFocusRef = useRef<HTMLElement | null>(null)
+  const dialogTitleId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const selectedRun = useMemo(
-    () => props.recentRuns.find((run) => run.id === props.selectedRunId) ?? props.recentRuns[0] ?? null,
-    [props.recentRuns, props.selectedRunId]
-  )
+    () =>
+      props.recentRuns.find((run) => run.id === props.selectedRunId) ??
+      props.recentRuns[0] ??
+      null,
+    [props.recentRuns, props.selectedRunId],
+  );
 
   useEffect(() => {
     if (!props.open) {
-      return
+      return;
     }
 
-    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    dialogRef.current?.focus()
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    dialogRef.current?.focus();
 
     return () => {
-      previousFocusRef.current?.focus()
-    }
-  }, [props.open])
+      previousFocusRef.current?.focus();
+    };
+  }, [props.open]);
 
   useEffect(() => {
     if (!props.open) {
-      return
+      return;
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        props.onClose()
+      if (event.key === "Escape") {
+        props.onClose();
       }
-    }
+    };
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [props.onClose, props.open])
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [props.onClose, props.open]);
 
   if (!props.open) {
-    return null
+    return null;
   }
 
-  const artifact = props.details?.instructionArtifact ?? null
-  const primaryActionLabel = formatInstructionActionLabel(artifact)
+  const artifact = props.details?.instructionArtifact ?? null;
+  const primaryActionLabel = formatInstructionActionLabel(artifact);
+  const details = props.details;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-6 backdrop-blur-sm" onClick={props.onClose}>
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-6 backdrop-blur-sm"
+      onClick={props.onClose}
+    >
       <div
         aria-labelledby={dialogTitleId}
         aria-modal="true"
@@ -98,19 +116,38 @@ export function ProfileSourceDebugReviewModal(props: {
       >
         <div className="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-(--surface-panel-border) px-5 py-4">
           <div className="grid gap-1">
-            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Source-debug review</p>
-            <h2 className="text-[1.2rem] font-semibold tracking-[-0.02em] text-(--text-headline)" id={dialogTitleId}>
+            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+              Source-debug review
+            </p>
+            <h2
+              className="text-[1.2rem] font-semibold tracking-[-0.02em] text-(--text-headline)"
+              id={dialogTitleId}
+            >
               {props.targetLabel}
             </h2>
             <p className="text-[0.9rem] leading-6 text-foreground-soft">
-              Inspect the latest retained phase outcomes, evidence, and learned-instruction status before trusting this target in discovery.
+              Inspect the latest retained phase outcomes, evidence, and
+              learned-instruction status before trusting this target in
+              discovery.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button disabled={props.busy} onClick={props.onRerun} type="button" variant="secondary">
+            <Button
+              disabled={props.busy}
+              onClick={props.onRerun}
+              type="button"
+              variant="secondary"
+            >
               Rerun debug
             </Button>
-            <Button aria-label="Close" className="size-10" onClick={props.onClose} size="icon" type="button" variant="ghost">
+            <Button
+              aria-label="Close"
+              className="size-10"
+              onClick={props.onClose}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
               <X className="size-4" />
             </Button>
           </div>
@@ -118,19 +155,21 @@ export function ProfileSourceDebugReviewModal(props: {
 
         <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <aside className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r">
-            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Recent runs</p>
+            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+              Recent runs
+            </p>
             <div className="grid gap-2 pb-1">
               {props.recentRuns.map((run) => {
-                const isSelected = run.id === selectedRun?.id
+                const isSelected = run.id === selectedRun?.id;
                 return (
                   <button
                     aria-pressed={isSelected}
                     className={[
-                      'grid gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors',
+                      "grid gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors",
                       isSelected
-                        ? 'border-primary/40 bg-primary/10 text-foreground'
-                        : 'border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary'
-                    ].join(' ')}
+                        ? "border-primary/40 bg-primary/10 text-foreground"
+                        : "border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary",
+                    ].join(" ")}
                     key={run.id}
                     onClick={() => props.onLoadRun(run.id)}
                     type="button"
@@ -147,35 +186,45 @@ export function ProfileSourceDebugReviewModal(props: {
                       </span>
                     ) : null}
                   </button>
-                )
+                );
               })}
             </div>
           </aside>
 
           <section className="grid min-h-0 content-start gap-4 overflow-y-auto px-5 py-4">
             {props.loading ? (
-              <div className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 text-[0.9rem] text-foreground-soft">
+              <div
+                aria-atomic="true"
+                aria-live="polite"
+                className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 text-[0.9rem] text-foreground-soft"
+                role="status"
+              >
                 Loading run details…
               </div>
             ) : props.errorMessage ? (
-              <div className="rounded-(--radius-panel) border border-critical/35 bg-(--workspace-state-card-bg-error) px-4 py-4 text-[0.9rem] text-foreground">
+              <div
+                aria-atomic="true"
+                aria-live="assertive"
+                className="rounded-(--radius-panel) border border-critical/35 bg-(--workspace-state-card-bg-error) px-4 py-4 text-[0.9rem] text-foreground"
+                role="alert"
+              >
                 {props.errorMessage}
               </div>
-            ) : props.details ? (
-              (() => {
-                const details = props.details
-
-                return (
+            ) : details ? (
               <>
                 <article className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="grid gap-1">
-                      <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Run outcome</p>
+                      <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                        Run outcome
+                      </p>
                       <p className="text-[1rem] font-medium text-foreground">
                         {formatStatusLabel(details.run.state)}
-                        {formatTimestamp(details.run.completedAt ?? details.run.updatedAt)
+                        {formatTimestamp(
+                          details.run.completedAt ?? details.run.updatedAt,
+                        )
                           ? ` • ${formatTimestamp(details.run.completedAt ?? details.run.updatedAt)}`
-                          : ''}
+                          : ""}
                       </p>
                     </div>
                     {artifact ? (
@@ -194,16 +243,23 @@ export function ProfileSourceDebugReviewModal(props: {
                     ) : null}
                   </div>
                   {details.run.finalSummary ? (
-                    <p className="text-[0.92rem] leading-6 text-foreground">{details.run.finalSummary}</p>
+                    <p className="text-[0.92rem] leading-6 text-foreground">
+                      {details.run.finalSummary}
+                    </p>
                   ) : null}
                   {details.run.manualPrerequisiteSummary ? (
-                    <p className="text-[0.85rem] leading-6 text-foreground-soft">{details.run.manualPrerequisiteSummary}</p>
+                    <p className="text-[0.85rem] leading-6 text-foreground-soft">
+                      {details.run.manualPrerequisiteSummary}
+                    </p>
                   ) : null}
                 </article>
 
                 <div className="grid gap-3">
                   {details.attempts.map((attempt) => {
-                    const evidenceCount = formatEvidenceCount(details, attempt.id)
+                    const evidenceCount = formatEvidenceCount(
+                      details,
+                      attempt.id,
+                    );
                     return (
                       <article
                         className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4"
@@ -215,15 +271,22 @@ export function ProfileSourceDebugReviewModal(props: {
                               {formatStatusLabel(attempt.phase)}
                             </p>
                             <p className="text-[0.95rem] font-medium text-foreground">
-                              {formatStatusLabel(attempt.outcome)} • {formatStatusLabel(attempt.completionMode)}
+                              {formatStatusLabel(attempt.outcome)} •{" "}
+                              {formatStatusLabel(attempt.completionMode)}
                             </p>
                           </div>
                           <div className="text-right text-[0.76rem] text-foreground-muted">
-                            <p>{formatTimestamp(attempt.completedAt ?? attempt.startedAt)}</p>
+                            <p>
+                              {formatTimestamp(
+                                attempt.completedAt ?? attempt.startedAt,
+                              )}
+                            </p>
                             <p>{evidenceCount} evidence refs</p>
                           </div>
                         </div>
-                        <p className="text-[0.92rem] leading-6 text-foreground">{attempt.resultSummary}</p>
+                        <p className="text-[0.92rem] leading-6 text-foreground">
+                          {attempt.resultSummary}
+                        </p>
                         {attempt.completionReason ? (
                           <p className="text-[0.84rem] leading-6 text-foreground-soft">
                             End reason: {attempt.completionReason}
@@ -231,27 +294,43 @@ export function ProfileSourceDebugReviewModal(props: {
                         ) : null}
                         {attempt.phaseEvidence ? (
                           <div className="grid gap-2 text-[0.84rem] text-foreground-soft">
-                            {attempt.phaseEvidence.visibleControls.length > 0 ? (
-                              <p>Visible controls: {attempt.phaseEvidence.visibleControls.join(' • ')}</p>
+                            {attempt.phaseEvidence.visibleControls.length >
+                            0 ? (
+                              <p>
+                                Visible controls:{" "}
+                                {attempt.phaseEvidence.visibleControls.join(
+                                  " • ",
+                                )}
+                              </p>
                             ) : null}
                             {attempt.phaseEvidence.routeSignals.length > 0 ? (
-                              <p>Route signals: {attempt.phaseEvidence.routeSignals.join(' • ')}</p>
+                              <p>
+                                Route signals:{" "}
+                                {attempt.phaseEvidence.routeSignals.join(" • ")}
+                              </p>
                             ) : null}
-                            {attempt.phaseEvidence.attemptedControls.length > 0 ? (
-                              <p>Attempted controls: {attempt.phaseEvidence.attemptedControls.join(' • ')}</p>
+                            {attempt.phaseEvidence.attemptedControls.length >
+                            0 ? (
+                              <p>
+                                Attempted controls:{" "}
+                                {attempt.phaseEvidence.attemptedControls.join(
+                                  " • ",
+                                )}
+                              </p>
                             ) : null}
                             {attempt.phaseEvidence.warnings.length > 0 ? (
-                              <p>Warnings: {attempt.phaseEvidence.warnings.join(' • ')}</p>
+                              <p>
+                                Warnings:{" "}
+                                {attempt.phaseEvidence.warnings.join(" • ")}
+                              </p>
                             ) : null}
                           </div>
                         ) : null}
                       </article>
-                    )
+                    );
                   })}
                 </div>
               </>
-                )
-              })()
             ) : (
               <div className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 text-[0.9rem] text-foreground-soft">
                 No retained run details are available for this target yet.
@@ -261,5 +340,5 @@ export function ProfileSourceDebugReviewModal(props: {
         </div>
       </div>
     </div>
-  )
+  );
 }

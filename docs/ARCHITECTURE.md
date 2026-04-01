@@ -7,6 +7,7 @@
 - `packages/core`: shared result types and small cross-cutting helpers
 - `packages/db`: local persistence and repository boundaries
 - `packages/knowledge-base`: ingestion, chunking, retrieval, search
+- `packages/browser-agent`: generic browser-worker prompts, tools, and phase-task execution
 - `packages/browser-runtime`: browser session lifecycle and automation primitives
 - `packages/job-finder`: discovery, drafting, apply workflow orchestration
 - `packages/interview-helper`: prep, live session, transcript, cue generation
