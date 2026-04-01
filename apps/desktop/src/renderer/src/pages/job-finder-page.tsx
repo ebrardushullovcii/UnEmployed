@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   CandidateProfile,
   DiscoveryActivityEvent,
+  EditableSourceInstructionArtifact,
   JobFinderSettings,
   JobSearchPreferences,
   JobFinderWorkspaceSnapshot,
   SourceDebugRunDetails,
-  SourceInstructionArtifact,
 } from "@unemployed/contracts";
 import { Outlet, useNavigate, useOutletContext } from "react-router-dom";
 import { JobFinderShell } from "../features/job-finder/components/job-finder-shell";
@@ -72,7 +72,7 @@ export interface JobFinderPageContext {
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   onSaveSourceInstructionArtifact: (
     targetId: string,
-    artifact: SourceInstructionArtifact,
+    artifact: EditableSourceInstructionArtifact,
   ) => void;
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void;
   onSaveAll: (

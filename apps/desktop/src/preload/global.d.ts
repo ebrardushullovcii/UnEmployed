@@ -1,12 +1,12 @@
 import type {
   CandidateProfile,
   DesktopPlatformPing,
+  EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
   JobFinderSettings,
   SourceDebugRunRecord,
   SourceDebugRunDetails,
-  SourceInstructionArtifact,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
@@ -65,7 +65,7 @@ declare global {
         ) => Promise<SourceDebugRunDetails>;
         saveSourceInstructionArtifact: (
           targetId: string,
-          artifact: SourceInstructionArtifact,
+          artifact: EditableSourceInstructionArtifact,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         listSourceDebugRuns: (
           targetId: string,

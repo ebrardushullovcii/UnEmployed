@@ -1823,35 +1823,6 @@ function buildChatCompletionsUrl(baseUrl: string): string {
   return new URL("chat/completions", normalizedBaseUrl).toString();
 }
 
-function extractLinkedInJobId(url: string): string {
-  const viewMatch = url.match(/\/jobs\/view\/(\d+)/);
-  if (viewMatch?.[1]) {
-    return viewMatch[1];
-  }
-
-  try {
-    const parsedUrl = new URL(url);
-    const currentJobId = parsedUrl.searchParams.get("currentJobId");
-    return currentJobId ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function buildLinkedInJobUrl(sourceJobId: string): string {
-  return sourceJobId ? `https://www.linkedin.com/jobs/view/${sourceJobId}` : "";
-}
-
-function isLinkedInUrl(url: string): boolean {
-  try {
-    const parsedUrl = new URL(url);
-    const hostname = parsedUrl.hostname.toLowerCase();
-    return hostname === "linkedin.com" || hostname.endsWith(".linkedin.com");
-  } catch {
-    return false;
-  }
-}
-
 function buildGenericCanonicalUrl(url: string, baseUrl?: string): string {
   const trimmedUrl = url.trim();
 
@@ -2266,8 +2237,13 @@ export function createOpenAiCompatibleJobFinderAiClient(
           company: toStr(raw.company),
           location: toStr(raw.location),
           workMode: Array.isArray(raw.workMode) ? raw.workMode : [],
-          applyPath: "unknown" as const,
-          easyApplyEligible: false,
+          applyPath:
+            raw.applyPath === "easy_apply" ||
+            raw.applyPath === "external_redirect" ||
+            raw.applyPath === "unknown"
+              ? raw.applyPath
+              : "unknown",
+          easyApplyEligible: raw.easyApplyEligible === true,
           postedAt: new Date().toISOString(),
           discoveredAt: new Date().toISOString(),
           salaryText: raw.salaryText ? toStr(raw.salaryText) : null,

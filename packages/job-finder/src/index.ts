@@ -53,6 +53,7 @@ import {
   type SourceDebugRunRecord,
   type SourceDebugRunDetails,
   type SourceDebugWorkerAttempt,
+  type EditableSourceInstructionArtifact,
   type SourceInstructionArtifact,
   type MatchAssessment,
   type ResumeTemplateDefinition,
@@ -3120,7 +3121,7 @@ export interface JobFinderWorkspaceService {
   ): Promise<readonly SourceDebugRunRecord[]>;
   saveSourceInstructionArtifact(
     targetId: string,
-    artifact: SourceInstructionArtifact,
+    artifact: EditableSourceInstructionArtifact,
   ): Promise<JobFinderWorkspaceSnapshot>;
   acceptSourceInstructionDraft(
     targetId: string,
@@ -4063,6 +4064,12 @@ export function createJobFinderWorkspaceService(
       reviewInstructionId?: string | null;
     },
   ): Promise<JobFinderWorkspaceSnapshot> {
+    if (activeSourceDebugAbortController) {
+      throw new Error(
+        "A source-debug run is already in progress. Cancel it before starting another run.",
+      );
+    }
+
     const executionController = new AbortController();
     activeSourceDebugAbortController = executionController;
     const onExternalAbort = () => executionController.abort();
@@ -4204,8 +4211,6 @@ export function createJobFinderWorkspaceService(
           await persistSourceDebugRun(run);
         },
         executePhase: async (phase, index) => {
-          const now = new Date().toISOString();
-
           const phasePacket = buildSourceDebugPhasePacket(
             phase,
             run.phaseSummaries,
@@ -4643,7 +4648,7 @@ export function createJobFinderWorkspaceService(
         error instanceof DOMException && error.name === "AbortError";
       run = SourceDebugRunRecordSchema.parse({
         ...run,
-        state: interrupted ? "interrupted" : "failed",
+        state: interrupted ? "cancelled" : "failed",
         updatedAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
         activePhase: null,
@@ -5454,7 +5459,7 @@ export function createJobFinderWorkspaceService(
         throw new Error(`Unknown source debug run '${runId}'.`);
       }
 
-      return run;
+      return SourceDebugRunRecordSchema.parse(run);
     },
     async getSourceDebugRunDetails(runId) {
       const [runs, attempts, evidenceRefs, instructionArtifacts] =
@@ -5499,20 +5504,11 @@ export function createJobFinderWorkspaceService(
           (left, right) =>
             new Date(right.updatedAt).getTime() -
             new Date(left.updatedAt).getTime(),
-        );
+        )
+        .map((run) => SourceDebugRunRecordSchema.parse(run));
     },
     async saveSourceInstructionArtifact(targetId, artifact) {
-      const normalizedArtifact = SourceInstructionArtifactSchema.parse({
-        ...artifact,
-        updatedAt: new Date().toISOString(),
-      });
-
-      if (normalizedArtifact.targetId !== targetId) {
-        throw new Error(
-          `Source instruction '${normalizedArtifact.id}' does not belong to target '${targetId}'.`,
-        );
-      }
-
+      const editableArtifact = artifact;
       const searchPreferences = await repository.getSearchPreferences();
       const target = searchPreferences.discovery.targets.find(
         (entry) => entry.id === targetId,
@@ -5522,15 +5518,32 @@ export function createJobFinderWorkspaceService(
         throw new Error(`Unknown discovery target '${targetId}'.`);
       }
 
+      const existingArtifact = (
+        await repository.listSourceInstructionArtifacts()
+      ).find(
+        (entry) => entry.id === editableArtifact.id && entry.targetId === targetId,
+      );
+
+      if (!existingArtifact) {
+        throw new Error(`Unknown source instruction '${editableArtifact.id}'.`);
+      }
+
       const isBoundInstruction =
-        normalizedArtifact.id === target.draftInstructionId ||
-        normalizedArtifact.id === target.validatedInstructionId;
+        existingArtifact.id === target.draftInstructionId ||
+        existingArtifact.id === target.validatedInstructionId;
 
       if (!isBoundInstruction) {
         throw new Error(
-          `Source instruction '${normalizedArtifact.id}' is not bound to target '${targetId}'.`,
+          `Source instruction '${existingArtifact.id}' is not bound to target '${targetId}'.`,
         );
       }
+
+      const normalizedArtifact = SourceInstructionArtifactSchema.parse({
+        ...existingArtifact,
+        ...editableArtifact,
+        targetId,
+        updatedAt: new Date().toISOString(),
+      });
 
       await repository.upsertSourceInstructionArtifact(normalizedArtifact);
       return getWorkspaceSnapshot();

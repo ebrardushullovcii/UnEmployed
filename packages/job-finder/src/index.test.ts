@@ -27,6 +27,28 @@ import { createJobFinderWorkspaceService } from "./index";
 
 type SourceDebugPhaseMap<TValue> = Partial<Record<SourceDebugPhase, TValue>>;
 
+function toPhaseId(
+  strategyLabel: string | null | undefined,
+): SourceDebugPhase | null {
+  const normalized = strategyLabel
+    ?.trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z_]/g, "");
+
+  switch (normalized) {
+    case "access_auth_probe":
+    case "site_structure_mapping":
+    case "search_filter_probe":
+    case "job_detail_validation":
+    case "apply_path_validation":
+    case "replay_verification":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
 function createSeed(): JobFinderRepositorySeed {
   return {
     profile: {
@@ -436,7 +458,7 @@ function createAgentBrowserRuntime(
       source,
       options: AgentDiscoveryOptions,
     ): Promise<DiscoveryRunResult> {
-      const phaseId = options.taskPacket?.phaseId ?? null;
+      const phaseId = toPhaseId(options.taskPacket?.strategyLabel);
       const debugFindings = phaseId
         ? (runtimeOptions?.debugFindingsByPhase?.[phaseId] ?? null)
         : null;
@@ -1347,7 +1369,7 @@ describe("createJobFinderWorkspaceService", () => {
           id: "instruction_not_bound_to_target",
         },
       ),
-    ).rejects.toThrow(/not bound to target/i);
+    ).rejects.toThrow(/unknown source instruction/i);
   });
 
   test("agent discovery abort keeps streamed activity and avoids persistence", async () => {
@@ -3192,6 +3214,76 @@ describe("createJobFinderWorkspaceService", () => {
     expect(learnedLines.toLowerCase()).not.toContain(
       "discovery encountered an error",
     );
+  });
+
+  test("rejects starting a second source-debug run while one is already active", async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: [],
+    });
+    let releaseFirstRun!: () => void;
+    const firstRunBlocked = new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    });
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_source_debug_concurrent",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_source_debug_concurrent",
+          title: "Staff Product Designer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: "$180k - $220k",
+          summary: "Validate stable job detail routes.",
+          description: "Validate stable job detail routes.",
+          keySkills: ["Figma", "React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    let runCalls = 0;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      async runAgentDiscovery(source, options) {
+        runCalls += 1;
+
+        if (runCalls === 1) {
+          await firstRunBlocked;
+        }
+
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+      documentManager: createDocumentManager(),
+    });
+
+    const firstRunPromise = workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
+    await Promise.resolve();
+    await expect(
+      workspaceService.runSourceDebug("target_linkedin_default"),
+    ).rejects.toThrow(/already in progress/i);
+
+    releaseFirstRun();
+    const snapshot = await firstRunPromise;
+
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
   });
 
   test("filters noisy step-budget and direct-url hack lines out of learned source guidance", async () => {

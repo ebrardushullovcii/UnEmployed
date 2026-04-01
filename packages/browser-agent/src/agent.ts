@@ -366,9 +366,8 @@ function recordToolEvidence(
   }
 
   if (toolName === 'fill' && normalizedResult.success) {
-    const text = typeof args.text === 'string' ? args.text.trim() : ''
     appendPhaseEvidence(state, 'successfulInteractions', [
-      controlLabel ? `Filled ${controlLabel}${text ? ` with "${text.slice(0, 40)}"` : ''}` : null
+      controlLabel ? `Filled ${controlLabel}` : null
     ])
   }
 

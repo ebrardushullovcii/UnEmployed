@@ -7,8 +7,10 @@ import {
   DiscoveryRunResultSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
+  SourceDebugEvidenceRefSchema,
   SourceDebugRunRecordSchema,
   SourceInstructionArtifactSchema,
+  SourceInstructionVerificationSchema,
   applicationStatusValues,
 } from "./index";
 
@@ -274,6 +276,123 @@ describe("contracts", () => {
 
     expect(run.state).toBe("completed");
     expect(artifact.status).toBe("validated");
+  });
+
+  test("rejects impossible validated source-instruction lifecycle states", () => {
+    expect(() =>
+      SourceInstructionArtifactSchema.parse({
+        id: "source_instruction_invalid",
+        targetId: "target_1",
+        status: "validated",
+        createdAt: "2026-03-20T10:01:00.000Z",
+        updatedAt: "2026-03-20T10:02:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "source_debug_run_1",
+        basedOnAttemptIds: ["source_debug_attempt_1"],
+        notes: null,
+        navigationGuidance: ["Use the jobs route first."],
+        searchGuidance: [],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "source-debug-v1",
+          toolsetVersion: "browser-tools-v1",
+          adapterVersion: "target_site",
+          appSchemaVersion: "job-finder-source-debug-v1",
+        },
+        verification: {
+          id: "source_instruction_verification_invalid",
+          replayRunId: null,
+          verifiedAt: null,
+          outcome: "unverified",
+          proofSummary: null,
+          reason: null,
+          versionInfo: {
+            promptProfileVersion: "source-debug-v1",
+            toolsetVersion: "browser-tools-v1",
+            adapterVersion: "target_site",
+            appSchemaVersion: "job-finder-source-debug-v1",
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects impossible source-debug run lifecycle states", () => {
+    expect(() =>
+      SourceDebugRunRecordSchema.parse({
+        id: "source_debug_run_invalid",
+        targetId: "target_1",
+        state: "completed",
+        startedAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:02:00.000Z",
+        completedAt: null,
+        activePhase: "replay_verification",
+        phases: ["replay_verification"],
+        targetLabel: "KosovaJob",
+        targetUrl: "https://kosovajob.com/",
+        targetHostname: "kosovajob.com",
+        manualPrerequisiteSummary: null,
+        finalSummary: "Done",
+        attemptIds: ["source_debug_attempt_1"],
+        phaseSummaries: [],
+        instructionArtifactId: "source_instruction_1",
+      }),
+    ).toThrow();
+  });
+
+  test("requires evidence-specific fields for source-debug evidence refs", () => {
+    expect(
+      SourceDebugEvidenceRefSchema.parse({
+        id: "source_debug_evidence_url",
+        runId: "source_debug_run_1",
+        attemptId: "source_debug_attempt_1",
+        targetId: "target_1",
+        phase: "job_detail_validation",
+        kind: "url",
+        label: "Validated job detail",
+        capturedAt: "2026-03-20T10:01:15.000Z",
+        url: "https://jobs.example.com/roles/1",
+        storagePath: null,
+        excerpt: "Stable target-site job detail URL.",
+      }).kind,
+    ).toBe("url");
+
+    expect(() =>
+      SourceDebugEvidenceRefSchema.parse({
+        id: "source_debug_evidence_note_invalid",
+        runId: "source_debug_run_1",
+        attemptId: "source_debug_attempt_1",
+        targetId: "target_1",
+        phase: "job_detail_validation",
+        kind: "note",
+        label: "Missing excerpt",
+        capturedAt: "2026-03-20T10:01:15.000Z",
+        url: null,
+        storagePath: null,
+        excerpt: null,
+      }),
+    ).toThrow();
+  });
+
+  test("requires replay metadata for verified source-instruction outcomes", () => {
+    expect(() =>
+      SourceInstructionVerificationSchema.parse({
+        id: "source_instruction_verification_invalid",
+        replayRunId: null,
+        verifiedAt: null,
+        outcome: "passed",
+        proofSummary: null,
+        reason: null,
+        versionInfo: {
+          promptProfileVersion: "source-debug-v1",
+          toolsetVersion: "browser-tools-v1",
+          adapterVersion: "target_site",
+          appSchemaVersion: "job-finder-source-debug-v1",
+        },
+      }),
+    ).toThrow();
   });
 
   test("parses a job finder workspace snapshot", () => {

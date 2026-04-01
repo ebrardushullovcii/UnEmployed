@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent,
 import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import type {
   CandidateProfile,
+  EditableSourceInstructionArtifact,
   JobSearchPreferences,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
@@ -116,7 +117,7 @@ export function ProfileScreen(props: {
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
   onRunSourceDebug: (targetId: string) => void
-  onSaveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => void
+  onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
   profile: CandidateProfile

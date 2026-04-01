@@ -287,6 +287,115 @@ function migrateWorkModeToArray(
   return nextData;
 }
 
+function migrateLegacySourceIdentifiers(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalizeSource = (value: unknown) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    if (normalized === "generic_site" || normalized === "linkedin") {
+      return "target_site";
+    }
+
+    return value;
+  };
+
+  const normalizeAdapterKind = (value: unknown) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    if (
+      normalized === "linkedin" ||
+      normalized === "generic_site" ||
+      normalized === "target_site"
+    ) {
+      return "auto";
+    }
+
+    return value;
+  };
+
+  const migrateRecordArray = (
+    entries: unknown,
+    migrateRecord: (record: Record<string, unknown>) => Record<string, unknown>,
+  ): unknown => {
+    if (!Array.isArray(entries)) {
+      return entries;
+    }
+
+    return entries.map((entry): unknown => {
+      if (typeof entry !== "object" || entry === null) {
+        return entry;
+      }
+
+      return migrateRecord(entry as Record<string, unknown>);
+    });
+  };
+
+  const nextData = { ...data };
+
+  if (data.searchPreferences && typeof data.searchPreferences === "object") {
+    const searchPreferences = data.searchPreferences as Record<string, unknown>;
+    const discovery =
+      searchPreferences.discovery && typeof searchPreferences.discovery === "object"
+        ? (searchPreferences.discovery as Record<string, unknown>)
+        : null;
+
+    nextData.searchPreferences = {
+      ...searchPreferences,
+      ...(discovery
+        ? {
+            discovery: {
+              ...discovery,
+              targets: migrateRecordArray(discovery.targets, (record) => ({
+                ...record,
+                adapterKind: normalizeAdapterKind(record.adapterKind),
+              })),
+            },
+          }
+        : {}),
+    };
+  }
+
+  if (Array.isArray(data.savedJobs)) {
+    nextData.savedJobs = migrateRecordArray(data.savedJobs, (record) => ({
+      ...record,
+      source: normalizeSource(record.source),
+      provenance: migrateRecordArray(record.provenance, (provenanceRecord) => ({
+        ...provenanceRecord,
+        adapterKind: normalizeAdapterKind(provenanceRecord.adapterKind),
+        resolvedAdapterKind: normalizeSource(
+          provenanceRecord.resolvedAdapterKind,
+        ),
+      })),
+    }));
+  }
+
+  const legacyDiscovery =
+    data.discovery && typeof data.discovery === "object"
+      ? (data.discovery as Record<string, unknown>)
+      : null;
+
+  if (legacyDiscovery) {
+    nextData.discovery = {
+      ...legacyDiscovery,
+      sessions: migrateRecordArray(legacyDiscovery.sessions, (record) => ({
+        ...record,
+        adapterKind: normalizeSource(record.adapterKind),
+      })),
+    };
+  }
+
+  return nextData;
+}
+
 async function readLegacySeed(
   filePath: string,
   seed: JobFinderRepositorySeed,
@@ -300,7 +409,9 @@ async function readLegacySeed(
   try {
     const raw = await readFile(legacyPath, "utf8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const migratedData = migrateWorkModeToArray(parsed);
+    const migratedData = migrateLegacySourceIdentifiers(
+      migrateWorkModeToArray(parsed),
+    );
     const profile = CandidateProfileSchema.safeParse(migratedData.profile);
     const searchPreferences = JobSearchPreferencesSchema.safeParse(
       migratedData.searchPreferences,

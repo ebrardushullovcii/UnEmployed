@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import {
   workModeValues,
+  type EditableSourceInstructionArtifact,
   type SourceDebugRunDetails,
   type SourceDebugRunRecord,
   type SourceInstructionArtifact
@@ -63,7 +64,7 @@ interface ProfilePreferencesTabProps {
   busy: boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunSourceDebug: (targetId: string) => void
-  onSaveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => void
+  onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>
   profileForm: UseFormReturn<ProfileEditorValues>
@@ -242,12 +243,21 @@ function normalizeEditableInstructionInput(field: LearnedInstructionField, value
   return trimmed
 }
 
+function hasValidAbsoluteStartingUrl(value: string): boolean {
+  try {
+    const parsedUrl = new URL(value.trim())
+    return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 function updateArtifactInstructionSection(
   artifact: SourceInstructionArtifact,
   field: LearnedInstructionField,
   normalizedKey: string,
   nextValue: string | null
-): SourceInstructionArtifact {
+): EditableSourceInstructionArtifact {
   const currentValues = [...artifact[field]]
   const replacement = nextValue === null ? null : normalizeEditableInstructionInput(field, nextValue)
   const nextValues = currentValues.flatMap((value) => {
@@ -273,7 +283,7 @@ function TargetRow(props: {
   instructionArtifact: SourceInstructionArtifact | null
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunSourceDebug: (targetId: string) => void
-  onSaveSourceInstructionArtifact: (targetId: string, artifact: SourceInstructionArtifact) => void
+  onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   target: DiscoveryTargetValue
@@ -317,7 +327,7 @@ function TargetRow(props: {
     props.updateDiscoveryTargets(nextTargets)
   }
 
-  const saveInstructionArtifact = (artifact: SourceInstructionArtifact) => {
+  const saveInstructionArtifact = (artifact: EditableSourceInstructionArtifact) => {
     props.onSaveSourceInstructionArtifact(props.target.id, artifact)
   }
 
@@ -423,7 +433,7 @@ function TargetRow(props: {
         <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</p>
         <div className="flex flex-wrap gap-2">
           <Button
-            disabled={props.busy || !props.target.startingUrl.trim()}
+            disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
             onClick={() => props.onRunSourceDebug(props.target.id)}
             type="button"
             variant="secondary"
@@ -575,6 +585,7 @@ function TargetRow(props: {
                         {isEditing ? (
                           <div className="grid gap-2">
                             <ProfileTextarea
+                              aria-label={`Edit ${section.label.toLowerCase()} instruction`}
                               className="min-h-[7rem]"
                               onChange={(event) => setEditingInstructionValue(event.target.value)}
                               rows={4}

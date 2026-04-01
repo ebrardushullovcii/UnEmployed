@@ -444,7 +444,7 @@ export function createCatalogBrowserSessionRuntime(
     runAgentDiscovery(source, options) {
       const session = getSession(source);
 
-      if (session.status !== "ready") {
+      if (!options.skipSessionValidation && session.status !== "ready") {
         throw buildSessionBlockedResult(session);
       }
 

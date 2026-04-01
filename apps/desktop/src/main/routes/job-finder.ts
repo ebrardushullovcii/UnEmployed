@@ -10,6 +10,7 @@ import {
   JobFinderSettingsSchema,
   SaveJobFinderWorkspaceInputSchema,
   SourceDebugRunDetailsSchema,
+  SourceDebugRunRecordSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
 } from "@unemployed/contracts";
@@ -260,7 +261,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const run = await jobFinderWorkspaceService.getSourceDebugRun(runId);
 
-      return run;
+      return SourceDebugRunRecordSchema.parse(run);
     },
   );
 
@@ -300,7 +301,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const runs =
         await jobFinderWorkspaceService.listSourceDebugRuns(targetId);
 
-      return runs;
+      return SourceDebugRunRecordSchema.array().parse(runs);
     },
   );
 

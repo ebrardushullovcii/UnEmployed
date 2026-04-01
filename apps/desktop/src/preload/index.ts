@@ -2,12 +2,12 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   CandidateProfile,
   DesktopPlatformPing,
+  EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
   JobFinderSettings,
   SourceDebugRunRecord,
   SourceDebugRunDetails,
-  SourceInstructionArtifact,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
@@ -182,7 +182,7 @@ const desktopApi = {
       }) as Promise<SourceDebugRunDetails>,
     saveSourceInstructionArtifact: (
       targetId: string,
-      artifact: SourceInstructionArtifact,
+      artifact: EditableSourceInstructionArtifact,
     ) =>
       ipcRenderer.invoke("job-finder:save-source-instruction-artifact", {
         targetId,

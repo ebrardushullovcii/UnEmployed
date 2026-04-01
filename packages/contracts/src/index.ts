@@ -46,12 +46,50 @@ export type TailoringMode = z.infer<typeof TailoringModeSchema>;
 
 export const jobSourceValues = ["target_site"] as const;
 
-export const JobSourceSchema = z.enum(jobSourceValues);
+function normalizeLegacyJobSource(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "generic_site" || normalized === "linkedin") {
+    return "target_site";
+  }
+
+  return value;
+}
+
+export const JobSourceSchema = z.preprocess(
+  normalizeLegacyJobSource,
+  z.enum(jobSourceValues),
+);
 export type JobSource = z.infer<typeof JobSourceSchema>;
 
 export const jobSourceAdapterKindValues = ["auto"] as const;
 
-export const JobSourceAdapterKindSchema = z.enum(jobSourceAdapterKindValues);
+function normalizeLegacyJobSourceAdapterKind(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (
+    normalized === "linkedin" ||
+    normalized === "generic_site" ||
+    normalized === "target_site"
+  ) {
+    return "auto";
+  }
+
+  return value;
+}
+
+export const JobSourceAdapterKindSchema = z.preprocess(
+  normalizeLegacyJobSourceAdapterKind,
+  z.enum(jobSourceAdapterKindValues),
+);
 export type JobSourceAdapterKind = z.infer<typeof JobSourceAdapterKindSchema>;
 
 export const workModeValues = [
@@ -603,19 +641,45 @@ export type SourceDebugPhaseEvidence = z.infer<
   typeof SourceDebugPhaseEvidenceSchema
 >;
 
-export const SourceDebugEvidenceRefSchema = z.object({
+const SourceDebugEvidenceRefBaseSchema = z.object({
   id: NonEmptyStringSchema,
   runId: NonEmptyStringSchema,
   attemptId: NonEmptyStringSchema,
   targetId: NonEmptyStringSchema,
   phase: SourceDebugPhaseSchema,
-  kind: SourceDebugEvidenceKindSchema,
   label: NonEmptyStringSchema,
   capturedAt: IsoDateTimeSchema,
-  url: UrlStringSchema.nullable().default(null),
-  storagePath: NonEmptyStringSchema.nullable().default(null),
+});
+
+const SourceDebugUrlEvidenceRefSchema = SourceDebugEvidenceRefBaseSchema.extend({
+  kind: z.literal("url"),
+  url: UrlStringSchema,
+  storagePath: z.null().default(null),
   excerpt: NonEmptyStringSchema.nullable().default(null),
 });
+
+const SourceDebugScreenshotEvidenceRefSchema =
+  SourceDebugEvidenceRefBaseSchema.extend({
+    kind: z.literal("screenshot"),
+    url: UrlStringSchema.nullable().default(null),
+    storagePath: NonEmptyStringSchema,
+    excerpt: NonEmptyStringSchema.nullable().default(null),
+  });
+
+const SourceDebugNoteEvidenceRefSchema = SourceDebugEvidenceRefBaseSchema.extend(
+  {
+    kind: z.literal("note"),
+    url: UrlStringSchema.nullable().default(null),
+    storagePath: z.null().default(null),
+    excerpt: NonEmptyStringSchema,
+  },
+);
+
+export const SourceDebugEvidenceRefSchema = z.discriminatedUnion("kind", [
+  SourceDebugUrlEvidenceRefSchema,
+  SourceDebugScreenshotEvidenceRefSchema,
+  SourceDebugNoteEvidenceRefSchema,
+]);
 export type SourceDebugEvidenceRef = z.infer<
   typeof SourceDebugEvidenceRefSchema
 >;
@@ -664,59 +728,250 @@ export type SourceDebugPhaseSummary = z.infer<
   typeof SourceDebugPhaseSummarySchema
 >;
 
-export const SourceInstructionVerificationSchema = z.object({
-  id: NonEmptyStringSchema,
-  replayRunId: NonEmptyStringSchema.nullable().default(null),
-  verifiedAt: IsoDateTimeSchema.nullable().default(null),
-  outcome: SourceInstructionVerificationOutcomeSchema.default("unverified"),
-  proofSummary: NonEmptyStringSchema.nullable().default(null),
-  reason: NonEmptyStringSchema.nullable().default(null),
-  versionInfo: SourceInstructionVersionInfoSchema,
-});
+export const SourceInstructionVerificationSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    replayRunId: NonEmptyStringSchema.nullable().default(null),
+    verifiedAt: IsoDateTimeSchema.nullable().default(null),
+    outcome: SourceInstructionVerificationOutcomeSchema.default("unverified"),
+    proofSummary: NonEmptyStringSchema.nullable().default(null),
+    reason: NonEmptyStringSchema.nullable().default(null),
+    versionInfo: SourceInstructionVersionInfoSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.outcome === "unverified") {
+      if (value.replayRunId !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Unverified source-instruction verification cannot point at a replay run.",
+          path: ["replayRunId"],
+        });
+      }
+
+      if (value.verifiedAt !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Unverified source-instruction verification cannot have a verified timestamp.",
+          path: ["verifiedAt"],
+        });
+      }
+
+      if (value.proofSummary !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Unverified source-instruction verification cannot include proof summary text.",
+          path: ["proofSummary"],
+        });
+      }
+
+      if (value.reason !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Unverified source-instruction verification cannot include a failure reason.",
+          path: ["reason"],
+        });
+      }
+
+      return;
+    }
+
+    if (value.replayRunId === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Verified source-instruction outcomes must reference the replay run.",
+        path: ["replayRunId"],
+      });
+    }
+
+    if (value.verifiedAt === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Verified source-instruction outcomes must include a verified timestamp.",
+        path: ["verifiedAt"],
+      });
+    }
+
+    if (value.outcome === "passed" && value.proofSummary === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Passed source-instruction verification must include a proof summary.",
+        path: ["proofSummary"],
+      });
+    }
+  });
 export type SourceInstructionVerification = z.infer<
   typeof SourceInstructionVerificationSchema
 >;
 
-export const SourceInstructionArtifactSchema = z.object({
+export const SourceInstructionArtifactSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    targetId: NonEmptyStringSchema,
+    status: SourceInstructionStatusSchema.default("draft"),
+    createdAt: IsoDateTimeSchema,
+    updatedAt: IsoDateTimeSchema,
+    acceptedAt: IsoDateTimeSchema.nullable().default(null),
+    basedOnRunId: NonEmptyStringSchema,
+    basedOnAttemptIds: z.array(NonEmptyStringSchema).default([]),
+    notes: NonEmptyStringSchema.nullable().default(null),
+    navigationGuidance: z.array(NonEmptyStringSchema).default([]),
+    searchGuidance: z.array(NonEmptyStringSchema).default([]),
+    detailGuidance: z.array(NonEmptyStringSchema).default([]),
+    applyGuidance: z.array(NonEmptyStringSchema).default([]),
+    warnings: z.array(NonEmptyStringSchema).default([]),
+    versionInfo: SourceInstructionVersionInfoSchema,
+    verification: SourceInstructionVerificationSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (value.status !== "validated") {
+      return;
+    }
+
+    if (value.acceptedAt === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Validated source instructions must record when they were accepted.",
+        path: ["acceptedAt"],
+      });
+    }
+
+    if (!value.verification || value.verification.outcome !== "passed") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Validated source instructions must carry a passed verification record.",
+        path: ["verification"],
+      });
+    }
+  });
+export type SourceInstructionArtifact = z.infer<
+  typeof SourceInstructionArtifactSchema
+>;
+
+export const EditableSourceInstructionArtifactSchema = z.object({
   id: NonEmptyStringSchema,
-  targetId: NonEmptyStringSchema,
-  status: SourceInstructionStatusSchema.default("draft"),
-  createdAt: IsoDateTimeSchema,
-  updatedAt: IsoDateTimeSchema,
-  acceptedAt: IsoDateTimeSchema.nullable().default(null),
-  basedOnRunId: NonEmptyStringSchema,
-  basedOnAttemptIds: z.array(NonEmptyStringSchema).default([]),
   notes: NonEmptyStringSchema.nullable().default(null),
   navigationGuidance: z.array(NonEmptyStringSchema).default([]),
   searchGuidance: z.array(NonEmptyStringSchema).default([]),
   detailGuidance: z.array(NonEmptyStringSchema).default([]),
   applyGuidance: z.array(NonEmptyStringSchema).default([]),
   warnings: z.array(NonEmptyStringSchema).default([]),
-  versionInfo: SourceInstructionVersionInfoSchema,
-  verification: SourceInstructionVerificationSchema.nullable().default(null),
 });
-export type SourceInstructionArtifact = z.infer<
-  typeof SourceInstructionArtifactSchema
+export type EditableSourceInstructionArtifact = z.infer<
+  typeof EditableSourceInstructionArtifactSchema
 >;
 
-export const SourceDebugRunRecordSchema = z.object({
-  id: NonEmptyStringSchema,
-  targetId: NonEmptyStringSchema,
-  state: SourceDebugRunStateSchema.default("idle"),
-  startedAt: IsoDateTimeSchema,
-  updatedAt: IsoDateTimeSchema,
-  completedAt: IsoDateTimeSchema.nullable().default(null),
-  activePhase: SourceDebugPhaseSchema.nullable().default(null),
-  phases: z.array(SourceDebugPhaseSchema).default([]),
-  targetLabel: NonEmptyStringSchema,
-  targetUrl: UrlStringSchema,
-  targetHostname: NonEmptyStringSchema,
-  manualPrerequisiteSummary: NonEmptyStringSchema.nullable().default(null),
-  finalSummary: NonEmptyStringSchema.nullable().default(null),
-  attemptIds: z.array(NonEmptyStringSchema).default([]),
-  phaseSummaries: z.array(SourceDebugPhaseSummarySchema).default([]),
-  instructionArtifactId: NonEmptyStringSchema.nullable().default(null),
-});
+export const SourceDebugRunRecordSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    targetId: NonEmptyStringSchema,
+    state: SourceDebugRunStateSchema.default("idle"),
+    startedAt: IsoDateTimeSchema,
+    updatedAt: IsoDateTimeSchema,
+    completedAt: IsoDateTimeSchema.nullable().default(null),
+    activePhase: SourceDebugPhaseSchema.nullable().default(null),
+    phases: z.array(SourceDebugPhaseSchema).default([]),
+    targetLabel: NonEmptyStringSchema,
+    targetUrl: UrlStringSchema,
+    targetHostname: NonEmptyStringSchema,
+    manualPrerequisiteSummary: NonEmptyStringSchema.nullable().default(null),
+    finalSummary: NonEmptyStringSchema.nullable().default(null),
+    attemptIds: z.array(NonEmptyStringSchema).default([]),
+    phaseSummaries: z.array(SourceDebugPhaseSummarySchema).default([]),
+    instructionArtifactId: NonEmptyStringSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    const isTerminalState =
+      value.state === "completed" ||
+      value.state === "cancelled" ||
+      value.state === "failed" ||
+      value.state === "interrupted";
+
+    if (value.state === "idle") {
+      if (value.completedAt !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Idle source-debug runs cannot have a completion timestamp.",
+          path: ["completedAt"],
+        });
+      }
+
+      if (value.activePhase !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Idle source-debug runs cannot have an active phase.",
+          path: ["activePhase"],
+        });
+      }
+
+      return;
+    }
+
+    if (value.state === "running") {
+      if (value.completedAt !== null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Running source-debug runs cannot have a completion timestamp.",
+          path: ["completedAt"],
+        });
+      }
+
+      if (value.activePhase === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Running source-debug runs must keep track of the active phase.",
+          path: ["activePhase"],
+        });
+      }
+
+      return;
+    }
+
+    if (value.state === "paused_manual") {
+      if (value.completedAt === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Manually paused source-debug runs must record when the pause happened.",
+          path: ["completedAt"],
+        });
+      }
+
+      if (value.activePhase === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Manually paused source-debug runs must keep the phase that needs attention.",
+          path: ["activePhase"],
+        });
+      }
+
+      return;
+    }
+
+    if (isTerminalState && value.completedAt === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Finished source-debug runs must record a completion timestamp.",
+        path: ["completedAt"],
+      });
+    }
+
+    if (isTerminalState && value.activePhase !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Finished source-debug runs cannot keep an active phase.",
+        path: ["activePhase"],
+      });
+    }
+  });
 export type SourceDebugRunRecord = z.infer<typeof SourceDebugRunRecordSchema>;
 
 export const SourceDebugRunDetailsSchema = z.object({
@@ -1062,7 +1317,7 @@ export type JobFinderSourceInstructionActionInput = z.infer<
 
 export const JobFinderSaveSourceInstructionInputSchema = z.object({
   targetId: NonEmptyStringSchema,
-  artifact: SourceInstructionArtifactSchema,
+  artifact: EditableSourceInstructionArtifactSchema,
 });
 export type JobFinderSaveSourceInstructionInput = z.infer<
   typeof JobFinderSaveSourceInstructionInputSchema

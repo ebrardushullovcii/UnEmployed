@@ -1,7 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
-import path from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
 import {
   ApplyExecutionResultSchema,
@@ -195,6 +194,7 @@ export function createBrowserAgentRuntime(
   const runtimeAiClient = options.aiClient ?? null;
   let browserPromise: Promise<Browser> | null = null;
   let launchedChromeProcess: ChildProcess | null = null;
+  let ownsChromeProcess = false;
   let currentSessionState = BrowserSessionStateSchema.parse({
     source: "target_site",
     status: "unknown",
@@ -226,6 +226,7 @@ export function createBrowserAgentRuntime(
   function resetBrowserConnection(): void {
     browserPromise = null;
     launchedChromeProcess = null;
+    ownsChromeProcess = false;
     setSessionState(
       "target_site",
       "unknown",
@@ -274,43 +275,13 @@ export function createBrowserAgentRuntime(
     });
   }
 
-  async function terminateChromeProcessesByFingerprint(): Promise<void> {
-    const runCommand = async (
-      command: string,
-      args: string[],
-    ): Promise<void> => {
-      await new Promise<void>((resolve) => {
-        const child = spawn(command, args, {
-          stdio: "ignore",
-          windowsHide: true,
-        });
-
-        child.once("exit", () => resolve());
-        child.once("error", () => resolve());
-      });
-    };
-
-    const userDataFingerprint = `--user-data-dir=${options.userDataDir}`;
-    const debugPortFingerprint = `--remote-debugging-port=${debugPort}`;
-
-    if (process.platform === "win32") {
-      return;
-    }
-
-    await runCommand("pkill", ["-f", userDataFingerprint]).catch(
-      () => undefined,
-    );
-    await runCommand("pkill", ["-f", debugPortFingerprint]).catch(
-      () => undefined,
-    );
-  }
-
   async function terminateLaunchedChromeProcess(): Promise<void> {
     const chromeProcess = launchedChromeProcess;
+    const shouldTerminate = ownsChromeProcess;
     launchedChromeProcess = null;
+    ownsChromeProcess = false;
 
-    if (!chromeProcess?.pid) {
-      await terminateChromeProcessesByFingerprint();
+    if (!shouldTerminate || !chromeProcess?.pid) {
       return;
     }
 
@@ -358,7 +329,6 @@ export function createBrowserAgentRuntime(
       }
     }
 
-    await terminateChromeProcessesByFingerprint();
   }
 
   async function connectBrowser(): Promise<Browser> {
@@ -407,12 +377,18 @@ export function createBrowserAgentRuntime(
           stdio: "ignore",
           windowsHide: false,
         });
+        ownsChromeProcess = true;
         launchedChromeProcess.once("exit", () => {
           resetBrowserConnection();
         });
         launchedChromeProcess.unref();
 
-        await waitForDebuggerEndpoint(debugPort);
+        try {
+          await waitForDebuggerEndpoint(debugPort);
+        } catch (error) {
+          await terminateLaunchedChromeProcess().catch(() => undefined);
+          throw error;
+        }
       }
 
       return connectBrowser();
@@ -451,11 +427,11 @@ export function createBrowserAgentRuntime(
   }
 
   return {
-    async getSessionState(source) {
-      return BrowserSessionStateSchema.parse({
+    getSessionState(source) {
+      return Promise.resolve(BrowserSessionStateSchema.parse({
         ...currentSessionState,
         source,
-      });
+      }));
     },
     async openSession(source) {
       await getReadyPage(source);
@@ -468,7 +444,9 @@ export function createBrowserAgentRuntime(
       try {
         if (browserPromise) {
           const browser = await browserPromise;
-          await browser.close().catch(() => {});
+          if (ownsChromeProcess) {
+            await browser.close().catch(() => {});
+          }
         }
       } catch {
         // Ignore browser close failures and continue process cleanup.
@@ -484,10 +462,10 @@ export function createBrowserAgentRuntime(
         "The dedicated browser profile is closed. It will reopen automatically when the next run starts.",
       );
     },
-    async runDiscovery(source, searchPreferences) {
+    runDiscovery(source, searchPreferences) {
       const timestamp = new Date().toISOString();
 
-      return DiscoveryRunResultSchema.parse({
+      return Promise.resolve(DiscoveryRunResultSchema.parse({
         source,
         startedAt: timestamp,
         completedAt: timestamp,
@@ -498,15 +476,15 @@ export function createBrowserAgentRuntime(
         warning:
           "Direct live discovery is not available for generic target flows. Use the agent discovery path instead.",
         jobs: [],
-      });
+      }));
     },
-    async executeEasyApply(
+    executeEasyApply(
       source,
       input: ExecuteEasyApplyInput,
     ): Promise<ApplyExecutionResult> {
       const startedAt = new Date().toISOString();
 
-      return ApplyExecutionResultSchema.parse({
+      return Promise.resolve(ApplyExecutionResultSchema.parse({
         state: "unsupported",
         summary: "Apply automation is not available for generic target flows",
         detail: `The current runtime does not submit applications automatically for '${input.job.title}'. Use the learned target guidance to continue manually.`,
@@ -523,7 +501,7 @@ export function createBrowserAgentRuntime(
             state: "unsupported",
           },
         ],
-      });
+      }));
     },
     async runAgentDiscovery(
       source: JobSource,

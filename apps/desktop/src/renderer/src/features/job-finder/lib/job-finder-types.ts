@@ -1,12 +1,13 @@
 import type {
   CandidateProfile,
   DiscoveryActivityEvent,
+  EditableSourceInstructionArtifact,
   JobFinderSettings,
   JobSearchPreferences,
   JobFinderWorkspaceSnapshot,
   JobSourceAdapterKind,
   SourceDebugRunDetails,
-  SourceInstructionArtifact,
+  SourceInstructionStatus,
   WorkMode,
 } from "@unemployed/contracts";
 
@@ -30,7 +31,7 @@ export interface JobFinderShellActions {
   getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   saveSourceInstructionArtifact: (
     targetId: string,
-    artifact: SourceInstructionArtifact,
+    artifact: EditableSourceInstructionArtifact,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   acceptSourceInstructionDraft: (
     targetId: string,
@@ -140,7 +141,7 @@ export type DiscoveryTargetEditorValue = {
   enabled: boolean;
   adapterKind: JobSourceAdapterKind;
   customInstructions: string;
-  instructionStatus: string;
+  instructionStatus: SourceInstructionStatus;
   validatedInstructionId: string | null;
   draftInstructionId: string | null;
   lastDebugRunId: string | null;

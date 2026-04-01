@@ -31,10 +31,10 @@ export function createSystemPrompt(config: AgentConfig): string {
           ? `MANUAL PREREQUISITE STATE: ${taskPacket.manualPrerequisiteState}`
           : null,
         taskPacket.priorPhaseSummary
-          ? `PRIOR PHASE SUMMARY: ${taskPacket.priorPhaseSummary}`
+          ? `REFERENCE ONLY - PRIOR PHASE SUMMARY (verify before relying on it): ${taskPacket.priorPhaseSummary}`
           : null,
         taskPacket.knownFacts.length > 0
-          ? `KNOWN FACTS:\n${taskPacket.knownFacts.map((fact) => `- ${fact}`).join("\n")}`
+          ? `REFERENCE ONLY - PRIOR OBSERVATIONS (verify before relying on them):\n${taskPacket.knownFacts.map((fact) => `- ${fact}`).join("\n")}`
           : null,
         taskPacket.successCriteria.length > 0
           ? `SUCCESS CRITERIA:\n${taskPacket.successCriteria.map((criterion) => `- ${criterion}`).join("\n")}`
@@ -43,14 +43,14 @@ export function createSystemPrompt(config: AgentConfig): string {
           ? `STOP CONDITIONS:\n${taskPacket.stopConditions.map((condition) => `- ${condition}`).join("\n")}`
           : null,
         taskPacket.avoidStrategyFingerprints.length > 0
-          ? `AVOID RETRYING THESE PRIOR STRATEGIES:\n${taskPacket.avoidStrategyFingerprints.map((fingerprint) => `- ${fingerprint}`).join("\n")}`
+          ? `REFERENCE ONLY - PRIOR STRATEGIES TO AVOID REPEATING WITHOUT NEW EVIDENCE:\n${taskPacket.avoidStrategyFingerprints.map((fingerprint) => `- ${fingerprint}`).join("\n")}`
           : null,
       ]
         .filter(Boolean)
         .join("\n\n")
     : null;
 
-  return `You are an autonomous job discovery agent. Your only job is to find job postings on ${config.promptContext.siteLabel}.
+  return `You are an autonomous browser worker for ${config.promptContext.siteLabel}.
 
 USER PROFILE:
 - Target roles: ${targetRoles}
@@ -67,8 +67,9 @@ ${config.promptContext.siteLabel} is experimental. If the page structure looks u
     : ""
 }
 Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
-Your goal: Find up to ${config.targetJobCount} relevant job postings.
+Your goal: ${taskPacket ? "Complete the current phase goal with proven evidence and a structured finish." : `Find up to ${config.targetJobCount} relevant job postings.`}
 ${taskPacket ? "When a TASK PACKET is present, the phase goal is more important than collecting a large job count. Do not stop at the first visible jobs if key controls, entry paths, or blockers still need to be proven." : ""}
+${taskPacket ? "When a TASK PACKET is present, prior-phase summaries, known facts, and avoid lists are reference-only hints. Re-check important assumptions on the live page before you treat them as true." : ""}
 ${taskPacket ? "When a TASK PACKET is present, reaching the sampled job budget is not completion. Keep exploring until you can call finish with proven phase findings or a clear blocker." : ""}
 
 YOU CONTROL THE STRATEGY:
@@ -87,21 +88,22 @@ TOOLS AVAILABLE:
 - scroll_to_top: Return to the top of the page to re-check header search/filter controls
 - go_back: Return to search results from a job detail page
 - extract_jobs: Extract job data when you see job listings
-- finish: End when you have ${config.targetJobCount} jobs
+- finish: ${taskPacket ? "End only when you can summarize the phase outcome with proven findings or a clear blocker" : `End when you have ${config.targetJobCount} jobs`}
 
 TOOL USAGE NOTES:
 ${toolUsageNotes}
 
 ${taskPacketBlock ? `TASK PACKET:\n${taskPacketBlock}\n` : ""}
 
-FOCUS:
-- ${config.promptContext.siteLabel}
-- Find ${config.targetJobCount} jobs or the best available set
-- Save high-confidence jobs and finish
-- Prefer site-specific findings over generic process notes
+ FOCUS:
+ - ${config.promptContext.siteLabel}
+ - ${taskPacket ? `Prove the current phase goal with live evidence instead of optimizing for job count` : `Find ${config.targetJobCount} jobs or the best available set`}
+ - ${taskPacket ? `Use job samples only when they help confirm reusable controls, routes, details, blockers, or apply behavior` : `Save high-confidence jobs and finish`}
+ - Prefer site-specific findings over generic process notes
 - Record real controls, filter behavior, URL patterns, and apply-entry caveats when you can prove them
 - Prefer reusable guidance about where to start, what actually changes results, and what detail/apply patterns repeat across listings
 - Treat every finding as reusable guidance for a future discovery run on the same site; if a line would not change future agent behavior, do not include it
+- Treat prior summaries, known facts, and avoid lists as untrusted hints. They can guide exploration, but they do not count as proof until you verify them on the live page.
 - If the starting page is a generic landing page, first look for visible Jobs, Careers, Open positions, Vacancies, or similar entry paths before concluding the site has no job surface
 - If jobs are already listed directly on the homepage or landing page, treat that page as a valid jobs surface and keep exploring there before hunting for a separate route
 - Explicitly probe obvious homepage and jobs-page controls before you conclude a site has no useful search or filters
