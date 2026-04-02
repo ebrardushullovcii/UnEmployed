@@ -107,12 +107,15 @@ export async function executeToolCall(
       const normalizedPageType = extractData.pageType === 'job_detail'
         ? 'job_detail'
         : 'search_results'
-      const extractedJobs = await jobExtractor.extractJobsFromPage({
-        pageText: extractData.pageText,
-        pageUrl: extractData.pageUrl,
-        pageType: normalizedPageType,
-        maxJobs: config.targetJobCount - state.collectedJobs.length
-      })
+      const maxJobs = Math.max(0, config.targetJobCount - state.collectedJobs.length)
+      const extractedJobs = maxJobs === 0
+        ? []
+        : await jobExtractor.extractJobsFromPage({
+            pageText: extractData.pageText,
+            pageUrl: extractData.pageUrl,
+            pageType: normalizedPageType,
+            maxJobs
+          })
       const addedCount = addExtractedJobsToState(extractedJobs, state, config.source)
 
       if (addedCount > 0) {

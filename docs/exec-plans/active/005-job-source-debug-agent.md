@@ -14,7 +14,7 @@ The first architecture slice is now landed:
 - `packages/browser-agent` now supports worker-side transcript compaction and returns compacted metadata rather than exposing its full transcript to the orchestrator
 - Profile Preferences exposes a `Debug source` target action plus instruction-status metadata
 - desktop IPC/preload now exposes source-debug run, cancel, get/list, save-artifact, and verify actions for follow-on UI work
-- source-debug now includes a bounded `apply_path_validation` phase that records safe apply-entry guidance without submitting an application, and approved supported apply forwards the active matching-target guidance into the runtime
+- source-debug now includes a bounded `apply_path_validation` phase that records safe apply-entry guidance without submitting an application, and the supported apply runtime now forwards the newest draft or validated matching-target guidance into the runtime
 - Profile Preferences now renders learned source instructions separately from manual override text so successful debug runs no longer look empty when `customInstructions` stays blank
 - The orchestrator now curates learned instructions more aggressively: exact sample URLs, per-job result counts, and raw phase boilerplate are filtered out in favor of reusable controls, filter gotchas, navigation patterns, and apply-entry guidance
 - Source-debug now forces stronger proof of repeatable entry paths, visible search/filter controls, recommendation or `show all` routes, and pagination behavior before promotion can pass

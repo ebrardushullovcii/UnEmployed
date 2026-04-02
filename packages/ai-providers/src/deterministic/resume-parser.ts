@@ -2,7 +2,7 @@ import type {
   ExtractProfileFromResumeInput,
   ResumeProfileExtraction,
 } from "../shared";
-import type { CandidateProfile, JobSearchPreferences } from "@unemployed/contracts";
+import type { CandidateLinkKind, CandidateProfile, JobSearchPreferences } from "@unemployed/contracts";
 import { ResumeProfileExtractionSchema } from "../shared";
 import {
   contactOrMetaPattern,
@@ -561,7 +561,7 @@ function inferExperienceEntries(resumeText: string) {
     .filter((entry) => entry.title || entry.companyName || entry.summary);
 }
 
-function inferLinkKind(url: string): "linkedin" | "github" | "website" {
+function inferLinkKind(url: string): CandidateLinkKind {
   if (/linkedin\.com/i.test(url)) {
     return "linkedin";
   }
@@ -570,7 +570,27 @@ function inferLinkKind(url: string): "linkedin" | "github" | "website" {
     return "github";
   }
 
-  return "website";
+  if (/(behance\.net|dribbble\.com|artstation\.com|adobe\.com\/portfolio)/i.test(url)) {
+    return "portfolio";
+  }
+
+  if (/(gitlab\.com|bitbucket\.org)/i.test(url) || /\/(?:repo|repository|tree|blob)\//i.test(url)) {
+    return "repository";
+  }
+
+  if (/\/(?:case[-_ ]study|case[-_ ]studies|work\/)/i.test(url)) {
+    return "case_study";
+  }
+
+  if (/(portfolio|showcase|projects|my[-_ ]work)/i.test(url)) {
+    return "portfolio";
+  }
+
+  if (/website|site/i.test(url)) {
+    return "website";
+  }
+
+  return "other";
 }
 
 function inferLinkLabel(url: string): string {

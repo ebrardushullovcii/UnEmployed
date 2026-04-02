@@ -125,19 +125,8 @@ async function parseModelJsonResponse(response: Response): Promise<unknown> {
     );
   }
 
-  const normalizedPayload = payload as {
-    choices?: Array<{
-      message?: {
-        content?: unknown;
-      };
-    }>;
-    error?: {
-      message?: string;
-    };
-  }
-
   const rawContent = extractContentString(
-    normalizedPayload.choices?.[0]?.message?.content,
+    payload.choices?.[0]?.message?.content,
   );
   const jsonString = extractJsonString(rawContent);
 

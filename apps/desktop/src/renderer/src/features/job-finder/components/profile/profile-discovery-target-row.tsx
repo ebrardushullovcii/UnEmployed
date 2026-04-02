@@ -71,10 +71,11 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   const [editingInstructionValue, setEditingInstructionValue] = useState('')
 
   const updateTarget = (nextTarget: DiscoveryTargetValue) => {
+    const existingTarget = props.discoveryTargets[props.index]
     const nextTargets = [...props.discoveryTargets]
     nextTargets[props.index] = {
       ...nextTarget,
-      adapterKind: 'auto'
+      adapterKind: nextTarget.adapterKind ?? existingTarget?.adapterKind ?? 'auto'
     }
     props.updateDiscoveryTargets(nextTargets)
   }
@@ -153,10 +154,13 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     const nextRunId = selectedRunId ?? latestDebugRun?.id ?? targetRuns[0]?.id ?? null
     if (!nextRunId) {
       setReviewDetails(null)
+      setReviewError(null)
+      setReviewLoading(false)
       return
     }
 
     let cancelled = false
+    setReviewDetails(null)
     setReviewLoading(true)
     setReviewError(null)
 
@@ -174,6 +178,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           return
         }
 
+        setReviewDetails(null)
         setReviewError(error instanceof Error ? error.message : 'Unable to load source-debug run details.')
         setReviewLoading(false)
       })
@@ -199,9 +204,9 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   }
 
   return (
-    <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</p>
+    <article className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-4">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</h3>
         <div className="flex flex-wrap gap-2">
           <Button
             aria-label={`Debug source for ${displayName} (target ${props.index + 1})`}
@@ -239,7 +244,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             Remove
           </Button>
         </div>
-      </div>
+      </header>
 
       <div className="grid gap-(--gap-content) md:grid-cols-2">
         <div className="grid h-full min-w-0 content-start gap-(--gap-field)">
@@ -347,6 +352,6 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         selectedRunId={selectedRunId}
         targetLabel={displayName}
       />
-    </div>
+    </article>
   )
 }

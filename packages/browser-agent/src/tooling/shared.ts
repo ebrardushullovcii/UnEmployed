@@ -80,6 +80,10 @@ export const ScrollToTopSchema = z
   })
   .strict();
 
+export const GoBackSchema = z
+  .object({})
+  .strict();
+
 export const ExtractJobsSchema = z
   .object({
     pageType: z.enum(["search_results", "job_detail", "company_page", "unknown"]),

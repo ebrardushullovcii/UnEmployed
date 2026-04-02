@@ -46,6 +46,8 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
 
   const matches = [...salaryText.matchAll(/(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi)]
   const knownCompensationPeriods = new Set(['yr', 'year', 'years', 'annual', 'annum', 'mo', 'month', 'months', 'wk', 'week', 'weeks', 'day', 'days', 'hr', 'hrs', 'hour', 'hours'])
+  const secondaryCompensationBeforePattern = /(bonus|commission|sign[- ]?on|equity|ote)/i
+  const secondaryCompensationAfterPattern = /^(?:[:\-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i
 
   if (matches.length === 0) {
     return null
@@ -55,6 +57,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
     .map((match) => {
       const baseValue = parseFloat((match[1] ?? '').replaceAll(',', ''))
       const suffix = (match[2] ?? '').toLowerCase()
+      const precedingText = salaryText.slice(Math.max(0, (match.index ?? 0) - 24), match.index ?? 0).toLowerCase()
       const followingText = salaryText.slice((match.index ?? 0) + match[0].length).trimStart().toLowerCase()
 
       if (!Number.isFinite(baseValue) || baseValue <= 0) {
@@ -70,6 +73,13 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
         if (!knownCompensationPeriods.has(periodUnit)) {
           return null
         }
+      }
+
+      const trailingContext = followingText.slice(0, 24)
+      const leadingContext = precedingText.split(/\s+/).slice(-3).join(' ')
+
+      if (secondaryCompensationBeforePattern.test(leadingContext) || secondaryCompensationAfterPattern.test(trailingContext)) {
+        return null
       }
 
       if (!suffix && baseValue < 1000) {

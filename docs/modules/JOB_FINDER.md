@@ -19,6 +19,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Discovery expansion plan: `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md`
 - Next planned source-bootstrap plan: `docs/exec-plans/active/005-job-source-debug-agent.md`
 - Next planned production-copy pass: `docs/exec-plans/active/006-profile-discovery-production-copy-pass.md`
+- Resume workspace plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - Discovery targets are site-specific and resolved automatically from their configured entrypoints
 - First submission path: `Easy Apply` only
 - First approval mode: `review-before-submit`
@@ -34,6 +35,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - The Discovery full-history view now keeps the current in-flight run visible alongside retained runs, marks the live run clearly, and auto-follows new activity until the user scrolls away
 - The next planned UI polish pass keeps the current Profile fields and overall Discovery structure but trims developer-oriented copy, low-value statuses, and other text noise before broader capability expands again
 - Desktop actions can import `txt`, `md`, `pdf`, and `docx` resumes, reset stale profile/search state before re-analysis, extract resume text for the profile agent, analyze that text into structured candidate details including grouped skills and repeatable records, supplement partial model output with deterministic cleanup, render generated resume text into a fixed template set, and create tracked apply attempts through typed preload flows
+- The current tailored-resume path still maps a flat AI draft directly into a fixed-template `html` artifact, and the next planned extension is a dedicated resume workspace with structured drafts, bounded employer research, source-backed editing, and `pdf`-first export
 - The next profile-model redesign is documented in `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`, now refined against current ATS and hiring-platform patterns with a proposed split between candidate identity, eligibility, background, job-search preferences, and profile artifacts so the UI can separate ATS-critical facts from AI-derived resume content
 
 ## Agent Runtime Configuration
@@ -52,6 +54,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Extraction path: `pdfjs-dist` handles PDF text recovery, `mammoth` handles DOCX raw-text extraction, and plain-text sources pass through directly
 - Output path: the AI agent produces the resume text and section content, then Job Finder renders that content into a small fixed template set instead of asking the model to invent document layout from scratch
 - Current artifact shape: generated resumes save a local HTML template file plus the underlying generated text content so the formatting layer stays inspectable and replaceable later
+- Next planned artifact path: keep `html` as the render and debug layer, add `pdf` as the first uploadable artifact, and leave `docx` as a later follow-up once the dedicated workspace is stable
 
 ## Package Boundaries
 

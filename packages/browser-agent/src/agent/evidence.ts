@@ -72,6 +72,29 @@ function formatControlLabel(role: string | undefined, name: string | undefined, 
   return `${trimmedRole} "${trimmedName}"${typeof index === 'number' && index > 0 ? ` (#${index + 1})` : ''}`
 }
 
+function normalizeInteractiveElement(value: unknown): { role?: string; name?: string; index?: number } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  const candidate = value as Record<string, unknown>
+  const normalized: { role?: string; name?: string; index?: number } = {}
+
+  if (typeof candidate.role === 'string') {
+    normalized.role = candidate.role
+  }
+
+  if (typeof candidate.name === 'string') {
+    normalized.name = candidate.name
+  }
+
+  if (typeof candidate.index === 'number' && Number.isFinite(candidate.index)) {
+    normalized.index = candidate.index
+  }
+
+  return normalized
+}
+
 export function synthesizeFallbackDebugFindings(state: AgentState): NonNullable<AgentResult['debugFindings']> | null {
   const reliableControls = state.phaseEvidence.visibleControls.slice(0, 4)
   const navigationTips = uniqueStrings([
@@ -141,7 +164,9 @@ export function recordToolEvidence(
 
   if (toolName === 'get_interactive_elements' && normalizedResult.success && normalizedResult.data) {
     const elements = Array.isArray(normalizedResult.data.elements)
-      ? normalizedResult.data.elements as Array<{ role?: string; name?: string; index?: number }>
+      ? normalizedResult.data.elements
+          .map((element) => normalizeInteractiveElement(element))
+          .filter((element): element is { role?: string; name?: string; index?: number } => element !== null)
       : []
     appendPhaseEvidence(
       state,

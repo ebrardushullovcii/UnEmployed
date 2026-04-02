@@ -1,6 +1,7 @@
 import { isAllowedUrl } from "../allowlist";
 import type { ToolDefinition } from "../types";
 import {
+  GoBackSchema,
   NavigateSchema,
   recoverFromOffAllowlist,
   ScrollDownSchema,
@@ -185,8 +186,13 @@ Use this when search boxes, filters, or header controls may be above the current
     description: `Navigate back to the previous page.
     
 Use this after viewing a job detail to return to search results.`,
-    parameters: { type: "object", properties: {} },
-    execute: async (_args, context) => {
+    parameters: { type: "object", properties: {}, required: [] },
+    execute: async (args, context) => {
+      const parseResult = GoBackSchema.safeParse(args);
+      if (!parseResult.success) {
+        return { success: false, error: `Invalid go_back arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
+      }
+
       const { page, state } = context;
 
       try {
@@ -200,7 +206,7 @@ Use this after viewing a job detail to return to search results.`,
           const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
-            if (recovery.recovered && recovery.recoveredUrl) {
+            if (recovery.recovered && recovery.recoveredUrl && isAllowedUrl(recovery.recoveredUrl, context.config.navigationPolicy).valid) {
               state.currentUrl = recovery.recoveredUrl;
             }
             return { success: false, error: recovery.error, data: { wentBack: false, previousUrl, invalidUrl: newUrl, recovered: recovery.recovered } };
@@ -215,7 +221,7 @@ Use this after viewing a job detail to return to search results.`,
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy);
           if (!urlCheck.valid) {
             const recovery = await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy);
-            if (recovery.recovered && recovery.recoveredUrl) {
+            if (recovery.recovered && recovery.recoveredUrl && isAllowedUrl(recovery.recoveredUrl, context.config.navigationPolicy).valid) {
               state.currentUrl = recovery.recoveredUrl;
             }
           } else {
