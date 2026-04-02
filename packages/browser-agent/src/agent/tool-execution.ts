@@ -134,9 +134,4 @@ export async function executeToolCall(
       await new Promise(resolve => setTimeout(resolve, 500 * attempt))
     }
   }
-
-  return {
-    success: false,
-    error: `Unknown tool: ${toolName}`
-  }
 }

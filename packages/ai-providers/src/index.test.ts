@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
 import {
+  completeResumeExtraction,
+  createOpenAiCompatibleJobFinderAiClient,
   createDeterministicJobFinderAiClient,
   createJobFinderAiClientFromEnvironment
 } from './index'
@@ -116,6 +118,57 @@ function createPreferences(): JobSearchPreferences {
         }
       ]
     }
+  }
+}
+
+function createExtraction(
+  overrides: Partial<Awaited<ReturnType<ReturnType<typeof createDeterministicJobFinderAiClient>['extractProfileFromResume']>>> = {}
+) {
+  return {
+    firstName: null,
+    lastName: null,
+    middleName: null,
+    fullName: null,
+    headline: null,
+    summary: null,
+    currentLocation: null,
+    timeZone: null,
+    salaryCurrency: null,
+    yearsExperience: null,
+    email: null,
+    phone: null,
+    portfolioUrl: null,
+    linkedinUrl: null,
+    githubUrl: null,
+    personalWebsiteUrl: null,
+    professionalSummary: {
+      shortValueProposition: null,
+      fullSummary: null,
+      careerThemes: [],
+      leadershipSummary: null,
+      domainFocusSummary: null,
+      strengths: []
+    },
+    skillGroups: {
+      coreSkills: [],
+      tools: [],
+      languagesAndFrameworks: [],
+      softSkills: [],
+      highlightedSkills: []
+    },
+    skills: [],
+    targetRoles: [],
+    preferredLocations: [],
+    experiences: [],
+    education: [],
+    certifications: [],
+    links: [],
+    projects: [],
+    spokenLanguages: [],
+    analysisProviderKind: 'deterministic' as const,
+    analysisProviderLabel: 'test',
+    notes: [],
+    ...overrides
   }
 }
 
@@ -282,6 +335,207 @@ describe('ai providers', () => {
     expect(result.personalWebsiteUrl).toBe('https://jamierivers.dev')
   })
 
+  test('chooses likely portfolio links over company or certification URLs when no personal site is present', async () => {
+    const client = createDeterministicJobFinderAiClient()
+
+    const result = await client.extractProfileFromResume({
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      resumeText: [
+        'Jamie Rivers',
+        'https://acme.com/team/jamie-rivers',
+        'https://www.credly.com/badges/example-badge',
+        'https://github.com/jamie-rivers',
+        'https://www.linkedin.com/in/jamie-rivers'
+      ].join('\n')
+    })
+
+    expect(result.portfolioUrl).toBe('https://github.com/jamie-rivers')
+  })
+
+  test('keeps merged experience and education unions when fallback data is richer', () => {
+    const primary = createExtraction({
+      experiences: [
+        {
+          companyName: null,
+          companyUrl: null,
+          title: 'Software Engineer',
+          employmentType: null,
+          location: null,
+          workMode: null,
+          startDate: '2024',
+          endDate: null,
+          isCurrent: false,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        },
+        {
+          companyName: 'DesignCo',
+          companyUrl: null,
+          title: 'Designer',
+          employmentType: null,
+          location: 'Remote',
+          workMode: 'remote',
+          startDate: '2022',
+          endDate: '2023',
+          isCurrent: false,
+          summary: 'Owned design systems',
+          achievements: ['Led a redesign'],
+          skills: ['Figma'],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        }
+      ],
+      education: [
+        {
+          schoolName: 'Riinvest',
+          degree: null,
+          fieldOfStudy: null,
+          location: 'Prishtina',
+          startDate: null,
+          endDate: null,
+          summary: null
+        },
+        {
+          schoolName: 'Local College',
+          degree: 'BSc',
+          fieldOfStudy: 'Computer Science',
+          location: 'London',
+          startDate: null,
+          endDate: null,
+          summary: null
+        }
+      ]
+    })
+    const fallback = createExtraction({
+      experiences: [
+        {
+          companyName: 'Acme',
+          companyUrl: 'https://acme.example',
+          title: 'Engineer',
+          employmentType: 'full_time',
+          location: 'Remote',
+          workMode: 'remote',
+          startDate: '2024',
+          endDate: null,
+          isCurrent: true,
+          summary: 'Built product features',
+          achievements: ['Shipped new flows'],
+          skills: ['React'],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        },
+        {
+          companyName: 'Ops Co',
+          companyUrl: null,
+          title: 'Operations Lead',
+          employmentType: null,
+          location: 'Berlin',
+          workMode: 'hybrid',
+          startDate: '2021',
+          endDate: '2022',
+          isCurrent: false,
+          summary: 'Led operations',
+          achievements: ['Scaled hiring'],
+          skills: ['Leadership'],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        }
+      ],
+      education: [
+        {
+          schoolName: 'Riinvest College',
+          degree: 'BSc',
+          fieldOfStudy: 'Computer Science',
+          location: 'Prishtina',
+          startDate: null,
+          endDate: null,
+          summary: 'Graduated with honors'
+        },
+        {
+          schoolName: 'Graduate School',
+          degree: 'MSc',
+          fieldOfStudy: 'Design Systems',
+          location: 'Berlin',
+          startDate: null,
+          endDate: null,
+          summary: null
+        }
+      ]
+    })
+
+    const result = completeResumeExtraction(primary, fallback)
+
+    expect(result.experiences).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: 'Software Engineer', companyName: 'Acme', isCurrent: true }),
+        expect.objectContaining({ title: 'Designer', companyName: 'DesignCo' }),
+        expect.objectContaining({ title: 'Operations Lead', companyName: 'Ops Co' })
+      ])
+    )
+    expect(result.education).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ schoolName: 'Riinvest College', degree: 'BSc' }),
+        expect.objectContaining({ schoolName: 'Local College', degree: 'BSc' }),
+        expect.objectContaining({ schoolName: 'Graduate School', degree: 'MSc' })
+      ])
+    )
+  })
+
+  test('preserves unmatched fallback links without urls while still merging null-url positions', () => {
+    const primary = createExtraction({
+      links: [
+        {
+          label: null,
+          url: null,
+          kind: null
+        },
+        {
+          label: 'GitHub',
+          url: 'https://github.com/alex-vanguard',
+          kind: null
+        }
+      ]
+    })
+    const fallback = createExtraction({
+      links: [
+        {
+          label: 'Portfolio',
+          url: null,
+          kind: 'portfolio'
+        },
+        {
+          label: 'Personal website',
+          url: null,
+          kind: 'website'
+        },
+        {
+          label: null,
+          url: 'https://github.com/alex-vanguard',
+          kind: 'github'
+        }
+      ]
+    })
+
+    const result = completeResumeExtraction(primary, fallback)
+
+    expect(result.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Portfolio', url: null, kind: 'portfolio' }),
+        expect.objectContaining({ label: 'Personal website', url: null, kind: 'website' }),
+        expect.objectContaining({ label: 'GitHub', url: 'https://github.com/alex-vanguard', kind: 'github' })
+      ])
+    )
+    expect(result.links.filter((entry) => entry.url === null)).toHaveLength(2)
+  })
+
   test('falls back to deterministic mode without an API key', () => {
     const client = createJobFinderAiClientFromEnvironment({
       UNEMPLOYED_AI_API_KEY: undefined
@@ -298,6 +552,23 @@ describe('ai providers', () => {
     expect(client.getStatus()).toMatchObject({
       kind: 'openai_compatible',
       model: 'FelidaeAI-Pro-2.5',
+      label: 'AI resume agent'
+    })
+  })
+
+  test('marks the OpenAI-compatible client as not ready when config is invalid', () => {
+    const client = createOpenAiCompatibleJobFinderAiClient({
+      apiKey: 'test-key',
+      baseUrl: 'not-a-url',
+      model: '',
+      label: 'AI resume agent'
+    })
+
+    expect(client.getStatus()).toMatchObject({
+      kind: 'openai_compatible',
+      ready: false,
+      model: null,
+      baseUrl: null,
       label: 'AI resume agent'
     })
   })

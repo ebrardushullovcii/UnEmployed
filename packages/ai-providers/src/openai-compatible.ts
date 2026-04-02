@@ -1,14 +1,13 @@
-import { JobPostingSchema } from "@unemployed/contracts";
+import { AgentProviderStatusSchema, JobPostingSchema, type ToolCall } from "@unemployed/contracts";
 import {
-  AgentProviderStatusSchema,
   JobFitAssessmentSchema,
+  OpenAiCompatibleJobFinderAiClientOptionsSchema,
   ResumeProfileExtractionSchema,
   TailoredResumeDraftSchema,
   type AgentCapableJobFinderAiClient,
   type JobFinderAiClient,
   type OpenAiCompatibleJobFinderAiClientOptions,
   type StringMap,
-  type ToolCall,
 } from "./shared";
 import {
   buildDeterministicResumeProfileExtraction,
@@ -117,29 +116,39 @@ function buildChatCompletionsUrl(baseUrl: string): string {
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions,
 ): AgentCapableJobFinderAiClient {
+  const configuredOptions = OpenAiCompatibleJobFinderAiClientOptionsSchema.safeParse(options);
+  const validatedOptions = configuredOptions.success ? configuredOptions.data : null;
   const status = AgentProviderStatusSchema.parse({
     kind: "openai_compatible",
-    ready: true,
-    label: options.label ?? "AI resume agent",
-    model: options.model,
-    baseUrl: options.baseUrl,
+    ready: configuredOptions.success,
+    label: validatedOptions?.label ?? "AI resume agent",
+    model: validatedOptions?.model ?? null,
+    baseUrl: validatedOptions?.baseUrl ?? null,
     detail:
-      "The configured AI provider handles resume extraction and tailoring. Structured JSON outputs are validated locally before they affect Job Finder state.",
+      configuredOptions.success
+        ? "The configured AI provider handles resume extraction and tailoring. Structured JSON outputs are validated locally before they affect Job Finder state."
+        : "The configured AI provider settings are invalid. Check the model and base URL before enabling model-backed resume extraction.",
   });
 
   async function fetchModelJson(
     systemPrompt: string,
     userPayload: unknown,
   ): Promise<unknown> {
-    const response = await fetch(buildChatCompletionsUrl(options.baseUrl), {
+    if (!validatedOptions) {
+      throw new Error(
+        "The configured AI provider settings are invalid. Check the model and base URL before making model requests.",
+      );
+    }
+
+    const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
       method: "POST",
       signal: AbortSignal.timeout(60_000),
       headers: {
-        Authorization: `Bearer ${options.apiKey}`,
+        Authorization: `Bearer ${validatedOptions.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: options.model,
+        model: validatedOptions.model,
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [

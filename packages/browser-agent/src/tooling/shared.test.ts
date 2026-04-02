@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { describe, expect, test, vi } from "vitest";
-import { buildComboboxOptionScopes } from "./shared";
+import { buildComboboxOptionScopes, ClickSchema, FillSchema, SelectOptionSchema } from "./shared";
 
 describe("buildComboboxOptionScopes", () => {
   test("limits combobox option clicks to the popup when aria-controls is present", () => {
@@ -25,3 +25,11 @@ describe("buildComboboxOptionScopes", () => {
     expect(scopes).toHaveLength(1);
   });
 });
+
+describe("interactive tool schemas", () => {
+  test("reject invalid aria roles at the schema boundary", () => {
+    expect(ClickSchema.safeParse({ role: "dialog", name: "Open", index: 0 }).success).toBe(false)
+    expect(FillSchema.safeParse({ role: "grid", name: "Search", text: "engineer" }).success).toBe(false)
+    expect(SelectOptionSchema.safeParse({ role: "button", name: "Location", optionText: "Remote" }).success).toBe(true)
+  })
+})

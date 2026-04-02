@@ -150,19 +150,25 @@ Returns information about whether new content was loaded so you can decide wheth
     description: `Scroll back to the top of the current page.
 
 Use this when search boxes, filters, or header controls may be above the current scroll position and need to be re-checked.`,
-    parameters: { type: "object", properties: {} },
+    parameters: {
+      type: "object",
+      properties: {
+        delayMs: { type: "number", description: "Milliseconds to wait after returning to the top before checking the page state (default: 800)", default: 800 },
+      },
+    },
     execute: async (args, context) => {
       const parseResult = ScrollToTopSchema.safeParse(args);
       if (!parseResult.success) {
         return { success: false, error: `Invalid scroll_to_top arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
       }
 
+      const { delayMs } = parseResult.data;
       const { page } = context;
 
       try {
         const beforeInfo = await page.evaluate(() => ({ scrollY: window.scrollY, scrollHeight: document.body.scrollHeight, clientHeight: window.innerHeight }));
         await page.evaluate(() => window.scrollTo(0, 0));
-        await page.waitForTimeout(800);
+        await page.waitForTimeout(delayMs);
         const afterInfo = await page.evaluate(() => ({ scrollY: window.scrollY, scrollHeight: document.body.scrollHeight, clientHeight: window.innerHeight }));
         return { success: true, data: { previousScrollY: beforeInfo.scrollY, newScrollY: afterInfo.scrollY, totalHeight: afterInfo.scrollHeight, returnedToTop: afterInfo.scrollY <= 10 } };
       } catch (error) {

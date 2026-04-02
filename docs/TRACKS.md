@@ -125,7 +125,7 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `JF-09 Job Source Debug Agent`
 
 - status: `handoff`
-- last updated: `2026-04-01`
+- last updated: `2026-04-02`
 - scope: bootstrap reusable source instructions for newly added discovery targets when the user cannot author them manually
 - linked plan: `docs/exec-plans/active/005-job-source-debug-agent.md`
 - code areas: `packages/contracts`, `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `apps/desktop`

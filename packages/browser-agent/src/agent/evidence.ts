@@ -162,9 +162,14 @@ export function recordToolEvidence(
   }
 
   if (toolName === 'click' || toolName === 'fill' || toolName === 'select_option') {
+    const optionText = typeof args.optionText === 'string' ? args.optionText.trim() : ''
     appendPhaseEvidence(state, 'attemptedControls', [
       controlLabel
-        ? `${toolName === 'click' ? 'Clicked' : toolName === 'fill' ? 'Filled' : 'Selected'} ${controlLabel}`
+        ? toolName === 'click'
+          ? `Attempted to click ${controlLabel}`
+          : toolName === 'fill'
+            ? `Attempted to fill ${controlLabel}`
+            : `Attempted to select "${optionText}" from ${controlLabel}`
         : null
     ])
   }

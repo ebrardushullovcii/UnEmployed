@@ -57,14 +57,14 @@ export function ProfileLearnedInstructionsPanel({
               {section.label}
             </p>
             <ul className="grid gap-2 text-[0.88rem] leading-6 text-foreground">
-              {section.lines.map((line, lineIndex) => {
+              {section.lines.map((line) => {
                 const isEditing =
                   editingInstruction?.field === section.field &&
                   editingInstruction.normalizedKey === line.normalizedKey
 
                 return (
                   <li
-                    key={`${targetId}_${section.label}_${lineIndex}`}
+                    key={`${targetId}_${section.label}_${line.normalizedKey}`}
                     className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2"
                   >
                     {isEditing ? (

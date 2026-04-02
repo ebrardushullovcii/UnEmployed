@@ -1,5 +1,5 @@
 import {
-  AgentProviderStatusSchema,
+  type AgentProviderStatus,
   NonEmptyStringSchema,
   candidateLinkKindValues,
   type CandidateProfile,
@@ -102,7 +102,7 @@ export const ResumeProfileExtractionSchema = z.object({
   currentLocation: NullableStringSchema,
   timeZone: NullableStringSchema,
   salaryCurrency: NullableStringSchema,
-  yearsExperience: z.number().int().min(0).nullable(),
+  yearsExperience: z.number().int().min(0).nullable().optional(),
   email: NullableStringSchema,
   phone: NullableStringSchema,
   portfolioUrl: NullableStringSchema,
@@ -150,6 +150,13 @@ export const JobFitAssessmentSchema = z.object({
 
 export type JobFitAssessment = z.infer<typeof JobFitAssessmentSchema>;
 
+export const OpenAiCompatibleJobFinderAiClientOptionsSchema = z.object({
+  apiKey: NonEmptyStringSchema,
+  baseUrl: z.string().trim().url(),
+  model: NonEmptyStringSchema,
+  label: NonEmptyStringSchema.optional(),
+});
+
 export interface ExtractProfileFromResumeInput {
   existingProfile: CandidateProfile;
   existingSearchPreferences: JobSearchPreferences;
@@ -183,10 +190,8 @@ export type AgentMessage =
   | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
   | { role: "tool"; toolCallId: string; content: string };
 
-export type { Tool, ToolCall } from "@unemployed/contracts";
-
 export interface JobFinderAiClient {
-  getStatus(): z.infer<typeof AgentProviderStatusSchema>;
+  getStatus(): AgentProviderStatus;
   extractProfileFromResume(
     input: ExtractProfileFromResumeInput,
   ): Promise<ResumeProfileExtraction>;
@@ -208,24 +213,10 @@ export interface AgentCapableJobFinderAiClient extends JobFinderAiClient {
   }>;
 }
 
-export interface OpenAiCompatibleJobFinderAiClientOptions {
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  label?: string;
-}
+export type OpenAiCompatibleJobFinderAiClientOptions = z.infer<
+  typeof OpenAiCompatibleJobFinderAiClientOptionsSchema
+>;
 
 export type StringMap = Record<string, string | undefined>;
 
-export {
-  AgentProviderStatusSchema,
-  NonEmptyStringSchema,
-  NullableStringSchema,
-};
-
-export type {
-  CandidateProfile,
-  JobFinderSettings,
-  JobPosting,
-  JobSearchPreferences,
-};
+export { NullableStringSchema };

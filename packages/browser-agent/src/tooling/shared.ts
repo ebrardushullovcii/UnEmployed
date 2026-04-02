@@ -16,9 +16,31 @@ export const NavigateSchema = z
   })
   .strict();
 
+const supportedInteractiveRoles = [
+  "searchbox",
+  "textbox",
+  "combobox",
+  "button",
+  "link",
+  "checkbox",
+  "radio",
+  "switch",
+  "tab",
+  "option",
+  "menuitem",
+  "listitem",
+] as const;
+
+export type SupportedInteractiveRole = (typeof supportedInteractiveRoles)[number];
+const SupportedInteractiveRoleSchema = z.enum(supportedInteractiveRoles);
+
+function isSupportedInteractiveRole(role: string): role is SupportedInteractiveRole {
+  return supportedInteractiveRoles.includes(role as SupportedInteractiveRole);
+}
+
 export const ClickSchema = z
   .object({
-    role: z.string().min(1),
+    role: SupportedInteractiveRoleSchema,
     name: z.string().min(1),
     index: z.number().int().nonnegative().optional().default(0),
     retryIfNotVisible: z.boolean().optional().default(true),
@@ -27,7 +49,7 @@ export const ClickSchema = z
 
 export const FillSchema = z
   .object({
-    role: z.string().min(1),
+    role: SupportedInteractiveRoleSchema,
     name: z.string().min(1),
     text: z.string().min(1),
     index: z.number().int().nonnegative().optional().default(0),
@@ -37,7 +59,7 @@ export const FillSchema = z
 
 export const SelectOptionSchema = z
   .object({
-    role: z.string().min(1),
+    role: SupportedInteractiveRoleSchema,
     name: z.string().min(1),
     optionText: z.string().min(1),
     index: z.number().int().nonnegative().optional().default(0),
@@ -52,7 +74,11 @@ export const ScrollDownSchema = z
   })
   .strict();
 
-export const ScrollToTopSchema = z.object({}).strict();
+export const ScrollToTopSchema = z
+  .object({
+    delayMs: z.number().int().nonnegative().optional().default(800),
+  })
+  .strict();
 
 export const ExtractJobsSchema = z
   .object({
@@ -80,7 +106,7 @@ export interface InteractiveElementCandidate {
   name: string;
 }
 
-const INTERACTIVE_ELEMENT_ROLE_PRIORITY: Record<string, number> = {
+const INTERACTIVE_ELEMENT_ROLE_PRIORITY: Record<SupportedInteractiveRole, number> = {
   searchbox: 140,
   textbox: 120,
   combobox: 110,
@@ -92,6 +118,7 @@ const INTERACTIVE_ELEMENT_ROLE_PRIORITY: Record<string, number> = {
   tab: 60,
   option: 55,
   menuitem: 50,
+  listitem: 45,
 };
 
 const INTERACTIVE_ELEMENT_PRIORITY_PATTERNS = [
@@ -137,9 +164,9 @@ export function mergeInteractiveElementCandidates(
       const role = candidate.role.trim().toLowerCase();
       const name = normalizeInteractiveName(candidate.name);
 
-      if (!role || !name) {
-        continue;
-      }
+        if (!role || !name || !isSupportedInteractiveRole(role)) {
+          continue;
+        }
 
       const key = makeInteractiveElementKey(role, name);
       const nextCount = (counts.get(key) ?? 0) + 1;
@@ -171,7 +198,9 @@ function scoreInteractiveElement(candidate: InteractiveElementCandidate): number
   const compactName = normalizedName.toLowerCase();
   const normalizedRole = candidate.role.trim().toLowerCase();
 
-  let score = INTERACTIVE_ELEMENT_ROLE_PRIORITY[normalizedRole] ?? 40;
+  let score = isSupportedInteractiveRole(normalizedRole)
+    ? INTERACTIVE_ELEMENT_ROLE_PRIORITY[normalizedRole]
+    : 40;
 
   for (const { pattern, boost } of INTERACTIVE_ELEMENT_PRIORITY_PATTERNS) {
     if (pattern.test(normalizedName)) {
@@ -257,7 +286,18 @@ function logComboboxDebug(action: string, optionText: string, error: unknown): v
   })
 }
 
-export async function fillComboboxValue(locator: Locator, page: Page, optionText: string): Promise<void> {
+async function locatorContainsActiveElement(locator: Locator): Promise<boolean> {
+  try {
+    return await locator.evaluate((element) => {
+      const activeElement = document.activeElement
+      return Boolean(activeElement && (element === activeElement || element.contains(activeElement)))
+    })
+  } catch {
+    return false
+  }
+}
+
+export async function fillComboboxValue(locator: Locator, page: Page, optionText: string): Promise<boolean> {
   const inputLocator = locator.locator("input, textarea").first();
   const inputCount = await inputLocator.count().catch((error) => {
     logComboboxDebug('count input', optionText, error)
@@ -269,18 +309,26 @@ export async function fillComboboxValue(locator: Locator, page: Page, optionText
       logComboboxDebug('click input', optionText, error)
       return undefined
     });
-    await inputLocator.fill(optionText).catch(async (error) => {
+    try {
+      await inputLocator.fill(optionText)
+      return true
+    } catch (error) {
       logComboboxDebug('fill input', optionText, error)
+      const inputIsActive = await locatorContainsActiveElement(inputLocator)
+      if (!inputIsActive) {
+        logComboboxDebug('input not active', optionText, new Error('Input did not receive focus'))
+        return false
+      }
+
       await page.keyboard.press("ControlOrMeta+A").catch((keyboardError) => {
         logComboboxDebug('keyboard press', optionText, keyboardError)
         return undefined
       });
-      await page.keyboard.type(optionText).catch((keyboardError) => {
+      return await page.keyboard.type(optionText).then(() => true).catch((keyboardError) => {
         logComboboxDebug('keyboard type', optionText, keyboardError)
-        return undefined
+        return false
       });
-    });
-    return;
+    }
   }
 
   await locator.click().catch((error) => {
@@ -290,9 +338,14 @@ export async function fillComboboxValue(locator: Locator, page: Page, optionText
       return undefined
     })
   });
-  await page.keyboard.type(optionText).catch((error) => {
+  const locatorIsActive = await locatorContainsActiveElement(locator)
+  if (!locatorIsActive) {
+    logComboboxDebug('target not active', optionText, new Error('Combobox did not receive focus'))
+    return false
+  }
+  return await page.keyboard.type(optionText).then(() => true).catch((error) => {
     logComboboxDebug('keyboard type', optionText, error)
-    return undefined
+    return false
   });
 }
 
@@ -354,18 +407,18 @@ export async function readComboboxSelection(locator: Locator): Promise<{ selecte
 
 export async function resolveRoleLocator(
   page: Page,
-  role: string,
+  role: SupportedInteractiveRole,
   name: string,
   index: number,
 ): Promise<ReturnType<Page["getByRole"]>> {
-  const exactLocator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name, exact: true });
+  const exactLocator = page.getByRole(role, { name, exact: true });
   const exactCount = await exactLocator.count().catch(() => 0);
 
   if (exactCount > index) {
     return exactLocator.nth(index);
   }
 
-  const looseLocator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name: buildLooseAccessibleNamePattern(name) });
+  const looseLocator = page.getByRole(role, { name: buildLooseAccessibleNamePattern(name) });
   const looseCount = await looseLocator.count().catch(() => 0);
 
   if (looseCount > index) {

@@ -1,9 +1,8 @@
 import type {
-  CandidateProfile,
   ExtractProfileFromResumeInput,
-  JobSearchPreferences,
   ResumeProfileExtraction,
 } from "../shared";
+import type { CandidateProfile, JobSearchPreferences } from "@unemployed/contracts";
 import { ResumeProfileExtractionSchema } from "../shared";
 import {
   contactOrMetaPattern,
@@ -121,8 +120,56 @@ function inferPhone(resumeText: string, existingPhone: string | null): string | 
   return extractRegexMatch(resumeText, /(\(?\+?\d[\d\s().-]{7,}\d\)?)/) ?? existingPhone;
 }
 
-function inferPortfolioUrl(resumeText: string): string | null {
-  return extractAllUrls(resumeText).find((url) => !/linkedin\.com/i.test(url)) ?? null;
+function inferPortfolioUrl(
+  resumeText: string,
+  personalWebsiteUrl?: string | null,
+): string | null {
+  const trimmedPersonalWebsiteUrl = personalWebsiteUrl?.trim() ?? "";
+  if (trimmedPersonalWebsiteUrl) {
+    return trimmedPersonalWebsiteUrl;
+  }
+
+  const portfolioSignals = [
+    "portfolio",
+    "showcase",
+    "projects",
+    "website",
+    "site",
+    "github",
+    "gitlab",
+    "behance",
+    "dribbble",
+    "codepen",
+  ];
+  const excludedDomains = [
+    "linkedin.com",
+    "coursera.org",
+    "udemy.com",
+    "skillshare.com",
+    "pluralsight.com",
+    "indeed.com",
+    "glassdoor.com",
+    "monster.com",
+    "ziprecruiter.com",
+  ];
+
+  return (
+    extractAllUrls(resumeText).find((url) => {
+      try {
+        const parsedUrl = new URL(url);
+        const hostname = parsedUrl.hostname.toLowerCase();
+        const haystack = `${hostname}${parsedUrl.pathname}`.toLowerCase();
+
+        if (excludedDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+          return false;
+        }
+
+        return portfolioSignals.some((signal) => haystack.includes(signal));
+      } catch {
+        return false;
+      }
+    }) ?? null
+  );
 }
 
 function inferName(lines: readonly string[]): string | null {
@@ -701,7 +748,7 @@ export function buildDeterministicResumeProfileExtraction(
   const skills = inferSkills(input.resumeText, input.existingProfile.skills);
   const skillGroups = inferSkillGroups(input.resumeText, skills);
   const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText) ?? input.existingProfile.personalWebsiteUrl;
-  const portfolioUrl = inferPortfolioUrl(input.resumeText) ?? personalWebsiteUrl ?? input.existingProfile.portfolioUrl;
+  const portfolioUrl = inferPortfolioUrl(input.resumeText, personalWebsiteUrl) ?? input.existingProfile.portfolioUrl;
   const education = inferEducationEntries(input.resumeText);
   const notes = buildProfileExtractionNotes({ fullName, headline, summary, currentLocation });
 

@@ -15,6 +15,25 @@ import {
   SelectOptionSchema,
 } from "./shared";
 
+function normalizeOptionText(value: string | null | undefined): string {
+  return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+}
+
+function comboboxSelectionMatchesOption(
+  selection: { selectedLabel: string | null; selectedValue: string | null },
+  optionText: string,
+): boolean {
+  const normalizedOptionText = normalizeOptionText(optionText);
+
+  if (!normalizedOptionText) {
+    return false;
+  }
+
+  return [selection.selectedLabel, selection.selectedValue].some(
+    (value) => normalizeOptionText(value) === normalizedOptionText,
+  );
+}
+
 export const interactionTools: ToolDefinition[] = [
   {
     name: "get_interactive_elements",
@@ -218,14 +237,14 @@ If multiple elements have the same role and name, use the index to disambiguate 
             if (!urlValidation.valid) {
               const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy);
               if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 30), index, text: text.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
+              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 30), index, invalidUrl: newUrl, recovered: recovery.recovered } };
             }
             state.currentUrl = newUrl;
             state.visitedUrls.add(newUrl);
           }
         }
 
-        return { success: true, data: { role, name: name.slice(0, 30), index, text: text.slice(0, 50), submitted: submit } };
+        return { success: true, data: { role, name: name.slice(0, 30), index, submitted: submit } };
       } catch (error) {
         const currentUrl = page.url();
         if (currentUrl) {
@@ -297,7 +316,10 @@ You get role, name, and index from get_interactive_elements().`,
 
         if (selectionResult?.controlType === "combobox") {
           await locator.click().catch(() => locator.focus().catch(() => undefined));
-          await fillComboboxValue(locator, page, optionText);
+          const typedIntoCombobox = await fillComboboxValue(locator, page, optionText);
+          if (!typedIntoCombobox) {
+            return { success: false, error: "Combobox did not receive focus before typing", data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
+          }
           await page.waitForTimeout(250);
 
           let matchedOption = false;
@@ -307,12 +329,21 @@ You get role, name, and index from get_interactive_elements().`,
             matchedOption = false;
           }
 
-          if (!matchedOption) {
-            await page.keyboard.press("ArrowDown").catch(() => undefined);
-            await page.keyboard.press("Enter").catch(() => undefined);
-          }
-
           const comboboxSelection = await readComboboxSelection(locator);
+          if (!matchedOption && !comboboxSelectionMatchesOption(comboboxSelection, optionText)) {
+            return {
+              success: false,
+              error: `Option "${optionText}" was not found`,
+              data: {
+                role,
+                name: name.slice(0, 50),
+                index,
+                optionText: optionText.slice(0, 50),
+                selectedLabel: comboboxSelection.selectedLabel,
+                selectedValue: comboboxSelection.selectedValue,
+              },
+            };
+          }
 
           if (submit) {
             await page.keyboard.press("Enter").catch(() => locator.press("Enter").catch(() => undefined));

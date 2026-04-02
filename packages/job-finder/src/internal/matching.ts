@@ -55,7 +55,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
     return null;
   }
 
-  const matches = [...salaryText.matchAll(/(\d[\d,]*)(?:\s*)(k|m)?/gi)];
+  const matches = [...salaryText.matchAll(/(\d[\d,]*(?:\.\d+)?)(?:\s*)(k|m)?/gi)];
 
   if (matches.length === 0) {
     return null;
@@ -63,7 +63,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
 
   const parsed = matches
     .map((match) => {
-      const baseValue = Number((match[1] ?? "").replaceAll(",", ""));
+      const baseValue = parseFloat((match[1] ?? "").replaceAll(",", ""));
       const suffix = (match[2] ?? "").toLowerCase();
 
       if (!Number.isFinite(baseValue) || baseValue <= 0) {

@@ -1,4 +1,5 @@
-import type { CandidateProfile, JobPosting, TailorResumeInput } from "../shared";
+import type { CandidateProfile, JobPosting } from "@unemployed/contracts";
+import type { TailorResumeInput } from "../shared";
 import { TailoredResumeDraftSchema } from "../shared";
 import { clampScore, uniqueStrings } from "./utils";
 
@@ -40,7 +41,8 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
   ]).slice(0, 8);
   const targetedKeywords = uniqueStrings(input.job.keySkills).slice(0, 6);
   const workModeSummary = input.job.workMode.join(", ") || "flexible";
-  const summary = `${input.profile.headline} aligned to ${input.job.title} at ${input.job.company}, emphasizing ${targetedKeywords.slice(0, 3).join(", ") || "role alignment"} and ${workModeSummary} delivery.`;
+  const headline = input.profile.headline ?? input.job.title ?? "the candidate";
+  const summary = `${headline} aligned to ${input.job.title} at ${input.job.company}, emphasizing ${targetedKeywords.slice(0, 3).join(", ") || "role alignment"} and ${workModeSummary} delivery.`;
   const experienceHighlights = uniqueStrings([
     ...(input.profile.yearsExperience
       ? [`${input.profile.yearsExperience}+ years of experience aligned to ${input.job.summary.toLowerCase()}`]

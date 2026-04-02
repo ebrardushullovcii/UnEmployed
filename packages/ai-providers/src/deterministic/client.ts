@@ -1,4 +1,5 @@
-import { AgentProviderStatusSchema, type JobFinderAiClient } from "../shared";
+import { AgentProviderStatusSchema } from "@unemployed/contracts";
+import type { JobFinderAiClient } from "../shared";
 import { buildDeterministicResumeProfileExtraction } from "./resume-parser";
 import { buildDeterministicTailoredResume } from "./tailoring";
 
