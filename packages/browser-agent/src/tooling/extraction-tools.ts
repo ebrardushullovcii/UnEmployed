@@ -4,6 +4,7 @@ import { ExtractJobsSchema } from "./shared";
 export const extractionTools: ToolDefinition[] = [
   {
     name: "extract_jobs",
+    retryable: true,
     description: `Extract job postings from the current page.
     
 This analyzes the page content and extracts structured job data including titles, companies, locations, and descriptions.
@@ -42,12 +43,13 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               try {
                 const absoluteUrl = new URL(href, window.location.href).toString();
                 const parsedUrl = new URL(absoluteUrl);
+                const canonicalUrl = `${parsedUrl.origin}${parsedUrl.pathname}`;
                 const hostname = parsedUrl.hostname.toLowerCase();
                 const hostAllowed = input.allowedHostnames.some((allowedHostname) => hostname === allowedHostname || (input.allowSubdomains && hostname.endsWith(`.${allowedHostname}`)));
                 if (!hostAllowed) continue;
                 const haystack = `${parsedUrl.pathname}${parsedUrl.search}`.toLowerCase();
                 const matchesRelevantUrl = input.relevantUrlSubstrings.length === 0 || input.relevantUrlSubstrings.some((substring) => haystack.includes(substring.toLowerCase()));
-                if (matchesRelevantUrl) urls.add(absoluteUrl);
+                if (matchesRelevantUrl) urls.add(canonicalUrl);
               } catch {
                 // Ignore invalid href values.
               }

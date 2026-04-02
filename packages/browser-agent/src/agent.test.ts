@@ -753,4 +753,110 @@ describe("runAgentDiscovery", () => {
       "Recovered from a broken route",
     );
   });
+
+  test("does not emit recovered-route evidence when 404 recovery fails", async () => {
+    let currentUrl = "about:blank";
+    let initialNavigationCompleted = false;
+    const page404 = {
+      async goto(url: string) {
+        if (url === "https://www.linkedin.com/jobs/search/") {
+          if (initialNavigationCompleted) {
+            throw new Error("Recovery navigation failed");
+          }
+
+          initialNavigationCompleted = true;
+          currentUrl = url;
+          return null as never;
+        }
+
+        if (url === "https://www.linkedin.com/jobs/404") {
+          currentUrl = url;
+          return null as never;
+        }
+
+        throw new Error("Recovery navigation failed");
+      },
+      async waitForTimeout() {
+        return undefined;
+      },
+      url() {
+        return currentUrl;
+      },
+      async title() {
+        return currentUrl.includes("/404") ? "404 Not Found" : "Primary target";
+      },
+      locator() {
+        return {
+          async innerText() {
+            return "Primary target";
+          },
+        } as never;
+      },
+      async evaluate() {
+        return [];
+      },
+    } satisfies Pick<
+      Page,
+      "goto" | "waitForTimeout" | "url" | "title" | "locator" | "evaluate"
+    >;
+    const llmClient: LLMClient = {
+      chatWithTools: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: "probe a broken route first",
+          toolCalls: [
+            createToolCall(
+              "navigate",
+              { url: "https://www.linkedin.com/jobs/404" },
+              "tool_nav_404_fail",
+            ),
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: "finish without claiming recovery",
+          toolCalls: [
+            createToolCall(
+              "finish",
+              {
+                reason: "Enough evidence collected.",
+                summary: "Broken route remained unresolved after the 404-like navigation.",
+                reliableControls: [],
+                trickyFilters: [],
+                navigationTips: [
+                  "Treat 404-like routes as broken until a stable jobs surface is found again",
+                ],
+                applyTips: [],
+                warnings: ["404-like route did not recover automatically."],
+              },
+              "tool_finish_404_fail",
+            ),
+          ],
+        }),
+    };
+    const jobExtractor: JobExtractor = {
+      async extractJobsFromPage() {
+        return [];
+      },
+    };
+
+    const result = await runAgentDiscovery(
+      page404 as unknown as Page,
+      createConfig(),
+      llmClient,
+      jobExtractor,
+    );
+
+    expect(result.phaseCompletionMode).toBe("forced_finish");
+    expect(
+      result.phaseEvidence?.routeSignals.some((entry) =>
+        entry.includes("Recovered to the last known jobs surface"),
+      ),
+    ).toBe(false);
+    expect(
+      result.phaseEvidence?.routeSignals.some((entry) =>
+        entry.includes("Navigation reached https://www.linkedin.com/jobs/404"),
+      ),
+    ).toBe(true);
+    expect(result.debugFindings?.summary).not.toContain("Recovered from a broken route");
+  });
 });

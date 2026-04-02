@@ -48,6 +48,7 @@ export const SelectOptionSchema = z
 export const ScrollDownSchema = z
   .object({
     amount: z.number().int().positive().optional().default(800),
+    delayMs: z.number().int().nonnegative().optional().default(1000),
   })
   .strict();
 
@@ -249,21 +250,50 @@ function escapeAttributeValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function logComboboxDebug(action: string, optionText: string, error: unknown): void {
+  console.debug(`[Agent] fillComboboxValue ${action} failed`, {
+    error,
+    optionText,
+  })
+}
+
 export async function fillComboboxValue(locator: Locator, page: Page, optionText: string): Promise<void> {
   const inputLocator = locator.locator("input, textarea").first();
-  const inputCount = await inputLocator.count().catch(() => 0);
+  const inputCount = await inputLocator.count().catch((error) => {
+    logComboboxDebug('count input', optionText, error)
+    return 0
+  });
 
   if (inputCount > 0) {
-    await inputLocator.click().catch(() => undefined);
-    await inputLocator.fill(optionText).catch(async () => {
-      await page.keyboard.press("ControlOrMeta+A").catch(() => undefined);
-      await page.keyboard.type(optionText).catch(() => undefined);
+    await inputLocator.click().catch((error) => {
+      logComboboxDebug('click input', optionText, error)
+      return undefined
+    });
+    await inputLocator.fill(optionText).catch(async (error) => {
+      logComboboxDebug('fill input', optionText, error)
+      await page.keyboard.press("ControlOrMeta+A").catch((keyboardError) => {
+        logComboboxDebug('keyboard press', optionText, keyboardError)
+        return undefined
+      });
+      await page.keyboard.type(optionText).catch((keyboardError) => {
+        logComboboxDebug('keyboard type', optionText, keyboardError)
+        return undefined
+      });
     });
     return;
   }
 
-  await locator.click().catch(() => locator.focus().catch(() => undefined));
-  await page.keyboard.type(optionText).catch(() => undefined);
+  await locator.click().catch((error) => {
+    logComboboxDebug('locator click', optionText, error)
+    return locator.focus().catch((focusError) => {
+      logComboboxDebug('locator focus', optionText, focusError)
+      return undefined
+    })
+  });
+  await page.keyboard.type(optionText).catch((error) => {
+    logComboboxDebug('keyboard type', optionText, error)
+    return undefined
+  });
 }
 
 export function buildComboboxOptionScopes(page: Page, popupId: string | null): Locator[] {

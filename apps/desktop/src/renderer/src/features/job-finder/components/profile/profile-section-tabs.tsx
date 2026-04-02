@@ -1,4 +1,4 @@
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { cn } from '@renderer/lib/cn'
 import {
   formatSectionProgressLabel,
@@ -26,7 +26,7 @@ export function ProfileSectionTabs({
   panelId,
   sections
 }: ProfileSectionTabsProps) {
-  const handleSectionKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+  const handleSectionKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     const currentIndex = sections.findIndex((section) => section.id === activeSection)
 
     if (currentIndex < 0) {
@@ -59,7 +59,7 @@ export function ProfileSectionTabs({
     onSectionChange(nextSection.id)
     const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')
     tabs[nextIndex]?.focus()
-  }
+  }, [activeSection, onSectionChange, sections])
 
   return (
     <div className="px-3 pb-2 sm:px-4 sm:pb-2">

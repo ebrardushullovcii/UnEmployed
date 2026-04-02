@@ -204,6 +204,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</p>
         <div className="flex flex-wrap gap-2">
           <Button
+            aria-label={`Debug source for ${displayName} (target ${props.index + 1})`}
             disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
             onClick={() => props.onRunSourceDebug(props.target.id)}
             type="button"
@@ -281,6 +282,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
                 Last source-debug run
               </p>
               <Button
+                aria-label={`Review the latest source-debug run for ${displayName} (target ${props.index + 1})`}
                 disabled={props.busy}
                 onClick={() => {
                   setSelectedRunId(latestDebugRun.id)

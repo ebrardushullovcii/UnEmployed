@@ -122,6 +122,7 @@ export interface ToolResult {
 export interface ToolDefinition {
   name: string;
   description: string;
+  retryable?: boolean;
   parameters: {
     type: "object";
     properties: Record<string, unknown>;

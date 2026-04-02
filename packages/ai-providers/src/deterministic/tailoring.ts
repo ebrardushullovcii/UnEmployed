@@ -42,7 +42,9 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
   const workModeSummary = input.job.workMode.join(", ") || "flexible";
   const summary = `${input.profile.headline} aligned to ${input.job.title} at ${input.job.company}, emphasizing ${targetedKeywords.slice(0, 3).join(", ") || "role alignment"} and ${workModeSummary} delivery.`;
   const experienceHighlights = uniqueStrings([
-    `${input.profile.yearsExperience}+ years of experience aligned to ${input.job.summary.toLowerCase()}`,
+    ...(input.profile.yearsExperience
+      ? [`${input.profile.yearsExperience}+ years of experience aligned to ${input.job.summary.toLowerCase()}`]
+      : []),
     `Grounded in ${input.searchPreferences.tailoringMode} tailoring with saved preferences for ${input.searchPreferences.targetRoles.slice(0, 2).join(" and ") || input.job.title}.`,
     input.resumeText
       ? "Tailoring references the stored base resume text and saved profile details."

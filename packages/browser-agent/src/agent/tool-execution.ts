@@ -4,6 +4,20 @@ import { getToolExecutor } from '../tools'
 import type { JobExtractor } from '../agent'
 import { addExtractedJobsToState } from './evidence'
 
+function redactToolArgs(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(() => '[REDACTED]')
+  }
+
+  if (!value || typeof value !== 'object') {
+    return '[REDACTED]'
+  }
+
+  return Object.fromEntries(
+    Object.keys(value as Record<string, unknown>).map((key) => [key, '[REDACTED]'])
+  )
+}
+
 export async function executeToolCall(
   toolCall: ToolCall,
   page: Page,
@@ -18,18 +32,20 @@ export async function executeToolCall(
   try {
     args = JSON.parse(toolCall.function.arguments || '{}')
   } catch (parseError) {
-    console.error(`[Agent] Failed to parse tool arguments for ${toolName}:`, toolCall.function.arguments, parseError)
+    console.error(`[Agent] Failed to parse tool arguments for ${toolName}:`, parseError)
     return {
       success: false,
       error: `Invalid tool arguments for ${toolName}`
     }
   }
 
+  const redactedArgs = redactToolArgs(args)
+
   onProgress?.({
     currentUrl: state.currentUrl,
     jobsFound: state.collectedJobs.length,
     stepCount: state.stepCount,
-    currentAction: `${toolName}: ${JSON.stringify(args)}`,
+    currentAction: `${toolName}: ${JSON.stringify(redactedArgs)}`,
     targetId: null,
     adapterKind: config.source
   })
@@ -43,6 +59,7 @@ export async function executeToolCall(
   }
 
   const maxRetries = 3
+  const shouldRetry = tool.retryable === true
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       if (signal?.aborted) {
@@ -101,12 +118,16 @@ export async function executeToolCall(
       if ((error instanceof DOMException && error.name === 'AbortError') || signal?.aborted) {
         throw error
       }
-      if (attempt === maxRetries) {
+
+      if (!shouldRetry || attempt === maxRetries) {
         return {
           success: false,
-          error: `Failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown'}`
+          error: shouldRetry
+            ? `Failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown'}`
+            : (error instanceof Error ? error.message : 'Unknown')
         }
       }
+
       if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError')
       }

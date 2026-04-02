@@ -1,26 +1,52 @@
 import { AgentDebugFindingsSchema, JobPostingSchema, SourceDebugPhaseEvidenceSchema, type JobPosting, type SourceDebugPhaseEvidence } from '@unemployed/contracts'
 import type { AgentResult, AgentState } from '../types'
+import { uniqueStrings } from '../utils/string'
 
-function uniqueStrings(values: readonly (string | null | undefined)[]): string[] {
-  const seen = new Set<string>()
-  const result: string[] = []
+interface ToolExecutionResult {
+  success?: boolean
+  error?: string
+  data?: Record<string, unknown>
+}
 
-  for (const value of values) {
-    const normalized = value?.replace(/\s+/g, ' ').trim()
-    if (!normalized) {
-      continue
-    }
+export interface ExtractedJobInput extends Pick<JobPosting,
+  | 'sourceJobId'
+  | 'canonicalUrl'
+  | 'title'
+  | 'company'
+  | 'location'
+  | 'description'
+  | 'salaryText'
+  | 'summary'
+  | 'postedAt'
+  | 'workMode'
+  | 'applyPath'
+  | 'easyApplyEligible'
+  | 'keySkills'> {}
 
-    const key = normalized.toLowerCase()
-    if (seen.has(key)) {
-      continue
-    }
-
-    seen.add(key)
-    result.push(normalized)
+function isToolResult(value: unknown): value is ToolExecutionResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
   }
 
-  return result
+  const candidate = value as Record<string, unknown>
+
+  if ('success' in candidate && typeof candidate.success !== 'boolean') {
+    return false
+  }
+
+  if ('error' in candidate && typeof candidate.error !== 'string' && typeof candidate.error !== 'undefined') {
+    return false
+  }
+
+  if (
+    'data' in candidate &&
+    typeof candidate.data !== 'undefined' &&
+    (candidate.data === null || typeof candidate.data !== 'object' || Array.isArray(candidate.data))
+  ) {
+    return false
+  }
+
+  return true
 }
 
 export function createEmptyPhaseEvidence(): SourceDebugPhaseEvidence {
@@ -106,11 +132,7 @@ export function recordToolEvidence(
   result: unknown,
   state: AgentState
 ) {
-  const normalizedResult = (result ?? {}) as {
-    success?: boolean
-    error?: string
-    data?: Record<string, unknown>
-  }
+  const normalizedResult = isToolResult(result) ? result : {}
   const controlLabel = formatControlLabel(
     typeof args.role === 'string' ? args.role : undefined,
     typeof args.name === 'string' ? args.name : undefined,
@@ -212,20 +234,7 @@ function normalizeJobWorkMode(job: Pick<JobPosting, 'workMode'>): JobPosting['wo
 }
 
 export function addExtractedJobsToState(
-  extractedJobs: Awaited<ReturnType<{ extractJobsFromPage: (...args: never[]) => Promise<Array<Pick<JobPosting,
-    | 'sourceJobId'
-    | 'canonicalUrl'
-    | 'title'
-    | 'company'
-    | 'location'
-    | 'description'
-    | 'salaryText'
-    | 'summary'
-    | 'postedAt'
-    | 'workMode'
-    | 'applyPath'
-    | 'easyApplyEligible'
-    | 'keySkills'>>> }['extractJobsFromPage']>>,
+  extractedJobs: readonly ExtractedJobInput[],
   state: AgentState,
   source: JobPosting['source']
 ): number {

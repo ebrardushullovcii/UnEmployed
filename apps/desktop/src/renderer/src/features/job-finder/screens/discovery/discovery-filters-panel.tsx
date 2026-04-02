@@ -225,7 +225,7 @@ export function DiscoveryFiltersPanel({
         <div className="mt-auto grid gap-3 border-t border-(--surface-panel-border) px-4 py-4">
           <div className="grid gap-2">
             <Button
-              className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-[0.01em]"
+              className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
               disabled={busy}
               onClick={onOpenBrowserSession}
               size="sm"
@@ -238,7 +238,7 @@ export function DiscoveryFiltersPanel({
           </div>
 
           <Button
-            className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-[0.01em]"
+            className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
             onClick={onViewProgress}
             size="sm"
             type="button"
@@ -250,7 +250,7 @@ export function DiscoveryFiltersPanel({
 
           {onRunAgentDiscovery ? (
             <Button
-              className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-[0.01em]"
+              className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-(--tracking-normal)"
               disabled={!canRunDiscovery}
               onClick={onRunAgentDiscovery}
               size="sm"

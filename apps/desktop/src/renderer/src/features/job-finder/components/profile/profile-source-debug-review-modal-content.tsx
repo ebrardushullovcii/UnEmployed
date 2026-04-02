@@ -55,6 +55,9 @@ export function ProfileSourceDebugReviewModalContent({
 }: ProfileSourceDebugReviewModalContentProps) {
   const selectedRun = recentRuns.find((run) => run.id === selectedRunId) ?? recentRuns[0] ?? null
   const primaryActionLabel = formatInstructionActionLabel(artifact)
+  const formattedRunTime = details
+    ? formatTimestamp(details.run.completedAt ?? details.run.updatedAt)
+    : null
 
   return (
     <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
@@ -123,8 +126,8 @@ export function ProfileSourceDebugReviewModalContent({
                   </p>
                   <p className="text-[1rem] font-medium text-foreground">
                     {formatStatusLabel(details.run.state)}
-                    {formatTimestamp(details.run.completedAt ?? details.run.updatedAt)
-                      ? ` • ${formatTimestamp(details.run.completedAt ?? details.run.updatedAt)}`
+                    {formattedRunTime
+                      ? ` • ${formattedRunTime}`
                       : ''}
                   </p>
                 </div>

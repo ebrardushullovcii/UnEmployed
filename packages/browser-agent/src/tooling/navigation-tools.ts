@@ -116,19 +116,25 @@ You control the timeout strategy:
     
 Use this when you see "load more" buttons or when you need to see more job listings.
 Returns information about whether new content was loaded so you can decide whether to continue scrolling.`,
-    parameters: { type: "object", properties: { amount: { type: "number", description: "Pixels to scroll (default: 800, which is about one screen)", default: 800 } } },
+    parameters: {
+      type: "object",
+      properties: {
+        amount: { type: "number", description: "Pixels to scroll (default: 800, which is about one screen)", default: 800 },
+        delayMs: { type: "number", description: "Milliseconds to wait after scrolling before checking for more content (default: 1000)", default: 1000 },
+      },
+    },
     execute: async (args, context) => {
       const parseResult = ScrollDownSchema.safeParse(args);
       if (!parseResult.success) {
         return { success: false, error: `Invalid scroll_down arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
       }
-      const { amount } = parseResult.data;
+      const { amount, delayMs } = parseResult.data;
       const { page } = context;
 
       try {
         const beforeInfo = await page.evaluate(() => ({ scrollY: window.scrollY, scrollHeight: document.body.scrollHeight, clientHeight: window.innerHeight }));
         await page.evaluate((scrollAmount) => window.scrollBy(0, scrollAmount), amount);
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(delayMs);
         const afterInfo = await page.evaluate(() => ({ scrollY: window.scrollY, scrollHeight: document.body.scrollHeight, clientHeight: window.innerHeight }));
         const scrolledToBottom = afterInfo.scrollY + afterInfo.clientHeight >= afterInfo.scrollHeight - 100;
         const newContentLoaded = afterInfo.scrollHeight > beforeInfo.scrollHeight;

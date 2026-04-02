@@ -18,6 +18,7 @@ import {
 export const interactionTools: ToolDefinition[] = [
   {
     name: "get_interactive_elements",
+    retryable: true,
     description: `Get a list of interactive elements on the page with their accessibility role, name, and occurrence index.
 
 Use this to understand what's clickable, fillable, or scrollable on the page.

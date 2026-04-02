@@ -561,7 +561,9 @@ function inferEducationEntries(resumeText: string) {
   const schoolKeywordMatch = educationLine.match(/\b(College|University|School|Institute|Kolegji)\b/i);
   const schoolName = schoolKeywordMatch?.index !== undefined ? cleanLine(educationLine.slice(schoolKeywordMatch.index)) : null;
   const detailsPart = schoolKeywordMatch?.index !== undefined ? cleanLine(educationLine.slice(0, schoolKeywordMatch.index)) : educationLine;
-  const [degreePart, fieldPart] = detailsPart.split(",").map(cleanLine);
+  const detailsParts = detailsPart.split(",").map(cleanLine);
+  const degreePart = detailsParts[0] ?? null;
+  const fieldPart = detailsParts[1] ?? null;
   const locationLine = lines[lines.indexOf(educationLine) - 1];
 
   return [

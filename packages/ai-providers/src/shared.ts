@@ -1,5 +1,6 @@
 import {
   AgentProviderStatusSchema,
+  NonEmptyStringSchema,
   candidateLinkKindValues,
   type CandidateProfile,
   type JobFinderSettings,
@@ -11,7 +12,6 @@ import {
 } from "@unemployed/contracts";
 import { z } from "zod";
 
-const NonEmptyStringSchema = z.string().trim().min(1);
 const NullableStringSchema = NonEmptyStringSchema.nullable().default(null);
 
 const ResumeExtractionProfessionalSummarySchema = z.object({

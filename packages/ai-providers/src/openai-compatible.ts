@@ -94,7 +94,19 @@ async function parseModelJsonResponse(response: Response): Promise<unknown> {
     payload.choices?.[0]?.message?.content,
   );
   const jsonString = extractJsonString(rawContent);
-  return JSON.parse(jsonString) as unknown;
+
+  try {
+    return JSON.parse(jsonString) as unknown;
+  } catch (error) {
+    const jsonSnippet =
+      jsonString.length > 400
+        ? `${jsonString.slice(0, 400)}...[truncated]`
+        : jsonString;
+
+    throw new Error(
+      `Model returned invalid JSON: ${error instanceof Error ? error.message : "Unknown parse error"}. Response snippet: ${jsonSnippet}`,
+    );
+  }
 }
 
 function buildChatCompletionsUrl(baseUrl: string): string {

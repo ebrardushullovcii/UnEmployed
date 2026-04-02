@@ -78,9 +78,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
 
 export function buildSessionBlockedResult(session: BrowserSessionState): Error {
   const detail = session.detail ? ` ${session.detail}` : ''
-  return new Error(
-    `Browser session is not ready for automation.${detail}`.trim(),
-  )
+  return new Error(`Browser session is not ready for automation.${detail}`)
 }
 
 export function buildDiscoveryQuerySummary(

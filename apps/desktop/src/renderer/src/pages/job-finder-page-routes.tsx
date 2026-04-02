@@ -104,6 +104,20 @@ export function buildSourceDebugOutcomeMessage(
       ? workspace.activeSourceDebugRun
       : (workspace.recentSourceDebugRuns.find((run) => run.id === target.lastDebugRunId) ?? null)
     : null
+  const activeRunIsLatest = Boolean(
+    latestRun &&
+      workspace.activeSourceDebugRun?.id === latestRun.id &&
+      latestRun.state !== 'paused_manual' &&
+      latestRun.state !== 'failed' &&
+      latestRun.state !== 'interrupted' &&
+      latestRun.state !== 'cancelled'
+  )
+
+  if (activeRunIsLatest) {
+    return latestRun?.state === 'idle'
+      ? 'Source debug is starting for this target.'
+      : 'Source debug is running for this target.'
+  }
 
   if (latestRun?.state === 'paused_manual') {
     return (

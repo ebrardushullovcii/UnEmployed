@@ -43,16 +43,16 @@ export function ProfileLearnedInstructionsPanel({
   }
 
   return (
-    <div className="grid h-full min-w-0 content-start gap-(--gap-field) rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 md:col-span-2">
-      <div className="grid gap-1">
+    <section className="grid h-full min-w-0 content-start gap-(--gap-field) rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 md:col-span-2">
+      <header className="grid gap-1">
         <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
           Learned source instructions
         </p>
         <p className="text-[0.82rem] leading-6 text-foreground-soft">{instructionArtifactDescription}</p>
-      </div>
+      </header>
       <div className="grid gap-3">
         {sections.map((section) => (
-          <div key={`${targetId}_${section.label}`} className="grid gap-2">
+          <section key={`${targetId}_${section.label}`} className="grid gap-2">
             <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
               {section.label}
             </p>
@@ -107,9 +107,9 @@ export function ProfileLearnedInstructionsPanel({
                 )
               })}
             </ul>
-          </div>
+          </section>
         ))}
       </div>
-    </div>
+    </section>
   )
 }

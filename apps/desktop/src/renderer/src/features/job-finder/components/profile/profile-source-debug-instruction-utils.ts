@@ -30,6 +30,93 @@ export function normalizeLearnedInstructionLine(value: string): string {
     .trim()
 }
 
+const interactionLogPatterns = [
+  /^(clicked|filled|selected|link|button|searchbox|textbox|combobox)\b/,
+  /^click failed /,
+  /locator click/,
+  /call log/,
+  /waiting for getbyrole/,
+  /element is not visible/,
+  /retrying click action/
+]
+
+const phaseBoilerplatePatterns = [
+  /^stay within /,
+  /^verify whether the site is reachable/,
+  /^find search controls or filters/,
+  /^open multiple job details/,
+  /^check whether discovered jobs expose/,
+  /^inspected discovered jobs for apply entry points/,
+  /^observed canonical job detail url /,
+  /^no reliable apply path was confirmed for /,
+  /^replay verification reached /
+]
+
+const authObservationPatterns = [
+  /^reliable control: no login or consent wall detected/,
+  /fully accessible without login or consent walls/,
+  /fully accessible without login or consent barriers/,
+  /no authentication required/,
+  /without auth required/,
+  /loads without auth/,
+  /loads without login/,
+  /without login or consent barriers/,
+  /accessible without login barriers/,
+  /no auth or consent blockers detected/,
+  /no auth consent blockers detected/,
+  /no auth consent popups/
+]
+
+const toolOutputPatterns = [
+  /job extraction tool confirmed/,
+  /extract jobs tool/,
+  /extract_jobs tool/,
+  /extract_jobs returned/,
+  /get interactive elements/,
+  /get_interactive_elements/,
+  /interactive elements detection was unreliable/,
+  /interactive elements were unreliable/
+]
+
+const siteObservationPatterns = [
+  /site title is in albanian/,
+  /site is a job board/,
+  /page language is /,
+  /job listings appear to be in /,
+  /means find jobs/,
+  /page is scrollable with substantial content/
+]
+
+const timingPatterns = [
+  /interactive elements not detected/,
+  /interaction timed out/,
+  /multiple timeouts observed/,
+  /requires longer timeout/,
+  /different extraction timing/,
+  /different extraction approach/,
+  /different interaction method/,
+  /manual dom inspection/,
+  /pointer events/,
+  /pointer event interception/,
+  /javascript enabled interaction/,
+  /current extraction/
+]
+
+const failurePatterns = [
+  /no jobs matching target roles/,
+  /apply process not yet verified/,
+  /apply mechanism not yet verified/,
+  /job details not extracted/,
+  /job details and apply flow not fully verified/,
+  /llm call failed/,
+  /discovery encountered an error/,
+  /unknown error/
+]
+
+function matchesAnyPattern(value: string, patterns: readonly RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(value))
+}
+
 export function isRenderableLearnedInstructionLine(line: string): boolean {
   const normalized = line.toLowerCase().replace(/\s+/g, ' ').trim()
   const isUrlLiteral = normalized.includes('http://') || normalized.includes('https://')
@@ -37,76 +124,51 @@ export function isRenderableLearnedInstructionLine(line: string): boolean {
     (normalized.startsWith('start from ') || normalized.startsWith('started from ')) &&
     (isUrlLiteral || normalized.includes('the starting url'))
 
-  return !(
-    /^(clicked|filled|selected|link|button|searchbox|textbox|combobox)\b/.test(normalized) ||
-    normalized.startsWith('click failed ') ||
-    normalized.includes('locator click') ||
-    normalized.includes('call log') ||
-    normalized.includes('waiting for getbyrole') ||
-    normalized.includes('element is not visible') ||
-    normalized.includes('retrying click action') ||
-    isOnlyStartingUrlRestatement ||
-    normalized.startsWith('stay within ') ||
-    normalized.startsWith('verify whether the site is reachable') ||
-    normalized.startsWith('find search controls or filters') ||
-    normalized.startsWith('open multiple job details') ||
-    normalized.startsWith('check whether discovered jobs expose') ||
-    normalized.startsWith('inspected discovered jobs for apply entry points') ||
-    normalized.startsWith('observed canonical job detail url ') ||
-    normalized.startsWith('no reliable apply path was confirmed for ') ||
-    normalized.startsWith('replay verification reached ') ||
-    normalized.startsWith('reliable control: no login or consent wall detected') ||
-    normalized.includes('fully accessible without login or consent walls') ||
-    normalized.includes('fully accessible without login or consent barriers') ||
-    normalized.includes('no authentication required') ||
-    normalized.includes('without auth required') ||
-    normalized.includes('loads without auth') ||
-    normalized.includes('loads without login') ||
-    normalized.includes('without login or consent barriers') ||
-    normalized.includes('accessible without login barriers') ||
-    normalized.includes('no auth or consent blockers detected') ||
-    normalized.includes('no auth consent blockers detected') ||
-    normalized.includes('no auth consent popups') ||
-    normalized.includes('no login auth or consent blockers detected') ||
-    normalized.includes('page is scrollable with substantial content') ||
-    normalized.includes('job extraction tool confirmed') ||
-    normalized.includes('extract jobs tool') ||
-    normalized.includes('extract_jobs tool') ||
-    normalized.includes('extract_jobs returned') ||
-    normalized.includes('get interactive elements') ||
-    normalized.includes('get_interactive_elements') ||
-    normalized.includes('interactive elements detection was unreliable') ||
-    normalized.includes('interactive elements were unreliable') ||
-    normalized.includes('site title is in albanian') ||
-    normalized.includes('site is a job board') ||
-    normalized.includes('page language is ') ||
-    normalized.includes('job listings appear to be in ') ||
-    normalized.includes('means find jobs') ||
-    normalized.includes('interactive elements not detected') ||
-    normalized.includes('interaction timed out') ||
-    normalized.includes('multiple timeouts observed') ||
-    normalized.includes('requires longer timeout') ||
-    normalized.includes('different extraction timing') ||
-    normalized.includes('different extraction approach') ||
-    normalized.includes('different interaction method') ||
-    normalized.includes('manual dom inspection') ||
-    normalized.includes('pointer events') ||
-    normalized.includes('pointer event interception') ||
-    normalized.includes('javascript enabled interaction') ||
-    normalized.includes('current extraction') ||
-    normalized.includes('no jobs matching target roles') ||
-    normalized.includes('apply process not yet verified') ||
-    normalized.includes('apply mechanism not yet verified') ||
-    normalized.includes('job details not extracted') ||
-    normalized.includes('job details and apply flow not fully verified') ||
-    normalized.includes('llm call failed') ||
-    normalized.includes('discovery encountered an error') ||
-    normalized.includes('unknown error') ||
-    isUrlLiteral ||
-    normalized.startsWith('verification: ') ||
-    normalized.includes('produced no candidate jobs') ||
-    /produced \d+ candidate job result/.test(normalized)
-  )
+  if (isOnlyStartingUrlRestatement || isUrlLiteral) {
+    return false
+  }
+
+  if (matchesAnyPattern(normalized, interactionLogPatterns)) {
+    return false
+  }
+
+  if (matchesAnyPattern(normalized, phaseBoilerplatePatterns)) {
+    return false
+  }
+
+  if (matchesAnyPattern(normalized, authObservationPatterns)) {
+    return false
+  }
+
+  if (normalized.includes('no login auth or consent blockers detected')) {
+    return false
+  }
+
+  if (matchesAnyPattern(normalized, toolOutputPatterns)) {
+    return false
+  }
+
+  if (matchesAnyPattern(normalized, siteObservationPatterns)) {
+    return false
+  }
+
+  if (matchesAnyPattern(normalized, timingPatterns)) {
+    return false
+  }
+
+  if (matchesAnyPattern(normalized, failurePatterns)) {
+    return false
+  }
+
+  if (normalized.startsWith('verification: ')) {
+    return false
+  }
+
+  if (normalized.includes('produced no candidate jobs')) {
+    return false
+  }
+
+  return !/produced \d+ candidate job result/.test(normalized)
 }
 
 export function describeLearnedInstructionUsage(artifact: SourceInstructionArtifact | null): string {

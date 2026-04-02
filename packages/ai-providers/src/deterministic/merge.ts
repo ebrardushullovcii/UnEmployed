@@ -106,9 +106,9 @@ function mergeLinkExtractionEntries(
     return fallback;
   }
 
-  const fallbackByUrl = new Map(fallback.map((entry) => [entry.url ?? "", entry]));
+  const fallbackByUrl = new Map(fallback.map((entry) => [entry.url, entry]));
   const merged = primary.map((entry, index) => {
-    const match = fallbackByUrl.get(entry.url ?? "") ?? fallback[index];
+    const match = fallbackByUrl.get(entry.url) ?? (entry.url != null ? fallback[index] : undefined);
 
     return {
       ...entry,
@@ -118,8 +118,8 @@ function mergeLinkExtractionEntries(
     };
   });
 
-  const primaryUrls = new Set(primary.map((entry) => entry.url ?? ""));
-  const unmatchedFallback = fallback.filter((entry) => !primaryUrls.has(entry.url ?? ""));
+  const primaryUrls = new Set(primary.map((entry) => entry.url));
+  const unmatchedFallback = fallback.filter((entry) => !primaryUrls.has(entry.url));
   return [...merged, ...unmatchedFallback];
 }
 
