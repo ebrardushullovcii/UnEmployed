@@ -248,6 +248,25 @@ describe('ai providers', () => {
     expect(result.analysisProviderKind).toBe('deterministic')
   })
 
+  test('does not treat degree or role lines as fallback locations', async () => {
+    const client = createDeterministicJobFinderAiClient()
+
+    const result = await client.extractProfileFromResume({
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      resumeText: [
+        'Jamie Rivers',
+        'Staff Engineer, Acme Corp',
+        "Bachelor of Science, Riinvest College",
+        'PROFILE',
+        'Hands-on product engineer focused on resilient systems.'
+      ].join('\n')
+    })
+
+    expect(result.currentLocation).toBe('London, UK')
+    expect(result.preferredLocations).toEqual(['London, UK'])
+  })
+
   test('parses real imported resume details into structured sections', async () => {
     const client = createDeterministicJobFinderAiClient()
 
@@ -658,7 +677,7 @@ describe('ai providers', () => {
     )
   })
 
-  test('surfaces non-json provider errors with raw response details', async () => {
+  test('surfaces non-json provider errors without raw response details', async () => {
     const originalFetch = globalThis.fetch
 
     globalThis.fetch = (() =>
@@ -706,7 +725,7 @@ describe('ai providers', () => {
           keySkills: ['React']
         },
         resumeText: 'Resume text'
-      })).rejects.toThrow('Response body: <html>Bad Gateway</html>')
+      })).rejects.toThrow('Model request failed with status 502')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -802,6 +821,65 @@ describe('ai providers', () => {
       expect(jobs[0]).toMatchObject({
         applyPath: 'easy_apply',
         easyApplyEligible: true
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('normalizes scalar work mode and key skills before validating extracted jobs', async () => {
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  jobs: [
+                    {
+                      title: 'Frontend Engineer',
+                      company: 'Acme',
+                      location: 'Remote',
+                      canonicalUrl: 'https://jobs.example.com/frontend-engineer',
+                      sourceJobId: 'job_456',
+                      description: 'Build product experiences.',
+                      applyPath: 'external_redirect',
+                      easyApplyEligible: false,
+                      workMode: 'remote',
+                      keySkills: 'React'
+                    }
+                  ]
+                })
+              }
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      ))) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: 'test-key',
+        UNEMPLOYED_AI_BASE_URL: 'https://example.com/v1',
+        UNEMPLOYED_AI_MODEL: 'test-model'
+      })
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: 'Frontend Engineer role at Acme',
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 5
+      })
+
+      expect(jobs).toHaveLength(1)
+      expect(jobs[0]).toMatchObject({
+        workMode: ['remote'],
+        keySkills: ['React']
       })
     } finally {
       globalThis.fetch = originalFetch

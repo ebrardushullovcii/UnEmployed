@@ -109,7 +109,7 @@ You control the timeout strategy:
             partialLoad: isPartialLoad,
             readyState,
             timeElapsed: Date.now() - startTime,
-            errorType: errorMessage.includes("timeout") ? "timeout" : "navigation_error",
+            errorType: /timeout/i.test(errorMessage) ? "timeout" : "navigation_error",
           },
         };
       }

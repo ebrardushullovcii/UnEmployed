@@ -8,6 +8,7 @@ import {
 describe('interactive element helpers', () => {
   test('parses interactive elements from aria snapshots', () => {
     const snapshot = [
+      '- navigation "Primary nav" [ref=e1]',
       '- button "Show all" [ref=e12]',
       '- searchbox "Search by title, skill, or company" [ref=e18]',
       '- link "Home" [ref=e2]'
@@ -23,6 +24,7 @@ describe('interactive element helpers', () => {
   test('prioritizes search, filters, and show-all controls above navigation noise', () => {
     const candidates: InteractiveElementCandidate[] = [
       { role: 'link', name: 'Home' },
+      { role: 'navigation', name: 'Jobs' },
       { role: 'link', name: 'Messaging' },
       { role: 'link', name: 'Notifications' },
       { role: 'button', name: 'Show all' },
@@ -45,5 +47,6 @@ describe('interactive element helpers', () => {
       ])
     )
     expect(prioritized.some((candidate) => candidate.name === 'Home')).toBe(false)
+    expect(prioritized.some((candidate) => candidate.role === 'navigation')).toBe(false)
   })
 })

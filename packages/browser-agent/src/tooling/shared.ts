@@ -70,13 +70,13 @@ export const SelectOptionSchema = z
 export const ScrollDownSchema = z
   .object({
     amount: z.number().int().positive().optional().default(800),
-    delayMs: z.number().int().nonnegative().optional().default(1000),
+    delayMs: z.number().int().nonnegative().max(MAX_NAVIGATION_TIMEOUT).optional().default(1000),
   })
   .strict();
 
 export const ScrollToTopSchema = z
   .object({
-    delayMs: z.number().int().nonnegative().optional().default(800),
+    delayMs: z.number().int().nonnegative().max(MAX_NAVIGATION_TIMEOUT).optional().default(800),
   })
   .strict();
 
@@ -239,7 +239,7 @@ export function parseInteractiveElementsFromAriaSnapshot(snapshot: string): Inte
     const role = match[1]?.trim().toLowerCase();
     const name = normalizeInteractiveName(match[2] ?? "");
 
-    if (!role || !name) {
+    if (!role || !name || !isSupportedInteractiveRole(role)) {
       continue;
     }
 
@@ -253,7 +253,9 @@ export function prioritizeInteractiveElements(
   candidates: readonly InteractiveElementCandidate[],
   limit = INTERACTIVE_ELEMENT_LIMIT,
 ): Array<InteractiveElementCandidate & { index: number }> {
-  const scored = candidates.map((candidate, order) => ({ ...candidate, order, score: scoreInteractiveElement(candidate) }));
+  const scored = candidates
+    .filter((candidate) => isSupportedInteractiveRole(candidate.role.trim().toLowerCase()))
+    .map((candidate, order) => ({ ...candidate, order, score: scoreInteractiveElement(candidate) }));
 
   scored.sort((left, right) => right.score - left.score || left.order - right.order);
 
@@ -324,10 +326,13 @@ export async function fillComboboxValue(locator: Locator, page: Page, optionText
         return false
       }
 
-      await page.keyboard.press("ControlOrMeta+A").catch((keyboardError) => {
+      const didSelectExistingText = await page.keyboard.press("ControlOrMeta+A").then(() => true).catch((keyboardError) => {
         logComboboxDebug('keyboard press', optionText, keyboardError)
-        return undefined
+        return false
       });
+      if (!didSelectExistingText) {
+        return false
+      }
       return await page.keyboard.type(optionText).then(() => true).catch((keyboardError) => {
         logComboboxDebug('keyboard type', optionText, keyboardError)
         return false

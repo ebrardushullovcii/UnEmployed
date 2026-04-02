@@ -89,6 +89,8 @@ type ChatCompletionsPayload = {
   };
 };
 
+const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "flexible"]);
+
 async function parseModelJsonResponse(response: Response): Promise<unknown> {
   const rawBody = await response.text();
   const payload = rawBody.length > 0
@@ -111,18 +113,14 @@ async function parseModelJsonResponse(response: Response): Promise<unknown> {
     : null;
 
   if (!response.ok) {
-    const rawSnippet = rawBody.length > 400 ? `${rawBody.slice(0, 400)}...[truncated]` : rawBody;
     throw new Error(
       payload?.error?.message ??
-        `Model request failed with status ${response.status}.${rawSnippet ? ` Response body: ${rawSnippet}` : ""}`,
+        `Model request failed with status ${response.status}`,
     );
   }
 
   if (!payload) {
-    const rawSnippet = rawBody.length > 400 ? `${rawBody.slice(0, 400)}...[truncated]` : rawBody;
-    throw new Error(
-      `Model returned a non-JSON response.${rawSnippet ? ` Response body: ${rawSnippet}` : ""}`,
-    );
+    throw new Error("Model returned a non-JSON response");
   }
 
   const rawContent = extractContentString(
@@ -133,13 +131,8 @@ async function parseModelJsonResponse(response: Response): Promise<unknown> {
   try {
     return JSON.parse(jsonString) as unknown;
   } catch (error) {
-    const jsonSnippet =
-      jsonString.length > 400
-        ? `${jsonString.slice(0, 400)}...[truncated]`
-        : jsonString;
-
     throw new Error(
-      `Model returned invalid JSON: ${error instanceof Error ? error.message : "Unknown parse error"}. Response snippet: ${jsonSnippet}`,
+      `Model returned invalid JSON: ${error instanceof Error ? error.message : "Unknown parse error"}`,
     );
   }
 }
@@ -158,18 +151,14 @@ async function parseResponsePayload(response: Response): Promise<ChatCompletions
   }
 
   if (!response.ok) {
-    const rawSnippet = rawBody.length > 400 ? `${rawBody.slice(0, 400)}...[truncated]` : rawBody;
     throw new Error(
       payload?.error?.message ??
-        `Chat request failed with status ${response.status}.${rawSnippet ? ` Response body: ${rawSnippet}` : ""}`,
+        `Chat request failed with status ${response.status}`,
     );
   }
 
   if (!payload) {
-    const rawSnippet = rawBody.length > 400 ? `${rawBody.slice(0, 400)}...[truncated]` : rawBody;
-    throw new Error(
-      `Chat request returned a non-JSON response.${rawSnippet ? ` Response body: ${rawSnippet}` : ""}`,
-    );
+    throw new Error("Chat request returned a non-JSON response");
   }
 
   return payload;
@@ -360,6 +349,25 @@ export function createOpenAiCompatibleJobFinderAiClient(
         return "";
       };
 
+      const toStringArray = (value: unknown): string[] => {
+        if (Array.isArray(value)) {
+          return value.flatMap((entry) => {
+            const normalized = toStr(entry).trim();
+            return normalized ? [normalized] : [];
+          });
+        }
+
+        const normalized = toStr(value).trim();
+        return normalized ? [normalized] : [];
+      };
+
+      const toWorkModeArray = (value: unknown): string[] => {
+        return toStringArray(value)
+          .flatMap((entry) => entry.split(","))
+          .map((entry) => entry.trim().toLowerCase())
+          .filter((entry) => supportedWorkModes.has(entry));
+      };
+
       const rawJobCandidates =
         payload &&
         typeof payload === "object" &&
@@ -428,7 +436,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           title: toStr(raw.title),
           company: toStr(raw.company),
           location: toStr(raw.location),
-          workMode: Array.isArray(raw.workMode) ? raw.workMode : [],
+          workMode: toWorkModeArray(raw.workMode),
           applyPath:
             raw.applyPath === "easy_apply" ||
             raw.applyPath === "external_redirect" ||
@@ -441,7 +449,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
           summary: toStr(raw.description).slice(0, 240),
           description: toStr(raw.description),
-          keySkills: Array.isArray(raw.keySkills) ? raw.keySkills : [],
+          keySkills: toStringArray(raw.keySkills),
         };
 
         const parsed = JobPostingSchema.safeParse(candidate);

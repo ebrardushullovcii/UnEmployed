@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import type {
   EditableSourceInstructionArtifact,
   SourceDebugRunDetails,
@@ -45,7 +45,10 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   const startingUrlId = `${baseId}-starting-url`
   const instructionsId = `${baseId}-instructions`
   const displayName = props.target.label.trim() || `Target ${props.index + 1}`
-  const learnedInstructionSections = buildLearnedInstructionSections(props.instructionArtifact)
+  const learnedInstructionSections = useMemo(
+    () => buildLearnedInstructionSections(props.instructionArtifact),
+    [props.instructionArtifact]
+  )
   const targetRuns = useMemo(
     () =>
       props.recentSourceDebugRuns
@@ -203,6 +206,23 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     props.updateDiscoveryTargets(nextTargets)
   }
 
+  const handleCloseReview = useCallback(() => {
+    setReviewOpen(false)
+  }, [])
+
+  const handleLoadRun = useCallback((runId: string) => {
+    setSelectedRunId(runId)
+  }, [])
+
+  const handleRerun = useCallback(() => {
+    setReviewOpen(false)
+    props.onRunSourceDebug(props.target.id)
+  }, [props.onRunSourceDebug, props.target.id])
+
+  const handleVerify = useCallback((instructionId: string) => {
+    props.onVerifySourceInstructions(props.target.id, instructionId)
+  }, [props.onVerifySourceInstructions, props.target.id])
+
   return (
     <article className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-4">
       <header className="flex flex-wrap items-center justify-between gap-2">
@@ -340,13 +360,10 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         details={reviewDetails}
         errorMessage={reviewError}
         loading={reviewLoading}
-        onClose={() => setReviewOpen(false)}
-        onLoadRun={(runId) => setSelectedRunId(runId)}
-        onRerun={() => {
-          setReviewOpen(false)
-          props.onRunSourceDebug(props.target.id)
-        }}
-        onVerify={(instructionId) => props.onVerifySourceInstructions(props.target.id, instructionId)}
+        onClose={handleCloseReview}
+        onLoadRun={handleLoadRun}
+        onRerun={handleRerun}
+        onVerify={handleVerify}
         open={reviewOpen}
         recentRuns={targetRuns}
         selectedRunId={selectedRunId}

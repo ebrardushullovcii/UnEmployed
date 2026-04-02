@@ -47,7 +47,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
   const matches = [...salaryText.matchAll(/(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi)]
   const knownCompensationPeriods = new Set(['yr', 'year', 'years', 'annual', 'annum', 'mo', 'month', 'months', 'wk', 'week', 'weeks', 'day', 'days', 'hr', 'hrs', 'hour', 'hours'])
   const secondaryCompensationBeforePattern = /(bonus|commission|sign[- ]?on|equity|ote)/i
-  const secondaryCompensationAfterPattern = /^(?:[:\-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i
+  const secondaryCompensationAfterPattern = /^(?:[:-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i
 
   if (matches.length === 0) {
     return null

@@ -233,13 +233,13 @@ Add new contracts before widening behavior. The field definitions below are the 
 
 #### `ResumeDraftStatus`
 
-```
+```ts
 z.enum(["draft", "needs_review", "approved", "stale"])
 ```
 
 #### `ResumeDraftSectionKind`
 
-```
+```ts
 z.enum([
   "header",
   "summary",
@@ -254,7 +254,7 @@ z.enum([
 
 #### `ResumeDraftSourceRef`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   sourceKind: z.enum(["resume", "profile", "job", "research", "user"]),
@@ -265,7 +265,7 @@ z.object({
 
 #### `ResumeDraftBullet`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   text: NonEmptyStringSchema,
@@ -279,7 +279,7 @@ z.object({
 
 #### `ResumeDraftSection`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   kind: ResumeDraftSectionKindSchema,
@@ -298,7 +298,7 @@ z.object({
 
 #### `ResumeDraft`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
@@ -317,7 +317,7 @@ z.object({
 
 #### `ResumeDraftPatch`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   draftId: NonEmptyStringSchema,
@@ -342,12 +342,12 @@ z.object({
   appliedAt: IsoDateTimeSchema,
   origin: z.enum(["user", "assistant"]),
   conflictReason: NonEmptyStringSchema.nullable().default(null),
-])
+})
 ```
 
 #### `ResumeDraftRevision`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   draftId: NonEmptyStringSchema,
@@ -359,7 +359,7 @@ z.object({
 
 #### `ResumeValidationIssue`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   severity: z.enum(["error", "warning", "info"]),
@@ -377,12 +377,12 @@ z.object({
   sectionId: NonEmptyStringSchema.nullable().default(null),
   bulletId: NonEmptyStringSchema.nullable().default(null),
   message: NonEmptyStringSchema,
-])
+})
 ```
 
 #### `ResumeValidationResult`
 
-```
+```ts
 z.object({
   draftId: NonEmptyStringSchema,
   issues: z.array(ResumeValidationIssueSchema).default([]),
@@ -393,7 +393,7 @@ z.object({
 
 #### `ResumeResearchArtifact`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
@@ -405,12 +405,12 @@ z.object({
   domainVocabulary: z.array(NonEmptyStringSchema).default([]),
   priorityThemes: z.array(NonEmptyStringSchema).default([]),
   fetchStatus: z.enum(["success", "failed", "skipped"]),
-])
+})
 ```
 
 #### `ResumeExportArtifact`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   draftId: NonEmptyStringSchema,
@@ -421,12 +421,12 @@ z.object({
   templateId: ResumeTemplateIdSchema,
   exportedAt: IsoDateTimeSchema,
   isApproved: z.boolean().default(false),
-])
+})
 ```
 
 #### `ResumeAssistantMessage`
 
-```
+```ts
 z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
@@ -434,14 +434,14 @@ z.object({
   content: NonEmptyStringSchema,
   patches: z.array(ResumeDraftPatchSchema).default([]),
   createdAt: IsoDateTimeSchema,
-])
+})
 ```
 
 #### Review Queue Bridge Fields
 
 Add these fields to `ReviewQueueItemSchema`:
 
-```
+```ts
 resumeDraftStatus: ResumeDraftStatusSchema.nullable().default(null),
 resumeApprovedAt: IsoDateTimeSchema.nullable().default(null),
 resumeIsStale: z.boolean().default(false),
@@ -453,7 +453,7 @@ approvedResumeFormat: z.enum(["html", "pdf"]).nullable().default(null),
 
 Add these collections to `JobFinderRepositoryStateSchema`:
 
-```
+```ts
 resumeDrafts: z.array(ResumeDraftSchema).default([]),
 resumeDraftRevisions: z.array(ResumeDraftRevisionSchema).default([]),
 resumeExportArtifacts: z.array(ResumeExportArtifactSchema).default([]),
@@ -466,7 +466,7 @@ resumeAssistantMessages: z.array(ResumeAssistantMessageSchema).default([]),
 
 Add lightweight summaries or ID references to `JobFinderWorkspaceSnapshotSchema` for renderer consumption:
 
-```
+```ts
 resumeDrafts: z.array(ResumeDraftSchema).default([]),
 resumeExportArtifacts: z.array(ResumeExportArtifactSchema).default([]),
 resumeResearchArtifacts: z.array(ResumeResearchArtifactSchema).default([]),
@@ -985,7 +985,7 @@ The implementation is sliced into discrete deliverables. Each slice produces a w
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/contracts typecheck
 pnpm --filter @unemployed/contracts test
 pnpm lint
@@ -1013,7 +1013,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/db typecheck
 pnpm --filter @unemployed/db test
 pnpm typecheck
@@ -1039,7 +1039,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/knowledge-base typecheck
 pnpm --filter @unemployed/knowledge-base test
 pnpm typecheck
@@ -1066,7 +1066,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/knowledge-base typecheck
 pnpm --filter @unemployed/knowledge-base test
 pnpm --filter @unemployed/job-finder typecheck
@@ -1100,7 +1100,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/ai-providers typecheck
 pnpm --filter @unemployed/ai-providers test
 pnpm --filter @unemployed/job-finder typecheck
@@ -1133,7 +1133,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/desktop typecheck
 pnpm --filter @unemployed/desktop build
 pnpm typecheck
@@ -1165,7 +1165,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/desktop typecheck
 pnpm --filter @unemployed/desktop build
 pnpm typecheck
@@ -1199,7 +1199,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/desktop typecheck
 pnpm --filter @unemployed/desktop build
 pnpm desktop:dev (manual visual check)
@@ -1230,7 +1230,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/job-finder typecheck
 pnpm --filter @unemployed/job-finder test
 pnpm --filter @unemployed/desktop typecheck
@@ -1261,7 +1261,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm --filter @unemployed/job-finder typecheck
 pnpm --filter @unemployed/job-finder test
 pnpm --filter @unemployed/browser-runtime typecheck
@@ -1301,7 +1301,7 @@ pnpm lint
 
 **Verification**:
 
-```
+```bash
 pnpm verify
 pnpm agents:check
 pnpm docs:check

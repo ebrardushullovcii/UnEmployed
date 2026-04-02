@@ -92,14 +92,21 @@ function inferCurrentLocation(lines: readonly string[]): string | null {
     }
   }
 
+  const locationHintPattern = /\b(?:[A-Z]{2}|UK|USA|UAE|Kosovo|Canada|Germany|France|India|Japan|Australia|Singapore|London|Toronto|Berlin|Paris|Prishtina|New York)\b|\b\d{5}(?:-\d{4})?\b/;
+  const degreeOrSchoolPattern = /\b(?:Bachelor|Master|B\.?Sc|M\.?Sc|Ph\.?D|University|College|School|Academy)\b/i;
+  const roleOrCompanyPattern = /\b(?:Engineer|Developer|Designer|Manager|Director|Analyst|Consultant|Specialist|Intern|Lead|Inc|Corp|LLC|Ltd|GmbH)\b/i;
+
   const fallbackLine = lines.find(
     (line) =>
       /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$/.test(line) &&
       !/–/.test(line) &&
-      !contactOrMetaPattern.test(line),
+      !contactOrMetaPattern.test(line) &&
+      locationHintPattern.test(line) &&
+      !degreeOrSchoolPattern.test(line) &&
+      !roleOrCompanyPattern.test(line),
   );
 
-  return fallbackLine ?? null;
+  return normalizeLocationLabel(fallbackLine ?? null);
 }
 
 function inferPhone(resumeText: string, existingPhone: string | null): string | null {

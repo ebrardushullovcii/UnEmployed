@@ -232,7 +232,7 @@ export function recordToolEvidence(
     ])
   }
 
-  if ((toolName === 'click' || toolName === 'fill' || toolName === 'select_option') && normalizedResult.data) {
+  if ((toolName === 'click' || toolName === 'fill' || toolName === 'select_option') && normalizedResult.success && normalizedResult.data) {
     const newUrl = typeof normalizedResult.data.newUrl === 'string' ? normalizedResult.data.newUrl : null
     if (newUrl) {
       appendPhaseEvidence(state, 'routeSignals', [
@@ -271,7 +271,10 @@ export function addExtractedJobsToState(
   let addedCount = 0
 
   for (const job of extractedJobs) {
-    const exists = state.collectedJobs.some((existingJob) => existingJob.sourceJobId === job.sourceJobId)
+    const exists = state.collectedJobs.some((existingJob) =>
+      existingJob.sourceJobId === job.sourceJobId ||
+      (Boolean(existingJob.canonicalUrl) && Boolean(job.canonicalUrl) && existingJob.canonicalUrl === job.canonicalUrl)
+    )
     if (exists) {
       continue
     }

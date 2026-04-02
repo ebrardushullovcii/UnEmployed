@@ -50,7 +50,11 @@ export async function executeToolCall(
   const toolName = toolCall.function.name
   let args: Record<string, unknown> = {}
   try {
-    args = JSON.parse(toolCall.function.arguments || '{}')
+    const parsedArgs = JSON.parse(toolCall.function.arguments || '{}')
+    if (!parsedArgs || typeof parsedArgs !== 'object' || Array.isArray(parsedArgs)) {
+      throw new Error('Tool arguments must be a JSON object')
+    }
+    args = parsedArgs
   } catch (parseError) {
     console.error(`[Agent] Failed to parse tool arguments for ${toolName}:`, parseError)
     return {
@@ -135,7 +139,7 @@ export async function executeToolCall(
         ...result,
         data: {
           ...result.data,
-          jobsExtracted: extractedJobs.length,
+          jobsExtracted: addedCount,
           totalJobs: state.collectedJobs.length
         }
       }
