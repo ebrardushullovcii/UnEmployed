@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { describe, expect, test, vi } from "vitest";
-import { buildComboboxOptionScopes, ClickSchema, FillSchema, SelectOptionSchema } from "./shared";
+import { buildComboboxOptionScopes, buildLooseAccessibleNamePattern, ClickSchema, FillSchema, SelectOptionSchema } from "./shared";
 
 describe("buildComboboxOptionScopes", () => {
   test("limits combobox option clicks to the popup when aria-controls is present", () => {
@@ -31,5 +31,27 @@ describe("interactive tool schemas", () => {
     expect(ClickSchema.safeParse({ role: "dialog", name: "Open", index: 0 }).success).toBe(false)
     expect(FillSchema.safeParse({ role: "grid", name: "Search", text: "engineer" }).success).toBe(false)
     expect(SelectOptionSchema.safeParse({ role: "button", name: "Location", optionText: "Remote" }).success).toBe(true)
+  })
+})
+
+describe("buildLooseAccessibleNamePattern", () => {
+  test("matches long whitespace-heavy labels without pathological backtracking", () => {
+    const label = Array.from({ length: 40 }, (_, index) => `word${index}`).join("        ")
+    const pattern = buildLooseAccessibleNamePattern(label)
+    const candidate = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ")
+
+    const startedAt = Date.now()
+    const matched = pattern.test(candidate)
+    const durationMs = Date.now() - startedAt
+
+    expect(matched).toBe(true)
+    expect(durationMs).toBeLessThan(50)
+  })
+
+  test("does not match unrelated long labels", () => {
+    const label = Array.from({ length: 35 }, (_, index) => `token${index}`).join("      ")
+    const pattern = buildLooseAccessibleNamePattern(label)
+
+    expect(pattern.test("different content entirely")).toBe(false)
   })
 })

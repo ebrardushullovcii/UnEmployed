@@ -4,6 +4,26 @@ import { getToolExecutor } from '../tools'
 import type { JobExtractor } from '../agent'
 import { addExtractedJobsToState } from './evidence'
 
+function isExtractJobsPayload(value: unknown): value is {
+  pageText: string
+  pageUrl: string
+  pageType: string
+  readyForExtraction: boolean
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const candidate = value as Record<string, unknown>
+
+  return (
+    typeof candidate.pageText === 'string' &&
+    typeof candidate.pageUrl === 'string' &&
+    typeof candidate.pageType === 'string' &&
+    typeof candidate.readyForExtraction === 'boolean'
+  )
+}
+
 function redactToolArgs(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(() => '[REDACTED]')
@@ -71,12 +91,14 @@ export async function executeToolCall(
         return result
       }
 
-      const extractData = result.data as {
-        pageText: string
-        pageUrl: string
-        pageType: string
-        readyForExtraction: boolean
+      if (!isExtractJobsPayload(result.data)) {
+        return {
+          success: false,
+          error: 'extract_jobs returned malformed data'
+        }
       }
+
+      const extractData = result.data
 
       if (!extractData.readyForExtraction) {
         return result
@@ -134,4 +156,6 @@ export async function executeToolCall(
       await new Promise(resolve => setTimeout(resolve, 500 * attempt))
     }
   }
+
+  throw new Error(`Unreachable: executeToolCall exhausted retries without returning for ${toolName}`)
 }

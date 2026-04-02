@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { ProfileTextarea } from './profile-form-primitives'
 import {
@@ -38,6 +39,8 @@ export function ProfileLearnedInstructionsPanel({
   sections,
   targetId
 }: ProfileLearnedInstructionsPanelProps) {
+  const editingTextareaId = useId()
+
   if (sections.length === 0) {
     return null
   }
@@ -69,9 +72,12 @@ export function ProfileLearnedInstructionsPanel({
                   >
                     {isEditing ? (
                       <div className="grid gap-2">
+                        <label className="sr-only" htmlFor={editingTextareaId}>
+                          {`Edit ${section.label.toLowerCase()} instruction`}
+                        </label>
                         <ProfileTextarea
-                          aria-label={`Edit ${section.label.toLowerCase()} instruction`}
                           className="min-h-[7rem]"
+                          id={editingTextareaId}
                           onChange={(event) => onChangeEditingInstructionValue(event.target.value)}
                           rows={4}
                           value={editingInstructionValue}
@@ -94,10 +100,22 @@ export function ProfileLearnedInstructionsPanel({
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <span className="min-w-0 flex-1">{line.displayText}</span>
                         <div className="flex shrink-0 flex-wrap gap-2">
-                          <Button disabled={busy} onClick={() => onBeginEditingInstruction(section, line)} type="button" variant="ghost">
+                          <Button
+                            aria-label={`Edit ${section.label.toLowerCase()}: ${line.displayText}`}
+                            disabled={busy}
+                            onClick={() => onBeginEditingInstruction(section, line)}
+                            type="button"
+                            variant="ghost"
+                          >
                             Edit
                           </Button>
-                          <Button disabled={busy} onClick={() => onRemoveInstructionLine(section, line)} type="button" variant="ghost">
+                          <Button
+                            aria-label={`Remove ${section.label.toLowerCase()}: ${line.displayText}`}
+                            disabled={busy}
+                            onClick={() => onRemoveInstructionLine(section, line)}
+                            type="button"
+                            variant="ghost"
+                          >
                             Remove
                           </Button>
                         </div>

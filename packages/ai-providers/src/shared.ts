@@ -218,5 +218,3 @@ export type OpenAiCompatibleJobFinderAiClientOptions = z.infer<
 >;
 
 export type StringMap = Record<string, string | undefined>;
-
-export { NullableStringSchema };

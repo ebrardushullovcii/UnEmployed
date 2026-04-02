@@ -130,11 +130,13 @@ function mergeExperienceExtractionEntries(
 
     return {
       ...entry,
+      title: entry.title ?? match?.title ?? null,
       companyName: pickNullableValue(entry.companyName, match?.companyName, preferFallbackValues),
       companyUrl: pickNullableValue(entry.companyUrl, match?.companyUrl, preferFallbackValues),
       location: pickNullableValue(entry.location, match?.location, preferFallbackValues),
       workMode: pickNullableValue(entry.workMode, match?.workMode, preferFallbackValues),
       employmentType: pickNullableValue(entry.employmentType, match?.employmentType, preferFallbackValues),
+      startDate: entry.startDate ?? match?.startDate ?? null,
       endDate: pickNullableValue(entry.endDate, match?.endDate, preferFallbackValues),
       isCurrent: (entry.isCurrent || match?.isCurrent) ?? false,
       summary: pickNullableValue(entry.summary, match?.summary, preferFallbackValues),
@@ -196,7 +198,7 @@ function mergeLinkExtractionEntries(
   const matchedFallbackIndices = new Set<number>();
   const merged = primary.map((entry, index) => {
     const matchIndex = entry.url == null
-      ? (!matchedFallbackIndices.has(index) && index < fallback.length ? index : -1)
+      ? (!matchedFallbackIndices.has(index) && index < fallback.length && fallback[index]?.url == null ? index : -1)
       : fallback.findIndex((candidate, fallbackIndex) => {
         return candidate.url === entry.url && !matchedFallbackIndices.has(fallbackIndex);
       });

@@ -536,6 +536,182 @@ describe('ai providers', () => {
     expect(result.links.filter((entry) => entry.url === null)).toHaveLength(2)
   })
 
+  test('backfills missing experience title and start date from the matched fallback entry', () => {
+    const primary = createExtraction({
+      experiences: [
+        {
+          companyName: 'Acme',
+          companyUrl: null,
+          title: null,
+          employmentType: null,
+          location: 'Remote',
+          workMode: null,
+          startDate: null,
+          endDate: null,
+          isCurrent: false,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        }
+      ]
+    })
+    const fallback = createExtraction({
+      experiences: [
+        {
+          companyName: 'Acme',
+          companyUrl: null,
+          title: 'Senior Engineer',
+          employmentType: null,
+          location: 'Remote',
+          workMode: null,
+          startDate: '2023',
+          endDate: null,
+          isCurrent: true,
+          summary: 'Led platform work',
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        }
+      ]
+    })
+
+    const result = completeResumeExtraction(primary, fallback)
+
+    expect(result.experiences[0]).toMatchObject({
+      title: 'Senior Engineer',
+      startDate: '2023',
+      isCurrent: true
+    })
+  })
+
+  test('does not graft a concrete fallback url onto a null-url link by position', () => {
+    const primary = createExtraction({
+      links: [
+        {
+          label: 'Portfolio',
+          url: null,
+          kind: null
+        }
+      ]
+    })
+    const fallback = createExtraction({
+      links: [
+        {
+          label: 'GitHub',
+          url: 'https://github.com/alex-vanguard',
+          kind: 'github'
+        }
+      ]
+    })
+
+    const result = completeResumeExtraction(primary, fallback)
+
+    expect(result.links).toEqual([
+      expect.objectContaining({ label: 'Portfolio', url: null, kind: null }),
+      expect.objectContaining({ label: 'GitHub', url: 'https://github.com/alex-vanguard', kind: 'github' })
+    ])
+  })
+
+  test('preserves parsed zero years experience instead of falling back to seeded values', async () => {
+    const client = createDeterministicJobFinderAiClient()
+
+    const result = await client.extractProfileFromResume({
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      resumeText: [
+        'Alex Vanguard',
+        'Junior Developer',
+        '0 years experience with professional software teams.'
+      ].join('\n')
+    })
+
+    expect(result.yearsExperience).toBe(0)
+  })
+
+  test('keeps bullet achievements when the first non-heading detail line is a bullet', async () => {
+    const client = createDeterministicJobFinderAiClient()
+
+    const result = await client.extractProfileFromResume({
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      resumeText: [
+        'Alex Vanguard',
+        'WORK EXPERIENCE',
+        'ACME – LONDON, UK',
+        'SOFTWARE ENGINEER – 2023 – CURRENT',
+        '• Led a critical migration across multiple services with zero downtime.',
+        '• Built automation tooling for release validation and monitoring.'
+      ].join('\n')
+    })
+
+    expect(result.experiences[0]?.summary).toBeNull()
+    expect(result.experiences[0]?.achievements).toEqual(
+      expect.arrayContaining([
+        'Led a critical migration across multiple services with zero downtime.',
+        'Built automation tooling for release validation and monitoring.'
+      ])
+    )
+  })
+
+  test('surfaces non-json provider errors with raw response details', async () => {
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response('<html>Bad Gateway</html>', {
+        status: 502,
+        headers: { 'Content-Type': 'text/html' }
+      }))) as typeof fetch
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/v1',
+        model: 'test-model',
+        label: 'AI resume agent'
+      })
+
+      await expect(client.tailorResume({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: {
+          resumeFormat: 'html',
+          resumeTemplateId: 'classic_ats',
+          fontPreset: 'inter_requisite',
+          humanReviewRequired: true,
+          allowAutoSubmitOverride: false,
+          keepSessionAlive: true,
+          discoveryOnly: false
+        },
+        job: {
+          source: 'target_site',
+          sourceJobId: 'job_1',
+          discoveryMethod: 'browser_agent',
+          canonicalUrl: 'https://jobs.example.com/1',
+          title: 'Frontend Engineer',
+          company: 'Acme',
+          location: 'Remote',
+          workMode: ['remote'],
+          applyPath: 'unknown',
+          easyApplyEligible: false,
+          postedAt: '2026-03-20T10:00:00.000Z',
+          discoveredAt: '2026-03-20T10:00:00.000Z',
+          salaryText: null,
+          summary: 'Build product interfaces',
+          description: 'Build product interfaces',
+          keySkills: ['React']
+        },
+        resumeText: 'Resume text'
+      })).rejects.toThrow('Response body: <html>Bad Gateway</html>')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('falls back to deterministic mode without an API key', () => {
     const client = createJobFinderAiClientFromEnvironment({
       UNEMPLOYED_AI_API_KEY: undefined

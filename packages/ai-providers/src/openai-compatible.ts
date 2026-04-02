@@ -70,8 +70,62 @@ function extractJsonString(rawContent: string): string {
   return rawContent.trim();
 }
 
+type ChatCompletionsPayload = {
+  choices?: Array<{
+    message?: {
+      content?: string;
+      tool_calls?: Array<{
+        id: string;
+        type: string;
+        function: {
+          name: string;
+          arguments: string;
+        };
+      }>;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
+};
+
 async function parseModelJsonResponse(response: Response): Promise<unknown> {
-  const payload = (await response.json()) as {
+  const rawBody = await response.text();
+  const payload = rawBody.length > 0
+    ? (() => {
+        try {
+          return JSON.parse(rawBody) as {
+            choices?: Array<{
+              message?: {
+                content?: unknown;
+              };
+            }>;
+            error?: {
+              message?: string;
+            };
+          };
+        } catch {
+          return null;
+        }
+      })()
+    : null;
+
+  if (!response.ok) {
+    const rawSnippet = rawBody.length > 400 ? `${rawBody.slice(0, 400)}...[truncated]` : rawBody;
+    throw new Error(
+      payload?.error?.message ??
+        `Model request failed with status ${response.status}.${rawSnippet ? ` Response body: ${rawSnippet}` : ""}`,
+    );
+  }
+
+  if (!payload) {
+    const rawSnippet = rawBody.length > 400 ? `${rawBody.slice(0, 400)}...[truncated]` : rawBody;
+    throw new Error(
+      `Model returned a non-JSON response.${rawSnippet ? ` Response body: ${rawSnippet}` : ""}`,
+    );
+  }
+
+  const normalizedPayload = payload as {
     choices?: Array<{
       message?: {
         content?: unknown;
@@ -80,17 +134,10 @@ async function parseModelJsonResponse(response: Response): Promise<unknown> {
     error?: {
       message?: string;
     };
-  };
-
-  if (!response.ok) {
-    throw new Error(
-      payload.error?.message ??
-        `Model request failed with status ${response.status}.`,
-    );
   }
 
   const rawContent = extractContentString(
-    payload.choices?.[0]?.message?.content,
+    normalizedPayload.choices?.[0]?.message?.content,
   );
   const jsonString = extractJsonString(rawContent);
 
@@ -106,6 +153,37 @@ async function parseModelJsonResponse(response: Response): Promise<unknown> {
       `Model returned invalid JSON: ${error instanceof Error ? error.message : "Unknown parse error"}. Response snippet: ${jsonSnippet}`,
     );
   }
+}
+
+async function parseResponsePayload(response: Response): Promise<ChatCompletionsPayload> {
+  const rawBody = await response.text();
+
+  let payload: ChatCompletionsPayload | null = null;
+
+  if (rawBody.length > 0) {
+    try {
+      payload = JSON.parse(rawBody) as ChatCompletionsPayload;
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (!response.ok) {
+    const rawSnippet = rawBody.length > 400 ? `${rawBody.slice(0, 400)}...[truncated]` : rawBody;
+    throw new Error(
+      payload?.error?.message ??
+        `Chat request failed with status ${response.status}.${rawSnippet ? ` Response body: ${rawSnippet}` : ""}`,
+    );
+  }
+
+  if (!payload) {
+    const rawSnippet = rawBody.length > 400 ? `${rawBody.slice(0, 400)}...[truncated]` : rawBody;
+    throw new Error(
+      `Chat request returned a non-JSON response.${rawSnippet ? ` Response body: ${rawSnippet}` : ""}`,
+    );
+  }
+
+  return payload;
 }
 
 function buildChatCompletionsUrl(baseUrl: string): string {
@@ -301,7 +379,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           : [];
       const rawJobs: Array<Record<string, unknown>> = [];
 
-      const parsedJobs = [];
+      const parsedJobs: Array<Awaited<ReturnType<typeof JobPostingSchema.parse>>> = [];
       let skippedJobs = 0;
       const invalidFieldCounts = new Map<string, number>();
       const invalidSamples: string[] = [];
@@ -414,6 +492,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
       return parsedJobs;
     },
     async chatWithTools(messages, tools, signal) {
+      if (!validatedOptions) {
+        throw new Error(
+          "The configured AI provider settings are invalid. Check the model and base URL before making model requests.",
+        );
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60_000);
 
@@ -431,15 +515,15 @@ export function createOpenAiCompatibleJobFinderAiClient(
       }
 
       try {
-        const response = await fetch(buildChatCompletionsUrl(options.baseUrl), {
+        const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
           method: "POST",
           signal: controller.signal,
           headers: {
-            Authorization: `Bearer ${options.apiKey}`,
+            Authorization: `Bearer ${validatedOptions.apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: options.model,
+            model: validatedOptions.model,
             temperature: 0.2,
             messages: messages.map((msg) => {
               const base = { role: msg.role, content: msg.content };
@@ -473,31 +557,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           }),
         });
 
-        if (!response.ok) {
-          const errorPayload = (await response.json().catch(() => ({}))) as {
-            error?: { message?: string };
-          };
-          throw new Error(
-            errorPayload.error?.message ??
-              `Chat request failed with status ${response.status}.`,
-          );
-        }
-
-        const payload = (await response.json()) as {
-          choices?: Array<{
-            message?: {
-              content?: string;
-              tool_calls?: Array<{
-                id: string;
-                type: string;
-                function: {
-                  name: string;
-                  arguments: string;
-                };
-              }>;
-            };
-          }>;
-        };
+        const payload = await parseResponsePayload(response);
 
         const message = payload.choices?.[0]?.message;
 

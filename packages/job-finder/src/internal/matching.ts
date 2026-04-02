@@ -55,7 +55,8 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
     return null;
   }
 
-  const matches = [...salaryText.matchAll(/(\d[\d,]*(?:\.\d+)?)(?:\s*)(k|m)?/gi)];
+  const matches = [...salaryText.matchAll(/(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi)];
+  const knownCompensationPeriods = new Set(["yr", "year", "years", "annual", "annum", "mo", "month", "months", "wk", "week", "weeks", "day", "days", "hr", "hrs", "hour", "hours"]);
 
   if (matches.length === 0) {
     return null;
@@ -65,8 +66,24 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
     .map((match) => {
       const baseValue = parseFloat((match[1] ?? "").replaceAll(",", ""));
       const suffix = (match[2] ?? "").toLowerCase();
+      const followingText = salaryText.slice((match.index ?? 0) + match[0].length).trimStart().toLowerCase();
 
       if (!Number.isFinite(baseValue) || baseValue <= 0) {
+        return null;
+      }
+
+      if (followingText.startsWith("%")) {
+        return null;
+      }
+
+      if (followingText.startsWith("/")) {
+        const periodUnit = followingText.match(/^\/\s*([a-z]+)/)?.[1] ?? "";
+        if (!knownCompensationPeriods.has(periodUnit)) {
+          return null;
+        }
+      }
+
+      if (!suffix && baseValue < 1000) {
         return null;
       }
 

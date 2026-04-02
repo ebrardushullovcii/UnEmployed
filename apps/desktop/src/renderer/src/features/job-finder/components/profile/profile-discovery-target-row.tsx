@@ -323,7 +323,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             label="Enabled for sequential discovery runs"
             onCheckedChange={(checked) => updateTarget({ ...props.target, enabled: checked })}
           />
-          <p className="text-[0.82rem] leading-6 text-foreground-soft">
+          <p aria-live="polite" aria-atomic="true" className="text-[0.82rem] leading-6 text-foreground-soft" role="status">
             Instruction status: <strong>{formatStatusLabel(props.target.instructionStatus)}</strong>
             {props.target.lastVerifiedAt ? ` • Verified ${new Date(props.target.lastVerifiedAt).toLocaleString()}` : ''}
             {props.target.staleReason ? ` • ${props.target.staleReason}` : ''}

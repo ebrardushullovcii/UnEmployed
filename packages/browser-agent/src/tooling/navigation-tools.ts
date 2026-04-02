@@ -75,7 +75,11 @@ You control the timeout strategy:
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy);
           if (!urlCheck.valid) {
             const recovery = await recoverFromOffAllowlist(page, currentUrl, state.currentUrl, context.config.navigationPolicy);
-            if (recovery.recovered && recovery.recoveredUrl) {
+            if (
+              recovery.recovered &&
+              recovery.recoveredUrl &&
+              isAllowedUrl(recovery.recoveredUrl, context.config.navigationPolicy).valid
+            ) {
               finalUrl = recovery.recoveredUrl;
             }
           }

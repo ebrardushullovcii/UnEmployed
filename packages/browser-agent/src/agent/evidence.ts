@@ -8,7 +8,7 @@ interface ToolExecutionResult {
   data?: Record<string, unknown>
 }
 
-export interface ExtractedJobInput extends Pick<JobPosting,
+export type ExtractedJobInput = Pick<JobPosting,
   | 'sourceJobId'
   | 'canonicalUrl'
   | 'title'
@@ -21,7 +21,7 @@ export interface ExtractedJobInput extends Pick<JobPosting,
   | 'workMode'
   | 'applyPath'
   | 'easyApplyEligible'
-  | 'keySkills'> {}
+  | 'keySkills'>
 
 function isToolResult(value: unknown): value is ToolExecutionResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

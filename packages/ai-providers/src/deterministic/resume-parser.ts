@@ -528,11 +528,16 @@ function inferExperienceEntries(resumeText: string) {
       const headerLine = companyContext ? (block[1] ?? "") : (block[0] ?? "");
       const dateRange = parseDateRange(headerLine);
       const titleValue = cleanLine(headerLine.replace(dateRangePattern, "").replace(/[|,–—-]+\s*$/g, "")) || null;
-      const detailLines = block
+      const rawDetailLines = block
         .slice(companyContext ? 2 : 1)
-        .map((line) => cleanLine(line.replace(/^[•*-]\s*/, "")))
         .filter((line) => line.length > 0 && !isCompanyMarkerLine(line));
-      const summaryLine = detailLines.find((line) => !/^project lead\b/i.test(line)) ?? null;
+      const summarySourceLine = rawDetailLines.find(
+        (line) => !/^project lead\b/i.test(line) && !/^[•*-]\s*/.test(line),
+      ) ?? null;
+      const detailLines = rawDetailLines
+        .map((line) => cleanLine(line.replace(/^[•*-]\s*/, "")))
+        .filter((line) => line.length > 0);
+      const summaryLine = summarySourceLine ? cleanLine(summarySourceLine.replace(/^[•*-]\s*/, "")) || null : null;
       const achievementLines = detailLines.filter((line) => line !== summaryLine);
 
       return {
@@ -751,6 +756,10 @@ export function buildDeterministicResumeProfileExtraction(
   const portfolioUrl = inferPortfolioUrl(input.resumeText, personalWebsiteUrl) ?? input.existingProfile.portfolioUrl;
   const education = inferEducationEntries(input.resumeText);
   const notes = buildProfileExtractionNotes({ fullName, headline, summary, currentLocation });
+  const parsedYearsExperience = Number.parseInt(
+    extractRegexMatch(input.resumeText, /\b\d{1,2}\+?\s+years?\b/i)?.match(/\d+/)?.[0] ?? "",
+    10,
+  );
 
   return ResumeProfileExtractionSchema.parse({
     firstName: nameParts.firstName ?? input.existingProfile.firstName,
@@ -762,11 +771,9 @@ export function buildDeterministicResumeProfileExtraction(
     currentLocation: currentLocation ?? input.existingProfile.currentLocation,
     timeZone: inferTimeZoneFromLocation(currentLocation) ?? input.existingProfile.timeZone,
     salaryCurrency: inferSalaryCurrencyFromLocation(currentLocation) ?? input.existingSearchPreferences.salaryCurrency,
-    yearsExperience:
-      Number.parseInt(
-        extractRegexMatch(input.resumeText, /\b\d{1,2}\+?\s+years?\b/i)?.match(/\d+/)?.[0] ?? "",
-        10,
-      ) || input.existingProfile.yearsExperience,
+    yearsExperience: Number.isNaN(parsedYearsExperience)
+      ? input.existingProfile.yearsExperience
+      : parsedYearsExperience,
     email: extractRegexMatch(input.resumeText, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) ?? input.existingProfile.email,
     phone: inferPhone(input.resumeText, input.existingProfile.phone),
     portfolioUrl,
