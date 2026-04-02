@@ -81,6 +81,7 @@ import { StatusBadge } from "../../../../features/job-finder/components/status-b
 - Put feature-specific composition in `src/renderer/src/features/<feature>/`.
 - Put route-level page shells in `src/renderer/src/pages/` or feature screen folders that already match the routed structure.
 - Keep helpers close to the feature that owns them before promoting them to shared UI or shared lib code.
+- Keep route files focused on wiring and state handoff; extract section renderers, modal content, and feature-local hooks before a screen or tab starts accumulating unrelated edit state and helper logic.
 
 ### TypeScript
 

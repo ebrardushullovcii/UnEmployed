@@ -5,8 +5,16 @@
 - `pnpm lint`
 - `pnpm typecheck`
 - `pnpm test`
+- `pnpm structure:check`
 - `pnpm agents:check`
 - `pnpm docs:check`
+
+## Structure Checks
+
+- `pnpm structure:check` reports oversized source files and concentration hotspots in warn-only mode.
+- Current warning budgets: general source files at `800` lines, desktop renderer components at `400` lines, and package entrypoints at `200` lines unless they are mostly barrel exports.
+- Current future hard-fail threshold is `1200` lines for a single source file; keep new work comfortably below it instead of treating that number as a target.
+- Use `pnpm hotspots` when you want a quick ranking of the largest files and most concentrated workspaces before starting a larger refactor.
 
 ## UI Validation Commands
 
@@ -21,8 +29,8 @@
 - Validate that Profile Preferences keeps `Debug source` disabled until a target has a valid absolute starting URL.
 - Validate that Discovery can open the dedicated Chrome profile even before any prior browser-profile session has been recorded.
 - Validate that source-debug completion copy matches the actual retained run state for `paused_manual`, `cancelled`, `failed`, and `interrupted` runs.
-- Validate that the Profile source-debug review modal traps focus while open, announces loading and error states clearly, and that inline learned-instruction edits only mutate the editable instruction fields.
-- Validate that `Verify` replays the selected learned-instruction artifact, leaves the reviewed artifact intact, and promotes or drafts a successor artifact based on the new replay result.
+- Ensure the Profile source-debug review modal traps focus while open, announces loading and error states clearly, and that inline learned-instruction edits only mutate the editable instruction fields.
+- Confirm that `Verify` replays the selected learned-instruction artifact, leaves the reviewed artifact intact, and promotes or drafts a successor artifact based on the new replay result.
 
 ## Live Agent Config
 

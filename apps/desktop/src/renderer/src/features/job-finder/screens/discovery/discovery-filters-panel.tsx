@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { History, Search } from "lucide-react";
 import type {
   BrowserSessionState,
@@ -46,6 +46,8 @@ export function DiscoveryFiltersPanel({
   onViewProgress,
   searchPreferences,
 }: DiscoveryFiltersPanelProps) {
+  const searchControlsHeadingId = useId();
+  const sectionHeadingPrefix = useId();
   const sections = useMemo<
     Array<{
       label: string;
@@ -95,10 +97,11 @@ export function DiscoveryFiltersPanel({
         status: chromeProfileSession.status,
         driver: chromeProfileSession.driver,
         label: chromeProfileSession.label,
-        detail: chromeProfileSession.detail,
+        detail: chromeProfileSession.detail ?? "",
         lastCheckedAt: chromeProfileSession.lastCheckedAt,
       }
     : NEUTRAL_SESSION_SNAPSHOT;
+  const sessionDetail = displaySessionSnapshot.detail?.trim() ?? "";
   const isChromeAgent =
     displaySessionSnapshot.driver === "chrome_profile_agent";
   const isReady = displaySessionSnapshot.status === "ready";
@@ -108,10 +111,16 @@ export function DiscoveryFiltersPanel({
     Boolean(onRunAgentDiscovery) && hasRunnableTarget && !busy;
 
   return (
-    <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5 xl:h-full xl:min-h-0">
-      <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+    <section
+      aria-labelledby={searchControlsHeadingId}
+      className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5 xl:h-full xl:min-h-0"
+    >
+      <h2
+        className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted"
+        id={searchControlsHeadingId}
+      >
         Search controls
-      </p>
+      </h2>
 
       <div className="flex min-h-106 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) xl:min-h-0">
         <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
@@ -119,20 +128,22 @@ export function DiscoveryFiltersPanel({
             <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
               {displaySessionSnapshot.label}
             </StatusBadge>
-            <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+            <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
               {isChromeAgent ? "Browser profile" : "Target-ready"}
             </span>
           </div>
-          <p className="max-w-full wrap-break-word text-[0.92rem] leading-7 text-foreground-soft">
-            {displaySessionSnapshot.detail}
-          </p>
+          {sessionDetail ? (
+            <p className="max-w-full wrap-break-word text-(length:--text-field) leading-7 text-foreground-soft">
+              {sessionDetail}
+            </p>
+          ) : null}
 
           {isChromeAgent ? (
             <div className="grid gap-2">
               {needsLogin || isBlocked ? (
                 <div
                   role="status"
-                  className="rounded-(--radius-small) border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-[0.85rem] leading-6 text-amber-600 dark:text-amber-400"
+                  className="rounded-(--radius-small) border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-(length:--text-description) leading-6 text-amber-600 dark:text-amber-400"
                 >
                   The browser profile needs login or recovery. Discovery can
                   still be started, but the run will record any auth blocker
@@ -142,7 +153,7 @@ export function DiscoveryFiltersPanel({
               {isReady ? (
                 <div
                   role="status"
-                  className="rounded-(--radius-small) border border-emerald-500/20 bg-emerald-500/5 px-3 py-3 text-[0.85rem] leading-6 text-emerald-600 dark:text-emerald-400"
+                  className="rounded-(--radius-small) border border-emerald-500/20 bg-emerald-500/5 px-3 py-3 text-(length:--text-description) leading-6 text-emerald-600 dark:text-emerald-400"
                 >
                   The browser profile is available and can be reused for sites
                   that benefit from an authenticated or warmed-up browser
@@ -152,7 +163,7 @@ export function DiscoveryFiltersPanel({
               {!needsLogin && !isBlocked && !isReady ? (
                 <div
                   role="status"
-                  className="rounded-(--radius-small) border border-sky-500/20 bg-sky-500/5 px-3 py-3 text-[0.85rem] leading-6 text-sky-600 dark:text-sky-400"
+                  className="rounded-(--radius-small) border border-sky-500/20 bg-sky-500/5 px-3 py-3 text-(length:--text-description) leading-6 text-sky-600 dark:text-sky-400"
                 >
                   Open the browser profile when you want to prewarm a site,
                   confirm auth, or keep a real session ready before the next
@@ -164,8 +175,14 @@ export function DiscoveryFiltersPanel({
         </div>
 
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-0 overflow-y-auto">
-          {sections.map((section, index) => (
-            <div
+          {sections.map((section, index) => {
+            const sectionHeadingId = `${sectionHeadingPrefix}-${section.label
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")}`;
+
+            return (
+            <section
+              aria-labelledby={sectionHeadingId}
               key={section.label}
               className={
                 index === 0
@@ -174,9 +191,12 @@ export function DiscoveryFiltersPanel({
               }
             >
               <div className="grid min-w-0 gap-3">
-                <p className="text-[0.62rem] uppercase tracking-(--tracking-badge) text-foreground-muted">
+                <h3
+                  className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-badge) text-foreground-muted"
+                  id={sectionHeadingId}
+                >
                   {section.label}
-                </p>
+                </h3>
                 {section.values.length > 0 ? (
                   <div className="flex min-w-0 flex-wrap gap-2">
                     {section.values.map((value) => (
@@ -193,13 +213,13 @@ export function DiscoveryFiltersPanel({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-[0.9rem] leading-7 text-foreground-soft">
+                  <p className="text-(length:--text-item) leading-7 text-foreground-soft">
                     {section.empty}
                   </p>
                 )}
               </div>
-            </div>
-          ))}
+            </section>
+          )})}
         </div>
 
         <div className="mt-auto grid gap-3 border-t border-(--surface-panel-border) px-4 py-4">
@@ -242,7 +262,12 @@ export function DiscoveryFiltersPanel({
           ) : null}
 
           {actionMessage ? (
-            <p className="text-(length:--text-description) leading-6 text-foreground-muted">
+            <p
+              aria-atomic="true"
+              aria-live="polite"
+              className="text-(length:--text-description) leading-6 text-foreground-muted"
+              role="status"
+            >
               {actionMessage}
             </p>
           ) : null}

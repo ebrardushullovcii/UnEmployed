@@ -3,7 +3,9 @@ import { vi } from "vitest";
 import type { Page } from "playwright";
 import type { CandidateProfile, ToolCall } from "@unemployed/contracts";
 import { runAgentDiscovery, type JobExtractor, type LLMClient } from "./agent";
-import type { AgentConfig, AgentMessage } from "./types";
+import { maybeCompactConversation } from "./agent/conversation";
+import { createUserPrompt } from "./agent/user-prompts";
+import type { AgentConfig, AgentMessage, AgentState } from "./types";
 
 function createProfile(): CandidateProfile {
   return {
@@ -401,6 +403,55 @@ describe("runAgentDiscovery", () => {
     expect(result.debugFindings?.summary).toContain("Recommendation route");
   });
 
+  test("compaction keeps the forced closeout prompt sticky across repeated rebuilds", () => {
+    const config = createConfig();
+    config.compaction = {
+      maxTranscriptMessages: 4,
+      preserveRecentMessages: 1,
+      maxToolPayloadChars: 48,
+    };
+
+    const state: AgentState = {
+      conversation: [
+        { role: "system", content: "system prompt" },
+        { role: "user", content: createUserPrompt(config) },
+        { role: "assistant", content: "step 1" },
+        {
+          role: "user",
+          content:
+            "Final phase-closeout turn.\n\nYour next response must call finish.",
+        },
+        { role: "assistant", content: "still probing" },
+      ],
+      reviewTranscript: [],
+      collectedJobs: [],
+      visitedUrls: new Set(["https://www.linkedin.com/jobs/search/"]),
+      stepCount: 3,
+      currentUrl: "https://www.linkedin.com/jobs/search/",
+      lastStableUrl: "https://www.linkedin.com/jobs/search/",
+      isRunning: true,
+      phaseEvidence: {
+        visibleControls: [],
+        successfulInteractions: [],
+        routeSignals: [],
+        attemptedControls: [],
+        warnings: [],
+      },
+      compactionState: null,
+    };
+
+    maybeCompactConversation(state, config, createUserPrompt);
+    maybeCompactConversation(state, config, createUserPrompt);
+
+    expect(
+      state.conversation.filter(
+        (message) =>
+          message.role === "user" &&
+          message.content.includes("Final phase-closeout turn."),
+      ),
+    ).toHaveLength(1);
+  });
+
   test("task-packet runs keep exploring after hitting the sampling budget until finish is called", async () => {
     const page = createPage() as Page;
     const llmClient: LLMClient = {
@@ -692,11 +743,7 @@ describe("runAgentDiscovery", () => {
     );
 
     expect(result.phaseCompletionMode).toBe("forced_finish");
-    expect(
-      result.phaseEvidence?.warnings.some((entry) =>
-        entry.includes("not-found route"),
-      ),
-    ).toBe(true);
+    expect(result.phaseEvidence?.warnings).toEqual([]);
     expect(
       result.phaseEvidence?.routeSignals.some((entry) =>
         entry.includes("Recovered to the last known jobs surface"),

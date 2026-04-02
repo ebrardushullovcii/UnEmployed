@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import type {
   CandidateProfile,
@@ -8,14 +8,11 @@ import type {
   SourceDebugRunRecord,
   SourceInstructionArtifact
 } from '@unemployed/contracts'
-import { Button } from '@renderer/components/ui/button'
-import { cn } from '@renderer/lib/cn'
 import { LockedScreenLayout } from '../components/locked-screen-layout'
-import { ProfileBackgroundTab } from '../components/profile/profile-background-tab'
-import { ProfileCoreTab } from '../components/profile/profile-core-tab'
-import { ProfileExperienceTab } from '../components/profile/profile-experience-tab'
-import { ProfilePreferencesTab } from '../components/profile/profile-preferences-tab'
+import { ProfileActiveSectionContent } from '../components/profile/profile-active-section-content'
 import { ProfileResumePanel } from '../components/profile/profile-resume-panel'
+import { ProfileSaveFooter } from '../components/profile/profile-save-footer'
+import { ProfileSectionTabs } from '../components/profile/profile-section-tabs'
 import { PageHeader } from '../components/page-header'
 import {
   buildProfilePayload,
@@ -25,90 +22,13 @@ import {
   type ProfileEditorValues,
   type SearchPreferencesEditorValues
 } from '../lib/profile-editor'
-
-type ProfileSection = 'basics' | 'experience' | 'background' | 'preferences'
-
-interface SectionProgress {
-  filled: number
-  percent: number
-  total: number
-}
-
-function createSectionProgress(filled: number, total: number): SectionProgress {
-  if (total <= 0) {
-    return { filled: 0, percent: 0, total: 0 }
-  }
-
-  return {
-    filled,
-    percent: Math.round((filled / total) * 100),
-    total
-  }
-}
-
-function isFilledValue(value: unknown): boolean {
-  if (typeof value === 'string') {
-    return value.trim().length > 0
-  }
-
-  if (typeof value === 'number') {
-    return Number.isFinite(value)
-  }
-
-  if (typeof value === 'boolean') {
-    return true
-  }
-
-  if (Array.isArray(value)) {
-    return value.length > 0
-  }
-
-  return value !== null && value !== undefined
-}
-
-function countFilledFields(values: readonly unknown[]): SectionProgress {
-  return createSectionProgress(values.filter((value) => isFilledValue(value)).length, values.length)
-}
-
-function countFilledRecordFields(
-  records: ReadonlyArray<Record<string, unknown>>,
-  ignoredKeys: readonly string[] = []
-): SectionProgress {
-  const ignored = new Set(ignoredKeys)
-  let filled = 0
-  let total = 0
-
-  for (const record of records) {
-    for (const [key, value] of Object.entries(record)) {
-      if (ignored.has(key)) {
-        continue
-      }
-
-      total += 1
-
-      if (isFilledValue(value)) {
-        filled += 1
-      }
-    }
-  }
-
-  return createSectionProgress(filled, total)
-}
-
-function combineSectionProgress(...stats: readonly SectionProgress[]): SectionProgress {
-  return createSectionProgress(
-    stats.reduce((sum, stat) => sum + stat.filled, 0),
-    stats.reduce((sum, stat) => sum + stat.total, 0)
-  )
-}
-
-function formatSectionProgressLabel(section: ProfileSection, progress: SectionProgress): string {
-  if (progress.total === 0) {
-    return section === 'experience' || section === 'background' ? 'Empty' : 'Not started'
-  }
-
-  return `${progress.filled}/${progress.total}`
-}
+import {
+  combineSectionProgress,
+  countFilledFields,
+  countFilledRecordFields,
+  type ProfileSection,
+  type SectionProgress
+} from '../lib/profile-screen-progress'
 
 export function ProfileScreen(props: {
   actionState: { busy: boolean; message: string | null }
@@ -387,40 +307,6 @@ export function ProfileScreen(props: {
 
   const activeSectionPanelId = 'profile-section-panel'
 
-  function handleSectionKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const currentIndex = sections.findIndex((section) => section.id === activeSection)
-
-    if (currentIndex < 0) {
-      return
-    }
-
-    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'Home' && event.key !== 'End') {
-      return
-    }
-
-    event.preventDefault()
-
-    let nextIndex = currentIndex
-
-    if (event.key === 'ArrowRight') {
-      nextIndex = (currentIndex + 1) % sections.length
-    } else if (event.key === 'ArrowLeft') {
-      nextIndex = (currentIndex - 1 + sections.length) % sections.length
-    } else if (event.key === 'Home') {
-      nextIndex = 0
-    } else if (event.key === 'End') {
-      nextIndex = sections.length - 1
-    }
-
-    const nextSection = sections[nextIndex]
-
-    if (nextSection) {
-      setActiveSection(nextSection.id)
-      const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-      tabs[nextIndex]?.focus()
-    }
-  }
-
   function handleSaveAll() {
     const profileResult = buildProfilePayload(profile, profileForm.getValues())
 
@@ -438,37 +324,6 @@ export function ProfileScreen(props: {
 
     setValidationMessage(null)
     onSaveAll(profileResult.payload, preferencesResult.payload)
-  }
-
-  const activeSectionContent: Record<ProfileSection, ReactNode> = {
-    basics: <ProfileCoreTab profileForm={profileForm} />,
-    experience: <ProfileExperienceTab busy={busy} experienceArray={experienceArray} profileForm={profileForm} />,
-    background: (
-      <ProfileBackgroundTab
-        backgroundArrays={{
-          certificationArray,
-          educationArray,
-          languageArray,
-          linkArray,
-          projectArray
-        }}
-        busy={busy}
-        profileForm={profileForm}
-      />
-    ),
-    preferences: (
-        <ProfilePreferencesTab
-          busy={busy}
-          onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-          onRunSourceDebug={onRunSourceDebug}
-          onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
-          onVerifySourceInstructions={onVerifySourceInstructions}
-          preferencesForm={preferencesForm}
-          profileForm={profileForm}
-          recentSourceDebugRuns={recentSourceDebugRuns}
-          sourceInstructionArtifacts={sourceInstructionArtifacts}
-        />
-      )
   }
 
   return (
@@ -493,107 +348,45 @@ export function ProfileScreen(props: {
       )}
     >
       <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0 xl:grid-rows-[auto_minmax(0,1fr)]">
-        <div className="px-3 pb-2 sm:px-4 sm:pb-2">
-          <div aria-label="Profile sections" className="grid items-start gap-2 sm:grid-cols-2 xl:grid-cols-4" onKeyDown={handleSectionKeyDown} role="tablist">
-              {sections.map((section) => (
-                <div key={section.id} className={cn(activeSection === section.id ? 'relative z-30 w-full' : 'relative w-full')}>
-                  <button
-                    aria-controls={activeSectionPanelId}
-                    aria-selected={activeSection === section.id}
-                    id={`${section.id}-tab`}
-                    className={cn(
-                      'group relative w-full border text-left transition-all duration-200',
-                      activeSection === section.id
-                        ? 'translate-y-1 overflow-hidden rounded-(--radius-button) border-(--surface-panel-border-active) bg-transparent text-(--text-headline)'
-                        : 'overflow-hidden rounded-(--radius-button) border-(--surface-panel-border-warm) bg-(--surface-fill-subtle) text-foreground-soft hover:border-(--surface-panel-border-warm-hover) hover:bg-(--surface-tab-hover) hover:text-foreground'
-                    )}
-                    onClick={() => setActiveSection(section.id)}
-                    role="tab"
-                    tabIndex={activeSection === section.id ? 0 : -1}
-                    type="button"
-                    >
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        'absolute inset-y-0 left-0 rounded-[inherit] transition-[width] duration-300',
-                        activeSection === section.id
-                          ? 'bg-transparent'
-                          : 'bg-[linear-gradient(135deg,var(--surface-panel-border-warm),var(--surface-overlay-subtle)_42%,var(--surface-overlay-soft))]'
-                      )}
-                      style={{ width: activeSection === section.id ? '0%' : `${section.progress.percent}%` }}
-                    />
-                    <span
-                      className={cn(
-                        'absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,var(--border),transparent)]',
-                        activeSection === section.id ? 'opacity-0' : 'opacity-80'
-                      )}
-                    />
-                    <span className="relative grid gap-(--gap-field) px-4 pt-3 pb-2.5">
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="text-(length:--text-body) font-semibold tracking-[-0.02em]">{section.label}</span>
-                        <span className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
-                          {formatSectionProgressLabel(section.id, section.progress)}
-                        </span>
-                      </span>
-
-                      <span className="flex items-center gap-2">
-                        <span className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
-                          {section.progress.percent}%
-                        </span>
-                        <span className="h-1 flex-1 overflow-hidden rounded-(--radius-small) bg-(--surface-overlay-track)">
-                          <span
-                            className={cn(
-                              'block h-full transition-[width] duration-300',
-                              activeSection === section.id
-                                ? 'bg-[linear-gradient(90deg,var(--progress-active-start),var(--progress-active-end))]'
-                                : 'bg-[linear-gradient(90deg,var(--progress-warm-start),var(--progress-warm-end))]'
-                            )}
-                            style={{ width: `${section.progress.percent}%` }}
-                          />
-                        </span>
-                      </span>
-                    </span>
-                  </button>
-                </div>
-              ))}
-          </div>
-        </div>
+        <ProfileSectionTabs
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          panelId={activeSectionPanelId}
+          sections={sections}
+        />
 
         <div className="relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft) bg-(--surface-panel)">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">{activeSectionContent[activeSection]}</div>
-          </div>
-
-          <div className="border-t border-(--surface-panel-border) bg-(--surface-overlay-medium) px-4 py-4 sm:px-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="grid gap-2">
-                {validationMessage ? (
-                  <p
-                    aria-atomic="true"
-                    aria-live="polite"
-                    className="text-(length:--text-description) leading-6 text-foreground-muted"
-                    role="status"
-                  >
-                    {validationMessage}
-                  </p>
-                ) : null}
-                {actionState.message ? (
-                  <p
-                    aria-atomic="true"
-                    aria-live="polite"
-                    className="text-(length:--text-description) leading-6 text-foreground-muted"
-                    role="status"
-                  >
-                    {actionState.message}
-                  </p>
-                ) : null}
-              </div>
-
-              <Button className="w-full sm:w-auto sm:shrink-0" disabled={busy} onClick={handleSaveAll} type="button" variant="primary">
-                Save changes
-              </Button>
+            <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">
+              <ProfileActiveSectionContent
+                activeSection={activeSection}
+                backgroundArrays={{
+                  certificationArray,
+                  educationArray,
+                  languageArray,
+                  linkArray,
+                  projectArray
+                }}
+                busy={busy}
+                experienceArray={experienceArray}
+                onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+                onRunSourceDebug={onRunSourceDebug}
+                onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
+                onVerifySourceInstructions={onVerifySourceInstructions}
+                preferencesForm={preferencesForm}
+                profileForm={profileForm}
+                recentSourceDebugRuns={recentSourceDebugRuns}
+                sourceInstructionArtifacts={sourceInstructionArtifacts}
+              />
             </div>
           </div>
+
+          <ProfileSaveFooter
+            actionMessage={actionState.message}
+            busy={busy}
+            onSave={handleSaveAll}
+            validationMessage={validationMessage}
+          />
         </div>
       </section>
     </LockedScreenLayout>

@@ -26,8 +26,8 @@ Job Finder foundation with local persistence, structured profile editing, resume
 - Keep the durable project plan and commit-time doc workflow explicit for future agents
 - Keep the desktop capture workflow available for regression checks while functional work expands
 - Preserve safe-stop behavior for unsupported apply branches instead of widening automation blindly
-- Add real exportable tailored resume artifacts so live Easy Apply flows can upload generated documents without falling back to the stored base resume
-- Keep the new template pipeline stable while deciding whether downstream export should target browser-printed PDF, DOCX templating, or both
+- Replace the one-shot tailored-resume path with a dedicated `Resume Workspace` built around structured drafts, bounded employer research, side-assistant edits, and approved `pdf` artifacts for apply uploads
+- Keep the current template pipeline stable while widening it from saved `html` only into `pdf`-first export with future `docx` room rather than trying to invent a freeform document editor
 - Continue the profile-information-architecture rollout by connecting the new structured identity, eligibility, summary, skill, experience, project, and language records to resume extraction, tailoring prompts, and apply-form answers
 
 ## Immediate Next Steps
@@ -37,7 +37,7 @@ Job Finder foundation with local persistence, structured profile editing, resume
 - Run desktop QA on the new `Debug source` target action, instruction-status copy, and recent source-debug history surfaces, then tighten any rough edges in wording and state transitions
 - Harden the generic target-site path against more hostile page structures and add more stable identity checks before treating it as more than a bounded experiment
 - Harden the live browser runtime with selector coverage, auth recovery, and broader supported field filling
-- Add richer document export and artifact storage for tailored resumes beyond the current saved HTML template output
+- Start the new resume-workspace plan by adding structured draft and export contracts, deterministic retrieval, and a dedicated desktop workspace shell before widening the assistant editing path
 - Expand the Applications screen with filtering, retry helpers, and attempt-centric recovery flows
 - Add richer fallback extraction and cleanup for edge-case PDF and DOCX resumes that do not yield clean text on the first pass
 - Keep improving structured resume extraction so imported resumes fill deeper education, certification, and project records with less cleanup after import
@@ -50,10 +50,12 @@ Job Finder foundation with local persistence, structured profile editing, resume
 - `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md` for the adapter-driven discovery, target configuration, and activity-timeline refactor
 - `docs/exec-plans/active/005-job-source-debug-agent.md` for the active source-debug workflow that learns and validates reusable site instructions
 - `docs/exec-plans/active/006-profile-discovery-production-copy-pass.md` for the production-ready copy cleanup across Profile and Discovery
+- `docs/exec-plans/active/007-job-finder-resume-workspace.md` for the dedicated resume workspace, grounded editing, employer research, and `pdf`-first export plan
 - `docs/HISTORY.md` for older completed milestones
 
 ## Recently Completed
 
+- `2026-04-02`: replaced the largest package and renderer mini-monoliths with thin package entrypoints, feature-local internal modules, split source-debug and discovery helpers, smaller desktop Profile route/components, and a new warn-only `pnpm structure:check` plus `pnpm hotspots` workflow so future file-growth regressions show up during verification instead of after files reach multi-thousand-line size
 - `2026-03-29`: tightened source-debug toward reusable operator guidance by forcing stronger proof of entry paths, visible search/filter controls, recommendation or `show all` routes, filtering tool-chatter out of learned instructions, hardening target-site auth detection, removing target-level session gating from discovery/source-debug orchestration, clearing prior learned instructions for a target before a fresh `Debug source` rerun rebuilds them, teaching the browser-agent to surface recommendation/search/filter controls from either accessibility or DOM signals so recommendation and `Show all` surfaces are less likely to be missed, fixing transcript compaction so provider tool-calling sessions no longer get broken by orphaned `tool` messages, teaching source-debug workers to keep exploring until they explicitly `finish` instead of auto-stopping after the first sampled job, and tightening promotion so “controls were visible but not proven” stays `draft` while visible UI surfaces are preferred over direct URL hacks
 - `2026-03-29`: hardened source-debug phase completion so task-packet runs get a forced final closeout turn before timeout, synthesize typed partial-evidence findings when the worker still fails to `finish`, persist completion-mode plus phase-evidence metadata through runtime/orchestrator storage, added a typed `getSourceDebugRunDetails` IPC path, and exposed a compact Profile Preferences review modal that shows per-phase outcomes, end reasons, evidence counts, and existing accept/verify actions for retained runs
 - `2026-03-29`: tied the visible browser lifetime to live discovery/source-debug run lifetime by adding explicit runtime `closeSession()` support, opening the browser session when agent discovery or source-debug starts, and closing it again on completion, failure, or cancellation so an open browser remains a reliable signal that the run is still active

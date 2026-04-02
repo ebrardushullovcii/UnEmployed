@@ -255,6 +255,72 @@ describe("createInMemoryJobFinderRepository", () => {
     }
   });
 
+  test("deletes only source instruction artifacts for the requested target in file storage", async () => {
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-db-artifacts-"),
+    );
+    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
+    let repository: Awaited<
+      ReturnType<typeof createFileJobFinderRepository>
+    > | null = null;
+
+    try {
+      repository = await createFileJobFinderRepository({
+        filePath,
+        seed: createSeed(),
+      });
+
+      const baseArtifact = {
+        status: "draft" as const,
+        createdAt: "2026-03-20T10:01:00.000Z",
+        updatedAt: "2026-03-20T10:02:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "source_debug_run_1",
+        basedOnAttemptIds: ["source_debug_attempt_1"],
+        notes: null,
+        navigationGuidance: ["Start from the jobs route."],
+        searchGuidance: ["Use the visible search box."],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "source-debug-v1",
+          toolsetVersion: "browser-tools-v1",
+          adapterVersion: "target_site",
+          appSchemaVersion: "job-finder-source-debug-v1",
+        },
+        verification: null,
+      };
+
+      await repository.upsertSourceInstructionArtifact({
+        ...baseArtifact,
+        id: "source_instruction_primary",
+        targetId: "target_primary",
+      });
+      await repository.upsertSourceInstructionArtifact({
+        ...baseArtifact,
+        id: "source_instruction_secondary",
+        targetId: "target_secondary",
+      });
+
+      await repository.deleteSourceInstructionArtifactsForTarget(
+        "target_primary",
+      );
+
+      await expect(repository.listSourceInstructionArtifacts()).resolves.toEqual([
+        expect.objectContaining({
+          id: "source_instruction_secondary",
+          targetId: "target_secondary",
+        }),
+      ]);
+    } finally {
+      if (repository) {
+        await repository.close();
+      }
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("migrates legacy string workMode values in saved jobs and experiences", async () => {
     const tempDirectory = await mkdtemp(
       path.join(os.tmpdir(), "unemployed-db-work-mode-"),

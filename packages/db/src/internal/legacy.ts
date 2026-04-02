@@ -1,0 +1,351 @@
+import {
+  ApplicationAttemptSchema,
+  ApplicationRecordSchema,
+  CandidateProfileSchema,
+  JobFinderDiscoveryStateSchema,
+  JobFinderRepositoryStateSchema,
+  JobFinderSettingsSchema,
+  JobSearchPreferencesSchema,
+  SavedJobSchema,
+  SourceDebugEvidenceRefSchema,
+  SourceDebugRunRecordSchema,
+  SourceDebugWorkerAttemptSchema,
+  SourceInstructionArtifactSchema,
+  TailoredAssetSchema,
+  type JobFinderDiscoveryState,
+  type SourceDebugRunRecord,
+} from "@unemployed/contracts";
+import { readFile } from "node:fs/promises";
+
+import type { JobFinderRepositorySeed } from "../repository-types";
+
+function cloneValue<TValue>(value: TValue): TValue {
+  return structuredClone(value);
+}
+
+function getLegacyJsonPath(filePath: string): string {
+  return filePath.replace(/\.[^.]+$/, ".json");
+}
+
+export function normalizeLegacySourceDebugRunRecord(
+  value: unknown,
+): SourceDebugRunRecord {
+  const parsedValue =
+    value && typeof value === "object"
+      ? ({ ...(value as Record<string, unknown>) } as Record<string, unknown>)
+      : value;
+
+  if (
+    parsedValue &&
+    typeof parsedValue === "object" &&
+    "state" in parsedValue &&
+    "activePhase" in parsedValue
+  ) {
+    const state = parsedValue.state;
+    const isTerminalState =
+      state === "completed" ||
+      state === "cancelled" ||
+      state === "failed" ||
+      state === "interrupted";
+
+    if (isTerminalState) {
+      parsedValue.activePhase = null;
+    }
+  }
+
+  return SourceDebugRunRecordSchema.parse(parsedValue);
+}
+
+export function normalizeLegacyDiscoveryState(
+  value: unknown,
+): JobFinderDiscoveryState {
+  const parsedValue =
+    value && typeof value === "object"
+      ? ({ ...(value as Record<string, unknown>) } as Record<string, unknown>)
+      : {};
+
+  const activeSourceDebugRun =
+    parsedValue.activeSourceDebugRun == null
+      ? null
+      : normalizeLegacySourceDebugRunRecord(parsedValue.activeSourceDebugRun);
+  const recentSourceDebugRuns = Array.isArray(parsedValue.recentSourceDebugRuns)
+    ? parsedValue.recentSourceDebugRuns.flatMap((run) => {
+        try {
+          return [normalizeLegacySourceDebugRunRecord(run)];
+        } catch {
+          return [];
+        }
+      })
+    : [];
+
+  return JobFinderDiscoveryStateSchema.parse({
+    ...parsedValue,
+    activeSourceDebugRun,
+    recentSourceDebugRuns,
+  });
+}
+
+function migrateWorkModeToArray(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const migrateValue = (value: unknown) => {
+    if (typeof value === "string") {
+      return value ? [value] : [];
+    }
+
+    if (value === null) {
+      return [];
+    }
+
+    return value;
+  };
+
+  const migrateCollection = (entries: unknown, key: "workMode") => {
+    if (!Array.isArray(entries)) {
+      return entries;
+    }
+
+    return entries.map((entry: unknown) => {
+      if (typeof entry !== "object" || entry === null) {
+        return entry;
+      }
+
+      const record = entry as Record<string, unknown>;
+      return {
+        ...record,
+        [key]: migrateValue(record[key]),
+      };
+    });
+  };
+
+  const nextData = { ...data };
+
+  if (data.profile && typeof data.profile === "object") {
+    const profile = data.profile as Record<string, unknown>;
+
+    nextData.profile = {
+      ...profile,
+      experiences: migrateCollection(profile.experiences, "workMode"),
+    };
+  }
+
+  if (Array.isArray(data.savedJobs)) {
+    nextData.savedJobs = migrateCollection(data.savedJobs, "workMode");
+  }
+
+  return nextData;
+}
+
+function migrateLegacySourceIdentifiers(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalizeSource = (value: unknown) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    if (normalized === "generic_site" || normalized === "linkedin") {
+      return "target_site";
+    }
+
+    return value;
+  };
+
+  const normalizeAdapterKind = (value: unknown) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const normalized = value.trim().toLowerCase();
+
+    if (
+      normalized === "linkedin" ||
+      normalized === "generic_site" ||
+      normalized === "target_site"
+    ) {
+      return "auto";
+    }
+
+    return value;
+  };
+
+  const migrateRecordArray = (
+    entries: unknown,
+    migrateRecord: (record: Record<string, unknown>) => Record<string, unknown>,
+  ): unknown => {
+    if (!Array.isArray(entries)) {
+      return entries;
+    }
+
+    return entries.map((entry): unknown => {
+      if (typeof entry !== "object" || entry === null) {
+        return entry;
+      }
+
+      return migrateRecord(entry as Record<string, unknown>);
+    });
+  };
+
+  const nextData = { ...data };
+
+  if (data.searchPreferences && typeof data.searchPreferences === "object") {
+    const searchPreferences = data.searchPreferences as Record<string, unknown>;
+    const discovery =
+      searchPreferences.discovery && typeof searchPreferences.discovery === "object"
+        ? (searchPreferences.discovery as Record<string, unknown>)
+        : null;
+
+    nextData.searchPreferences = {
+      ...searchPreferences,
+      ...(discovery
+        ? {
+            discovery: {
+              ...discovery,
+              targets: migrateRecordArray(discovery.targets, (record) => ({
+                ...record,
+                adapterKind: normalizeAdapterKind(record.adapterKind),
+              })),
+            },
+          }
+        : {}),
+    };
+  }
+
+  if (Array.isArray(data.savedJobs)) {
+    nextData.savedJobs = migrateRecordArray(data.savedJobs, (record) => ({
+      ...record,
+      source: normalizeSource(record.source),
+      provenance: migrateRecordArray(record.provenance, (provenanceRecord) => ({
+        ...provenanceRecord,
+        adapterKind: normalizeAdapterKind(provenanceRecord.adapterKind),
+        resolvedAdapterKind: normalizeSource(
+          provenanceRecord.resolvedAdapterKind,
+        ),
+      })),
+    }));
+  }
+
+  const legacyDiscovery =
+    data.discovery && typeof data.discovery === "object"
+      ? (data.discovery as Record<string, unknown>)
+      : null;
+
+  if (legacyDiscovery) {
+    nextData.discovery = {
+      ...legacyDiscovery,
+      sessions: migrateRecordArray(legacyDiscovery.sessions, (record) => ({
+        ...record,
+        adapterKind: normalizeSource(record.adapterKind),
+      })),
+    };
+  }
+
+  return nextData;
+}
+
+export async function readLegacySeed(
+  filePath: string,
+  seed: JobFinderRepositorySeed,
+): Promise<JobFinderRepositorySeed | null> {
+  const legacyPath = getLegacyJsonPath(filePath);
+
+  if (legacyPath === filePath) {
+    return null;
+  }
+
+  try {
+    const raw = await readFile(legacyPath, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const migratedData = migrateLegacySourceIdentifiers(
+      migrateWorkModeToArray(parsed),
+    );
+    const profile = CandidateProfileSchema.safeParse(migratedData.profile);
+    const searchPreferences = JobSearchPreferencesSchema.safeParse(
+      migratedData.searchPreferences,
+    );
+    const settings = JobFinderSettingsSchema.safeParse(migratedData.settings);
+    const discovery = (() => {
+      try {
+        return {
+          success: true as const,
+          data: normalizeLegacyDiscoveryState(migratedData.discovery),
+        };
+      } catch {
+        return { success: false as const, data: null };
+      }
+    })();
+    const savedJobs = SavedJobSchema.array().safeParse(migratedData.savedJobs);
+    const tailoredAssets = TailoredAssetSchema.array().safeParse(
+      migratedData.tailoredAssets,
+    );
+    const applicationRecords = ApplicationRecordSchema.array().safeParse(
+      migratedData.applicationRecords,
+    );
+    const applicationAttempts = ApplicationAttemptSchema.array().safeParse(
+      migratedData.applicationAttempts ?? [],
+    );
+    const sourceDebugAttempts = SourceDebugWorkerAttemptSchema.array().safeParse(
+      migratedData.sourceDebugAttempts ?? [],
+    );
+    const sourceInstructionArtifacts =
+      SourceInstructionArtifactSchema.array().safeParse(
+        migratedData.sourceInstructionArtifacts ?? [],
+      );
+    const sourceDebugEvidenceRefs = SourceDebugEvidenceRefSchema.array().safeParse(
+      migratedData.sourceDebugEvidenceRefs ?? [],
+    );
+    const sourceDebugRuns = Array.isArray(migratedData.sourceDebugRuns)
+      ? migratedData.sourceDebugRuns.flatMap((run) => {
+          try {
+            return [normalizeLegacySourceDebugRunRecord(run)];
+          } catch {
+            return [];
+          }
+        })
+      : cloneValue(seed.sourceDebugRuns);
+
+    return JobFinderRepositoryStateSchema.parse({
+      profile: profile.success ? profile.data : cloneValue(seed.profile),
+      searchPreferences: searchPreferences.success
+        ? searchPreferences.data
+        : cloneValue(seed.searchPreferences),
+      savedJobs: savedJobs.success
+        ? savedJobs.data
+        : cloneValue(seed.savedJobs),
+      tailoredAssets: tailoredAssets.success
+        ? tailoredAssets.data
+        : cloneValue(seed.tailoredAssets),
+      applicationRecords: applicationRecords.success
+        ? applicationRecords.data
+        : cloneValue(seed.applicationRecords),
+      applicationAttempts: applicationAttempts.success
+        ? applicationAttempts.data
+        : cloneValue(seed.applicationAttempts),
+      sourceDebugRuns,
+      sourceDebugAttempts: sourceDebugAttempts.success
+        ? sourceDebugAttempts.data
+        : cloneValue(seed.sourceDebugAttempts),
+      sourceInstructionArtifacts: sourceInstructionArtifacts.success
+        ? sourceInstructionArtifacts.data
+        : cloneValue(seed.sourceInstructionArtifacts),
+      sourceDebugEvidenceRefs: sourceDebugEvidenceRefs.success
+        ? sourceDebugEvidenceRefs.data
+        : cloneValue(seed.sourceDebugEvidenceRefs),
+      settings: settings.success ? settings.data : cloneValue(seed.settings),
+      discovery: discovery.success
+        ? discovery.data
+        : cloneValue(seed.discovery),
+    });
+  } catch (error) {
+    const errorCode =
+      error instanceof Error && "code" in error ? error.code : null;
+
+    if (errorCode === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}

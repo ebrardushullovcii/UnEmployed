@@ -1,0 +1,389 @@
+import { z } from "zod";
+import type { Locator, Page } from "playwright";
+import type { AgentNavigationPolicy } from "../types";
+import { isAllowedUrl } from "../allowlist";
+
+export const MAX_NAVIGATION_TIMEOUT = 120_000;
+const MAX_ACCESSIBLE_NAME_PATTERN_LENGTH = 200;
+const BOUNDED_WHITESPACE_PATTERN = "(?:\\s{1,8})";
+const INTERACTIVE_ELEMENT_LIMIT = 30;
+
+export const NavigateSchema = z
+  .object({
+    url: z.string().url(),
+    timeout: z.number().int().positive().max(MAX_NAVIGATION_TIMEOUT).optional().default(30000),
+    waitFor: z.enum(["domcontentloaded", "load", "networkidle"]).optional().default("domcontentloaded"),
+  })
+  .strict();
+
+export const ClickSchema = z
+  .object({
+    role: z.string().min(1),
+    name: z.string().min(1),
+    index: z.number().int().nonnegative().optional().default(0),
+    retryIfNotVisible: z.boolean().optional().default(true),
+  })
+  .strict();
+
+export const FillSchema = z
+  .object({
+    role: z.string().min(1),
+    name: z.string().min(1),
+    text: z.string().min(1),
+    index: z.number().int().nonnegative().optional().default(0),
+    submit: z.boolean().optional().default(false),
+  })
+  .strict();
+
+export const SelectOptionSchema = z
+  .object({
+    role: z.string().min(1),
+    name: z.string().min(1),
+    optionText: z.string().min(1),
+    index: z.number().int().nonnegative().optional().default(0),
+    submit: z.boolean().optional().default(false),
+  })
+  .strict();
+
+export const ScrollDownSchema = z
+  .object({
+    amount: z.number().int().positive().optional().default(800),
+  })
+  .strict();
+
+export const ScrollToTopSchema = z.object({}).strict();
+
+export const ExtractJobsSchema = z
+  .object({
+    pageType: z.enum(["search_results", "job_detail", "company_page", "unknown"]),
+    maxJobs: z.number().int().positive().optional().default(5),
+  })
+  .strict();
+
+const FinishFindingListSchema = z.array(z.string().min(1)).max(8).optional().default([]);
+
+export const FinishSchema = z
+  .object({
+    reason: z.string().min(1),
+    summary: z.string().min(1).optional(),
+    reliableControls: FinishFindingListSchema,
+    trickyFilters: FinishFindingListSchema,
+    navigationTips: FinishFindingListSchema,
+    applyTips: FinishFindingListSchema,
+    warnings: FinishFindingListSchema,
+  })
+  .strict();
+
+export interface InteractiveElementCandidate {
+  role: string;
+  name: string;
+}
+
+const INTERACTIVE_ELEMENT_ROLE_PRIORITY: Record<string, number> = {
+  searchbox: 140,
+  textbox: 120,
+  combobox: 110,
+  button: 90,
+  link: 80,
+  checkbox: 70,
+  radio: 70,
+  switch: 65,
+  tab: 60,
+  option: 55,
+  menuitem: 50,
+};
+
+const INTERACTIVE_ELEMENT_PRIORITY_PATTERNS = [
+  { pattern: /\b(show|see|view)\s+all\b/i, boost: 260 },
+  { pattern: /\bsearch\b/i, boost: 220 },
+  { pattern: /\bfilter(s)?\b/i, boost: 220 },
+  { pattern: /\blocation\b/i, boost: 210 },
+  { pattern: /\bindustry\b/i, boost: 210 },
+  { pattern: /\bcategory\b/i, boost: 200 },
+  { pattern: /\bdepartment\b/i, boost: 200 },
+  { pattern: /\bexperience\b/i, boost: 190 },
+  { pattern: /\b(remote|hybrid|on[- ]site|work mode)\b/i, boost: 180 },
+  { pattern: /\b(recommended|recommendation|collection|collections|top job picks)\b/i, boost: 175 },
+  { pattern: /\bjob(s)?\b/i, boost: 150 },
+  { pattern: /\b(next|load more|more results|see more|browse)\b/i, boost: 140 },
+  { pattern: /\bapply\b/i, boost: 80 },
+];
+
+const INTERACTIVE_ELEMENT_NOISE_PATTERNS = [
+  { pattern: /^(home|my network|messaging|notifications|me)$/i, penalty: 240 },
+  { pattern: /^(for business|try premium.*|premium)$/i, penalty: 220 },
+  { pattern: /\b(feed|advertisement|ad choice|sponsored)\b/i, penalty: 180 },
+];
+
+function normalizeInteractiveName(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/[→←↗↘↙↖›»]+$/g, "").trim();
+}
+
+function makeInteractiveElementKey(role: string, name: string): string {
+  return `${role.trim().toLowerCase()}:${normalizeInteractiveName(name).toLowerCase()}`;
+}
+
+export function mergeInteractiveElementCandidates(
+  ...candidateLists: Array<readonly InteractiveElementCandidate[]>
+): InteractiveElementCandidate[] {
+  const merged = new Map<string, { role: string; name: string; counts: number[]; order: number }>();
+  let order = 0;
+
+  candidateLists.forEach((candidateList, listIndex) => {
+    const counts = new Map<string, number>();
+
+    for (const candidate of candidateList) {
+      const role = candidate.role.trim().toLowerCase();
+      const name = normalizeInteractiveName(candidate.name);
+
+      if (!role || !name) {
+        continue;
+      }
+
+      const key = makeInteractiveElementKey(role, name);
+      const nextCount = (counts.get(key) ?? 0) + 1;
+      counts.set(key, nextCount);
+
+      const existing = merged.get(key);
+      if (existing) {
+        existing.counts[listIndex] = nextCount;
+        continue;
+      }
+
+      const sourceCounts = new Array(candidateLists.length).fill(0);
+      sourceCounts[listIndex] = nextCount;
+      merged.set(key, { role, name, counts: sourceCounts, order });
+      order += 1;
+    }
+  });
+
+  return [...merged.values()]
+    .sort((left, right) => left.order - right.order)
+    .flatMap((entry) => {
+      const maxCount = Math.max(...entry.counts, 1);
+      return Array.from({ length: maxCount }, () => ({ role: entry.role, name: entry.name }));
+    });
+}
+
+function scoreInteractiveElement(candidate: InteractiveElementCandidate): number {
+  const normalizedName = normalizeInteractiveName(candidate.name);
+  const compactName = normalizedName.toLowerCase();
+  const normalizedRole = candidate.role.trim().toLowerCase();
+
+  let score = INTERACTIVE_ELEMENT_ROLE_PRIORITY[normalizedRole] ?? 40;
+
+  for (const { pattern, boost } of INTERACTIVE_ELEMENT_PRIORITY_PATTERNS) {
+    if (pattern.test(normalizedName)) {
+      score += boost;
+    }
+  }
+
+  for (const { pattern, penalty } of INTERACTIVE_ELEMENT_NOISE_PATTERNS) {
+    if (pattern.test(normalizedName)) {
+      score -= penalty;
+    }
+  }
+
+  if (compactName.length <= 1) {
+    score -= 80;
+  } else if (compactName.length <= 3) {
+    score -= 30;
+  }
+
+  return score;
+}
+
+export function parseInteractiveElementsFromAriaSnapshot(snapshot: string): InteractiveElementCandidate[] {
+  const elements: InteractiveElementCandidate[] = [];
+
+  for (const line of snapshot.split("\n")) {
+    const match = line.match(/-\s+([\w-]+)\s+"([^"]+)"(?:\s+\[ref=[^\]]+\])?/);
+    if (!match) {
+      continue;
+    }
+
+    const role = match[1]?.trim().toLowerCase();
+    const name = normalizeInteractiveName(match[2] ?? "");
+
+    if (!role || !name) {
+      continue;
+    }
+
+    elements.push({ role, name });
+  }
+
+  return elements;
+}
+
+export function prioritizeInteractiveElements(
+  candidates: readonly InteractiveElementCandidate[],
+  limit = INTERACTIVE_ELEMENT_LIMIT,
+): Array<InteractiveElementCandidate & { index: number }> {
+  const scored = candidates.map((candidate, order) => ({ ...candidate, order, score: scoreInteractiveElement(candidate) }));
+
+  scored.sort((left, right) => right.score - left.score || left.order - right.order);
+
+  const roleNameIndices = new Map<string, number>();
+
+  return scored.slice(0, limit).map((candidate) => {
+    const key = makeInteractiveElementKey(candidate.role, candidate.name);
+    const index = roleNameIndices.get(key) ?? 0;
+    roleNameIndices.set(key, index + 1);
+    return { role: candidate.role, name: candidate.name, index };
+  });
+}
+
+export function buildLooseAccessibleNamePattern(name: string): RegExp {
+  const trimmedName = normalizeInteractiveName(name);
+  if (!trimmedName) {
+    return /^$/i;
+  }
+
+  const safeName = trimmedName.slice(0, MAX_ACCESSIBLE_NAME_PATTERN_LENGTH);
+  const escapedName = safeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const whitespaceTolerantName = escapedName.replace(/\s+/g, BOUNDED_WHITESPACE_PATTERN);
+  return new RegExp(whitespaceTolerantName, "i");
+}
+
+function escapeAttributeValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+export async function fillComboboxValue(locator: Locator, page: Page, optionText: string): Promise<void> {
+  const inputLocator = locator.locator("input, textarea").first();
+  const inputCount = await inputLocator.count().catch(() => 0);
+
+  if (inputCount > 0) {
+    await inputLocator.click().catch(() => undefined);
+    await inputLocator.fill(optionText).catch(async () => {
+      await page.keyboard.press("ControlOrMeta+A").catch(() => undefined);
+      await page.keyboard.type(optionText).catch(() => undefined);
+    });
+    return;
+  }
+
+  await locator.click().catch(() => locator.focus().catch(() => undefined));
+  await page.keyboard.type(optionText).catch(() => undefined);
+}
+
+export function buildComboboxOptionScopes(page: Page, popupId: string | null): Locator[] {
+  if (popupId) {
+    return [page.locator(`[id="${escapeAttributeValue(popupId)}"]`)];
+  }
+
+  return [page.locator("body")];
+}
+
+export async function clickMatchingComboboxOption(scopes: readonly Locator[], optionText: string): Promise<boolean> {
+  const optionPattern = buildLooseAccessibleNamePattern(optionText);
+
+  for (const scope of scopes) {
+    const semanticOptions = scope.getByRole("option", { name: optionPattern });
+    const semanticOptionCount = await semanticOptions.count().catch(() => 0);
+
+    if (semanticOptionCount > 0) {
+      await semanticOptions.first().click();
+      return true;
+    }
+
+    const fallbackOptions = scope.locator('[role="option"], [role="listitem"], li, button').filter({ hasText: optionPattern });
+    const fallbackOptionCount = await fallbackOptions.count().catch(() => 0);
+
+    if (fallbackOptionCount > 0) {
+      await fallbackOptions.first().click();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export async function readComboboxSelection(locator: Locator): Promise<{ selectedLabel: string | null; selectedValue: string | null }> {
+  return locator.evaluate((element) => {
+    const input =
+      element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        ? element
+        : (element.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null);
+
+    const activeDescendantId = input?.getAttribute("aria-activedescendant") ?? element.getAttribute("aria-activedescendant");
+    const activeDescendant = activeDescendantId ? document.getElementById(activeDescendantId) : null;
+    const selectedLabel = [
+      activeDescendant?.textContent,
+      input?.value,
+      element.getAttribute("aria-valuetext"),
+      element.getAttribute("value"),
+      element.textContent,
+    ].find((value) => typeof value === "string" && value.trim().length > 0);
+
+    return {
+      selectedLabel: selectedLabel?.trim() ?? null,
+      selectedValue: input?.value?.trim() ?? element.getAttribute("value")?.trim() ?? null,
+    };
+  });
+}
+
+export async function resolveRoleLocator(
+  page: Page,
+  role: string,
+  name: string,
+  index: number,
+): Promise<ReturnType<Page["getByRole"]>> {
+  const exactLocator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name, exact: true });
+  const exactCount = await exactLocator.count().catch(() => 0);
+
+  if (exactCount > index) {
+    return exactLocator.nth(index);
+  }
+
+  const looseLocator = page.getByRole(role as Parameters<typeof page.getByRole>[0], { name: buildLooseAccessibleNamePattern(name) });
+  const looseCount = await looseLocator.count().catch(() => 0);
+
+  if (looseCount > index) {
+    return looseLocator.nth(index);
+  }
+
+  return exactLocator.nth(index);
+}
+
+export async function recoverFromOffAllowlist(
+  page: Page,
+  invalidUrl: string,
+  previousUrl: string,
+  policy: AgentNavigationPolicy,
+): Promise<{ recovered: boolean; error: string; recoveredUrl?: string }> {
+  const error = `Navigation went to disallowed URL: ${invalidUrl}`;
+  const previousUrlValid = previousUrl && isAllowedUrl(previousUrl, policy).valid;
+
+  try {
+    await page.goBack({ waitUntil: "domcontentloaded", timeout: 5000 });
+    await page.waitForTimeout(500);
+
+    const currentUrl = page.url();
+    const urlCheck = isAllowedUrl(currentUrl, policy);
+    if (urlCheck.valid) {
+      return { recovered: true, error, recoveredUrl: currentUrl };
+    }
+  } catch {
+    // goBack failed, try direct navigation
+  }
+
+  if (previousUrlValid) {
+    try {
+      await page.goto(previousUrl, { waitUntil: "domcontentloaded", timeout: 5000 });
+
+      const finalUrl = page.url();
+      const urlCheck = isAllowedUrl(finalUrl, policy);
+      if (urlCheck.valid) {
+        return { recovered: true, error: error + ` (recovered to ${previousUrl})`, recoveredUrl: finalUrl };
+      }
+    } catch {
+      // direct recovery failed
+    }
+  }
+
+  if (!previousUrlValid) {
+    return { recovered: false, error: error + " (no previous allowed URL to recover to)" };
+  }
+
+  return { recovered: false, error: error + " (recovery failed)" };
+}

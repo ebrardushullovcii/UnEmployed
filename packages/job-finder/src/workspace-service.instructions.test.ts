@@ -1,0 +1,527 @@
+import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
+import { describe, expect, test } from "vitest";
+import {
+  createAgentAiClient,
+  createAgentBrowserRuntime,
+  createSeed,
+  createStrongSourceDebugFindingsByPhase,
+  createWorkspaceServiceHarness,
+  toEditableSourceInstructionArtifactInput,
+} from "./workspace-service.test-support";
+
+describe("createJobFinderWorkspaceService", () => {
+  test("agent discovery uses the active draft-or-validated instructions for the matching target", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_linkedin_accepted_draft",
+        label: "Draft target",
+        startingUrl: "https://www.linkedin.com/jobs/",
+        instructionStatus: "draft",
+        validatedInstructionId: null,
+        draftInstructionId: "instruction_linkedin_draft_accepted",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_linkedin_validated",
+        label: "Validated target",
+        startingUrl: "https://www.linkedin.com/jobs/search/",
+        instructionStatus: "validated",
+        validatedInstructionId: "instruction_linkedin_validated",
+        draftInstructionId: null,
+      },
+    ];
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_draft_accepted",
+        targetId: "target_linkedin_accepted_draft",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_draft",
+        basedOnAttemptIds: ["debug_attempt_draft"],
+        notes: "Accepted draft guidance.",
+        navigationGuidance: ["Use the accepted draft recommendation route first."],
+        searchGuidance: [
+          "Open the accepted draft collection before trying broader search.",
+        ],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+      {
+        id: "instruction_linkedin_validated",
+        targetId: "target_linkedin_validated",
+        status: "validated",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: "2026-03-20T10:06:00.000Z",
+        basedOnRunId: "debug_run_validated",
+        basedOnAttemptIds: ["debug_attempt_validated"],
+        notes: "Validated guidance.",
+        navigationGuidance: ["Use the validated jobs search route directly."],
+        searchGuidance: [
+          "Use the validated location filter after opening the results page.",
+        ],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: {
+          id: "verification_linkedin_validated",
+          replayRunId: "debug_run_replay_validated",
+          verifiedAt: "2026-03-20T10:07:00.000Z",
+          outcome: "passed",
+          proofSummary: "Replay succeeded.",
+          reason: null,
+          versionInfo: {
+            promptProfileVersion: "v1",
+            toolsetVersion: "v1",
+            adapterVersion: "v1",
+            appSchemaVersion: "v1",
+          },
+        },
+      },
+    ];
+
+    const catalog = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
+      "target_site",
+      createSeed().searchPreferences,
+    );
+    const baseAgentRuntime = createAgentBrowserRuntime(catalog.jobs);
+    const capturedInstructionsByLabel = new Map<string, readonly string[]>();
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseAgentRuntime,
+      runAgentDiscovery(source, options) {
+        capturedInstructionsByLabel.set(options.siteLabel, [
+          ...(options.siteInstructions ?? []),
+        ]);
+        return baseAgentRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runAgentDiscovery(() => {}, new AbortController().signal);
+
+    expect(capturedInstructionsByLabel.get("Draft target")).toEqual(
+      expect.arrayContaining([
+        "[Navigation] Use the accepted draft recommendation route first.",
+        "[Search] Open the accepted draft collection before trying broader search.",
+      ]),
+    );
+    expect(capturedInstructionsByLabel.get("Draft target")?.join("\n")).not.toContain(
+      "validated jobs search route directly",
+    );
+    expect(capturedInstructionsByLabel.get("Validated target")).toEqual(
+      expect.arrayContaining([
+        "[Navigation] Use the validated jobs search route directly.",
+        "[Search] Use the validated location filter after opening the results page.",
+      ]),
+    );
+    expect(capturedInstructionsByLabel.get("Validated target")?.join("\n")).not.toContain(
+      "accepted draft recommendation route first",
+    );
+  });
+
+  test("saveSourceInstructionArtifact updates a bound target artifact and rejects unbound edits", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        instructionStatus: "draft",
+        validatedInstructionId: null,
+        draftInstructionId: "instruction_linkedin_draft_editable",
+      },
+    ];
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_draft_editable",
+        targetId: "target_linkedin_default",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_editable",
+        basedOnAttemptIds: ["debug_attempt_editable"],
+        notes: "Editable draft guidance.",
+        navigationGuidance: ["Start from the jobs homepage."],
+        searchGuidance: ["Use the visible search box first."],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+    const originalArtifact = seed.sourceInstructionArtifacts[0]!;
+
+    const updatedSnapshot = await workspaceService.saveSourceInstructionArtifact(
+      "target_linkedin_default",
+      {
+        ...toEditableSourceInstructionArtifactInput(originalArtifact),
+        searchGuidance: ["Use the edited search guidance instead."],
+      },
+    );
+    const updatedArtifact = updatedSnapshot.sourceInstructionArtifacts.find(
+      (artifact) => artifact.id === originalArtifact.id,
+    );
+
+    expect(updatedArtifact?.searchGuidance).toEqual([
+      "Use the edited search guidance instead.",
+    ]);
+    expect(updatedArtifact?.status).toBe("draft");
+    expect(updatedArtifact?.basedOnRunId).toBe("debug_run_editable");
+
+    await expect(
+      workspaceService.saveSourceInstructionArtifact("target_linkedin_default", {
+        ...toEditableSourceInstructionArtifactInput(originalArtifact),
+        id: "instruction_not_bound_to_target",
+      }),
+    ).rejects.toThrow(/unknown source instruction/i);
+  });
+
+  test("forwards validated source guidance into apply execution", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        instructionStatus: "validated",
+        validatedInstructionId: "instruction_linkedin_validated",
+      },
+    ];
+    seed.savedJobs = [
+      {
+        ...seed.savedJobs[0]!,
+        provenance: [
+          {
+            targetId: "target_linkedin_default",
+            adapterKind: "auto",
+            resolvedAdapterKind: "target_site",
+            startingUrl: "https://www.linkedin.com/jobs/search/",
+            discoveredAt: "2026-03-20T10:04:00.000Z",
+          },
+        ],
+      },
+      ...seed.savedJobs.slice(1),
+    ];
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_validated",
+        targetId: "target_linkedin_default",
+        status: "validated",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+        acceptedAt: "2026-03-20T10:04:00.000Z",
+        basedOnRunId: "debug_run_1",
+        basedOnAttemptIds: ["debug_attempt_1"],
+        notes: "Validated apply guidance for the target-site target.",
+        navigationGuidance: [
+          "Open the job detail page before acting on apply controls.",
+        ],
+        searchGuidance: [
+          "Use the jobs search entrypoint rather than the site home feed.",
+        ],
+        detailGuidance: [
+          "Prefer the dedicated jobs search entrypoint for this source.",
+        ],
+        applyGuidance: [
+          "Use the Easy Apply branch when the listing exposes it; otherwise pause for review.",
+        ],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: {
+          id: "verification_linkedin_validated",
+          replayRunId: "debug_run_replay_1",
+          verifiedAt: "2026-03-20T10:04:00.000Z",
+          outcome: "passed",
+          proofSummary: "Replay reached the apply path successfully.",
+          reason: null,
+          versionInfo: {
+            promptProfileVersion: "v1",
+            toolsetVersion: "v1",
+            adapterVersion: "v1",
+            appSchemaVersion: "v1",
+          },
+        },
+      },
+    ];
+
+    let capturedInstructions: readonly string[] = [];
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: {
+        ...createWorkspaceServiceHarness().browserRuntime,
+        async executeEasyApply(source, input) {
+          capturedInstructions = input.instructions ?? [];
+          return createWorkspaceServiceHarness().browserRuntime.executeEasyApply(
+            source,
+            input,
+          );
+        },
+      },
+    });
+
+    await workspaceService.approveApply("job_ready");
+
+    expect(capturedInstructions).toEqual(
+      expect.arrayContaining([
+        "[Navigation] Open the job detail page before acting on apply controls.",
+        "[Search] Use the jobs search entrypoint rather than the site home feed.",
+        "[Detail] Prefer the dedicated jobs search entrypoint for this source.",
+        "[Apply] Use the Easy Apply branch when the listing exposes it; otherwise pause for review.",
+      ]),
+    );
+  });
+
+  test("forwards a draft source guidance set into apply execution for its own target", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        instructionStatus: "draft",
+        validatedInstructionId: null,
+        draftInstructionId: "instruction_linkedin_draft_accepted",
+      },
+    ];
+    seed.savedJobs = [
+      {
+        ...seed.savedJobs[0]!,
+        provenance: [
+          {
+            targetId: "target_linkedin_default",
+            adapterKind: "auto",
+            resolvedAdapterKind: "target_site",
+            startingUrl: "https://www.linkedin.com/jobs/",
+            discoveredAt: "2026-03-20T10:04:00.000Z",
+          },
+        ],
+      },
+      ...seed.savedJobs.slice(1),
+    ];
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_draft_accepted",
+        targetId: "target_linkedin_default",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_accepted_draft",
+        basedOnAttemptIds: ["debug_attempt_accepted_draft"],
+        notes: "Accepted draft apply guidance for the target-site target.",
+        navigationGuidance: ["Open the accepted draft collection route first."],
+        searchGuidance: [
+          "Use the accepted draft jobs surface before refining filters.",
+        ],
+        detailGuidance: [
+          "Open the job detail page after entering through the accepted draft route.",
+        ],
+        applyGuidance: [
+          "Use the accepted draft Easy Apply entry when it is exposed on the detail page.",
+        ],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    let capturedInstructions: readonly string[] = [];
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: {
+        ...createWorkspaceServiceHarness().browserRuntime,
+        async executeEasyApply(source, input) {
+          capturedInstructions = input.instructions ?? [];
+          return createWorkspaceServiceHarness().browserRuntime.executeEasyApply(
+            source,
+            input,
+          );
+        },
+      },
+    });
+
+    await workspaceService.approveApply("job_ready");
+
+    expect(capturedInstructions).toEqual(
+      expect.arrayContaining([
+        "[Navigation] Open the accepted draft collection route first.",
+        "[Search] Use the accepted draft jobs surface before refining filters.",
+        "[Detail] Open the job detail page after entering through the accepted draft route.",
+        "[Apply] Use the accepted draft Easy Apply entry when it is exposed on the detail page.",
+      ]),
+    );
+  });
+
+  test("verify source instructions replays the chosen artifact without overwriting it mid-run", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      instructionStatus: "validated",
+      validatedInstructionId: "instruction_existing_validated",
+      draftInstructionId: null,
+      lastVerifiedAt: "2026-03-20T10:05:00.000Z",
+      staleReason: null,
+    };
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_existing_validated",
+        targetId: "target_linkedin_default",
+        status: "validated",
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: "2026-03-20T10:05:00.000Z",
+        basedOnRunId: "existing_run",
+        basedOnAttemptIds: ["existing_attempt"],
+        notes: "Existing validated instructions",
+        navigationGuidance: ["Use the existing validated collection route first."],
+        searchGuidance: [
+          "Use the existing validated keyword search box to change the result set.",
+        ],
+        detailGuidance: [
+          "Use same-host detail pages as the canonical source of job data.",
+        ],
+        applyGuidance: [
+          "Use the on-site apply entry when the detail page exposes it.",
+        ],
+        warnings: ["Keep this source in draft if replay fails later."],
+        versionInfo: {
+          promptProfileVersion: "source-debug-v1",
+          toolsetVersion: "browser-tools-v1",
+          adapterVersion: "target-site-adapter-v1",
+          appSchemaVersion: "job-finder-source-debug-v1",
+        },
+        verification: {
+          id: "existing_verification",
+          replayRunId: "existing_replay_run",
+          verifiedAt: "2026-03-20T10:05:00.000Z",
+          outcome: "passed",
+          proofSummary: "Existing replay passed.",
+          reason: null,
+          versionInfo: {
+            promptProfileVersion: "source-debug-v1",
+            toolsetVersion: "browser-tools-v1",
+            adapterVersion: "target-site-adapter-v1",
+            appSchemaVersion: "job-finder-source-debug-v1",
+          },
+        },
+      },
+    ];
+
+    const replayInstructionsByLabel = new Map<string, readonly string[]>();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_verify_case",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_verify_case",
+          title: "Frontend Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Verify artifact coverage.",
+          description: "Verify artifact coverage.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        replayInstructionsByLabel.set(options.siteLabel, [
+          ...(options.siteInstructions ?? []),
+        ]);
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const snapshot = await workspaceService.verifySourceInstructions(
+      "target_linkedin_default",
+      "instruction_existing_validated",
+    );
+    const artifacts = await repository.listSourceInstructionArtifacts();
+    const originalArtifact = artifacts.find(
+      (artifact) => artifact.id === "instruction_existing_validated",
+    );
+    const successorArtifact = artifacts.find(
+      (artifact) =>
+        artifact.id !== "instruction_existing_validated" &&
+        artifact.targetId === "target_linkedin_default",
+    );
+
+    expect(replayInstructionsByLabel.get("Primary target Replay Verification")).toEqual(
+      expect.arrayContaining([
+        "[Navigation] Use the existing validated collection route first.",
+        "[Search] Use the existing validated keyword search box to change the result set.",
+        "[Detail] Use same-host detail pages as the canonical source of job data.",
+        "[Apply] Use the on-site apply entry when the detail page exposes it.",
+      ]),
+    );
+    expect(
+      replayInstructionsByLabel
+        .get("Primary target Replay Verification")
+        ?.join("\n"),
+    ).not.toContain("Keep this source in draft if replay fails later.");
+    expect(originalArtifact?.status).toBe("validated");
+    expect(originalArtifact?.navigationGuidance).toEqual([
+      "Use the existing validated collection route first.",
+    ]);
+    expect(successorArtifact?.status).toBe("validated");
+    expect(successorArtifact?.verification?.outcome).toBe("passed");
+    expect(snapshot.searchPreferences.discovery.targets[0]?.validatedInstructionId).toBe(
+      successorArtifact?.id ?? null,
+    );
+  });
+});

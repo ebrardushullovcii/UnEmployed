@@ -23,7 +23,7 @@ import type {
   AgentDiscoveryOptions,
   BrowserSessionRuntime,
   ExecuteEasyApplyInput,
-} from "./index";
+ } from "./runtime-types";
 
 export interface JobPageExtractionInput {
   pageText: string;
@@ -153,6 +153,75 @@ async function isDebuggerEndpointReady(debugPort: number): Promise<boolean> {
   }
 }
 
+function normalizeUserDataDir(value: string): string {
+  return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+async function isDebuggerEndpointOwnedByUserDataDir(
+  debugPort: number,
+  userDataDir: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`, {
+      signal: AbortSignal.timeout(1_000),
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const normalizedUserDataDir = normalizeUserDataDir(userDataDir);
+    const candidateUserDataDirs = [
+      payload.userDataDir,
+      payload.userDataDirPath,
+      payload.browserUserDataDir,
+      payload["User-Data-Dir"],
+    ].flatMap((value) =>
+      typeof value === "string" && value.trim().length > 0 ? [value] : [],
+    );
+
+    return candidateUserDataDirs.some(
+      (candidate) =>
+        normalizeUserDataDir(candidate) === normalizedUserDataDir,
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function resolveBrowserDebugPort(
+  preferredDebugPort: number,
+  userDataDir: string,
+): Promise<number> {
+  if (!(await isDebuggerEndpointReady(preferredDebugPort))) {
+    return preferredDebugPort;
+  }
+
+  if (
+    await isDebuggerEndpointOwnedByUserDataDir(
+      preferredDebugPort,
+      userDataDir,
+    )
+  ) {
+    return preferredDebugPort;
+  }
+
+  for (
+    let candidatePort = preferredDebugPort + 1;
+    candidatePort < preferredDebugPort + 20;
+    candidatePort += 1
+  ) {
+    if (!(await isDebuggerEndpointReady(candidatePort))) {
+      return candidatePort;
+    }
+  }
+
+  throw new Error(
+    `Remote debugging port ${preferredDebugPort} is already serving another browser session. Close that browser or set UNEMPLOYED_CHROME_DEBUG_PORT to a free port.`,
+  );
+}
+
 async function waitForDebuggerEndpoint(
   debugPort: number,
   timeoutMs = 20_000,
@@ -191,6 +260,7 @@ export function createBrowserAgentRuntime(
   options: BrowserAgentRuntimeOptions,
 ): BrowserSessionRuntime {
   const debugPort = options.debugPort ?? 9333;
+  let activeDebugPort = debugPort;
   const jobExtractor = options.jobExtractor;
   const runtimeAiClient = options.aiClient ?? null;
   let browserPromise: Promise<Browser> | null = null;
@@ -335,7 +405,7 @@ export function createBrowserAgentRuntime(
   async function connectBrowser(): Promise<Browser> {
     const { chromium } = await import("playwright");
     return attachBrowserLifecycle(
-      await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`),
+      await chromium.connectOverCDP(`http://127.0.0.1:${activeDebugPort}`),
     );
   }
 
@@ -353,7 +423,12 @@ export function createBrowserAgentRuntime(
     }
 
     browserPromise = (async () => {
-      if (!(await isDebuggerEndpointReady(debugPort))) {
+      activeDebugPort = await resolveBrowserDebugPort(
+        debugPort,
+        options.userDataDir,
+      );
+
+      if (!(await isDebuggerEndpointReady(activeDebugPort))) {
         const chromeExecutable = await resolveChromeExecutable(
           options.chromeExecutablePath,
         );
@@ -361,7 +436,7 @@ export function createBrowserAgentRuntime(
         await mkdir(options.userDataDir, { recursive: true });
 
         const launchArgs = [
-          `--remote-debugging-port=${debugPort}`,
+          `--remote-debugging-port=${activeDebugPort}`,
           `--user-data-dir=${options.userDataDir}`,
           "--no-first-run",
           "--no-default-browser-check",
@@ -385,7 +460,7 @@ export function createBrowserAgentRuntime(
         launchedChromeProcess.unref();
 
         try {
-          await waitForDebuggerEndpoint(debugPort);
+          await waitForDebuggerEndpoint(activeDebugPort);
         } catch (error) {
           await terminateLaunchedChromeProcess().catch(() => undefined);
           throw error;
@@ -393,7 +468,8 @@ export function createBrowserAgentRuntime(
       }
 
       return connectBrowser();
-    })().catch((error: unknown) => {
+    })().catch(async (error: unknown) => {
+      await terminateLaunchedChromeProcess().catch(() => undefined);
       resetBrowserConnection();
       throw error;
     });

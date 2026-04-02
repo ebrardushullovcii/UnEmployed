@@ -65,14 +65,14 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `JF-04 Tailored Resume Path`
 
 - status: `in_progress`
-- last updated: `2026-03-20`
-- scope: create one solid custom-resume workflow for a selected job
-- linked plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
-- code areas: `packages/job-finder`, `apps/desktop`
-- current focus: the app can now analyze stored resume text, derive profile details, and generate versioned tailored resume content through an AI-provider seam with deterministic fallback
-- next step: expand the template catalog, improve generated HTML output, and decide whether browser-print PDF or DOCX templating should be the next export target
-- blockers: live uploads still need a more final export format than the current saved HTML artifact
-- notes: cover letters stay deferred unless the main slice lands cleanly first; current tailoring keeps model output grounded in stored resume text, profile state, and job data, then renders that text through a fixed template set instead of freeform document layout generation
+- last updated: `2026-04-01`
+- scope: replace the one-shot tailored-resume path with a dedicated job-specific resume workspace and real export artifacts
+- linked plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
+- code areas: `packages/contracts`, `packages/db`, `packages/knowledge-base`, `packages/job-finder`, `packages/browser-runtime`, `apps/desktop`
+- current focus: the current one-shot tailoring flow now has a dedicated follow-on plan for structured resume drafts, bounded employer research, grounded side-chat edits, user-owned lock or pin rules, and `pdf`-first export inside a dedicated `Resume Workspace`
+- next step: land the new resume-draft contracts and persistence seams, build the first deterministic retrieval layer in `packages/knowledge-base`, and replace the disabled review-queue asset-edit affordances with a dedicated workspace shell
+- blockers: supported apply still depends on a coarse ready-asset model and saved `html` output until the new draft and export path lands
+- notes: the current implementation still turns a flat AI draft directly into a ready `TailoredAsset` and writes `html` only; the new plan keeps the existing template ids as the starting catalog, treats `2 pages` as the default target with `3 pages` as the near-hard cap, allows bounded public employer research to improve employer language and keyword targeting without inventing candidate facts, and keeps heavy version-management UI out of v1 even though lightweight revisions stay in scope for undo and recovery
 
 ### `JF-05 Review-Gated Easy Apply Execution`
 
@@ -148,13 +148,13 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ## Ready Queue
 
-- Add richer tailored resume export/storage beyond persisted preview content.
 - Expand Applications with filters, retry controls, and attempt-centric recovery views.
 - Add broader runtime tests for unsupported Easy Apply branches, live-browser extraction, and resume-import flows.
 - Improve cleanup and fallback extraction so difficult PDF and DOCX resumes yield cleaner structured text before the agent runs.
 
 ## Recently Completed
 
+- `2026-04-02`: split the largest implementation hotspots across `packages/job-finder`, `packages/ai-providers`, `packages/browser-agent`, `packages/browser-runtime`, `packages/contracts`, `packages/db`, and the desktop Profile/route layer into smaller internal modules, turned oversized package entrypoints into thin barrels, and added warn-only repo structure checks so future file growth is visible during `pnpm verify`
 - `2026-03-26`: completed AI browser agent for autonomous target-site job discovery with LLM tool calling; new `@unemployed/browser-agent` package; replaced deterministic discovery with AI-driven "Run AI Agent Discovery" button; targets up to the configured job count from the configured target using the user's profile preferences; includes cancellation support and URL validation
 - `2026-03-30`: added a final source-instruction reconciliation pass so the source-debug orchestrator now deduplicates stronger guidance by family, prefers later proven controls and routes over earlier weaker failure notes, and persists fewer contradictory learned-instruction lines
 - `2026-03-30`: added a dedicated end-of-run source-instruction reviewer fed with richer phase timestamps, attempted actions, compaction summaries, and ephemeral review-transcript lines so final curation can resolve contradictions with more context than the synthesized findings alone
