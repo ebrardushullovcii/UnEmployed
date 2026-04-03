@@ -1,6 +1,7 @@
 import {
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
+  SourceInstructionStatusSchema,
   type CandidateProfile,
   type CandidateLinkKind,
   type JobDiscoveryTarget,
@@ -117,20 +118,41 @@ function toDiscoveryTargetEditorValues(searchPreferences: JobSearchPreferences):
     label: target.label,
     startingUrl: target.startingUrl,
     enabled: target.enabled,
-    adapterKind: target.adapterKind,
-    customInstructions: target.customInstructions ?? ''
+    adapterKind: 'auto',
+    customInstructions: target.customInstructions ?? '',
+    instructionStatus: target.instructionStatus,
+    validatedInstructionId: target.validatedInstructionId,
+    draftInstructionId: target.draftInstructionId,
+    lastDebugRunId: target.lastDebugRunId,
+    lastVerifiedAt: target.lastVerifiedAt,
+    staleReason: target.staleReason
   }))
 }
 
 function toDiscoveryTargets(values: readonly DiscoveryTargetEditorValue[]): JobDiscoveryTarget[] {
-  return values.map((target) => ({
-    id: target.id,
-    label: target.label.trim(),
-    startingUrl: target.startingUrl.trim(),
-    enabled: target.enabled,
-    adapterKind: target.adapterKind,
-    customInstructions: target.customInstructions.trim() || null
-  }))
+  return values.map((target) => {
+    const parsedStatus = SourceInstructionStatusSchema.safeParse(target.instructionStatus)
+    const instructionStatus = parsedStatus.success ? parsedStatus.data : 'missing'
+
+    return {
+      instructionStatus,
+      id: target.id,
+      label: target.label.trim(),
+      startingUrl: target.startingUrl.trim(),
+      enabled: target.enabled,
+      adapterKind: 'auto',
+      customInstructions: target.customInstructions.trim() || null,
+      validatedInstructionId: target.validatedInstructionId,
+      draftInstructionId: target.draftInstructionId,
+      lastDebugRunId: target.lastDebugRunId,
+      lastVerifiedAt: target.lastVerifiedAt,
+      staleReason: target.staleReason
+    }
+  })
+}
+
+function isValidSourceInstructionStatus(value: string): boolean {
+  return SourceInstructionStatusSchema.safeParse(value).success
 }
 
 export function createProfileEditorValues(profile: CandidateProfile): ProfileEditorValues {
@@ -388,6 +410,16 @@ export function buildSearchPreferencesPayload(
   searchPreferences: JobSearchPreferences,
   values: SearchPreferencesEditorValues
 ): { payload?: JobSearchPreferences; validationMessage?: string } {
+  const invalidTargetStatus = values.discoveryTargets.find(
+    (target) => !isValidSourceInstructionStatus(target.instructionStatus)
+  )
+
+  if (invalidTargetStatus) {
+    return {
+      validationMessage: `Discovery target "${invalidTargetStatus.label.trim() || invalidTargetStatus.id}" has an invalid instruction status.`
+    }
+  }
+
   const parsedMinimumSalaryUsd = parseRequiredNonNegativeInteger(values.minimumSalaryUsd)
   if (values.minimumSalaryUsd.trim() && parsedMinimumSalaryUsd === null) {
     return {

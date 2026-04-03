@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test } from "vitest";
 import {
   ApplicationAttemptSchema,
   ApplicationStatusSchema,
@@ -7,435 +7,686 @@ import {
   DiscoveryRunResultSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
-  applicationStatusValues
-} from './index'
+  SourceDebugEvidenceRefSchema,
+  SourceDebugRunRecordSchema,
+  SourceInstructionArtifactSchema,
+  SourceInstructionVerificationSchema,
+  applicationStatusValues,
+} from "./index";
 
-describe('contracts', () => {
-  test('supports the full application status list', () => {
-    expect(applicationStatusValues).toContain('submitted')
-    expect(ApplicationStatusSchema.parse('interview')).toBe('interview')
-  })
+describe("contracts", () => {
+  test("supports the full application status list", () => {
+    expect(applicationStatusValues).toContain("submitted");
+    expect(ApplicationStatusSchema.parse("interview")).toBe("interview");
+  });
 
-  test('parses an expanded candidate profile', () => {
+  test("parses an expanded candidate profile", () => {
     const profile = CandidateProfileSchema.parse({
-      id: 'candidate_1',
-      firstName: 'Alex',
-      lastName: 'Vanguard',
+      id: "candidate_1",
+      firstName: "Alex",
+      lastName: "Vanguard",
       middleName: null,
-      fullName: 'Alex Vanguard',
-      headline: 'Full-stack engineer',
-      summary: 'Builds reliable user-facing systems.',
-      currentLocation: 'London, UK',
+      fullName: "Alex Vanguard",
+      headline: "Full-stack engineer",
+      summary: "Builds reliable user-facing systems.",
+      currentLocation: "London, UK",
       yearsExperience: 8,
-        baseResume: {
-          id: 'resume_1',
-          fileName: 'alex-vanguard.pdf',
-          uploadedAt: '2026-03-20T10:00:00.000Z',
-          storagePath: '/tmp/alex-vanguard.pdf'
-        },
-        targetRoles: ['Frontend Engineer'],
-        experiences: [],
-        education: [],
-        certifications: [],
-        links: [],
-        projects: [],
-        spokenLanguages: []
-      })
+      baseResume: {
+        id: "resume_1",
+        fileName: "alex-vanguard.pdf",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        storagePath: "/tmp/alex-vanguard.pdf",
+      },
+      targetRoles: ["Frontend Engineer"],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
 
-    expect(profile.baseResume.storagePath).toBe('/tmp/alex-vanguard.pdf')
-    expect(profile.baseResume.extractionStatus).toBe('not_started')
-    expect(profile.email).toBeNull()
-    expect(profile.locations).toEqual([])
-    expect(profile.skills).toEqual([])
-    expect(profile.experiences).toEqual([])
-    expect(profile.education).toEqual([])
-  })
+    expect(profile.baseResume.storagePath).toBe("/tmp/alex-vanguard.pdf");
+    expect(profile.baseResume.extractionStatus).toBe("not_started");
+    expect(profile.email).toBeNull();
+    expect(profile.locations).toEqual([]);
+    expect(profile.skills).toEqual([]);
+    expect(profile.experiences).toEqual([]);
+    expect(profile.education).toEqual([]);
+  });
 
-  test('applies defaults for job search preferences', () => {
+  test("applies defaults for job search preferences", () => {
     const preferences = JobSearchPreferencesSchema.parse({
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
-      minimumSalaryUsd: null
-    })
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      minimumSalaryUsd: null,
+    });
 
-    expect(preferences.companyBlacklist).toEqual([])
-    expect(preferences.workModes).toEqual([])
-  })
+    expect(preferences.companyBlacklist).toEqual([]);
+    expect(preferences.workModes).toEqual([]);
+  });
 
-  test('parses discovery targets with optional custom instructions', () => {
+  test("parses discovery targets with optional custom instructions", () => {
     const preferences = JobSearchPreferencesSchema.parse({
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       minimumSalaryUsd: null,
       discovery: {
         targets: [
           {
-            id: 'target_1',
-            label: 'KosovaJob',
-            startingUrl: 'https://kosovajob.com/',
+            id: "target_1",
+            label: "Primary target",
+            startingUrl: "https://jobs.example.com/search",
             enabled: true,
-            adapterKind: 'generic_site',
-            customInstructions: 'Open the job cards from the homepage list before extracting details.'
-          }
-        ]
-      }
-    })
+            adapterKind: "auto",
+            customInstructions:
+              "Open the job cards from the homepage list before extracting details.",
+          },
+        ],
+      },
+    });
 
     expect(preferences.discovery.targets[0]?.customInstructions).toBe(
-      'Open the job cards from the homepage list before extracting details.'
-    )
-  })
+      "Open the job cards from the homepage list before extracting details.",
+    );
+    expect(preferences.discovery.targets[0]?.instructionStatus).toBe("missing");
+    expect(preferences.discovery.targets[0]?.validatedInstructionId).toBeNull();
+  });
 
-  test('rejects malformed link metadata and url fields', () => {
+  test("rejects malformed link metadata and url fields", () => {
     expect(() =>
       CandidateProfileSchema.parse({
-        id: 'candidate_1',
-        firstName: 'Alex',
-        lastName: 'Vanguard',
+        id: "candidate_1",
+        firstName: "Alex",
+        lastName: "Vanguard",
         middleName: null,
-        fullName: 'Alex Vanguard',
-        headline: 'Full-stack engineer',
-        summary: 'Builds reliable user-facing systems.',
-        currentLocation: 'London, UK',
+        fullName: "Alex Vanguard",
+        headline: "Full-stack engineer",
+        summary: "Builds reliable user-facing systems.",
+        currentLocation: "London, UK",
         yearsExperience: 8,
         baseResume: {
-          id: 'resume_1',
-          fileName: 'alex-vanguard.pdf',
-          uploadedAt: '2026-03-20T10:00:00.000Z',
-          storagePath: '/tmp/alex-vanguard.pdf'
+          id: "resume_1",
+          fileName: "alex-vanguard.pdf",
+          uploadedAt: "2026-03-20T10:00:00.000Z",
+          storagePath: "/tmp/alex-vanguard.pdf",
         },
         links: [
           {
-            id: 'link_1',
-            label: 'Portfolio',
-            url: 'not-a-url',
-            kind: 'custom'
-          }
-        ]
-      })
-    ).toThrow()
-  })
+            id: "link_1",
+            label: "Portfolio",
+            url: "not-a-url",
+            kind: "custom",
+          },
+        ],
+      }),
+    ).toThrow();
+  });
 
-  test('parses a discovery run result and application attempt', () => {
+  test("parses a discovery run result and application attempt", () => {
     const discovery = DiscoveryRunResultSchema.parse({
-      source: 'linkedin',
-      startedAt: '2026-03-20T10:00:00.000Z',
-      completedAt: '2026-03-20T10:01:00.000Z',
-      querySummary: 'Designer | Remote | remote',
+      source: "target_site",
+      startedAt: "2026-03-20T10:00:00.000Z",
+      completedAt: "2026-03-20T10:01:00.000Z",
+      querySummary: "Designer | Remote | remote",
       warning: null,
+      agentMetadata: {
+        transcriptMessageCount: 8,
+        compactionState: {
+          compactedAt: "2026-03-20T10:00:30.000Z",
+          compactionCount: 1,
+          summary: "Compacted execution summary.",
+          confirmedFacts: ["Visited 3 pages."],
+          blockerNotes: [],
+          avoidStrategyFingerprints: [
+            "search_filter_probe:target_site:search filter probe",
+          ],
+          preservedContext: ["Senior Product Designer at Signal Systems"],
+        },
+        debugFindings: {
+          summary:
+            "Keyword search on the jobs route returned stable detail pages.",
+          reliableControls: ["Keyword search box on the jobs route"],
+          trickyFilters: [
+            "Homepage category chips did not reliably change the result set",
+          ],
+          navigationTips: [
+            "Open the job card detail page to recover the canonical listing URL",
+          ],
+          applyTips: [],
+          warnings: [],
+        },
+      },
       jobs: [
         {
-          source: 'linkedin',
-          sourceJobId: 'linkedin_job_1',
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
-          title: 'Senior Product Designer',
-          company: 'Signal Systems',
-          location: 'Remote',
-          workMode: 'remote',
-          applyPath: 'easy_apply',
+          source: "target_site",
+          sourceJobId: "target_job_1",
+          canonicalUrl: "https://jobs.example.com/roles/target_job_1",
+          title: "Senior Product Designer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: "remote",
+          applyPath: "easy_apply",
           easyApplyEligible: true,
-          postedAt: '2026-03-20T09:00:00.000Z',
-          discoveredAt: '2026-03-20T10:01:00.000Z',
-          salaryText: '$180k - $220k',
-          summary: 'Own the design system.',
-          description: 'Own the design system and workflow platform.',
-          keySkills: ['Figma']
-        }
-      ]
-    })
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:01:00.000Z",
+          salaryText: "$180k - $220k",
+          summary: "Own the design system.",
+          description: "Own the design system and workflow platform.",
+          keySkills: ["Figma"],
+        },
+      ],
+    });
 
     const attempt = ApplicationAttemptSchema.parse({
-      id: 'attempt_1',
-      jobId: 'job_1',
-      state: 'submitted',
-      summary: 'Easy Apply submitted',
-      detail: 'Submitted successfully.',
-      startedAt: '2026-03-20T10:02:00.000Z',
-      updatedAt: '2026-03-20T10:03:00.000Z',
-      completedAt: '2026-03-20T10:03:00.000Z',
-      outcome: 'submitted',
-      nextActionLabel: 'Monitor inbox',
+      id: "attempt_1",
+      jobId: "job_1",
+      state: "submitted",
+      summary: "Easy Apply submitted",
+      detail: "Submitted successfully.",
+      startedAt: "2026-03-20T10:02:00.000Z",
+      updatedAt: "2026-03-20T10:03:00.000Z",
+      completedAt: "2026-03-20T10:03:00.000Z",
+      outcome: "submitted",
+      nextActionLabel: "Monitor inbox",
       checkpoints: [
         {
-          id: 'checkpoint_1',
-          at: '2026-03-20T10:03:00.000Z',
-          label: 'Submission confirmed',
-          detail: 'The supported path completed successfully.',
-          state: 'submitted'
-        }
-      ]
-    })
+          id: "checkpoint_1",
+          at: "2026-03-20T10:03:00.000Z",
+          label: "Submission confirmed",
+          detail: "The supported path completed successfully.",
+          state: "submitted",
+        },
+      ],
+    });
 
-    expect(discovery.jobs[0]?.easyApplyEligible).toBe(true)
-    expect(discovery.jobs[0]?.workMode).toEqual(['remote'])
-    expect(attempt.checkpoints[0]?.state).toBe('submitted')
-  })
+    expect(discovery.jobs[0]?.easyApplyEligible).toBe(true);
+    expect(discovery.jobs[0]?.workMode).toEqual(["remote"]);
+    expect(discovery.agentMetadata?.compactionState?.compactionCount).toBe(1);
+    expect(
+      discovery.agentMetadata?.debugFindings?.reliableControls[0],
+    ).toContain("Keyword search box");
+    expect(attempt.checkpoints[0]?.state).toBe("submitted");
+  });
 
-  test('parses a job finder workspace snapshot', () => {
+  test("parses source-debug runs and instruction artifacts", () => {
+    const run = SourceDebugRunRecordSchema.parse({
+      id: "source_debug_run_1",
+      targetId: "target_1",
+      state: "completed",
+      startedAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:02:00.000Z",
+      completedAt: "2026-03-20T10:02:00.000Z",
+      activePhase: null,
+      phases: [
+        "access_auth_probe",
+        "site_structure_mapping",
+        "search_filter_probe",
+        "job_detail_validation",
+        "apply_path_validation",
+        "replay_verification",
+      ],
+      targetLabel: "KosovaJob",
+      targetUrl: "https://kosovajob.com/",
+      targetHostname: "kosovajob.com",
+      manualPrerequisiteSummary: null,
+      finalSummary: "Replay verification reached jobs again.",
+      attemptIds: ["source_debug_attempt_1"],
+      phaseSummaries: [],
+      instructionArtifactId: "source_instruction_1",
+    });
+    const artifact = SourceInstructionArtifactSchema.parse({
+      id: "source_instruction_1",
+      targetId: "target_1",
+      status: "validated",
+      createdAt: "2026-03-20T10:01:00.000Z",
+      updatedAt: "2026-03-20T10:02:00.000Z",
+      acceptedAt: "2026-03-20T10:02:00.000Z",
+      basedOnRunId: run.id,
+      basedOnAttemptIds: ["source_debug_attempt_1"],
+      notes: "Validated source guidance.",
+      navigationGuidance: ["Start from https://kosovajob.com/."],
+      searchGuidance: ["Use the jobs listing path."],
+      detailGuidance: ["Prefer stable job detail URLs."],
+      applyGuidance: [
+        "Prefer the inline apply button when the source exposes it.",
+      ],
+      warnings: [],
+      versionInfo: {
+        promptProfileVersion: "source-debug-v1",
+        toolsetVersion: "browser-tools-v1",
+        adapterVersion: "target_site",
+        appSchemaVersion: "job-finder-source-debug-v1",
+      },
+      verification: {
+        id: "source_instruction_verification_1",
+        replayRunId: run.id,
+        verifiedAt: "2026-03-20T10:02:00.000Z",
+        outcome: "passed",
+        proofSummary: "Replay verification reached jobs again.",
+        reason: null,
+        versionInfo: {
+          promptProfileVersion: "source-debug-v1",
+          toolsetVersion: "browser-tools-v1",
+          adapterVersion: "target_site",
+          appSchemaVersion: "job-finder-source-debug-v1",
+        },
+      },
+    });
+
+    expect(run.state).toBe("completed");
+    expect(artifact.status).toBe("validated");
+  });
+
+  test("rejects impossible validated source-instruction lifecycle states", () => {
+    expect(() =>
+      SourceInstructionArtifactSchema.parse({
+        id: "source_instruction_invalid",
+        targetId: "target_1",
+        status: "validated",
+        createdAt: "2026-03-20T10:01:00.000Z",
+        updatedAt: "2026-03-20T10:02:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "source_debug_run_1",
+        basedOnAttemptIds: ["source_debug_attempt_1"],
+        notes: null,
+        navigationGuidance: ["Use the jobs route first."],
+        searchGuidance: [],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "source-debug-v1",
+          toolsetVersion: "browser-tools-v1",
+          adapterVersion: "target_site",
+          appSchemaVersion: "job-finder-source-debug-v1",
+        },
+        verification: {
+          id: "source_instruction_verification_invalid",
+          replayRunId: null,
+          verifiedAt: null,
+          outcome: "unverified",
+          proofSummary: null,
+          reason: null,
+          versionInfo: {
+            promptProfileVersion: "source-debug-v1",
+            toolsetVersion: "browser-tools-v1",
+            adapterVersion: "target_site",
+            appSchemaVersion: "job-finder-source-debug-v1",
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects impossible source-debug run lifecycle states", () => {
+    expect(() =>
+      SourceDebugRunRecordSchema.parse({
+        id: "source_debug_run_invalid",
+        targetId: "target_1",
+        state: "completed",
+        startedAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:02:00.000Z",
+        completedAt: null,
+        activePhase: "replay_verification",
+        phases: ["replay_verification"],
+        targetLabel: "KosovaJob",
+        targetUrl: "https://kosovajob.com/",
+        targetHostname: "kosovajob.com",
+        manualPrerequisiteSummary: null,
+        finalSummary: "Done",
+        attemptIds: ["source_debug_attempt_1"],
+        phaseSummaries: [],
+        instructionArtifactId: "source_instruction_1",
+      }),
+    ).toThrow();
+  });
+
+  test("requires evidence-specific fields for source-debug evidence refs", () => {
+    expect(
+      SourceDebugEvidenceRefSchema.parse({
+        id: "source_debug_evidence_url",
+        runId: "source_debug_run_1",
+        attemptId: "source_debug_attempt_1",
+        targetId: "target_1",
+        phase: "job_detail_validation",
+        kind: "url",
+        label: "Validated job detail",
+        capturedAt: "2026-03-20T10:01:15.000Z",
+        url: "https://jobs.example.com/roles/1",
+        storagePath: null,
+        excerpt: "Stable target-site job detail URL.",
+      }).kind,
+    ).toBe("url");
+
+    expect(() =>
+      SourceDebugEvidenceRefSchema.parse({
+        id: "source_debug_evidence_note_invalid",
+        runId: "source_debug_run_1",
+        attemptId: "source_debug_attempt_1",
+        targetId: "target_1",
+        phase: "job_detail_validation",
+        kind: "note",
+        label: "Missing excerpt",
+        capturedAt: "2026-03-20T10:01:15.000Z",
+        url: null,
+        storagePath: null,
+        excerpt: null,
+      }),
+    ).toThrow();
+  });
+
+  test("requires replay metadata for verified source-instruction outcomes", () => {
+    expect(() =>
+      SourceInstructionVerificationSchema.parse({
+        id: "source_instruction_verification_invalid",
+        replayRunId: null,
+        verifiedAt: null,
+        outcome: "passed",
+        proofSummary: null,
+        reason: null,
+        versionInfo: {
+          promptProfileVersion: "source-debug-v1",
+          toolsetVersion: "browser-tools-v1",
+          adapterVersion: "target_site",
+          appSchemaVersion: "job-finder-source-debug-v1",
+        },
+      }),
+    ).toThrow();
+  });
+
+  test("parses a job finder workspace snapshot", () => {
     const attempt = ApplicationAttemptSchema.parse({
-      id: 'attempt_1',
-      jobId: 'job_1',
-      state: 'submitted',
-      summary: 'Easy Apply submitted',
-      detail: 'Submitted successfully.',
-      startedAt: '2026-03-20T10:02:00.000Z',
-      updatedAt: '2026-03-20T10:03:00.000Z',
-      completedAt: '2026-03-20T10:03:00.000Z',
-      outcome: 'submitted',
-      nextActionLabel: 'Monitor inbox',
+      id: "attempt_1",
+      jobId: "job_1",
+      state: "submitted",
+      summary: "Easy Apply submitted",
+      detail: "Submitted successfully.",
+      startedAt: "2026-03-20T10:02:00.000Z",
+      updatedAt: "2026-03-20T10:03:00.000Z",
+      completedAt: "2026-03-20T10:03:00.000Z",
+      outcome: "submitted",
+      nextActionLabel: "Monitor inbox",
       checkpoints: [
         {
-          id: 'checkpoint_1',
-          at: '2026-03-20T10:03:00.000Z',
-          label: 'Submission confirmed',
-          detail: 'The supported path completed successfully.',
-          state: 'submitted'
-        }
-      ]
-    })
+          id: "checkpoint_1",
+          at: "2026-03-20T10:03:00.000Z",
+          label: "Submission confirmed",
+          detail: "The supported path completed successfully.",
+          state: "submitted",
+        },
+      ],
+    });
 
     const workspace = JobFinderWorkspaceSnapshotSchema.parse({
-      module: 'job-finder',
-      generatedAt: '2026-03-20T10:05:00.000Z',
+      module: "job-finder",
+      generatedAt: "2026-03-20T10:05:00.000Z",
       agentProvider: {
-        kind: 'deterministic',
+        kind: "deterministic",
         ready: true,
-        label: 'Built-in deterministic agent fallback',
+        label: "Built-in deterministic agent fallback",
         model: null,
         baseUrl: null,
-        detail: 'Tests'
+        detail: "Tests",
       },
       availableResumeTemplates: [
         {
-          id: 'classic_ats',
-          label: 'Classic ATS',
-          description: 'Single-column and ATS-friendly.'
-        }
+          id: "classic_ats",
+          label: "Classic ATS",
+          description: "Single-column and ATS-friendly.",
+        },
       ],
       profile: {
-        id: 'candidate_1',
-        firstName: 'Alex',
-        lastName: 'Vanguard',
+        id: "candidate_1",
+        firstName: "Alex",
+        lastName: "Vanguard",
         middleName: null,
-        fullName: 'Alex Vanguard',
-        headline: 'Senior systems designer',
-        summary: 'Builds resilient workflows.',
-        currentLocation: 'London, UK',
+        fullName: "Alex Vanguard",
+        headline: "Senior systems designer",
+        summary: "Builds resilient workflows.",
+        currentLocation: "London, UK",
         yearsExperience: 10,
-        email: 'alex@example.com',
+        email: "alex@example.com",
         phone: null,
         portfolioUrl: null,
         linkedinUrl: null,
         baseResume: {
-          id: 'resume_1',
-          fileName: 'alex-vanguard.pdf',
-          uploadedAt: '2026-03-20T10:00:00.000Z',
-          storagePath: '/tmp/alex-vanguard.pdf',
-          textContent: 'Resume text',
-          textUpdatedAt: '2026-03-20T10:00:00.000Z',
-          extractionStatus: 'ready',
-          lastAnalyzedAt: '2026-03-20T10:01:00.000Z',
+          id: "resume_1",
+          fileName: "alex-vanguard.pdf",
+          uploadedAt: "2026-03-20T10:00:00.000Z",
+          storagePath: "/tmp/alex-vanguard.pdf",
+          textContent: "Resume text",
+          textUpdatedAt: "2026-03-20T10:00:00.000Z",
+          extractionStatus: "ready",
+          lastAnalyzedAt: "2026-03-20T10:01:00.000Z",
           analysisProviderKind: null,
           analysisProviderLabel: null,
-          analysisWarnings: []
+          analysisWarnings: [],
         },
-        targetRoles: ['Principal Designer'],
-        locations: ['Remote'],
-        skills: ['Figma', 'React'],
+        targetRoles: ["Principal Designer"],
+        locations: ["Remote"],
+        skills: ["Figma", "React"],
         experiences: [
           {
-            id: 'experience_1',
-            companyName: 'Signal Systems',
+            id: "experience_1",
+            companyName: "Signal Systems",
             companyUrl: null,
-            title: 'Senior Product Designer',
-            employmentType: 'Full-time',
-            location: 'London, UK',
-            workMode: 'hybrid',
-            startDate: '2021-01',
+            title: "Senior Product Designer",
+            employmentType: "Full-time",
+            location: "London, UK",
+            workMode: "hybrid",
+            startDate: "2021-01",
             endDate: null,
             isCurrent: true,
-            summary: 'Owns workflow tooling and design systems.',
-            achievements: ['Improved designer-engineer handoff quality'],
-            skills: ['Figma', 'Design Systems'],
+            summary: "Owns workflow tooling and design systems.",
+            achievements: ["Improved designer-engineer handoff quality"],
+            skills: ["Figma", "Design Systems"],
             domainTags: [],
             peopleManagementScope: null,
-            ownershipScope: null
-          }
+            ownershipScope: null,
+          },
         ],
         education: [
           {
-            id: 'education_1',
-            schoolName: 'University of the Arts London',
-            degree: 'BA',
-            fieldOfStudy: 'Interaction Design',
-            location: 'London, UK',
-            startDate: '2010-09',
-            endDate: '2013-06',
-            summary: null
-          }
+            id: "education_1",
+            schoolName: "University of the Arts London",
+            degree: "BA",
+            fieldOfStudy: "Interaction Design",
+            location: "London, UK",
+            startDate: "2010-09",
+            endDate: "2013-06",
+            summary: null,
+          },
         ],
         certifications: [
           {
-            id: 'certification_1',
-            name: 'UX Certification',
-            issuer: 'NN/g',
-            issueDate: '2020-04',
+            id: "certification_1",
+            name: "UX Certification",
+            issuer: "NN/g",
+            issueDate: "2020-04",
             expiryDate: null,
-            credentialUrl: null
-          }
+            credentialUrl: null,
+          },
         ],
         links: [
           {
-            id: 'link_1',
-            label: 'Portfolio',
-            url: 'https://alex.example.com',
-            kind: 'portfolio'
-          }
+            id: "link_1",
+            label: "Portfolio",
+            url: "https://alex.example.com",
+            kind: "portfolio",
+          },
         ],
         projects: [],
-        spokenLanguages: []
+        spokenLanguages: [],
       },
       searchPreferences: {
-        targetRoles: ['Principal Designer'],
+        targetRoles: ["Principal Designer"],
         jobFamilies: [],
-        locations: ['Remote'],
+        locations: ["Remote"],
         excludedLocations: [],
-        workModes: ['remote'],
-        seniorityLevels: ['senior'],
+        workModes: ["remote"],
+        seniorityLevels: ["senior"],
         targetIndustries: [],
         targetCompanyStages: [],
         employmentTypes: [],
         minimumSalaryUsd: 170000,
         targetSalaryUsd: null,
-        salaryCurrency: 'USD',
-        approvalMode: 'review_before_submit',
-        tailoringMode: 'balanced',
+        salaryCurrency: "USD",
+        approvalMode: "review_before_submit",
+        tailoringMode: "balanced",
         companyBlacklist: [],
-        companyWhitelist: []
+        companyWhitelist: [],
       },
       browserSession: {
-        source: 'linkedin',
-        status: 'ready',
-        driver: 'catalog_seed',
-        label: 'Browser session ready',
-        detail: 'Validated recently.',
-        lastCheckedAt: '2026-03-20T10:04:00.000Z'
+        source: "target_site",
+        status: "ready",
+        driver: "catalog_seed",
+        label: "Browser session ready",
+        detail: "Validated recently.",
+        lastCheckedAt: "2026-03-20T10:04:00.000Z",
       },
       discoveryJobs: [
         {
-          id: 'job_1',
-          source: 'linkedin',
-          sourceJobId: 'linkedin_job_1',
-          discoveryMethod: 'catalog_seed',
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/linkedin_job_1',
-          title: 'Senior Product Designer',
-          company: 'Signal Systems',
-          location: 'Remote',
-          workMode: 'remote',
-          applyPath: 'easy_apply',
+          id: "job_1",
+          source: "target_site",
+          sourceJobId: "target_job_1",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl: "https://jobs.example.com/roles/target_job_1",
+          title: "Senior Product Designer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: "remote",
+          applyPath: "easy_apply",
           easyApplyEligible: true,
-          postedAt: '2026-03-20T09:00:00.000Z',
-          discoveredAt: '2026-03-20T10:01:00.000Z',
-          salaryText: '$180k - $220k',
-          summary: 'Own the design system.',
-          description: 'Own the design system and workflow platform.',
-          keySkills: ['Figma'],
-          status: 'ready_for_review',
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:01:00.000Z",
+          salaryText: "$180k - $220k",
+          summary: "Own the design system.",
+          description: "Own the design system and workflow platform.",
+          keySkills: ["Figma"],
+          status: "ready_for_review",
           matchAssessment: {
             score: 96,
-            reasons: ['Strong product design overlap'],
-            gaps: []
-          }
-        }
+            reasons: ["Strong product design overlap"],
+            gaps: [],
+          },
+        },
       ],
-      selectedDiscoveryJobId: 'job_1',
+      activeSourceDebugRun: {
+        id: "source_debug_run_1",
+        targetId: "target_1",
+        state: "paused_manual",
+        startedAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:01:00.000Z",
+        completedAt: "2026-03-20T10:01:00.000Z",
+        activePhase: "access_auth_probe",
+        phases: [
+          "access_auth_probe",
+          "site_structure_mapping",
+          "search_filter_probe",
+          "job_detail_validation",
+          "apply_path_validation",
+          "replay_verification",
+        ],
+        targetLabel: "KosovaJob",
+        targetUrl: "https://kosovajob.com/",
+        targetHostname: "kosovajob.com",
+        manualPrerequisiteSummary: "Please sign in first.",
+        finalSummary: "Manual login is required before debugging can continue.",
+        attemptIds: ["source_debug_attempt_1"],
+        phaseSummaries: [],
+        instructionArtifactId: null,
+      },
+      recentSourceDebugRuns: [],
+      selectedDiscoveryJobId: "job_1",
       reviewQueue: [
         {
-          jobId: 'job_1',
-          title: 'Senior Product Designer',
-          company: 'Signal Systems',
-          location: 'Remote',
+          jobId: "job_1",
+          title: "Senior Product Designer",
+          company: "Signal Systems",
+          location: "Remote",
           matchScore: 96,
-          applicationStatus: 'ready_for_review',
-          assetStatus: 'ready',
+          applicationStatus: "ready_for_review",
+          assetStatus: "ready",
           progressPercent: 100,
-          resumeAssetId: 'asset_1',
-          updatedAt: '2026-03-20T10:03:00.000Z'
-        }
+          resumeAssetId: "asset_1",
+          updatedAt: "2026-03-20T10:03:00.000Z",
+        },
       ],
-      selectedReviewJobId: 'job_1',
+      selectedReviewJobId: "job_1",
       tailoredAssets: [
         {
-          id: 'asset_1',
-          jobId: 'job_1',
-          kind: 'resume',
-          status: 'ready',
-          label: 'Tailored Resume',
-          version: 'v1',
-          templateName: 'Classic ATS',
+          id: "asset_1",
+          jobId: "job_1",
+          kind: "resume",
+          status: "ready",
+          label: "Tailored Resume",
+          version: "v1",
+          templateName: "Classic ATS",
           compatibilityScore: 98,
           progressPercent: 100,
-          updatedAt: '2026-03-20T10:03:00.000Z',
+          updatedAt: "2026-03-20T10:03:00.000Z",
           storagePath: null,
-          contentText: 'Tailored resume body',
-          generationMethod: 'ai_assisted',
-          notes: ['Generated from stored resume text.'],
+          contentText: "Tailored resume body",
+          generationMethod: "ai_assisted",
+          notes: ["Generated from stored resume text."],
           previewSections: [
             {
-              heading: 'Summary',
-              lines: ['Lead cross-functional UX systems work.']
-            }
-          ]
-        }
+              heading: "Summary",
+              lines: ["Lead cross-functional UX systems work."],
+            },
+          ],
+        },
       ],
       applicationRecords: [
         {
-          id: 'application_1',
-          jobId: 'job_5',
-          title: 'Lead Product Designer',
-          company: 'Northwind Labs',
-          status: 'interview',
-          lastActionLabel: 'Technical screen scheduled',
-          nextActionLabel: 'Join meeting',
-          lastUpdatedAt: '2026-03-20T10:04:00.000Z',
-          lastAttemptState: 'submitted',
+          id: "application_1",
+          jobId: "job_5",
+          title: "Lead Product Designer",
+          company: "Northwind Labs",
+          status: "interview",
+          lastActionLabel: "Technical screen scheduled",
+          nextActionLabel: "Join meeting",
+          lastUpdatedAt: "2026-03-20T10:04:00.000Z",
+          lastAttemptState: "submitted",
           events: [
             {
-              id: 'event_1',
-              at: '2026-03-20T10:04:00.000Z',
-              title: 'Technical screen scheduled',
-              detail: 'Interview confirmed for tomorrow.',
-              emphasis: 'positive'
-            }
-          ]
-        }
+              id: "event_1",
+              at: "2026-03-20T10:04:00.000Z",
+              title: "Technical screen scheduled",
+              detail: "Interview confirmed for tomorrow.",
+              emphasis: "positive",
+            },
+          ],
+        },
       ],
       applicationAttempts: [attempt],
-      selectedApplicationRecordId: 'application_1',
+      selectedApplicationRecordId: "application_1",
       settings: {
-        resumeFormat: 'html',
-        resumeTemplateId: 'classic_ats',
-        fontPreset: 'inter_requisite',
+        resumeFormat: "html",
+        resumeTemplateId: "classic_ats",
+        fontPreset: "inter_requisite",
         humanReviewRequired: true,
         allowAutoSubmitOverride: false,
-        keepSessionAlive: true
-      }
-    })
+        keepSessionAlive: true,
+      },
+    });
 
-    expect(workspace.discoveryJobs).toHaveLength(1)
-    expect(workspace.profile.experiences[0]?.workMode).toEqual(['hybrid'])
-    expect(workspace.discoveryJobs[0]?.workMode).toEqual(['remote'])
-    expect(workspace.reviewQueue[0]?.assetStatus).toBe('ready')
-    expect(workspace.applicationAttempts[0]?.state).toBe('submitted')
-  })
+    expect(workspace.discoveryJobs).toHaveLength(1);
+    expect(workspace.profile.experiences[0]?.workMode).toEqual(["hybrid"]);
+    expect(workspace.discoveryJobs[0]?.workMode).toEqual(["remote"]);
+    expect(workspace.reviewQueue[0]?.assetStatus).toBe("ready");
+    expect(workspace.applicationAttempts[0]?.state).toBe("submitted");
+    expect(workspace.activeSourceDebugRun?.state).toBe("paused_manual");
+  });
 
-  test('parses desktop window controls state', () => {
+  test("parses desktop window controls state", () => {
     const controlsState = DesktopWindowControlsStateSchema.parse({
       isMaximized: false,
       isMinimizable: true,
-      isClosable: true
-    })
+      isClosable: true,
+    });
 
-    expect(controlsState.isClosable).toBe(true)
-  })
-})
+    expect(controlsState.isClosable).toBe(true);
+  });
+});

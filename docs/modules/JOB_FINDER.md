@@ -7,7 +7,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 ## Early Scope
 
 - Candidate profile import and normalization
-- Browser-driven LinkedIn discovery
+- Browser-driven target-site discovery
 - Job-source debug-agent bootstrap for unfamiliar discovery targets
 - Custom per-job resume generation
 - Review-gated `Easy Apply` workflow for supported paths
@@ -15,11 +15,12 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 
 ## Active Slice
 
-- Current execution plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
+- Current execution plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
 - Discovery expansion plan: `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md`
-- Next planned source-bootstrap plan: `docs/exec-plans/active/005-job-source-debug-agent.md`
-- Next planned production-copy pass: `docs/exec-plans/active/006-profile-discovery-production-copy-pass.md`
-- First source target: `LinkedIn`
+- Source-debug orchestration plan (shipped): `docs/exec-plans/active/005-job-source-debug-agent.md`
+- Production-copy pass plan: `docs/exec-plans/active/006-profile-discovery-production-copy-pass.md`
+- Resume workspace plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
+- Discovery targets are site-specific and resolved automatically from their configured entrypoints
 - First submission path: `Easy Apply` only
 - First approval mode: `review-before-submit`
 
@@ -29,19 +30,22 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - The desktop app renders `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` surfaces, with the Profile screen now centered on top-of-page resume intake and simpler add/remove editors for list-style candidate data
 - Desktop capture tooling now includes a profile-baseline flow that can hydrate a saved imported-profile snapshot and capture top-level shell tabs plus scrolled screenshots of every Profile subtab before renderer refactors land
 - Job Finder now supports an OpenAI-compatible provider seam for resume-text profile extraction, job-fit assessment, and resume tailoring, with deterministic fallbacks kept in place for tests and offline use
-- Browser discovery can run either through the deterministic catalog seed or an opt-in dedicated Chrome-profile LinkedIn browser agent backed by a user-authenticated local profile
-- Discovery targets already leave room for per-target custom instructions, and the next planned extension is a debug-agent workflow that can learn and verify those instructions for newly added sources from the Profile Preferences flow
+- Browser discovery can run either through the deterministic catalog seed or a configurable dedicated Chrome-profile browser agent, enabled by default on desktop when not explicitly disabled, backed by a user-authenticated local profile
+- Discovery targets already support per-target custom instructions plus a shipped source-debug workflow that can learn, review, and verify reusable instructions for newly added sources from the Profile Preferences flow
 - The Discovery full-history view now keeps the current in-flight run visible alongside retained runs, marks the live run clearly, and auto-follows new activity until the user scrolls away
-- The next planned UI polish pass keeps the current Profile fields and overall Discovery structure but trims developer-oriented copy, low-value statuses, and other text noise before broader capability expands again
+- The planned UI polish pass keeps the current Profile fields and overall Discovery structure but trims developer-oriented copy, low-value statuses, and other text noise before broader capability expands again
 - Desktop actions can import `txt`, `md`, `pdf`, and `docx` resumes, reset stale profile/search state before re-analysis, extract resume text for the profile agent, analyze that text into structured candidate details including grouped skills and repeatable records, supplement partial model output with deterministic cleanup, render generated resume text into a fixed template set, and create tracked apply attempts through typed preload flows
-- The next profile-model redesign is documented in `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`, now refined against current LinkedIn, Greenhouse, Workable, and Ashby patterns with a proposed split between candidate identity, eligibility, background, job-search preferences, and profile artifacts so the UI can separate ATS-critical facts from AI-derived resume content
+- The current tailored-resume path still maps a flat AI draft directly into a fixed-template `html` artifact, and the active next extension is a dedicated resume workspace with structured drafts, bounded employer research, source-backed editing, and `pdf`-first export
+- The next profile-model redesign is documented in `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`, now refined against current ATS and hiring-platform patterns with a proposed split between candidate identity, eligibility, background, job-search preferences, and profile artifacts so the UI can separate ATS-critical facts from AI-derived resume content
 
 ## Agent Runtime Configuration
 
 - `UNEMPLOYED_AI_API_KEY`: enables the OpenAI-compatible provider path
 - `UNEMPLOYED_AI_BASE_URL`: optional override for the provider base URL; defaults to `https://ai.automatedpros.link/v1`
 - `UNEMPLOYED_AI_MODEL`: optional override for the provider model; defaults to `FelidaeAI-Pro-2.5`
-- `UNEMPLOYED_LINKEDIN_BROWSER_AGENT=0`: explicitly disables the dedicated Chrome-profile LinkedIn browser agent and falls back to the deterministic catalog runtime; desktop builds opt into the browser agent by default, so leaving this unset (or setting `=1`) keeps the browser agent enabled unless you need to force the fallback path
+- `UNEMPLOYED_BROWSER_AGENT=0`: explicitly disables the dedicated Chrome-profile browser agent and falls back to the deterministic catalog runtime.
+- When `UNEMPLOYED_BROWSER_AGENT` is unset, the runtime falls back to the legacy `UNEMPLOYED_LINKEDIN_BROWSER_AGENT` flag via the nullish-coalescing `??` fallback in the implementation.
+- Desktop builds opt into the browser agent by default, so leaving both variables unset, or setting the active flag to `=1`, keeps the browser agent enabled unless you explicitly force the fallback path.
 - `UNEMPLOYED_CHROME_PATH`: optional override for the local Chrome executable the agent should launch
 - `UNEMPLOYED_CHROME_DEBUG_PORT`: optional override for the dedicated Chrome remote-debugging port; defaults to `9333`
 - `UNEMPLOYED_BROWSER_HEADLESS=1`: optional headless mode for the dedicated browser agent when live browser UI is not required
@@ -52,6 +56,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Extraction path: `pdfjs-dist` handles PDF text recovery, `mammoth` handles DOCX raw-text extraction, and plain-text sources pass through directly
 - Output path: the AI agent produces the resume text and section content, then Job Finder renders that content into a small fixed template set instead of asking the model to invent document layout from scratch
 - Current artifact shape: generated resumes save a local HTML template file plus the underlying generated text content so the formatting layer stays inspectable and replaceable later
+- Next planned artifact path: keep `html` as the render and debug layer, add `pdf` as the first uploadable artifact, and leave `docx` as a later follow-up once the dedicated workspace is stable
 
 ## Package Boundaries
 
@@ -59,3 +64,5 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Browser control from `packages/browser-runtime`
 - Storage from `packages/db`
 - Shared retrieval from `packages/knowledge-base`
+
+

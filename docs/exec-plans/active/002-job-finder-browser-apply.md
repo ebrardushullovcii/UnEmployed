@@ -9,7 +9,7 @@ Deliver the first real `Job Finder` vertical slice for `LinkedIn Easy Apply` wit
 ## Progress Snapshot
 
 - Milestone 1 is complete and Milestones 2-4 now have a functional local-first implementation: typed contracts, SQLite-backed persistence, a richer browser runtime interface, deterministic LinkedIn discovery runs, stored tailored resume content, tracked Easy Apply attempts, and the first model-backed provider seam.
-- The current implementation now supports resume-text profile extraction, AI-assisted resume drafting, fixed template-driven HTML resume output, and an opt-in dedicated Chrome-profile LinkedIn browser agent while preserving deterministic fallbacks for tests and offline work.
+- The current implementation now supports resume-text profile extraction, AI-assisted resume drafting, fixed template-driven HTML resume output, and a dedicated Chrome-profile browser agent for generic target-site discovery plus supported LinkedIn apply while preserving deterministic fallbacks for tests and offline work.
 - Electron resume import now preloads a local `DOMMatrix` polyfill before `pdfjs-dist` initializes, which keeps real PDF uploads working inside the desktop runtime instead of crashing the IPC path.
 - Electron resume import now also points `pdfjs-dist` at the installed worker module explicitly, which avoids bundled-runtime failures caused by missing `out/main/pdf.worker.mjs`.
 - The next implementation focus is hardening the live authenticated LinkedIn path, improving selector coverage and resume artifact export, and keeping the current safe-stop behavior for unsupported flows.
@@ -154,7 +154,7 @@ Replace the placeholder shell with the first Job Finder workflow surfaces in `ap
 
 Companion brief:
 
-- `docs/exec-plans/active/002-job-finder-linkedin-easy-apply-ui-brief.md`
+- `docs/exec-plans/active/002-job-finder-browser-apply-ui-brief.md`
 
 Expected screens:
 

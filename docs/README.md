@@ -36,6 +36,7 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Active plans live in `docs/exec-plans/active/`
 - Completed plans live in `docs/exec-plans/completed/`
 - Current completed baseline: [exec-plans/completed/001-repo-foundation.md](exec-plans/completed/001-repo-foundation.md)
+- Current high-priority Job Finder resume plan: [exec-plans/active/007-job-finder-resume-workspace.md](exec-plans/active/007-job-finder-resume-workspace.md)
 
 ## Design References
 

@@ -1,0 +1,354 @@
+import type { ResumeProfileExtraction } from "@unemployed/ai-providers";
+import type { JobFinderRepositorySeed } from "@unemployed/db";
+import type { SourceDebugPhase } from "@unemployed/contracts";
+
+export type SourceDebugPhaseMap<TValue> = Partial<Record<SourceDebugPhase, TValue>>;
+
+export function toPhaseId(
+  strategyLabel: string | null | undefined,
+): SourceDebugPhase | null {
+  const normalized = strategyLabel
+    ?.trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z_]/g, "");
+
+  switch (normalized) {
+    case "access_auth_probe":
+    case "site_structure_mapping":
+    case "search_filter_probe":
+    case "job_detail_validation":
+    case "apply_path_validation":
+    case "replay_verification":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
+export function createSeed(): JobFinderRepositorySeed {
+  return {
+    profile: {
+      id: "candidate_1",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      middleName: null,
+      fullName: "Alex Vanguard",
+      preferredDisplayName: null,
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      currentCity: null,
+      currentRegion: null,
+      currentCountry: null,
+      timeZone: null,
+      yearsExperience: 10,
+      email: "alex@example.com",
+      secondaryEmail: null,
+      phone: "+44 7700 900123",
+      portfolioUrl: "https://alex.example.com",
+      linkedinUrl: "https://www.linkedin.com/in/alex-vanguard",
+      githubUrl: null,
+      personalWebsiteUrl: null,
+      baseResume: {
+        id: "resume_1",
+        fileName: "alex-vanguard.pdf",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        storagePath: "/tmp/alex-vanguard.pdf",
+        textContent:
+          "Alex Vanguard\nSenior systems designer\nLondon, UK\nalex@example.com\n+44 7700 900123\nhttps://alex.example.com\nhttps://www.linkedin.com/in/alex-vanguard\n\n10 years of experience building resilient workflow tools with Figma, React, and design systems.",
+        textUpdatedAt: "2026-03-20T10:00:00.000Z",
+        extractionStatus: "ready",
+        lastAnalyzedAt: "2026-03-20T10:01:00.000Z",
+        analysisProviderKind: null,
+        analysisProviderLabel: null,
+        analysisWarnings: [],
+      },
+      workEligibility: {
+        authorizedWorkCountries: [],
+        requiresVisaSponsorship: null,
+        willingToRelocate: null,
+        preferredRelocationRegions: [],
+        willingToTravel: null,
+        remoteEligible: null,
+        noticePeriodDays: null,
+        availableStartDate: null,
+        securityClearance: null,
+      },
+      professionalSummary: {
+        shortValueProposition: null,
+        fullSummary: null,
+        careerThemes: [],
+        leadershipSummary: null,
+        domainFocusSummary: null,
+        strengths: [],
+      },
+      skillGroups: {
+        coreSkills: [],
+        tools: [],
+        languagesAndFrameworks: [],
+        softSkills: [],
+        highlightedSkills: [],
+      },
+      targetRoles: ["Principal Designer"],
+      locations: ["Remote"],
+      skills: ["Figma", "React", "Design Systems"],
+      experiences: [
+        {
+          id: "experience_1",
+          companyName: "Signal Systems",
+          companyUrl: null,
+          title: "Senior systems designer",
+          employmentType: "Full-time",
+          location: "London, UK",
+          workMode: ["hybrid"],
+          startDate: "2020-01",
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: "Builds resilient workflow tools.",
+          achievements: ["Led design-system rollout across core surfaces."],
+          skills: ["Figma", "Design Systems"],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+      education: [
+        {
+          id: "education_1",
+          schoolName: "Royal College of Art",
+          degree: "MA",
+          fieldOfStudy: "Design Products",
+          location: "London, UK",
+          startDate: "2012-09",
+          endDate: "2014-06",
+          isDraft: false,
+          summary: null,
+        },
+      ],
+      certifications: [],
+      links: [
+        {
+          id: "link_1",
+          label: "Portfolio",
+          url: "https://alex.example.com",
+          kind: "portfolio",
+          isDraft: false,
+        },
+      ],
+      projects: [],
+      spokenLanguages: [],
+    },
+    searchPreferences: {
+      targetRoles: [
+        "Principal Designer",
+        "Senior Product Designer",
+        "Principal UX Engineer",
+      ],
+      jobFamilies: [],
+      locations: ["Remote", "London"],
+      excludedLocations: [],
+      workModes: ["remote", "hybrid"],
+      seniorityLevels: ["senior"],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      minimumSalaryUsd: 170000,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: ["Signal Systems"],
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: "target_linkedin_default",
+            label: "Primary target",
+            startingUrl: "https://www.linkedin.com/jobs/search/",
+            enabled: true,
+            adapterKind: "auto",
+            customInstructions: null,
+            instructionStatus: "missing",
+            validatedInstructionId: null,
+            draftInstructionId: null,
+            lastDebugRunId: null,
+            lastVerifiedAt: null,
+            staleReason: null,
+          },
+        ],
+      },
+    },
+    savedJobs: [
+      {
+        id: "job_ready",
+        source: "target_site",
+        sourceJobId: "linkedin_signal_ready",
+        discoveryMethod: "catalog_seed",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+        title: "Senior Product Designer",
+        company: "Signal Systems",
+        location: "Remote",
+        workMode: ["remote"],
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        postedAt: "2026-03-20T09:00:00.000Z",
+        discoveredAt: "2026-03-20T09:05:00.000Z",
+        salaryText: "$180k - $220k",
+        summary: "Own the design system.",
+        description: "Own the design system and workflow platform.",
+        keySkills: ["Figma", "Design Systems"],
+        status: "ready_for_review",
+        matchAssessment: {
+          score: 96,
+          reasons: ["Strong design systems overlap"],
+          gaps: [],
+        },
+        provenance: [],
+      },
+      {
+        id: "job_generating",
+        source: "target_site",
+        sourceJobId: "linkedin_northwind_generating",
+        discoveryMethod: "catalog_seed",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_northwind_generating",
+        title: "Principal UX Engineer",
+        company: "Northwind Labs",
+        location: "Hybrid, London",
+        workMode: ["hybrid"],
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        postedAt: "2026-03-20T08:00:00.000Z",
+        discoveredAt: "2026-03-20T08:05:00.000Z",
+        salaryText: "$175k - $205k",
+        summary: "Lead cross-functional UI platform work.",
+        description:
+          "Lead cross-functional UI platform work with portfolio review required.",
+        keySkills: ["React"],
+        status: "drafting",
+        matchAssessment: {
+          score: 88,
+          reasons: ["Strong platform overlap"],
+          gaps: ["Accessibility leadership"],
+        },
+        provenance: [],
+      },
+    ],
+    tailoredAssets: [
+      {
+        id: "asset_ready",
+        jobId: "job_ready",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored Resume",
+        version: "v2",
+        templateName: "Classic ATS",
+        compatibilityScore: 97,
+        progressPercent: 100,
+        updatedAt: "2026-03-20T10:01:00.000Z",
+        storagePath: null,
+        contentText: "Resume text",
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+      },
+      {
+        id: "asset_generating",
+        jobId: "job_generating",
+        kind: "resume",
+        status: "generating",
+        label: "Tailored Resume",
+        version: "v1",
+        templateName: "Classic ATS",
+        compatibilityScore: null,
+        progressPercent: 62,
+        updatedAt: "2026-03-20T10:02:00.000Z",
+        storagePath: null,
+        contentText: null,
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+      },
+    ],
+    applicationRecords: [],
+    applicationAttempts: [],
+    sourceDebugRuns: [],
+    sourceDebugAttempts: [],
+    sourceInstructionArtifacts: [],
+    sourceDebugEvidenceRefs: [],
+    settings: {
+      resumeFormat: "html",
+      resumeTemplateId: "classic_ats",
+      fontPreset: "inter_requisite",
+      humanReviewRequired: true,
+      allowAutoSubmitOverride: false,
+      keepSessionAlive: true,
+      discoveryOnly: false,
+    },
+    discovery: {
+      sessions: [],
+      runState: "idle",
+      activeRun: null,
+      recentRuns: [],
+      activeSourceDebugRun: null,
+      recentSourceDebugRuns: [],
+      pendingDiscoveryJobs: [],
+    },
+  };
+}
+
+export function createResumeExtraction(
+  overrides: Partial<ResumeProfileExtraction> = {},
+): ResumeProfileExtraction {
+  return {
+    firstName: null,
+    lastName: null,
+    middleName: null,
+    fullName: null,
+    headline: null,
+    summary: null,
+    currentLocation: null,
+    timeZone: null,
+    salaryCurrency: null,
+    yearsExperience: null,
+    email: null,
+    phone: null,
+    portfolioUrl: null,
+    linkedinUrl: null,
+    githubUrl: null,
+    personalWebsiteUrl: null,
+    professionalSummary: {
+      shortValueProposition: null,
+      fullSummary: null,
+      careerThemes: [],
+      leadershipSummary: null,
+      domainFocusSummary: null,
+      strengths: [],
+    },
+    skillGroups: {
+      coreSkills: [],
+      tools: [],
+      languagesAndFrameworks: [],
+      softSkills: [],
+      highlightedSkills: [],
+    },
+    skills: [],
+    targetRoles: [],
+    preferredLocations: [],
+    experiences: [],
+    education: [],
+    certifications: [],
+    links: [],
+    projects: [],
+    spokenLanguages: [],
+    analysisProviderKind: "deterministic",
+    analysisProviderLabel: "Stub extraction",
+    notes: [],
+    ...overrides,
+  };
+}
+

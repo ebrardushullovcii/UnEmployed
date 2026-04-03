@@ -1,11 +1,11 @@
 import { createJobFinderAiClientFromEnvironment } from '@unemployed/ai-providers'
-import { createCatalogBrowserSessionRuntime, createLinkedInBrowserAgentRuntime } from '@unemployed/browser-runtime'
+import { createBrowserAgentRuntime, createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import { createFileJobFinderRepository } from '@unemployed/db'
 import { createJobFinderWorkspaceService } from '@unemployed/job-finder'
 import { createLocalJobFinderDocumentManager } from '../../adapters/job-finder-document-manager'
 import { createEmptyJobFinderRepositoryState } from '../../adapters/job-finder-initial-state'
-import { getGeneratedResumeDocumentsDirectory, getJobFinderWorkspaceFilePath, getLinkedInBrowserProfileDirectory } from './paths'
-import { isBrowserHeadlessEnabled, isLinkedInBrowserAgentEnabled } from './test-api'
+import { getBrowserAgentProfileDirectory, getGeneratedResumeDocumentsDirectory, getJobFinderWorkspaceFilePath } from './paths'
+import { isBrowserAgentEnabled, isBrowserHeadlessEnabled } from './test-api'
 
 export async function createJobFinderWorkspaceServiceAsync() {
   const jobFinderRepository = await createFileJobFinderRepository({
@@ -19,10 +19,10 @@ export async function createJobFinderWorkspaceServiceAsync() {
     ? rawPort
     : null
   const aiClient = createJobFinderAiClientFromEnvironment(process.env)
-  const linkedInAgentEnabled = isLinkedInBrowserAgentEnabled()
-  const browserRuntime = linkedInAgentEnabled
-    ? createLinkedInBrowserAgentRuntime({
-        userDataDir: getLinkedInBrowserProfileDirectory(),
+  const browserAgentEnabled = isBrowserAgentEnabled()
+  const browserRuntime = browserAgentEnabled
+    ? createBrowserAgentRuntime({
+        userDataDir: getBrowserAgentProfileDirectory(),
         headless: isBrowserHeadlessEnabled(),
         ...(process.env.UNEMPLOYED_CHROME_PATH
           ? { chromeExecutablePath: process.env.UNEMPLOYED_CHROME_PATH }

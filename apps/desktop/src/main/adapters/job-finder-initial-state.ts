@@ -72,22 +72,17 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
-        targets: [
-          {
-            id: 'target_linkedin_default',
-            label: 'LinkedIn Jobs',
-            startingUrl: 'https://www.linkedin.com/jobs/search/',
-            enabled: true,
-            adapterKind: 'auto',
-            customInstructions: null
-          }
-        ]
+        targets: []
       }
     }),
     savedJobs: [],
     tailoredAssets: [],
     applicationRecords: [],
     applicationAttempts: [],
+    sourceDebugRuns: [],
+    sourceDebugAttempts: [],
+    sourceInstructionArtifacts: [],
+    sourceDebugEvidenceRefs: [],
     settings: JobFinderSettingsSchema.parse({
       resumeTemplateId: 'classic_ats',
       resumeFormat: 'pdf',
@@ -102,6 +97,8 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       runState: 'idle',
       activeRun: null,
       recentRuns: [],
+      activeSourceDebugRun: null,
+      recentSourceDebugRuns: [],
       pendingDiscoveryJobs: []
     }
   }

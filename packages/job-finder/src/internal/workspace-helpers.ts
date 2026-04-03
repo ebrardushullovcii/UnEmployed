@@ -1,0 +1,270 @@
+import {
+  JobDiscoveryTargetSchema,
+  JobSearchPreferencesSchema,
+  JobSourceAdapterKindSchema,
+  type ApplicationAttempt,
+  type ApplicationEvent,
+  type ApplicationStatus,
+  type CandidateProfile,
+  type JobDiscoveryTarget,
+  type JobSearchPreferences,
+  type JobSource,
+  type SavedJob,
+  type SourceInstructionArtifact,
+  type TailoredAsset,
+} from "@unemployed/contracts";
+import { filterSourceInstructionLines, prefixedLines } from "./source-instructions";
+import { uniqueStrings } from "./shared";
+import {
+  DEFAULT_MAX_TARGET_ROLES,
+  GENERIC_DEFAULT_TARGET_LABEL,
+  LEGACY_DEFAULT_TARGET_ID,
+  LEGACY_DEFAULT_TARGET_LABEL,
+  LEGACY_DEFAULT_TARGET_STARTING_URL,
+  PROFILE_PLACEHOLDER_HEADLINE,
+  PROFILE_PLACEHOLDER_LOCATION,
+  SOURCE_DEBUG_APP_SCHEMA_VERSION,
+  SOURCE_DEBUG_PROMPT_PROFILE_VERSION,
+  SOURCE_DEBUG_TOOLSET_VERSION,
+} from "./workspace-defaults";
+
+export function enrichSearchPreferencesFromProfile(
+  searchPreferences: JobSearchPreferences,
+  profile: CandidateProfile,
+): JobSearchPreferences {
+  const targetRoles = [...searchPreferences.targetRoles];
+
+  if (targetRoles.length === 0) {
+    if (profile.headline && profile.headline !== PROFILE_PLACEHOLDER_HEADLINE) {
+      targetRoles.push(profile.headline);
+    }
+
+    for (const role of profile.targetRoles) {
+      if (targetRoles.length < DEFAULT_MAX_TARGET_ROLES) {
+        targetRoles.push(role);
+      }
+    }
+  }
+
+  const locations = [...searchPreferences.locations];
+
+  if (
+    locations.length === 0 &&
+    profile.currentLocation &&
+    profile.currentLocation !== PROFILE_PLACEHOLDER_LOCATION
+  ) {
+    locations.push(profile.currentLocation);
+  }
+
+  if (targetRoles.length === 0 && locations.length === 0) {
+    return searchPreferences;
+  }
+
+  return {
+    ...searchPreferences,
+    targetRoles: uniqueStrings(targetRoles),
+    locations: uniqueStrings(locations),
+  };
+}
+
+export function resolveAdapterKind(target: JobDiscoveryTarget): JobSource {
+  JobSourceAdapterKindSchema.parse(target.adapterKind);
+  return "target_site";
+}
+
+export function normalizeDiscoveryTarget(
+  target: JobDiscoveryTarget,
+): JobDiscoveryTarget {
+  const isLegacyDefaultTarget =
+    target.id === LEGACY_DEFAULT_TARGET_ID &&
+    target.label === LEGACY_DEFAULT_TARGET_LABEL &&
+    target.startingUrl === LEGACY_DEFAULT_TARGET_STARTING_URL;
+
+  return JobDiscoveryTargetSchema.parse({
+    ...target,
+    adapterKind: "auto",
+    label: isLegacyDefaultTarget ? GENERIC_DEFAULT_TARGET_LABEL : target.label,
+  });
+}
+
+export function normalizeSearchPreferences(
+  searchPreferences: JobSearchPreferences,
+): JobSearchPreferences {
+  return JobSearchPreferencesSchema.parse({
+    ...searchPreferences,
+    discovery: {
+      ...searchPreferences.discovery,
+      targets: searchPreferences.discovery.targets.map((target) =>
+        normalizeDiscoveryTarget(target),
+      ),
+    },
+  });
+}
+
+export function getActiveDiscoveryTargets(
+  searchPreferences: JobSearchPreferences,
+): JobDiscoveryTarget[] {
+  return searchPreferences.discovery.targets
+    .map((target) => normalizeDiscoveryTarget(target))
+    .filter((target) => target.enabled);
+}
+
+export function getPreferredSessionAdapter(
+  searchPreferences: JobSearchPreferences,
+): JobSource {
+  const targets = getActiveDiscoveryTargets(searchPreferences);
+  const preferredTarget = targets[0];
+
+  return preferredTarget ? resolveAdapterKind(preferredTarget) : "target_site";
+}
+
+export function nextAssetVersion(existingAsset: TailoredAsset | undefined): string {
+  if (!existingAsset) {
+    return "v1";
+  }
+
+  const numericPortion = Number(existingAsset.version.replace(/^v/i, ""));
+
+  if (Number.isNaN(numericPortion)) {
+    return "v1";
+  }
+
+  return `v${numericPortion + 1}`;
+}
+
+export function mergeEvents(
+  existingEvents: readonly ApplicationEvent[],
+  additionalEvents: readonly ApplicationEvent[],
+): ApplicationEvent[] {
+  const merged = new Map(existingEvents.map((event) => [event.id, event]));
+
+  for (const event of additionalEvents) {
+    merged.set(event.id, event);
+  }
+
+  return [...merged.values()].sort(
+    (left, right) => new Date(right.at).getTime() - new Date(left.at).getTime(),
+  );
+}
+
+export function toApplicationEvents(
+  job: SavedJob,
+  checkpoints: ApplicationAttempt["checkpoints"],
+): ApplicationEvent[] {
+  return checkpoints.map((checkpoint) => ({
+    id: `event_${checkpoint.id}`,
+    at: checkpoint.at,
+    title: checkpoint.label,
+    detail: `${checkpoint.detail} (${job.company})`,
+    emphasis:
+      checkpoint.state === "submitted"
+        ? "positive"
+        : checkpoint.state === "paused" || checkpoint.state === "unsupported"
+          ? "warning"
+          : checkpoint.state === "failed"
+            ? "critical"
+            : "neutral",
+  }));
+}
+
+export function nextJobStatusFromAttempt(
+  job: SavedJob,
+  attemptState: ApplicationAttempt["state"],
+): ApplicationStatus {
+  switch (attemptState) {
+    case "submitted":
+      return "submitted";
+    case "paused":
+    case "unsupported":
+    case "failed":
+      return "approved";
+    default:
+      return job.status;
+  }
+}
+
+export function buildSourceInstructionVersionInfo(adapterKind: JobSource) {
+  return {
+    promptProfileVersion: SOURCE_DEBUG_PROMPT_PROFILE_VERSION,
+    toolsetVersion: SOURCE_DEBUG_TOOLSET_VERSION,
+    adapterVersion: `${adapterKind}-adapter-v1`,
+    appSchemaVersion: SOURCE_DEBUG_APP_SCHEMA_VERSION,
+  };
+}
+
+export function buildInstructionGuidance(
+  artifact: SourceInstructionArtifact | null,
+): string[] {
+  if (!artifact) {
+    return [];
+  }
+
+  const navigationLines = filterSourceInstructionLines(
+    artifact.navigationGuidance,
+  );
+  const searchLines = filterSourceInstructionLines(artifact.searchGuidance);
+  const detailLines = filterSourceInstructionLines(artifact.detailGuidance);
+  const applyLines = filterSourceInstructionLines(artifact.applyGuidance);
+
+  return uniqueStrings([
+    ...prefixedLines("[Navigation] ", navigationLines),
+    ...prefixedLines("[Search] ", searchLines),
+    ...prefixedLines("[Detail] ", detailLines),
+    ...prefixedLines("[Apply] ", applyLines),
+  ]);
+}
+
+export function resolveActiveSourceInstructionArtifact(
+  target: JobDiscoveryTarget,
+  artifacts: readonly SourceInstructionArtifact[],
+): SourceInstructionArtifact | null {
+  const draftInstruction = target.draftInstructionId
+    ? (artifacts.find(
+        (artifact) =>
+          artifact.id === target.draftInstructionId &&
+          artifact.targetId === target.id &&
+          artifact.status === "draft",
+      ) ?? null)
+    : null;
+
+  if (draftInstruction) {
+    return draftInstruction;
+  }
+
+  return target.validatedInstructionId
+    ? (artifacts.find(
+        (artifact) =>
+          artifact.id === target.validatedInstructionId &&
+          artifact.targetId === target.id &&
+          artifact.status === "validated",
+      ) ?? null)
+    : null;
+}
+
+export function updateDiscoveryTarget(
+  searchPreferences: JobSearchPreferences,
+  targetId: string,
+  updater: (target: JobDiscoveryTarget) => JobDiscoveryTarget,
+): JobSearchPreferences {
+  let found = false;
+  const nextTargets = searchPreferences.discovery.targets.map((target) => {
+    if (target.id !== targetId) {
+      return target;
+    }
+
+    found = true;
+    return updater(target);
+  });
+
+  if (!found) {
+    throw new Error(`Unknown discovery target '${targetId}'.`);
+  }
+
+  return JobSearchPreferencesSchema.parse({
+    ...searchPreferences,
+    discovery: {
+      ...searchPreferences.discovery,
+      targets: nextTargets,
+    },
+  });
+}

@@ -106,7 +106,7 @@ The product should feel like one cohesive system, not two unrelated tools bundle
 - Search for jobs through browser-driven workflows.
 - Bootstrap unfamiliar job sources with a debug-agent workflow that learns reusable site instructions before normal discovery agents depend on them.
 - Score and summarize jobs against profile and preferences.
-- Generate tailored resumes, cover letters, and screener answers.
+- Generate, edit, and approve tailored resumes, then expand into cover letters and screener answers.
 - Fill applications and queue them for batch approval by default.
 - Track every application in a first-class table with status history.
 
@@ -119,6 +119,8 @@ The product should feel like one cohesive system, not two unrelated tools bundle
   - find jobs, score fit, and show the why behind each match
 - `Review Queue`
   - inspect draft materials and approve, skip, or edit before submission
+- `Resume Workspace`
+  - generate, edit, validate, preview, and approve a job-specific resume before the apply step
 - `Applications`
   - first-class table for tracking status, notes, dates, and next actions
 - `Settings`
@@ -129,7 +131,7 @@ The product should feel like one cohesive system, not two unrelated tools bundle
 - Discovery is browser-agent-first, with structured connectors added where clearly useful.
 - If a user adds a target without usable instructions, run a bounded debug-agent workflow to map auth, navigation, search, filters, and job-detail access before treating that source as reusable.
 - Submission mode defaults to batch approval.
-- Generated outputs should stay grounded in imported documents and saved preferences.
+- Generated outputs should stay grounded in imported documents, structured profile data, saved preferences, and bounded employer research that never invents candidate facts.
 - Long-form generated answers are allowed as part of the workflow, but they should still be source-backed.
 - Reminders and application event history are part of the core workflow, not an afterthought.
 

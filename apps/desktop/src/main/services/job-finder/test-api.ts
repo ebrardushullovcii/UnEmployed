@@ -14,8 +14,8 @@ export function isDesktopTestApiEnabled(): boolean {
   return isEnabled(process.env.UNEMPLOYED_ENABLE_TEST_API)
 }
 
-export function isLinkedInBrowserAgentEnabled(): boolean {
-  const configuredValue = process.env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT
+export function isBrowserAgentEnabled(): boolean {
+  const configuredValue = process.env.UNEMPLOYED_BROWSER_AGENT ?? process.env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT
 
   if (configuredValue == null) {
     return true

@@ -29,11 +29,11 @@ Use one track per meaningful workstream, not per person or per chat.
 
 - status: `done`
 - last updated: `2026-03-21`
-- scope: define the minimal Job Finder schemas and repository seams for the LinkedIn `Easy Apply` slice
-- linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
+- scope: define the minimal Job Finder schemas and repository seams for the supported apply path slice
+- linked plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
 - code areas: `packages/contracts`, `packages/db`
 - current focus: typed Job Finder contracts now include discovery/apply attempt data and the desktop repository is SQLite-backed
-- next step: add richer migration coverage and resume artifact storage once live LinkedIn execution adds more schema pressure
+- next step: add richer migration coverage and resume artifact storage once live browser execution adds more schema pressure
 - blockers: none
 - notes: current implementation persists profile, preferences, saved jobs, tailored assets, application records, and apply attempts into a local SQLite database with a legacy JSON fallback path
 
@@ -42,44 +42,44 @@ Use one track per meaningful workstream, not per person or per chat.
 - status: `done`
 - last updated: `2026-03-23`
 - scope: design the MVP screens and states for the first Job Finder slice
-- linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
-- linked brief: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply-ui-brief.md`
+- linked plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
+- linked brief: `docs/exec-plans/active/002-job-finder-browser-apply-ui-brief.md`
 - code areas: `docs/Design`, `apps/desktop`
 - current focus: finalized visual references are implemented as a first interactive desktop shell with native mac traffic lights, a centered title-row navigation cluster, compact top-right summary cards, a gear-based Settings control, page-level UI QA refinements, and standard max-width shell constraints so ultra-wide windows keep comfortable readable gutters
 - next step: keep using the desktop UI capture workflow to tighten shell density, applications detail behavior, and compact-size usability before deeper functionality expands
 - blockers: none
 - notes: screenshots are the primary visual target; `mockup.html` files are prototype-only references and the design set is directional rather than feature-complete; use `pnpm --filter @unemployed/desktop ui:capture` for screenshot-based shell review, `pnpm --filter @unemployed/desktop ui:profile-baseline` for the current preferred imported-profile baseline before larger refactors, and the reset action in Settings to restore the seeded workspace quickly; the current polish pass improved count-badge padding, stat label/value spacing, replaced the oversized sidebar with a centered title-row nav and compact top-right stat cards, restored suite tabs to the very top, made the left wordmark larger and bolder while tightening it to the edge, removed stat-card captions so only labels and numbers remain, aligned nav/card/settings controls more cleanly on a shared compact height, kept native mac title-bar behavior, removed the ready and updated chips, reduced top-bar hover noise, tightened button sizing, synced fullscreen state, balanced oversized panels, improved page-level active-state clarity, preserved compact-height readability, supported the documented `1024x768` review size in the real window, shared centered top-tab styling across Mac and Windows, and used `lucide-react` for shell icons instead of custom inline SVGs
 
-### `JF-03 Browser Runtime And LinkedIn Discovery`
+### `JF-03 Browser Runtime And Target-Site Discovery`
 
 - status: `done`
 - last updated: `2026-03-26`
-- scope: build the generic browser primitives and the first LinkedIn discovery adapter boundary
-- linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
+- scope: build the generic browser primitives and the first target-site discovery boundary
+- linked plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
 - code areas: `packages/browser-runtime`, `packages/job-finder`, `packages/browser-agent`
-- current focus: completed AI browser agent implementation with LLM tool calling for autonomous LinkedIn job discovery; agent controls navigation strategy, timeouts, retry logic; targets up to the configured job count from LinkedIn using user's profile; includes URL validation (LinkedIn-only), AbortController cancellation, and compact conversation management
+- current focus: completed AI browser agent implementation with LLM tool calling for autonomous target-site job discovery; agent controls navigation strategy, timeouts, retry logic; targets up to the configured job count from the configured target using the user's profile; includes URL validation (single-target), AbortController cancellation, and compact conversation management
 - next step: monitor real-world usage for edge cases in auth recovery, pagination handling, and selector robustness
 - blockers: none
-- notes: AI browser agent replaces old deterministic discovery; keeps LinkedIn selectors out of generic runtime; discovery writes through repository boundary with deduping; includes cancellation support via `job-finder:cancel-agent-discovery` IPC
+- notes: AI browser agent replaces old deterministic discovery; keeps source selectors out of the generic runtime; discovery writes through repository boundary with deduping; includes cancellation support via `job-finder:cancel-agent-discovery` IPC
 
 ### `JF-04 Tailored Resume Path`
 
 - status: `in_progress`
-- last updated: `2026-03-20`
-- scope: create one solid custom-resume workflow for a selected job
-- linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
-- code areas: `packages/job-finder`, `apps/desktop`
-- current focus: the app can now analyze stored resume text, derive profile details, and generate versioned tailored resume content through an AI-provider seam with deterministic fallback
-- next step: expand the template catalog, improve generated HTML output, and decide whether browser-print PDF or DOCX templating should be the next export target
-- blockers: live uploads still need a more final export format than the current saved HTML artifact
-- notes: cover letters stay deferred unless the main slice lands cleanly first; current tailoring keeps model output grounded in stored resume text, profile state, and job data, then renders that text through a fixed template set instead of freeform document layout generation
+- last updated: `2026-04-02`
+- scope: replace the one-shot tailored-resume path with a dedicated job-specific resume workspace and real export artifacts
+- linked plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
+- code areas: `packages/contracts`, `packages/db`, `packages/knowledge-base`, `packages/job-finder`, `packages/browser-runtime`, `apps/desktop`
+- current focus: the current one-shot tailoring flow now has a dedicated follow-on plan for structured resume drafts, bounded employer research, grounded side-chat edits, user-owned lock or pin rules, and `pdf`-first export inside a dedicated `Resume Workspace`
+- next step: land the new resume-draft contracts and persistence seams, build the first deterministic retrieval layer in `packages/knowledge-base`, and replace the disabled review-queue asset-edit affordances with a dedicated workspace shell
+- blockers: supported apply still depends on a coarse ready-asset model and saved `html` output until the new draft and export path lands
+- notes: the current implementation still turns a flat AI draft directly into a ready `TailoredAsset` and writes `html` only; the new plan keeps the existing template ids as the starting catalog, treats `2 pages` as the default target with `3 pages` as the near-hard cap, allows bounded public employer research to improve employer language and keyword targeting without inventing candidate facts, and keeps heavy version-management UI out of v1 even though lightweight revisions stay in scope for undo and recovery
 
 ### `JF-05 Review-Gated Easy Apply Execution`
 
 - status: `in_progress`
 - last updated: `2026-03-20`
-- scope: automate a narrow LinkedIn `Easy Apply` submission path with tracked outcomes
-- linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
+- scope: automate a narrow supported apply path submission path with tracked outcomes
+- linked plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
 - code areas: `packages/job-finder`, `packages/browser-runtime`, `apps/desktop`
 - current focus: the app now records explicit apply attempts, checkpoints, submitted outcomes, and safe paused branches across both deterministic and live-browser Easy Apply execution
 - next step: broaden supported field filling, add retry helpers in Applications, and QA real authenticated submit paths with exportable tailored assets
@@ -91,7 +91,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - status: `in_progress`
 - last updated: `2026-03-24`
 - scope: wire the first model-backed Job Finder agents for profile extraction, fit assessment, and resume tailoring
-- linked plan: `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md`
+- linked plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
 - code areas: `packages/ai-providers`, `packages/job-finder`, `apps/desktop`
 - current focus: resume analysis now maps into grouped skills, professional-summary fields, structured experience records, public links, and spoken languages, the OpenAI-compatible path now falls back to deterministic field completion when model output is partial or inconsistent on real imported resumes, and deterministic personal-website inference now ignores arbitrary platform/employer/course links unless they look like a true top-level personal site
 - next step: improve provider-level observability, richer fit summaries, and broader structured extraction coverage for education, certifications, and projects on difficult PDF and DOCX resumes
@@ -108,31 +108,31 @@ Use one track per meaningful workstream, not per person or per chat.
 - current focus: the live profile surface now keeps resume import and analysis in a persistent top panel, uses simpler review tabs for basics, experience, background, and preferences, shows tab-level completion progress based on filled inputs, opens repeatable records inside collapsible cards to reduce vertical noise, preserves current profile/search data until a replacement resume is actually analyzed, saves profile-plus-preference edits atomically, announces validation/save feedback through polite live regions, has a repeatable screenshot-baseline workflow that now reuses the shared workspace-input hydrate path, uses flatter neutral panel-versus-field tones, keeps mixed-height rows top-aligned, and renders Discovery search controls inside one wider contained left-rail surface
 - next step: keep using screenshot passes to polish the remaining dense profile editors plus discovery/review/applications composition, then extend extraction/tailoring to rely more directly on education, certification, and project records
 - blockers: none
-- notes: the refined plan now leans on current LinkedIn, Greenhouse, Workable, and Ashby field patterns; the live implementation keeps backward compatibility by extending `CandidateProfile` and `JobSearchPreferences` with structured sections rather than replacing them outright, while still avoiding unnecessary sensitive-data collection by default; the current preferred imported-profile visual state is documented locally via `docs/Design/job-finder-profile/current-branch-baseline-2026-03-23.md` and `apps/desktop/test-artifacts/ui/profile-visual-baseline-2026-03-23/`; the profile page now treats resume import as the source layer above the edit tabs instead of a sibling tab, Discovery zero-results now intentionally collapses into a two-column state so blank searches no longer render a broken empty detail column, the left rail is now a single contained control card with the action footer inside it, compact desktop captures at `1024x768` and `1100x720` now complete without the title-row nav being blocked by top-right stat cards, and the current PR-review hardening pass also tightened keyboard/ARIA semantics for record selection and list editing, fixed singular-vs-plural application-record labels, and prevents invalid extracted link/project/language payloads from wiping saved profile data while review-only actions stay visibly disabled until implemented
+- notes: the refined plan now leans on current ATS and hiring-platform field patterns; the live implementation keeps backward compatibility by extending `CandidateProfile` and `JobSearchPreferences` with structured sections rather than replacing them outright, while still avoiding unnecessary sensitive-data collection by default; the current preferred imported-profile visual state is documented locally via `docs/Design/job-finder-profile/current-branch-baseline-2026-03-23.md` and `apps/desktop/test-artifacts/ui/profile-visual-baseline-2026-03-23/`; the profile page now treats resume import as the source layer above the edit tabs instead of a sibling tab, Discovery zero-results now intentionally collapses into a two-column state so blank searches no longer render a broken empty detail column, the left rail is now a single contained control card with the action footer inside it, compact desktop captures at `1024x768` and `1100x720` now complete without the title-row nav being blocked by top-right stat cards, and the current PR-review hardening pass also tightened keyboard/ARIA semantics for record selection and list editing, fixed singular-vs-plural application-record labels, and prevents invalid extracted link/project/language payloads from wiping saved profile data while review-only actions stay visibly disabled until implemented
 
 ### `JF-08 Adapter-Driven Discovery And Activity Timeline`
 
 - status: `in_progress`
 - last updated: `2026-03-28`
-- scope: refactor the current LinkedIn-only browser agent into an adapter-driven multi-target discovery system with a chat-like activity timeline and future-ready worker orchestration
+- scope: refactor the current single-target browser agent into an adapter-driven multi-target discovery system with a chat-like activity timeline and future-ready worker orchestration
 - linked plan: `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md`
 - code areas: `packages/contracts`, `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `apps/desktop`
-- current focus: nested discovery contracts, retained run history, activity-event translation, adapter-scoped session state, LinkedIn adapterization, sequential multi-target orchestration, experimental `generic_site`, and desktop target/timeline UI are now landed together, including a full-history modal that can keep following the current live run
-- next step: run broader live QA against authenticated LinkedIn plus a few bounded generic sites, then tighten selector robustness, low-confidence skips, and timeline wording based on real traces
+- current focus: nested discovery contracts, retained run history, activity-event translation, adapter-scoped session state, target normalization, sequential multi-target orchestration, and desktop target/timeline UI are now landed together, including a full-history modal that can keep following the current live run
+- next step: run broader live QA against a few authenticated target sites, then tighten selector robustness, low-confidence skips, and timeline wording based on real traces
 - blockers: none
-- notes: multi-target discovery shipped sequentially first with persisted pending jobs, recent run history, discovery provenance, and a read-only activity timeline; the full-history modal now includes the current live run with auto-follow-until-scroll-away behavior; `generic_site` remains explicitly experimental with hostname-bounded navigation plus visible UX caveats, and bounded parallel workers remain a later feature once event ordering, cancellation, and session behavior are stable
+- notes: multi-target discovery shipped sequentially first with persisted pending jobs, recent run history, discovery provenance, and a read-only activity timeline; the full-history modal now includes the current live run with auto-follow-until-scroll-away behavior; the generic target-site path remains hostname-bounded, and bounded parallel workers remain a later feature once event ordering, cancellation, and session behavior are stable
 
 ### `JF-09 Job Source Debug Agent`
 
-- status: `ready`
-- last updated: `2026-03-27`
+- status: `handoff`
+- last updated: `2026-04-02`
 - scope: bootstrap reusable source instructions for newly added discovery targets when the user cannot author them manually
 - linked plan: `docs/exec-plans/active/005-job-source-debug-agent.md`
 - code areas: `packages/contracts`, `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `apps/desktop`
-- current focus: define the next discovery slice around a debug-agent workflow that can probe a new target from Profile Preferences, learn auth/navigation/search/filter behavior, and synthesize reusable instructions for the real discovery agents
-- next step: add typed debug-session and source-instruction artifacts, then wire a Profile Preferences entrypoint that launches a sequential orchestrator and saves verified findings back onto the target
+- current focus: source-debug now forces a final phase-closeout turn near step limits, persists typed completion-mode plus phase-evidence metadata on attempts and phase summaries, synthesizes partial-evidence findings instead of dropping them silently when a worker times out without `finish`, keeps those partial runs in `draft`, exposes a typed run-details IPC path, gives Profile Preferences a compact review modal with per-phase outcome, end-reason, evidence-count, and accept/verify actions, uses the newest draft or validated instruction artifact for the matching target during live discovery/apply, ties the visible browser window to live discovery/source-debug run lifetime by opening it when the run starts and closing it when the run ends, explicitly terminates the spawned Chrome process on run shutdown, gives the worker a `scroll_to_top` escape hatch so it can re-probe header search/filter controls after exploring long landing pages, now hands richer per-phase timestamps, attempted actions, compaction state, and ephemeral review-transcript lines into a dedicated end-of-run instruction reviewer before persistence, explicitly frames learned artifacts as future-run instructions instead of sampled-run reports, and now treats that final reviewer as an organizer over the full phase-test sequence while `Verify` replays the selected artifact without mutating it in place
+- next step: rerun live source-debug on a few distinct target sites, verify that the final reviewer keeps later proven guidance while dropping earlier failed duplicates, confirm recommendation modules can flow into fuller search/filter pages when those routes exist, verify that homepage text search plus visible city or industry selects are captured when present, and tighten any remaining DOM-first control heuristics if the live runs still miss obvious visible controls
 - blockers: none
-- notes: the planned flow stays hostname-bounded, can run specialized agents or phases sequentially with findings handed forward between steps, and should keep testing until it can reach job results, vary search/filter state, open detail pages, and prove the saved instructions are replayable
+- notes: source-debug stays artifact-first and does not persist raw worker chat by default; the orchestrator stores active/recent run summaries in discovery state while dedicated repository collections retain runs, attempts, evidence refs, and instruction artifacts; replay verification is the current promotion gate for validated instructions, and apply-path guidance currently means safe apply-entry instructions rather than autonomous submission for arbitrary sources; the newest draft or validated artifact for a target is now active automatically for that same target during discovery/apply, and the Profile target card exposes inline edit/remove controls for each learned instruction row; source-debug now lets the worker report auth blockers during the access phase instead of pre-pausing the run based on a single-target session preflight, a fresh `Debug source` rerun clears prior learned instructions for that target before rebuilding them, the browser-agent now falls back to visible DOM controls when `ariaSnapshot()` under-reports obvious search/filter/`show all` surfaces, transcript compaction now keeps matching assistant tool-call messages with their tool results so provider tool-calling sessions remain valid, validation now requires at least one positively proven reusable search/filter or recommendation-route signal instead of accepting only “not proven” search coverage, timeout-only partial evidence now stays reviewable in run details without qualifying the learned instruction artifact for validation, the new final reviewer consumes richer phase-level review packets at the end rather than bloating the worker prompt context mid-run, extraction/sample-size chatter such as `0 or 1 jobs extracted` is now treated as non-instructional noise unless it reflects a durable site constraint, retained warnings are no longer forwarded into live discovery/apply as if they were runtime instructions, and re-verifying an accepted or validated artifact now produces a successor artifact instead of rewriting the reviewed one in place
 
 ### `JF-10 Profile And Discovery Production Copy Pass`
 
@@ -148,24 +148,27 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ## Ready Queue
 
-- Add richer tailored resume export/storage beyond persisted preview content.
 - Expand Applications with filters, retry controls, and attempt-centric recovery views.
 - Add broader runtime tests for unsupported Easy Apply branches, live-browser extraction, and resume-import flows.
 - Improve cleanup and fallback extraction so difficult PDF and DOCX resumes yield cleaner structured text before the agent runs.
 
 ## Recently Completed
 
-- `2026-03-26`: completed AI browser agent for autonomous LinkedIn job discovery with LLM tool calling; new `@unemployed/browser-agent` package; replaced deterministic discovery with AI-driven "Run AI Agent Discovery" button; targets up to the configured job count from LinkedIn using user's profile preferences; includes cancellation support and URL validation
+- `2026-04-02`: split the largest implementation hotspots across `packages/job-finder`, `packages/ai-providers`, `packages/browser-agent`, `packages/browser-runtime`, `packages/contracts`, `packages/db`, and the desktop Profile/route layer into smaller internal modules, turned oversized package entrypoints into thin barrels, and added warn-only repo structure checks so future file growth is visible during `pnpm verify`
+- `2026-03-26`: completed AI browser agent for autonomous target-site job discovery with LLM tool calling; new `@unemployed/browser-agent` package; replaced deterministic discovery with AI-driven "Run AI Agent Discovery" button; targets up to the configured job count from the configured target using the user's profile preferences; includes cancellation support and URL validation
+- `2026-03-30`: added a final source-instruction reconciliation pass so the source-debug orchestrator now deduplicates stronger guidance by family, prefers later proven controls and routes over earlier weaker failure notes, and persists fewer contradictory learned-instruction lines
+- `2026-03-30`: added a dedicated end-of-run source-instruction reviewer fed with richer phase timestamps, attempted actions, compaction summaries, and ephemeral review-transcript lines so final curation can resolve contradictions with more context than the synthesized findings alone
+- `2026-03-30`: tightened source-debug prompts and curation so learned artifacts are framed as future-run instructions rather than sampled-run reports, and filtered extraction/sample-size chatter such as `0 or 1 jobs extracted` out of the final artifact
 - `2026-03-24`: tightened repo guidance so the root and desktop `AGENTS.md` files, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `docs/STATUS.md` now separate navigation, handoff, and history more cleanly
 - `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, added repo-local CodeRabbit defaults, and checked in `.github/CODEOWNERS` naming `@ebrardushullovcii` plus `@vigani1` as the intended merge maintainers
 - `2026-03-24`: added a root `pnpm desktop:dev` shortcut and updated repo docs so local desktop startup no longer depends on the longer workspace-filter command
-- `2026-03-20`: added `docs/exec-plans/active/002-job-finder-linkedin-easy-apply.md` as the first active Job Finder delivery plan
+- `2026-03-20`: added `docs/exec-plans/active/002-job-finder-browser-apply.md` as the first active Job Finder delivery plan
 - `2026-03-20`: bootstrapped `docs/TRACKS.md` as the live workboard for parallel agent handoffs
 - `2026-03-20`: consolidated the current Job Finder design references and prototype policy under `docs/Design/`
 - `2026-03-20`: implemented the first typed Job Finder workspace shell with contracts, in-memory repository seams, and desktop preload wiring
 - `2026-03-20`: switched the seeded Job Finder workspace to file-backed persistence and interactive desktop actions
-- `2026-03-20`: upgraded Job Finder to SQLite persistence, deterministic LinkedIn discovery/apply orchestration, editable profile/settings flows, and persisted application attempts
-- `2026-03-20`: added the first agent-first Job Finder foundation with an OpenAI-compatible provider seam, resume-text analysis, opt-in Playwright LinkedIn browser automation, and AI-assisted resume drafting
+- `2026-03-20`: upgraded Job Finder to SQLite persistence, deterministic browser discovery/apply orchestration, editable profile/settings flows, and persisted application attempts
+- `2026-03-20`: added the first agent-first Job Finder foundation with an OpenAI-compatible provider seam, resume-text analysis, opt-in Playwright browser automation, and AI-assisted resume drafting
 - `2026-03-20`: added multi-format resume ingestion (`txt`, `md`, `pdf`, `docx`) plus fixed template-driven HTML resume output for generated assets
 - `2026-03-20`: fixed the Electron PDF import path by polyfilling `DOMMatrix` before `pdfjs-dist` loads, so real resume uploads no longer fail with `job-finder:import-resume`
 - `2026-03-20`: fixed bundled PDF worker resolution so desktop resume import uses the installed `pdfjs-dist` worker module instead of a missing `out/main/pdf.worker.mjs` file
@@ -173,7 +176,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - `2026-03-20`: tightened deterministic resume parsing and merge behavior so imported profile summaries, locations, contact fields, and targeting data update from the actual resume instead of preserving stale seeded values
 - `2026-03-20`: polished the imported-profile UI layout/dropdowns and expanded deterministic parsing for alternate summary/skills sections, with scripted screenshot validation for both settings dropdowns and resume-import output
 - `2026-03-20`: reinforced the AI-provider path so FelidaeAI-Pro-2.5 is the explicit generic resume extraction engine whenever `UNEMPLOYED_AI_API_KEY` is available, with deterministic parsing kept as a safety fallback rather than the primary path
-- `2026-03-20`: changed workspace reset to a true fresh-start reset that clears persisted resume/job/application data and the LinkedIn browser profile instead of reseeding the sample candidate
+- `2026-03-20`: changed workspace reset to a true fresh-start reset that clears persisted resume/job/application data and the browser-agent profile instead of reseeding the sample candidate
 - `2026-03-20`: added automatic desktop `.env` / `.env.local` loading and a root `.env.example` so FelidaeAI can be activated reliably for local resume extraction without manual shell export steps
 - `2026-03-20`: added persisted resume-analysis provenance in workspace state plus a visible profile badge for AI-vs-fallback parsing, and made Settings reset return the app to the cleared fresh-profile view
 - `2026-03-20`: expanded the profile-information-architecture slice with researched identity/contact, eligibility, summary, skills, experience, education, certifications, projects, links, languages, and broader targeting sections in the live Profile screen instead of leaving them only in the plan
@@ -186,3 +189,5 @@ Use one track per meaningful workstream, not per person or per chat.
 - `2026-03-21`: removed textarea resizing across the Profile tabs so long-form fields stay fixed-height with scroll, and rebalanced skill-bucket editor sizing so add buttons and chip containers read more consistently
 - `2026-03-21`: kept sparse skill buckets from stretching visually and expanded resume extraction defaults so location context can now infer likely salary currency as well as timezone when confidence is high
 - `2026-03-21`: added centered max-width constraints to the desktop title bar and main content so the shell follows a more standard container pattern on large and zoomed-out displays
+
+

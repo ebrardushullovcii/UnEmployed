@@ -8,6 +8,8 @@
     "desktop:dev": "pnpm --filter @unemployed/desktop dev",
     "build": "turbo build",
     "lint": "turbo lint",
+    "structure:check": "node scripts/check-structure.mjs",
+    "hotspots": "node scripts/repo-hotspots.mjs",
     "lsp:typescript": "typescript-language-server --stdio",
     "typecheck": "turbo typecheck",
     "test": "vitest run",
@@ -16,7 +18,7 @@
     "agents:sync": "node scripts/repo-context.mjs sync",
     "agents:check": "node scripts/repo-context.mjs check-agents",
     "docs:check": "node scripts/repo-context.mjs check-docs",
-    "verify": "pnpm agents:check && pnpm docs:check && pnpm lint && pnpm typecheck && pnpm test"
+    "verify": "pnpm agents:check && pnpm docs:check && pnpm structure:check && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

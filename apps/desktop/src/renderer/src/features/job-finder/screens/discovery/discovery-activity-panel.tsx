@@ -24,13 +24,13 @@ function formatRunLabel(value: string): string {
   })
 }
 
-function ActivityEventCard(props: { event: DiscoveryActivityEvent }) {
-  const { event } = props
+function ActivityEventCard(props: { event: DiscoveryActivityEvent; targetLabel: string | null }) {
+  const { event, targetLabel } = props
 
   return (
     <article className="grid gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[0.78rem] text-foreground-muted">
-        <span className="min-w-0 wrap-break-word">{event.targetId ? `${event.resolvedAdapterKind ?? event.adapterKind ?? 'target'} · ${event.targetId}` : event.stage}</span>
+        <span className="min-w-0 wrap-break-word">{targetLabel ?? event.stage}</span>
         <span className="shrink-0">{formatTimestamp(event.timestamp)}</span>
       </div>
       <p className="text-[0.95rem] leading-6 text-(--text-headline)">{event.message}</p>
@@ -155,6 +155,10 @@ export function DiscoveryHistoryModal(props: {
   const selectedRun = runOptions.find((run) => run.id === selectedRunId) ?? runOptions[0] ?? null
   const displayedEvents = selectedRun?.activity ?? []
   const selectedRunIsLive = Boolean(liveRun && selectedRun?.id === liveRun.id)
+  const targetLabels = useMemo(
+    () => new Map(props.targets.map((target) => [target.id, target.label])),
+    [props.targets]
+  )
 
   useEffect(() => {
     if (!props.open) {
@@ -302,7 +306,11 @@ export function DiscoveryHistoryModal(props: {
 
             <div className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-1" onScroll={handleEventStreamScroll} ref={eventStreamRef}>
               {displayedEvents.length > 0 ? displayedEvents.map((event) => (
-                <ActivityEventCard event={event} key={event.id} />
+                <ActivityEventCard
+                  event={event}
+                  key={event.id}
+                  targetLabel={event.targetId ? (targetLabels.get(event.targetId) ?? 'Configured target') : null}
+                />
               )) : (
                 <p className="text-[0.9rem] leading-6 text-foreground-soft">No activity events were retained for this run.</p>
               )}

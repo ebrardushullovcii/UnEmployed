@@ -5,8 +5,16 @@
 - `pnpm lint`
 - `pnpm typecheck`
 - `pnpm test`
+- `pnpm structure:check`
 - `pnpm agents:check`
 - `pnpm docs:check`
+
+## Structure Checks
+
+- `pnpm structure:check` reports oversized source files and concentration hotspots in warn-only mode.
+- Current warning budgets: general source files at `800` lines, desktop renderer components at `400` lines, and package entrypoints at `200` lines unless they are mostly barrel exports.
+- Current future hard-fail threshold is `1200` lines for a single source file; keep new work comfortably below it instead of treating that number as a target.
+- Use `pnpm hotspots` when you want a quick ranking of the largest files and most concentrated workspaces before starting a larger refactor.
 
 ## UI Validation Commands
 
@@ -16,12 +24,20 @@
 - `pnpm --filter @unemployed/desktop ui:resume-import`
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`
 
+## Source-Debug QA
+
+- Validate that Profile Preferences keeps `Debug source` disabled until a target has a valid absolute starting URL.
+- Validate that Discovery can open the dedicated Chrome profile even before any prior browser-profile session has been recorded.
+- Validate that source-debug completion copy matches the actual retained run state for `paused_manual`, `cancelled`, `failed`, and `interrupted` runs.
+- Ensure the Profile source-debug review modal traps focus while open, announces loading and error states clearly, and that inline learned-instruction edits only mutate the editable instruction fields.
+- Confirm that `Verify` replays the selected learned-instruction artifact, leaves the reviewed artifact intact, and promotes or drafts a successor artifact based on the new replay result.
+
 ## Live Agent Config
 
 - `UNEMPLOYED_AI_API_KEY` enables the OpenAI-compatible provider path used for resume extraction and resume tailoring.
 - The desktop app now auto-loads root or `apps/desktop` `.env` / `.env.local` files before creating the AI client, so local FelidaeAI credentials do not need to be exported manually every time.
 - `UNEMPLOYED_AI_BASE_URL` and `UNEMPLOYED_AI_MODEL` are optional overrides; the current defaults target the FelidaeAI OpenAI-compatible endpoint shared by the user.
-- `UNEMPLOYED_LINKEDIN_BROWSER_AGENT=0` switches Job Finder back from the dedicated Chrome-profile LinkedIn browser agent to the deterministic catalog adapter; when unset, desktop builds now use the browser agent by default.
+- `UNEMPLOYED_BROWSER_AGENT=0` switches Job Finder back from the dedicated Chrome-profile browser agent to the deterministic catalog adapter; when unset, desktop builds now use the browser agent by default. The legacy `UNEMPLOYED_LINKEDIN_BROWSER_AGENT` name is still accepted as a fallback when the newer variable is unset.
 - `UNEMPLOYED_CHROME_PATH` optionally points the agent to a specific local Chrome install.
 - `UNEMPLOYED_CHROME_DEBUG_PORT` optionally overrides the dedicated Chrome remote-debugging port; default is `9333`.
 - Tests and CI should continue to rely on deterministic providers and fixtures unless a task explicitly calls for live-agent QA.
