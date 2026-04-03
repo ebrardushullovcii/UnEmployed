@@ -16,6 +16,49 @@ import {
 } from "@unemployed/contracts";
 import { normalizeText, tokenize } from "./shared";
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const knownCompensationPeriods = new Set(["yr", "year", "years", "annual", "annum", "mo", "month", "months", "wk", "week", "weeks", "day", "days", "hr", "hrs", "hour", "hours"]);
+const annualCompensationMultipliers: Record<string, number> = {
+  yr: 1,
+  year: 1,
+  years: 1,
+  annual: 1,
+  annum: 1,
+  mo: 12,
+  month: 12,
+  months: 12,
+  wk: 52,
+  week: 52,
+  weeks: 52,
+  day: 260,
+  days: 260,
+  hr: 2080,
+  hrs: 2080,
+  hour: 2080,
+  hours: 2080,
+};
+const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi;
+const secondaryCompensationBeforePattern = /(bonus|commission|sign[- ]?on|equity|ote)/i;
+const secondaryCompensationAfterPattern = /^(?:[:\-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
+
+function readPeriodUnit(salaryText: string, startIndex: number): string | null {
+  const followingText = salaryText.slice(startIndex).trimStart().toLowerCase();
+
+  if (!followingText.startsWith("/")) {
+    return null;
+  }
+
+  const periodUnit = followingText.match(/^\/\s*([a-z]+)/)?.[1] ?? "";
+  return knownCompensationPeriods.has(periodUnit) ? periodUnit : null;
+}
+
+function isCompactRangeSeparator(text: string): boolean {
+  return /^\s*[-–—/]\s*$/.test(text);
+}
+
 const reviewableStatuses = new Set<ApplicationStatus>([
   "drafting",
   "ready_for_review",
@@ -55,21 +98,29 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
     return null;
   }
 
-  const matches = [...salaryText.matchAll(/(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi)];
-  const knownCompensationPeriods = new Set(["yr", "year", "years", "annual", "annum", "mo", "month", "months", "wk", "week", "weeks", "day", "days", "hr", "hrs", "hour", "hours"]);
-  const secondaryCompensationBeforePattern = /(bonus|commission|sign[- ]?on|equity|ote)/i;
-  const secondaryCompensationAfterPattern = /^(?:[:\-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
+  const matches = [...salaryText.matchAll(salaryNumberPattern)];
 
   if (matches.length === 0) {
     return null;
   }
 
   const parsed = matches
-    .map((match) => {
+    .map((match, index) => {
       const baseValue = parseFloat((match[1] ?? "").replaceAll(",", ""));
-      const suffix = (match[2] ?? "").toLowerCase();
-      const precedingText = salaryText.slice(Math.max(0, (match.index ?? 0) - 24), match.index ?? 0).toLowerCase();
-      const followingText = salaryText.slice((match.index ?? 0) + match[0].length).trimStart().toLowerCase();
+      const rawSuffix = (match[2] ?? "").toLowerCase();
+      const currentIndex = match.index ?? 0;
+      const nextMatch = matches[index + 1];
+      const nextIndex = nextMatch?.index ?? -1;
+      const betweenText = nextMatch ? salaryText.slice(currentIndex + match[0].length, nextIndex) : "";
+      const suffix = !rawSuffix && nextMatch?.[2] && isCompactRangeSeparator(betweenText)
+        ? nextMatch[2].toLowerCase()
+        : rawSuffix;
+      const periodUnit = readPeriodUnit(salaryText, currentIndex + match[0].length)
+        ?? (!rawSuffix && nextMatch && isCompactRangeSeparator(betweenText)
+          ? readPeriodUnit(salaryText, (nextMatch.index ?? 0) + nextMatch[0].length)
+          : null);
+      const precedingText = salaryText.slice(Math.max(0, currentIndex - 24), currentIndex).toLowerCase();
+      const followingText = salaryText.slice(currentIndex + match[0].length).trimStart().toLowerCase();
 
       if (!Number.isFinite(baseValue) || baseValue <= 0) {
         return null;
@@ -79,13 +130,6 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
         return null;
       }
 
-      if (followingText.startsWith("/")) {
-        const periodUnit = followingText.match(/^\/\s*([a-z]+)/)?.[1] ?? "";
-        if (!knownCompensationPeriods.has(periodUnit)) {
-          return null;
-        }
-      }
-
       const trailingContext = followingText.slice(0, 24);
       const leadingContext = precedingText.split(/\s+/).slice(-3).join(" ");
 
@@ -93,19 +137,19 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
         return null;
       }
 
-      if (!suffix && baseValue < 1000) {
+      if (!suffix && !periodUnit && baseValue < 1000) {
         return null;
       }
 
-      if (suffix === "k") {
-        return baseValue * 1000;
-      }
+      const scaledValue = suffix === "k"
+        ? baseValue * 1000
+        : suffix === "m"
+          ? baseValue * 1_000_000
+          : baseValue;
 
-      if (suffix === "m") {
-        return baseValue * 1_000_000;
-      }
-
-      return baseValue;
+      return periodUnit
+        ? scaledValue * (annualCompensationMultipliers[periodUnit] ?? 1)
+        : scaledValue;
     })
     .filter((value): value is number => value !== null);
 
@@ -130,11 +174,25 @@ export function matchesAnyPhrase(
   return desiredValues.some((desiredValue) => {
     const normalizedDesired = normalizeText(desiredValue);
 
-    if (normalizedCandidate.includes(normalizedDesired)) {
+    if (!normalizedDesired) {
+      return false;
+    }
+
+    const desiredTokens = tokenize(desiredValue);
+
+    if (desiredTokens.length === 0) {
+      return false;
+    }
+
+    if (desiredTokens.length === 1 && candidateTokens.has(normalizedDesired)) {
       return true;
     }
 
-    return tokenize(desiredValue).every((token) => candidateTokens.has(token));
+    if (new RegExp(`(^|\\s)${escapeRegex(normalizedDesired)}($|\\s)`).test(normalizedCandidate)) {
+      return true;
+    }
+
+    return desiredTokens.every((token) => candidateTokens.has(token));
   });
 }
 

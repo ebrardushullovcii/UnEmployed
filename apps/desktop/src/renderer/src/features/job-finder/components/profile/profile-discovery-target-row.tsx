@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState, type ChangeEvent } from 'react'
+import { useCallback, useId, useMemo, useState, type ChangeEvent } from 'react'
 import type {
   EditableSourceInstructionArtifact,
   SourceDebugRunDetails,
@@ -22,6 +22,7 @@ import {
   normalizeEditableInstructionInput,
   updateArtifactInstructionSection
 } from './profile-source-debug-instruction-utils'
+import { useProfileSourceDebugReview } from './use-profile-source-debug-review'
 
 type DiscoveryTargetValue = SearchPreferencesEditorValues['discoveryTargets'][number]
 
@@ -49,24 +50,30 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     () => buildLearnedInstructionSections(props.instructionArtifact),
     [props.instructionArtifact]
   )
-  const targetRuns = useMemo(
-    () =>
-      props.recentSourceDebugRuns
-        .filter((run) => run.targetId === props.target.id)
-        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()),
-    [props.recentSourceDebugRuns, props.target.id]
-  )
-  const latestDebugRun = props.target.lastDebugRunId
-    ? targetRuns.find((run) => run.id === props.target.lastDebugRunId) ?? null
-    : null
+  const {
+    latestDebugRun,
+    reviewDetails,
+    reviewError,
+    reviewLoading,
+    reviewOpen,
+    selectedRunId,
+    targetRuns,
+    handleCloseReview,
+    handleLoadRun,
+    handleReviewLatestRun,
+    handleRerun,
+    handleVerify
+  } = useProfileSourceDebugReview({
+    getRunDetails: props.onGetSourceDebugRunDetails,
+    onRunSourceDebug: props.onRunSourceDebug,
+    onVerifySourceInstructions: props.onVerifySourceInstructions,
+    recentSourceDebugRuns: props.recentSourceDebugRuns,
+    targetId: props.target.id,
+    targetLastDebugRunId: props.target.lastDebugRunId
+  })
   const latestDebugRunLabel = latestDebugRun
     ? `${formatStatusLabel(latestDebugRun.state)}${latestDebugRun.completedAt ? ` • ${new Date(latestDebugRun.completedAt).toLocaleString()}` : ''}`
     : null
-  const [reviewOpen, setReviewOpen] = useState(false)
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(latestDebugRun?.id ?? targetRuns[0]?.id ?? null)
-  const [reviewDetails, setReviewDetails] = useState<SourceDebugRunDetails | null>(null)
-  const [reviewLoading, setReviewLoading] = useState(false)
-  const [reviewError, setReviewError] = useState<string | null>(null)
   const [editingInstruction, setEditingInstruction] = useState<{
     field: LearnedInstructionField
     normalizedKey: string
@@ -141,56 +148,6 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     }
   }
 
-  useEffect(() => {
-    if (selectedRunId) {
-      return
-    }
-
-    setSelectedRunId(latestDebugRun?.id ?? targetRuns[0]?.id ?? null)
-  }, [latestDebugRun?.id, selectedRunId, targetRuns])
-
-  useEffect(() => {
-    if (!reviewOpen) {
-      return
-    }
-
-    const nextRunId = selectedRunId ?? latestDebugRun?.id ?? targetRuns[0]?.id ?? null
-    if (!nextRunId) {
-      setReviewDetails(null)
-      setReviewError(null)
-      setReviewLoading(false)
-      return
-    }
-
-    let cancelled = false
-    setReviewDetails(null)
-    setReviewLoading(true)
-    setReviewError(null)
-
-    void props.onGetSourceDebugRunDetails(nextRunId)
-      .then((details) => {
-        if (cancelled) {
-          return
-        }
-
-        setReviewDetails(details)
-        setReviewLoading(false)
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return
-        }
-
-        setReviewDetails(null)
-        setReviewError(error instanceof Error ? error.message : 'Unable to load source-debug run details.')
-        setReviewLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [latestDebugRun?.id, props.onGetSourceDebugRunDetails, reviewOpen, selectedRunId, targetRuns])
-
   const moveTarget = useCallback((direction: -1 | 1) => {
     const nextIndex = props.index + direction
     const nextTargets = [...props.discoveryTargets]
@@ -222,15 +179,6 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     props.updateDiscoveryTargets(props.discoveryTargets.filter((entry) => entry.id !== props.target.id))
   }, [props.discoveryTargets, props.target.id, props.updateDiscoveryTargets])
 
-  const handleReviewLatestRun = useCallback(() => {
-    if (!latestDebugRun) {
-      return
-    }
-
-    setSelectedRunId(latestDebugRun.id)
-    setReviewOpen(true)
-  }, [latestDebugRun])
-
   const handleToggleEnabled = useCallback((checked: boolean) => {
     updateTarget({ ...props.target, enabled: checked })
   }, [props.discoveryTargets, props.index, props.target, props.updateDiscoveryTargets])
@@ -246,23 +194,6 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   const handleCustomInstructionsChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
     updateTarget({ ...props.target, customInstructions: event.target.value })
   }, [props.discoveryTargets, props.index, props.target, props.updateDiscoveryTargets])
-
-  const handleCloseReview = useCallback(() => {
-    setReviewOpen(false)
-  }, [])
-
-  const handleLoadRun = useCallback((runId: string) => {
-    setSelectedRunId(runId)
-  }, [])
-
-  const handleRerun = useCallback(() => {
-    setReviewOpen(false)
-    props.onRunSourceDebug(props.target.id)
-  }, [props.onRunSourceDebug, props.target.id])
-
-  const handleVerify = useCallback((instructionId: string) => {
-    props.onVerifySourceInstructions(props.target.id, instructionId)
-  }, [props.onVerifySourceInstructions, props.target.id])
 
   return (
     <article className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-4">

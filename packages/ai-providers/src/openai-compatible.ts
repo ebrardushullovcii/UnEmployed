@@ -20,6 +20,18 @@ import {
   uniqueStrings,
 } from "./deterministic";
 
+function summarizeError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return "Unknown error";
+}
+
+function logFallbackError(operation: string, error: unknown): void {
+  console.error(`[AI Provider] ${operation} failed; falling back to deterministic client.`, error);
+}
+
 function isTextContentPart(value: unknown): value is { text: string } {
   return Boolean(
     value &&
@@ -256,7 +268,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
         },
       );
       const normalizedPayload =
-        payload && typeof payload === "object"
+        payload && typeof payload === "object" && !Array.isArray(payload)
           ? (payload as Record<string, unknown>)
           : {};
       const parsedPrimaryExtraction = ResumeProfileExtractionSchema.parse({
@@ -637,13 +649,15 @@ export function createJobFinderAiClientFromEnvironment(
     async extractProfileFromResume(input) {
       try {
         return await primaryClient.extractProfileFromResume(input);
-      } catch {
+      } catch (error) {
+        logFallbackError("extractProfileFromResume", error);
         const fallback = await fallbackClient.extractProfileFromResume(input);
         return {
           ...fallback,
           notes: uniqueStrings([
             ...fallback.notes,
             "Fell back to the deterministic resume parser after the model call failed.",
+            `Primary AI extraction failed: ${summarizeError(error)}`,
           ]),
         };
       }
@@ -651,13 +665,15 @@ export function createJobFinderAiClientFromEnvironment(
     async tailorResume(input) {
       try {
         return await primaryClient.tailorResume(input);
-      } catch {
+      } catch (error) {
+        logFallbackError("tailorResume", error);
         const fallback = await fallbackClient.tailorResume(input);
         return {
           ...fallback,
           notes: uniqueStrings([
             ...fallback.notes,
             "Fell back to the deterministic resume tailorer after the model call failed.",
+            `Primary AI tailoring failed: ${summarizeError(error)}`,
           ]),
         };
       }
@@ -665,14 +681,16 @@ export function createJobFinderAiClientFromEnvironment(
     async assessJobFit(input) {
       try {
         return await primaryClient.assessJobFit(input);
-      } catch {
+      } catch (error) {
+        logFallbackError("assessJobFit", error);
         return fallbackClient.assessJobFit(input);
       }
     },
     async extractJobsFromPage(input) {
       try {
         return await primaryClient.extractJobsFromPage(input);
-      } catch {
+      } catch (error) {
+        logFallbackError("extractJobsFromPage", error);
         return fallbackClient.extractJobsFromPage(input);
       }
     },

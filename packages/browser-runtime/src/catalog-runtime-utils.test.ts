@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { normalizeText, parseSalaryFloor } from './catalog-runtime-utils'
+import { matchesAnyPhrase, normalizeText, parseSalaryFloor } from './catalog-runtime-utils'
 
 describe('catalog runtime utils', () => {
   test('normalizes diacritics consistently', () => {
@@ -15,5 +15,15 @@ describe('catalog runtime utils', () => {
     expect(parseSalaryFloor('Comp plan has a 50/50 split and 120k base')).toBe(120000)
     expect(parseSalaryFloor('Remote 24/7 support with compensation of 95000 USD')).toBe(95000)
     expect(parseSalaryFloor('Compensation: 1.2M total target cash')).toBe(1200000)
+    expect(parseSalaryFloor('Compensation: 80-100k')).toBe(80000)
+    expect(parseSalaryFloor('Compensation: 1-1.2M total target cash')).toBe(1000000)
+    expect(parseSalaryFloor('Compensation: 60/hr')).toBe(124800)
+    expect(parseSalaryFloor('Compensation: 5-7k/mo')).toBe(60000)
+  })
+
+  test('matches whole tokens instead of raw substrings', () => {
+    expect(matchesAnyPhrase('Senior Java Engineer', ['java'])).toBe(true)
+    expect(matchesAnyPhrase('Senior JavaScript Engineer', ['java'])).toBe(false)
+    expect(matchesAnyPhrase('New York City', ['new york'])).toBe(true)
   })
 })

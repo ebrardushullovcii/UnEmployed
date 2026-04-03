@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
 import {
   completeResumeExtraction,
@@ -883,6 +883,96 @@ describe('ai providers', () => {
       })
     } finally {
       globalThis.fetch = originalFetch
+    }
+  })
+
+  test('falls back from profile extraction with logged error details and merged notes', async () => {
+    const originalFetch = globalThis.fetch
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    globalThis.fetch = (() => Promise.reject(new Error('upstream extraction failure'))) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: 'test-key',
+        UNEMPLOYED_AI_BASE_URL: 'https://example.com/v1',
+        UNEMPLOYED_AI_MODEL: 'test-model'
+      })
+
+      const result = await client.extractProfileFromResume({
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: 'Alex Vanguard\nLondon, UK\nReact engineer'
+      })
+
+      expect(result.analysisProviderKind).toBe('deterministic')
+      expect(result.notes).toContain('Fell back to the deterministic resume parser after the model call failed.')
+      expect(result.notes).toContain('Primary AI extraction failed: upstream extraction failure')
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[AI Provider] extractProfileFromResume failed; falling back to deterministic client.',
+        expect.any(Error)
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      errorSpy.mockRestore()
+    }
+  })
+
+  test('falls back from tailoring with logged error details and merged notes', async () => {
+    const originalFetch = globalThis.fetch
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    globalThis.fetch = (() => Promise.reject(new Error('upstream tailoring failure'))) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: 'test-key',
+        UNEMPLOYED_AI_BASE_URL: 'https://example.com/v1',
+        UNEMPLOYED_AI_MODEL: 'test-model'
+      })
+
+      const result = await client.tailorResume({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: {
+          resumeFormat: 'html',
+          resumeTemplateId: 'classic_ats',
+          fontPreset: 'inter_requisite',
+          humanReviewRequired: true,
+          allowAutoSubmitOverride: false,
+          keepSessionAlive: true,
+          discoveryOnly: false
+        },
+        job: {
+          source: 'target_site',
+          sourceJobId: 'job_1',
+          discoveryMethod: 'browser_agent',
+          canonicalUrl: 'https://jobs.example.com/1',
+          title: 'Frontend Engineer',
+          company: 'Acme',
+          location: 'Remote',
+          workMode: ['remote'],
+          applyPath: 'unknown',
+          easyApplyEligible: false,
+          postedAt: '2026-03-20T10:00:00.000Z',
+          discoveredAt: '2026-03-20T10:00:00.000Z',
+          salaryText: null,
+          summary: 'Build product interfaces',
+          description: 'Build product interfaces',
+          keySkills: ['React']
+        },
+        resumeText: 'Resume text'
+      })
+
+      expect(result.notes).toContain('Fell back to the deterministic resume tailorer after the model call failed.')
+      expect(result.notes).toContain('Primary AI tailoring failed: upstream tailoring failure')
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[AI Provider] tailorResume failed; falling back to deterministic client.',
+        expect.any(Error)
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      errorSpy.mockRestore()
     }
   })
 })

@@ -108,6 +108,28 @@ function normalizeInteractiveElement(value: unknown): { role?: string; name?: st
   return normalized
 }
 
+function buildUserFacingToolFailure(toolName: string, error: string): string {
+  const normalizedError = error.toLowerCase()
+
+  if (/timeout|timed out/i.test(normalizedError)) {
+    return `${toolName} timed out.`
+  }
+
+  if (/not visible|visibility/i.test(normalizedError)) {
+    return `${toolName} failed because the target was not visible.`
+  }
+
+  if (/invalid tool arguments|malformed data|unknown tool/i.test(normalizedError)) {
+    return `${toolName} failed because the tool response was invalid.`
+  }
+
+  if (/404|not-found route/i.test(normalizedError)) {
+    return `${toolName} reached a broken route.`
+  }
+
+  return `${toolName} failed.`
+}
+
 export function synthesizeFallbackDebugFindings(state: AgentState): NonNullable<AgentResult['debugFindings']> | null {
   const reliableControls = state.phaseEvidence.visibleControls.slice(0, 4)
   const currentUrl = sanitizeUrl(state.currentUrl)
@@ -270,7 +292,11 @@ export function recordToolEvidence(
   }
 
   if (normalizedResult.error) {
-    appendPhaseEvidence(state, 'warnings', [`${toolName} failed: ${normalizedResult.error}`])
+    console.error('[Agent] Tool failed during evidence recording:', {
+      toolName,
+      error: normalizedResult.error
+    })
+    appendPhaseEvidence(state, 'warnings', [buildUserFacingToolFailure(toolName, normalizedResult.error)])
   }
 }
 

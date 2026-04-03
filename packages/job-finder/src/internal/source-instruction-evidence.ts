@@ -194,7 +194,7 @@ export function deriveGuidanceFromPhaseEvidence(
     /\/jobs\/search\//i.test(signal),
   );
   const hit404LikeRoute = warnings.some((warning) =>
-    /not-found route|404/i.test(warning),
+    /not-found route|404|broken route/i.test(warning),
   );
   const interactedWithShowAll = successfulInteractions.some((value) =>
     /\bshow all\b/i.test(value),
