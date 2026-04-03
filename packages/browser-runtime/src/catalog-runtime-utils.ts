@@ -6,6 +6,8 @@ export function cloneValue<TValue>(value: TValue): TValue {
 
 export function normalizeText(value: string): string {
   return value
+    .replace(/(^|[^\p{L}\p{N}])c\s*\+\s*\+(?=$|[^\p{L}\p{N}])/giu, '$1cplusplus')
+    .replace(/(^|[^\p{L}\p{N}])c\s*#(?=$|[^\p{L}\p{N}])/giu, '$1csharp')
     .normalize('NFD')
     .replace(/\p{M}+/gu, '')
     .toLowerCase()
@@ -100,7 +102,7 @@ function parseSalaryNumbers(salaryText: string): ParsedSalaryNumber[] {
       }
 
       const trailingContext = followingText.slice(0, 24)
-      const leadingContext = precedingText.split(/\s+/).slice(-3).join(' ')
+      const leadingContext = precedingText.trim().split(/\s+/).at(-1) ?? ''
 
       if (secondaryCompensationBeforePattern.test(leadingContext) || secondaryCompensationAfterPattern.test(trailingContext)) {
         return null

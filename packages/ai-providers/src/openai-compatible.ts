@@ -208,28 +208,35 @@ export function createOpenAiCompatibleJobFinderAiClient(
       );
     }
 
-    const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
-      method: "POST",
-      signal: AbortSignal.timeout(60_000),
-      headers: {
-        Authorization: `Bearer ${validatedOptions.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: validatedOptions.model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: JSON.stringify(userPayload),
-          },
-        ],
-      }),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
 
-    return parseModelJsonResponse(response);
+    try {
+      const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${validatedOptions.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: validatedOptions.model,
+          temperature: 0.2,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: JSON.stringify(userPayload),
+            },
+          ],
+        }),
+      });
+
+      return parseModelJsonResponse(response);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   return {

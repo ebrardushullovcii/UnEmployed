@@ -38,23 +38,28 @@ export function useProfileSourceDebugReview({
   const [reviewDetails, setReviewDetails] = useState<SourceDebugRunDetails | null>(null)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
+  const normalizedRunId = useMemo(() => {
+    if (selectedRunId && targetRuns.some((run) => run.id === selectedRunId)) {
+      return selectedRunId
+    }
+
+    return fallbackRunId
+  }, [fallbackRunId, selectedRunId, targetRuns])
 
   useEffect(() => {
-    if (selectedRunId && targetRuns.some((run) => run.id === selectedRunId)) {
+    if (selectedRunId === normalizedRunId) {
       return
     }
 
-    setSelectedRunId(fallbackRunId)
-  }, [fallbackRunId, selectedRunId, targetRuns])
+    setSelectedRunId(normalizedRunId)
+  }, [normalizedRunId, selectedRunId])
 
   useEffect(() => {
     if (!reviewOpen) {
       return
     }
 
-    const nextRunId = selectedRunId && targetRuns.some((run) => run.id === selectedRunId)
-      ? selectedRunId
-      : fallbackRunId
+    const nextRunId = normalizedRunId
     if (!nextRunId) {
       setReviewDetails(null)
       setReviewError(null)
@@ -89,7 +94,7 @@ export function useProfileSourceDebugReview({
     return () => {
       cancelled = true
     }
-  }, [fallbackRunId, getRunDetails, reviewOpen, selectedRunId, targetRuns])
+  }, [getRunDetails, normalizedRunId, reviewOpen])
 
   const handleCloseReview = useCallback(() => {
     setReviewOpen(false)

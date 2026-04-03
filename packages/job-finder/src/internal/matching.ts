@@ -41,7 +41,7 @@ const annualCompensationMultipliers: Record<string, number> = {
   hours: 2080,
 };
 const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi;
-const secondaryCompensationBeforePattern = /(bonus|commission|sign[- ]?on|equity|ote)/i;
+const secondaryCompensationBeforePattern = /\b(bonus|commission|sign[- ]?on|equity|ote)\b/i;
 const secondaryCompensationAfterPattern = /^(?:[:\-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
 
 function readPeriodUnit(salaryText: string, startIndex: number): string | null {
@@ -116,7 +116,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
         ? nextMatch[2].toLowerCase()
         : rawSuffix;
       const periodUnit = readPeriodUnit(salaryText, currentIndex + match[0].length)
-        ?? (!rawSuffix && nextMatch && isCompactRangeSeparator(betweenText)
+        ?? (nextMatch && isCompactRangeSeparator(betweenText)
           ? readPeriodUnit(salaryText, (nextMatch.index ?? 0) + nextMatch[0].length)
           : null);
       const precedingText = salaryText.slice(Math.max(0, currentIndex - 24), currentIndex).toLowerCase();
@@ -131,7 +131,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
       }
 
       const trailingContext = followingText.slice(0, 24);
-      const leadingContext = precedingText.split(/\s+/).slice(-3).join(" ");
+      const leadingContext = precedingText.trim().split(/\s+/).at(-1) ?? "";
 
       if (secondaryCompensationBeforePattern.test(leadingContext) || secondaryCompensationAfterPattern.test(trailingContext)) {
         return null;

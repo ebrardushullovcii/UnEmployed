@@ -5,6 +5,8 @@ describe('catalog runtime utils', () => {
   test('normalizes diacritics consistently', () => {
     expect(normalizeText('São Paulo')).toBe('sao paulo')
     expect(normalizeText('Sao Paulo')).toBe('sao paulo')
+    expect(normalizeText('C++')).toBe('cplusplus')
+    expect(normalizeText('C#')).toBe('csharp')
   })
 
   test('ignores implausible small non-salary numbers when parsing salary floors', () => {
@@ -21,11 +23,17 @@ describe('catalog runtime utils', () => {
     expect(parseSalaryFloor('Compensation: 5-7k/mo')).toBe(60000)
     expect(parseSalaryFloor('Compensation: 50k-60k/mo')).toBe(600000)
     expect(parseSalaryFloor('Remote role compensation is 95k/year')).toBe(95000)
+    expect(parseSalaryFloor('20k bonus + 120k base')).toBe(120000)
+    expect(parseSalaryFloor('OTE 180k, base 150k')).toBe(150000)
   })
 
   test('matches whole tokens instead of raw substrings', () => {
     expect(matchesAnyPhrase('Senior Java Engineer', ['java'])).toBe(true)
     expect(matchesAnyPhrase('Senior JavaScript Engineer', ['java'])).toBe(false)
     expect(matchesAnyPhrase('New York City', ['new york'])).toBe(true)
+    expect(matchesAnyPhrase('Senior C++ Engineer', ['C++'])).toBe(true)
+    expect(matchesAnyPhrase('Senior C# Engineer', ['C#'])).toBe(true)
+    expect(matchesAnyPhrase('Senior C Engineer', ['C++'])).toBe(false)
+    expect(matchesAnyPhrase('Senior C Engineer', ['C#'])).toBe(false)
   })
 })
