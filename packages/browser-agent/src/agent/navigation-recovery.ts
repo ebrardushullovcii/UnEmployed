@@ -1,6 +1,6 @@
 import type { Page } from 'playwright'
 import type { AgentState } from '../types'
-import { appendPhaseEvidence } from './evidence'
+import { appendPhaseEvidence, sanitizeUrl } from './evidence'
 
 function is404LikeUrl(url: string): boolean {
   try {
@@ -37,7 +37,9 @@ export async function recoverFrom404LikeSurface(page: Page, state: AgentState): 
     state.currentUrl = page.url()
     state.visitedUrls.add(state.currentUrl)
     appendPhaseEvidence(state, 'routeSignals', [
-      `Recovered to the last known jobs surface after a not-found route: ${state.currentUrl}`
+      sanitizeUrl(state.currentUrl)
+        ? `Recovered to the last known jobs surface after a not-found route: ${sanitizeUrl(state.currentUrl)}`
+        : null
     ])
   } catch {
     // Ignore recovery evidence when the fallback navigation fails.

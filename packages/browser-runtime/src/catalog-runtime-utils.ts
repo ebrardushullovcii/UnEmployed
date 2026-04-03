@@ -30,12 +30,20 @@ export function matchesAnyPhrase(
 
   return desiredValues.some((desiredValue) => {
     const normalizedDesired = normalizeText(desiredValue)
+    if (!normalizedDesired) {
+      return false
+    }
+
+    const desiredTokens = tokenize(desiredValue)
+    if (desiredTokens.length === 0) {
+      return false
+    }
 
     if (normalizedCandidate.includes(normalizedDesired)) {
       return true
     }
 
-    return tokenize(desiredValue).every((token) => candidateTokens.has(token))
+    return desiredTokens.every((token) => candidateTokens.has(token))
   })
 }
 
@@ -59,6 +67,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
       const suffix = (match[2] ?? '').toLowerCase()
       const precedingText = salaryText.slice(Math.max(0, (match.index ?? 0) - 24), match.index ?? 0).toLowerCase()
       const followingText = salaryText.slice((match.index ?? 0) + match[0].length).trimStart().toLowerCase()
+      let hasPeriodUnit = false
 
       if (!Number.isFinite(baseValue) || baseValue <= 0) {
         return null
@@ -73,6 +82,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
         if (!knownCompensationPeriods.has(periodUnit)) {
           return null
         }
+        hasPeriodUnit = true
       }
 
       const trailingContext = followingText.slice(0, 24)
@@ -82,7 +92,7 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
         return null
       }
 
-      if (!suffix && baseValue < 1000) {
+      if (!suffix && !hasPeriodUnit && baseValue < 1000) {
         return null
       }
 

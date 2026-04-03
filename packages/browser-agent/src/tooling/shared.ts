@@ -31,8 +31,13 @@ const supportedInteractiveRoles = [
   "listitem",
 ] as const;
 
+const fillInteractiveRoles = ["searchbox", "textbox", "combobox"] as const;
+const selectOptionInteractiveRoles = ["combobox", "option", "listitem"] as const;
+
 export type SupportedInteractiveRole = (typeof supportedInteractiveRoles)[number];
 const SupportedInteractiveRoleSchema = z.enum(supportedInteractiveRoles);
+const FillRoleSchema = z.enum(fillInteractiveRoles);
+const SelectOptionRoleSchema = z.enum(selectOptionInteractiveRoles);
 
 function isSupportedInteractiveRole(role: string): role is SupportedInteractiveRole {
   return supportedInteractiveRoles.includes(role as SupportedInteractiveRole);
@@ -41,7 +46,7 @@ function isSupportedInteractiveRole(role: string): role is SupportedInteractiveR
 export const ClickSchema = z
   .object({
     role: SupportedInteractiveRoleSchema,
-    name: z.string().min(1),
+    name: z.string().trim().min(1),
     index: z.number().int().nonnegative().optional().default(0),
     retryIfNotVisible: z.boolean().optional().default(true),
   })
@@ -49,9 +54,9 @@ export const ClickSchema = z
 
 export const FillSchema = z
   .object({
-    role: SupportedInteractiveRoleSchema,
-    name: z.string().min(1),
-    text: z.string().min(1),
+    role: FillRoleSchema,
+    name: z.string().trim().min(1),
+    text: z.string().trim().min(1),
     index: z.number().int().nonnegative().optional().default(0),
     submit: z.boolean().optional().default(false),
   })
@@ -59,9 +64,9 @@ export const FillSchema = z
 
 export const SelectOptionSchema = z
   .object({
-    role: SupportedInteractiveRoleSchema,
-    name: z.string().min(1),
-    optionText: z.string().min(1),
+    role: SelectOptionRoleSchema,
+    name: z.string().trim().min(1),
+    optionText: z.string().trim().min(1),
     index: z.number().int().nonnegative().optional().default(0),
     submit: z.boolean().optional().default(false),
   })
@@ -91,12 +96,12 @@ export const ExtractJobsSchema = z
   })
   .strict();
 
-const FinishFindingListSchema = z.array(z.string().min(1)).max(8).optional().default([]);
+const FinishFindingListSchema = z.array(z.string().trim().min(1)).max(8).optional().default([]);
 
 export const FinishSchema = z
   .object({
-    reason: z.string().min(1),
-    summary: z.string().min(1).optional(),
+    reason: z.string().trim().min(1),
+    summary: z.string().trim().min(1).optional(),
     reliableControls: FinishFindingListSchema,
     trickyFilters: FinishFindingListSchema,
     navigationTips: FinishFindingListSchema,

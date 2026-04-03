@@ -467,12 +467,12 @@ resumeAssistantMessages: z.array(ResumeAssistantMessageSchema).default([]),
 Add lightweight summaries or ID references to `JobFinderWorkspaceSnapshotSchema` for renderer consumption:
 
 ```ts
-resumeDrafts: z.array(ResumeDraftSchema).default([]),
-resumeExportArtifacts: z.array(ResumeExportArtifactSchema).default([]),
-resumeResearchArtifacts: z.array(ResumeResearchArtifactSchema).default([]),
+resumeDrafts: z.array(ResumeDraftSummarySchema).default([]),
+resumeExportArtifacts: z.array(ResumeExportArtifactSummarySchema).default([]),
+resumeResearchArtifacts: z.array(ResumeResearchArtifactSummarySchema).default([]),
 ```
 
-Do not include full revision history or full assistant message threads in the snapshot. The renderer should fetch those on demand through dedicated IPC actions when the workspace is open.
+Use lightweight summaries here rather than full draft or artifact payloads. The snapshot should carry only the fields the renderer needs for list and header state, such as ids, short labels, status, updated timestamps, selected template or format metadata, and approval or staleness flags. Do not include full revision history, full assistant message threads, or full section bodies in the snapshot; fetch those on demand through dedicated IPC actions when the workspace is open.
 
 ### Recommended Draft Structure
 
@@ -977,11 +977,11 @@ The implementation is sliced into discrete deliverables. Each slice produces a w
 
 **Work**:
 
-- add all new Zod schemas and types listed in the contract shapes section above to `packages/contracts/src/index.ts`
+- add the new Zod schemas and inferred types listed in the contract shapes section above to the owning contract modules, then export them from the package entry points
 - add bridge fields to `ReviewQueueItemSchema`
 - extend `JobFinderRepositoryStateSchema` with the new collection arrays
 - extend `JobFinderWorkspaceSnapshotSchema` with the lightweight summaries
-- add contract tests in `packages/contracts/src/index.test.ts` that parse realistic payloads for every new schema and reject malformed inputs
+- add or extend contract tests in the owning contract test modules and exports so realistic payloads parse and malformed inputs are rejected
 
 **Verification**:
 
@@ -1001,7 +1001,7 @@ pnpm lint
 
 - add new repository methods to `JobFinderRepository` interface: `listResumeDrafts`, `upsertResumeDraft`, `getResumeDraftByJobId`, `listResumeDraftRevisions`, `upsertResumeDraftRevision`, `listResumeExportArtifacts`, `upsertResumeExportArtifact`, `listResumeResearchArtifacts`, `upsertResumeResearchArtifact`, `listResumeValidationResults`, `upsertResumeValidationResult`, `listResumeAssistantMessages`, `upsertResumeAssistantMessage`
 - implement every new method in both `createInMemoryJobFinderRepository` and `createFileJobFinderRepository`
-- add migration version 3 in `runMigrations()` with `CREATE TABLE IF NOT EXISTS` statements for: `resume_drafts`, `resume_draft_revisions`, `resume_export_artifacts`, `resume_research_artifacts`, `resume_validation_results`, `resume_assistant_messages`
+- add the next available migration version in `runMigrations()` with `CREATE TABLE IF NOT EXISTS` statements for: `resume_drafts`, `resume_draft_revisions`, `resume_export_artifacts`, `resume_research_artifacts`, `resume_validation_results`, `resume_assistant_messages`
 - for SQLite tables that need non-id lookup or stable history ordering, add explicit query columns and indexes such as `job_id`, `draft_id`, `created_at`, `updated_at`, `exported_at`, `validated_at`, and `fetched_at`
 - implement the repository list and get methods with the ordering rules defined in the persistence section above instead of relying on row `id` order
 - update `stateTableNames` with the new table names
@@ -1373,7 +1373,7 @@ New resume workspace actions should be added under `desktopApi.jobFinder.resumeW
 
 ### Contract Schema Pattern
 
-Contracts in `packages/contracts/src/index.ts` follow a consistent pattern:
+Contracts in `packages/contracts/src/` follow a consistent pattern:
 
 - define a Zod schema with `export const FooSchema = z.object({ ... })`
 - export the inferred type with `export type Foo = z.infer<typeof FooSchema>`
@@ -1387,7 +1387,7 @@ Contracts in `packages/contracts/src/index.ts` follow a consistent pattern:
 
 All packages use Vitest with `describe` / `test` blocks. The established patterns:
 
-- `packages/contracts/src/index.test.ts`: schema parse/reject tests with realistic payloads
+- the owning contract test modules: schema parse/reject tests with realistic payloads
 - `packages/db/src/index.test.ts`: creates a `createSeed()` fixture, tests both in-memory and file-backed implementations with the same assertions, tests clone isolation
 - `packages/ai-providers/src/index.test.ts`: tests the deterministic client with realistic profile and job inputs, validates output schema compliance
 - `packages/job-finder/src/index.test.ts`: integration tests that wire contracts, in-memory repository, and deterministic AI client together, then test orchestration flows end-to-end
@@ -1484,7 +1484,7 @@ Implementation work for this plan should be validated with at least:
 
 Follow the existing test patterns in these files:
 
-- `packages/contracts/src/index.test.ts`: add parse and reject tests for every new schema
+- the owning contract test modules and exports: add parse and reject tests for every new schema
 - `packages/db/src/index.test.ts`: add CRUD round-trip tests for new collections on both in-memory and file-backed implementations, following the existing `createSeed()` fixture pattern
 - `packages/ai-providers/src/index.test.ts`: add tests for the deterministic fallback implementations of new AI methods
 - `packages/job-finder/src/index.test.ts`: add integration tests that wire in-memory repository plus deterministic AI client and test the full workspace lifecycle

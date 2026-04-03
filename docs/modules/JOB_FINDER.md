@@ -43,7 +43,9 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - `UNEMPLOYED_AI_API_KEY`: enables the OpenAI-compatible provider path
 - `UNEMPLOYED_AI_BASE_URL`: optional override for the provider base URL; defaults to `https://ai.automatedpros.link/v1`
 - `UNEMPLOYED_AI_MODEL`: optional override for the provider model; defaults to `FelidaeAI-Pro-2.5`
-- `UNEMPLOYED_BROWSER_AGENT=0`: explicitly disables the dedicated Chrome-profile browser agent and falls back to the deterministic catalog runtime; when `UNEMPLOYED_BROWSER_AGENT` is unset the runtime still honors the legacy `UNEMPLOYED_LINKEDIN_BROWSER_AGENT` flag as a backward-compatible fallback, and desktop builds opt into the browser agent by default so leaving both unset (or setting the active flag to `=1`) keeps the browser agent enabled unless you need to force the fallback path
+- `UNEMPLOYED_BROWSER_AGENT=0`: explicitly disables the dedicated Chrome-profile browser agent and falls back to the deterministic catalog runtime.
+- When `UNEMPLOYED_BROWSER_AGENT` is unset, the runtime falls back to the legacy `UNEMPLOYED_LINKEDIN_BROWSER_AGENT` flag via the nullish-coalescing `??` fallback in the implementation.
+- Desktop builds opt into the browser agent by default, so leaving both variables unset, or setting the active flag to `=1`, keeps the browser agent enabled unless you explicitly force the fallback path.
 - `UNEMPLOYED_CHROME_PATH`: optional override for the local Chrome executable the agent should launch
 - `UNEMPLOYED_CHROME_DEBUG_PORT`: optional override for the dedicated Chrome remote-debugging port; defaults to `9333`
 - `UNEMPLOYED_BROWSER_HEADLESS=1`: optional headless mode for the dedicated browser agent when live browser UI is not required

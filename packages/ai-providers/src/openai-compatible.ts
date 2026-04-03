@@ -1,4 +1,4 @@
-import { AgentProviderStatusSchema, JobPostingSchema, type ToolCall } from "@unemployed/contracts";
+import { AgentProviderStatusSchema, JobPostingSchema, type JobPosting, type ToolCall } from "@unemployed/contracts";
 import {
   JobFitAssessmentSchema,
   OpenAiCompatibleJobFinderAiClientOptionsSchema,
@@ -376,7 +376,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           : [];
       const rawJobs: Array<Record<string, unknown>> = [];
 
-      const parsedJobs: Array<Awaited<ReturnType<typeof JobPostingSchema.parse>>> = [];
+      const parsedJobs: JobPosting[] = [];
       let skippedJobs = 0;
       const invalidFieldCounts = new Map<string, number>();
       const invalidSamples: string[] = [];

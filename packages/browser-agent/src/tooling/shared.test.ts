@@ -30,7 +30,15 @@ describe("interactive tool schemas", () => {
   test("reject invalid aria roles at the schema boundary", () => {
     expect(ClickSchema.safeParse({ role: "dialog", name: "Open", index: 0 }).success).toBe(false)
     expect(FillSchema.safeParse({ role: "grid", name: "Search", text: "engineer" }).success).toBe(false)
-    expect(SelectOptionSchema.safeParse({ role: "button", name: "Location", optionText: "Remote" }).success).toBe(true)
+    expect(FillSchema.safeParse({ role: "link", name: "Search", text: "engineer" }).success).toBe(false)
+    expect(SelectOptionSchema.safeParse({ role: "button", name: "Location", optionText: "Remote" }).success).toBe(false)
+    expect(SelectOptionSchema.safeParse({ role: "combobox", name: "Location", optionText: "Remote" }).success).toBe(true)
+  })
+
+  test("rejects whitespace-only strings at the schema boundary", () => {
+    expect(ClickSchema.safeParse({ role: "button", name: "   ", index: 0 }).success).toBe(false)
+    expect(FillSchema.safeParse({ role: "textbox", name: " Search ", text: "   " }).success).toBe(false)
+    expect(SelectOptionSchema.safeParse({ role: "combobox", name: " Location ", optionText: "   " }).success).toBe(false)
   })
 })
 

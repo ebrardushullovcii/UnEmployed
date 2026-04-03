@@ -23,6 +23,7 @@ import {
   createEmptyPhaseEvidence,
   hasMeaningfulPhaseEvidence,
   recordToolEvidence,
+  sanitizeUrl,
   synthesizeFallbackDebugFindings
 } from './agent/evidence'
 import { recoverFrom404LikeSurface } from './agent/navigation-recovery'
@@ -189,7 +190,7 @@ export async function runAgentDiscovery(
     state.currentUrl = landedUrl
     state.lastStableUrl = landedUrl
     state.visitedUrls.add(state.currentUrl)
-    appendPhaseEvidence(state, 'routeSignals', [`Started on ${landedUrl}`])
+    appendPhaseEvidence(state, 'routeSignals', [sanitizeUrl(landedUrl) ? `Started on ${sanitizeUrl(landedUrl)}` : null])
     console.log(`[Agent] Started at: ${state.currentUrl}`)
 
     while (state.stepCount < config.maxSteps && state.isRunning) {

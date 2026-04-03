@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState, type ChangeEvent } from 'react'
 import type {
   EditableSourceInstructionArtifact,
   SourceDebugRunDetails,
@@ -191,7 +191,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     }
   }, [latestDebugRun?.id, props.onGetSourceDebugRunDetails, reviewOpen, selectedRunId, targetRuns])
 
-  const moveTarget = (direction: -1 | 1) => {
+  const moveTarget = useCallback((direction: -1 | 1) => {
     const nextIndex = props.index + direction
     const nextTargets = [...props.discoveryTargets]
     const currentTarget = nextTargets[props.index]
@@ -204,7 +204,48 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     nextTargets[props.index] = adjacentTarget
     nextTargets[nextIndex] = currentTarget
     props.updateDiscoveryTargets(nextTargets)
-  }
+  }, [props.discoveryTargets, props.index, props.updateDiscoveryTargets])
+
+  const handleRunSourceDebug = useCallback(() => {
+    props.onRunSourceDebug(props.target.id)
+  }, [props.onRunSourceDebug, props.target.id])
+
+  const handleMoveTargetUp = useCallback(() => {
+    moveTarget(-1)
+  }, [moveTarget])
+
+  const handleMoveTargetDown = useCallback(() => {
+    moveTarget(1)
+  }, [moveTarget])
+
+  const handleRemoveTarget = useCallback(() => {
+    props.updateDiscoveryTargets(props.discoveryTargets.filter((entry) => entry.id !== props.target.id))
+  }, [props.discoveryTargets, props.target.id, props.updateDiscoveryTargets])
+
+  const handleReviewLatestRun = useCallback(() => {
+    if (!latestDebugRun) {
+      return
+    }
+
+    setSelectedRunId(latestDebugRun.id)
+    setReviewOpen(true)
+  }, [latestDebugRun])
+
+  const handleToggleEnabled = useCallback((checked: boolean) => {
+    updateTarget({ ...props.target, enabled: checked })
+  }, [props.discoveryTargets, props.index, props.target, props.updateDiscoveryTargets])
+
+  const handleLabelChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    updateTarget({ ...props.target, label: event.target.value })
+  }, [props.discoveryTargets, props.index, props.target, props.updateDiscoveryTargets])
+
+  const handleStartingUrlChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    updateTarget({ ...props.target, startingUrl: event.target.value })
+  }, [props.discoveryTargets, props.index, props.target, props.updateDiscoveryTargets])
+
+  const handleCustomInstructionsChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+    updateTarget({ ...props.target, customInstructions: event.target.value })
+  }, [props.discoveryTargets, props.index, props.target, props.updateDiscoveryTargets])
 
   const handleCloseReview = useCallback(() => {
     setReviewOpen(false)
@@ -231,7 +272,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <Button
             aria-label={`Debug source for ${displayName} (target ${props.index + 1})`}
             disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
-            onClick={() => props.onRunSourceDebug(props.target.id)}
+            onClick={handleRunSourceDebug}
             type="button"
             variant="secondary"
           >
@@ -240,7 +281,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <Button
             aria-label={`Move ${displayName} up`}
             disabled={props.index === 0}
-            onClick={() => moveTarget(-1)}
+            onClick={handleMoveTargetUp}
             type="button"
             variant="ghost"
           >
@@ -249,7 +290,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <Button
             aria-label={`Move ${displayName} down`}
             disabled={props.index === props.discoveryTargets.length - 1}
-            onClick={() => moveTarget(1)}
+            onClick={handleMoveTargetDown}
             type="button"
             variant="ghost"
           >
@@ -257,7 +298,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           </Button>
           <Button
             aria-label={`Remove ${displayName}`}
-            onClick={() => props.updateDiscoveryTargets(props.discoveryTargets.filter((entry) => entry.id !== props.target.id))}
+            onClick={handleRemoveTarget}
             type="button"
             variant="ghost"
           >
@@ -269,7 +310,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
       <div className="grid gap-(--gap-content) md:grid-cols-2">
         <div className="grid h-full min-w-0 content-start gap-(--gap-field)">
           <FieldLabel htmlFor={labelId}>Site label</FieldLabel>
-          <ProfileInput id={labelId} onChange={(event) => updateTarget({ ...props.target, label: event.target.value })} value={props.target.label} />
+          <ProfileInput id={labelId} onChange={handleLabelChange} value={props.target.label} />
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field)">
           <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">Target handling</p>
@@ -281,7 +322,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <FieldLabel htmlFor={startingUrlId}>Starting URL</FieldLabel>
           <ProfileInput
             id={startingUrlId}
-            onChange={(event) => updateTarget({ ...props.target, startingUrl: event.target.value })}
+            onChange={handleStartingUrlChange}
             placeholder="https://jobs.example.com/search"
             value={props.target.startingUrl}
           />
@@ -291,7 +332,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <ProfileTextarea
             className="min-h-(--textarea-tall)"
             id={instructionsId}
-            onChange={(event) => updateTarget({ ...props.target, customInstructions: event.target.value })}
+            onChange={handleCustomInstructionsChange}
             placeholder="Optional: add your own override notes. Learned source instructions are stored separately and used automatically."
             rows={4}
             value={props.target.customInstructions}
@@ -309,10 +350,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
               <Button
                 aria-label={`Review the latest source-debug run for ${displayName} (target ${props.index + 1})`}
                 disabled={props.busy}
-                onClick={() => {
-                  setSelectedRunId(latestDebugRun.id)
-                  setReviewOpen(true)
-                }}
+                onClick={handleReviewLatestRun}
                 type="button"
                 variant="ghost"
               >
@@ -346,7 +384,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <CheckboxField
             checked={props.target.enabled}
             label="Enabled for sequential discovery runs"
-            onCheckedChange={(checked) => updateTarget({ ...props.target, enabled: checked })}
+            onCheckedChange={handleToggleEnabled}
           />
           <p aria-live="polite" aria-atomic="true" className="text-[0.82rem] leading-6 text-foreground-soft" role="status">
             Instruction status: <strong>{formatStatusLabel(props.target.instructionStatus)}</strong>

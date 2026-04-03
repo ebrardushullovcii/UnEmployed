@@ -61,6 +61,19 @@ export function appendPhaseEvidence(
   state.phaseEvidence[key] = uniqueStrings([...(state.phaseEvidence[key] ?? []), ...values])
 }
 
+export function sanitizeUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(value)
+    return `${parsed.origin}${parsed.pathname}`
+  } catch {
+    return value.split(/[?#]/, 1)[0] ?? value
+  }
+}
+
 function formatControlLabel(role: string | undefined, name: string | undefined, index?: number): string | null {
   const trimmedRole = role?.trim()
   const trimmedName = name?.trim()
@@ -97,9 +110,10 @@ function normalizeInteractiveElement(value: unknown): { role?: string; name?: st
 
 export function synthesizeFallbackDebugFindings(state: AgentState): NonNullable<AgentResult['debugFindings']> | null {
   const reliableControls = state.phaseEvidence.visibleControls.slice(0, 4)
+  const currentUrl = sanitizeUrl(state.currentUrl)
   const navigationTips = uniqueStrings([
     ...state.phaseEvidence.routeSignals.slice(0, 4),
-    state.currentUrl ? `Last observed jobs surface: ${state.currentUrl}` : null
+    currentUrl ? `Last observed jobs surface: ${currentUrl}` : null
   ])
   const applyTips = uniqueStrings([
     state.collectedJobs.some((job) => job.applyPath === 'easy_apply' || job.easyApplyEligible)
@@ -128,7 +142,7 @@ export function synthesizeFallbackDebugFindings(state: AgentState): NonNullable<
     summary: uniqueStrings([
       navigationTips[0] ?? null,
       reliableControls[0] ? 'Observed reusable controls on the jobs surface, but the phase timed out before a structured finish.' : null,
-      state.currentUrl ? `Observed a partial jobs surface at ${state.currentUrl}, but the phase timed out before structured completion.` : null
+      currentUrl ? `Observed a partial jobs surface at ${currentUrl}, but the phase timed out before structured completion.` : null
     ])[0] ?? 'The phase timed out before structured completion.',
     reliableControls,
     trickyFilters: [],
@@ -177,11 +191,13 @@ export function recordToolEvidence(
   }
 
   if (toolName === 'navigate') {
+    const reachedUrl = typeof normalizedResult.data?.url === 'string' ? sanitizeUrl(normalizedResult.data.url) : null
+    const requestedUrl = typeof normalizedResult.data?.requestedUrl === 'string' ? sanitizeUrl(normalizedResult.data.requestedUrl) : null
     appendPhaseEvidence(state, 'routeSignals', [
-      normalizedResult.success && typeof normalizedResult.data?.url === 'string'
-        ? `Navigation reached ${normalizedResult.data.url}`
-        : typeof normalizedResult.data?.requestedUrl === 'string'
-          ? `Tried navigation to ${normalizedResult.data.requestedUrl}`
+      normalizedResult.success && reachedUrl
+        ? `Navigation reached ${reachedUrl}`
+        : requestedUrl
+          ? `Tried navigation to ${requestedUrl}`
           : null
     ])
   }
@@ -217,23 +233,25 @@ export function recordToolEvidence(
   }
 
   if (toolName === 'scroll_down' && normalizedResult.success) {
+    const currentUrl = sanitizeUrl(state.currentUrl)
     appendPhaseEvidence(state, 'successfulInteractions', ['Scrolled down on the current jobs surface'])
     appendPhaseEvidence(state, 'routeSignals', [
-      normalizedResult.data?.newContentLoaded === true && state.currentUrl
-        ? `Scrolling revealed additional content on ${state.currentUrl}`
+      normalizedResult.data?.newContentLoaded === true && currentUrl
+        ? `Scrolling revealed additional content on ${currentUrl}`
         : null
     ])
   }
 
   if (toolName === 'scroll_to_top' && normalizedResult.success) {
+    const currentUrl = sanitizeUrl(state.currentUrl)
     appendPhaseEvidence(state, 'successfulInteractions', ['Returned to the top of the current page to re-check header controls'])
     appendPhaseEvidence(state, 'routeSignals', [
-      state.currentUrl ? `Returned to the top of ${state.currentUrl} to probe header controls again` : null
+      currentUrl ? `Returned to the top of ${currentUrl} to probe header controls again` : null
     ])
   }
 
   if ((toolName === 'click' || toolName === 'fill' || toolName === 'select_option') && normalizedResult.success && normalizedResult.data) {
-    const newUrl = typeof normalizedResult.data.newUrl === 'string' ? normalizedResult.data.newUrl : null
+    const newUrl = typeof normalizedResult.data.newUrl === 'string' ? sanitizeUrl(normalizedResult.data.newUrl) : null
     if (newUrl) {
       appendPhaseEvidence(state, 'routeSignals', [
         `${toolName === 'click' ? 'Control click' : toolName === 'fill' ? 'Search submit' : 'Dropdown selection'} opened ${newUrl}`
@@ -243,7 +261,9 @@ export function recordToolEvidence(
 
   if (toolName === 'extract_jobs' && normalizedResult.success && normalizedResult.data) {
     const jobsExtracted = typeof normalizedResult.data.jobsExtracted === 'number' ? normalizedResult.data.jobsExtracted : 0
-    const pageUrl = typeof normalizedResult.data.pageUrl === 'string' ? normalizedResult.data.pageUrl : state.currentUrl
+    const pageUrl = typeof normalizedResult.data.pageUrl === 'string'
+      ? sanitizeUrl(normalizedResult.data.pageUrl)
+      : sanitizeUrl(state.currentUrl)
     appendPhaseEvidence(state, 'routeSignals', [
       jobsExtracted > 0 ? `Job extraction found ${jobsExtracted} candidate jobs on ${pageUrl}` : null
     ])
