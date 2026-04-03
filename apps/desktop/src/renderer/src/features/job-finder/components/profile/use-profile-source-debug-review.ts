@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SourceDebugRunDetails, SourceDebugRunRecord } from '@unemployed/contracts'
 
+/**
+ * `getRunDetails` is awaited and must return a Promise.
+ * `onRunSourceDebug` and `onVerifySourceInstructions` are intentionally treated as
+ * fire-and-forget callbacks even if callers provide async implementations; the hook
+ * discards any returned Promises and does not surface their errors.
+ */
 interface UseProfileSourceDebugReviewInput {
   getRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunSourceDebug: (targetId: string) => void
@@ -45,6 +51,13 @@ export function useProfileSourceDebugReview({
 
     return fallbackRunId
   }, [fallbackRunId, selectedRunId, targetRuns])
+  const normalizedRunFreshnessKey = useMemo(() => {
+    const normalizedRun = normalizedRunId
+      ? targetRuns.find((run) => run.id === normalizedRunId) ?? null
+      : null
+
+    return normalizedRun ? `${normalizedRun.id}:${normalizedRun.updatedAt}` : normalizedRunId
+  }, [normalizedRunId, targetRuns])
   const activeReviewDetails = reviewDetails?.run.id === normalizedRunId ? reviewDetails : null
 
   useEffect(() => {
@@ -98,7 +111,7 @@ export function useProfileSourceDebugReview({
     return () => {
       cancelled = true
     }
-  }, [getRunDetails, normalizedRunId, reviewOpen])
+  }, [getRunDetails, normalizedRunFreshnessKey, normalizedRunId, reviewOpen])
 
   const handleCloseReview = useCallback(() => {
     setReviewOpen(false)
