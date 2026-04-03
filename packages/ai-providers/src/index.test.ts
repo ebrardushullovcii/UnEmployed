@@ -886,6 +886,74 @@ describe('ai providers', () => {
     }
   })
 
+  test('limits job-detail extraction results to one job', async () => {
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  jobs: [
+                    {
+                      title: 'Frontend Engineer',
+                      company: 'Acme',
+                      location: 'Remote',
+                      canonicalUrl: 'https://jobs.example.com/frontend-engineer',
+                      sourceJobId: 'job_111',
+                      description: 'Build product experiences.',
+                      applyPath: 'easy_apply',
+                      easyApplyEligible: true,
+                      workMode: ['remote'],
+                      keySkills: ['React']
+                    },
+                    {
+                      title: 'Second Listing',
+                      company: 'Acme',
+                      location: 'Remote',
+                      canonicalUrl: 'https://jobs.example.com/frontend-engineer-2',
+                      sourceJobId: 'job_222',
+                      description: 'Should be ignored on detail pages.',
+                      applyPath: 'external_redirect',
+                      easyApplyEligible: false,
+                      workMode: ['remote'],
+                      keySkills: ['TypeScript']
+                    }
+                  ]
+                })
+              }
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      ))) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: 'test-key',
+        UNEMPLOYED_AI_BASE_URL: 'https://example.com/v1',
+        UNEMPLOYED_AI_MODEL: 'test-model'
+      })
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: 'Frontend Engineer role at Acme',
+        pageUrl: 'https://jobs.example.com/frontend-engineer',
+        pageType: 'job_detail',
+        maxJobs: 5
+      })
+
+      expect(jobs).toHaveLength(1)
+      expect(jobs[0]?.sourceJobId).toBe('job_111')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('falls back from profile extraction with logged error details and merged notes', async () => {
     const originalFetch = globalThis.fetch
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)

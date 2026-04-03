@@ -19,6 +19,8 @@ describe('catalog runtime utils', () => {
     expect(parseSalaryFloor('Compensation: 1-1.2M total target cash')).toBe(1000000)
     expect(parseSalaryFloor('Compensation: 60/hr')).toBe(124800)
     expect(parseSalaryFloor('Compensation: 5-7k/mo')).toBe(60000)
+    expect(parseSalaryFloor('Compensation: 50k-60k/mo')).toBe(600000)
+    expect(parseSalaryFloor('Remote role compensation is 95k/year')).toBe(95000)
   })
 
   test('matches whole tokens instead of raw substrings', () => {

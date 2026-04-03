@@ -318,7 +318,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
     },
     async extractJobsFromPage(input) {
       const maxJobs = Math.max(0, Math.floor(input.maxJobs));
-      if (maxJobs === 0) {
+      const effectiveMaxJobs =
+        input.pageType === "job_detail" ? Math.min(maxJobs, 1) : maxJobs;
+      if (effectiveMaxJobs === 0) {
         return [];
       }
 
@@ -335,17 +337,21 @@ export function createOpenAiCompatibleJobFinderAiClient(
               `You extract job listings from a careers or job-search page on ${pageHostLabel}.`,
               'Return JSON with a "jobs" array.',
               "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-              "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), and description (short summary from the listing).",
+              "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description (short summary from the listing), applyPath, and easyApplyEligible.",
+              'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
+              'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
               'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
               "If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.",
               "Do not invent companies, locations, or URLs.",
-              `Return at most ${maxJobs} jobs.`,
+              `Return at most ${effectiveMaxJobs} jobs.`,
             ].join(" ")
           : [
               `You extract one structured job posting from a job-detail page on ${pageHostLabel}.`,
               'Return JSON with a "jobs" array containing one job object.',
               "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-              "Each job should include canonicalUrl, title, company, location, salaryText (or null), and description (full job description text).",
+              "Each job should include canonicalUrl, title, company, location, salaryText (or null), description (full job description text), applyPath, and easyApplyEligible.",
+              'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
+              'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
               "Use the page URL as the source of truth for canonicalUrl whenever available.",
               'If the page is not clearly a job detail page, return { "jobs": [] }.',
             ].join(" ");
@@ -414,7 +420,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
       }
 
       for (const raw of rawJobs) {
-        if (parsedJobs.length >= maxJobs) {
+        if (parsedJobs.length >= effectiveMaxJobs) {
           break;
         }
 

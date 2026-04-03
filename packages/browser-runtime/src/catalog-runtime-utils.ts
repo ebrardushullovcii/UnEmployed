@@ -42,7 +42,7 @@ const annualCompensationMultipliers: Record<string, number> = {
   hours: 2080
 }
 const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi
-const secondaryCompensationBeforePattern = /(bonus|commission|sign[- ]?on|equity|ote)/i
+const secondaryCompensationBeforePattern = /\b(bonus|commission|sign[- ]?on|equity|ote)\b/i
 const secondaryCompensationAfterPattern = /^(?:[:-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i
 
 interface ParsedSalaryNumber {
@@ -85,7 +85,7 @@ function parseSalaryNumbers(salaryText: string): ParsedSalaryNumber[] {
         ? nextMatch[2].toLowerCase()
         : rawSuffix
       const periodUnit = readPeriodUnit(salaryText, currentIndex + match[0].length)
-        ?? (!rawSuffix && nextMatch && isCompactRangeSeparator(betweenText)
+        ?? (nextMatch && isCompactRangeSeparator(betweenText)
           ? readPeriodUnit(salaryText, (nextMatch.index ?? 0) + nextMatch[0].length)
           : null)
       const precedingText = salaryText.slice(Math.max(0, currentIndex - 24), currentIndex).toLowerCase()

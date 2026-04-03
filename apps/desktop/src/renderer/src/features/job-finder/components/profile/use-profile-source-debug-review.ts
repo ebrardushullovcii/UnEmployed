@@ -52,7 +52,9 @@ export function useProfileSourceDebugReview({
       return
     }
 
-    const nextRunId = selectedRunId ?? fallbackRunId
+    const nextRunId = selectedRunId && targetRuns.some((run) => run.id === selectedRunId)
+      ? selectedRunId
+      : fallbackRunId
     if (!nextRunId) {
       setReviewDetails(null)
       setReviewError(null)
@@ -87,7 +89,7 @@ export function useProfileSourceDebugReview({
     return () => {
       cancelled = true
     }
-  }, [fallbackRunId, getRunDetails, reviewOpen, selectedRunId])
+  }, [fallbackRunId, getRunDetails, reviewOpen, selectedRunId, targetRuns])
 
   const handleCloseReview = useCallback(() => {
     setReviewOpen(false)

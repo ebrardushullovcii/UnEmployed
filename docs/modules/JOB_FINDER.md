@@ -17,7 +17,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 
 - Current execution plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
 - Discovery expansion plan: `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md`
-- Source-debug orchestration plan: `docs/exec-plans/active/005-job-source-debug-agent.md`
+- Source-debug orchestration plan (shipped): `docs/exec-plans/active/005-job-source-debug-agent.md`
 - Production-copy pass plan: `docs/exec-plans/active/006-profile-discovery-production-copy-pass.md`
 - Resume workspace plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - Discovery targets are site-specific and resolved automatically from their configured entrypoints
