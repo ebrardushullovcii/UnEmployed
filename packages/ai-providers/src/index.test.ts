@@ -954,6 +954,113 @@ describe('ai providers', () => {
     }
   })
 
+  test('falls back when extracted jobs payload omits the top-level jobs array', async () => {
+    const originalFetch = globalThis.fetch
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ invalid: true })
+              }
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      ))) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: 'test-key',
+        UNEMPLOYED_AI_BASE_URL: 'https://example.com/v1',
+        UNEMPLOYED_AI_MODEL: 'test-model'
+      })
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: 'Frontend Engineer role at Acme',
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 5
+      })
+
+      expect(jobs).toEqual([])
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[AI Provider] extractJobsFromPage failed; falling back to deterministic client.',
+        expect.any(Error)
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      errorSpy.mockRestore()
+    }
+  })
+
+  test('ignores model tool calls that were not offered in the request', async () => {
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    id: 'call_1',
+                    type: 'function',
+                    function: {
+                      name: 'unexpected_tool',
+                      arguments: '{}'
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      ))) as typeof fetch
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/v1',
+        model: 'test-model',
+        label: 'AI resume agent'
+      })
+
+      const result = await client.chatWithTools(
+        [{ role: 'user', content: 'hello' }],
+        [
+          {
+            type: 'function',
+            function: {
+              name: 'expected_tool',
+              description: 'Expected tool',
+              parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+              }
+            }
+          }
+        ]
+      )
+
+      expect(result.toolCalls).toBeUndefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('falls back from profile extraction with logged error details and merged notes', async () => {
     const originalFetch = globalThis.fetch
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)

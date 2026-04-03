@@ -393,12 +393,17 @@ export function createOpenAiCompatibleJobFinderAiClient(
           .filter((entry) => supportedWorkModes.has(entry));
       };
 
-      const rawJobCandidates =
-        payload &&
-        typeof payload === "object" &&
-        Array.isArray((payload as { jobs?: unknown }).jobs)
-          ? (payload as { jobs: unknown[] }).jobs
-          : [];
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        !Array.isArray((payload as { jobs?: unknown }).jobs)
+      ) {
+        throw new Error(
+          `[AI Provider] Expected a top-level jobs array when extracting jobs from ${pageHostLabel}, received: ${JSON.stringify(payload)}`,
+        );
+      }
+
+      const rawJobCandidates = (payload as { jobs: unknown[] }).jobs;
       const rawJobs: Array<Record<string, unknown>> = [];
 
       const parsedJobs: JobPosting[] = [];
@@ -588,6 +593,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
           toolCalls?: ToolCall[];
           reasoning?: string;
         } = {};
+        const requestedToolNames = new Set(
+          tools.map((tool) => tool.function.name),
+        );
 
         if (message?.content) {
           result.content = message.content;
@@ -603,7 +611,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
               typeof toolCall.id !== "string" ||
               !toolCall.function ||
               typeof toolCall.function.name !== "string" ||
-              typeof toolCall.function.arguments !== "string"
+              typeof toolCall.function.arguments !== "string" ||
+              !requestedToolNames.has(toolCall.function.name)
             ) {
               return [];
             }

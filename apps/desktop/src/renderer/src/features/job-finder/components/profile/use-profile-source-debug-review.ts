@@ -45,6 +45,7 @@ export function useProfileSourceDebugReview({
 
     return fallbackRunId
   }, [fallbackRunId, selectedRunId, targetRuns])
+  const activeReviewDetails = reviewDetails?.run.id === normalizedRunId ? reviewDetails : null
 
   useEffect(() => {
     if (selectedRunId === normalizedRunId) {
@@ -56,6 +57,9 @@ export function useProfileSourceDebugReview({
 
   useEffect(() => {
     if (!reviewOpen) {
+      setReviewDetails(null)
+      setReviewError(null)
+      setReviewLoading(false)
       return
     }
 
@@ -124,11 +128,11 @@ export function useProfileSourceDebugReview({
 
   return {
     latestDebugRun,
-    reviewDetails,
+    reviewDetails: activeReviewDetails,
     reviewError,
     reviewLoading,
     reviewOpen,
-    selectedRunId,
+    selectedRunId: normalizedRunId,
     targetRuns,
     handleCloseReview,
     handleLoadRun,
