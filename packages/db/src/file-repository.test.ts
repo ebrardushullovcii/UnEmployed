@@ -282,6 +282,9 @@ describe("createFileJobFinderRepository", () => {
         excerpt: "Stable target-site job detail URL.",
       });
 
+      await firstRepository.close();
+      firstRepository = null;
+
       secondRepository = await createFileJobFinderRepository({
         filePath,
         seed: createSeed(),

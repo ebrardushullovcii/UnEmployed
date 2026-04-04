@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { ReviewQueueItem } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
@@ -53,8 +54,8 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
               <div className="grid min-w-0 w-full gap-1.5">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-(--surface-progress-track)">
                   <span
-                    className="block h-full bg-accent"
-                    style={{ width: `${item.progressPercent ?? 0}%` }}
+                    className="progress-fill block h-full bg-accent"
+                    style={{ ['--progress-width' as const]: `${item.progressPercent ?? 0}%` } as CSSProperties}
                   />
                 </div>
                 <span className="block w-full text-right font-mono text-[9px] uppercase tracking-(--tracking-normal) text-primary">{item.progressPercent ?? 0}%</span>

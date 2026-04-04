@@ -413,7 +413,12 @@ export async function createFileJobFinderRepository(
     }) {
       const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
       const normalizedDraft = ResumeDraftSchema.parse(
-        cloneValue({ ...draft, staleReason }),
+        cloneValue({
+          ...draft,
+          staleReason,
+          approvedAt: null,
+          approvedExportId: null,
+        }),
       );
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
@@ -651,7 +656,7 @@ export async function createFileJobFinderRepository(
     approveResumeExport({ draft, exportArtifact, validation, tailoredAsset }) {
       const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
       const normalizedArtifact = ResumeExportArtifactSchema.parse(
-        cloneValue(exportArtifact),
+        cloneValue({ ...exportArtifact, isApproved: true }),
       );
       const normalizedValidation = validation
         ? ResumeValidationResultSchema.parse(cloneValue(validation))
@@ -680,7 +685,12 @@ export async function createFileJobFinderRepository(
     },
     clearResumeApproval({ draft, staleReason, tailoredAsset }) {
       const normalizedDraft = ResumeDraftSchema.parse(
-        cloneValue({ ...draft, staleReason }),
+        cloneValue({
+          ...draft,
+          staleReason,
+          approvedAt: null,
+          approvedExportId: null,
+        }),
       );
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))

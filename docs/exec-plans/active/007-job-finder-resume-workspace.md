@@ -765,7 +765,7 @@ Assistant outputs should resolve into typed resume patch operations.
 
 Small changes can auto-apply with clear revision-backed recovery.
 
-An extra diff-preview surface is not required for this slice; correctness, grounded patches, and safe persistence matter more than adding another review surface.
+An extra manual preview surface is not required for this slice; correctness, grounded patches, auto-apply behavior, revision-backed recovery, and safe persistence matter more than adding another review surface.
 
 ## Template And Export Strategy
 
@@ -1294,7 +1294,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-**Done when**: the assistant can receive user requests, propose grounded typed patches, auto-apply them safely, respect locked sections and bullets, persist the conversation, and leave revision snapshots for recovery without requiring a diff-preview UI.
+**Done when**: the assistant can receive user requests, propose grounded typed patches, auto-apply them safely, respect locked sections and bullets, persist the conversation, and leave revision snapshots for recovery without requiring a separate preview UI.
 
 ### Slice 10: Apply Integration And Staleness
 
@@ -1335,7 +1335,7 @@ pnpm lint
 - implemented stale approval transitions when resume-affecting profile data, template settings, saved job details, or the approved draft itself change after approval
 - normalized approval display and apply lookup around `draft.approvedExportId` so stale legacy export flags no longer bypass the real approval source of truth
 - added service tests for profile-change, settings-change, saved-job-change, stale-after-edit, and missing-file apply-rejection paths
-- desktop UI now protects unsaved resume edits during actions and navigation, and the current follow-up priority is reliability of the shipped patch flow rather than adding a diff-preview surface
+- desktop UI now protects unsaved resume edits during actions and navigation, and the current follow-up priority is reliability of the shipped auto-apply patch flow rather than adding another preview surface
 
 ### Slice 11: Tests, QA, And Doc Updates
 
@@ -1351,7 +1351,7 @@ pnpm lint
 - add a repeatable desktop QA workflow or Playwright capture for:
   - initial generation
   - manual bullet editing
-  - assistant patch preview
+  - assistant-driven changes auto-applied with revision-backed recovery
   - locked content surviving regenerate
   - PDF export state and page-budget warnings
   - review-queue entry into the dedicated resume workspace route
@@ -1573,7 +1573,7 @@ Desktop QA should also add a repeatable resume-workspace capture or harness so a
 
 - initial generation
 - manual bullet editing
-- assistant patch preview
+- assistant-driven changes auto-applied with revision-backed recovery
 - locked content surviving regenerate
 - `pdf` export state and page-budget warnings
 

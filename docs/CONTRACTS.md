@@ -32,3 +32,32 @@
 - Tailored assets and apply attempt checkpoints should be validated before persistence
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them
+
+## Job Posting Fields
+
+- `postedAt`: nullable ISO datetime, defaults to `null`; only use for exact machine-readable posting timestamps.
+- `postedAtText`: nullable non-empty string, defaults to `null`; preserves source-facing relative or fuzzy posted-time copy when exact time is unavailable.
+- `discoveredAt`: required ISO datetime; records when the app captured the posting.
+- `salaryText`: nullable non-empty string; stores raw display salary text.
+- `summary`: nullable non-empty string, defaults to `null`; short grounded summary for list/review surfaces.
+- `description`: required non-empty string; normalized primary job body text.
+- `keySkills`: array of non-empty strings, defaults to `[]`; explicit skills proven by the source.
+- `responsibilities`: array of non-empty strings, defaults to `[]`; grounded responsibility lines.
+- `minimumQualifications`: array of non-empty strings, defaults to `[]`; required qualifications only.
+- `preferredQualifications`: array of non-empty strings, defaults to `[]`; optional or preferred qualifications only.
+- `seniority`: nullable non-empty string, defaults to `null`; preserve source wording instead of mapping to a repo-specific enum.
+- `employmentType`: nullable non-empty string, defaults to `null`; preserve source wording.
+- `department`: nullable non-empty string, defaults to `null`; org/department label when present.
+- `team`: nullable non-empty string, defaults to `null`; smaller team or squad label when present.
+- `employerWebsiteUrl`: nullable absolute URL string, defaults to `null`; must be normalized to a real URL before validation.
+- `employerDomain`: nullable non-empty string, defaults to `null`; normalized hostname/domain used for employer research targeting.
+- `benefits`: array of non-empty strings, defaults to `[]`; visible benefits copied from the source.
+
+## Review Queue Resume Review State
+
+- `resumeReview`: discriminated union on `status`, defaults to `{ status: "not_started" }`; replaces loose review/approval/staleness bridge fields.
+- `resumeReview.status = "not_started"`: no draft exists yet.
+- `resumeReview.status = "draft"`: draft exists and is still being edited.
+- `resumeReview.status = "needs_review"`: draft is reviewable but not approved yet, including defensive fallback when approval metadata is inconsistent.
+- `resumeReview.status = "stale"`: approval is invalidated and may include nullable `staleReason`.
+- `resumeReview.status = "approved"`: requires `approvedAt`, `approvedExportId`, and `approvedFormat`; downstream flows should trust these fields instead of inferring approval from coarse asset state.

@@ -30,6 +30,23 @@ function trimToNull(value: unknown): string | null {
   return null;
 }
 
+function toUrlOrNull(value: unknown): string | null {
+  const trimmed = trimToNull(value);
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    try {
+      return new URL(`https://${trimmed}`).toString();
+    } catch {
+      return null;
+    }
+  }
+}
+
 function toIsoDateTimeOrNull(value: unknown): string | null {
   const trimmed = trimToNull(value);
   if (!trimmed) {
@@ -234,7 +251,7 @@ export function normalizeExtractedJobs(input: {
       raw.preferredQualifications ?? raw.preferredRequirements,
     );
     const description = toStr(raw.description);
-    const employerWebsiteUrl = trimToNull(raw.employerWebsiteUrl);
+    const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,

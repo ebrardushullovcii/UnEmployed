@@ -141,9 +141,11 @@ export async function fetchAndPersistResearch(
     profile,
   });
 
-  for (const artifact of fetchedArtifacts) {
-    await ctx.repository.upsertResumeResearchArtifact(artifact);
-  }
+  await Promise.all(
+    fetchedArtifacts.map((artifact) =>
+      ctx.repository.upsertResumeResearchArtifact(artifact),
+    ),
+  );
 
   return ctx.repository.listResumeResearchArtifacts(job.id);
 }

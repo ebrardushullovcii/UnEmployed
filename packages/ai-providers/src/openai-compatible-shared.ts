@@ -30,10 +30,16 @@ export function completeTailoredResumeDraft(
     primary && typeof primary === "object" && !Array.isArray(primary)
       ? (primary as Record<string, unknown>)
       : {};
+  const sanitizedExperienceHighlights = sanitizeStringArray(
+    normalizedPrimary.experienceHighlights,
+  );
+  const sanitizedCoreSkills = sanitizeStringArray(normalizedPrimary.coreSkills);
+  const sanitizedTargetedKeywords = sanitizeStringArray(
+    normalizedPrimary.targetedKeywords,
+  );
 
   return TailoredResumeDraftSchema.parse({
     ...fallback,
-    ...normalizedPrimary,
     label:
       typeof normalizedPrimary.label === "string" &&
       normalizedPrimary.label.trim().length > 0
@@ -44,14 +50,14 @@ export function completeTailoredResumeDraft(
       normalizedPrimary.summary.trim().length > 0
         ? normalizedPrimary.summary
         : fallback.summary,
-    experienceHighlights: Array.isArray(normalizedPrimary.experienceHighlights)
-      ? sanitizeStringArray(normalizedPrimary.experienceHighlights)
+    experienceHighlights: sanitizedExperienceHighlights.length > 0
+      ? sanitizedExperienceHighlights
       : fallback.experienceHighlights,
-    coreSkills: Array.isArray(normalizedPrimary.coreSkills)
-      ? sanitizeStringArray(normalizedPrimary.coreSkills)
+    coreSkills: sanitizedCoreSkills.length > 0
+      ? sanitizedCoreSkills
       : fallback.coreSkills,
-    targetedKeywords: Array.isArray(normalizedPrimary.targetedKeywords)
-      ? sanitizeStringArray(normalizedPrimary.targetedKeywords)
+    targetedKeywords: sanitizedTargetedKeywords.length > 0
+      ? sanitizedTargetedKeywords
       : fallback.targetedKeywords,
     fullText:
       typeof normalizedPrimary.fullText === "string" &&

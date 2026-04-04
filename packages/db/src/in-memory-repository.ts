@@ -46,8 +46,14 @@ function sortResumeDrafts<TValue extends { updatedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
-    (left, right) =>
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    (left, right) => {
+      const difference = new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      return difference !== 0
+        ? difference
+        : String((left as { id?: string }).id ?? "").localeCompare(
+            String((right as { id?: string }).id ?? ""),
+          );
+    },
   );
 }
 
@@ -55,8 +61,14 @@ function sortNewestFirst<TValue extends { createdAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
-    (left, right) =>
-      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    (left, right) => {
+      const difference = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+      return difference !== 0
+        ? difference
+        : String((left as { id?: string }).id ?? "").localeCompare(
+            String((right as { id?: string }).id ?? ""),
+          );
+    },
   );
 }
 
@@ -64,9 +76,14 @@ function sortValidationResults<TValue extends { validatedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
-    (left, right) =>
-      new Date(right.validatedAt).getTime() -
-      new Date(left.validatedAt).getTime(),
+    (left, right) => {
+      const difference = new Date(right.validatedAt).getTime() - new Date(left.validatedAt).getTime();
+      return difference !== 0
+        ? difference
+        : String((left as { id?: string }).id ?? "").localeCompare(
+            String((right as { id?: string }).id ?? ""),
+          );
+    },
   );
 }
 
@@ -74,8 +91,14 @@ function sortExports<TValue extends { exportedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
-    (left, right) =>
-      new Date(right.exportedAt).getTime() - new Date(left.exportedAt).getTime(),
+    (left, right) => {
+      const difference = new Date(right.exportedAt).getTime() - new Date(left.exportedAt).getTime();
+      return difference !== 0
+        ? difference
+        : String((left as { id?: string }).id ?? "").localeCompare(
+            String((right as { id?: string }).id ?? ""),
+          );
+    },
   );
 }
 
@@ -83,8 +106,14 @@ function sortResearch<TValue extends { fetchedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
-    (left, right) =>
-      new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime(),
+    (left, right) => {
+      const difference = new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime();
+      return difference !== 0
+        ? difference
+        : String((left as { id?: string }).id ?? "").localeCompare(
+            String((right as { id?: string }).id ?? ""),
+          );
+    },
   );
 }
 
@@ -92,8 +121,14 @@ function sortMessages<TValue extends { createdAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
-    (left, right) =>
-      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+    (left, right) => {
+      const difference = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+      return difference !== 0
+        ? difference
+        : String((left as { id?: string }).id ?? "").localeCompare(
+            String((right as { id?: string }).id ?? ""),
+          );
+    },
   );
 }
 
@@ -179,7 +214,12 @@ export function createInMemoryJobFinderRepository(
     }) {
       const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
       const normalizedDraft = ResumeDraftSchema.parse(
-        cloneValue({ ...draft, staleReason }),
+        cloneValue({
+          ...draft,
+          staleReason,
+          approvedAt: null,
+          approvedExportId: null,
+        }),
       );
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
@@ -358,9 +398,14 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     approveResumeExport({ draft, exportArtifact, validation, tailoredAsset }) {
-      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue({
+          ...draft,
+          approvedExportId: exportArtifact.id,
+        }),
+      );
       const normalizedArtifact = ResumeExportArtifactSchema.parse(
-        cloneValue(exportArtifact),
+        cloneValue({ ...exportArtifact, isApproved: true }),
       );
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
       state.resumeExportArtifacts = upsertById(
@@ -388,7 +433,12 @@ export function createInMemoryJobFinderRepository(
     },
     clearResumeApproval({ draft, staleReason, tailoredAsset }) {
       const normalizedDraft = ResumeDraftSchema.parse(
-        cloneValue({ ...draft, staleReason }),
+        cloneValue({
+          ...draft,
+          staleReason,
+          approvedAt: null,
+          approvedExportId: null,
+        }),
       );
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
       state.resumeExportArtifacts = clearApprovedResumeExportsForJob(

@@ -95,34 +95,49 @@ export function buildDeterministicStructuredResumeDraft(
     ...(input.researchContext?.domainVocabulary ?? []),
     ...(input.researchContext?.priorityThemes ?? []),
   ]).slice(0, 6);
+  const summary =
+    evidence?.candidateSummary[0] ??
+    evidence?.summary[0] ??
+    input.researchContext?.companyNotes[0] ??
+    baseDraft.summary;
+  const experienceHighlights = uniqueStrings([
+    ...(evidence?.experience ?? []),
+    ...baseDraft.experienceHighlights,
+  ]).slice(0, 4);
+  const coreSkills = uniqueStrings([
+    ...(evidence?.skills ?? []),
+    ...baseDraft.coreSkills,
+  ]).slice(0, 8);
+  const targetedKeywords = uniqueStrings([
+    ...(evidence?.keywords ?? []),
+    ...researchTerms,
+    ...baseDraft.targetedKeywords,
+  ]).slice(0, 8);
+  const notes = uniqueStrings([
+    ...baseDraft.notes,
+    ...(researchTerms.length > 0
+      ? ["Incorporated bounded employer research vocabulary into deterministic draft creation."]
+      : []),
+  ]);
+  const fullText = [
+    summary,
+    ...experienceHighlights,
+    coreSkills.length > 0 ? `Core skills: ${coreSkills.join(", ")}` : null,
+    targetedKeywords.length > 0
+      ? `Targeted keywords: ${targetedKeywords.join(", ")}`
+      : null,
+  ]
+    .filter((entry): entry is string => Boolean(entry && entry.trim().length > 0))
+    .join("\n\n");
 
   return TailoredResumeDraftSchema.parse({
     ...baseDraft,
-    summary:
-      evidence?.candidateSummary[0] ??
-      evidence?.summary[0] ??
-      input.researchContext?.companyNotes[0] ??
-      baseDraft.summary,
-    experienceHighlights:
-      uniqueStrings([
-        ...(evidence?.experience ?? []),
-        ...baseDraft.experienceHighlights,
-      ]).slice(0, 4),
-    coreSkills: uniqueStrings([
-      ...(evidence?.skills ?? []),
-      ...baseDraft.coreSkills,
-    ]).slice(0, 8),
-    targetedKeywords: uniqueStrings([
-      ...(evidence?.keywords ?? []),
-      ...researchTerms,
-      ...baseDraft.targetedKeywords,
-    ]).slice(0, 8),
-    notes: uniqueStrings([
-      ...baseDraft.notes,
-      ...(researchTerms.length > 0
-        ? ["Incorporated bounded employer research vocabulary into deterministic draft creation."]
-        : []),
-    ]),
+    summary,
+    experienceHighlights,
+    coreSkills,
+    targetedKeywords,
+    fullText,
+    notes,
   });
 }
 
@@ -135,7 +150,9 @@ export function buildDeterministicResumeAssistantReply(
   const experienceSection =
     input.draft.sections.find((section) => section.kind === "experience") ?? null;
 
-  if (summarySection && (lowerRequest.includes("summary") || lowerRequest.includes("ats") || lowerRequest.includes("short"))) {
+  const isSummaryShorteningRequest = /\bshort(?:en|er)?\b.*\bsummary\b|\bsummary\b.*\bshort(?:en|er)?\b/.test(lowerRequest);
+
+  if (summarySection && (lowerRequest.includes("summary") || lowerRequest.includes("ats") || isSummaryShorteningRequest)) {
     const tightenedSummary = tightenSentence(
       summarySection.text ?? `${input.job.title} alignment summary`,
     );

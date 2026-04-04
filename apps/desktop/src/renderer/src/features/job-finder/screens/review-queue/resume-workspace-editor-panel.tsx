@@ -131,7 +131,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
           <p className="font-mono text-(length:--text-tiny) uppercase tracking-(--tracking-normal) text-primary">
             {props.actionMessage}
           </p>
-        ) : <div className="h-3.5" />}
+        ) : <div className="h-action-message" />}
       </div>
     </section>
   )

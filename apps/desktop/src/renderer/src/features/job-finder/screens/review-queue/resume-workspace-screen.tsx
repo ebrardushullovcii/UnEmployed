@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   JobFinderResumeWorkspace,
   ResumeAssistantMessage,
@@ -55,9 +55,34 @@ export function ResumeWorkspaceScreen(props: {
     props.workspace ? cloneDraft(props.workspace.draft) : null,
   );
 
+  const workspaceDraftRevisionKey = props.workspace
+    ? `${props.workspace.draft.id}:${props.workspace.draft.updatedAt}`
+    : null;
+
   useEffect(() => {
-    setDraft(props.workspace ? cloneDraft(props.workspace.draft) : null);
-  }, [props.workspace]);
+    if (!props.workspace) {
+      setDraft(null);
+      return;
+    }
+
+    setDraft((currentDraft) => {
+      const persistedDraft = props.workspace?.draft;
+
+      if (!persistedDraft) {
+        return null;
+      }
+
+      if (
+        currentDraft &&
+        currentDraft.id === persistedDraft.id &&
+        currentDraft.updatedAt === persistedDraft.updatedAt
+      ) {
+        return currentDraft;
+      }
+
+      return cloneDraft(persistedDraft);
+    });
+  }, [workspaceDraftRevisionKey, props.workspace?.draft]);
 
   const serializedDraft = useMemo(
     () => (draft ? JSON.stringify(draft) : null),
@@ -111,6 +136,10 @@ export function ResumeWorkspaceScreen(props: {
 
   const { job, research, validation } = props.workspace;
   const availableExportToApprove = (() => {
+    if (hasUnsavedChanges) {
+      return null;
+    }
+
     const newestExport = getNewestExport(props.workspace.exports, props.workspace.draft.id);
 
     if (!newestExport) {
@@ -123,7 +152,7 @@ export function ResumeWorkspaceScreen(props: {
       : null;
   })();
 
-  function runWithSavedDraft(next: () => void, successMessage?: string | null) {
+  const runWithSavedDraft = useCallback((next: () => void, successMessage?: string | null) => {
     if (hasUnsavedChanges) {
       const currentDraft = draft;
       if (!currentDraft) {
@@ -138,23 +167,23 @@ export function ResumeWorkspaceScreen(props: {
     }
 
     next();
-  }
+  }, [draft, hasUnsavedChanges, props.onSaveDraftAndThen]);
 
-  function runWithSavedDraftAsync(
+  const runWithSavedDraftAsync = useCallback((
     next: () => Promise<void> | void,
     successMessage?: string | null,
-  ) {
+  ) => {
     runWithSavedDraft(() => {
       void next();
     }, successMessage);
-  }
+  }, [runWithSavedDraft]);
 
-  function withDraftPatch(patch: ResumeDraftPatch): ResumeDraftPatch {
+  const withDraftPatch = useCallback((patch: ResumeDraftPatch): ResumeDraftPatch => {
     return {
       ...patch,
       draftId: draft?.id ?? patch.draftId,
     };
-  }
+  }, [draft]);
 
   return (
     <LockedScreenLayout

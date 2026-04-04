@@ -35,7 +35,6 @@ import {
   SourceInstructionArtifactSchema,
 } from "./source-debug";
 import {
-  ResumeDraftStatusSchema,
   ResumeExportFormatSchema,
 } from "./resume";
 

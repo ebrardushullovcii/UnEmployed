@@ -2,6 +2,7 @@ export interface ChunkTextOptions {
   maxChars?: number;
   overlapChars?: number;
   minChunkChars?: number;
+  minLeadingChunkChars?: number;
 }
 
 export interface TextChunk {
@@ -38,6 +39,10 @@ export function chunkText(
     1,
     Math.min(options.minChunkChars ?? DEFAULT_MIN_CHUNK_CHARS, maxChars),
   );
+  const minLeadingChunkChars = Math.max(
+    1,
+    Math.min(options.minLeadingChunkChars ?? minChunkChars, minChunkChars),
+  );
 
   const chunks: TextChunk[] = [];
   let startOffset = 0;
@@ -48,9 +53,9 @@ export function chunkText(
 
     if (endOffset < normalizedText.length) {
       const preferredBreak = findPreferredBreak(normalizedText, startOffset, endOffset);
-      // Avoid tiny tail chunks by only honoring softer breakpoints after we have crossed
-      // half of the requested minimum chunk size.
-      if (preferredBreak > startOffset + minChunkChars / 2) {
+      // Avoid tiny leading chunks by only honoring softer breakpoints after the
+      // configured leading threshold has been crossed.
+      if (preferredBreak > startOffset + minLeadingChunkChars) {
         endOffset = preferredBreak;
       }
     }

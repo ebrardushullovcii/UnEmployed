@@ -160,6 +160,9 @@
   --text-count: 0.72rem;
   --text-item: 0.9rem;
   --text-icon-small: 0.8rem;
+  --type-headline-responsive: clamp(2.25rem, 4vw, 3.4rem);
+  --type-body-lg: 1.05rem;
+  --type-body-md: 0.98rem;
 
   /* Component tokens - Tracking */
   --tracking-label: 0.11em;
@@ -168,6 +171,7 @@
   --tracking-badge: 0.14em;
   --tracking-mono: 0.16em;
   --tracking-normal: 0.08em;
+  --type-tracking-small: 0.22em;
 
   /* Component tokens - Gap */
   --gap-field: 0.44rem;
@@ -179,6 +183,7 @@
   --textarea-compact: 5.6rem;
   --textarea-default: 6.8rem;
   --textarea-tall: 7.4rem;
+  --height-action-message: 14px;
 
   /* Component tokens - Colors */
   --headline-primary: #fbfaf6;
@@ -403,6 +408,14 @@ h1 {
 .surface-card-tint {
   background: var(--surface-card-tint);
   border-color: var(--surface-card-tint-border);
+}
+
+.h-action-message {
+  height: var(--height-action-message);
+}
+
+.progress-fill {
+  width: var(--progress-width);
 }
 
 h2 {

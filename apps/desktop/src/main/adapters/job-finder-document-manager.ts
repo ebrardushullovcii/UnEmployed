@@ -291,9 +291,13 @@ export function createLocalJobFinderDocumentManager(
       const requestedFormat = input.settings.resumeFormat === 'html' ? 'html' : 'pdf'
 
       if (requestedFormat === 'html') {
+        const targetPath = input.targetPath ?? htmlPath
+        const fileName = path.basename(targetPath)
+        await writeFile(targetPath, html, 'utf8')
+
         return {
-          fileName: htmlFileName,
-          storagePath: htmlPath,
+          fileName,
+          storagePath: targetPath,
           format: 'html',
           intermediateFileName: htmlFileName,
           intermediateStoragePath: htmlPath,

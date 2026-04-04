@@ -62,14 +62,15 @@ describe("createFileJobFinderRepository legacy restoration", () => {
     const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
     const legacyPath = path.join(tempDirectory, "job-finder-state.json");
     let repository: FileRepository | null = null;
+    const seed = createSeed();
 
     try {
       await writeFile(
         legacyPath,
         JSON.stringify({
-          ...createSeed(),
+          ...seed,
           profile: {
-            ...createSeed().profile,
+            ...seed.profile,
             experiences: [
               {
                 id: "experience_1",
@@ -136,7 +137,7 @@ describe("createFileJobFinderRepository legacy restoration", () => {
 
       repository = await createFileJobFinderRepository({
         filePath,
-        seed: createSeed(),
+        seed,
       });
       const [profile, savedJobs] = await Promise.all([
         repository.getProfile(),
@@ -296,19 +297,22 @@ describe("createFileJobFinderRepository legacy restoration", () => {
         instructionArtifactId: null,
       };
       const database = new DatabaseSync(filePath);
-      database
-        .prepare(
-          "INSERT OR REPLACE INTO singleton_state (key, value) VALUES (?, ?)",
-        )
-        .run(
-          "discovery_state",
-          JSON.stringify({
-            ...createSeed().discovery,
-            activeSourceDebugRun: legacyRun,
-            recentSourceDebugRuns: [legacyRun],
-          }),
-        );
-      database.close();
+      try {
+        database
+          .prepare(
+            "INSERT OR REPLACE INTO singleton_state (key, value) VALUES (?, ?)",
+          )
+          .run(
+            "discovery_state",
+            JSON.stringify({
+              ...createSeed().discovery,
+              activeSourceDebugRun: legacyRun,
+              recentSourceDebugRuns: [legacyRun],
+            }),
+          );
+      } finally {
+        database.close();
+      }
 
       secondRepository = await createFileJobFinderRepository({
         filePath,

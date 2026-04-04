@@ -114,6 +114,12 @@ export function useJobFinderPageController() {
       try {
         setActionState({ busy: true, message: null });
         const result = await action();
+        const resolvedSuccessMessage =
+          typeof successMessage === "function"
+            ? successMessage(result)
+            : successMessage;
+
+        setActionState({ busy: false, message: resolvedSuccessMessage });
 
         try {
           await onSuccess(result);
@@ -131,10 +137,7 @@ export function useJobFinderPageController() {
 
         setActionState({
           busy: false,
-          message:
-            typeof successMessage === "function"
-              ? successMessage(result)
-              : successMessage,
+          message: resolvedSuccessMessage,
         });
       } catch (error) {
         const message =
@@ -157,6 +160,8 @@ export function useJobFinderPageController() {
         setActionState({ busy: true, message: null });
         const result = await action();
 
+        setActionState({ busy: false, message: successMessage });
+
         try {
           await onSuccess(result);
         } catch (error) {
@@ -166,7 +171,7 @@ export function useJobFinderPageController() {
               : "The resume workspace could not refresh automatically.";
           setActionState({
             busy: false,
-            message: `Resume action completed, but the workspace could not refresh automatically. ${detail}`,
+            message: `Resume action succeeded, but the workspace could not refresh automatically. ${detail}`,
           });
           return;
         }

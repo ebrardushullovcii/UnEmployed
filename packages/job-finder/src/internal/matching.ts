@@ -121,6 +121,9 @@ function buildResumeReviewState(
     };
   }
 
+  // An approved draft should always resolve to a concrete approved export.
+  // Treat any missing export metadata as needing review so downstream apply
+  // flows fail safe instead of assuming approval still points at a live file.
   if (draft.status === "approved") {
     return {
       status: "needs_review",

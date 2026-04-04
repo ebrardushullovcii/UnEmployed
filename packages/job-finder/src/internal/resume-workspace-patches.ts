@@ -62,6 +62,7 @@ export function applyPatchToResumeDraft(input: {
   updatedAt: string;
 }): ResumeDraft {
   const { draft, patch, updatedAt } = input;
+  let sectionsChanged = false;
   const targetSection = draft.sections.find(
     (section) => section.id === patch.targetSectionId,
   );
@@ -83,6 +84,7 @@ export function applyPatchToResumeDraft(input: {
 
     switch (patch.operation) {
       case "replace_section_text":
+        sectionsChanged = true;
         return updateSectionMeta(
           {
             ...section,
@@ -120,6 +122,7 @@ export function applyPatchToResumeDraft(input: {
           bullets.splice(insertIndex, 0, newBullet);
         }
 
+        sectionsChanged = true;
         return updateSectionMeta(
           {
             ...section,
@@ -136,6 +139,7 @@ export function applyPatchToResumeDraft(input: {
 
         requireTargetBullet(section, patch.targetBulletId);
 
+        sectionsChanged = true;
         return updateSectionMeta(
           {
             ...section,
@@ -143,8 +147,6 @@ export function applyPatchToResumeDraft(input: {
               if (bullet.id !== patch.targetBulletId) {
                 return bullet;
               }
-
-              assertAssistantMayEdit(patch, section, bullet);
               return {
                 ...bullet,
                 text: patch.newText ?? bullet.text,
@@ -167,6 +169,7 @@ export function applyPatchToResumeDraft(input: {
 
         requireTargetBullet(section, patch.targetBulletId);
 
+        sectionsChanged = true;
         return updateSectionMeta(
           {
             ...section,
@@ -205,6 +208,7 @@ export function applyPatchToResumeDraft(input: {
           });
         }
 
+        sectionsChanged = true;
         return updateSectionMeta(
           {
             ...section,
@@ -219,6 +223,7 @@ export function applyPatchToResumeDraft(input: {
           const bullet = requireTargetBullet(section, patch.targetBulletId);
           assertAssistantMayEdit(patch, section, bullet);
 
+          sectionsChanged = true;
           return updateSectionMeta(
             {
               ...section,
@@ -237,6 +242,7 @@ export function applyPatchToResumeDraft(input: {
           );
         }
 
+        sectionsChanged = true;
         return updateSectionMeta(
           {
             ...section,
@@ -250,6 +256,7 @@ export function applyPatchToResumeDraft(input: {
         if (patch.targetBulletId) {
           requireTargetBullet(section, patch.targetBulletId);
 
+          sectionsChanged = true;
           return updateSectionMeta(
             {
               ...section,
@@ -268,6 +275,7 @@ export function applyPatchToResumeDraft(input: {
           );
         }
 
+        sectionsChanged = true;
         return updateSectionMeta(
           {
             ...section,
@@ -287,6 +295,7 @@ export function applyPatchToResumeDraft(input: {
           );
         }
 
+        sectionsChanged = true;
         return updateSectionMeta(
           {
             ...section,
@@ -305,7 +314,6 @@ export function applyPatchToResumeDraft(input: {
     }
   });
 
-  const sectionsChanged = JSON.stringify(nextSections) !== JSON.stringify(draft.sections);
   if (!sectionsChanged) {
     return draft;
   }

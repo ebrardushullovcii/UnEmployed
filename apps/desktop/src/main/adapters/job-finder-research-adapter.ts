@@ -104,6 +104,7 @@ async function fetchPage(
 ): Promise<string> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
   try {
     const response = await fetchImpl(url, {
@@ -118,9 +119,40 @@ async function fetchPage(
       throw new Error(`Research fetch failed with status ${response.status}`);
     }
 
-    const text = await response.text();
-    return text.slice(0, maxBytes);
+    if (!response.body) {
+      throw new Error("Research fetch returned no body.");
+    }
+
+    reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      if (!value) {
+        continue;
+      }
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        controller.abort();
+        throw new Error(`Research fetch exceeded the ${maxBytes}-byte limit.`);
+      }
+
+      chunks.push(value);
+    }
+
+    return new TextDecoder().decode(joinChunks(chunks, totalBytes));
   } finally {
+    try {
+      await reader?.cancel();
+    } catch {
+      // Ignore cleanup failures after the stream already closed.
+    }
     clearTimeout(timeoutId);
   }
 }
@@ -151,11 +183,19 @@ function deriveEmployerRoot(job: SavedJob): string | null {
     return `https://${employerDomain}`;
   }
 
-  if (canonicalHost && !isLikelyJobBoardHost(canonicalHost) && canonicalOrigin) {
-    return canonicalOrigin;
+  return null;
+}
+
+function joinChunks(chunks: readonly Uint8Array[], totalBytes: number): Uint8Array {
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
   }
 
-  return null;
+  return combined;
 }
 
 function safeHostname(value: string): string | null {

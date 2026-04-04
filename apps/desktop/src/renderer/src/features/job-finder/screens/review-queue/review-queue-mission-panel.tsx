@@ -132,7 +132,7 @@ export function ReviewQueueMissionPanel({
               <Button
                 className="h-11 w-full"
                 variant="primary"
-                disabled={busy || isGenerating || (needsGeneration ? false : !canApproveApply)}
+                disabled={busy || isGenerating || (needsGeneration ? false : (!canApproveApply || !selectedAsset))}
                 onClick={() => {
                   if (needsGeneration) {
                     onGenerateResume(selectedItem.jobId)

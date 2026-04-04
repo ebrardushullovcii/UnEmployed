@@ -1,4 +1,4 @@
-import { AgentProviderStatusSchema, type ToolCall } from "@unemployed/contracts";
+import { AgentProviderStatusSchema, ResumeDraftPatchSchema, type ToolCall } from "@unemployed/contracts";
 import {
   JobFitAssessmentSchema,
   OpenAiCompatibleJobFinderAiClientOptionsSchema,
@@ -181,12 +181,16 @@ export function createOpenAiCompatibleJobFinderAiClient(
         payload && typeof payload === "object" && !Array.isArray(payload)
           ? (payload as Record<string, unknown>)
           : {};
+      const validatedPatches = Array.isArray(normalizedPayload.patches)
+        ? normalizedPayload.patches.flatMap((patch) => {
+            const parsedPatch = ResumeDraftPatchSchema.safeParse(patch);
+            return parsedPatch.success ? [parsedPatch.data] : [];
+          })
+        : [];
 
       return ResumeAssistantReplySchema.parse({
         ...normalizedPayload,
-        patches: Array.isArray(normalizedPayload.patches)
-          ? normalizedPayload.patches
-          : [],
+        patches: validatedPatches,
         content:
           typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
             ? normalizedPayload.content
