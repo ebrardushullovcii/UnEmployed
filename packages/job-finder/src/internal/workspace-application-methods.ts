@@ -1,17 +1,12 @@
 import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
-  JobFinderResumeWorkspaceSchema,
   ResumeAssistantMessageSchema,
   ResumeDraftPatchSchema,
   ResumeDraftSchema,
   SavedJobSchema,
   TailoredAssetSchema,
-  type JobFinderResumeWorkspace,
-  type ResumeDraft,
   type ResumeDraftPatch,
-  type SavedJob,
-  type TailoredAsset,
 } from "@unemployed/contracts";
 import { mergeSavedJobs } from "./workspace-service-helpers";
 import { buildInstructionGuidance, mergeEvents, nextAssetVersion, nextJobStatusFromAttempt, resolveActiveSourceInstructionArtifact, toApplicationEvents } from "./workspace-helpers";
@@ -27,9 +22,14 @@ import {
   buildUnavailableAssistantReply,
   collectResearchContext,
   collectResumeWorkspaceEvidence,
-  seedResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
+import {
+  buildResumeWorkspace,
+  ensureResumeDraft,
+  fetchAndPersistResearch,
+  renderDraftToPdf,
+} from "./workspace-application-resume-support";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
 
@@ -52,153 +52,6 @@ export function createWorkspaceApplicationMethods(
   | "sendResumeAssistantMessage"
   | "approveApply"
 > {
-  async function loadResumeWorkspaceState(jobId: string): Promise<{
-    profile: Awaited<ReturnType<typeof ctx.repository.getProfile>>;
-    settings: Awaited<ReturnType<typeof ctx.repository.getSettings>>;
-    job: SavedJob;
-    draft: ResumeDraft | null;
-    tailoredAsset: TailoredAsset | null;
-  }> {
-    const [profile, settings, savedJobs, tailoredAssets, draft] = await Promise.all([
-      ctx.repository.getProfile(),
-      ctx.repository.getSettings(),
-      ctx.repository.listSavedJobs(),
-      ctx.repository.listTailoredAssets(),
-      ctx.repository.getResumeDraftByJobId(jobId),
-    ]);
-    const job = savedJobs.find((entry) => entry.id === jobId);
-
-    if (!job) {
-      throw new Error(`Unknown Job Finder job '${jobId}'.`);
-    }
-
-    return {
-      profile,
-      settings,
-      job,
-      draft,
-      tailoredAsset: tailoredAssets.find((entry) => entry.jobId === jobId) ?? null,
-    };
-  }
-
-  async function ensureResumeDraft(jobId: string): Promise<{
-    profile: Awaited<ReturnType<typeof ctx.repository.getProfile>>;
-    settings: Awaited<ReturnType<typeof ctx.repository.getSettings>>;
-    job: SavedJob;
-    draft: ResumeDraft;
-    tailoredAsset: TailoredAsset | null;
-  }> {
-    const state = await loadResumeWorkspaceState(jobId);
-
-    if (state.draft) {
-      return {
-        ...state,
-        draft: state.draft,
-      };
-    }
-
-    const seededDraft = seedResumeDraft({
-      profile: state.profile,
-      job: state.job,
-      settings: state.settings,
-      tailoredAsset: state.tailoredAsset,
-    });
-    const validation = validateResumeDraft({
-      draft: seededDraft,
-      job: state.job,
-      validatedAt: seededDraft.updatedAt,
-    });
-    const tailoredAsset = buildTailoredAssetBridge({
-      draft: seededDraft,
-      job: state.job,
-      profile: state.profile,
-      existingAsset: state.tailoredAsset,
-      storagePath: state.tailoredAsset?.storagePath ?? null,
-    });
-
-    await ctx.repository.saveResumeDraftWithValidation({
-      draft: seededDraft,
-      validation,
-      tailoredAsset,
-    });
-
-    return {
-      ...state,
-      draft: seededDraft,
-      tailoredAsset,
-    };
-  }
-
-  async function renderDraftToPdf(input: {
-    job: SavedJob;
-    profile: Awaited<ReturnType<typeof ctx.repository.getProfile>>;
-    settings: Awaited<ReturnType<typeof ctx.repository.getSettings>>;
-    draft: ResumeDraft;
-    outputPath?: string | null;
-  }) {
-    const previewSections = buildTailoredAssetBridge({
-      draft: input.draft,
-      job: input.job,
-      profile: input.profile,
-    }).previewSections;
-    const textContent = buildTailoredResumeTextFromResumeDraft(
-      input.profile,
-      input.job,
-      input.draft,
-    );
-
-    return ctx.documentManager.renderResumeArtifact({
-      job: input.job,
-      profile: input.profile,
-      previewSections,
-      settings: input.settings,
-      textContent,
-      targetPath: input.outputPath ?? null,
-    });
-  }
-
-  async function fetchAndPersistResearch(job: SavedJob) {
-    if (!ctx.researchAdapter) {
-      return ctx.repository.listResumeResearchArtifacts(job.id);
-    }
-
-    const profile = await ctx.repository.getProfile();
-    const fetchedArtifacts = await ctx.researchAdapter.fetchResearchPages({
-      job,
-      profile,
-    });
-
-    for (const artifact of fetchedArtifacts) {
-      await ctx.repository.upsertResumeResearchArtifact(artifact);
-    }
-
-    return ctx.repository.listResumeResearchArtifacts(job.id);
-  }
-
-  async function buildResumeWorkspace(jobId: string): Promise<JobFinderResumeWorkspace> {
-    const { job, draft, tailoredAsset } = await ensureResumeDraft(jobId);
-    const [validations, exports, research, assistantMessages] = await Promise.all([
-      ctx.repository.listResumeValidationResults(draft.id),
-      ctx.repository.listResumeExportArtifacts({ jobId }),
-      ctx.repository.listResumeResearchArtifacts(jobId),
-      ctx.repository.listResumeAssistantMessages(jobId),
-    ]);
-    const normalizedExports = exports.map((artifact) => ({
-      ...artifact,
-      isApproved: draft.approvedExportId === artifact.id,
-    }));
-
-    return JobFinderResumeWorkspaceSchema.parse({
-      job,
-      draft,
-      validation: validations[0] ?? null,
-      exports: normalizedExports,
-      research,
-      assistantMessages,
-      tailoredAsset,
-    });
-  }
-
   return {
     async queueJobForReview(jobId) {
       const discoveryState = await ctx.repository.getDiscoveryState();
@@ -273,7 +126,7 @@ export function createWorkspaceApplicationMethods(
 
       const existingAsset = tailoredAssets.find((asset) => asset.jobId === jobId);
       const existingDraft = await ctx.repository.getResumeDraftByJobId(jobId);
-      const research = await fetchAndPersistResearch(job);
+      const research = await fetchAndPersistResearch(ctx, job);
       const evidence = collectResumeWorkspaceEvidence({
         profile,
         job,
@@ -397,11 +250,11 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async getResumeWorkspace(jobId) {
-      return buildResumeWorkspace(jobId);
+      return buildResumeWorkspace(ctx, jobId);
     },
     async saveResumeDraft(draft) {
       const parsedDraft = ResumeDraftSchema.parse(draft);
-      const { job, profile, tailoredAsset } = await ensureResumeDraft(parsedDraft.jobId);
+      const { job, profile, tailoredAsset } = await ensureResumeDraft(ctx, parsedDraft.jobId);
       const now = new Date().toISOString();
       const nextDraft = ResumeDraftSchema.parse({
         ...parsedDraft,
@@ -440,7 +293,7 @@ export function createWorkspaceApplicationMethods(
       return this.generateResume(jobId);
     },
     async regenerateResumeSection(jobId, sectionId) {
-      const state = await ensureResumeDraft(jobId);
+      const state = await ensureResumeDraft(ctx, jobId);
       const { draft } = state;
       const targetSection = draft.sections.find((section) => section.id === sectionId);
 
@@ -448,7 +301,7 @@ export function createWorkspaceApplicationMethods(
         throw new Error(`Unable to regenerate unknown resume section '${sectionId}'.`);
       }
 
-      const research = await fetchAndPersistResearch(state.job);
+      const research = await fetchAndPersistResearch(ctx, state.job);
       const assistantReply = await ctx.aiClient.reviseResumeDraft({
         draft,
         job: state.job,
@@ -482,8 +335,8 @@ export function createWorkspaceApplicationMethods(
       return this.applyResumePatch(sectionPatch, "Regenerated section");
     },
     async exportResumePdf(jobId, outputPath) {
-      const { draft, job, profile, settings, tailoredAsset } = await ensureResumeDraft(jobId);
-      const renderedArtifact = await renderDraftToPdf({
+      const { draft, job, profile, settings, tailoredAsset } = await ensureResumeDraft(ctx, jobId);
+      const renderedArtifact = await renderDraftToPdf(ctx, {
         job,
         profile,
         settings,
@@ -537,7 +390,7 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async approveResume(jobId, exportId) {
-      const { draft, job, profile, tailoredAsset } = await ensureResumeDraft(jobId);
+      const { draft, job, profile, tailoredAsset } = await ensureResumeDraft(ctx, jobId);
       const [exports, validations] = await Promise.all([
         ctx.repository.listResumeExportArtifacts({ jobId }),
         ctx.repository.listResumeValidationResults(draft.id),
@@ -601,7 +454,7 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async clearResumeApproval(jobId) {
-      const { draft, job, profile, tailoredAsset } = await ensureResumeDraft(jobId);
+      const { draft, job, profile, tailoredAsset } = await ensureResumeDraft(ctx, jobId);
       const nextDraft = ResumeDraftSchema.parse({
         ...draft,
         status: "stale",
@@ -636,7 +489,7 @@ export function createWorkspaceApplicationMethods(
         throw new Error(`Unable to find resume draft '${parsedPatch.draftId}'.`);
       }
 
-      const state = await ensureResumeDraft(currentDraft.jobId);
+      const state = await ensureResumeDraft(ctx, currentDraft.jobId);
 
       const updatedAt = new Date().toISOString();
       const nextDraft = applyPatchToResumeDraft({
@@ -672,11 +525,11 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async getResumeAssistantMessages(jobId) {
-      await ensureResumeDraft(jobId);
+      await ensureResumeDraft(ctx, jobId);
       return ctx.repository.listResumeAssistantMessages(jobId);
     },
     async sendResumeAssistantMessage(jobId, content) {
-      const workspaceState = await ensureResumeDraft(jobId);
+      const workspaceState = await ensureResumeDraft(ctx, jobId);
       const userMessage = ResumeAssistantMessageSchema.parse({
         id: `resume_message_user_${jobId}_${Date.now()}`,
         jobId,
@@ -686,7 +539,7 @@ export function createWorkspaceApplicationMethods(
         createdAt: new Date().toISOString(),
       });
       const validations = await ctx.repository.listResumeValidationResults(workspaceState.draft.id);
-      const research = await fetchAndPersistResearch(workspaceState.job);
+      const research = await fetchAndPersistResearch(ctx, workspaceState.job);
       const assistantReply = await ctx.aiClient.reviseResumeDraft({
         draft: workspaceState.draft,
         job: workspaceState.job,

@@ -1,10 +1,9 @@
-import { AgentProviderStatusSchema, JobPostingSchema, type JobPosting, type ToolCall } from "@unemployed/contracts";
+import { AgentProviderStatusSchema, type ToolCall } from "@unemployed/contracts";
 import {
   JobFitAssessmentSchema,
   OpenAiCompatibleJobFinderAiClientOptionsSchema,
   ResumeAssistantReplySchema,
   ResumeProfileExtractionSchema,
-  TailoredResumeDraftSchema,
   type AgentCapableJobFinderAiClient,
   type JobFinderAiClient,
   type OpenAiCompatibleJobFinderAiClientOptions,
@@ -12,318 +11,24 @@ import {
 } from "./shared";
 import {
   buildDeterministicResumeProfileExtraction,
-  buildDeterministicStructuredResumeDraft,
-  buildGenericCanonicalUrl,
-  buildGenericJobId,
-  buildInvalidJobSample,
   completeResumeExtraction,
   createDeterministicJobFinderAiClient,
-  describeInvalidFieldCounts,
   uniqueStrings,
 } from "./deterministic";
-
-function summarizeError(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
-  }
-
-  return "Unknown error";
-}
-
-function logFallbackError(operation: string, error: unknown): void {
-  console.error(
-    `[AI Provider] ${operation} failed; falling back to deterministic client. ${summarizeError(error)}`,
-  );
-}
-
-function completeTailoredResumeDraft(
-  primary: unknown,
-  fallbackInput: Parameters<typeof buildDeterministicStructuredResumeDraft>[0],
-) {
-  const fallback = buildDeterministicStructuredResumeDraft(fallbackInput);
-  const normalizedPrimary =
-    primary && typeof primary === "object" && !Array.isArray(primary)
-      ? (primary as Record<string, unknown>)
-      : {};
-
-  return TailoredResumeDraftSchema.parse({
-    ...fallback,
-    ...normalizedPrimary,
-    label:
-      typeof normalizedPrimary.label === "string"
-        ? normalizedPrimary.label
-        : fallback.label,
-    summary:
-      typeof normalizedPrimary.summary === "string" &&
-      normalizedPrimary.summary.trim().length > 0
-        ? normalizedPrimary.summary
-        : fallback.summary,
-    experienceHighlights: Array.isArray(normalizedPrimary.experienceHighlights)
-      ? normalizedPrimary.experienceHighlights
-      : fallback.experienceHighlights,
-    coreSkills: Array.isArray(normalizedPrimary.coreSkills)
-      ? normalizedPrimary.coreSkills
-      : fallback.coreSkills,
-    targetedKeywords: Array.isArray(normalizedPrimary.targetedKeywords)
-      ? normalizedPrimary.targetedKeywords
-      : fallback.targetedKeywords,
-    fullText:
-      typeof normalizedPrimary.fullText === "string" &&
-      normalizedPrimary.fullText.trim().length > 0
-        ? normalizedPrimary.fullText
-        : fallback.fullText,
-    compatibilityScore:
-      typeof normalizedPrimary.compatibilityScore === "number"
-        ? normalizedPrimary.compatibilityScore
-        : fallback.compatibilityScore,
-    notes: uniqueStrings([
-      ...fallback.notes,
-      ...(Array.isArray(normalizedPrimary.notes)
-        ? normalizedPrimary.notes.filter(
-            (note): note is string => typeof note === "string" && note.trim().length > 0,
-          )
-        : []),
-    ]),
-  });
-}
-
-function isTextContentPart(value: unknown): value is { text: string } {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      "text" in value &&
-      typeof value.text === "string",
-  );
-}
-
-function extractContentString(rawContent: unknown): string {
-  if (typeof rawContent === "string") {
-    return rawContent;
-  }
-
-  if (Array.isArray(rawContent)) {
-    return rawContent
-      .flatMap((entry) => {
-        if (typeof entry === "string") {
-          return [entry];
-        }
-
-        if (isTextContentPart(entry)) {
-          return [entry.text];
-        }
-
-        return [];
-      })
-      .join("\n");
-  }
-
-  return "";
-}
-
-function extractJsonString(rawContent: string): string {
-  const fencedMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/i);
-
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
-  }
-
-  const firstBraceIndex = rawContent.indexOf("{");
-  const lastBraceIndex = rawContent.lastIndexOf("}");
-
-  if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
-    return rawContent.slice(firstBraceIndex, lastBraceIndex + 1);
-  }
-
-  return rawContent.trim();
-}
-
-type ChatCompletionsPayload = {
-  choices?: Array<{
-    message?: {
-      content?: string;
-      tool_calls?: Array<{
-        id: string;
-        type: string;
-        function: {
-          name: string;
-          arguments: string;
-        };
-      }>;
-    };
-  }>;
-  error?: {
-    message?: string;
-  };
-};
-
-const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "flexible"]);
-const jobBoardHostFragments = [
-  "linkedin.com",
-  "indeed.com",
-  "greenhouse.io",
-  "lever.co",
-  "workday.com",
-  "ashbyhq.com",
-  "smartrecruiters.com",
-];
-
-async function parseModelJsonResponse(response: Response): Promise<unknown> {
-  const rawBody = await response.text();
-  const payload = rawBody.length > 0
-    ? (() => {
-        try {
-          return JSON.parse(rawBody) as {
-            choices?: Array<{
-              message?: {
-                content?: unknown;
-              };
-            }>;
-            error?: {
-              message?: string;
-            };
-          };
-        } catch {
-          return null;
-        }
-      })()
-    : null;
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error?.message ??
-        `Model request failed with status ${response.status}`,
-    );
-  }
-
-  if (!payload) {
-    throw new Error("Model returned a non-JSON response");
-  }
-
-  const rawContent = extractContentString(
-    payload.choices?.[0]?.message?.content,
-  );
-  const jsonString = extractJsonString(rawContent);
-
-  try {
-    return JSON.parse(jsonString) as unknown;
-  } catch (error) {
-    throw new Error(
-      `Model returned invalid JSON: ${error instanceof Error ? error.message : "Unknown parse error"}`,
-    );
-  }
-}
-
-async function parseResponsePayload(response: Response): Promise<ChatCompletionsPayload> {
-  const rawBody = await response.text();
-
-  let payload: ChatCompletionsPayload | null = null;
-
-  if (rawBody.length > 0) {
-    try {
-      payload = JSON.parse(rawBody) as ChatCompletionsPayload;
-    } catch {
-      payload = null;
-    }
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error?.message ??
-        `Chat request failed with status ${response.status}`,
-    );
-  }
-
-  if (!payload) {
-    throw new Error("Chat request returned a non-JSON response");
-  }
-
-  return payload;
-}
-
-function buildChatCompletionsUrl(baseUrl: string): string {
-  const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  return new URL("chat/completions", normalizedBaseUrl).toString();
-}
-
-function trimToNull(value: unknown): string | null {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-
-  if (typeof value === "number") {
-    return String(value);
-  }
-
-  return null;
-}
-
-function toIsoDateTimeOrNull(value: unknown): string | null {
-  const trimmed = trimToNull(value);
-  if (!trimmed) {
-    return null;
-  }
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed.toISOString();
-}
-
-function summarizeJobPosting(input: {
-  title: string;
-  company: string;
-  description: string;
-  responsibilities: readonly string[];
-  minimumQualifications: readonly string[];
-  preferredQualifications: readonly string[];
-}): string {
-  const firstStructuredLine = [
-    ...input.responsibilities,
-    ...input.minimumQualifications,
-    ...input.preferredQualifications,
-  ][0] ?? null;
-
-  if (firstStructuredLine) {
-    return firstStructuredLine;
-  }
-
-  const normalizedDescription = input.description.trim();
-  if (!normalizedDescription) {
-    return `${input.title} opportunity at ${input.company}`;
-  }
-
-  const firstSentence = normalizedDescription
-    .split(/(?<=[.!?])\s+/)
-    .map((entry) => entry.trim())
-    .find(Boolean);
-
-  return firstSentence ? firstSentence.slice(0, 280) : normalizedDescription.slice(0, 280);
-}
-
-function toHostnameOrNull(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    return new URL(value).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-function isLikelyJobBoardHost(hostname: string | null): boolean {
-  if (!hostname) {
-    return false;
-  }
-
-  return jobBoardHostFragments.some(
-    (fragment) => hostname === fragment || hostname.endsWith(`.${fragment}`),
-  );
-}
+import {
+  completeTailoredResumeDraft,
+  logFallbackError,
+  summarizeError,
+} from "./openai-compatible-shared";
+import {
+  buildChatCompletionsUrl,
+  parseModelJsonResponse,
+  parseResponsePayload,
+} from "./openai-compatible-transport";
+import {
+  buildJobsExtractionPrompt,
+  normalizeExtractedJobs,
+} from "./openai-compatible-jobs";
 
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions,
@@ -514,226 +219,24 @@ export function createOpenAiCompatibleJobFinderAiClient(
           return "the configured job site";
         }
       })();
-      const systemPrompt =
-        input.pageType === "search_results"
-          ? [
-              `You extract job listings from a careers or job-search page on ${pageHostLabel}.`,
-              'Return JSON with a "jobs" array.',
-              "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-              "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills, responsibilities, minimumQualifications, preferredQualifications, seniority, employmentType, department, team, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
-              'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
-              'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
-              'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
-              "If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.",
-              "Do not fabricate posted dates. Use null when exact posting time is unknown and preserve any visible relative string in postedAtText.",
-              "Do not invent companies, locations, or URLs.",
-              `Return at most ${effectiveMaxJobs} jobs.`,
-            ].join(" ")
-          : [
-              `You extract one structured job posting from a job-detail page on ${pageHostLabel}.`,
-              'Return JSON with a "jobs" array containing one job object.',
-              "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-              "Each job should include canonicalUrl, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills, responsibilities, minimumQualifications, preferredQualifications, seniority, employmentType, department, team, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
-              'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
-              'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
-              "Use the page URL as the source of truth for canonicalUrl whenever available.",
-              "Do not fabricate posted dates. Use null when exact posting time is unknown and preserve any visible relative string in postedAtText.",
-              'If the page is not clearly a job detail page, return { "jobs": [] }.',
-            ].join(" ");
+      const systemPrompt = buildJobsExtractionPrompt({
+        pageHostLabel,
+        pageType: input.pageType,
+        effectiveMaxJobs,
+      });
 
       const payload = await fetchModelJson(systemPrompt, {
         pageUrl: input.pageUrl,
         pageText: input.pageText.slice(0, 12000),
       });
 
-      const toStr = (value: unknown): string => {
-        if (typeof value === "string") return value;
-        if (typeof value === "number") return String(value);
-        return "";
-      };
-
-        const toStringArray = (value: unknown): string[] => {
-          if (Array.isArray(value)) {
-          return value.flatMap((entry) => {
-            const normalized = toStr(entry).trim();
-            return normalized ? [normalized] : [];
-          });
-        }
-
-        const normalized = toStr(value).trim();
-        return normalized ? [normalized] : [];
-      };
-
-        const toWorkModeArray = (value: unknown): string[] => {
-        return toStringArray(value)
-          .flatMap((entry) => entry.split(","))
-          .map((entry) => entry.trim().toLowerCase())
-          .filter((entry) => supportedWorkModes.has(entry));
-        };
-
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        !Array.isArray((payload as { jobs?: unknown }).jobs)
-      ) {
-        throw new Error(
-          `[AI Provider] Expected a top-level jobs array when extracting jobs from ${pageHostLabel}, received: ${JSON.stringify(payload)}`,
-        );
-      }
-
-      const rawJobCandidates = (payload as { jobs: unknown[] }).jobs;
-      const rawJobs: Array<Record<string, unknown>> = [];
-
-      const parsedJobs: JobPosting[] = [];
-      let skippedJobs = 0;
-      const invalidFieldCounts = new Map<string, number>();
-      const invalidSamples: string[] = [];
-
-      for (const candidate of rawJobCandidates) {
-        if (
-          candidate &&
-          typeof candidate === "object" &&
-          !Array.isArray(candidate)
-        ) {
-          rawJobs.push(candidate as Record<string, unknown>);
-          continue;
-        }
-
-        skippedJobs += 1;
-        invalidFieldCounts.set(
-          "payload_shape",
-          (invalidFieldCounts.get("payload_shape") ?? 0) + 1,
-        );
-        if (invalidSamples.length < 3) {
-          invalidSamples.push(JSON.stringify({ invalidItem: candidate }));
-        }
-      }
-
-        for (const raw of rawJobs) {
-        if (parsedJobs.length >= effectiveMaxJobs) {
-          break;
-        }
-
-        const rawSourceJobId = toStr(raw.sourceJobId);
-        const rawCanonicalUrl =
-          toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link);
-
-        const fallbackUrl =
-          input.pageType === "job_detail" ? input.pageUrl : "";
-        const derivedCanonicalUrl = buildGenericCanonicalUrl(
-          rawCanonicalUrl || fallbackUrl,
-          input.pageUrl,
-        );
-        const derivedSourceJobId =
-          rawSourceJobId || buildGenericJobId(derivedCanonicalUrl);
-
-        if (!derivedCanonicalUrl || !derivedSourceJobId) {
-          skippedJobs += 1;
-          invalidFieldCounts.set(
-            "stable_identity",
-            (invalidFieldCounts.get("stable_identity") ?? 0) + 1,
-          );
-          continue;
-        }
-
-        const responsibilities = toStringArray(raw.responsibilities);
-        const minimumQualifications = toStringArray(
-          raw.minimumQualifications ?? raw.requirements ?? raw.qualifications,
-        );
-        const preferredQualifications = toStringArray(
-          raw.preferredQualifications ?? raw.preferredRequirements,
-        );
-        const description = toStr(raw.description);
-        const employerWebsiteUrl = trimToNull(raw.employerWebsiteUrl);
-        const candidate = {
-          source: "target_site" as const,
-          sourceJobId: derivedSourceJobId,
-          discoveryMethod: "browser_agent" as const,
-          canonicalUrl: derivedCanonicalUrl,
-          title: toStr(raw.title),
-          company: toStr(raw.company),
-          location: toStr(raw.location),
-          workMode: toWorkModeArray(raw.workMode),
-          applyPath:
-            raw.applyPath === "easy_apply" ||
-            raw.applyPath === "external_redirect" ||
-            raw.applyPath === "unknown"
-              ? raw.applyPath
-              : "unknown",
-          easyApplyEligible: raw.easyApplyEligible === true,
-          postedAt: toIsoDateTimeOrNull(raw.postedAt),
-          postedAtText: trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative),
-          discoveredAt: new Date().toISOString(),
-          salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
-          summary:
-            trimToNull(raw.summary) ??
-            summarizeJobPosting({
-              title: toStr(raw.title),
-              company: toStr(raw.company),
-              description,
-              responsibilities,
-              minimumQualifications,
-              preferredQualifications,
-            }),
-          description,
-          keySkills: toStringArray(raw.keySkills),
-          responsibilities,
-          minimumQualifications,
-          preferredQualifications,
-          seniority: trimToNull(raw.seniority ?? raw.level),
-          employmentType: trimToNull(raw.employmentType),
-          department: trimToNull(raw.department),
-          team: trimToNull(raw.team),
-          employerWebsiteUrl,
-          employerDomain: (() => {
-            const explicitHost = toHostnameOrNull(employerWebsiteUrl);
-            if (explicitHost) {
-              return explicitHost;
-            }
-
-            const canonicalHost = toHostnameOrNull(derivedCanonicalUrl);
-            return canonicalHost && !isLikelyJobBoardHost(canonicalHost)
-              ? canonicalHost
-              : null;
-          })(),
-          benefits: toStringArray(raw.benefits),
-        };
-
-        const parsed = JobPostingSchema.safeParse(candidate);
-        if (parsed.success) {
-          parsedJobs.push(parsed.data);
-          continue;
-        }
-
-        skippedJobs += 1;
-        for (const issue of parsed.error.issues) {
-          const field = issue.path[0];
-          const normalizedField =
-            typeof field === "string" && field.length > 0 ? field : "unknown";
-          invalidFieldCounts.set(
-            normalizedField,
-            (invalidFieldCounts.get(normalizedField) ?? 0) + 1,
-          );
-        }
-
-        if (invalidSamples.length < 3) {
-          invalidSamples.push(buildInvalidJobSample(candidate));
-        }
-      }
-
-      if (skippedJobs > 0) {
-        console.warn(
-          `[AI Provider] Model returned ${rawJobs.length} job candidates on ${pageHostLabel}; extracted ${parsedJobs.length} valid jobs and skipped ${skippedJobs} invalid jobs. Top invalid fields: ${describeInvalidFieldCounts(invalidFieldCounts)}`,
-        );
-
-        if (invalidSamples.length > 0) {
-          console.warn(
-            `[AI Provider] Invalid job samples: ${invalidSamples.join(" | ")}`,
-          );
-        }
-      }
-
-      return parsedJobs;
+      return normalizeExtractedJobs({
+        payload,
+        pageHostLabel,
+        pageUrl: input.pageUrl,
+        pageType: input.pageType,
+        effectiveMaxJobs,
+      });
     },
     async chatWithTools(messages, tools, signal) {
       if (!validatedOptions) {

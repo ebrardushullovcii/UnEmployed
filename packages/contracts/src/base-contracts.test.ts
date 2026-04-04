@@ -1,0 +1,128 @@
+import { describe, expect, test } from "vitest";
+import {
+  ApplicationStatusSchema,
+  CandidateProfileSchema,
+  DesktopWindowControlsStateSchema,
+  JobSearchPreferencesSchema,
+  applicationStatusValues,
+} from "./index";
+
+describe("contracts base schemas", () => {
+  test("supports the full application status list", () => {
+    expect(applicationStatusValues).toContain("submitted");
+    expect(ApplicationStatusSchema.parse("interview")).toBe("interview");
+  });
+
+  test("parses an expanded candidate profile", () => {
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_1",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      middleName: null,
+      fullName: "Alex Vanguard",
+      headline: "Full-stack engineer",
+      summary: "Builds reliable user-facing systems.",
+      currentLocation: "London, UK",
+      yearsExperience: 8,
+      baseResume: {
+        id: "resume_1",
+        fileName: "alex-vanguard.pdf",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        storagePath: "/tmp/alex-vanguard.pdf",
+      },
+      targetRoles: ["Frontend Engineer"],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
+
+    expect(profile.baseResume.storagePath).toBe("/tmp/alex-vanguard.pdf");
+    expect(profile.baseResume.extractionStatus).toBe("not_started");
+    expect(profile.email).toBeNull();
+    expect(profile.locations).toEqual([]);
+    expect(profile.skills).toEqual([]);
+    expect(profile.experiences).toEqual([]);
+    expect(profile.education).toEqual([]);
+  });
+
+  test("applies defaults for job search preferences", () => {
+    const preferences = JobSearchPreferencesSchema.parse({
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      minimumSalaryUsd: null,
+    });
+
+    expect(preferences.companyBlacklist).toEqual([]);
+    expect(preferences.workModes).toEqual([]);
+  });
+
+  test("parses discovery targets with optional custom instructions", () => {
+    const preferences = JobSearchPreferencesSchema.parse({
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      minimumSalaryUsd: null,
+      discovery: {
+        targets: [
+          {
+            id: "target_1",
+            label: "Primary target",
+            startingUrl: "https://jobs.example.com/search",
+            enabled: true,
+            adapterKind: "auto",
+            customInstructions:
+              "Open the job cards from the homepage list before extracting details.",
+          },
+        ],
+      },
+    });
+
+    expect(preferences.discovery.targets[0]?.customInstructions).toBe(
+      "Open the job cards from the homepage list before extracting details.",
+    );
+    expect(preferences.discovery.targets[0]?.instructionStatus).toBe("missing");
+    expect(preferences.discovery.targets[0]?.validatedInstructionId).toBeNull();
+  });
+
+  test("rejects malformed link metadata and url fields", () => {
+    expect(() =>
+      CandidateProfileSchema.parse({
+        id: "candidate_1",
+        firstName: "Alex",
+        lastName: "Vanguard",
+        middleName: null,
+        fullName: "Alex Vanguard",
+        headline: "Full-stack engineer",
+        summary: "Builds reliable user-facing systems.",
+        currentLocation: "London, UK",
+        yearsExperience: 8,
+        baseResume: {
+          id: "resume_1",
+          fileName: "alex-vanguard.pdf",
+          uploadedAt: "2026-03-20T10:00:00.000Z",
+          storagePath: "/tmp/alex-vanguard.pdf",
+        },
+        links: [
+          {
+            id: "link_1",
+            label: "Portfolio",
+            url: "not-a-url",
+            kind: "custom",
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  test("parses desktop window controls state", () => {
+    const controlsState = DesktopWindowControlsStateSchema.parse({
+      isMaximized: false,
+      isMinimizable: true,
+      isClosable: true,
+    });
+
+    expect(controlsState.isClosable).toBe(true);
+  });
+});
