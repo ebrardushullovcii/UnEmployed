@@ -1,5 +1,9 @@
 import { TailoredResumeDraftSchema } from "./shared";
-import { buildDeterministicStructuredResumeDraft, uniqueStrings } from "./deterministic";
+import {
+  buildDeterministicStructuredResumeDraft,
+  composeDeterministicFullText,
+  uniqueStrings,
+} from "./deterministic";
 
 function sanitizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -64,18 +68,14 @@ export function completeTailoredResumeDraft(
         )
       : []),
   ]);
-  const fullText = [
+  const fullText = composeDeterministicFullText({
     label,
     summary,
-    ...experienceHighlights,
-    coreSkills.length > 0 ? `Core skills: ${coreSkills.join(", ")}` : null,
-    targetedKeywords.length > 0
-      ? `Targeted keywords: ${targetedKeywords.join(", ")}`
-      : null,
-    ...notes,
-  ]
-    .filter((entry): entry is string => Boolean(entry && entry.trim().length > 0))
-    .join("\n\n");
+    experienceHighlights,
+    coreSkills,
+    targetedKeywords,
+    notes,
+  });
 
   return TailoredResumeDraftSchema.parse({
     ...fallback,

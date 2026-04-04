@@ -1,8 +1,8 @@
 import type { ReviewQueueItem } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
+import { ProgressBar } from '@renderer/components/ui/progress-bar'
 import { cn } from '@renderer/lib/cn'
-import { ProgressBar } from '../../components/progress-bar'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
 import { formatCountLabel, formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
@@ -30,7 +30,8 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
       ) : (
         <div className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4">
           {queue.map((item) => {
-            const clampedProgress = Math.max(0, Math.min(100, item.progressPercent ?? 0))
+            const progressPercent = Number.isFinite(item.progressPercent) ? item.progressPercent ?? 0 : 0
+            const clampedProgress = Math.max(0, Math.min(100, progressPercent))
 
             return (
             <Button

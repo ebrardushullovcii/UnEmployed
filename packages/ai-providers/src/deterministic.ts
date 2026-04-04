@@ -2,6 +2,7 @@ export { createDeterministicJobFinderAiClient } from "./deterministic/client";
 export { completeResumeExtraction } from "./deterministic/merge";
 export { buildDeterministicResumeProfileExtraction } from "./deterministic/resume-parser";
 export {
+  composeDeterministicFullText,
   buildDeterministicResumeText,
   buildDeterministicStructuredResumeDraft,
   buildDeterministicTailoredResume,

@@ -202,10 +202,8 @@ export function useJobFinderPageController() {
   const activeResumeWorkspaceJobIdRef = useRef<string | null>(
     activeResumeWorkspaceJobId,
   );
-
-  useEffect(() => {
-    activeResumeWorkspaceJobIdRef.current = activeResumeWorkspaceJobId;
-  }, [activeResumeWorkspaceJobId]);
+  const resumeAssistantRequestTokenRef = useRef(0);
+  activeResumeWorkspaceJobIdRef.current = activeResumeWorkspaceJobId;
 
   const isCurrentResumeWorkspaceJob = useCallback(
     (jobId: string) => activeResumeWorkspaceJobIdRef.current === jobId,
@@ -604,6 +602,8 @@ export function useJobFinderPageController() {
       void runAction(() => actions.saveSettings(settings), () => undefined, null),
     onSendResumeAssistantMessage: (jobId: string, content: string) =>
       void (async () => {
+        const requestJobId = jobId;
+        const requestToken = ++resumeAssistantRequestTokenRef.current;
         const createdAt = new Date().toISOString();
         const optimisticUserMessage: ResumeAssistantMessage = {
           id: `resume_message_user_optimistic_${jobId}_${Date.now()}`,
@@ -640,7 +640,10 @@ export function useJobFinderPageController() {
             .find((message) => message.role === "assistant");
           const appliedCount = assistantReply?.patches.length ?? 0;
 
-          if (!isCurrentResumeWorkspaceJob(jobId)) {
+          if (
+            !isCurrentResumeWorkspaceJob(requestJobId) ||
+            requestToken !== resumeAssistantRequestTokenRef.current
+          ) {
             return;
           }
 
@@ -684,6 +687,10 @@ export function useJobFinderPageController() {
             ),
           );
           setActionState({ busy: false, message });
+        } finally {
+          setActionState((current) =>
+            current.busy ? { ...current, busy: false } : current,
+          );
         }
       })(),
     onResumeWorkspaceDirtyChange: (dirty: boolean) => {

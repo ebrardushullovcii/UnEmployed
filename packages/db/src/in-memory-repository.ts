@@ -225,6 +225,10 @@ export function createInMemoryJobFinderRepository(
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
         : null;
 
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
+
       state.savedJobs = normalizedJobs;
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
       state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
@@ -363,12 +367,14 @@ export function createInMemoryJobFinderRepository(
       }
 
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
-      if (!normalizedDraft.approvedExportId) {
-        state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
-          state.resumeExportArtifacts,
-          normalizedDraft.jobId,
-        );
-      }
+      state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+        state.resumeExportArtifacts,
+        normalizedDraft.jobId,
+      ).map((artifact) =>
+        artifact.jobId === normalizedDraft.jobId && artifact.id === normalizedDraft.approvedExportId
+          ? { ...artifact, isApproved: true }
+          : artifact,
+      );
       state.resumeValidationResults = upsertById(
         state.resumeValidationResults,
         normalizedValidation,
@@ -406,12 +412,14 @@ export function createInMemoryJobFinderRepository(
       }
 
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
-      if (!normalizedDraft.approvedExportId) {
-        state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
-          state.resumeExportArtifacts,
-          normalizedDraft.jobId,
-        );
-      }
+      state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+        state.resumeExportArtifacts,
+        normalizedDraft.jobId,
+      ).map((artifact) =>
+        artifact.jobId === normalizedDraft.jobId && artifact.id === normalizedDraft.approvedExportId
+          ? { ...artifact, isApproved: true }
+          : artifact,
+      );
       state.resumeDraftRevisions = upsertById(
         state.resumeDraftRevisions,
         normalizedRevision,
@@ -471,6 +479,9 @@ export function createInMemoryJobFinderRepository(
       }
       if (tailoredAsset) {
         const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+        if (normalizedAsset.jobId !== normalizedDraft.jobId) {
+          throw new Error("Tailored asset job does not match the provided draft.");
+        }
         state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
       }
       return Promise.resolve();
@@ -491,6 +502,9 @@ export function createInMemoryJobFinderRepository(
       );
       if (tailoredAsset) {
         const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+        if (normalizedAsset.jobId !== normalizedDraft.jobId) {
+          throw new Error("Tailored asset job does not match the provided draft.");
+        }
         state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
       }
       return Promise.resolve();

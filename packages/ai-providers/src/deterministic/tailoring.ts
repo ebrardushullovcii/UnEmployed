@@ -86,6 +86,28 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
   });
 }
 
+export function composeDeterministicFullText(input: {
+  coreSkills: readonly string[];
+  experienceHighlights: readonly string[];
+  label?: string | null;
+  notes?: readonly string[];
+  summary: string;
+  targetedKeywords: readonly string[];
+}) {
+  return [
+    input.label ?? null,
+    input.summary,
+    ...input.experienceHighlights,
+    input.coreSkills.length > 0 ? `Core skills: ${input.coreSkills.join(", ")}` : null,
+    input.targetedKeywords.length > 0
+      ? `Targeted keywords: ${input.targetedKeywords.join(", ")}`
+      : null,
+    ...(input.notes ?? []),
+  ]
+    .filter((entry): entry is string => Boolean(entry && entry.trim().length > 0))
+    .join("\n\n");
+}
+
 export function buildDeterministicStructuredResumeDraft(
   input: CreateResumeDraftInput,
 ) {
@@ -119,16 +141,14 @@ export function buildDeterministicStructuredResumeDraft(
       ? ["Incorporated bounded employer research vocabulary into deterministic draft creation."]
       : []),
   ]);
-  const fullText = [
+  const fullText = composeDeterministicFullText({
+    label: baseDraft.label,
     summary,
-    ...experienceHighlights,
-    coreSkills.length > 0 ? `Core skills: ${coreSkills.join(", ")}` : null,
-    targetedKeywords.length > 0
-      ? `Targeted keywords: ${targetedKeywords.join(", ")}`
-      : null,
-  ]
-    .filter((entry): entry is string => Boolean(entry && entry.trim().length > 0))
-    .join("\n\n");
+    experienceHighlights,
+    coreSkills,
+    targetedKeywords,
+    notes,
+  });
 
   return TailoredResumeDraftSchema.parse({
     ...baseDraft,
@@ -153,32 +173,56 @@ export function buildDeterministicResumeAssistantReply(
   const isSummaryShorteningRequest = /\bshort(?:en|er)?\b.*\bsummary\b|\bsummary\b.*\bshort(?:en|er)?\b/.test(lowerRequest);
 
   if (summarySection && !summarySection.locked && (lowerRequest.includes("summary") || lowerRequest.includes("ats") || isSummaryShorteningRequest)) {
+    const currentSummary = summarySection.text ?? `${input.job.title} alignment summary`;
     const tightenedSummary = tightenSentence(
-      summarySection.text ?? `${input.job.title} alignment summary`,
+      currentSummary,
     );
-    patches.push({
-      id: createPatchId("assistant_patch_summary"),
-      draftId: input.draft.id,
-      operation: "replace_section_text",
-      targetSectionId: summarySection.id,
-      targetBulletId: null,
-      anchorBulletId: null,
-      position: null,
-      newText: tightenedSummary,
-      newIncluded: null,
-      newLocked: null,
-      newBullets: null,
-      appliedAt: new Date().toISOString(),
-      origin: "assistant",
-      conflictReason: null,
-    });
+    if (tightenedSummary !== currentSummary) {
+      patches.push({
+        id: createPatchId("assistant_patch_summary"),
+        draftId: input.draft.id,
+        operation: "replace_section_text",
+        targetSectionId: summarySection.id,
+        targetBulletId: null,
+        anchorBulletId: null,
+        position: null,
+        newText: tightenedSummary,
+        newIncluded: null,
+        newLocked: null,
+        newBullets: null,
+        appliedAt: new Date().toISOString(),
+        origin: "assistant",
+        conflictReason: null,
+      });
+    }
   }
 
   const isExperienceShorteningRequest = lowerRequest.includes("shorten") && (lowerRequest.includes("experience") || lowerRequest.includes("bullet"));
 
   if (experienceSection && !experienceSection.locked && (lowerRequest.includes("bullet") || lowerRequest.includes("experience") || isExperienceShorteningRequest)) {
-    const targetBullet = experienceSection.bullets.find((bullet) => !bullet.locked) ?? null;
+    const ordinalPatterns = ["first", "1st", "second", "2nd", "third", "3rd", "fourth", "4th"];
+    const requestedOrdinalIndex = ordinalPatterns.findIndex((pattern) => lowerRequest.includes(pattern));
+    const unlockedBullets = experienceSection.bullets.filter((bullet) => !bullet.locked);
+    const keywordMatchedBullet = unlockedBullets.find((bullet) =>
+      bullet.text
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length >= 3)
+        .some((token) => lowerRequest.includes(token)),
+    ) ?? null;
+    const targetBullet = requestedOrdinalIndex >= 0
+      ? unlockedBullets[requestedOrdinalIndex] ?? null
+      : keywordMatchedBullet;
+
     if (targetBullet) {
+      const tightenedBullet = tightenSentence(targetBullet.text);
+      if (tightenedBullet === targetBullet.text) {
+        return ResumeAssistantReplySchema.parse({
+          content: "I could not safely turn that request into a grounded patch, so no changes were applied.",
+          patches,
+        });
+      }
+
       patches.push({
         id: createPatchId("assistant_patch_bullet"),
         draftId: input.draft.id,
@@ -187,7 +231,7 @@ export function buildDeterministicResumeAssistantReply(
         targetBulletId: targetBullet.id,
         anchorBulletId: null,
         position: null,
-        newText: tightenSentence(targetBullet.text),
+        newText: tightenedBullet,
         newIncluded: null,
         newLocked: null,
         newBullets: null,

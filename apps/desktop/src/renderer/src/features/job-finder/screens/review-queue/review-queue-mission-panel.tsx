@@ -1,7 +1,7 @@
 import { Info, Pencil, Trash2, View } from 'lucide-react'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
-import { ProgressBar } from '../../components/progress-bar'
+import { ProgressBar } from '@renderer/components/ui/progress-bar'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
@@ -143,11 +143,11 @@ export function ReviewQueueMissionPanel({
                   onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
                   type="button"
                   variant="secondary"
-                ><Pencil className="size-4" />Edit asset</Button>
-                <Button aria-label="View source unavailable yet" className="h-11 w-full" disabled title="View source coming soon" type="button" variant="secondary"><View className="size-4" />View source</Button>
+                ><Pencil aria-hidden="true" className="size-4" focusable="false" />Edit asset</Button>
+                <Button aria-label="View source unavailable yet" className="h-11 w-full" disabled title="View source coming soon" type="button" variant="secondary"><View aria-hidden="true" className="size-4" focusable="false" />View source</Button>
               </div>
             </div>
-            <Button aria-label="Purge job application unavailable yet" className="h-11 w-full" disabled title="Purge job application not available yet" type="button" variant="destructive"><Trash2 className="size-4" />Purge job application</Button>
+            <Button aria-label="Purge job application unavailable yet" className="h-11 w-full" disabled title="Purge job application not available yet" type="button" variant="destructive"><Trash2 aria-hidden="true" className="size-4" focusable="false" />Purge job application</Button>
           </>
         ) : (
           <EmptyState
