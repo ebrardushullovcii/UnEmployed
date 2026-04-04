@@ -44,13 +44,13 @@ export function ProfileSourceDebugReviewModal(props: {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 overflow-y-auto bg-(--modal-scrim) px-4 py-6 backdrop-blur-sm"
       onClick={props.onClose}
     >
       <div
         aria-labelledby={dialogTitleId}
         aria-modal="true"
-        className="mx-auto flex min-h-0 max-h-[min(88vh,960px)] w-full max-w-6xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) shadow-[0_32px_120px_rgba(0,0,0,0.55)]"
+        className="surface-panel-shell mx-auto flex min-h-0 max-h-[min(88vh,960px)] w-full max-w-6xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) shadow-(--modal-shadow)"
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"

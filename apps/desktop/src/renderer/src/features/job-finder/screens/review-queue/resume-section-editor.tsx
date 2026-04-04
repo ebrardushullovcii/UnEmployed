@@ -21,7 +21,7 @@ export function ResumeSectionEditor(props: {
   const textId = useId();
 
   return (
-    <article className="grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+    <article className="surface-card-tint grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-base font-semibold text-(--text-headline)">

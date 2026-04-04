@@ -13,7 +13,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
   const { job, research, validation } = workspace
 
   return (
-    <aside className="flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5 xl:h-full">
+    <aside className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-5 xl:h-full">
       <div className="flex items-center justify-between gap-3">
         <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
           Draft Status
@@ -35,7 +35,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
       </div>
 
       <div className="grid min-h-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto pr-1">
-        <div className="grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             Job Context
           </p>
@@ -116,7 +116,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
           ) : null}
         </div>
 
-        <div className="grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             Research Sources
           </p>

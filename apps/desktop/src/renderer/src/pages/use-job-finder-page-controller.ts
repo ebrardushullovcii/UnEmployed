@@ -242,6 +242,7 @@ export function useJobFinderPageController() {
 
   if (!readyWorkspaceState || !workspace || !actions) {
     return {
+      appearanceTheme: null,
       context: null,
       navigateFromShell,
       platform,
@@ -589,6 +590,7 @@ export function useJobFinderPageController() {
   };
 
   return {
+    appearanceTheme: workspace.settings.appearanceTheme,
     context,
     navigateFromShell,
     platform,

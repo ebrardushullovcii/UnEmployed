@@ -84,12 +84,11 @@ export function ProfileSectionTabs({
               <span
                 aria-hidden="true"
                 className={cn(
-                  'absolute inset-y-0 left-0 rounded-[inherit] transition-[width] duration-300',
+                  'absolute inset-0 rounded-[inherit]',
                   activeSection === section.id
                     ? 'bg-transparent'
                     : 'bg-[linear-gradient(135deg,var(--surface-panel-border-warm),var(--surface-overlay-subtle)_42%,var(--surface-overlay-soft))]'
                 )}
-                style={{ width: activeSection === section.id ? '0%' : `${section.progress.percent}%` }}
               />
               <span
                 className={cn(

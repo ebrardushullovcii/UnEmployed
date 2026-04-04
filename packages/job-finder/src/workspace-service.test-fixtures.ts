@@ -312,6 +312,7 @@ export function createSeed(): JobFinderRepositorySeed {
       resumeFormat: "pdf",
       resumeTemplateId: "classic_ats",
       fontPreset: "inter_requisite",
+      appearanceTheme: "system",
       humanReviewRequired: true,
       allowAutoSubmitOverride: false,
       keepSessionAlive: true,

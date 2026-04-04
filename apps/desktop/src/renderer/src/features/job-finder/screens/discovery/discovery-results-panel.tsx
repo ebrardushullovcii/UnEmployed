@@ -2,6 +2,7 @@ import type { BrowserSessionState, SavedJob } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { EmptyState } from '@renderer/features/job-finder/components/empty-state'
 import { StatusBadge } from '@renderer/features/job-finder/components/status-badge'
+import { cn } from '@renderer/lib/cn'
 import { formatOptionalDateOnly, formatStatusLabel, getApplicationTone } from '@renderer/features/job-finder/lib/job-finder-utils'
 
 interface DiscoveryResultsPanelProps {
@@ -24,7 +25,7 @@ export function DiscoveryResultsPanel({
     'grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30'
 
   return (
-    <section className="flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
+    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <header className="flex flex-wrap items-center justify-between gap-3 px-5 pb-2 pt-5">
         <h2 className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Saved results</h2>
         <Badge variant="section">{jobCount} {jobCount === 1 ? 'job' : 'jobs'}</Badge>
@@ -86,11 +87,11 @@ export function DiscoveryResultsPanel({
                 <li key={job.id} className="min-w-0">
                   <button
                     aria-pressed={isSelected}
-                    className={`${baseButtonClasses} w-full ${
-                      isSelected
-                        ? 'bg-(--surface-panel-raised)'
-                        : 'bg-transparent hover:bg-(--surface-panel-raised)'
-                    }`}
+                    className={cn(
+                      baseButtonClasses,
+                      'w-full',
+                      isSelected ? 'surface-card-tint' : 'bg-transparent hover:bg-(--surface-panel-raised)'
+                    )}
                     onClick={() => onSelectJob(job.id)}
                     type="button"
                   >

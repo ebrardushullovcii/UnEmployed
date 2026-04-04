@@ -142,7 +142,7 @@ export function ProfilePreferencesTab({
           description="Keep the screening-style answers separate from your resume facts so they are easy to review when a form asks for them."
         />
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Authorization</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
@@ -158,7 +158,7 @@ export function ProfilePreferencesTab({
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Relocation and travel</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <BooleanSelectField control={profileControl} id={willingToRelocateId} label="Willing to relocate" name="eligibility.willingToRelocate" />
@@ -170,7 +170,7 @@ export function ProfilePreferencesTab({
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Availability</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
@@ -192,7 +192,7 @@ export function ProfilePreferencesTab({
           description="Use this section for search rules and job targeting once the core profile looks right."
         />
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Target roles</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <ProfileListEditor
@@ -222,7 +222,7 @@ export function ProfilePreferencesTab({
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Location preferences</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <ProfileListEditor
@@ -240,7 +240,7 @@ export function ProfilePreferencesTab({
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Company preferences</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <ProfileListEditor
@@ -270,7 +270,7 @@ export function ProfilePreferencesTab({
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Work mode and compensation</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <fieldset className="grid gap-(--gap-field) md:col-span-2">
@@ -336,7 +336,7 @@ export function ProfilePreferencesTab({
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
               <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Discovery targets</h3>

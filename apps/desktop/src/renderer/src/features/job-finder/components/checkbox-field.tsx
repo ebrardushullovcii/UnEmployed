@@ -12,7 +12,7 @@ export function CheckboxField({ checked, className, label, onCheckedChange }: Ch
   return (
     <label
       className={cn(
-        'flex min-h-11 items-center gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-3 text-(length:--text-field) normal-case tracking-normal text-foreground-soft',
+        'surface-card-tint flex min-h-11 items-center gap-3 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3 text-(length:--text-field) normal-case tracking-normal text-foreground-soft',
         className
       )}
     >

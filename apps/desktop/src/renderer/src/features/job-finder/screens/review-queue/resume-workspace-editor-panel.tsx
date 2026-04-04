@@ -27,7 +27,7 @@ interface ResumeWorkspaceEditorPanelProps {
 
 export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProps) {
   return (
-    <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full">
+    <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-(--surface-panel-border) p-4">
         <Button
           disabled={props.busy}

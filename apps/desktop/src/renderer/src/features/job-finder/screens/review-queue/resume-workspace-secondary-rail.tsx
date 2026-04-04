@@ -54,7 +54,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
   }
 
   return (
-    <aside className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full">
+    <aside className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
       <header className="flex items-center gap-3 border-b border-(--surface-panel-border) px-5 py-4">
         <div className="flex size-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
           <MessageSquare className="size-4" />
@@ -85,10 +85,10 @@ export function ResumeWorkspaceSecondaryRail(props: {
                   >
                     <div
                       className={cn(
-                        "max-w-full rounded-(--radius-field) border px-3 py-3 text-sm leading-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]",
+                        "max-w-full rounded-(--radius-field) border px-3 py-3 text-sm leading-6 shadow-[inset_0_1px_0_var(--surface-inset-highlight)]",
                         isAssistant
                           ? "border-primary/25 bg-primary/10 text-foreground"
-                          : "border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft",
+                          : "surface-card-tint border-(--surface-panel-border) text-foreground-soft",
                       )}
                     >
                       <div className="mb-2 flex items-center gap-2 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
@@ -105,7 +105,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
           ) : (
             <div className="flex h-full min-h-48 items-center justify-center">
               <div className="grid max-w-52 gap-2 text-center">
-                <div className="mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) bg-(--surface-panel-raised) text-muted-foreground">
+                  <div className="surface-card-tint mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) text-muted-foreground">
                   <MessageSquare className="size-4" />
                 </div>
                 <p className="font-display text-sm text-foreground">
@@ -119,7 +119,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
           )}
         </div>
 
-        <div className="border-t border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
           <div className="grid gap-3">
             <div className="grid min-w-0 gap-2">
               <FieldLabel htmlFor={assistantId}>Message</FieldLabel>

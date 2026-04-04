@@ -196,7 +196,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   }, [props.discoveryTargets, props.index, props.target, props.updateDiscoveryTargets])
 
   return (
-    <article className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-4">
+    <article className="surface-card-tint grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</h3>
         <div className="flex flex-wrap gap-2">
@@ -245,7 +245,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field)">
           <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">Target handling</p>
-          <p className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-3 text-[0.92rem] leading-6 text-foreground-soft">
+          <p className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-3 py-3 text-[0.92rem] leading-6 text-foreground-soft">
             Resolved automatically from the starting URL and the learned source guidance for this target.
           </p>
         </div>
@@ -273,7 +273,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           </p>
         </div>
         {latestDebugRun ? (
-          <div className="grid h-full min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 md:col-span-2">
+          <div className="surface-card-tint grid h-full min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
                 Last source-debug run

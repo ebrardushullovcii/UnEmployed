@@ -23,7 +23,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           description="Start with the basics people expect to see first: name, contact info, location, and public links."
         />
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Name and headline</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>First name</FieldLabel><ProfileInput {...register('identity.firstName')} /></Field>
@@ -35,7 +35,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Contact</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>Primary email</FieldLabel><ProfileInput {...register('identity.email')} /></Field>
@@ -45,7 +45,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Location</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>City</FieldLabel><ProfileInput {...register('identity.currentCity')} /></Field>
@@ -55,7 +55,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Public links</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>LinkedIn URL</FieldLabel><ProfileInput {...register('identity.linkedinUrl')} /></Field>
@@ -73,7 +73,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           description="This is the part you would usually rewrite the most. Keep the short positioning clear, then expand into the fuller story."
         />
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Positioning</p>
           <div className="grid gap-(--gap-content)">
             <Field>
@@ -87,7 +87,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Supporting angles</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field>
@@ -117,7 +117,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           description="Keep your core skills tidy here so tailored resumes and future form fill stay grounded in the same set of facts."
         />
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Role-facing skills</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <ProfileListEditor
@@ -135,7 +135,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           </div>
         </article>
 
-        <article className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Grouped skills</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <ProfileListEditor

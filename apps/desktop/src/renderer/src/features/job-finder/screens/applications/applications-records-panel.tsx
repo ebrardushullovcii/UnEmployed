@@ -28,7 +28,7 @@ export function ApplicationsRecordsPanel({
   const recordCount = applicationRecords.length
 
   return (
-    <section className="flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
+    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-8 py-5">
         <div className="flex items-center gap-4">
           <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">Applications Log</h2>

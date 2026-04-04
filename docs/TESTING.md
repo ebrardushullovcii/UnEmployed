@@ -26,6 +26,13 @@
 - `pnpm --filter @unemployed/desktop ui:resume-workspace`
 - `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
 
+## Appearance QA
+
+- Validate both resolved dark and resolved light output whenever renderer theme tokens, shared primitives, or desktop shell surfaces change.
+- Confirm that `Settings -> Appearance` persists `System`, `Light`, and `Dark`, and that `System` follows the current OS preference after reload.
+- Check the highest-risk contrast surfaces in both themes: page headers, muted helper text, field placeholders, focus borders, panel borders, status badges, status banners, progress tracks, modal scrims, and scrollbars.
+- Confirm the app applies the saved appearance before the workspace snapshot resolves so startup does not flash dark when the resolved theme should be light.
+
 ## Resume Workspace Demo Standard
 
 - Treat the resume-workspace feature as incomplete until the desktop UI has been exercised through a real scripted or manual run that proves generation, editing, assistant changes, export, approval, and apply gating.

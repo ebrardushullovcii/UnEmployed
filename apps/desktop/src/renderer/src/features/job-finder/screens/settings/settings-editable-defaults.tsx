@@ -29,12 +29,25 @@ export function SettingsEditableDefaults({
   }, [settings])
 
   return (
-    <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8">
+    <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Editable defaults</p>
         <Badge variant="section">Persist locally</Badge>
       </div>
       <div className="grid gap-(--gap-content) md:grid-cols-2">
+        <Field>
+          <FieldLabel>Appearance</FieldLabel>
+          <FormSelect
+            onValueChange={(value) => setSettingsForm((current) => ({ ...current, appearanceTheme: value as JobFinderSettings['appearanceTheme'] }))}
+            options={[
+              { label: 'System', value: 'system' },
+              { label: 'Light', value: 'light' },
+              { label: 'Dark', value: 'dark' }
+            ]}
+            placeholder="Select appearance"
+            value={settingsForm.appearanceTheme}
+          />
+        </Field>
         <Field>
           <FieldLabel>Resume format</FieldLabel>
           <FormSelect

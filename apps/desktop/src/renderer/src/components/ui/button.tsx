@@ -10,9 +10,9 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "border border-primary/20 bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:opacity-90",
+          "border border-primary/20 bg-primary text-primary-foreground shadow-[inset_0_1px_0_var(--focus-inset-highlight)] hover:opacity-90",
         primary:
-          "border border-primary/20 bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] hover:opacity-90",
+          "border border-primary/20 bg-primary text-primary-foreground shadow-[inset_0_1px_0_var(--focus-inset-highlight)] hover:opacity-90",
         destructive:
           "border border-destructive/35 bg-destructive text-destructive-foreground hover:opacity-90 focus-visible:ring-destructive/20",
         outline:

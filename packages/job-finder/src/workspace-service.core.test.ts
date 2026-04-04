@@ -17,6 +17,7 @@ function createDiscoveryOnlySeed() {
       resumeFormat: "pdf" as const,
       resumeTemplateId: "classic_ats" as const,
       fontPreset: "inter_requisite" as const,
+      appearanceTheme: "system" as const,
       humanReviewRequired: true,
       allowAutoSubmitOverride: false,
       keepSessionAlive: true,
