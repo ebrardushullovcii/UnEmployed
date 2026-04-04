@@ -48,6 +48,8 @@ export function chunkText(
 
     if (endOffset < normalizedText.length) {
       const preferredBreak = findPreferredBreak(normalizedText, startOffset, endOffset);
+      // Avoid tiny tail chunks by only honoring softer breakpoints after we have crossed
+      // half of the requested minimum chunk size.
       if (preferredBreak > startOffset + minChunkChars / 2) {
         endOffset = preferredBreak;
       }

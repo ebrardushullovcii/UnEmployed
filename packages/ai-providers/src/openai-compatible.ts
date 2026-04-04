@@ -30,6 +30,12 @@ import {
   normalizeExtractedJobs,
 } from "./openai-compatible-jobs";
 
+function sanitizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+}
+
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions,
 ): AgentCapableJobFinderAiClient {
@@ -171,7 +177,21 @@ export function createOpenAiCompatibleJobFinderAiClient(
         ].join(" "),
         input,
       );
-      return ResumeAssistantReplySchema.parse(payload);
+      const normalizedPayload =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+
+      return ResumeAssistantReplySchema.parse({
+        ...normalizedPayload,
+        patches: Array.isArray(normalizedPayload.patches)
+          ? normalizedPayload.patches
+          : [],
+        content:
+          typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
+            ? normalizedPayload.content
+            : "I could not turn that request into a safe grounded edit, so no changes were applied.",
+      });
     },
     async tailorResume(input) {
       const payload = await fetchModelJson(

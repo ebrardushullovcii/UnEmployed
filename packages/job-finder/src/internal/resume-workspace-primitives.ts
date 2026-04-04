@@ -4,7 +4,7 @@ import type {
   ResumeDraftSourceRef,
   SavedJob,
 } from "@unemployed/contracts";
-import { normalizeText, uniqueStrings } from "./shared";
+import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 
 export function createBullet(
   id: string,
@@ -27,28 +27,28 @@ export function createBullet(
 export function toSectionKind(label: string): ResumeDraftSection["kind"] {
   const normalized = normalizeText(label);
 
-  if (normalized.includes("summary")) {
-    return "summary";
-  }
-
-  if (normalized.includes("skill")) {
-    return "skills";
-  }
-
-  if (normalized.includes("project")) {
-    return "projects";
-  }
-
-  if (normalized.includes("education")) {
-    return "education";
+  if (normalized.includes("keyword")) {
+    return "keywords";
   }
 
   if (normalized.includes("certification")) {
     return "certifications";
   }
 
-  if (normalized.includes("keyword")) {
-    return "keywords";
+  if (normalized.includes("education")) {
+    return "education";
+  }
+
+  if (normalized.includes("project")) {
+    return "projects";
+  }
+
+  if (normalized.includes("summary")) {
+    return "summary";
+  }
+
+  if (normalized.includes("skill")) {
+    return "skills";
   }
 
   return "experience";
@@ -97,7 +97,9 @@ export function createSourceRef(
   snippet: string | null,
 ): ResumeDraftSourceRef {
   return {
-    id: `resume_source_${sourceKind}_${sourceId ?? Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: createUniqueId(
+      `resume_source_${sourceKind}${sourceId ? `_${sourceId}` : ""}`,
+    ),
     sourceKind,
     sourceId,
     snippet,

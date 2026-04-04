@@ -227,8 +227,6 @@ export function createJobFinderWorkspaceService(
         throw new Error(`Unknown Job Finder job '${jobId}'.`);
       }
 
-      await repository.replaceSavedJobs(nextJobs);
-
       const previousJob = savedJobs.find((job) => job.id === jobId) ?? null;
       const nextJob = nextJobs.find((job) => job.id === jobId) ?? null;
 
@@ -237,11 +235,35 @@ export function createJobFinderWorkspaceService(
         nextJob &&
         hasResumeAffectingJobChange(previousJob, nextJob)
       ) {
-        await context.staleApprovedResumeDrafts(
-          "Saved job details changed after approval and the resume needs a fresh review.",
-          [jobId],
-        );
+        const staleReason =
+          "Saved job details changed after approval and the resume needs a fresh review.";
+        const [draft, tailoredAssets] = await Promise.all([
+          repository.getResumeDraftByJobId(jobId),
+          repository.listTailoredAssets(),
+        ]);
+
+        if (draft && (draft.approvedAt || draft.approvedExportId || draft.status === "approved")) {
+          const existingAsset =
+            tailoredAssets.find((asset) => asset.jobId === draft.jobId) ?? null;
+          const staleDraft = buildStaleResumeDraft(draft, staleReason);
+
+          await repository.replaceSavedJobsAndClearResumeApproval({
+            savedJobs: nextJobs,
+            draft: staleDraft,
+            staleReason,
+            tailoredAsset: existingAsset
+              ? {
+                  ...existingAsset,
+                  storagePath: null,
+                  updatedAt: staleDraft.updatedAt,
+                }
+              : null,
+          });
+          return;
+        }
       }
+
+      await repository.replaceSavedJobs(nextJobs);
     },
     ...(researchAdapter ? { researchAdapter } : {}),
   };

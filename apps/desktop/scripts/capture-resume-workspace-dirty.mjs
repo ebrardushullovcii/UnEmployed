@@ -49,7 +49,7 @@ async function clickAndDismissDialog(window, locator) {
 }
 
 function summaryField(window) {
-  return window.locator('textarea').first()
+  return window.getByLabel('Section Text').first()
 }
 
 function assistantField(window) {
@@ -120,18 +120,20 @@ async function captureResumeWorkspaceDirtyState() {
   await mkdir(outputDir, { recursive: true })
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-workspace-dirty-'))
 
-  const app = await electron.launch({
-    args: ['.'],
-    cwd: desktopDir,
-    env: {
-      ...process.env,
-      UNEMPLOYED_BROWSER_AGENT: '0',
-      UNEMPLOYED_ENABLE_TEST_API: '1',
-      UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
-    },
-  })
+  let app
 
   try {
+    app = await electron.launch({
+      args: ['.'],
+      cwd: desktopDir,
+      env: {
+        ...process.env,
+        UNEMPLOYED_BROWSER_AGENT: '0',
+        UNEMPLOYED_ENABLE_TEST_API: '1',
+        UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
+      },
+    })
+
     const window = await app.firstWindow()
     const results = {}
 
@@ -152,6 +154,7 @@ async function captureResumeWorkspaceDirtyState() {
     const assistantSentinel = 'Dirty assistant sentinel that should persist across a no-op assistant request.'
     await summaryField(window).fill(assistantSentinel)
     await assistantField(window).fill('Explain why this section was included.')
+    const previousAssistantMessageCount = (await getAssistantMessages(window)).length
     await window.getByRole('button', { name: 'Send' }).click()
     await waitForCondition(
       async () => {
@@ -160,7 +163,14 @@ async function captureResumeWorkspaceDirtyState() {
         const summaryText =
           workspace.draft.sections.find((section) => section.kind === 'summary')?.text ?? ''
         const lastMessage = messages.at(-1)
-        return summaryText === assistantSentinel && messages.length >= 2 && lastMessage?.role === 'assistant'
+        const sendButtonLabel = await window.getByRole('button', { name: /Send|Working/i }).textContent()
+        return (
+          summaryText === assistantSentinel &&
+          messages.length > previousAssistantMessageCount &&
+          lastMessage?.role === 'assistant' &&
+          lastMessage.content.trim().length > 0 &&
+          sendButtonLabel?.includes('Send')
+        )
       },
       'assistant messages after dirty save-before-send',
     )
@@ -248,7 +258,13 @@ async function captureResumeWorkspaceDirtyState() {
 
     await writeJson('dirty-state-results.json', results)
   } finally {
-    await app.close()
+    if (app) {
+      try {
+        await app.close()
+      } catch {
+        // Preserve the original failure while still cleaning up the temp profile.
+      }
+    }
     await rm(userDataDirectory, { recursive: true, force: true })
   }
 

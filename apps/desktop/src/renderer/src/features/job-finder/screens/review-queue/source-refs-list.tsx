@@ -27,7 +27,7 @@ export function SourceRefsList(props: {
             {formatSourceKindLabel(ref.sourceKind)}
           </p>
           {ref.sourceId ? (
-            <p className="mb-1 font-mono text-[10px] uppercase tracking-(--tracking-normal) text-muted-foreground">
+            <p className="mb-1 font-mono text-(length:--text-tiny) uppercase tracking-(--tracking-normal) text-muted-foreground">
               {ref.sourceId}
             </p>
           ) : null}

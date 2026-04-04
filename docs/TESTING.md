@@ -6,6 +6,7 @@
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm structure:check`
+- `pnpm agents:sync`
 - `pnpm agents:check`
 - `pnpm docs:check`
 

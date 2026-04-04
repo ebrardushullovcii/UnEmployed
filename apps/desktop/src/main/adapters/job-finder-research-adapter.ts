@@ -33,13 +33,6 @@ export function createDesktopResumeResearchAdapter(
   const maxPages = options.maxPages ?? 3;
   const maxBytes = options.maxBytes ?? 250_000;
   const timeoutMs = options.timeoutMs ?? 6_000;
-  const extractReadablePageTyped = extractReadablePage as unknown as (input: {
-    url: string;
-    html: string;
-  }) => unknown;
-  const extractResearchSignalsTyped = extractResearchSignals as unknown as (
-    text: string,
-  ) => unknown;
 
   return {
     async fetchResearchPages(input) {
@@ -51,13 +44,13 @@ export function createDesktopResumeResearchAdapter(
         try {
           const responseText = await fetchPage(sourceUrl, fetchImpl, timeoutMs, maxBytes);
           const readable = normalizeReadableResearchPage(
-            extractReadablePageTyped({
+            extractReadablePage({
               url: sourceUrl,
               html: responseText,
             }),
           );
           const signals = normalizeResearchSignals(
-            extractResearchSignalsTyped(readable.text),
+            extractResearchSignals(readable.text),
           );
 
           artifacts.push({
@@ -158,7 +151,11 @@ function deriveEmployerRoot(job: SavedJob): string | null {
     return `https://${employerDomain}`;
   }
 
-  return canonicalHost && !isLikelyJobBoardHost(canonicalHost) ? canonicalOrigin : null;
+  if (canonicalHost && !isLikelyJobBoardHost(canonicalHost) && canonicalOrigin) {
+    return canonicalOrigin;
+  }
+
+  return null;
 }
 
 function safeHostname(value: string): string | null {
@@ -183,37 +180,37 @@ function safeOrigin(value: string): string | null {
   }
 }
 
-function normalizeReadableResearchPage(value: unknown): ReadableResearchPage {
+function normalizeReadableResearchPage(
+  value: ReturnType<typeof extractReadablePage>,
+): ReadableResearchPage {
   if (!value || typeof value !== "object") {
     throw new Error("Readable research page result was invalid.");
   }
 
-  const candidate = value as Record<string, unknown>;
-
   return {
-    title: typeof candidate.title === "string" ? candidate.title : null,
-    text: typeof candidate.text === "string" ? candidate.text : "",
+    title: typeof value.title === "string" ? value.title : null,
+    text: typeof value.text === "string" ? value.text : "",
   };
 }
 
-function normalizeResearchSignals(value: unknown): ResearchSignals {
+function normalizeResearchSignals(
+  value: ReturnType<typeof extractResearchSignals>,
+): ResearchSignals {
   if (!value || typeof value !== "object") {
     throw new Error("Research signals result was invalid.");
   }
 
-  const candidate = value as Record<string, unknown>;
-
   return {
     companyNotes:
-      typeof candidate.companyNotes === "string" ? candidate.companyNotes : null,
-    domainVocabulary: Array.isArray(candidate.domainVocabulary)
-      ? candidate.domainVocabulary.filter(
-          (entry): entry is string => typeof entry === "string",
+      typeof value.companyNotes === "string" ? value.companyNotes : null,
+    domainVocabulary: Array.isArray(value.domainVocabulary)
+      ? value.domainVocabulary.filter(
+          (entry: unknown): entry is string => typeof entry === "string",
         )
       : [],
-    priorityThemes: Array.isArray(candidate.priorityThemes)
-      ? candidate.priorityThemes.filter(
-          (entry): entry is string => typeof entry === "string",
+    priorityThemes: Array.isArray(value.priorityThemes)
+      ? value.priorityThemes.filter(
+          (entry: unknown): entry is string => typeof entry === "string",
         )
       : [],
   };

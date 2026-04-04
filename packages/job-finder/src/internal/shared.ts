@@ -32,3 +32,12 @@ export function uniqueStrings(values: readonly string[]): string[] {
   });
 }
 
+export function createUniqueId(prefix: string): string {
+  const suffix =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  return `${prefix}_${suffix}`;
+}
+

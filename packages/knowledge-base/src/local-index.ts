@@ -177,6 +177,7 @@ export function createLocalKnowledgeIndex(
     },
     clear() {
       storedDocuments.clear();
+      indexedChunks = new Map<string, IndexedChunk>();
       miniSearch = createMiniSearch();
     },
   };

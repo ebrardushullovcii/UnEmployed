@@ -35,6 +35,12 @@ export interface JobFinderRepository {
   ): Promise<void>;
   listSavedJobs(): Promise<readonly SavedJob[]>;
   replaceSavedJobs(savedJobs: readonly SavedJob[]): Promise<void>;
+  replaceSavedJobsAndClearResumeApproval(input: {
+    savedJobs: readonly SavedJob[];
+    draft: ResumeDraft;
+    staleReason: string;
+    tailoredAsset?: TailoredAsset | null;
+  }): Promise<void>;
   listTailoredAssets(): Promise<readonly TailoredAsset[]>;
   upsertTailoredAsset(tailoredAsset: TailoredAsset): Promise<void>;
   listResumeDrafts(): Promise<readonly ResumeDraft[]>;

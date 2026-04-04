@@ -26,6 +26,8 @@ interface ResumeWorkspaceEditorPanelProps {
 }
 
 export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProps) {
+  const exportIdToApprove = props.availableExportIdToApprove
+
   return (
     <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-(--surface-panel-border) p-4">
@@ -80,16 +82,12 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
             Clear Approval
           </Button>
         ) : null}
-        {!props.approvedExportId && props.availableExportIdToApprove ? (
+        {!props.approvedExportId && exportIdToApprove ? (
           <Button
             disabled={props.busy}
             onClick={() =>
               props.runWithSavedDraft(
-                () =>
-                  props.onApproveResume(
-                    props.jobId,
-                    props.availableExportIdToApprove as string,
-                  ),
+                () => props.onApproveResume(props.jobId, exportIdToApprove),
                 'Resume draft saved before approval.',
               )
             }
@@ -130,10 +128,10 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
 
       <div className="border-t border-(--surface-panel-border) px-4 py-3">
         {props.actionMessage ? (
-          <p className="font-mono text-[10px] uppercase tracking-(--tracking-normal) text-primary">
+          <p className="font-mono text-(length:--text-tiny) uppercase tracking-(--tracking-normal) text-primary">
             {props.actionMessage}
           </p>
-        ) : <div className="h-[14px]" />}
+        ) : <div className="h-3.5" />}
       </div>
     </section>
   )

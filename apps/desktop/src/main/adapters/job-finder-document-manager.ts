@@ -235,7 +235,7 @@ function renderTemplateHtml(input: Parameters<JobFinderDocumentManager['renderRe
 </html>`
 }
 
-async function renderPdfFromHtml(html: string, targetPath: string): Promise<void> {
+async function renderPdfFromHtml(html: string, htmlPath: string, targetPath: string): Promise<void> {
   const exportWindow = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -246,7 +246,8 @@ async function renderPdfFromHtml(html: string, targetPath: string): Promise<void
   })
 
   try {
-    await exportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    await writeFile(htmlPath, html, 'utf8')
+    await exportWindow.loadFile(htmlPath)
     await exportWindow.webContents.executeJavaScript(
       "new Promise((resolve) => { if (document.fonts?.ready) { document.fonts.ready.finally(resolve); } else { resolve(); } })",
       true,
@@ -287,8 +288,6 @@ export function createLocalJobFinderDocumentManager(
       const htmlPath = path.join(options.outputDirectory, htmlFileName)
       const html = renderTemplateHtml(input)
 
-      await writeFile(htmlPath, html, 'utf8')
-
       const requestedFormat = input.settings.resumeFormat === 'html' ? 'html' : 'pdf'
 
       if (requestedFormat === 'html') {
@@ -305,7 +304,7 @@ export function createLocalJobFinderDocumentManager(
 
       const pdfFileName = `${artifactBaseName}.pdf`
       const pdfPath = input.targetPath ?? path.join(options.outputDirectory, pdfFileName)
-      await renderPdfFromHtml(html, pdfPath)
+      await renderPdfFromHtml(html, htmlPath, pdfPath)
       const pageCount = await getPdfPageCount(pdfPath)
       const warnings = [
         ...(pageCount > 2 ? ['Exported resume exceeds the 2-page target.'] : []),

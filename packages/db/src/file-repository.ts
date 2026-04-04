@@ -58,6 +58,49 @@ function runImmediateTransaction<TValue>(
   }
 }
 
+function syncApprovedResumeExportsForJob(
+  database: DatabaseSync,
+  jobId: string,
+  approvedExportId: string | null = null,
+): void {
+  const currentArtifacts = listResumeDraftValues(
+    database,
+    "resume_export_artifacts",
+    ResumeExportArtifactSchema,
+    {
+      whereSql: "job_id = ?",
+      params: [jobId],
+      orderBySql: "exported_at DESC, id ASC",
+    },
+  );
+
+  for (const artifact of currentArtifacts) {
+    const shouldBeApproved = approvedExportId !== null && artifact.id === approvedExportId;
+
+    if (artifact.isApproved === shouldBeApproved) {
+      continue;
+    }
+
+    upsertIndexedCollectionValue(database, "resume_export_artifacts", {
+      ...artifact,
+      isApproved: shouldBeApproved,
+    } as { id: string }, {
+      columnNames: ["job_id", "draft_id", "exported_at", "is_approved"],
+      getColumns: (candidate) => {
+        const normalizedArtifact = ResumeExportArtifactSchema.parse(
+          cloneValue(candidate),
+        );
+        return [
+          normalizedArtifact.jobId,
+          normalizedArtifact.draftId,
+          normalizedArtifact.exportedAt,
+          normalizedArtifact.isApproved ? 1 : 0,
+        ];
+      },
+    });
+  }
+}
+
 export async function createFileJobFinderRepository(
   options: FileJobFinderRepositoryOptions,
 ): Promise<JobFinderRepository> {
@@ -362,6 +405,32 @@ export async function createFileJobFinderRepository(
         state.savedJobs = normalizedJobs;
       });
     },
+    replaceSavedJobsAndClearResumeApproval({
+      savedJobs,
+      draft,
+      staleReason,
+      tailoredAsset,
+    }) {
+      const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue({ ...draft, staleReason }),
+      );
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+
+      runImmediateTransaction(database, () => {
+        replaceCollection(database, "saved_jobs", normalizedJobs);
+        syncApprovedResumeExportsForJob(database, normalizedDraft.jobId, null);
+
+        writePersistedValue("resume_drafts", normalizedDraft);
+        if (normalizedAsset) {
+          writePersistedValue("tailored_assets", normalizedAsset);
+        }
+      });
+
+      return secureDatabaseFile(options.filePath);
+    },
     listTailoredAssets() {
       return Promise.resolve(
         cloneValue(readState(database, normalizedSeed).tailoredAssets),
@@ -540,11 +609,7 @@ export async function createFileJobFinderRepository(
 
       runImmediateTransaction(database, () => {
         if (!normalizedDraft.approvedExportId) {
-          database
-            .prepare(
-              "UPDATE resume_export_artifacts SET is_approved = 0 WHERE job_id = ?",
-            )
-            .run(normalizedDraft.jobId);
+          syncApprovedResumeExportsForJob(database, normalizedDraft.jobId, null);
         }
 
         writePersistedValue("resume_drafts", normalizedDraft);
@@ -570,11 +635,7 @@ export async function createFileJobFinderRepository(
 
       runImmediateTransaction(database, () => {
         if (!normalizedDraft.approvedExportId) {
-          database
-            .prepare(
-              "UPDATE resume_export_artifacts SET is_approved = 0 WHERE job_id = ?",
-            )
-            .run(normalizedDraft.jobId);
+          syncApprovedResumeExportsForJob(database, normalizedDraft.jobId, null);
         }
 
         writePersistedValue("resume_drafts", normalizedDraft);
@@ -600,12 +661,11 @@ export async function createFileJobFinderRepository(
         : null;
 
       runImmediateTransaction(database, () => {
-        database
-          .prepare(
-            "UPDATE resume_export_artifacts SET is_approved = 0 WHERE job_id = ?",
-          )
-          .run(normalizedArtifact.jobId);
-
+        syncApprovedResumeExportsForJob(
+          database,
+          normalizedArtifact.jobId,
+          normalizedArtifact.id,
+        );
         writePersistedValue("resume_drafts", normalizedDraft);
         writePersistedValue("resume_export_artifacts", normalizedArtifact);
         if (normalizedValidation) {
@@ -627,11 +687,7 @@ export async function createFileJobFinderRepository(
         : null;
 
       runImmediateTransaction(database, () => {
-        database
-          .prepare(
-            "UPDATE resume_export_artifacts SET is_approved = 0 WHERE job_id = ?",
-          )
-          .run(normalizedDraft.jobId);
+        syncApprovedResumeExportsForJob(database, normalizedDraft.jobId, null);
 
         writePersistedValue("resume_drafts", normalizedDraft);
         if (normalizedAsset) {

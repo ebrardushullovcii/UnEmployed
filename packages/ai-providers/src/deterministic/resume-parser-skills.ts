@@ -43,7 +43,7 @@ export function inferSkills(
   const sectionSkills = uniqueStrings([...nonNestedMatchedSkills, ...rawSectionSkills]);
 
   if (sectionSkills.length > 0) {
-    return uniqueStrings(sectionSkills);
+    return sectionSkills;
   }
 
   const lowerText = resumeText.toLowerCase();

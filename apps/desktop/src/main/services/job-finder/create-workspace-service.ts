@@ -12,6 +12,8 @@ import { createDesktopResumeResearchAdapter } from '../../adapters/job-finder-re
 import { getBrowserAgentProfileDirectory, getGeneratedResumeDocumentsDirectory, getJobFinderWorkspaceFilePath } from './paths'
 import { isBrowserAgentEnabled, isBrowserHeadlessEnabled, isDesktopTestApiEnabled } from './test-api'
 
+const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
+
 export async function createJobFinderWorkspaceServiceAsync() {
   const jobFinderRepository = await createFileJobFinderRepository({
     filePath: getJobFinderWorkspaceFilePath(),
@@ -50,7 +52,9 @@ export async function createJobFinderWorkspaceServiceAsync() {
             detail: isDesktopTestApiEnabled()
               ? 'Deterministic desktop test runtime is ready.'
               : 'Deterministic catalog runtime is ready.',
-            lastCheckedAt: new Date().toISOString()
+            lastCheckedAt: isDesktopTestApiEnabled()
+              ? deterministicTestTimestamp
+              : new Date().toISOString()
           }
         ],
         catalog: []

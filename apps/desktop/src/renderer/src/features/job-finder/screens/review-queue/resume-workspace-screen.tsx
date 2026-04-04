@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   JobFinderResumeWorkspace,
   ResumeAssistantMessage,
@@ -14,6 +14,18 @@ import { ResumeWorkspaceSidebar } from "./resume-workspace-sidebar";
 import {
   cloneDraft,
 } from "./resume-workspace-utils";
+
+function getNewestExport(
+  exports: JobFinderResumeWorkspace["exports"],
+  draftId: string,
+) {
+  return exports
+    .filter((entry) => entry.draftId === draftId)
+    .sort(
+      (left, right) =>
+        new Date(right.exportedAt).getTime() - new Date(left.exportedAt).getTime(),
+    )[0] ?? null;
+}
 
 export function ResumeWorkspaceScreen(props: {
   actionMessage: string | null;
@@ -47,15 +59,27 @@ export function ResumeWorkspaceScreen(props: {
     setDraft(props.workspace ? cloneDraft(props.workspace.draft) : null);
   }, [props.workspace]);
 
-  const hasUnsavedChanges = useMemo(
-    () =>
-      draft !== null && props.workspace !== null
-        ? JSON.stringify(draft) !== JSON.stringify(props.workspace.draft)
-        : false,
-    [draft, props.workspace],
+  const serializedDraft = useMemo(
+    () => (draft ? JSON.stringify(draft) : null),
+    [draft],
+  );
+  const serializedWorkspaceDraft = useMemo(
+    () => (props.workspace ? JSON.stringify(props.workspace.draft) : null),
+    [props.workspace],
   );
 
+  const hasUnsavedChanges =
+    serializedDraft !== null && serializedWorkspaceDraft !== null
+      ? serializedDraft !== serializedWorkspaceDraft
+      : false;
+  const lastDirtyValueRef = useRef<boolean | null>(null);
+
   useEffect(() => {
+    if (lastDirtyValueRef.current === hasUnsavedChanges) {
+      return;
+    }
+
+    lastDirtyValueRef.current = hasUnsavedChanges;
     props.onDirtyChange(hasUnsavedChanges);
   }, [hasUnsavedChanges, props.onDirtyChange]);
 
@@ -86,8 +110,18 @@ export function ResumeWorkspaceScreen(props: {
   }
 
   const { job, research, validation } = props.workspace;
-  const availableExportToApprove =
-    props.workspace.exports.find((entry) => entry.draftId === draft.id) ?? null;
+  const availableExportToApprove = (() => {
+    const newestExport = getNewestExport(props.workspace.exports, props.workspace.draft.id);
+
+    if (!newestExport) {
+      return null;
+    }
+
+    return new Date(newestExport.exportedAt).getTime() >=
+      new Date(props.workspace.draft.updatedAt).getTime()
+      ? newestExport
+      : null;
+  })();
 
   function runWithSavedDraft(next: () => void, successMessage?: string | null) {
     if (hasUnsavedChanges) {

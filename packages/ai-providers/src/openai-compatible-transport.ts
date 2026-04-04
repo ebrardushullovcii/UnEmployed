@@ -51,10 +51,21 @@ function extractContentString(rawContent: unknown): string {
 }
 
 function extractJsonString(rawContent: string): string {
-  const fencedMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const fencedMatches = [...rawContent.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)]
+    .map((match) => match[1]?.trim())
+    .filter((value): value is string => Boolean(value));
 
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
+  for (const candidate of fencedMatches) {
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch {
+      // Keep scanning fenced blocks until one parses as JSON.
+    }
+  }
+
+  if (fencedMatches[0]) {
+    return fencedMatches[0];
   }
 
   const firstBraceIndex = rawContent.indexOf("{");

@@ -45,11 +45,10 @@ function upsertById<TValue extends { id: string }>(
 function sortResumeDrafts<TValue extends { updatedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
-  return [...values].sort((left, right) => {
-    const updatedDelta =
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-    return updatedDelta !== 0 ? updatedDelta : 0;
-  });
+  return [...values].sort(
+    (left, right) =>
+      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+  );
 }
 
 function sortNewestFirst<TValue extends { createdAt: string }>(
@@ -95,6 +94,15 @@ function sortMessages<TValue extends { createdAt: string }>(
   return [...values].sort(
     (left, right) =>
       new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+  );
+}
+
+function clearApprovedResumeExportsForJob<TValue extends { jobId: string; isApproved: boolean }>(
+  values: readonly TValue[],
+  jobId: string,
+): TValue[] {
+  return values.map((entry) =>
+    entry.jobId === jobId ? { ...entry, isApproved: false } : entry,
   );
 }
 
@@ -161,6 +169,31 @@ export function createInMemoryJobFinderRepository(
     },
     replaceSavedJobs(savedJobs) {
       state.savedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
+      return Promise.resolve();
+    },
+    replaceSavedJobsAndClearResumeApproval({
+      savedJobs,
+      draft,
+      staleReason,
+      tailoredAsset,
+    }) {
+      const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue({ ...draft, staleReason }),
+      );
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+
+      state.savedJobs = normalizedJobs;
+      state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+        state.resumeExportArtifacts,
+        normalizedDraft.jobId,
+      );
+      if (normalizedAsset) {
+        state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
+      }
       return Promise.resolve();
     },
     listTailoredAssets() {
@@ -280,10 +313,9 @@ export function createInMemoryJobFinderRepository(
       );
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
       if (!normalizedDraft.approvedExportId) {
-        state.resumeExportArtifacts = state.resumeExportArtifacts.map((entry) =>
-          entry.jobId === normalizedDraft.jobId
-            ? { ...entry, isApproved: false }
-            : entry,
+        state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+          state.resumeExportArtifacts,
+          normalizedDraft.jobId,
         );
       }
       state.resumeValidationResults = upsertById(
@@ -306,10 +338,9 @@ export function createInMemoryJobFinderRepository(
       );
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
       if (!normalizedDraft.approvedExportId) {
-        state.resumeExportArtifacts = state.resumeExportArtifacts.map((entry) =>
-          entry.jobId === normalizedDraft.jobId
-            ? { ...entry, isApproved: false }
-            : entry,
+        state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+          state.resumeExportArtifacts,
+          normalizedDraft.jobId,
         );
       }
       state.resumeDraftRevisions = upsertById(
@@ -360,10 +391,9 @@ export function createInMemoryJobFinderRepository(
         cloneValue({ ...draft, staleReason }),
       );
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
-      state.resumeExportArtifacts = state.resumeExportArtifacts.map((entry) =>
-        entry.jobId === normalizedDraft.jobId
-          ? { ...entry, isApproved: false }
-          : entry,
+      state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+        state.resumeExportArtifacts,
+        normalizedDraft.jobId,
       );
       if (tailoredAsset) {
         const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));

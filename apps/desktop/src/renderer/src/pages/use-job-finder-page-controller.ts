@@ -114,7 +114,21 @@ export function useJobFinderPageController() {
       try {
         setActionState({ busy: true, message: null });
         const result = await action();
-        await onSuccess(result);
+
+        try {
+          await onSuccess(result);
+        } catch (error) {
+          const detail =
+            error instanceof Error
+              ? error.message
+              : "The workspace view could not refresh automatically.";
+          setActionState({
+            busy: false,
+            message: `Action completed, but the current view could not refresh automatically. ${detail}`,
+          });
+          return;
+        }
+
         setActionState({
           busy: false,
           message:
@@ -142,7 +156,21 @@ export function useJobFinderPageController() {
       try {
         setActionState({ busy: true, message: null });
         const result = await action();
-        await onSuccess(result);
+
+        try {
+          await onSuccess(result);
+        } catch (error) {
+          const detail =
+            error instanceof Error
+              ? error.message
+              : "The resume workspace could not refresh automatically.";
+          setActionState({
+            busy: false,
+            message: `Resume action completed, but the workspace could not refresh automatically. ${detail}`,
+          });
+          return;
+        }
+
         setActionState({ busy: false, message: successMessage });
       } catch (error) {
         const message =
@@ -194,6 +222,11 @@ export function useJobFinderPageController() {
         (item) => item.jobId === activeResumeWorkspaceJobId,
       )
     ) {
+      setActionState({
+        busy: false,
+        message:
+          "The selected resume workspace is no longer available. Review Queue is shown instead.",
+      });
       void navigate("/job-finder/review-queue", { replace: true });
       return () => {
         cancelled = true;
@@ -210,8 +243,15 @@ export function useJobFinderPageController() {
           setSelectedReviewJobId(activeResumeWorkspaceJobId);
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
+          setActionState({
+            busy: false,
+            message:
+              error instanceof Error
+                ? `Resume workspace could not be loaded. ${error.message}`
+                : "Resume workspace could not be loaded. Review Queue is shown instead.",
+          });
           void navigate("/job-finder/review-queue", { replace: true });
         }
       });
@@ -302,7 +342,7 @@ export function useJobFinderPageController() {
         "Saved job archived from discovery.",
       ),
     onEditResumeWorkspace: (jobId: string) => {
-      if (!jobId && !confirmLeaveDirtyResumeWorkspace()) {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
         return;
       }
 
@@ -538,21 +578,34 @@ export function useJobFinderPageController() {
 
         try {
           const messages = await actions.sendResumeAssistantMessage(jobId, content);
-          const nextWorkspace = await actions.getResumeWorkspace(jobId);
           const assistantReply = [...messages]
             .reverse()
             .find((message) => message.role === "assistant");
           const appliedCount = assistantReply?.patches.length ?? 0;
 
           setResumeAssistantMessages(messages);
-          setResumeWorkspace(nextWorkspace);
           setResumeAssistantPending(false);
+
+          let refreshMessage: string | null = null;
+
+          try {
+            const nextWorkspace = await actions.getResumeWorkspace(jobId);
+            setResumeWorkspace(nextWorkspace);
+          } catch (error) {
+            refreshMessage =
+              error instanceof Error
+                ? error.message
+                : "The workspace could not refresh automatically.";
+          }
+
           setActionState({
             busy: false,
             message:
-              appliedCount > 0
-                ? `Assistant finished and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}.`
-                : "Assistant finished and shared a reply with no direct resume changes.",
+              refreshMessage !== null
+                ? `Assistant finished${appliedCount > 0 ? ` and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}` : ""}, but the workspace could not refresh automatically. ${refreshMessage}`
+                : appliedCount > 0
+                  ? `Assistant finished and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}.`
+                  : "Assistant finished and shared a reply with no direct resume changes.",
           });
         } catch (error) {
           const message =

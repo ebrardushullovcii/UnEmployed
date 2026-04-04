@@ -313,7 +313,7 @@ export function normalizeExtractedJobs(input: {
 
   if (skippedJobs > 0) {
     console.warn(
-      `[AI Provider] Model returned ${rawJobs.length} job candidates on ${input.pageHostLabel}; extracted ${parsedJobs.length} valid jobs and skipped ${skippedJobs} invalid jobs. Top invalid fields: ${describeInvalidFieldCounts(invalidFieldCounts)}`,
+      `[AI Provider] Model returned ${rawJobCandidates.length} job candidates on ${input.pageHostLabel}; extracted ${parsedJobs.length} valid jobs and skipped ${skippedJobs} invalid jobs. Top invalid fields: ${describeInvalidFieldCounts(invalidFieldCounts)}`,
     );
 
     if (invalidSamples.length > 0) {

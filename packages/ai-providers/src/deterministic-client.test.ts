@@ -11,9 +11,9 @@ describe('deterministic ai client', () => {
       existingSearchPreferences: createPreferences(),
       resumeText:
         [
-          'Ebrar Dushullovci',
-          'Date of birth: 04/07/1998 Nationality: Kosovar Phone: (+383) 44283970 (Mobile) Email:',
-          'ebrar.dushullovci@gmail.com Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/',
+          'Ari Devlin',
+          'Date of birth: 04/07/1998 Nationality: Kosovar Phone: (+383) 44000000 (Mobile) Email:',
+          'ari.devlin@example.test Website: https://www.linkedin.com/in/ari-devlin-example/',
           'Address: Prishtina, Kosovo (Home)',
           'ABOUT MYSELF',
           'A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js,',
@@ -30,16 +30,16 @@ describe('deterministic ai client', () => {
         ].join('\n')
     })
 
-    expect(result.firstName).toBe('Ebrar')
-    expect(result.lastName).toBe('Dushullovci')
-    expect(result.fullName).toBe('Ebrar Dushullovci')
+    expect(result.firstName).toBe('Ari')
+    expect(result.lastName).toBe('Devlin')
+    expect(result.fullName).toBe('Ari Devlin')
     expect(result.headline).toBe('React/Next.js Developer')
     expect(result.currentLocation).toBe('Prishtina, Kosovo')
     expect(result.summary).toContain('A passionate software developer with 6+ years of full-stack experience')
-    expect(result.email).toBe('ebrar.dushullovci@gmail.com')
-    expect(result.phone).toBe('(+383) 44283970')
+    expect(result.email).toBe('ari.devlin@example.test')
+    expect(result.phone).toBe('(+383) 44000000')
     expect(result.portfolioUrl).toBeNull()
-    expect(result.linkedinUrl).toBe('https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/')
+    expect(result.linkedinUrl).toBe('https://www.linkedin.com/in/ari-devlin-example/')
     expect(result.targetRoles).toEqual(['React/Next.js Developer'])
     expect(result.preferredLocations).toEqual(['Prishtina, Kosovo'])
     expect(result.analysisProviderKind).toBe('deterministic')
@@ -104,9 +104,9 @@ describe('deterministic ai client', () => {
       existingProfile: createProfile(),
       existingSearchPreferences: createPreferences(),
       resumeText: [
-        'Ebrar Dushullovci',
-        'Date of birth: 04/07/1998 Nationality: Kosovar Phone: (+383) 44283970 (Mobile) Email:',
-        'ebrar.dushullovci@gmail.com Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/',
+        'Ari Devlin',
+        'Date of birth: 04/07/1998 Nationality: Kosovar Phone: (+383) 44000000 (Mobile) Email:',
+        'ari.devlin@example.test Website: https://www.linkedin.com/in/ari-devlin-example/',
         'Address: Prishtina, Kosovo (Home)',
         'ABOUT MYSELF',
         'A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and Azure.',

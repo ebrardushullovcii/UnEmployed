@@ -529,8 +529,55 @@ describe("createJobFinderWorkspaceService", () => {
 
     const reviewItem = snapshot.reviewQueue.find((item) => item.jobId === "job_ready");
 
-    expect(reviewItem?.resumeIsStale).toBe(true);
-    expect(reviewItem?.resumeDraftStatus).toBe("stale");
+    expect(reviewItem?.resumeReview.status).toBe("stale");
+  });
+
+  test("blocks full-draft regeneration when locked resume content exists", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+
+    await workspaceService.saveResumeDraft({
+      ...workspace.draft,
+      sections: workspace.draft.sections.map((section, index) =>
+        index === 0 ? { ...section, locked: true } : section,
+      ),
+    });
+
+    await expect(workspaceService.regenerateResumeDraft("job_ready")).rejects.toThrow(
+      /unlock pinned resume sections or bullets/i,
+    );
+  });
+
+  test("blocks section regeneration when the target section has locked content", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const targetSection =
+      workspace.draft.sections.find((section) => section.bullets.length > 0) ??
+      workspace.draft.sections[0];
+
+    expect(targetSection).toBeTruthy();
+
+    await workspaceService.saveResumeDraft({
+      ...workspace.draft,
+      sections: workspace.draft.sections.map((section) =>
+        section.id === targetSection!.id
+          ? {
+              ...section,
+              bullets: section.bullets.map((bullet, index) =>
+                index === 0 ? { ...bullet, locked: true } : bullet,
+              ),
+            }
+          : section,
+      ),
+    });
+
+    await expect(
+      workspaceService.regenerateResumeSection("job_ready", targetSection!.id),
+    ).rejects.toThrow(/unlock the .* section before regenerating it/i);
   });
 
   test("rejects apply approval when the approved export file is missing on disk", async () => {

@@ -79,20 +79,21 @@ export function DiscoveryResultsPanel({
 
       {jobs.length > 0 ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
-          <ul className="m-0 grid min-h-full list-none content-start gap-3 p-0">
+          <ul aria-label="Saved results" className="m-0 grid min-h-full list-none content-start gap-3 p-0" role="listbox">
             {jobs.map((job) => {
               const isSelected = selectedJob?.id === job.id
 
               return (
                 <li key={job.id} className="min-w-0">
                   <button
-                    aria-pressed={isSelected}
+                    aria-selected={isSelected}
                     className={cn(
                       baseButtonClasses,
                       'w-full',
                       isSelected ? 'surface-card-tint' : 'bg-transparent hover:bg-(--surface-panel-raised)'
                     )}
                     onClick={() => onSelectJob(job.id)}
+                    role="option"
                     type="button"
                   >
                     <div className="flex items-start justify-between gap-3">

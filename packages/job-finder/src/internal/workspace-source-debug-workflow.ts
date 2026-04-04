@@ -274,7 +274,7 @@ export async function runSourceDebugWorkflow(
               capturedAt: new Date().toISOString(),
               url: job.canonicalUrl,
               storagePath: null,
-              excerpt: job.summary ?? job.description,
+              excerpt: job.summary ?? job.description ?? null,
             }),
           ),
         ];

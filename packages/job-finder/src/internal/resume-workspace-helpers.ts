@@ -21,7 +21,7 @@ import {
   type TailoredAsset,
 } from "@unemployed/contracts";
 import { createLocalKnowledgeIndex } from "@unemployed/knowledge-base";
-import { normalizeText, uniqueStrings } from "./shared";
+import { createUniqueId, normalizeText, tokenize, uniqueStrings } from "./shared";
 import {
   buildJobContextText,
   buildPriorityJobTerms,
@@ -43,6 +43,40 @@ export interface ResumeWorkspaceResearchContext {
   companyNotes: readonly string[];
   domainVocabulary: readonly string[];
   priorityThemes: readonly string[];
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildSeededSectionId(
+  heading: string,
+  index: number,
+  counts: Map<string, number>,
+): string {
+  const slug = normalizeText(heading).replaceAll(" ", "_") || `${index + 1}`;
+  const nextCount = (counts.get(slug) ?? 0) + 1;
+  counts.set(slug, nextCount);
+
+  return nextCount === 1 ? `section_${slug}` : `section_${slug}_${nextCount}`;
+}
+
+function matchesWholePhrase(candidate: string, phrase: string): boolean {
+  const desiredTokens = tokenize(phrase);
+
+  if (desiredTokens.length === 0) {
+    return false;
+  }
+
+  const candidateTokens = new Set(tokenize(candidate));
+
+  if (desiredTokens.length === 1) {
+    return candidateTokens.has(desiredTokens[0] ?? "");
+  }
+
+  return new RegExp(
+    `(^|\\s)${escapeRegex(normalizeText(phrase))}($|\\s)`,
+  ).test(normalizeText(candidate));
 }
 
 export function buildPreviewSectionsFromResumeDraft(
@@ -170,6 +204,7 @@ export function seedResumeDraft(input: {
   const tailoredAsset = input.tailoredAsset;
 
   if (tailoredAsset) {
+    const sectionCounts = new Map<string, number>();
     const seededSections = tailoredAsset.previewSections
       .map((section, index) => {
         const kind = toSectionKind(section.heading);
@@ -177,7 +212,7 @@ export function seedResumeDraft(input: {
         const bullets = kind === "summary" ? section.lines.slice(1) : section.lines;
 
         return createSection({
-          id: `section_${normalizeText(section.heading).replaceAll(" ", "_") || index + 1}`,
+          id: buildSeededSectionId(section.heading, index, sectionCounts),
           kind,
           label: section.heading,
           text,
@@ -327,7 +362,7 @@ export function validateResumeDraft(input: {
   );
   const keywordTargets = buildPriorityJobTerms(input.job);
   const matchingKeywords = keywordTargets.filter((skill) =>
-    visibleText.includes(normalizeText(skill)),
+    matchesWholePhrase(visibleText, skill),
   );
 
   if (keywordTargets.length > 0 && matchingKeywords.length === 0) {
@@ -383,7 +418,7 @@ export function buildResumeDraftRevision(input: {
   reason?: string | null;
 }): ResumeDraftRevision {
   return ResumeDraftRevisionSchema.parse({
-    id: `resume_revision_${input.draft.id}_${Date.now()}`,
+    id: createUniqueId(`resume_revision_${input.draft.id}`),
     draftId: input.draft.id,
     snapshotSections: input.draft.sections,
     createdAt: input.createdAt,
@@ -400,7 +435,7 @@ export function buildResumeExportArtifact(input: {
   isApproved?: boolean;
 }): ResumeExportArtifact {
   return ResumeExportArtifactSchema.parse({
-    id: `resume_export_${input.job.id}_${Date.now()}`,
+    id: createUniqueId(`resume_export_${input.job.id}`),
     draftId: input.draft.id,
     jobId: input.job.id,
     format: "pdf",
@@ -424,7 +459,8 @@ export function buildTailoredAssetBridge(input: {
   compatibilityScore?: number | null;
 }): TailoredAsset {
   const updatedAt = input.draft.updatedAt;
-  const shouldClearStoragePath = input.clearStoragePath ?? false;
+  const shouldClearStoragePath =
+    (input.clearStoragePath ?? false) || input.draft.status === "stale";
   const resolvedStoragePath = shouldClearStoragePath
     ? null
     : input.storagePath ?? input.existingAsset?.storagePath ?? null;
@@ -467,7 +503,7 @@ export function buildTailoredAssetBridge(input: {
 
 export function buildUnavailableAssistantReply(jobId: string): ResumeAssistantMessage {
   return ResumeAssistantMessageSchema.parse({
-    id: `resume_message_assistant_${jobId}_${Date.now()}`,
+    id: createUniqueId(`resume_message_assistant_${jobId}`),
     jobId,
     role: "assistant",
     content:
@@ -483,7 +519,7 @@ export function buildAssistantReplyMessage(input: {
   patches: readonly ResumeDraftPatch[];
 }): ResumeAssistantMessage {
   return ResumeAssistantMessageSchema.parse({
-    id: `resume_message_assistant_${input.jobId}_${Date.now()}`,
+    id: createUniqueId(`resume_message_assistant_${input.jobId}`),
     jobId: input.jobId,
     role: "assistant",
     content: input.content,

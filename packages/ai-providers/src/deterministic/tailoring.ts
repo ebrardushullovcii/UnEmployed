@@ -12,6 +12,10 @@ import type {
 import { ResumeAssistantReplySchema, TailoredResumeDraftSchema } from "../shared";
 import { clampScore, uniqueStrings } from "./utils";
 
+function createPatchId(prefix: string): string {
+  return `${prefix}_${typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`}`;
+}
+
 export function buildDeterministicResumeText(
   profile: CandidateProfile,
   job: JobPosting,
@@ -136,7 +140,7 @@ export function buildDeterministicResumeAssistantReply(
       summarySection.text ?? `${input.job.title} alignment summary`,
     );
     patches.push({
-      id: `assistant_patch_summary_${Date.now()}`,
+      id: createPatchId("assistant_patch_summary"),
       draftId: input.draft.id,
       operation: "replace_section_text",
       targetSectionId: summarySection.id,
@@ -157,7 +161,7 @@ export function buildDeterministicResumeAssistantReply(
     const targetBullet = experienceSection.bullets.find((bullet) => !bullet.locked) ?? null;
     if (targetBullet) {
       patches.push({
-        id: `assistant_patch_bullet_${Date.now()}`,
+        id: createPatchId("assistant_patch_bullet"),
         draftId: input.draft.id,
         operation: "update_bullet",
         targetSectionId: experienceSection.id,

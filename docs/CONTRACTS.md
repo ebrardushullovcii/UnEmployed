@@ -14,6 +14,7 @@
 - Candidate contact fields, stored resume text, extraction status, and provider-visible profile state
 - Job search preferences, approval mode, and tailoring mode
 - Job posting, adapter-driven discovery targets with optional per-target custom navigation instructions, target-level source-instruction status/ids, source-debug run and attempt artifacts, per-phase completion modes and lightweight phase-evidence payloads, evidence refs, retained discovery runs, activity timeline events, fit assessment, discovery provenance, and review queue items, plus learned navigation/search/detail/apply guidance artifacts for each target; live discovery/apply consumes only the active instruction artifact for that exact target (the newest bound `draft`, or `validated` when no newer draft is present)
+- Review Queue resume-review state is modeled as a typed discriminated object instead of loosely related approval or stale fields, so renderer and service code can reason about `not_started`, `draft`, `needs_review`, `stale`, and `approved` states consistently
 - Fixed resume template definitions, selected template settings, and template-driven tailored resume asset metadata
 - Tailored resume asset metadata, stored content, preview sections, generation-method notes, and saved artifact paths
 - Application record, event timeline, attempt checkpoints, and apply execution results

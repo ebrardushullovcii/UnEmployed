@@ -36,7 +36,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
   function handleSend() {
     const nextInput = assistantInput.trim();
 
-    if (props.busy || nextInput.length === 0) {
+    if (props.busy || props.assistantPending || nextInput.length === 0) {
       return;
     }
 
@@ -70,7 +70,13 @@ export function ResumeWorkspaceSecondaryRail(props: {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4" ref={transcriptScrollRef}>
+        <div
+          aria-live="polite"
+          aria-relevant="additions text"
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4"
+          ref={transcriptScrollRef}
+          role="log"
+        >
           {props.assistantMessages.length ? (
             <div className="grid content-start gap-3">
               {props.assistantMessages.map((message) => {

@@ -83,6 +83,55 @@ const assetStatusPriority: Record<AssetStatus, number> = {
   not_started: 4,
 };
 
+function getLatestApprovedExport(
+  current: ResumeExportArtifact | null,
+  candidate: ResumeExportArtifact,
+): ResumeExportArtifact {
+  if (!current) {
+    return candidate;
+  }
+
+  return new Date(candidate.exportedAt).getTime() >
+    new Date(current.exportedAt).getTime()
+    ? candidate
+    : current;
+}
+
+function buildResumeReviewState(
+  draft: ResumeDraft | null,
+  approvedExport: ResumeExportArtifact | null,
+): ReviewQueueItem["resumeReview"] {
+  if (!draft) {
+    return { status: "not_started" };
+  }
+
+  if (draft.status === "approved" && draft.approvedAt && approvedExport) {
+    return {
+      status: "approved",
+      approvedAt: draft.approvedAt,
+      approvedExportId: approvedExport.id,
+      approvedFormat: approvedExport.format,
+    };
+  }
+
+  if (draft.status === "stale") {
+    return {
+      status: "stale",
+      staleReason: draft.staleReason ?? null,
+    };
+  }
+
+  if (draft.status === "approved") {
+    return {
+      status: "needs_review",
+    };
+  }
+
+  return {
+    status: draft.status,
+  };
+}
+
 export interface MergeDiscoveryResult {
   mergedJobs: SavedJob[];
   newJobs: SavedJob[];
@@ -217,9 +266,17 @@ export function buildReviewQueue(
   const approvedExportsByJobId = new Map<string, ResumeExportArtifact>();
 
   for (const artifact of resumeExportArtifacts) {
-    if (artifact.isApproved && !approvedExportsByJobId.has(artifact.jobId)) {
-      approvedExportsByJobId.set(artifact.jobId, artifact);
+    if (!artifact.isApproved) {
+      continue;
     }
+
+    approvedExportsByJobId.set(
+      artifact.jobId,
+      getLatestApprovedExport(
+        approvedExportsByJobId.get(artifact.jobId) ?? null,
+        artifact,
+      ),
+    );
   }
 
   return savedJobs
@@ -228,6 +285,7 @@ export function buildReviewQueue(
       const asset = assetsByJobId.get(job.id) ?? null;
       const draft = draftsByJobId.get(job.id) ?? null;
       const approvedExport = approvedExportsByJobId.get(job.id) ?? null;
+      const resumeReview = buildResumeReviewState(draft, approvedExport);
       const updatedAtCandidates = [
         asset?.updatedAt,
         draft?.updatedAt,
@@ -245,13 +303,7 @@ export function buildReviewQueue(
         assetStatus: asset?.status ?? "not_started",
         progressPercent: asset?.progressPercent ?? null,
         resumeAssetId: asset?.id ?? null,
-        resumeDraftStatus: draft?.status ?? null,
-        resumeApprovedAt: draft?.approvedAt ?? null,
-        resumeIsStale:
-          draft?.status === "stale" || Boolean(draft?.staleReason),
-        approvedResumeExportId:
-          approvedExport?.id ?? draft?.approvedExportId ?? null,
-        approvedResumeFormat: approvedExport?.format ?? null,
+        resumeReview,
         updatedAt: updatedAtCandidates.sort().at(-1) ?? job.discoveredAt,
       };
     })

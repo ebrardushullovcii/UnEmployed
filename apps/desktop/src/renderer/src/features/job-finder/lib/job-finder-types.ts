@@ -78,6 +78,9 @@ export interface JobFinderShellActions {
     patch: ResumeDraftPatch,
     revisionReason?: string | null,
   ) => Promise<JobFinderWorkspaceSnapshot>;
+  getResumeAssistantMessages: (
+    jobId: string,
+  ) => Promise<readonly ResumeAssistantMessage[]>;
   sendResumeAssistantMessage: (
     jobId: string,
     content: string,

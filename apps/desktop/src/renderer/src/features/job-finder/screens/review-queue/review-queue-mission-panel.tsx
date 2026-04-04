@@ -31,7 +31,9 @@ export function ReviewQueueMissionPanel({
 }: ReviewQueueMissionPanelProps) {
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
   const isGenerating = selectedItem?.assetStatus === 'generating' || selectedItem?.assetStatus === 'queued'
-  const canApproveApply = Boolean(selectedAsset) && browserSession.status === 'ready' && selectedItem?.resumeDraftStatus === 'approved' && !selectedItem.resumeIsStale
+  const resumeReviewStatus = selectedItem?.resumeReview.status ?? 'not_started'
+  const hasApprovedResumeExport = selectedItem?.resumeReview.status === 'approved'
+  const canApproveApply = browserSession.status === 'ready' && hasApprovedResumeExport
   const tailoringStateLabel = selectedItem ? formatStatusLabel(selectedItem.assetStatus) : 'No asset'
   const tailoringStateTone = selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'
 
@@ -83,17 +85,17 @@ export function ReviewQueueMissionPanel({
             <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Resume review</span>
-                <StatusBadge tone={selectedItem.resumeIsStale ? 'critical' : selectedItem.resumeDraftStatus === 'approved' ? 'positive' : 'active'}>
-                  {selectedItem.resumeDraftStatus?.replaceAll('_', ' ') ?? 'not started'}
+                <StatusBadge tone={resumeReviewStatus === 'stale' ? 'critical' : resumeReviewStatus === 'approved' ? 'positive' : 'active'}>
+                  {resumeReviewStatus.replaceAll('_', ' ')}
                 </StatusBadge>
               </div>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                {selectedItem.resumeDraftStatus === 'approved'
+                {resumeReviewStatus === 'approved'
                   ? 'Resume approval is complete and the latest approved export can be used for apply.'
                   : 'Open Resume Workspace to review the draft, export the PDF, and approve the resume before apply.'}
               </p>
-              {selectedItem.resumeIsStale ? (
-                <p className="text-(length:--text-small) leading-6 text-warning">
+              {resumeReviewStatus === 'stale' ? (
+                <p className="text-(length:--text-small) leading-6 text-(--warning-text)">
                   The approved resume is stale. Re-open the workspace and re-approve before continuing.
                 </p>
               ) : null}

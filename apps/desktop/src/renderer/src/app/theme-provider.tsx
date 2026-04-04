@@ -3,7 +3,6 @@ import type { AppearanceTheme } from '@unemployed/contracts'
 import {
   applyAppearancePreference,
   DARK_QUERY,
-  readStoredAppearanceTheme,
   resolveAppearanceTheme,
   STORAGE_KEY,
   type ResolvedTheme

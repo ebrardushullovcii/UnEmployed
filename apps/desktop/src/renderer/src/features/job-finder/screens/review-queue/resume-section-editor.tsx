@@ -100,7 +100,7 @@ export function ResumeSectionEditor(props: {
           </Button>
           <Button
             className="h-9"
-            disabled={props.disabled}
+            disabled={props.disabled || props.section.locked}
             onClick={props.onRegenerate}
             type="button"
             variant="secondary"
@@ -115,7 +115,7 @@ export function ResumeSectionEditor(props: {
         <FieldLabel htmlFor={textId}>Section Text</FieldLabel>
         <Textarea
           id={textId}
-          disabled={props.disabled}
+          disabled={props.disabled || props.section.locked}
           rows={7}
           value={props.section.text ?? ""}
           onChange={(event) =>
@@ -139,7 +139,7 @@ export function ResumeSectionEditor(props: {
             description="Regenerate this section or add manual detail in the text area above."
           />
         ) : (
-          props.section.bullets.map((bullet) => (
+          props.section.bullets.map((bullet, bulletIndex) => (
             <Field key={bullet.id}>
               <FieldLabel htmlFor={`bullet_${bullet.id}`}>
                 {bullet.origin.replaceAll("_", " ")}
@@ -147,7 +147,7 @@ export function ResumeSectionEditor(props: {
               <div className="mb-2 flex flex-wrap gap-2">
                 <Button
                   className="h-8"
-                  disabled={props.disabled}
+                  disabled={props.disabled || props.section.locked}
                   onClick={() =>
                     props.onPatch(
                       {
@@ -176,7 +176,7 @@ export function ResumeSectionEditor(props: {
                 </Button>
                 <Button
                   className="h-8"
-                  disabled={props.disabled}
+                  disabled={props.disabled || props.section.locked}
                   onClick={() =>
                     props.onPatch(
                       {
@@ -209,14 +209,15 @@ export function ResumeSectionEditor(props: {
                   {bullet.locked ? "Unlock" : "Lock"}
                 </Button>
                 <Button
+                  aria-label="Move bullet up"
                   className="h-8"
-                  disabled={props.disabled}
+                  disabled={
+                      props.disabled ||
+                      props.section.locked ||
+                      bulletIndex <= 0
+                  }
                   onClick={() => {
-                    const index = props.section.bullets.findIndex(
-                      (entry) => entry.id === bullet.id,
-                    );
-                    const anchor =
-                      index > 0 ? props.section.bullets[index - 1] : null;
+                    const anchor = bulletIndex > 0 ? props.section.bullets[bulletIndex - 1] : null;
 
                     if (!anchor) {
                       return;
@@ -248,13 +249,15 @@ export function ResumeSectionEditor(props: {
                   <MoveUp className="size-4" />
                 </Button>
                 <Button
+                  aria-label="Move bullet down"
                   className="h-8"
-                  disabled={props.disabled}
+                  disabled={
+                      props.disabled ||
+                      props.section.locked ||
+                      bulletIndex >= props.section.bullets.length - 1
+                  }
                   onClick={() => {
-                    const index = props.section.bullets.findIndex(
-                      (entry) => entry.id === bullet.id,
-                    );
-                    const anchor = props.section.bullets[index + 1] ?? null;
+                    const anchor = props.section.bullets[bulletIndex + 1] ?? null;
 
                     if (!anchor) {
                       return;
@@ -288,7 +291,7 @@ export function ResumeSectionEditor(props: {
               </div>
               <Textarea
                 id={`bullet_${bullet.id}`}
-                disabled={props.disabled || bullet.locked}
+                disabled={props.disabled || props.section.locked || bullet.locked}
                 rows={6}
                 value={bullet.text}
                 onChange={(event) =>

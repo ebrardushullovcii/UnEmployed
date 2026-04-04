@@ -452,14 +452,24 @@ z.object({
 
 #### Review Queue Bridge Fields
 
-Add these fields to `ReviewQueueItemSchema`:
+Add a single discriminated `resumeReview` field to `ReviewQueueItemSchema` so review-only state cannot drift into impossible combinations:
 
 ```ts
-resumeDraftStatus: ResumeDraftStatusSchema.nullable().default(null),
-resumeApprovedAt: IsoDateTimeSchema.nullable().default(null),
-resumeIsStale: z.boolean().default(false),
-approvedResumeExportId: NonEmptyStringSchema.nullable().default(null),
-approvedResumeFormat: z.enum(["html", "pdf"]).nullable().default(null),
+resumeReview: z.discriminatedUnion("status", [
+  z.object({ status: z.literal("not_started") }),
+  z.object({ status: z.literal("draft") }),
+  z.object({ status: z.literal("needs_review") }),
+  z.object({
+    status: z.literal("stale"),
+    staleReason: NonEmptyStringSchema.nullable().default(null),
+  }),
+  z.object({
+    status: z.literal("approved"),
+    approvedAt: IsoDateTimeSchema,
+    approvedExportId: NonEmptyStringSchema,
+    approvedFormat: z.enum(["html", "pdf"]),
+  }),
+])
 ```
 
 #### Repository State Extension
@@ -584,15 +594,15 @@ Recommended direction:
 - add a separate `ResumeDraftStatus` for workspace-owned editing states such as `draft`, `needs_review`, `approved`, and `stale`
 - add explicit approval or stale fields to review-summary payloads instead of trying to encode those concepts into the existing `AssetStatus`
 
-Recommended first bridge fields on the review-facing summary surface:
+Recommended first bridge shape on the review-facing summary surface:
 
-- `resumeDraftStatus`
-- `resumeApprovedAt`
-- `resumeIsStale`
-- `approvedResumeExportId`
-- `approvedResumeFormat`
+- `resumeReview.status`
+- `resumeReview.staleReason`
+- `resumeReview.approvedAt`
+- `resumeReview.approvedExportId`
+- `resumeReview.approvedFormat`
 
-Those exact names can change, but the bridge object must make these concepts explicit so another agent does not have to infer them from `assetStatus` alone.
+The exact field names can change, but the bridge object must keep these concepts explicit so another agent does not have to infer them from `assetStatus` alone.
 
 This keeps backward-compatible review surfaces simple while letting the workspace own richer state.
 
@@ -755,7 +765,7 @@ Assistant outputs should resolve into typed resume patch operations.
 
 Small changes can auto-apply with clear revision-backed recovery.
 
-Diff preview is not required for this slice; correctness, grounded patches, and safe persistence matter more than adding another review surface.
+An extra diff-preview surface is not required for this slice; correctness, grounded patches, and safe persistence matter more than adding another review surface.
 
 ## Template And Export Strategy
 
@@ -1284,7 +1294,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-**Done when**: the assistant can receive user requests, propose grounded typed patches, auto-apply them safely, respect lock state, persist the conversation, and leave revision snapshots for recovery without requiring a diff-preview UI.
+**Done when**: the assistant can receive user requests, propose grounded typed patches, auto-apply them safely, respect locked sections and bullets, persist the conversation, and leave revision snapshots for recovery without requiring a diff-preview UI.
 
 ### Slice 10: Apply Integration And Staleness
 
@@ -1299,7 +1309,7 @@ pnpm lint
   - mark the draft stale when the draft is edited after approval
   - mark the draft stale when the selected job detail changes materially
   - mark the draft stale when template or page-budget settings change
-- update Review Queue summary rendering to show the new bridge fields: `resumeDraftStatus`, `resumeApprovedAt`, `resumeIsStale`
+- update Review Queue summary rendering to show the new `resumeReview` bridge state instead of inferring review readiness from legacy asset fields
 - wire the resume approval action from the workspace
 - add safe-stop behavior when the approved file is missing from disk
 - add orchestration tests for the approval, staleness, and apply-rejection paths
@@ -1370,6 +1380,7 @@ pnpm docs:check
 - targeted verification now passes for `pnpm --filter @unemployed/job-finder test`, `pnpm --filter @unemployed/job-finder typecheck`, `pnpm --filter @unemployed/desktop typecheck`, `pnpm docs:check`, and `pnpm --filter @unemployed/desktop ui:resume-workspace`
 - repo docs were updated to capture stale-approval behavior, missing-file apply safety, and the expectation that non-happy-path guards also receive targeted service coverage
 - `pnpm verify` is now unblocked by the earlier knowledge-base lint issue, but still depends on clearing any unrelated repo-wide lint fallout that surfaces during the full run
+- the scripted UI proof set now includes the dedicated `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty` harness for save-before-action and dirty-navigation coverage alongside the happy-path workspace capture
 
 Additional completion rule for this slice:
 

@@ -92,6 +92,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.applyResumePatch(patch, revisionReason),
         ),
+      getResumeAssistantMessages: (jobId: string) =>
+        window.unemployed.jobFinder.getResumeAssistantMessages(jobId),
       sendResumeAssistantMessage: (jobId: string, content: string) =>
         window.unemployed.jobFinder.sendResumeAssistantMessage(jobId, content),
       generateResume: (jobId: string) =>

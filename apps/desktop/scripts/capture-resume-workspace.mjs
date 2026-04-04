@@ -47,18 +47,20 @@ async function captureResumeWorkspace() {
   await mkdir(outputDir, { recursive: true })
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-workspace-'))
 
-  const app = await electron.launch({
-    args: ['.'],
-    cwd: desktopDir,
-    env: {
-      ...process.env,
-      UNEMPLOYED_BROWSER_AGENT: '0',
-      UNEMPLOYED_ENABLE_TEST_API: '1',
-      UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
-    },
-  })
+  let app
 
   try {
+    app = await electron.launch({
+      args: ['.'],
+      cwd: desktopDir,
+      env: {
+        ...process.env,
+        UNEMPLOYED_BROWSER_AGENT: '0',
+        UNEMPLOYED_ENABLE_TEST_API: '1',
+        UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
+      },
+    })
+
     const window = await app.firstWindow()
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
@@ -88,18 +90,27 @@ async function captureResumeWorkspace() {
     await window.getByText('Why this bullet exists').first().click()
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02b-resume-workspace-sources.png') })
 
-    const summaryField = window.locator('textarea').first()
+    const summaryField = window.getByLabel('Section Text').first()
     await summaryField.fill('Senior systems designer with strong workflow automation, design-system, and operations-platform experience.')
     await window.getByRole('button', { name: 'Save Draft' }).click()
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-after-manual-edit.png') })
 
     const assistantField = window.getByLabel('Message')
+    const previousMessageCount = (await getResumeAssistantMessages(window, 'job_ready')).length
     await assistantField.fill('Shorten the summary and tighten one experience bullet for ATS readability.')
     await window.getByRole('button', { name: 'Send' }).click()
     await waitForCondition(
       async () => {
         const messages = await getResumeAssistantMessages(window, 'job_ready')
-        return messages.length >= 2 && messages[messages.length - 1]?.role === 'assistant'
+        const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant')
+        const sendButtonLabel = await window.getByRole('button', { name: /Send|Working/i }).textContent()
+        return (
+          messages.length > previousMessageCount &&
+          lastAssistant?.role === 'assistant' &&
+          lastAssistant.content.trim().length > 0 &&
+          lastAssistant.content !== 'Working on it...' &&
+          sendButtonLabel?.includes('Send')
+        )
       },
       'assistant reply in resume workspace demo',
     )
@@ -151,7 +162,13 @@ async function captureResumeWorkspace() {
     const workspace = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
     await writeJson('workspace-after-demo.json', workspace)
   } finally {
-    await app.close()
+    if (app) {
+      try {
+        await app.close()
+      } catch {
+        // Preserve the original failure while still cleaning up the temp profile.
+      }
+    }
     await rm(userDataDirectory, { recursive: true, force: true })
   }
 

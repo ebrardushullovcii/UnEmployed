@@ -1,6 +1,12 @@
 import { TailoredResumeDraftSchema } from "./shared";
 import { buildDeterministicStructuredResumeDraft, uniqueStrings } from "./deterministic";
 
+function sanitizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
+}
+
 export function summarizeError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim();
@@ -29,7 +35,8 @@ export function completeTailoredResumeDraft(
     ...fallback,
     ...normalizedPrimary,
     label:
-      typeof normalizedPrimary.label === "string"
+      typeof normalizedPrimary.label === "string" &&
+      normalizedPrimary.label.trim().length > 0
         ? normalizedPrimary.label
         : fallback.label,
     summary:
@@ -38,13 +45,13 @@ export function completeTailoredResumeDraft(
         ? normalizedPrimary.summary
         : fallback.summary,
     experienceHighlights: Array.isArray(normalizedPrimary.experienceHighlights)
-      ? normalizedPrimary.experienceHighlights
+      ? sanitizeStringArray(normalizedPrimary.experienceHighlights)
       : fallback.experienceHighlights,
     coreSkills: Array.isArray(normalizedPrimary.coreSkills)
-      ? normalizedPrimary.coreSkills
+      ? sanitizeStringArray(normalizedPrimary.coreSkills)
       : fallback.coreSkills,
     targetedKeywords: Array.isArray(normalizedPrimary.targetedKeywords)
-      ? normalizedPrimary.targetedKeywords
+      ? sanitizeStringArray(normalizedPrimary.targetedKeywords)
       : fallback.targetedKeywords,
     fullText:
       typeof normalizedPrimary.fullText === "string" &&

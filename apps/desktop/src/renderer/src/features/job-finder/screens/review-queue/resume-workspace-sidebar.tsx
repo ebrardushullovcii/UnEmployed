@@ -28,7 +28,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
         <p>Research pages: {research.length}</p>
         <p>Validation issues: {validation?.issues.length ?? 0}</p>
         {hasUnsavedChanges ? (
-          <p className="text-warning">
+          <p className="text-(--warning-text)">
             Unsaved edits are only local until you save or run another action.
           </p>
         ) : null}
@@ -89,8 +89,8 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
               <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
                 Responsibilities
               </p>
-              {job.responsibilities.slice(0, 4).map((item) => (
-                <p key={item}>• {item}</p>
+              {job.responsibilities.slice(0, 4).map((item, index) => (
+                <p key={`${job.id}_responsibility_${index}`}>• {item}</p>
               ))}
             </div>
           ) : null}
@@ -99,8 +99,8 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
               <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
                 Requirements
               </p>
-              {job.minimumQualifications.slice(0, 4).map((item) => (
-                <p key={item}>• {item}</p>
+              {job.minimumQualifications.slice(0, 4).map((item, index) => (
+                <p key={`${job.id}_minimum_qualification_${index}`}>• {item}</p>
               ))}
             </div>
           ) : null}
@@ -109,8 +109,8 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
               <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
                 Preferred
               </p>
-              {job.preferredQualifications.slice(0, 3).map((item) => (
-                <p key={item}>• {item}</p>
+              {job.preferredQualifications.slice(0, 3).map((item, index) => (
+                <p key={`${job.id}_preferred_qualification_${index}`}>• {item}</p>
               ))}
             </div>
           ) : null}
@@ -135,8 +135,8 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
                 </span>
                 {artifact.domainVocabulary.length ? (
                   <div className="flex flex-wrap gap-2">
-                    {artifact.domainVocabulary.slice(0, 4).map((term) => (
-                      <Badge key={`${artifact.id}_${term}`} variant="section">
+                    {artifact.domainVocabulary.slice(0, 4).map((term, index) => (
+                      <Badge key={`${artifact.id}_${term}_${index}`} variant="section">
                         {term}
                       </Badge>
                     ))}

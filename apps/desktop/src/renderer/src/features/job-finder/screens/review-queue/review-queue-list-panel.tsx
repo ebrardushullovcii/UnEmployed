@@ -52,7 +52,10 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
               <span className="block w-full text-[0.8rem] text-foreground-muted">{item.company}</span>
               <div className="grid min-w-0 w-full gap-1.5">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-(--surface-progress-track)">
-                  <span className="block h-full bg-accent" style={{ width: `${item.progressPercent ?? 0}%` }} />
+                  <span
+                    className="block h-full bg-accent"
+                    style={{ width: `${item.progressPercent ?? 0}%` }}
+                  />
                 </div>
                 <span className="block w-full text-right font-mono text-[9px] uppercase tracking-(--tracking-normal) text-primary">{item.progressPercent ?? 0}%</span>
               </div>

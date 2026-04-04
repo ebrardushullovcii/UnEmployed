@@ -4,19 +4,19 @@ import { StatusBadge } from '../../components/status-badge'
 import { formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
 
 function getResumeReviewTone(item: ReviewQueueItem | null) {
-  if (!item?.resumeDraftStatus) {
+  if (!item) {
     return 'muted' as const
   }
 
-  if (item.resumeIsStale || item.resumeDraftStatus === 'stale') {
+  if (item.resumeReview.status === 'stale') {
     return 'critical' as const
   }
 
-  if (item.resumeDraftStatus === 'approved') {
+  if (item.resumeReview.status === 'approved') {
     return 'positive' as const
   }
 
-  if (item.resumeDraftStatus === 'needs_review') {
+  if (item.resumeReview.status === 'needs_review') {
     return 'active' as const
   }
 
@@ -106,22 +106,22 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <span className="text-[0.9rem] text-foreground-soft">{selectedAsset.label}</span>
                 <StatusBadge tone={getResumeReviewTone(selectedItem)}>
-                  {selectedItem.resumeDraftStatus?.replaceAll('_', ' ') ?? 'not started'}
+                  {selectedItem.resumeReview.status.replaceAll('_', ' ')}
                 </StatusBadge>
               </div>
             </div>
-            {selectedItem.resumeApprovedAt ? (
+            {selectedItem.resumeReview.status === 'approved' ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                Approved resume export: {selectedItem.approvedResumeFormat?.toUpperCase() ?? 'Unknown'} • {new Date(selectedItem.resumeApprovedAt).toLocaleString()}
+                Approved resume export: {selectedItem.resumeReview.approvedFormat.toUpperCase()} • {new Date(selectedItem.resumeReview.approvedAt).toLocaleString()}
               </p>
             ) : null}
-            {selectedItem.resumeIsStale ? (
-              <p className="text-(length:--text-small) text-warning">
+            {selectedItem.resumeReview.status === 'stale' ? (
+              <p className="text-(length:--text-small) text-(--warning-text)">
                 Resume is stale and needs another review before Easy Apply.
               </p>
             ) : null}
-            {selectedAsset.previewSections.map((section) => (
-              <div key={section.heading} className="grid gap-2">
+            {selectedAsset.previewSections.map((section, sectionIndex) => (
+              <div key={`${section.heading}-${sectionIndex}`} className="grid gap-2">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">{section.heading}</p>
                 {section.lines.map((line, lineIndex) => (
                   <p key={`${section.heading}-${lineIndex}-${line}`} className="text-(length:--text-body) leading-7 text-foreground-soft">{line}</p>

@@ -1,5 +1,6 @@
 import { ResumeDraftSchema, type ResumeDraft, type ResumeDraftBullet, type ResumeDraftPatch, type ResumeDraftSection } from "@unemployed/contracts";
 import { createBullet } from "./resume-workspace-primitives";
+import { createUniqueId } from "./shared";
 
 function assertAssistantMayEdit(
   patch: ResumeDraftPatch,
@@ -25,6 +26,34 @@ function updateSectionMeta(
     origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
     updatedAt,
   };
+}
+
+function requireTargetBullet(
+  section: ResumeDraftSection,
+  bulletId: string | null,
+): ResumeDraftBullet {
+  if (!bulletId) {
+    throw new Error("A target bullet id is required for this patch.");
+  }
+
+  const targetBullet = section.bullets.find((bullet) => bullet.id === bulletId) ?? null;
+
+  if (!targetBullet) {
+    throw new Error(`Unable to find bullet '${bulletId}'.`);
+  }
+
+  return targetBullet;
+}
+
+function createInsertedBulletId(
+  section: ResumeDraftSection,
+  requestedId: string | null,
+): string {
+  if (requestedId && !section.bullets.some((bullet) => bullet.id === requestedId)) {
+    return requestedId;
+  }
+
+  return createUniqueId(`${section.id}_bullet`);
 }
 
 export function applyPatchToResumeDraft(input: {
@@ -68,7 +97,7 @@ export function applyPatchToResumeDraft(input: {
         }
 
         const newBullet = createBullet(
-          patch.targetBulletId ?? `${section.id}_bullet_${Date.now()}`,
+          createInsertedBulletId(section, patch.targetBulletId),
           patch.newText,
           updatedAt,
           patch.origin === "assistant" ? "assistant_edited" : "user_edited",
@@ -105,6 +134,8 @@ export function applyPatchToResumeDraft(input: {
           throw new Error("update_bullet requires a bullet id and replacement text.");
         }
 
+        requireTargetBullet(section, patch.targetBulletId);
+
         return updateSectionMeta(
           {
             ...section,
@@ -134,6 +165,8 @@ export function applyPatchToResumeDraft(input: {
           throw new Error("remove_bullet requires a bullet id.");
         }
 
+        requireTargetBullet(section, patch.targetBulletId);
+
         return updateSectionMeta(
           {
             ...section,
@@ -146,27 +179,17 @@ export function applyPatchToResumeDraft(input: {
         );
       }
       case "move_bullet": {
-        if (!patch.targetBulletId) {
-          throw new Error("move_bullet requires a bullet id.");
-        }
-
         const bullets = [...section.bullets];
-        const currentIndex = bullets.findIndex(
-          (bullet) => bullet.id === patch.targetBulletId,
-        );
+        const movingBullet = requireTargetBullet(section, patch.targetBulletId);
+        const currentIndex = bullets.findIndex((bullet) => bullet.id === movingBullet.id);
 
-        if (currentIndex < 0) {
-          throw new Error(`Unable to find bullet '${patch.targetBulletId}'.`);
-        }
-
-        const [movingBullet] = bullets.splice(currentIndex, 1);
-
-        if (!movingBullet) {
-          throw new Error(`Unable to move bullet '${patch.targetBulletId}'.`);
-        }
+        bullets.splice(currentIndex, 1);
 
         if (!patch.anchorBulletId) {
-          bullets.push(movingBullet);
+          bullets.push({
+            ...movingBullet,
+            updatedAt,
+          });
         } else {
           const anchorIndex = bullets.findIndex(
             (bullet) => bullet.id === patch.anchorBulletId,
@@ -193,6 +216,9 @@ export function applyPatchToResumeDraft(input: {
       }
       case "toggle_include": {
         if (patch.targetBulletId) {
+          const bullet = requireTargetBullet(section, patch.targetBulletId);
+          assertAssistantMayEdit(patch, section, bullet);
+
           return updateSectionMeta(
             {
               ...section,
@@ -222,6 +248,8 @@ export function applyPatchToResumeDraft(input: {
       }
       case "set_lock": {
         if (patch.targetBulletId) {
+          requireTargetBullet(section, patch.targetBulletId);
+
           return updateSectionMeta(
             {
               ...section,
@@ -250,6 +278,15 @@ export function applyPatchToResumeDraft(input: {
         );
       }
       case "replace_section_bullets":
+        if (
+          patch.origin === "assistant" &&
+          section.bullets.some((bullet) => bullet.locked)
+        ) {
+          throw new Error(
+            "Assistant patches cannot replace section bullets while any bullet is locked.",
+          );
+        }
+
         return updateSectionMeta(
           {
             ...section,
@@ -261,8 +298,10 @@ export function applyPatchToResumeDraft(input: {
           patch,
           updatedAt,
         );
-      default:
-        return section;
+      default: {
+        const unsupportedOperation: never = patch.operation;
+        throw new Error(`Unsupported resume patch operation '${unsupportedOperation}'.`);
+      }
     }
   });
 

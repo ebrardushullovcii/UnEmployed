@@ -1,3 +1,5 @@
+import type { ApplicationAttempt } from "./index";
+
 export const sourceDebugVersionInfo = {
   promptProfileVersion: "source-debug-v1",
   toolsetVersion: "browser-tools-v1",
@@ -5,7 +7,7 @@ export const sourceDebugVersionInfo = {
   appSchemaVersion: "job-finder-source-debug-v1",
 } as const;
 
-export function createSubmittedAttempt() {
+export function createSubmittedAttempt(): ApplicationAttempt {
   return {
     id: "attempt_1",
     jobId: "job_1",

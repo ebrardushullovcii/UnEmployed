@@ -168,6 +168,31 @@ export const TailoredAssetSchema = z.object({
 });
 export type TailoredAsset = z.infer<typeof TailoredAssetSchema>;
 
+export const ReviewQueueResumeReviewStateSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("not_started"),
+  }),
+  z.object({
+    status: z.literal("draft"),
+  }),
+  z.object({
+    status: z.literal("needs_review"),
+  }),
+  z.object({
+    status: z.literal("stale"),
+    staleReason: NonEmptyStringSchema.nullable().default(null),
+  }),
+  z.object({
+    status: z.literal("approved"),
+    approvedAt: IsoDateTimeSchema,
+    approvedExportId: NonEmptyStringSchema,
+    approvedFormat: ResumeExportFormatSchema,
+  }),
+]);
+export type ReviewQueueResumeReviewState = z.infer<
+  typeof ReviewQueueResumeReviewStateSchema
+>;
+
 export const ReviewQueueItemSchema = z.object({
   jobId: NonEmptyStringSchema,
   title: NonEmptyStringSchema,
@@ -178,11 +203,9 @@ export const ReviewQueueItemSchema = z.object({
   assetStatus: AssetStatusSchema,
   progressPercent: z.number().int().min(0).max(100).nullable(),
   resumeAssetId: NonEmptyStringSchema.nullable(),
-  resumeDraftStatus: ResumeDraftStatusSchema.nullable().default(null),
-  resumeApprovedAt: IsoDateTimeSchema.nullable().default(null),
-  resumeIsStale: z.boolean().default(false),
-  approvedResumeExportId: NonEmptyStringSchema.nullable().default(null),
-  approvedResumeFormat: ResumeExportFormatSchema.nullable().default(null),
+  resumeReview: ReviewQueueResumeReviewStateSchema.default({
+    status: "not_started",
+  }),
   updatedAt: IsoDateTimeSchema,
 });
 export type ReviewQueueItem = z.infer<typeof ReviewQueueItemSchema>;

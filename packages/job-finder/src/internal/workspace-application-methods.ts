@@ -2,6 +2,7 @@ import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   ResumeAssistantMessageSchema,
+  type ResumeDraft,
   ResumeDraftPatchSchema,
   ResumeDraftSchema,
   SavedJobSchema,
@@ -10,7 +11,7 @@ import {
 } from "@unemployed/contracts";
 import { mergeSavedJobs } from "./workspace-service-helpers";
 import { buildInstructionGuidance, mergeEvents, nextAssetVersion, nextJobStatusFromAttempt, resolveActiveSourceInstructionArtifact, toApplicationEvents } from "./workspace-helpers";
-import { normalizeText, uniqueStrings } from "./shared";
+import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 import {
   applyPatchToResumeDraft,
   buildAssistantReplyMessage,
@@ -19,7 +20,6 @@ import {
   buildResumeExportArtifact,
   buildTailoredResumeTextFromResumeDraft,
   buildTailoredAssetBridge,
-  buildUnavailableAssistantReply,
   collectResearchContext,
   collectResumeWorkspaceEvidence,
   validateResumeDraft,
@@ -52,6 +52,12 @@ export function createWorkspaceApplicationMethods(
   | "sendResumeAssistantMessage"
   | "approveApply"
 > {
+  function hasLockedResumeContent(draft: ResumeDraft): boolean {
+    return draft.sections.some(
+      (section) => section.locked || section.bullets.some((bullet) => bullet.locked),
+    );
+  }
+
   return {
     async queueJobForReview(jobId) {
       const discoveryState = await ctx.repository.getDiscoveryState();
@@ -290,6 +296,14 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async regenerateResumeDraft(jobId) {
+      const existingDraft = await ctx.repository.getResumeDraftByJobId(jobId);
+
+      if (existingDraft && hasLockedResumeContent(existingDraft)) {
+        throw new Error(
+          "Unlock pinned resume sections or bullets before regenerating the full draft.",
+        );
+      }
+
       return this.generateResume(jobId);
     },
     async regenerateResumeSection(jobId, sectionId) {
@@ -299,6 +313,12 @@ export function createWorkspaceApplicationMethods(
 
       if (!targetSection) {
         throw new Error(`Unable to regenerate unknown resume section '${sectionId}'.`);
+      }
+
+      if (targetSection.locked || targetSection.bullets.some((bullet) => bullet.locked)) {
+        throw new Error(
+          `Unlock the '${targetSection.label}' section before regenerating it.`,
+        );
       }
 
       const research = await fetchAndPersistResearch(ctx, state.job);
@@ -315,7 +335,7 @@ export function createWorkspaceApplicationMethods(
 
       if (!sectionPatch) {
         return this.applyResumePatch({
-          id: `resume_patch_regen_${sectionId}_${Date.now()}`,
+          id: createUniqueId(`resume_patch_regen_${sectionId}`),
           draftId: draft.id,
           operation: targetSection.text ? "replace_section_text" : "replace_section_bullets",
           targetSectionId: sectionId,
@@ -531,7 +551,7 @@ export function createWorkspaceApplicationMethods(
     async sendResumeAssistantMessage(jobId, content) {
       const workspaceState = await ensureResumeDraft(ctx, jobId);
       const userMessage = ResumeAssistantMessageSchema.parse({
-        id: `resume_message_user_${jobId}_${Date.now()}`,
+        id: createUniqueId(`resume_message_user_${jobId}`),
         jobId,
         role: "user",
         content,
@@ -553,7 +573,11 @@ export function createWorkspaceApplicationMethods(
             content: assistantReply.content,
             patches: assistantReply.patches,
           })
-        : buildUnavailableAssistantReply(jobId);
+        : buildAssistantReplyMessage({
+            jobId,
+            content: assistantReply.content,
+            patches: [],
+          });
 
       const appliedPatches: ResumeDraftPatch[] = [];
 

@@ -35,8 +35,8 @@ export function DiscoveryDetailPanel({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-5">
           <div className="grid min-h-full content-start gap-6">
             <div className="grid gap-3">
-              <h2 className="text-[1.65rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{selectedJob.title}</h2>
-              <p className="text-[0.9rem] text-foreground-muted">
+              <h2 className="text-(length:--text-section-title) font-semibold tracking-[-0.03em] text-(--text-headline)">{selectedJob.title}</h2>
+              <p className="text-(length:--text-description) text-foreground-muted">
                 {selectedJob.company} - {selectedJob.location}
               </p>
             </div>
@@ -44,11 +44,11 @@ export function DiscoveryDetailPanel({
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Fit score</span>
-                <strong className="mt-2 block text-[1.1rem] text-(--text-headline)">{selectedJob.matchAssessment.score}</strong>
+                <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">{selectedJob.matchAssessment.score}</strong>
               </div>
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Posted</span>
-                <strong className="mt-2 block text-[1.1rem] text-(--text-headline)">{formatOptionalDateOnly(selectedJob.postedAt, selectedJob.postedAtText)}</strong>
+                <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">{formatOptionalDateOnly(selectedJob.postedAt, selectedJob.postedAtText)}</strong>
               </div>
             </div>
 

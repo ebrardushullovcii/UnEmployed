@@ -113,7 +113,7 @@ describe("runAgentDiscovery closeout behavior", () => {
           ],
         })
         .mockImplementationOnce(async (messages) => {
-          secondCallMessages = messages;
+          secondCallMessages = structuredClone(messages);
           return {
             content: "I observed enough evidence but did not issue finish",
             toolCalls: [],

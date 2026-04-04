@@ -73,7 +73,9 @@ export function ResumeWorkspaceHeader({
 
         <div className="flex flex-wrap items-center gap-2 xl:justify-end">
           <Badge variant="section">Updated {formatTimestamp(draft.updatedAt)}</Badge>
-          <Badge variant="section">Approved {formatTimestamp(draft.approvedAt)}</Badge>
+          {draft.approvedAt ? (
+            <Badge variant="section">Approved {formatTimestamp(draft.approvedAt)}</Badge>
+          ) : null}
         </div>
       </div>
     </section>

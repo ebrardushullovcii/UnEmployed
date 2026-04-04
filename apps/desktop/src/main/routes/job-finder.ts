@@ -208,7 +208,9 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         );
       }
 
-      return loadResumeWorkspaceDemoState();
+      const snapshot = await loadResumeWorkspaceDemoState();
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
   );
 
