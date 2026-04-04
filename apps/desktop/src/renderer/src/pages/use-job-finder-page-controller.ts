@@ -294,6 +294,48 @@ export function useJobFinderPageController() {
     [confirmLeaveDirtyResumeWorkspace, navigate],
   );
 
+  const selectedDiscoveryJob = useMemo(
+    () =>
+      workspace?.discoveryJobs.find((job) => job.id === selectedDiscoveryJobId) ??
+      workspace?.discoveryJobs[0] ??
+      null,
+    [selectedDiscoveryJobId, workspace?.discoveryJobs],
+  );
+
+  const selectedReviewItem = useMemo(
+    () =>
+      workspace?.reviewQueue.find((item) => item.jobId === selectedReviewJobId) ??
+      workspace?.reviewQueue[0] ??
+      null,
+    [selectedReviewJobId, workspace?.reviewQueue],
+  );
+
+  const selectedReviewJob = useMemo(
+    () =>
+      workspace?.discoveryJobs.find(
+        (job) => job.id === selectedReviewItem?.jobId,
+      ) ??
+      selectedDiscoveryJob ??
+      null,
+    [selectedDiscoveryJob, selectedReviewItem?.jobId, workspace?.discoveryJobs],
+  );
+
+  const selectedTailoredAsset = useMemo(
+    () =>
+      workspace?.tailoredAssets.find(
+        (asset) => asset.id === selectedReviewItem?.resumeAssetId,
+      ) ?? null,
+    [selectedReviewItem?.resumeAssetId, workspace?.tailoredAssets],
+  );
+
+  const { selectedApplicationAttempt, selectedApplicationRecord } = useMemo(
+    () =>
+      workspace
+        ? getLatestApplicationAttempt(workspace, selectedApplicationRecordId)
+        : { selectedApplicationAttempt: null, selectedApplicationRecord: null },
+    [selectedApplicationRecordId, workspace],
+  );
+
   if (!readyWorkspaceState || !workspace || !actions) {
     return {
       appearanceTheme: null,
@@ -304,45 +346,6 @@ export function useJobFinderPageController() {
       workspaceState,
     };
   }
-
-  const selectedDiscoveryJob = useMemo(
-    () =>
-      workspace.discoveryJobs.find((job) => job.id === selectedDiscoveryJobId) ??
-      workspace.discoveryJobs[0] ??
-      null,
-    [selectedDiscoveryJobId, workspace.discoveryJobs],
-  );
-
-  const selectedReviewItem = useMemo(
-    () =>
-      workspace.reviewQueue.find((item) => item.jobId === selectedReviewJobId) ??
-      workspace.reviewQueue[0] ??
-      null,
-    [selectedReviewJobId, workspace.reviewQueue],
-  );
-
-  const selectedReviewJob = useMemo(
-    () =>
-      workspace.discoveryJobs.find(
-        (job) => job.id === selectedReviewItem?.jobId,
-      ) ??
-      selectedDiscoveryJob ??
-      null,
-    [selectedDiscoveryJob, selectedReviewItem?.jobId, workspace.discoveryJobs],
-  );
-
-  const selectedTailoredAsset = useMemo(
-    () =>
-      workspace.tailoredAssets.find(
-        (asset) => asset.id === selectedReviewItem?.resumeAssetId,
-      ) ?? null,
-    [selectedReviewItem?.resumeAssetId, workspace.tailoredAssets],
-  );
-
-  const { selectedApplicationAttempt, selectedApplicationRecord } = useMemo(
-    () => getLatestApplicationAttempt(workspace, selectedApplicationRecordId),
-    [selectedApplicationRecordId, workspace],
-  );
 
   const context: JobFinderPageContext = useMemo(() => ({
     actionState,
@@ -717,8 +720,6 @@ export function useJobFinderPageController() {
     isCurrentResumeWorkspaceJob,
     liveDiscoveryEvents,
     navigate,
-    navigateFromShell,
-    platform,
     resumeAssistantMessages,
     resumeAssistantPending,
     resumeWorkspace,

@@ -138,7 +138,25 @@ function clearApprovedResumeExportsForJob<TValue extends { jobId: string; isAppr
 ): TValue[] {
   return values.map((entry) =>
     entry.jobId === jobId ? { ...entry, isApproved: false } : entry,
-  );
+    );
+}
+
+function resolveApprovedExportId(
+  currentArtifacts: readonly { id: string; draftId: string; jobId: string }[],
+  draft: { approvedExportId: string | null; id: string; jobId: string },
+): string | null {
+  if (!draft.approvedExportId) {
+    return null;
+  }
+
+  return currentArtifacts.some(
+    (artifact) =>
+      artifact.id === draft.approvedExportId &&
+      artifact.draftId === draft.id &&
+      artifact.jobId === draft.jobId,
+  )
+    ? draft.approvedExportId
+    : null;
 }
 
 export function createInMemoryJobFinderRepository(
@@ -351,7 +369,7 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     saveResumeDraftWithValidation({ draft, validation, tailoredAsset }) {
-      const normalizedDraft = ResumeDraftSchema.parse(
+      const parsedDraft = ResumeDraftSchema.parse(
         cloneValue(
           draft.approvedExportId
             ? draft
@@ -361,13 +379,20 @@ export function createInMemoryJobFinderRepository(
       const normalizedValidation = ResumeValidationResultSchema.parse(
         cloneValue(validation),
       );
+      const normalizedDraft = {
+        ...parsedDraft,
+        approvedExportId: resolveApprovedExportId(state.resumeExportArtifacts, parsedDraft),
+      };
+      if (!normalizedDraft.approvedExportId) {
+        normalizedDraft.approvedAt = null;
+      }
 
       if (normalizedValidation.draftId !== normalizedDraft.id) {
         throw new Error("Resume validation result does not belong to the provided draft.");
       }
 
-      state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
-      state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+      const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      const nextResumeExportArtifacts = clearApprovedResumeExportsForJob(
         state.resumeExportArtifacts,
         normalizedDraft.jobId,
       ).map((artifact) =>
@@ -375,21 +400,28 @@ export function createInMemoryJobFinderRepository(
           ? { ...artifact, isApproved: true }
           : artifact,
       );
-      state.resumeValidationResults = upsertById(
+      const nextResumeValidationResults = upsertById(
         state.resumeValidationResults,
         normalizedValidation,
       );
-      if (tailoredAsset) {
-        const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
-        if (normalizedAsset.jobId !== normalizedDraft.jobId) {
-          throw new Error("Tailored asset job does not match the provided draft.");
-        }
-        state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
-      }
+      const nextTailoredAssets = tailoredAsset
+        ? (() => {
+            const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+            if (normalizedAsset.jobId !== normalizedDraft.jobId) {
+              throw new Error("Tailored asset job does not match the provided draft.");
+            }
+            return upsertById(state.tailoredAssets, normalizedAsset);
+          })()
+        : state.tailoredAssets;
+
+      state.resumeDrafts = nextResumeDrafts;
+      state.resumeExportArtifacts = nextResumeExportArtifacts;
+      state.resumeValidationResults = nextResumeValidationResults;
+      state.tailoredAssets = nextTailoredAssets;
       return Promise.resolve();
     },
     applyResumePatchWithRevision({ draft, revision, validation, tailoredAsset }) {
-      const normalizedDraft = ResumeDraftSchema.parse(
+      const parsedDraft = ResumeDraftSchema.parse(
         cloneValue(
           draft.approvedExportId
             ? draft
@@ -402,6 +434,13 @@ export function createInMemoryJobFinderRepository(
       const normalizedValidation = ResumeValidationResultSchema.parse(
         cloneValue(validation),
       );
+      const normalizedDraft = {
+        ...parsedDraft,
+        approvedExportId: resolveApprovedExportId(state.resumeExportArtifacts, parsedDraft),
+      };
+      if (!normalizedDraft.approvedExportId) {
+        normalizedDraft.approvedAt = null;
+      }
 
       if (normalizedRevision.draftId !== normalizedDraft.id) {
         throw new Error("Resume revision does not belong to the provided draft.");
@@ -411,8 +450,8 @@ export function createInMemoryJobFinderRepository(
         throw new Error("Resume validation result does not belong to the provided draft.");
       }
 
-      state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
-      state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+      const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      const nextResumeExportArtifacts = clearApprovedResumeExportsForJob(
         state.resumeExportArtifacts,
         normalizedDraft.jobId,
       ).map((artifact) =>
@@ -420,21 +459,29 @@ export function createInMemoryJobFinderRepository(
           ? { ...artifact, isApproved: true }
           : artifact,
       );
-      state.resumeDraftRevisions = upsertById(
+      const nextResumeDraftRevisions = upsertById(
         state.resumeDraftRevisions,
         normalizedRevision,
       );
-      state.resumeValidationResults = upsertById(
+      const nextResumeValidationResults = upsertById(
         state.resumeValidationResults,
         normalizedValidation,
       );
-      if (tailoredAsset) {
-        const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
-        if (normalizedAsset.jobId !== normalizedDraft.jobId) {
-          throw new Error("Tailored asset job does not match the provided draft.");
-        }
-        state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
-      }
+      const nextTailoredAssets = tailoredAsset
+        ? (() => {
+            const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+            if (normalizedAsset.jobId !== normalizedDraft.jobId) {
+              throw new Error("Tailored asset job does not match the provided draft.");
+            }
+            return upsertById(state.tailoredAssets, normalizedAsset);
+          })()
+        : state.tailoredAssets;
+
+      state.resumeDrafts = nextResumeDrafts;
+      state.resumeExportArtifacts = nextResumeExportArtifacts;
+      state.resumeDraftRevisions = nextResumeDraftRevisions;
+      state.resumeValidationResults = nextResumeValidationResults;
+      state.tailoredAssets = nextTailoredAssets;
       return Promise.resolve();
     },
     approveResumeExport({ draft, exportArtifact, validation, tailoredAsset }) {
@@ -456,8 +503,21 @@ export function createInMemoryJobFinderRepository(
         throw new Error("Approved export job does not match the provided resume draft.");
       }
 
-      state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
-      state.resumeExportArtifacts = upsertById(
+      const normalizedValidation = validation
+        ? ResumeValidationResultSchema.parse(cloneValue(validation))
+        : null;
+      if (normalizedValidation && normalizedValidation.draftId !== normalizedDraft.id) {
+        throw new Error("Resume validation result does not belong to the provided draft.");
+      }
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
+
+      const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      const nextResumeExportArtifacts = upsertById(
         state.resumeExportArtifacts,
         normalizedArtifact,
       ).map((entry) =>
@@ -465,25 +525,17 @@ export function createInMemoryJobFinderRepository(
           ? { ...entry, isApproved: false }
           : entry,
       );
-      if (validation) {
-        const normalizedValidation = ResumeValidationResultSchema.parse(
-          cloneValue(validation),
-        );
-        if (normalizedValidation.draftId !== normalizedDraft.id) {
-          throw new Error("Resume validation result does not belong to the provided draft.");
-        }
-        state.resumeValidationResults = upsertById(
-          state.resumeValidationResults,
-          normalizedValidation,
-        );
-      }
-      if (tailoredAsset) {
-        const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
-        if (normalizedAsset.jobId !== normalizedDraft.jobId) {
-          throw new Error("Tailored asset job does not match the provided draft.");
-        }
-        state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
-      }
+      const nextResumeValidationResults = normalizedValidation
+        ? upsertById(state.resumeValidationResults, normalizedValidation)
+        : state.resumeValidationResults;
+      const nextTailoredAssets = normalizedAsset
+        ? upsertById(state.tailoredAssets, normalizedAsset)
+        : state.tailoredAssets;
+
+      state.resumeDrafts = nextResumeDrafts;
+      state.resumeExportArtifacts = nextResumeExportArtifacts;
+      state.resumeValidationResults = nextResumeValidationResults;
+      state.tailoredAssets = nextTailoredAssets;
       return Promise.resolve();
     },
     clearResumeApproval({ draft, staleReason, tailoredAsset }) {

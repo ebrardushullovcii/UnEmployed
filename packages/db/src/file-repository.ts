@@ -90,6 +90,28 @@ function syncApprovedResumeExportsForJob(
   }
 }
 
+function resolveApprovedExportId(
+  database: DatabaseSync,
+  draft: { approvedExportId: string | null; id: string; jobId: string },
+): string | null {
+  if (!draft.approvedExportId) {
+    return null;
+  }
+
+  const matchingArtifact = listResumeDraftValues(
+    database,
+    "resume_export_artifacts",
+    ResumeExportArtifactSchema,
+    {
+      whereSql: "id = ? AND draft_id = ? AND job_id = ?",
+      params: [draft.approvedExportId, draft.id, draft.jobId],
+      orderBySql: "exported_at DESC, id ASC",
+    },
+  )[0];
+
+  return matchingArtifact?.id ?? null;
+}
+
 const INDEXED_COLLECTION_CONFIGS = {
   resume_assistant_messages: {
     columnNames: ["job_id", "created_at"],
@@ -639,13 +661,24 @@ export async function createFileJobFinderRepository(
       }
 
       runImmediateTransaction(database, () => {
+        const approvedExportId = resolveApprovedExportId(database, normalizedDraft);
+        const persistedDraft =
+          approvedExportId === normalizedDraft.approvedExportId
+            ? normalizedDraft
+            : ResumeDraftSchema.parse(
+                cloneValue({
+                  ...normalizedDraft,
+                  approvedAt: null,
+                  approvedExportId,
+                }),
+              );
         syncApprovedResumeExportsForJob(
           database,
-          normalizedDraft.jobId,
-          normalizedDraft.approvedExportId,
+          persistedDraft.jobId,
+          persistedDraft.approvedExportId,
         );
 
-        writePersistedValue("resume_drafts", normalizedDraft);
+        writePersistedValue("resume_drafts", persistedDraft);
         writePersistedValue("resume_validation_results", normalizedValidation);
         if (normalizedAsset) {
           writePersistedValue("tailored_assets", normalizedAsset);
@@ -685,13 +718,24 @@ export async function createFileJobFinderRepository(
       }
 
       runImmediateTransaction(database, () => {
+        const approvedExportId = resolveApprovedExportId(database, normalizedDraft);
+        const persistedDraft =
+          approvedExportId === normalizedDraft.approvedExportId
+            ? normalizedDraft
+            : ResumeDraftSchema.parse(
+                cloneValue({
+                  ...normalizedDraft,
+                  approvedAt: null,
+                  approvedExportId,
+                }),
+              );
         syncApprovedResumeExportsForJob(
           database,
-          normalizedDraft.jobId,
-          normalizedDraft.approvedExportId,
+          persistedDraft.jobId,
+          persistedDraft.approvedExportId,
         );
 
-        writePersistedValue("resume_drafts", normalizedDraft);
+        writePersistedValue("resume_drafts", persistedDraft);
         writePersistedValue("resume_draft_revisions", normalizedRevision);
         writePersistedValue("resume_validation_results", normalizedValidation);
         if (normalizedAsset) {

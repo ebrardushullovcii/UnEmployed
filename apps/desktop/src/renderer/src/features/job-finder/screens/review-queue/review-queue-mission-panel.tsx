@@ -119,7 +119,7 @@ export function ReviewQueueMissionPanel({
                   : <div>No telemetry recorded yet.</div>}
               </div>
             </div>
-            {actionMessage ? <p className="min-w-0 break-words font-mono text-[10px] uppercase tracking-(--tracking-normal) text-primary">{actionMessage}</p> : null}
+            {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words font-mono text-[10px] uppercase tracking-(--tracking-normal) text-primary" role="status">{actionMessage}</p> : null}
             <div className="grid min-w-0 gap-2.5">
               <Button
                 className="h-11 w-full"
