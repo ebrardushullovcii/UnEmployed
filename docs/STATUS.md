@@ -38,8 +38,10 @@ Job Finder foundation with local persistence, structured profile editing, resume
 - Harden the generic target-site path against more hostile page structures and add more stable identity checks before treating it as more than a bounded experiment
 - Harden the live browser runtime with selector coverage, auth recovery, and broader supported field filling
 - Run follow-up UX QA on `/job-finder/review-queue/:jobId/resume` now that the scripted harness also checks structured job context, employer-site targeting, source-evidence inspection, and full export or apply safety paths
+- Fix resume composition quality in the new workspace by enforcing clean section boundaries, removing duplicated rendered content, restoring role-scoped experience formatting, and making exported headings parse more cleanly
 - Decide whether the remaining dev-only `pdfjs-dist` page-count warnings about `@napi-rs/canvas` / `ImageData` are worth quieting now that the resume flow itself completes successfully
 - Keep the current typed assistant patch flow stable and trustworthy instead of widening scope with a diff-preview surface
+- Make the editing assistant more reliable for common rewrite requests so it responds with concrete scoped edits and clearer completion summaries instead of generic fallback replies
 - Expand the Applications screen with filtering, retry helpers, and attempt-centric recovery flows
 - Add richer fallback extraction and cleanup for edge-case PDF and DOCX resumes that do not yield clean text on the first pass
 - Keep improving structured resume extraction so imported resumes fill deeper education, certification, and project records with less cleanup after import

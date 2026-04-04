@@ -865,6 +865,36 @@ Validation belongs in `packages/job-finder`, not in the provider adapter.
 - low-confidence extracted facts that are being overused
 - stale approvals after important upstream changes
 
+### Immediate Follow-Up Fixes
+
+The current shipped baseline proves the end-to-end workspace, export, and approval loop, but the next hardening pass should focus on resume composition quality and assistant reliability before widening scope.
+
+#### Resume Structure Fixes
+
+- enforce strict section boundaries so contact data never leaks into experience, skills, or other content blocks
+- keep job-target context as tailoring input only; do not let raw job-posting text render inside skills or experience sections
+- add a pre-export dedupe pass for repeated bullets, repeated role lines, and repeated section text
+- render work experience in a fixed role-first structure: title, company, location, dates, then scoped bullets
+- group skills into stable categories instead of one mixed keyword dump
+- keep education, languages, and other trailing sections compact and isolated from experience content
+- reduce over-aggressive heading tracking or letter spacing in PDF output so exported text parses cleanly and remains ATS-friendly
+
+#### Assistant Editing Fixes
+
+- make assistant replies summarize the concrete change set more clearly instead of falling back to generic unavailable language when a request should be actionable
+- tighten the patch planner so assistant edits stay inside the intended section instead of producing broad or confusing changes
+- keep optimistic chat feedback, but improve completion messaging so the user can tell whether the assistant rewrote text, declined the request, or hit a patch-application failure
+- add focused QA coverage for common assistant-edit requests such as shortening a summary, tightening bullets, and removing duplicated wording
+
+#### Validation Additions
+
+Add explicit validation failures or warnings when:
+
+- contact or identity fields appear in non-header sections
+- the same sentence or bullet appears in multiple rendered sections
+- the skills block contains job-description prose or full experience lines
+- a rendered section contains obvious concatenation artifacts from multiple source records
+
 ### Non-Negotiable Safety Rules
 
 - never invent dates, titles, employers, or credentials
