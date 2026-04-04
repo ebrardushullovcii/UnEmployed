@@ -999,7 +999,7 @@ Use proven packages where they fit the repo and keep custom code for product-spe
 - `pdfjs-dist`: reuse for generated `pdf` page-count inspection and validation
 - `minisearch`: first deterministic local retrieval layer in `packages/knowledge-base`
 - `@mozilla/readability` plus `jsdom`: bounded public page cleanup and text extraction for employer research
-- `diff`: resume patch previews and assistant change review
+- `diff`: optional only if a future manual preview surface becomes necessary; the current shipped flow relies on grounded auto-apply plus revision-backed recovery instead
 - `@dnd-kit/core`: optional if drag or reorder interactions need more than simple move-up and move-down controls
 - current `packages/db` SQLite pattern plus explicit query columns and indexes on new resume tables: keep this instead of introducing an ORM for v1
 - `docx`: later follow-up for programmatic `docx` generation when the `pdf` path is stable

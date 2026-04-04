@@ -654,7 +654,12 @@ export async function createFileJobFinderRepository(
       return secureDatabaseFile(options.filePath);
     },
     approveResumeExport({ draft, exportArtifact, validation, tailoredAsset }) {
-      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue({
+          ...draft,
+          approvedExportId: exportArtifact.id,
+        }),
+      );
       const normalizedArtifact = ResumeExportArtifactSchema.parse(
         cloneValue({ ...exportArtifact, isApproved: true }),
       );
@@ -664,6 +669,14 @@ export async function createFileJobFinderRepository(
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
         : null;
+
+      if (normalizedDraft.id !== normalizedArtifact.draftId) {
+        throw new Error("Approved export does not belong to the provided resume draft.");
+      }
+
+      if (normalizedDraft.jobId !== normalizedArtifact.jobId) {
+        throw new Error("Approved export job does not match the provided resume draft.");
+      }
 
       runImmediateTransaction(database, () => {
         syncApprovedResumeExportsForJob(

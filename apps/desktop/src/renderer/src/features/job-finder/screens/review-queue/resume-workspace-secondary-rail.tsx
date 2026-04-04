@@ -133,13 +133,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
                 className="min-w-0"
                 id={assistantId}
                 disabled={props.busy || props.assistantPending}
-                onChange={(event) => {
-                  if (props.busy || props.assistantPending) {
-                    return
-                  }
-
-                  setAssistantInput(event.currentTarget.value)
-                }}
+                onChange={(event) => setAssistantInput(event.currentTarget.value)}
                 onKeyDown={handleComposerKeyDown}
                 placeholder="Ask for a rewrite, shorter summary, stronger bullets, or ATS cleanup..."
                 rows={4}

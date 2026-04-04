@@ -220,8 +220,7 @@ export function applyPatchToResumeDraft(input: {
       }
       case "toggle_include": {
         if (patch.targetBulletId) {
-          const bullet = requireTargetBullet(section, patch.targetBulletId);
-          assertAssistantMayEdit(patch, section, bullet);
+          requireTargetBullet(section, patch.targetBulletId);
 
           sectionsChanged = true;
           return updateSectionMeta(

@@ -37,44 +37,58 @@ export function completeTailoredResumeDraft(
   const sanitizedTargetedKeywords = sanitizeStringArray(
     normalizedPrimary.targetedKeywords,
   );
+  const label =
+    typeof normalizedPrimary.label === "string" &&
+    normalizedPrimary.label.trim().length > 0
+      ? normalizedPrimary.label
+      : fallback.label;
+  const summary =
+    typeof normalizedPrimary.summary === "string" &&
+    normalizedPrimary.summary.trim().length > 0
+      ? normalizedPrimary.summary
+      : fallback.summary;
+  const experienceHighlights = sanitizedExperienceHighlights.length > 0
+    ? sanitizedExperienceHighlights
+    : fallback.experienceHighlights;
+  const coreSkills = sanitizedCoreSkills.length > 0
+    ? sanitizedCoreSkills
+    : fallback.coreSkills;
+  const targetedKeywords = sanitizedTargetedKeywords.length > 0
+    ? sanitizedTargetedKeywords
+    : fallback.targetedKeywords;
+  const notes = uniqueStrings([
+    ...fallback.notes,
+    ...(Array.isArray(normalizedPrimary.notes)
+      ? normalizedPrimary.notes.filter(
+          (note): note is string => typeof note === "string" && note.trim().length > 0,
+        )
+      : []),
+  ]);
+  const fullText = [
+    label,
+    summary,
+    ...experienceHighlights,
+    coreSkills.length > 0 ? `Core skills: ${coreSkills.join(", ")}` : null,
+    targetedKeywords.length > 0
+      ? `Targeted keywords: ${targetedKeywords.join(", ")}`
+      : null,
+    ...notes,
+  ]
+    .filter((entry): entry is string => Boolean(entry && entry.trim().length > 0))
+    .join("\n\n");
 
   return TailoredResumeDraftSchema.parse({
     ...fallback,
-    label:
-      typeof normalizedPrimary.label === "string" &&
-      normalizedPrimary.label.trim().length > 0
-        ? normalizedPrimary.label
-        : fallback.label,
-    summary:
-      typeof normalizedPrimary.summary === "string" &&
-      normalizedPrimary.summary.trim().length > 0
-        ? normalizedPrimary.summary
-        : fallback.summary,
-    experienceHighlights: sanitizedExperienceHighlights.length > 0
-      ? sanitizedExperienceHighlights
-      : fallback.experienceHighlights,
-    coreSkills: sanitizedCoreSkills.length > 0
-      ? sanitizedCoreSkills
-      : fallback.coreSkills,
-    targetedKeywords: sanitizedTargetedKeywords.length > 0
-      ? sanitizedTargetedKeywords
-      : fallback.targetedKeywords,
-    fullText:
-      typeof normalizedPrimary.fullText === "string" &&
-      normalizedPrimary.fullText.trim().length > 0
-        ? normalizedPrimary.fullText
-        : fallback.fullText,
+    label,
+    summary,
+    experienceHighlights,
+    coreSkills,
+    targetedKeywords,
+    fullText,
     compatibilityScore:
       typeof normalizedPrimary.compatibilityScore === "number"
         ? normalizedPrimary.compatibilityScore
         : fallback.compatibilityScore,
-    notes: uniqueStrings([
-      ...fallback.notes,
-      ...(Array.isArray(normalizedPrimary.notes)
-        ? normalizedPrimary.notes.filter(
-            (note): note is string => typeof note === "string" && note.trim().length > 0,
-          )
-        : []),
-    ]),
+    notes,
   });
 }

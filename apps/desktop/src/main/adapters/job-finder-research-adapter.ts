@@ -1,4 +1,4 @@
-import type { ResumeResearchArtifact, SavedJob } from "@unemployed/contracts";
+import { ResumeResearchArtifactSchema, type ResumeResearchArtifact, type SavedJob } from "@unemployed/contracts";
 import {
   extractReadablePage,
   extractResearchSignals,
@@ -81,7 +81,7 @@ export function createDesktopResumeResearchAdapter(
         }
       }
 
-      return artifacts;
+      return ResumeResearchArtifactSchema.array().parse(artifacts);
     },
   };
 }
@@ -167,12 +167,12 @@ function buildCandidateResearchUrls(job: SavedJob): string[] {
 }
 
 function deriveEmployerRoot(job: SavedJob): string | null {
-  const explicitEmployerOrigin = safeOrigin(job.employerWebsiteUrl ?? "");
+  const explicitEmployerOrigin = toSafeResearchOrigin(job.employerWebsiteUrl ?? "");
   if (explicitEmployerOrigin) {
     return explicitEmployerOrigin;
   }
 
-  const canonicalOrigin = safeOrigin(job.canonicalUrl);
+  const canonicalOrigin = toSafeResearchOrigin(job.canonicalUrl);
   const canonicalHost = safeHostname(job.canonicalUrl);
   if (canonicalOrigin && canonicalHost && !isLikelyJobBoardHost(canonicalHost)) {
     return canonicalOrigin;
@@ -212,11 +212,33 @@ function isLikelyJobBoardHost(hostname: string): boolean {
   );
 }
 
-function safeOrigin(value: string): string | null {
+function isPrivateOrLoopbackHostname(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+    return true
+  }
+
+  if (/^10\./.test(hostname) || /^192\.168\./.test(hostname)) {
+    return true
+  }
+
+  return /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+}
+
+function toSafeResearchOrigin(value: string): string | null {
   try {
-    return new URL(value).origin;
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return null
+    }
+
+    const hostname = parsed.hostname.toLowerCase()
+    if (isLikelyJobBoardHost(hostname) || isPrivateOrLoopbackHostname(hostname)) {
+      return null
+    }
+
+    return parsed.origin
   } catch {
-    return null;
+    return null
   }
 }
 

@@ -299,8 +299,8 @@ export function createLocalJobFinderDocumentManager(
           fileName,
           storagePath: targetPath,
           format: 'html',
-          intermediateFileName: htmlFileName,
-          intermediateStoragePath: htmlPath,
+          intermediateFileName: fileName,
+          intermediateStoragePath: targetPath,
           pageCount: null,
           warnings: [],
         }
@@ -308,21 +308,18 @@ export function createLocalJobFinderDocumentManager(
 
       const pdfFileName = `${artifactBaseName}.pdf`
       const pdfPath = input.targetPath ?? path.join(options.outputDirectory, pdfFileName)
+      const outputFileName = path.basename(pdfPath)
       await renderPdfFromHtml(html, htmlPath, pdfPath)
       const pageCount = await getPdfPageCount(pdfPath)
-      const warnings = [
-        ...(pageCount > 2 ? ['Exported resume exceeds the 2-page target.'] : []),
-        ...(pageCount >= 3 ? ['Exported resume reached the 3-page cap and needs review.'] : []),
-      ]
 
       return {
-        fileName: pdfFileName,
+        fileName: outputFileName,
         storagePath: pdfPath,
         format: 'pdf',
         intermediateFileName: htmlFileName,
         intermediateStoragePath: htmlPath,
         pageCount,
-        warnings,
+        warnings: [],
       }
     }
   }

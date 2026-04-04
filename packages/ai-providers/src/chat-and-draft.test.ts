@@ -109,7 +109,10 @@ describe('openai-compatible chat and draft behavior', () => {
       expect(result.label).toBe('Tailored Resume')
       expect(result.summary).toBe(deterministicFallback.summary)
       expect(result.experienceHighlights).toEqual(deterministicFallback.experienceHighlights)
-      expect(result.fullText).toBe(deterministicFallback.fullText)
+      expect(result.fullText).toContain(result.label ?? '')
+      expect(result.fullText).toContain(result.summary)
+      expect(result.fullText).toContain('Core skills: React')
+      expect(result.fullText).toContain('Targeted keywords: TypeScript, workflow, systems, React')
       expect(result.compatibilityScore).toBe(deterministicFallback.compatibilityScore)
       expect(result.notes).toEqual(
         expect.arrayContaining(['Model draft partial', ...deterministicFallback.notes])

@@ -407,6 +407,15 @@ export function createInMemoryJobFinderRepository(
       const normalizedArtifact = ResumeExportArtifactSchema.parse(
         cloneValue({ ...exportArtifact, isApproved: true }),
       );
+
+      if (normalizedArtifact.draftId !== normalizedDraft.id) {
+        throw new Error("Approved export does not belong to the provided resume draft.");
+      }
+
+      if (normalizedArtifact.jobId !== normalizedDraft.jobId) {
+        throw new Error("Approved export job does not match the provided resume draft.");
+      }
+
       state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
       state.resumeExportArtifacts = upsertById(
         state.resumeExportArtifacts,

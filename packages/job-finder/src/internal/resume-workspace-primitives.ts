@@ -27,6 +27,14 @@ export function createBullet(
 export function toSectionKind(label: string): ResumeDraftSection["kind"] {
   const normalized = normalizeText(label);
 
+  if (/\bskill(s)?\b/.test(normalized)) {
+    return "skills";
+  }
+
+  if (/\bproject(s)?\b/.test(normalized)) {
+    return "projects";
+  }
+
   if (normalized.includes("keyword")) {
     return "keywords";
   }
@@ -39,16 +47,8 @@ export function toSectionKind(label: string): ResumeDraftSection["kind"] {
     return "education";
   }
 
-  if (normalized.includes("project")) {
-    return "projects";
-  }
-
   if (normalized.includes("summary")) {
     return "summary";
-  }
-
-  if (normalized.includes("skill")) {
-    return "skills";
   }
 
   return "experience";

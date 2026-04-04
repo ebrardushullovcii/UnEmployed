@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CandidateProfile,
   DiscoveryActivityEvent,
@@ -203,9 +203,26 @@ export function useJobFinderPageController() {
   const actions = readyWorkspaceState?.actions ?? null;
   const platform = readyWorkspaceState?.platform ?? "win32";
   const workspace = readyWorkspaceState?.workspace ?? null;
+  const activeResumeWorkspaceJobIdRef = useRef<string | null>(
+    activeResumeWorkspaceJobId,
+  );
+
+  useEffect(() => {
+    activeResumeWorkspaceJobIdRef.current = activeResumeWorkspaceJobId;
+  }, [activeResumeWorkspaceJobId]);
+
+  const isCurrentResumeWorkspaceJob = useCallback(
+    (jobId: string) => activeResumeWorkspaceJobIdRef.current === jobId,
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
+
+    setResumeWorkspace(null);
+    setResumeAssistantMessages([]);
+    setResumeAssistantPending(false);
+    setResumeWorkspaceDirty(false);
 
     if (
       !activeResumeWorkspaceJobId ||
@@ -241,11 +258,14 @@ export function useJobFinderPageController() {
     void actions
       .getResumeWorkspace(activeResumeWorkspaceJobId)
       .then((nextWorkspace) => {
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          nextWorkspace.job.id === activeResumeWorkspaceJobIdRef.current
+        ) {
           setResumeWorkspace(nextWorkspace);
           setResumeAssistantMessages(nextWorkspace.assistantMessages);
           setResumeAssistantPending(false);
-          setSelectedReviewJobId(activeResumeWorkspaceJobId);
+          setSelectedReviewJobId(nextWorkspace.job.id);
         }
       })
       .catch((error) => {
@@ -374,6 +394,9 @@ export function useJobFinderPageController() {
         () => actions.approveResume(jobId, exportId),
         async () => {
           const nextWorkspace = await actions.getResumeWorkspace(jobId);
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
         },
         "Resume approved for this job.",
@@ -405,6 +428,9 @@ export function useJobFinderPageController() {
       void runResumeWorkspaceAction(
         () => actions.getResumeWorkspace(jobId),
         (nextWorkspace) => {
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
           setResumeAssistantMessages(nextWorkspace.assistantMessages);
           setResumeAssistantPending(false);
@@ -416,6 +442,9 @@ export function useJobFinderPageController() {
         () => actions.regenerateResumeDraft(jobId),
         async () => {
           const nextWorkspace = await actions.getResumeWorkspace(jobId);
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
         },
         "Resume draft regenerated.",
@@ -425,6 +454,9 @@ export function useJobFinderPageController() {
         () => actions.regenerateResumeSection(jobId, sectionId),
         async () => {
           const nextWorkspace = await actions.getResumeWorkspace(jobId);
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
         },
         "Resume section regenerated.",
@@ -485,6 +517,9 @@ export function useJobFinderPageController() {
         () => actions.saveResumeDraft(draft),
         async () => {
           const nextWorkspace = await actions.getResumeWorkspace(draft.jobId);
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
         },
         "Resume draft saved.",
@@ -498,6 +533,9 @@ export function useJobFinderPageController() {
         () => actions.saveResumeDraft(draft),
         async () => {
           const nextWorkspace = await actions.getResumeWorkspace(draft.jobId);
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
           next();
         },
@@ -516,6 +554,9 @@ export function useJobFinderPageController() {
           const nextWorkspace = await actions.getResumeWorkspace(
             resumeWorkspace.job.id,
           );
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
           setResumeAssistantMessages(nextWorkspace.assistantMessages);
           setResumeAssistantPending(false);
@@ -529,6 +570,9 @@ export function useJobFinderPageController() {
         () => actions.exportResumePdf(jobId),
         async () => {
           const nextWorkspace = await actions.getResumeWorkspace(jobId);
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
         },
         "Resume PDF exported.",
@@ -544,6 +588,9 @@ export function useJobFinderPageController() {
         () => actions.clearResumeApproval(jobId),
         async () => {
           const nextWorkspace = await actions.getResumeWorkspace(jobId);
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
           setResumeWorkspace(nextWorkspace);
         },
         "Resume approval cleared.",
@@ -588,6 +635,10 @@ export function useJobFinderPageController() {
             .find((message) => message.role === "assistant");
           const appliedCount = assistantReply?.patches.length ?? 0;
 
+          if (!isCurrentResumeWorkspaceJob(jobId)) {
+            return;
+          }
+
           setResumeAssistantMessages(messages);
           setResumeAssistantPending(false);
 
@@ -595,7 +646,9 @@ export function useJobFinderPageController() {
 
           try {
             const nextWorkspace = await actions.getResumeWorkspace(jobId);
-            setResumeWorkspace(nextWorkspace);
+            if (isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+              setResumeWorkspace(nextWorkspace);
+            }
           } catch (error) {
             refreshMessage =
               error instanceof Error

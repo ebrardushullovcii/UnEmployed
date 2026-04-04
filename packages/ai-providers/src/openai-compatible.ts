@@ -30,12 +30,6 @@ import {
   normalizeExtractedJobs,
 } from "./openai-compatible-jobs";
 
-function sanitizeStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-    : [];
-}
-
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions,
 ): AgentCapableJobFinderAiClient {

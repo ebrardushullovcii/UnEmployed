@@ -1,6 +1,7 @@
 import { Info, Pencil, Trash2, View } from 'lucide-react'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import { ProgressBar } from '../../components/progress-bar'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
@@ -59,16 +60,7 @@ export function ReviewQueueMissionPanel({
             <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Tailoring state</span>
             <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
           </div>
-          <div
-            aria-label="Tailoring progress"
-            aria-valuemax={100}
-            aria-valuemin={0}
-            aria-valuenow={selectedItem?.progressPercent ?? 0}
-            className="h-2 w-full rounded-full bg-(--surface-progress-track)"
-            role="progressbar"
-          >
-            <div className="h-full bg-primary shadow-(--progress-active-glow)" style={{ width: `${selectedItem?.progressPercent ?? 0}%` }} />
-          </div>
+          <ProgressBar ariaLabel="Tailoring progress" percent={selectedItem?.progressPercent ?? 0} />
         </div>
         {selectedItem && selectedJob ? (
           <>

@@ -152,7 +152,7 @@ export function buildDeterministicResumeAssistantReply(
 
   const isSummaryShorteningRequest = /\bshort(?:en|er)?\b.*\bsummary\b|\bsummary\b.*\bshort(?:en|er)?\b/.test(lowerRequest);
 
-  if (summarySection && (lowerRequest.includes("summary") || lowerRequest.includes("ats") || isSummaryShorteningRequest)) {
+  if (summarySection && !summarySection.locked && (lowerRequest.includes("summary") || lowerRequest.includes("ats") || isSummaryShorteningRequest)) {
     const tightenedSummary = tightenSentence(
       summarySection.text ?? `${input.job.title} alignment summary`,
     );
@@ -174,7 +174,9 @@ export function buildDeterministicResumeAssistantReply(
     });
   }
 
-  if (experienceSection && (lowerRequest.includes("bullet") || lowerRequest.includes("experience") || lowerRequest.includes("shorten"))) {
+  const isExperienceShorteningRequest = lowerRequest.includes("shorten") && (lowerRequest.includes("experience") || lowerRequest.includes("bullet"));
+
+  if (experienceSection && !experienceSection.locked && (lowerRequest.includes("bullet") || lowerRequest.includes("experience") || isExperienceShorteningRequest)) {
     const targetBullet = experienceSection.bullets.find((bullet) => !bullet.locked) ?? null;
     if (targetBullet) {
       patches.push({

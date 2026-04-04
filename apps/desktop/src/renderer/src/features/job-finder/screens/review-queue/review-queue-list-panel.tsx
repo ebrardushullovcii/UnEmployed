@@ -1,8 +1,8 @@
-import type { CSSProperties } from 'react'
 import type { ReviewQueueItem } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
+import { ProgressBar } from '../../components/progress-bar'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
 import { formatCountLabel, formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
@@ -29,7 +29,10 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
         </div>
       ) : (
         <div className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4">
-          {queue.map((item) => (
+          {queue.map((item) => {
+            const clampedProgress = Math.max(0, Math.min(100, item.progressPercent ?? 0))
+
+            return (
             <Button
               aria-current={selectedItem?.jobId === item.jobId ? 'true' : undefined}
               key={item.jobId}
@@ -52,16 +55,11 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
               </div>
               <span className="block w-full text-[0.8rem] text-foreground-muted">{item.company}</span>
               <div className="grid min-w-0 w-full gap-1.5">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-(--surface-progress-track)">
-                  <span
-                    className="progress-fill block h-full bg-accent"
-                    style={{ ['--progress-width' as const]: `${item.progressPercent ?? 0}%` } as CSSProperties}
-                  />
-                </div>
-                <span className="block w-full text-right font-mono text-[9px] uppercase tracking-(--tracking-normal) text-primary">{item.progressPercent ?? 0}%</span>
+                <ProgressBar className="h-1.5 w-full rounded-full bg-(--surface-progress-track)" percent={clampedProgress} />
+                <span className="block w-full text-right font-mono text-[9px] uppercase tracking-(--tracking-normal) text-primary">{clampedProgress}%</span>
               </div>
             </Button>
-          ))}
+          )})}
         </div>
       )}
     </section>
