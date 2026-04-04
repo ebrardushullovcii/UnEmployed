@@ -49,7 +49,7 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       : 'No asset'
 
   return (
-    <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
+    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <header className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
         <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Asset Preview</h2>
         <StatusBadge tone={previewTone}>
@@ -97,7 +97,7 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       ) : null}
       {queue.length > 0 && selectedItem && !showGenerationState && selectedAsset ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
-          <div className="relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-6 text-(length:--text-body) leading-[1.48] text-foreground">
+          <div className="surface-card-tint relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-6 text-(length:--text-body) leading-[1.48] text-foreground">
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.03]">
               <span className="-rotate-45 text-[120px] font-black tracking-tighter">TAILORED</span>
             </div>

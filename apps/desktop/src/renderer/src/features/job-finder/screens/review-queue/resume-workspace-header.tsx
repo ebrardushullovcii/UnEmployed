@@ -29,7 +29,7 @@ export function ResumeWorkspaceHeader({
   onRefresh
 }: ResumeWorkspaceHeaderProps) {
   return (
-    <section className="grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5 sm:p-6">
+    <section className="surface-panel-shell relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-2">
           <Button onClick={onBack} type="button" variant="ghost">

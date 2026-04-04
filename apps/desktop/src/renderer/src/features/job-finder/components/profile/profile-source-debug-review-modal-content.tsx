@@ -80,7 +80,7 @@ export function ProfileSourceDebugReviewModalContent({
                     'grid w-full gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors',
                     isSelected
                       ? 'border-primary/40 bg-primary/10 text-foreground'
-                      : 'border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary'
+                      : 'surface-card-tint border-(--surface-panel-border) text-foreground-soft hover:bg-secondary'
                   ].join(' ')}
                   onClick={() => onLoadRun(run.id)}
                   type="button"
@@ -102,7 +102,7 @@ export function ProfileSourceDebugReviewModalContent({
           <div
             aria-atomic="true"
             aria-live="polite"
-            className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 text-[0.9rem] text-foreground-soft"
+            className="surface-card-tint rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4 text-[0.9rem] text-foreground-soft"
             role="status"
           >
             Loading run details…
@@ -118,7 +118,7 @@ export function ProfileSourceDebugReviewModalContent({
           </div>
         ) : details ? (
           <>
-            <article className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4">
+            <article className="surface-card-tint grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="grid gap-1">
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
@@ -155,7 +155,7 @@ export function ProfileSourceDebugReviewModalContent({
 
                 return (
                   <article
-                    className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4"
+                    className="surface-card-tint grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4"
                     key={attempt.id}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -200,7 +200,7 @@ export function ProfileSourceDebugReviewModalContent({
             </div>
           </>
         ) : (
-          <div className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 text-[0.9rem] text-foreground-soft">
+          <div className="surface-card-tint rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4 text-[0.9rem] text-foreground-soft">
             No retained run details are available for this target yet.
           </div>
         )}

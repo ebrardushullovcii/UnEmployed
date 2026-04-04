@@ -185,6 +185,7 @@ export function createSettings(): JobFinderSettings {
     resumeFormat: 'html',
     resumeTemplateId: 'classic_ats',
     fontPreset: 'inter_requisite',
+    appearanceTheme: 'system',
     humanReviewRequired: true,
     allowAutoSubmitOverride: false,
     keepSessionAlive: true,

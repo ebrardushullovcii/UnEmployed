@@ -355,7 +355,7 @@ export function ProfileScreen(props: {
           sections={sections}
         />
 
-        <div className="relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft) bg-(--surface-panel)">
+        <div className="surface-panel-shell relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft)">
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">
               <ProfileActiveSectionContent

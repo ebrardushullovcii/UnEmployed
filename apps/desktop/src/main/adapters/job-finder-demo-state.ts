@@ -208,6 +208,7 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
       resumeTemplateId: "classic_ats",
       resumeFormat: "pdf",
       fontPreset: "inter_requisite",
+      appearanceTheme: "system",
       humanReviewRequired: true,
       keepSessionAlive: true,
       allowAutoSubmitOverride: false,

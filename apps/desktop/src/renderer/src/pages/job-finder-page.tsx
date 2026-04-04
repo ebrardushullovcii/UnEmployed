@@ -1,4 +1,5 @@
 import { JobFinderShell } from "@renderer/features/job-finder/components/job-finder-shell";
+import { ThemeProvider } from "@renderer/app/theme-provider";
 import { Outlet } from "react-router-dom";
 import { WorkspaceStateScreen } from "./job-finder-page-routes";
 import { useJobFinderPageController } from "./use-job-finder-page-controller";
@@ -14,7 +15,14 @@ export {
 export type { JobFinderPageContext } from "./job-finder-page-routes";
 
 export function JobFinderPage() {
-  const { context, navigateFromShell, platform, workspace, workspaceState } =
+  const {
+    appearanceTheme,
+    context,
+    navigateFromShell,
+    platform,
+    workspace,
+    workspaceState,
+  } =
     useJobFinderPageController();
 
   if (!context || !workspace) {
@@ -43,13 +51,15 @@ export function JobFinderPage() {
   }
 
   return (
-    <JobFinderShell
-      actionMessage={context.actionState.message}
-      onNavigate={navigateFromShell}
-      platform={platform}
-      workspace={workspace}
-    >
-      <Outlet context={context} />
-    </JobFinderShell>
+    <ThemeProvider preference={appearanceTheme || 'system'}>
+      <JobFinderShell
+        actionMessage={context.actionState.message}
+        onNavigate={navigateFromShell}
+        platform={platform}
+        workspace={workspace}
+      >
+        <Outlet context={context} />
+      </JobFinderShell>
+    </ThemeProvider>
   );
 }

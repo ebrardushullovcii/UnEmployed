@@ -23,7 +23,7 @@ export function DiscoveryDetailPanel({
   const discoveryTargetLabels = new Map(discoveryTargets.map((target) => [target.id, target.label]))
 
   return (
-    <section className="flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
+    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Selected job</p>
         <StatusBadge tone={selectedJob ? getApplicationTone(selectedJob.status) : 'muted'}>
@@ -42,11 +42,11 @@ export function DiscoveryDetailPanel({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Fit score</span>
                 <strong className="mt-2 block text-[1.1rem] text-(--text-headline)">{selectedJob.matchAssessment.score}</strong>
               </div>
-              <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Posted</span>
                 <strong className="mt-2 block text-[1.1rem] text-(--text-headline)">{formatOptionalDateOnly(selectedJob.postedAt, selectedJob.postedAtText)}</strong>
               </div>

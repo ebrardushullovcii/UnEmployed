@@ -14,7 +14,7 @@ export function ProfileSaveFooter({
   validationMessage
 }: ProfileSaveFooterProps) {
   return (
-    <div className="border-t border-(--surface-panel-border) bg-(--surface-overlay-medium) px-4 py-4 sm:px-5">
+    <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) px-4 py-4 sm:px-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="grid gap-2">
           {validationMessage ? (

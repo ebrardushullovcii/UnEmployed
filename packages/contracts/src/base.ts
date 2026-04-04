@@ -44,6 +44,11 @@ export const tailoringModeValues = [
 export const TailoringModeSchema = z.enum(tailoringModeValues);
 export type TailoringMode = z.infer<typeof TailoringModeSchema>;
 
+export const appearanceThemeValues = ["dark", "light", "system"] as const;
+
+export const AppearanceThemeSchema = z.enum(appearanceThemeValues);
+export type AppearanceTheme = z.infer<typeof AppearanceThemeSchema>;
+
 export const jobSourceValues = ["target_site"] as const;
 
 function normalizeLegacyJobSource(value: unknown): unknown {

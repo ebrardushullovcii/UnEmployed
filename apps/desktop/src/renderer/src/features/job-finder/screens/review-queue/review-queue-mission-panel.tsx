@@ -36,23 +36,23 @@ export function ReviewQueueMissionPanel({
   const tailoringStateTone = selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'
 
   return (
-    <section className="flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
+    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
         <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">Mission Details</p>
         <Info className="size-4 text-muted-foreground" />
       </div>
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-          <div className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4">
+          <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
             <div className="mb-1 font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Confidence Score</div>
             <div className="font-display text-xl font-bold text-positive">{selectedItem?.matchScore ?? '--'}%</div>
           </div>
-          <div className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4">
+          <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
             <div className="mb-1 font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Session State</div>
             <div className="font-display text-xl font-bold text-primary">{formatStatusLabel(browserSession.status)}</div>
           </div>
         </div>
-        <div className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4">
+        <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
           <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
             <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Tailoring state</span>
             <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
@@ -65,22 +65,22 @@ export function ReviewQueueMissionPanel({
             className="h-2 w-full rounded-full bg-(--surface-progress-track)"
             role="progressbar"
           >
-            <div className="h-full bg-primary shadow-[0_0_8px_rgba(198,198,199,0.3)]" style={{ width: `${selectedItem?.progressPercent ?? 0}%` }} />
+            <div className="h-full bg-primary shadow-(--progress-active-glow)" style={{ width: `${selectedItem?.progressPercent ?? 0}%` }} />
           </div>
         </div>
         {selectedItem && selectedJob ? (
           <>
             <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-              <div className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+              <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Template</span>
                 <strong className="mt-2 block font-display text-sm uppercase text-foreground">{selectedAsset?.templateName ?? 'Pending'}</strong>
               </div>
-              <div className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+              <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Generation</span>
                 <strong className="mt-2 block font-display text-sm uppercase text-foreground">{selectedAsset ? formatStatusLabel(selectedAsset.generationMethod) : 'Pending'}</strong>
               </div>
             </div>
-            <div className="grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+            <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Resume review</span>
                 <StatusBadge tone={selectedItem.resumeIsStale ? 'critical' : selectedItem.resumeDraftStatus === 'approved' ? 'positive' : 'active'}>
@@ -98,7 +98,7 @@ export function ReviewQueueMissionPanel({
                 </p>
               ) : null}
             </div>
-            <div className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+            <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <p className="text-(length:--text-body) leading-7 text-foreground-soft">{selectedJob.summary ?? selectedJob.description}</p>
               {selectedJob.employerWebsiteUrl ? (
                 <p className="min-w-0 break-words text-(length:--text-small) leading-6 text-foreground-soft">
@@ -112,10 +112,10 @@ export function ReviewQueueMissionPanel({
                 </div>
               ) : null}
             </div>
-            <div className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+            <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <PreferenceList label="Role fit" values={selectedJob.matchAssessment.reasons} />
             </div>
-            <div className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4">
+            <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <h3 className="mb-4 block font-display text-[10px] font-bold uppercase tracking-(--tracking-caps) text-muted-foreground">Telemetry Stream</h3>
               <div className="min-w-0 space-y-1 font-mono text-[9px] leading-relaxed text-foreground-soft">
                 {selectedAsset?.notes.length

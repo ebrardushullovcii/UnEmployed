@@ -10,7 +10,7 @@ export function EmptyState({ className, description, title }: EmptyStateProps) {
   return (
     <div
       className={cn(
-        'grid min-h-56 w-full place-items-center overflow-hidden rounded-(--radius-panel) border border-dashed border-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.025),rgba(255,255,255,0.012))] px-6 py-8 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]',
+        'grid min-h-56 w-full place-items-center overflow-hidden rounded-(--radius-panel) border border-dashed border-border/70 bg-[linear-gradient(180deg,var(--surface-overlay-subtle),var(--surface-fill-subtle))] px-6 py-8 text-center shadow-[inset_0_1px_0_var(--surface-inset-highlight)]',
         className
       )}
     >

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   AiProviderKindSchema,
+  AppearanceThemeSchema,
   BrowserDriverSchema,
   BrowserSessionStatusSchema,
   DocumentFontPresetSchema,
@@ -159,6 +160,7 @@ export const JobFinderSettingsSchema = z.object({
   resumeFormat: DocumentFormatSchema,
   resumeTemplateId: ResumeTemplateIdSchema,
   fontPreset: DocumentFontPresetSchema,
+  appearanceTheme: AppearanceThemeSchema.default("system"),
   humanReviewRequired: z.boolean(),
   allowAutoSubmitOverride: z.boolean(),
   keepSessionAlive: z.boolean(),

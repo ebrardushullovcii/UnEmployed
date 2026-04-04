@@ -23,18 +23,19 @@ export function SettingsRuntimeSummary({
 }: SettingsRuntimeSummaryProps) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8">
+      <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <KeyRound className="size-4 text-primary" />
           <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Session management</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
+          <SettingsStat label="Appearance" value={formatStatusLabel(settings.appearanceTheme)} />
           <SettingsStat label="Keep session alive" value={settings.keepSessionAlive ? 'Enabled' : 'Disabled'} />
           <SettingsStat label="Approval default" value={settings.humanReviewRequired ? 'Human review' : 'Auto'} />
         </div>
       </section>
 
-      <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8">
+      <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <FileText className="size-4 text-primary" />
           <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Automation runtime</h2>
@@ -48,7 +49,7 @@ export function SettingsRuntimeSummary({
         {browserSession.detail ? <p className="text-(length:--text-description) leading-6 text-foreground-muted">{browserSession.detail}</p> : null}
       </section>
 
-      <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8">
+      <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <FileText className="size-4 text-primary" />
           <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Document defaults</h2>
@@ -63,7 +64,7 @@ export function SettingsRuntimeSummary({
         </div>
       </section>
 
-      <section className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-8 grid content-start gap-8 md:col-span-2">
+      <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8 md:col-span-2">
         <div className="flex items-center gap-3">
           <ShieldAlert className="size-4 text-destructive" />
           <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Safety protocols</h2>

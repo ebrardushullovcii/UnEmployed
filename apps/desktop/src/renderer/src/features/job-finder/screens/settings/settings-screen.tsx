@@ -31,7 +31,7 @@ export function SettingsScreen(props: {
   } = props
 
   return (
-    <section className="grid gap-(--gap-section)">
+    <section className="grid gap-(--gap-section) pb-8">
       <PageHeader
         eyebrow="Settings"
         title="MVP defaults"

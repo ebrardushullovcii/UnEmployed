@@ -2,7 +2,7 @@ import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../../lib/cn'
 
-const panelVariants = cva('rounded-(--radius-field) border border-border-subtle bg-[rgba(17,17,17,0.9)]', {
+const panelVariants = cva('rounded-(--radius-field) border border-border-subtle bg-(--panel-surface-muted)', {
   variants: {
     spacing: {
       default: null,
@@ -11,7 +11,7 @@ const panelVariants = cva('rounded-(--radius-field) border border-border-subtle 
     },
     tone: {
       default: null,
-      muted: 'border-dashed border-border-strong bg-white/2'
+      muted: 'border-dashed border-border-strong bg-(--surface-fill-subtle)'
     }
   },
   defaultVariants: {

@@ -155,7 +155,7 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
   return (
     <div className={cn('h-screen overflow-hidden text-foreground', `platform-${platform}`)}>
       <header
-        className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-[rgba(12,12,12,0.92)] backdrop-blur-sm"
+        className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm"
         style={dragRegionStyle}
       >
         <div className="grid grid-cols-[15.5rem_minmax(0,1fr)_auto] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:grid-cols-[18.5rem_minmax(0,1fr)_auto] sm:pl-3 sm:pr-0">
@@ -213,7 +213,7 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
                 </Button>
                 <Button
                   aria-label="Close window"
-                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--button-close-hover) hover:text-white"
+                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--button-close-hover) hover:text-primary-foreground"
                   disabled={!windowControlsState.isClosable}
                   onClick={closeWindow}
                   size="icon-xs"
@@ -241,7 +241,7 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
                 >
                   <span>{screen.label}</span>
                   {screen.count !== null ? (
-                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-(--text-badge)">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground">
                       {screen.count}
                     </span>
                   ) : null}
