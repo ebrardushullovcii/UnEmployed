@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CandidateProfile,
   DiscoveryActivityEvent,
@@ -119,8 +119,6 @@ export function useJobFinderPageController() {
             ? successMessage(result)
             : successMessage;
 
-        setActionState({ busy: false, message: resolvedSuccessMessage });
-
         try {
           await onSuccess(result);
         } catch (error) {
@@ -159,8 +157,6 @@ export function useJobFinderPageController() {
       try {
         setActionState({ busy: true, message: null });
         const result = await action();
-
-        setActionState({ busy: false, message: successMessage });
 
         try {
           await onSuccess(result);
@@ -218,11 +214,6 @@ export function useJobFinderPageController() {
 
   useEffect(() => {
     let cancelled = false;
-
-    setResumeWorkspace(null);
-    setResumeAssistantMessages([]);
-    setResumeAssistantPending(false);
-    setResumeWorkspaceDirty(false);
 
     if (
       !activeResumeWorkspaceJobId ||
@@ -316,32 +307,46 @@ export function useJobFinderPageController() {
     };
   }
 
-  const selectedDiscoveryJob =
-    workspace.discoveryJobs.find((job) => job.id === selectedDiscoveryJobId) ??
-    workspace.discoveryJobs[0] ??
-    null;
+  const selectedDiscoveryJob = useMemo(
+    () =>
+      workspace.discoveryJobs.find((job) => job.id === selectedDiscoveryJobId) ??
+      workspace.discoveryJobs[0] ??
+      null,
+    [selectedDiscoveryJobId, workspace.discoveryJobs],
+  );
 
-  const selectedReviewItem =
-    workspace.reviewQueue.find((item) => item.jobId === selectedReviewJobId) ??
-    workspace.reviewQueue[0] ??
-    null;
+  const selectedReviewItem = useMemo(
+    () =>
+      workspace.reviewQueue.find((item) => item.jobId === selectedReviewJobId) ??
+      workspace.reviewQueue[0] ??
+      null,
+    [selectedReviewJobId, workspace.reviewQueue],
+  );
 
-  const selectedReviewJob =
-    workspace.discoveryJobs.find(
-      (job) => job.id === selectedReviewItem?.jobId,
-    ) ??
-    selectedDiscoveryJob ??
-    null;
+  const selectedReviewJob = useMemo(
+    () =>
+      workspace.discoveryJobs.find(
+        (job) => job.id === selectedReviewItem?.jobId,
+      ) ??
+      selectedDiscoveryJob ??
+      null,
+    [selectedDiscoveryJob, selectedReviewItem?.jobId, workspace.discoveryJobs],
+  );
 
-  const selectedTailoredAsset =
-    workspace.tailoredAssets.find(
-      (asset) => asset.id === selectedReviewItem?.resumeAssetId,
-    ) ?? null;
+  const selectedTailoredAsset = useMemo(
+    () =>
+      workspace.tailoredAssets.find(
+        (asset) => asset.id === selectedReviewItem?.resumeAssetId,
+      ) ?? null,
+    [selectedReviewItem?.resumeAssetId, workspace.tailoredAssets],
+  );
 
-  const { selectedApplicationAttempt, selectedApplicationRecord } =
-    getLatestApplicationAttempt(workspace, selectedApplicationRecordId);
+  const { selectedApplicationAttempt, selectedApplicationRecord } = useMemo(
+    () => getLatestApplicationAttempt(workspace, selectedApplicationRecordId),
+    [selectedApplicationRecordId, workspace],
+  );
 
-  const context: JobFinderPageContext = {
+  const context: JobFinderPageContext = useMemo(() => ({
     actionState,
     busy: actionState.busy,
     onAnalyzeProfileFromResume: () =>
@@ -698,7 +703,29 @@ export function useJobFinderPageController() {
     resumeAssistantPending,
     resumeWorkspace,
     workspace,
-  };
+  }), [
+    actionState,
+    actions,
+    confirmLeaveDirtyResumeWorkspace,
+    isCurrentResumeWorkspaceJob,
+    liveDiscoveryEvents,
+    navigate,
+    navigateFromShell,
+    platform,
+    resumeAssistantMessages,
+    resumeAssistantPending,
+    resumeWorkspace,
+    selectedApplicationAttempt,
+    selectedApplicationRecord,
+    selectedDiscoveryJob,
+    selectedReviewItem,
+    selectedReviewJob,
+    selectedTailoredAsset,
+    setSelectedApplicationRecordId,
+    setSelectedDiscoveryJobId,
+    setSelectedReviewJobId,
+    workspace,
+  ]);
 
   return {
     appearanceTheme: workspace.settings.appearanceTheme,

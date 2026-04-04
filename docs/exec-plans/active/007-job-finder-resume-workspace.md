@@ -910,7 +910,7 @@ Add explicit validation failures or warnings when:
 - never invent dates, titles, employers, or credentials
 - never let public employer research create candidate facts
 - never silently overwrite user-edited or pinned content during regenerate
-- never let the assistant perform a broad rewrite without either explicit user intent or a visible diff step
+- never let the assistant perform a broad rewrite without explicit user intent and a revision-backed recovery path that keeps the prior draft restorable
 - never fall back to the base resume silently when the user expects a tailored approved artifact
 
 ## Research And Source Transparency

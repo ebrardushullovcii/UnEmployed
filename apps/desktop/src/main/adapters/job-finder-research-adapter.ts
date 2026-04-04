@@ -65,7 +65,11 @@ export function createDesktopResumeResearchAdapter(
             priorityThemes: [...signals.priorityThemes],
             fetchStatus: "success",
           });
-        } catch {
+        } catch (error) {
+          console.warn(
+            `[ResumeResearch] Failed to fetch research page for job ${typedInput.job.id} from ${sourceUrl}.`,
+            error instanceof Error ? error.stack ?? error.message : error,
+          );
           artifacts.push({
             id: `resume_research_${typedInput.job.id}_${artifacts.length + 1}`,
             jobId: typedInput.job.id,
@@ -73,7 +77,10 @@ export function createDesktopResumeResearchAdapter(
             pageTitle: null,
             fetchedAt: new Date().toISOString(),
             extractedText: null,
-            companyNotes: null,
+            companyNotes:
+              error instanceof Error && error.message.trim().length > 0
+                ? `Fetch failed: ${error.message}`
+                : null,
             domainVocabulary: [],
             priorityThemes: [],
             fetchStatus: "failed",
@@ -179,7 +186,11 @@ function deriveEmployerRoot(job: SavedJob): string | null {
   }
 
   const employerDomain = job.employerDomain?.trim().toLowerCase() ?? null;
-  if (employerDomain) {
+  if (
+    employerDomain &&
+    !isLikelyJobBoardHost(employerDomain) &&
+    !isPrivateOrLoopbackHostname(employerDomain)
+  ) {
     return `https://${employerDomain}`;
   }
 
@@ -217,11 +228,15 @@ function isPrivateOrLoopbackHostname(hostname: string): boolean {
     return true
   }
 
-  if (/^10\./.test(hostname) || /^192\.168\./.test(hostname)) {
+  if (/^10\./.test(hostname) || /^192\.168\./.test(hostname) || /^169\.254\./.test(hostname)) {
     return true
   }
 
-  return /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) {
+    return true
+  }
+
+  return /^f[c-d][0-9a-f:]*$/i.test(hostname) || /^fe[89ab][0-9a-f:]*$/i.test(hostname)
 }
 
 function toSafeResearchOrigin(value: string): string | null {

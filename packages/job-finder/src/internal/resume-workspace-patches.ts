@@ -76,7 +76,8 @@ export function applyPatchToResumeDraft(input: {
       return section;
     }
 
-    const targetBullet = patch.targetBulletId
+    const requiresExistingBullet = patch.operation !== "insert_bullet";
+    const targetBullet = requiresExistingBullet && patch.targetBulletId
       ? section.bullets.find((bullet) => bullet.id === patch.targetBulletId) ?? null
       : null;
 
@@ -84,6 +85,9 @@ export function applyPatchToResumeDraft(input: {
 
     switch (patch.operation) {
       case "replace_section_text":
+        if ((section.text ?? null) === (patch.newText ?? null)) {
+          return section;
+        }
         sectionsChanged = true;
         return updateSectionMeta(
           {
@@ -96,6 +100,14 @@ export function applyPatchToResumeDraft(input: {
       case "insert_bullet": {
         if (!patch.newText) {
           throw new Error("A new bullet text value is required for insert_bullet.");
+        }
+
+        if (
+          !patch.anchorBulletId &&
+          !patch.targetBulletId &&
+          section.bullets.some((bullet) => bullet.text === patch.newText)
+        ) {
+          return section;
         }
 
         const newBullet = createBullet(
@@ -137,7 +149,10 @@ export function applyPatchToResumeDraft(input: {
           throw new Error("update_bullet requires a bullet id and replacement text.");
         }
 
-        requireTargetBullet(section, patch.targetBulletId);
+        const currentBullet = requireTargetBullet(section, patch.targetBulletId);
+        if (currentBullet.text === patch.newText) {
+          return section;
+        }
 
         sectionsChanged = true;
         return updateSectionMeta(
@@ -186,6 +201,10 @@ export function applyPatchToResumeDraft(input: {
         const movingBullet = requireTargetBullet(section, patch.targetBulletId);
         const currentIndex = bullets.findIndex((bullet) => bullet.id === movingBullet.id);
 
+        if (!patch.anchorBulletId && currentIndex === bullets.length - 1) {
+          return section;
+        }
+
         bullets.splice(currentIndex, 1);
 
         if (!patch.anchorBulletId) {
@@ -200,6 +219,11 @@ export function applyPatchToResumeDraft(input: {
 
           if (anchorIndex < 0) {
             throw new Error(`Unable to find anchor bullet '${patch.anchorBulletId}'.`);
+          }
+
+          const destinationIndex = patch.position === "before" ? anchorIndex : anchorIndex + 1;
+          if (destinationIndex === currentIndex || destinationIndex === currentIndex + 1) {
+            return section;
           }
 
           bullets.splice(patch.position === "before" ? anchorIndex : anchorIndex + 1, 0, {
@@ -220,7 +244,11 @@ export function applyPatchToResumeDraft(input: {
       }
       case "toggle_include": {
         if (patch.targetBulletId) {
-          requireTargetBullet(section, patch.targetBulletId);
+          const currentBullet = requireTargetBullet(section, patch.targetBulletId);
+          const nextIncluded = patch.newIncluded ?? !currentBullet.included;
+          if (nextIncluded === currentBullet.included) {
+            return section;
+          }
 
           sectionsChanged = true;
           return updateSectionMeta(
@@ -241,6 +269,11 @@ export function applyPatchToResumeDraft(input: {
           );
         }
 
+        const nextIncluded = patch.newIncluded ?? !section.included;
+        if (nextIncluded === section.included) {
+          return section;
+        }
+
         sectionsChanged = true;
         return updateSectionMeta(
           {
@@ -253,7 +286,11 @@ export function applyPatchToResumeDraft(input: {
       }
       case "set_lock": {
         if (patch.targetBulletId) {
-          requireTargetBullet(section, patch.targetBulletId);
+          const currentBullet = requireTargetBullet(section, patch.targetBulletId);
+          const nextLocked = patch.newLocked ?? !currentBullet.locked;
+          if (nextLocked === currentBullet.locked) {
+            return section;
+          }
 
           sectionsChanged = true;
           return updateSectionMeta(
@@ -274,6 +311,11 @@ export function applyPatchToResumeDraft(input: {
           );
         }
 
+        const nextLocked = patch.newLocked ?? !section.locked;
+        if (nextLocked === section.locked) {
+          return section;
+        }
+
         sectionsChanged = true;
         return updateSectionMeta(
           {
@@ -285,6 +327,22 @@ export function applyPatchToResumeDraft(input: {
         );
       }
       case "replace_section_bullets":
+        if (!Array.isArray(patch.newBullets)) {
+          throw new Error("replace_section_bullets requires newBullets.");
+        }
+
+        if (
+          patch.newBullets.length === section.bullets.length &&
+          patch.newBullets.every(
+            (bullet, index) =>
+              section.bullets[index]?.text === bullet.text &&
+              section.bullets[index]?.included === bullet.included &&
+              section.bullets[index]?.locked === bullet.locked,
+          )
+        ) {
+          return section;
+        }
+
         if (
           patch.origin === "assistant" &&
           section.bullets.some((bullet) => bullet.locked)
@@ -296,13 +354,13 @@ export function applyPatchToResumeDraft(input: {
 
         sectionsChanged = true;
         return updateSectionMeta(
-          {
-            ...section,
-            bullets: patch.newBullets?.map((bullet) => ({
-              ...bullet,
-              updatedAt,
-            })) ?? [],
-          },
+            {
+              ...section,
+              bullets: patch.newBullets.map((bullet) => ({
+                ...bullet,
+                updatedAt,
+              })),
+            },
           patch,
           updatedAt,
         );

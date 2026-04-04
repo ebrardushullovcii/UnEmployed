@@ -124,14 +124,10 @@ export function ReviewQueueMissionPanel({
               <Button
                 className="h-11 w-full"
                 variant="primary"
-                disabled={busy || isGenerating || (needsGeneration ? false : (!canApproveApply || !selectedAsset))}
+                disabled={busy || isGenerating || (needsGeneration ? false : !canApproveApply)}
                 onClick={() => {
                   if (needsGeneration) {
                     onGenerateResume(selectedItem.jobId)
-                    return
-                  }
-
-                  if (!selectedAsset) {
                     return
                   }
 
@@ -144,15 +140,14 @@ export function ReviewQueueMissionPanel({
               <div className="grid gap-2">
                 <Button
                   className="h-11 w-full"
-                  disabled={!selectedItem}
-                  onClick={() => selectedItem && onEditResumeWorkspace(selectedItem.jobId)}
+                  onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
                   type="button"
                   variant="secondary"
                 ><Pencil className="size-4" />Edit asset</Button>
-                <Button className="h-11 w-full" disabled type="button" variant="secondary"><View className="size-4" />View source</Button>
+                <Button aria-label="View source unavailable yet" className="h-11 w-full" disabled title="View source coming soon" type="button" variant="secondary"><View className="size-4" />View source</Button>
               </div>
             </div>
-            <Button className="h-11 w-full" disabled type="button" variant="destructive"><Trash2 className="size-4" />Purge job application</Button>
+            <Button aria-label="Purge job application unavailable yet" className="h-11 w-full" disabled title="Purge job application not available yet" type="button" variant="destructive"><Trash2 className="size-4" />Purge job application</Button>
           </>
         ) : (
           <EmptyState

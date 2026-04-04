@@ -50,7 +50,7 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
                   <StatusBadge tone={getAssetTone(item.assetStatus)}>{formatStatusLabel(item.assetStatus)}</StatusBadge>
                 </div>
                 <div className="min-w-0 w-full">
-                  <strong className="block break-words font-display text-[1rem] font-semibold tracking-[-0.015em] text-foreground">{item.title}</strong>
+                  <strong className="block break-words font-display text-[1rem] font-semibold tracking-(--tracking-normal) text-foreground">{item.title}</strong>
                 </div>
               </div>
               <span className="block w-full text-[0.8rem] text-foreground-muted">{item.company}</span>

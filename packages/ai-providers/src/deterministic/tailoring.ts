@@ -209,10 +209,20 @@ export function buildDeterministicResumeAssistantReply(
 }
 
 function tightenSentence(value: string): string {
-  return value
+  const normalized = value
     .replace(/\s+/g, " ")
     .replace(/\b(aligned to|tailored for|focused on)\b/gi, "for")
     .trim()
-    .replace(/[.]{2,}/g, ".")
-    .slice(0, 240);
+    .replace(/[.]{2,}/g, ".");
+
+  if (normalized.length <= 240) {
+    return /[.!?;]$/.test(normalized) ? normalized : `${normalized}.`;
+  }
+
+  const candidate = normalized.slice(0, 240);
+  const boundaryMatch = candidate.match(/^.*(?=[\s.!?;][^\s.!?;]*$)/);
+  const trimmed = boundaryMatch?.[0]?.trim() ?? candidate.replace(/\s+\S*$/, "").trim();
+  const safe = trimmed.length > 0 ? trimmed : candidate.trim();
+
+  return /[.!?;]$/.test(safe) ? safe : `${safe}...`;
 }

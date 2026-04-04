@@ -604,13 +604,27 @@ export async function createFileJobFinderRepository(
       return upsertPersistedValue("resume_assistant_messages", normalizedMessage);
     },
     saveResumeDraftWithValidation({ draft, validation, tailoredAsset }) {
-      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue(
+          draft.approvedExportId
+            ? draft
+            : { ...draft, approvedAt: null, approvedExportId: null },
+        ),
+      );
       const normalizedValidation = ResumeValidationResultSchema.parse(
         cloneValue(validation),
       );
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
         : null;
+
+      if (normalizedValidation.draftId !== normalizedDraft.id) {
+        throw new Error("Resume validation result does not belong to the provided draft.");
+      }
+
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
 
       runImmediateTransaction(database, () => {
         if (!normalizedDraft.approvedExportId) {
@@ -627,7 +641,13 @@ export async function createFileJobFinderRepository(
       return secureDatabaseFile(options.filePath);
     },
     applyResumePatchWithRevision({ draft, revision, validation, tailoredAsset }) {
-      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue(
+          draft.approvedExportId
+            ? draft
+            : { ...draft, approvedAt: null, approvedExportId: null },
+        ),
+      );
       const normalizedRevision = ResumeDraftRevisionSchema.parse(
         cloneValue(revision),
       );
@@ -637,6 +657,18 @@ export async function createFileJobFinderRepository(
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
         : null;
+
+      if (normalizedRevision.draftId !== normalizedDraft.id) {
+        throw new Error("Resume revision does not belong to the provided draft.");
+      }
+
+      if (normalizedValidation.draftId !== normalizedDraft.id) {
+        throw new Error("Resume validation result does not belong to the provided draft.");
+      }
+
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
 
       runImmediateTransaction(database, () => {
         if (!normalizedDraft.approvedExportId) {
@@ -676,6 +708,14 @@ export async function createFileJobFinderRepository(
 
       if (normalizedDraft.jobId !== normalizedArtifact.jobId) {
         throw new Error("Approved export job does not match the provided resume draft.");
+      }
+
+      if (normalizedValidation && normalizedValidation.draftId !== normalizedDraft.id) {
+        throw new Error("Resume validation result does not belong to the provided draft.");
+      }
+
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
       }
 
       runImmediateTransaction(database, () => {
