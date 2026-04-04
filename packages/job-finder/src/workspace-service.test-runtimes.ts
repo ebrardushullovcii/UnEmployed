@@ -8,18 +8,37 @@ import type {
   AgentDiscoveryOptions,
   BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
+import { JobPostingSchema } from "@unemployed/contracts";
 import type {
   AgentDebugFindings,
   AgentDiscoveryProgress,
   DiscoveryRunResult,
   EditableSourceInstructionArtifact,
   JobPosting,
+  ResumeResearchArtifact,
   SourceDebugCompactionState,
   SourceDebugPhaseCompletionMode,
   SourceDebugPhaseEvidence,
 } from "@unemployed/contracts";
 
 import { toPhaseId, type SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
+
+function normalizeTestJobPosting(job: Record<string, unknown>): JobPosting {
+  return JobPostingSchema.parse({
+    ...job,
+    postedAtText: job.postedAtText ?? null,
+    responsibilities: job.responsibilities ?? [],
+    minimumQualifications: job.minimumQualifications ?? [],
+    preferredQualifications: job.preferredQualifications ?? [],
+    seniority: job.seniority ?? null,
+    employmentType: job.employmentType ?? null,
+    department: job.department ?? null,
+    team: job.team ?? null,
+    employerWebsiteUrl: job.employerWebsiteUrl ?? null,
+    employerDomain: job.employerDomain ?? null,
+    benefits: job.benefits ?? [],
+  });
+}
 
 export function createBrowserRuntime() {
   return createCatalogBrowserSessionRuntime({
@@ -47,11 +66,22 @@ export function createBrowserRuntime() {
         applyPath: "easy_apply",
         easyApplyEligible: true,
         postedAt: "2026-03-20T09:00:00.000Z",
+        postedAtText: null,
         discoveredAt: "2026-03-20T10:04:00.000Z",
         salaryText: "$180k - $220k",
         summary: "Own the design system.",
         description: "Own the design system and workflow platform.",
         keySkills: ["Figma", "Design Systems"],
+        responsibilities: ["Own the design system roadmap."],
+        minimumQualifications: ["Strong product design systems experience."],
+        preferredQualifications: ["Workflow-platform product background."],
+        seniority: "Senior",
+        employmentType: "Full-time",
+        department: "Design",
+        team: "Design Systems",
+        employerWebsiteUrl: "https://signalsystems.example.com",
+        employerDomain: "signalsystems.example.com",
+        benefits: ["Remote-first collaboration"],
       },
       {
         source: "target_site",
@@ -65,14 +95,25 @@ export function createBrowserRuntime() {
         applyPath: "easy_apply",
         easyApplyEligible: true,
         postedAt: "2026-03-20T09:30:00.000Z",
+        postedAtText: null,
         discoveredAt: "2026-03-20T10:04:00.000Z",
         salaryText: "$185k - $210k",
         summary: "Lead UI platform work.",
         description:
           "Lead UI platform work. Additional work authorization details are required during apply.",
         keySkills: ["React", "Design Systems"],
+        responsibilities: ["Lead UI platform architecture."],
+        minimumQualifications: ["Deep React experience."],
+        preferredQualifications: ["Accessibility leadership experience."],
+        seniority: "Principal",
+        employmentType: "Full-time",
+        department: "Engineering",
+        team: "UI Platform",
+        employerWebsiteUrl: "https://void.example.com",
+        employerDomain: "void.example.com",
+        benefits: ["Remote-first collaboration"],
       },
-    ],
+    ].map((job) => normalizeTestJobPosting(job)),
   });
 }
 
@@ -123,7 +164,7 @@ export function toEditableSourceInstructionArtifactInput(artifact: {
 }
 
 export function createAgentBrowserRuntime(
-  catalog: readonly JobPosting[],
+  catalog: readonly Record<string, unknown>[],
   runtimeOptions?: {
     sessionStatus?: "ready" | "login_required" | "blocked";
     sessionDetail?: string;
@@ -146,7 +187,7 @@ export function createAgentBrowserRuntime(
         lastCheckedAt: "2026-03-20T10:04:00.000Z",
       },
     ],
-    catalog: [...catalog],
+    catalog: catalog.map((job) => normalizeTestJobPosting(job)),
   });
 
   return {
@@ -212,7 +253,7 @@ export function createAgentBrowserRuntime(
         completedAt: "2026-03-20T10:01:00.000Z",
         querySummary: "Agent discovery test run",
         warning: null,
-        jobs: [...catalog],
+        jobs: catalog.map((job) => normalizeTestJobPosting(job)),
         agentMetadata: {
           steps: 2,
           incomplete: false,
@@ -255,9 +296,41 @@ export function createDocumentManager() {
     },
     renderResumeArtifact() {
       return Promise.resolve({
-        fileName: "generated-resume.html",
-        storagePath: "/tmp/generated-resume.html",
+        fileName: "generated-resume.pdf",
+        storagePath: "/tmp/generated-resume.pdf",
+        format: "pdf" as const,
+        intermediateFileName: "generated-resume.html",
+        intermediateStoragePath: "/tmp/generated-resume.html",
+        pageCount: 2,
+        warnings: [],
       });
+    },
+  };
+}
+
+export function createResearchAdapter(
+  artifacts: readonly ResumeResearchArtifact[] = [
+    {
+      id: "research_job_ready_company",
+      jobId: "job_ready",
+      sourceUrl: "https://signalsystems.example/about",
+      pageTitle: "About Signal Systems",
+      fetchedAt: "2026-04-03T10:00:00.000Z",
+      extractedText:
+        "Signal Systems builds workflow automation and incident response software for operations teams.",
+      companyNotes:
+        "Signal Systems builds workflow automation and incident response software for operations teams.",
+      domainVocabulary: ["workflow", "automation", "incident", "operations"],
+      priorityThemes: ["workflow automation", "incident response"],
+      fetchStatus: "success",
+    },
+  ],
+) {
+  return {
+    fetchResearchPages(input: { job: { id: string } }) {
+      return Promise.resolve(
+        artifacts.filter((artifact) => artifact.jobId === input.job.id),
+      );
     },
   };
 }

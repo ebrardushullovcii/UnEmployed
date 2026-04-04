@@ -65,14 +65,14 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `JF-04 Tailored Resume Path`
 
 - status: `in_progress`
-- last updated: `2026-04-02`
+- last updated: `2026-04-04`
 - scope: replace the one-shot tailored-resume path with a dedicated job-specific resume workspace and real export artifacts
 - linked plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - code areas: `packages/contracts`, `packages/db`, `packages/knowledge-base`, `packages/job-finder`, `packages/browser-runtime`, `apps/desktop`
-- current focus: the current one-shot tailoring flow now has a dedicated follow-on plan for structured resume drafts, bounded employer research, grounded side-chat edits, user-owned lock or pin rules, and `pdf`-first export inside a dedicated `Resume Workspace`
-- next step: land the new resume-draft contracts and persistence seams, build the first deterministic retrieval layer in `packages/knowledge-base`, and replace the disabled review-queue asset-edit affordances with a dedicated workspace shell
-- blockers: supported apply still depends on a coarse ready-asset model and saved `html` output until the new draft and export path lands
-- notes: the current implementation still turns a flat AI draft directly into a ready `TailoredAsset` and writes `html` only; the new plan keeps the existing template ids as the starting catalog, treats `2 pages` as the default target with `3 pages` as the near-hard cap, allows bounded public employer research to improve employer language and keyword targeting without inventing candidate facts, and keeps heavy version-management UI out of v1 even though lightweight revisions stay in scope for undo and recovery
+- current focus: the resume workspace now adds richer saved-job grounding fields, avoids synthetic posted-date defaults, targets employer research toward company domains when possible, exposes inline job-context plus source-evidence inspection, automatically stales previously approved resumes when profile, settings, saved-job details, or approved draft content change materially, refuses apply when the approved tailored PDF is missing on disk, normalizes partial model draft payloads with deterministic fallback fields, uses a locked desktop workspace layout where the header scrolls away and each major column owns its own scroll area, exports PDFs through a native save dialog instead of an app-managed export-state rail, treats the entire right rail as a dedicated assistant chat surface, and now shows optimistic chat state immediately while assistant work is still running
+- next step: run more real QA over saved-job/profile-change staleness triggers and decide whether the remaining dev-only PDF page-count warnings are worth suppressing, while keeping the current no-diff-preview assistant flow stable
+- blockers: none
+- notes: `pnpm --filter @unemployed/desktop ui:resume-workspace` now loads deterministic demo state through the test-only preload bridge, captures the main workspace milestones under `apps/desktop/test-artifacts/ui/resume-workspace/`, and saves `workspace-after-demo.json` as proof that apply ended with an approved export and submitted application record; the desktop test API now also forces deterministic AI for that harness so local `.env` provider credentials do not destabilize scripted assistant or generation steps and also bypasses the native export save dialog so the harness can keep using deterministic output paths; `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty` separately proves dirty-draft protection across refresh, assistant requests, clear approval, and leave-workspace prompts; recent hardening also added main-process approved-file existence checks before apply and restored the locked desktop workspace behavior so the top header can scroll away while the left rail, editor column, and right rail keep independent scrolling
 
 ### `JF-05 Review-Gated Easy Apply Execution`
 

@@ -5,6 +5,12 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ResumeAssistantMessageSchema,
+  ResumeDraftRevisionSchema,
+  ResumeDraftSchema,
+  ResumeExportArtifactSchema,
+  ResumeResearchArtifactSchema,
+  ResumeValidationResultSchema,
   SavedJobSchema,
   SourceDebugEvidenceRefSchema,
   SourceDebugWorkerAttemptSchema,
@@ -12,7 +18,7 @@ import {
   TailoredAssetSchema,
   type JobFinderRepositoryState,
 } from "@unemployed/contracts";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
 import {
   normalizeLegacyDiscoveryState,
@@ -28,6 +34,12 @@ export const stateTableNames = {
   application_attempts: "application_attempts",
   application_records: "application_records",
   saved_jobs: "saved_jobs",
+  resume_assistant_messages: "resume_assistant_messages",
+  resume_draft_revisions: "resume_draft_revisions",
+  resume_drafts: "resume_drafts",
+  resume_export_artifacts: "resume_export_artifacts",
+  resume_research_artifacts: "resume_research_artifacts",
+  resume_validation_results: "resume_validation_results",
   singleton_state: "singleton_state",
   source_debug_attempts: "source_debug_attempts",
   source_debug_evidence_refs: "source_debug_evidence_refs",
@@ -71,6 +83,28 @@ export function listValues<TValue>(
   return database
     .prepare(`SELECT value FROM ${stateTableNames[tableName]} ORDER BY id`)
     .all()
+    .flatMap((row) => {
+      const parsedValue = tryParseJsonValue(String(row.value), schema);
+      return parsedValue ? [parsedValue] : [];
+    });
+}
+
+export function listResumeDraftValues<TValue>(
+  database: DatabaseSync,
+  tableName: StateCollectionTable,
+  schema: SchemaParser<TValue>,
+  options: {
+    orderBySql: string;
+    whereSql?: string;
+    params?: readonly SQLInputValue[];
+  },
+): TValue[] {
+  const whereClause = options.whereSql ? ` WHERE ${options.whereSql}` : "";
+  return database
+    .prepare(
+      `SELECT value FROM ${stateTableNames[tableName]}${whereClause} ORDER BY ${options.orderBySql}`,
+    )
+    .all(...(options.params ?? []))
     .flatMap((row) => {
       const parsedValue = tryParseJsonValue(String(row.value), schema);
       return parsedValue ? [parsedValue] : [];
@@ -122,6 +156,57 @@ export function replaceCollection(
   }
 }
 
+export function replaceIndexedCollection(
+  database: DatabaseSync,
+  tableName: StateCollectionTable,
+  values: readonly { id: string }[],
+  options: {
+    columnNames: readonly string[];
+    getColumns: (value: { id: string }) => readonly SQLInputValue[];
+  },
+): void {
+  database.exec(`DELETE FROM ${stateTableNames[tableName]}`);
+  const columnSql = ["id", ...options.columnNames, "value"].join(", ");
+  const placeholders = Array.from({
+    length: options.columnNames.length + 2,
+  })
+    .fill("?")
+    .join(", ");
+  const statement = database.prepare(
+    `INSERT OR REPLACE INTO ${stateTableNames[tableName]} (${columnSql}) VALUES (${placeholders})`,
+  );
+
+  for (const value of values) {
+    statement.run(
+      value.id,
+      ...options.getColumns(value),
+      JSON.stringify(value),
+    );
+  }
+}
+
+export function upsertIndexedCollectionValue(
+  database: DatabaseSync,
+  tableName: StateCollectionTable,
+  value: { id: string },
+  options: {
+    columnNames: readonly string[];
+    getColumns: (value: { id: string }) => readonly SQLInputValue[];
+  },
+): void {
+  const columnSql = ["id", ...options.columnNames, "value"].join(", ");
+  const placeholders = Array.from({
+    length: options.columnNames.length + 2,
+  })
+    .fill("?")
+    .join(", ");
+  database
+    .prepare(
+      `INSERT OR REPLACE INTO ${stateTableNames[tableName]} (${columnSql}) VALUES (${placeholders})`,
+    )
+    .run(value.id, ...options.getColumns(value), JSON.stringify(value));
+}
+
 export function upsertCollectionValue(
   database: DatabaseSync,
   tableName: StateCollectionTable,
@@ -147,6 +232,78 @@ export function writeState(
     saveSingletonValue(database, "discovery_state", state.discovery);
     replaceCollection(database, "saved_jobs", state.savedJobs);
     replaceCollection(database, "tailored_assets", state.tailoredAssets);
+    replaceIndexedCollection(database, "resume_drafts", state.resumeDrafts, {
+      columnNames: ["job_id", "created_at", "updated_at"],
+      getColumns: (value) => {
+        const draft = ResumeDraftSchema.parse(value);
+        return [draft.jobId, draft.createdAt, draft.updatedAt];
+      },
+    });
+    replaceIndexedCollection(
+      database,
+      "resume_draft_revisions",
+      state.resumeDraftRevisions,
+      {
+        columnNames: ["draft_id", "created_at"],
+        getColumns: (value) => {
+          const revision = ResumeDraftRevisionSchema.parse(value);
+          return [revision.draftId, revision.createdAt];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
+      "resume_export_artifacts",
+      state.resumeExportArtifacts,
+      {
+        columnNames: ["job_id", "draft_id", "exported_at", "is_approved"],
+        getColumns: (value) => {
+          const artifact = ResumeExportArtifactSchema.parse(value);
+          return [
+            artifact.jobId,
+            artifact.draftId,
+            artifact.exportedAt,
+            artifact.isApproved ? 1 : 0,
+          ];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
+      "resume_research_artifacts",
+      state.resumeResearchArtifacts,
+      {
+        columnNames: ["job_id", "fetched_at"],
+        getColumns: (value) => {
+          const artifact = ResumeResearchArtifactSchema.parse(value);
+          return [artifact.jobId, artifact.fetchedAt];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
+      "resume_validation_results",
+      state.resumeValidationResults,
+      {
+        columnNames: ["draft_id", "validated_at"],
+        getColumns: (value) => {
+          const validation = ResumeValidationResultSchema.parse(value);
+          return [validation.draftId, validation.validatedAt];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
+      "resume_assistant_messages",
+      state.resumeAssistantMessages,
+      {
+        columnNames: ["job_id", "created_at"],
+        getColumns: (value) => {
+          const message = ResumeAssistantMessageSchema.parse(value);
+          return [message.jobId, message.createdAt];
+        },
+      },
+    );
     replaceCollection(database, "application_records", state.applicationRecords);
     replaceCollection(
       database,
@@ -223,6 +380,54 @@ export function readState(
     searchPreferences,
     savedJobs: listValues(database, "saved_jobs", SavedJobSchema),
     tailoredAssets: listValues(database, "tailored_assets", TailoredAssetSchema),
+    resumeDrafts: listResumeDraftValues(
+      database,
+      "resume_drafts",
+      ResumeDraftSchema,
+      {
+        orderBySql: "updated_at DESC, id ASC",
+      },
+    ),
+    resumeDraftRevisions: listResumeDraftValues(
+      database,
+      "resume_draft_revisions",
+      ResumeDraftRevisionSchema,
+      {
+        orderBySql: "created_at DESC, id ASC",
+      },
+    ),
+    resumeExportArtifacts: listResumeDraftValues(
+      database,
+      "resume_export_artifacts",
+      ResumeExportArtifactSchema,
+      {
+        orderBySql: "exported_at DESC, id ASC",
+      },
+    ),
+    resumeResearchArtifacts: listResumeDraftValues(
+      database,
+      "resume_research_artifacts",
+      ResumeResearchArtifactSchema,
+      {
+        orderBySql: "fetched_at DESC, id ASC",
+      },
+    ),
+    resumeValidationResults: listResumeDraftValues(
+      database,
+      "resume_validation_results",
+      ResumeValidationResultSchema,
+      {
+        orderBySql: "validated_at DESC, id ASC",
+      },
+    ),
+    resumeAssistantMessages: listResumeDraftValues(
+      database,
+      "resume_assistant_messages",
+      ResumeAssistantMessageSchema,
+      {
+        orderBySql: "created_at ASC, id ASC",
+      },
+    ),
     applicationRecords: listValues(
       database,
       "application_records",

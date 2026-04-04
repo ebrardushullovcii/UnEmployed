@@ -6,6 +6,19 @@ Status: active
 
 Deliver a dedicated `Resume Workspace` for a selected job where the app can generate, inspect, edit, validate, export, approve, and reuse a grounded job-specific resume before the apply flow uploads it.
 
+## Delivery Standard For Implementing Agents
+
+This plan is not complete when the code merely compiles or the happy-path contracts exist.
+
+Required implementation bar:
+
+- finish the feature to a product-demo standard, not a placeholder or scaffolding standard
+- add any missing internal tooling or scripted harnesses needed to trigger generation, editing, chat-assisted changes, export, approval, and apply validation end-to-end
+- verify the desktop UI by actually interacting with it and capturing screenshots of the important states instead of relying only on typecheck or build success
+- keep durable instructions, QA workflow, and evidence paths updated in repo docs during the same task so the implementation does not become “chat-only knowledge” after long sessions or compaction
+
+In plain terms: another agent should be able to read this plan, run the documented harness, and watch a full demo of the shipped workspace without having to reconstruct missing steps from chat history.
+
 ## Locked Product Decisions
 
 - Grounding starts from the imported base resume plus the structured profile extracted or edited in `Profile`.
@@ -696,7 +709,7 @@ The first version should be desktop-first and structured, not a document canvas 
 
 Recommended layout:
 
-- top bar: job, company, draft state, template selector, export state, resume approval actions
+- top bar: job, company, draft state, template selector, export action, resume approval actions
 - left rail: section outline, validation summary, page-budget warnings, research-source count
 - main editor: structured fields, bullets, include or exclude toggles, reorder actions, pin or lock controls
 - right rail: rendered preview and assistant panel, either stacked or tabbed to preserve space
@@ -740,9 +753,9 @@ Expected intents:
 
 Assistant outputs should resolve into typed resume patch operations.
 
-Small changes can auto-apply with clear undo.
+Small changes can auto-apply with clear revision-backed recovery.
 
-Larger changes should show a diff preview before they are accepted.
+Diff preview is not required for this slice; correctness, grounded patches, and safe persistence matter more than adding another review surface.
 
 ## Template And Export Strategy
 
@@ -806,6 +819,9 @@ The editing preview should stay reliable and easy to implement in v1:
 - keep final PDF generation in the Electron main process only
 - do not add a renderer-side PDF viewer or renderer-side PDF parsing dependency in the first pass
 - treat the exported PDF page count as the final source of truth for page-budget warnings
+- keep scripted desktop QA on deterministic AI even when local live-provider credentials are present, so resume generation and assistant validation stay repeatable across capture runs
+- for the dedicated workspace route, put scroll ownership on the left rail, main editor column, and right rail explicitly with `min-h-0`/`min-w-0` guards on ancestor containers so long structured content does not clip behind the shell
+- keep the workspace on the shared locked-screen shell when simultaneous left-rail context, central editing, and right-rail preview are useful; the top header should scroll away first, then the left rail, editor column, and right rail should keep independent scroll ownership inside the remaining viewport height
 
 ### `resumeFormat` Migration Rule
 
@@ -1185,7 +1201,7 @@ pnpm lint
 - keep `Review Queue` highlighted in the shell nav while the workspace is open
 - update shell active-nav logic so any `/job-finder/review-queue*` path keeps `Review Queue` highlighted
 - implement the workspace layout:
-  - top bar: job/company info, draft status, template selector, export state, approval actions
+  - top bar: job/company info, draft status, template selector, export action, approval actions
   - left rail: section outline, validation summary, page-budget warnings
   - main editor: structured section and bullet editing with include/exclude toggles, reorder, pin/lock
   - right rail: rendered HTML preview (stacked or tabbed with assistant panel)
@@ -1220,8 +1236,7 @@ pnpm lint
   1. receive the user message and current draft state
   2. call the AI client with the message, draft context, and available patch operations
   3. parse the response into `ResumeDraftPatch` operations
-  4. for small changes (1-2 patches): auto-apply with undo
-  5. for larger changes (3+ patches): show a diff preview before accepting
+  4. auto-apply the typed patches while preserving revision-backed recovery
 - implement patch application logic that respects lock/pin state:
   - if a patch targets a locked section or bullet, reject it with a structured conflict result
   - log the conflict in the assistant message response
@@ -1239,7 +1254,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-**Done when**: the assistant can receive user requests, propose typed patches, show diffs for large changes, auto-apply small changes, respect lock state, and persist the conversation. Undo works via revision snapshots.
+**Done when**: the assistant can receive user requests, propose grounded typed patches, auto-apply them safely, respect lock state, persist the conversation, and leave revision snapshots for recovery without requiring a diff-preview UI.
 
 ### Slice 10: Apply Integration And Staleness
 
@@ -1274,6 +1289,14 @@ pnpm lint
 
 **Done when**: apply refuses without an approved non-stale PDF. Staleness triggers correctly. Review Queue shows resume approval state. All tests pass.
 
+**Status update (`2026-04-04`)**:
+
+- implemented apply refusal when the approved tailored PDF is missing on disk by injecting a main-process file verifier into the workspace service
+- implemented stale approval transitions when resume-affecting profile data, template settings, saved job details, or the approved draft itself change after approval
+- normalized approval display and apply lookup around `draft.approvedExportId` so stale legacy export flags no longer bypass the real approval source of truth
+- added service tests for profile-change, settings-change, saved-job-change, stale-after-edit, and missing-file apply-rejection paths
+- desktop UI now protects unsaved resume edits during actions and navigation, and the current follow-up priority is reliability of the shipped patch flow rather than adding a diff-preview surface
+
 ### Slice 11: Tests, QA, And Doc Updates
 
 **Goal**: comprehensive test coverage, visual QA, and documentation updates.
@@ -1291,6 +1314,9 @@ pnpm lint
   - assistant patch preview
   - locked content surviving regenerate
   - PDF export state and page-budget warnings
+  - review-queue entry into the dedicated resume workspace route
+  - resume approval followed by apply approval gating
+  - assistant-driven changes applied from a real chat interaction
 - update these docs:
   - `docs/STATUS.md`: reflect workspace implementation progress
   - `docs/TRACKS.md`: update `JF-04` track status and focus
@@ -1308,6 +1334,16 @@ pnpm docs:check
 ```
 
 **Done when**: all tests pass, desktop builds, doc checks pass, and the workspace lifecycle works end-to-end.
+
+**Status update (`2026-04-04`)**:
+
+- targeted verification now passes for `pnpm --filter @unemployed/job-finder test`, `pnpm --filter @unemployed/job-finder typecheck`, `pnpm --filter @unemployed/desktop typecheck`, `pnpm docs:check`, and `pnpm --filter @unemployed/desktop ui:resume-workspace`
+- repo docs were updated to capture stale-approval behavior, missing-file apply safety, and the expectation that non-happy-path guards also receive targeted service coverage
+- `pnpm verify` is now unblocked by the earlier knowledge-base lint issue, but still depends on clearing any unrelated repo-wide lint fallout that surfaces during the full run
+
+Additional completion rule for this slice:
+
+- the implementing agent must leave behind a repeatable UI capture or QA harness plus saved screenshot artifacts that demonstrate the generation, edit, assistant, export, approval, and apply-gating states of the workspace on the current branch
 
 ## Codebase Patterns To Preserve
 

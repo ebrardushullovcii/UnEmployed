@@ -6,6 +6,7 @@ import {
 import { getActiveDiscoveryTargets, resolveAdapterKind, updateDiscoveryTarget } from "./internal/workspace-helpers";
 import { SOURCE_DEBUG_RECENT_HISTORY_LIMIT } from "./internal/workspace-defaults";
 import type { WorkspaceServiceContext } from "./internal/workspace-service-context";
+import { buildStaleResumeDraft, hasResumeAffectingJobChange } from "./internal/resume-workspace-staleness";
 import {
   type CreateJobFinderWorkspaceServiceOptions,
   type JobFinderWorkspaceService,
@@ -37,12 +38,21 @@ export type {
   JobFinderDocumentManager,
   JobFinderWorkspaceService,
   RenderedResumeArtifact,
+  ResumeResearchAdapter,
+  ResumeResearchAdapterInput,
 } from "./internal/workspace-service-contracts";
 
 export function createJobFinderWorkspaceService(
   options: CreateJobFinderWorkspaceServiceOptions,
 ): JobFinderWorkspaceService {
-  const { aiClient, browserRuntime, documentManager, repository } = options;
+  const {
+    aiClient,
+    browserRuntime,
+    documentManager,
+    exportFileVerifier,
+    repository,
+    researchAdapter,
+  } = options;
   const activeSourceDebugExecutionIdRef = { current: null as string | null };
   const activeSourceDebugAbortControllerRef = {
     current: null as AbortController | null,
@@ -52,6 +62,7 @@ export function createJobFinderWorkspaceService(
     aiClient,
     browserRuntime,
     documentManager,
+    ...(exportFileVerifier ? { exportFileVerifier } : {}),
     repository,
     activeSourceDebugExecutionIdRef,
     activeSourceDebugAbortControllerRef,
@@ -153,6 +164,42 @@ export function createJobFinderWorkspaceService(
         ),
       }));
     },
+    async staleApprovedResumeDrafts(
+      staleReason: string,
+      jobIds?: readonly string[],
+    ): Promise<void> {
+      const [drafts, tailoredAssets] = await Promise.all([
+        repository.listResumeDrafts(),
+        repository.listTailoredAssets(),
+      ]);
+
+      const targetJobIds = jobIds ? new Set(jobIds) : null;
+
+      for (const draft of drafts) {
+        if (!draft.approvedAt && !draft.approvedExportId && draft.status !== "approved") {
+          continue;
+        }
+
+        if (targetJobIds && !targetJobIds.has(draft.jobId)) {
+          continue;
+        }
+
+        const existingAsset = tailoredAssets.find((asset) => asset.jobId === draft.jobId) ?? null;
+        const staleDraft = buildStaleResumeDraft(draft, staleReason);
+
+        await repository.clearResumeApproval({
+          draft: staleDraft,
+          staleReason,
+          tailoredAsset: existingAsset
+            ? {
+                ...existingAsset,
+                storagePath: null,
+                updatedAt: staleDraft.updatedAt,
+              }
+            : null,
+        });
+      }
+    },
     async openRunBrowserSession(source: JobSource): Promise<void> {
       const session = await browserRuntime.openSession(source);
       await context.persistBrowserSessionState(session);
@@ -181,7 +228,22 @@ export function createJobFinderWorkspaceService(
       }
 
       await repository.replaceSavedJobs(nextJobs);
+
+      const previousJob = savedJobs.find((job) => job.id === jobId) ?? null;
+      const nextJob = nextJobs.find((job) => job.id === jobId) ?? null;
+
+      if (
+        previousJob &&
+        nextJob &&
+        hasResumeAffectingJobChange(previousJob, nextJob)
+      ) {
+        await context.staleApprovedResumeDrafts(
+          "Saved job details changed after approval and the resume needs a fresh review.",
+          [jobId],
+        );
+      }
     },
+    ...(researchAdapter ? { researchAdapter } : {}),
   };
 
   const snapshotProfileMethods = createWorkspaceSnapshotProfileMethods(context);

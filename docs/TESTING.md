@@ -23,6 +23,16 @@
 - `pnpm --filter @unemployed/desktop ui:capture`
 - `pnpm --filter @unemployed/desktop ui:resume-import`
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`
+- `pnpm --filter @unemployed/desktop ui:resume-workspace`
+- `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
+
+## Resume Workspace Demo Standard
+
+- Treat the resume-workspace feature as incomplete until the desktop UI has been exercised through a real scripted or manual run that proves generation, editing, assistant changes, export, approval, and apply gating.
+- Prefer a repeatable Playwright or Electron capture harness over one-off manual clicking whenever the flow changes.
+- Save screenshot artifacts and any supporting JSON snapshots under `apps/desktop/test-artifacts/ui/` during validation runs; treat them as QA evidence, not committed source files.
+- Resume-workspace safety changes should also prove the non-happy paths they touch, especially stale-after-edit behavior, upstream-change staleness, unsaved-edit navigation guards, and missing-approved-file apply refusal.
+- When the workflow expands, update this file and the active exec plan in the same task so later agents inherit the exact demo path instead of rediscovering it from chat context.
 
 ## Source-Debug QA
 
@@ -41,6 +51,8 @@
 - `UNEMPLOYED_CHROME_PATH` optionally points the agent to a specific local Chrome install.
 - `UNEMPLOYED_CHROME_DEBUG_PORT` optionally overrides the dedicated Chrome remote-debugging port; default is `9333`.
 - Tests and CI should continue to rely on deterministic providers and fixtures unless a task explicitly calls for live-agent QA.
+- The desktop test API should keep scripted UI harnesses on deterministic AI paths even when local `.env` files enable the live OpenAI-compatible provider for regular manual runs.
+- Resume-workspace export now opens the native Save dialog during regular desktop use; keep the desktop test API path deterministic and dialog-free so `ui:resume-workspace` and related harnesses can still export without OS-level picker automation.
 - Resume-import QA should cover at least one plain-text input path plus one extracted-document path (`pdf` or `docx`) when the ingestion layer changes.
 
 ## Desktop UI Capture Workflow
@@ -49,6 +61,12 @@
 - Use `pnpm --filter @unemployed/desktop ui:capture` for the default desktop review pass.
 - Use `pnpm --filter @unemployed/desktop ui:resume-import` to run a scripted resume-import flow that bypasses the native picker through a test-only preload bridge, reloads the workspace, and saves screenshots plus workspace JSON.
 - Use `pnpm --filter @unemployed/desktop ui:profile-baseline` to hydrate the preferred imported-profile snapshot and capture the current visual baseline for the shell plus every Profile subtab before larger UI refactors, including scroll-slice coverage for long surfaces.
+- Resume-workspace changes should also ship with a dedicated capture flow that can open Review Queue, enter `/job-finder/review-queue/:jobId/resume`, trigger or verify resume generation, perform at least one manual edit, send at least one assistant request, export and approve the resume, and capture the resulting UI states.
+- Use `pnpm --filter @unemployed/desktop ui:resume-workspace` for the current scripted demo of the complete resume flow; it forces the deterministic catalog runtime, hydrates a reviewable demo workspace through the test-only preload bridge, and writes screenshots plus `workspace-after-demo.json` under `apps/desktop/test-artifacts/ui/resume-workspace/`.
+- The scripted resume-workspace harness should stay independent from live provider availability: if local AI credentials exist, the capture flow must still use the deterministic desktop test runtime so assistant and generation steps remain stable and repeatable.
+- The resume-workspace capture should now also verify richer grounding UX: employer-site targeting appears in Review Queue, the workspace shows structured job context, and at least one `Why this bullet exists` source-evidence panel is opened and captured.
+- Use `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty` when dirty-state protections change; it proves save-before-action or confirm-before-leave behavior for refresh, assistant requests, clear approval, shell navigation, and back navigation, and writes JSON assertions under `apps/desktop/test-artifacts/ui/resume-workspace-dirty/`.
+- When apply-safety logic changes, pair the desktop capture flows with targeted service tests for stale approvals and missing-approved-file rejection because the happy-path demo still will not exercise every guarded failure state by itself.
 - The capture script builds the desktop app first, launches Electron through Playwright, waits for the seeded Job Finder workspace to load, clicks through the current MVP screens, and saves screenshots for visual review.
 - The resume-import capture defaults to `Resume.pdf` at the repo root; override with CLI flags like `--resume`, `--expected-name`, `--expected-headline`, `--expected-location`, `--expected-summary-contains`, and `--label`, or use the matching `UI_TEST_*` environment variables when validating other files.
 - The profile-baseline capture defaults to `apps/desktop/test-artifacts/ui/resume-pdf-polish-v4/workspace-after-reload.json`; override with `--snapshot` or `UI_PROFILE_BASELINE_SNAPSHOT` when another imported-profile snapshot should drive the screenshots.

@@ -16,7 +16,8 @@
     "@unemployed/ai-providers": "workspace:*",
     "@unemployed/browser-runtime": "workspace:*",
     "@unemployed/contracts": "workspace:*",
-    "@unemployed/db": "workspace:*"
+    "@unemployed/db": "workspace:*",
+    "@unemployed/knowledge-base": "workspace:*"
   }
 }
 

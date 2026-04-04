@@ -1,7 +1,10 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { BrowserWindow } from 'electron'
 import type { ResumeTemplateDefinition } from '@unemployed/contracts'
 import type { JobFinderDocumentManager } from '@unemployed/job-finder'
+
+import { getPdfPageCount } from './resume-document'
 
 interface CreateLocalJobFinderDocumentManagerOptions {
   outputDirectory: string
@@ -232,6 +235,43 @@ function renderTemplateHtml(input: Parameters<JobFinderDocumentManager['renderRe
 </html>`
 }
 
+async function renderPdfFromHtml(html: string, targetPath: string): Promise<void> {
+  const exportWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  try {
+    await exportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    await exportWindow.webContents.executeJavaScript(
+      "new Promise((resolve) => { if (document.fonts?.ready) { document.fonts.ready.finally(resolve); } else { resolve(); } })",
+      true,
+    )
+
+    const pdfBuffer = await exportWindow.webContents.printToPDF({
+      margins: {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+      },
+      printBackground: true,
+      pageSize: 'Letter',
+      preferCSSPageSize: true,
+    })
+
+    await writeFile(targetPath, pdfBuffer)
+  } finally {
+    if (!exportWindow.isDestroyed()) {
+      exportWindow.destroy()
+    }
+  }
+}
+
 export function createLocalJobFinderDocumentManager(
   options: CreateLocalJobFinderDocumentManagerOptions
 ): JobFinderDocumentManager {
@@ -242,15 +282,44 @@ export function createLocalJobFinderDocumentManager(
     async renderResumeArtifact(input) {
       await mkdir(options.outputDirectory, { recursive: true })
 
-      const fileName = `${Date.now()}_${sanitizeSegment(input.profile.fullName)}_${sanitizeSegment(input.job.company)}_${sanitizeSegment(input.settings.resumeTemplateId)}.html`
-      const targetPath = path.join(options.outputDirectory, fileName)
+      const artifactBaseName = `${Date.now()}_${sanitizeSegment(input.profile.fullName)}_${sanitizeSegment(input.job.company)}_${sanitizeSegment(input.settings.resumeTemplateId)}`
+      const htmlFileName = `${artifactBaseName}.html`
+      const htmlPath = path.join(options.outputDirectory, htmlFileName)
       const html = renderTemplateHtml(input)
 
-      await writeFile(targetPath, html, 'utf8')
+      await writeFile(htmlPath, html, 'utf8')
+
+      const requestedFormat = input.settings.resumeFormat === 'html' ? 'html' : 'pdf'
+
+      if (requestedFormat === 'html') {
+        return {
+          fileName: htmlFileName,
+          storagePath: htmlPath,
+          format: 'html',
+          intermediateFileName: htmlFileName,
+          intermediateStoragePath: htmlPath,
+          pageCount: null,
+          warnings: [],
+        }
+      }
+
+      const pdfFileName = `${artifactBaseName}.pdf`
+      const pdfPath = input.targetPath ?? path.join(options.outputDirectory, pdfFileName)
+      await renderPdfFromHtml(html, pdfPath)
+      const pageCount = await getPdfPageCount(pdfPath)
+      const warnings = [
+        ...(pageCount > 2 ? ['Exported resume exceeds the 2-page target.'] : []),
+        ...(pageCount >= 3 ? ['Exported resume reached the 3-page cap and needs review.'] : []),
+      ]
 
       return {
-        fileName,
-        storagePath: targetPath
+        fileName: pdfFileName,
+        storagePath: pdfPath,
+        format: 'pdf',
+        intermediateFileName: htmlFileName,
+        intermediateStoragePath: htmlPath,
+        pageCount,
+        warnings,
       }
     }
   }

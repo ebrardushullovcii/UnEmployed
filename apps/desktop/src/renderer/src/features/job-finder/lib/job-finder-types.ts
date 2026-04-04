@@ -2,10 +2,14 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderResumeWorkspace,
   JobFinderSettings,
   JobSearchPreferences,
   JobFinderWorkspaceSnapshot,
   JobSourceAdapterKind,
+  ResumeAssistantMessage,
+  ResumeDraft,
+  ResumeDraftPatch,
   SourceDebugRunDetails,
   SourceInstructionStatus,
   WorkMode,
@@ -57,6 +61,27 @@ export interface JobFinderShellActions {
   ) => Promise<JobFinderWorkspaceSnapshot>;
   queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
+  saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
+  regenerateResumeDraft: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  regenerateResumeSection: (
+    jobId: string,
+    sectionId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  exportResumePdf: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  approveResume: (
+    jobId: string,
+    exportId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  clearResumeApproval: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  applyResumePatch: (
+    patch: ResumeDraftPatch,
+    revisionReason?: string | null,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  sendResumeAssistantMessage: (
+    jobId: string,
+    content: string,
+  ) => Promise<readonly ResumeAssistantMessage[]>;
   generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
 }

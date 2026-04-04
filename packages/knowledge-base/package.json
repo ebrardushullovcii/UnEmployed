@@ -3,11 +3,22 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "build": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "jsdom": "^26.1.0",
+    "minisearch": "^7.1.2"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7"
   }
 }
 

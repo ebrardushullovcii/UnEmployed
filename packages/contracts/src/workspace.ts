@@ -24,6 +24,18 @@ import {
 } from "./discovery";
 import { CandidateProfileSchema } from "./profile";
 import {
+  ResumeAssistantMessageSchema,
+  ResumeDraftPatchSchema,
+  ResumeDraftRevisionSchema,
+  ResumeDraftSchema,
+  ResumeDraftSummarySchema,
+  ResumeExportArtifactSchema,
+  ResumeExportArtifactSummarySchema,
+  ResumeResearchArtifactSchema,
+  ResumeResearchArtifactSummarySchema,
+  ResumeValidationResultSchema,
+} from "./resume";
+import {
   EditableSourceInstructionArtifactSchema,
   SourceDebugEvidenceRefSchema,
   SourceDebugRunRecordSchema,
@@ -36,6 +48,52 @@ export const JobFinderJobActionInputSchema = z.object({
 });
 export type JobFinderJobActionInput = z.infer<
   typeof JobFinderJobActionInputSchema
+>;
+
+export const JobFinderResumeWorkspaceQuerySchema = z.object({
+  jobId: NonEmptyStringSchema,
+});
+export type JobFinderResumeWorkspaceQuery = z.infer<
+  typeof JobFinderResumeWorkspaceQuerySchema
+>;
+
+export const JobFinderSaveResumeDraftInputSchema = z.object({
+  draft: ResumeDraftSchema,
+});
+export type JobFinderSaveResumeDraftInput = z.infer<
+  typeof JobFinderSaveResumeDraftInputSchema
+>;
+
+export const JobFinderResumeSectionActionInputSchema = z.object({
+  jobId: NonEmptyStringSchema,
+  sectionId: NonEmptyStringSchema,
+});
+export type JobFinderResumeSectionActionInput = z.infer<
+  typeof JobFinderResumeSectionActionInputSchema
+>;
+
+export const JobFinderApproveResumeInputSchema = z.object({
+  jobId: NonEmptyStringSchema,
+  exportId: NonEmptyStringSchema,
+});
+export type JobFinderApproveResumeInput = z.infer<
+  typeof JobFinderApproveResumeInputSchema
+>;
+
+export const JobFinderApplyResumePatchInputSchema = z.object({
+  patch: ResumeDraftPatchSchema,
+  revisionReason: NonEmptyStringSchema.nullable().default(null),
+});
+export type JobFinderApplyResumePatchInput = z.infer<
+  typeof JobFinderApplyResumePatchInputSchema
+>;
+
+export const JobFinderResumeAssistantMessageInputSchema = z.object({
+  jobId: NonEmptyStringSchema,
+  content: NonEmptyStringSchema,
+});
+export type JobFinderResumeAssistantMessageInput = z.infer<
+  typeof JobFinderResumeAssistantMessageInputSchema
 >;
 
 export const JobFinderSourceDebugActionInputSchema = z.object({
@@ -126,6 +184,12 @@ export const JobFinderRepositoryStateSchema = z.object({
   searchPreferences: JobSearchPreferencesSchema,
   savedJobs: z.array(SavedJobSchema).default([]),
   tailoredAssets: z.array(TailoredAssetSchema).default([]),
+  resumeDrafts: z.array(ResumeDraftSchema).default([]),
+  resumeDraftRevisions: z.array(ResumeDraftRevisionSchema).default([]),
+  resumeExportArtifacts: z.array(ResumeExportArtifactSchema).default([]),
+  resumeResearchArtifacts: z.array(ResumeResearchArtifactSchema).default([]),
+  resumeValidationResults: z.array(ResumeValidationResultSchema).default([]),
+  resumeAssistantMessages: z.array(ResumeAssistantMessageSchema).default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
   applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
   sourceDebugRuns: z.array(SourceDebugRunRecordSchema).default([]),
@@ -139,6 +203,19 @@ export const JobFinderRepositoryStateSchema = z.object({
 });
 export type JobFinderRepositoryState = z.infer<
   typeof JobFinderRepositoryStateSchema
+>;
+
+export const JobFinderResumeWorkspaceSchema = z.object({
+  job: SavedJobSchema,
+  draft: ResumeDraftSchema,
+  validation: ResumeValidationResultSchema.nullable().default(null),
+  exports: z.array(ResumeExportArtifactSchema).default([]),
+  research: z.array(ResumeResearchArtifactSchema).default([]),
+  assistantMessages: z.array(ResumeAssistantMessageSchema).default([]),
+  tailoredAsset: TailoredAssetSchema.nullable().default(null),
+});
+export type JobFinderResumeWorkspace = z.infer<
+  typeof JobFinderResumeWorkspaceSchema
 >;
 
 export const JobFinderWorkspaceSnapshotSchema = z.object({
@@ -160,6 +237,11 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   reviewQueue: z.array(ReviewQueueItemSchema).default([]),
   selectedReviewJobId: NonEmptyStringSchema.nullable(),
   tailoredAssets: z.array(TailoredAssetSchema).default([]),
+  resumeDrafts: z.array(ResumeDraftSummarySchema).default([]),
+  resumeExportArtifacts: z.array(ResumeExportArtifactSummarySchema).default([]),
+  resumeResearchArtifacts: z
+    .array(ResumeResearchArtifactSummarySchema)
+    .default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
   applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
   sourceInstructionArtifacts: z

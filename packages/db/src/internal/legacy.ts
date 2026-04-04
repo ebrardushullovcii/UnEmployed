@@ -317,6 +317,12 @@ export async function readLegacySeed(
       tailoredAssets: tailoredAssets.success
         ? tailoredAssets.data
         : cloneValue(seed.tailoredAssets),
+      resumeDrafts: cloneValue(seed.resumeDrafts),
+      resumeDraftRevisions: cloneValue(seed.resumeDraftRevisions),
+      resumeExportArtifacts: cloneValue(seed.resumeExportArtifacts),
+      resumeResearchArtifacts: cloneValue(seed.resumeResearchArtifacts),
+      resumeValidationResults: cloneValue(seed.resumeValidationResults),
+      resumeAssistantMessages: cloneValue(seed.resumeAssistantMessages),
       applicationRecords: applicationRecords.success
         ? applicationRecords.data
         : cloneValue(seed.applicationRecords),

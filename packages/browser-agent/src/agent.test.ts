@@ -523,6 +523,7 @@ describe("runAgentDiscovery", () => {
             description: "Structured extraction sample.",
             easyApplyEligible: false,
             keySkills: ["React"],
+            responsibilities: [],
           },
         ];
       },
@@ -585,6 +586,7 @@ describe("runAgentDiscovery", () => {
             description: "Structured extraction sample.",
             easyApplyEligible: false,
             keySkills: ["React"],
+            responsibilities: [],
           },
         ];
       },

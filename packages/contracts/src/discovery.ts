@@ -34,6 +34,10 @@ import {
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
 } from "./source-debug";
+import {
+  ResumeDraftStatusSchema,
+  ResumeExportFormatSchema,
+} from "./resume";
 
 export const JobDiscoveryTargetSchema = z.object({
   id: NonEmptyStringSchema,
@@ -98,12 +102,23 @@ export const JobPostingSchema = z.object({
   workMode: WorkModeListSchema,
   applyPath: JobApplyPathSchema,
   easyApplyEligible: z.boolean(),
-  postedAt: IsoDateTimeSchema,
+  postedAt: IsoDateTimeSchema.nullable().default(null),
+  postedAtText: NonEmptyStringSchema.nullable().default(null),
   discoveredAt: IsoDateTimeSchema,
   salaryText: NonEmptyStringSchema.nullable(),
-  summary: NonEmptyStringSchema,
+  summary: NonEmptyStringSchema.nullable().default(null),
   description: NonEmptyStringSchema,
   keySkills: z.array(NonEmptyStringSchema).default([]),
+  responsibilities: z.array(NonEmptyStringSchema).default([]),
+  minimumQualifications: z.array(NonEmptyStringSchema).default([]),
+  preferredQualifications: z.array(NonEmptyStringSchema).default([]),
+  seniority: NonEmptyStringSchema.nullable().default(null),
+  employmentType: NonEmptyStringSchema.nullable().default(null),
+  department: NonEmptyStringSchema.nullable().default(null),
+  team: NonEmptyStringSchema.nullable().default(null),
+  employerWebsiteUrl: UrlStringSchema.nullable().default(null),
+  employerDomain: NonEmptyStringSchema.nullable().default(null),
+  benefits: z.array(NonEmptyStringSchema).default([]),
 });
 export type JobPosting = z.infer<typeof JobPostingSchema>;
 
@@ -163,6 +178,11 @@ export const ReviewQueueItemSchema = z.object({
   assetStatus: AssetStatusSchema,
   progressPercent: z.number().int().min(0).max(100).nullable(),
   resumeAssetId: NonEmptyStringSchema.nullable(),
+  resumeDraftStatus: ResumeDraftStatusSchema.nullable().default(null),
+  resumeApprovedAt: IsoDateTimeSchema.nullable().default(null),
+  resumeIsStale: z.boolean().default(false),
+  approvedResumeExportId: NonEmptyStringSchema.nullable().default(null),
+  approvedResumeFormat: ResumeExportFormatSchema.nullable().default(null),
   updatedAt: IsoDateTimeSchema,
 });
 export type ReviewQueueItem = z.infer<typeof ReviewQueueItemSchema>;

@@ -4,6 +4,7 @@ import {
   JobFinderDiscoveryRoute,
   JobFinderPage,
   JobFinderProfileRoute,
+  JobFinderResumeWorkspaceRoute,
   JobFinderReviewQueueRoute,
   JobFinderSettingsRoute
 } from '../pages/job-finder-page'
@@ -32,6 +33,10 @@ export const appRouter = createHashRouter([
       {
         path: 'review-queue',
         element: <JobFinderReviewQueueRoute />
+      },
+      {
+        path: 'review-queue/:jobId/resume',
+        element: <JobFinderResumeWorkspaceRoute />
       },
       {
         path: 'applications',

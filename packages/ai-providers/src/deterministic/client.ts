@@ -1,7 +1,11 @@
 import { AgentProviderStatusSchema } from "@unemployed/contracts";
 import type { JobFinderAiClient } from "../shared";
 import { buildDeterministicResumeProfileExtraction } from "./resume-parser";
-import { buildDeterministicTailoredResume } from "./tailoring";
+import {
+  buildDeterministicResumeAssistantReply,
+  buildDeterministicStructuredResumeDraft,
+  buildDeterministicTailoredResume,
+} from "./tailoring";
 
 function buildDeterministicStatus(detail: string) {
   return AgentProviderStatusSchema.parse({
@@ -28,6 +32,12 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
       return Promise.resolve(
         buildDeterministicResumeProfileExtraction(input, "deterministic", status.label),
       );
+    },
+    createResumeDraft(input) {
+      return Promise.resolve(buildDeterministicStructuredResumeDraft(input));
+    },
+    reviseResumeDraft(input) {
+      return Promise.resolve(buildDeterministicResumeAssistantReply(input));
     },
     tailorResume(input) {
       return Promise.resolve(buildDeterministicTailoredResume(input));

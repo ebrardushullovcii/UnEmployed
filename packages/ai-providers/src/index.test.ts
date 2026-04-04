@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
-import type { CandidateProfile, JobSearchPreferences } from '@unemployed/contracts'
+import type { CandidateProfile, JobPosting, JobSearchPreferences, JobFinderSettings } from '@unemployed/contracts'
 import {
+  buildDeterministicStructuredResumeDraft,
   completeResumeExtraction,
   createOpenAiCompatibleJobFinderAiClient,
   createDeterministicJobFinderAiClient,
@@ -118,6 +119,50 @@ function createPreferences(): JobSearchPreferences {
         }
       ]
     }
+  }
+}
+
+function createSettings(): JobFinderSettings {
+  return {
+    resumeFormat: 'html',
+    resumeTemplateId: 'classic_ats',
+    fontPreset: 'inter_requisite',
+    humanReviewRequired: true,
+    allowAutoSubmitOverride: false,
+    keepSessionAlive: true,
+    discoveryOnly: false
+  }
+}
+
+function createJobPosting(): JobPosting {
+  return {
+    source: 'target_site',
+    sourceJobId: 'job_1',
+    discoveryMethod: 'browser_agent',
+    canonicalUrl: 'https://jobs.example.com/1',
+    title: 'Frontend Engineer',
+    company: 'Acme',
+    location: 'Remote',
+    workMode: ['remote'],
+    applyPath: 'unknown',
+    easyApplyEligible: false,
+    postedAt: '2026-03-20T10:00:00.000Z',
+    postedAtText: null,
+    discoveredAt: '2026-03-20T10:00:00.000Z',
+    salaryText: null,
+    summary: 'Build product interfaces',
+    description: 'Build product interfaces',
+    keySkills: ['React'],
+    responsibilities: [],
+    minimumQualifications: [],
+    preferredQualifications: [],
+    seniority: null,
+    employmentType: null,
+    department: null,
+    team: null,
+    employerWebsiteUrl: null,
+    employerDomain: null,
+    benefits: []
   }
 }
 
@@ -718,11 +763,22 @@ describe('ai providers', () => {
           applyPath: 'unknown',
           easyApplyEligible: false,
           postedAt: '2026-03-20T10:00:00.000Z',
+          postedAtText: null,
           discoveredAt: '2026-03-20T10:00:00.000Z',
           salaryText: null,
           summary: 'Build product interfaces',
           description: 'Build product interfaces',
-          keySkills: ['React']
+          keySkills: ['React'],
+          responsibilities: [],
+          minimumQualifications: [],
+          preferredQualifications: [],
+          seniority: null,
+          employmentType: null,
+          department: null,
+          team: null,
+          employerWebsiteUrl: null,
+          employerDomain: null,
+          benefits: []
         },
         resumeText: 'Resume text'
       })).rejects.toThrow('Model request failed with status 502')
@@ -820,7 +876,13 @@ describe('ai providers', () => {
       expect(jobs).toHaveLength(1)
       expect(jobs[0]).toMatchObject({
         applyPath: 'easy_apply',
-        easyApplyEligible: true
+        easyApplyEligible: true,
+        summary: 'Build product experiences.',
+        postedAt: null,
+        postedAtText: null,
+        responsibilities: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
       })
     } finally {
       globalThis.fetch = originalFetch
@@ -879,7 +941,87 @@ describe('ai providers', () => {
       expect(jobs).toHaveLength(1)
       expect(jobs[0]).toMatchObject({
         workMode: ['remote'],
-        keySkills: ['React']
+        keySkills: ['React'],
+        summary: 'Build product experiences.'
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('preserves richer extracted job fields and avoids synthetic posted dates', async () => {
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  jobs: [
+                    {
+                      title: 'Senior Frontend Engineer',
+                      company: 'Acme',
+                      location: 'Remote',
+                      canonicalUrl: 'https://jobs.example.com/frontend-engineer',
+                      sourceJobId: 'job_rich',
+                      description: 'Build product experiences for the core platform.',
+                      summary: 'Lead platform UI work.',
+                      postedAtText: 'Posted 3 days ago',
+                      responsibilities: ['Own the design-system frontend architecture'],
+                      minimumQualifications: ['5+ years of React experience'],
+                      preferredQualifications: ['Electron experience'],
+                      seniority: 'Senior',
+                      employmentType: 'Full-time',
+                      department: 'Engineering',
+                      team: 'Platform UI',
+                      employerWebsiteUrl: 'https://acme.example.com/careers',
+                      benefits: ['Remote-first culture'],
+                      applyPath: 'easy_apply',
+                      easyApplyEligible: true,
+                      workMode: ['remote'],
+                      keySkills: ['React', 'Electron']
+                    }
+                  ]
+                })
+              }
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      ))) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: 'test-key',
+        UNEMPLOYED_AI_BASE_URL: 'https://example.com/v1',
+        UNEMPLOYED_AI_MODEL: 'test-model'
+      })
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: 'Senior Frontend Engineer role at Acme',
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 5
+      })
+
+      expect(jobs[0]).toMatchObject({
+        postedAt: null,
+        postedAtText: 'Posted 3 days ago',
+        responsibilities: ['Own the design-system frontend architecture'],
+        minimumQualifications: ['5+ years of React experience'],
+        preferredQualifications: ['Electron experience'],
+        seniority: 'Senior',
+        employmentType: 'Full-time',
+        department: 'Engineering',
+        team: 'Platform UI',
+        employerWebsiteUrl: 'https://acme.example.com/careers',
+        employerDomain: 'acme.example.com',
+        benefits: ['Remote-first culture']
       })
     } finally {
       globalThis.fetch = originalFetch
@@ -991,8 +1133,7 @@ describe('ai providers', () => {
 
       expect(jobs).toEqual([])
       expect(errorSpy).toHaveBeenCalledWith(
-        '[AI Provider] extractJobsFromPage failed; falling back to deterministic client.',
-        expect.any(Error)
+        '[AI Provider] extractJobsFromPage failed; falling back to deterministic client. [AI Provider] Expected a top-level jobs array when extracting jobs from jobs.example.com, received: {"invalid":true}'
       )
     } finally {
       globalThis.fetch = originalFetch
@@ -1084,8 +1225,7 @@ describe('ai providers', () => {
       expect(result.notes).toContain('Fell back to the deterministic resume parser after the model call failed.')
       expect(result.notes).toContain('Primary AI extraction failed: upstream extraction failure')
       expect(errorSpy).toHaveBeenCalledWith(
-        '[AI Provider] extractProfileFromResume failed; falling back to deterministic client.',
-        expect.any(Error)
+        '[AI Provider] extractProfileFromResume failed; falling back to deterministic client. upstream extraction failure'
       )
     } finally {
       globalThis.fetch = originalFetch
@@ -1109,45 +1249,83 @@ describe('ai providers', () => {
       const result = await client.tailorResume({
         profile: createProfile(),
         searchPreferences: createPreferences(),
-        settings: {
-          resumeFormat: 'html',
-          resumeTemplateId: 'classic_ats',
-          fontPreset: 'inter_requisite',
-          humanReviewRequired: true,
-          allowAutoSubmitOverride: false,
-          keepSessionAlive: true,
-          discoveryOnly: false
-        },
-        job: {
-          source: 'target_site',
-          sourceJobId: 'job_1',
-          discoveryMethod: 'browser_agent',
-          canonicalUrl: 'https://jobs.example.com/1',
-          title: 'Frontend Engineer',
-          company: 'Acme',
-          location: 'Remote',
-          workMode: ['remote'],
-          applyPath: 'unknown',
-          easyApplyEligible: false,
-          postedAt: '2026-03-20T10:00:00.000Z',
-          discoveredAt: '2026-03-20T10:00:00.000Z',
-          salaryText: null,
-          summary: 'Build product interfaces',
-          description: 'Build product interfaces',
-          keySkills: ['React']
-        },
+        settings: createSettings(),
+        job: createJobPosting(),
         resumeText: 'Resume text'
       })
 
       expect(result.notes).toContain('Fell back to the deterministic resume tailorer after the model call failed.')
       expect(result.notes).toContain('Primary AI tailoring failed: upstream tailoring failure')
       expect(errorSpy).toHaveBeenCalledWith(
-        '[AI Provider] tailorResume failed; falling back to deterministic client.',
-        expect.any(Error)
+        '[AI Provider] tailorResume failed; falling back to deterministic client. upstream tailoring failure'
       )
     } finally {
       globalThis.fetch = originalFetch
       errorSpy.mockRestore()
+    }
+  })
+
+  test('fills missing structured draft fields with deterministic fallback content', async () => {
+    const draftPayload = { label: 'Tailored Resume', coreSkills: ['React'], notes: ['Model draft partial'] }
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify(draftPayload)
+              }
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )) as typeof fetch
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/v1',
+        model: 'test-model'
+      })
+
+      const input = {
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: 'Resume text',
+        evidence: {
+          summary: ['Grounded summary'],
+          candidateSummary: ['Candidate summary'],
+          experience: ['Built reliable interfaces'],
+          skills: ['React'],
+          keywords: ['TypeScript']
+        },
+        researchContext: {
+          companyNotes: ['Company note'],
+          domainVocabulary: ['workflow'],
+          priorityThemes: ['systems']
+        }
+      } satisfies Parameters<typeof client.createResumeDraft>[0]
+
+      const result = await client.createResumeDraft(input)
+      const deterministicFallback = buildDeterministicStructuredResumeDraft(input)
+
+      expect(result.label).toBe('Tailored Resume')
+      expect(result.summary).toBe(deterministicFallback.summary)
+      expect(result.experienceHighlights).toEqual(deterministicFallback.experienceHighlights)
+      expect(result.fullText).toBe(deterministicFallback.fullText)
+      expect(result.compatibilityScore).toBe(deterministicFallback.compatibilityScore)
+      expect(result.notes).toEqual(
+        expect.arrayContaining(['Model draft partial', ...deterministicFallback.notes])
+      )
+    } finally {
+      globalThis.fetch = originalFetch
     }
   })
 })

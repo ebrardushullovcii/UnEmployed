@@ -39,7 +39,7 @@ export function SettingsEditableDefaults({
           <FieldLabel>Resume format</FieldLabel>
           <FormSelect
             onValueChange={(value) => setSettingsForm((current) => ({ ...current, resumeFormat: value as JobFinderSettings['resumeFormat'] }))}
-            options={[{ label: 'HTML', value: 'html' }, { label: 'PDF', value: 'pdf' }, { label: 'DOCX', value: 'docx' }]}
+            options={[{ label: 'PDF', value: 'pdf' }]}
             placeholder="Select format"
             value={settingsForm.resumeFormat}
           />

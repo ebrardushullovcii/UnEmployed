@@ -8,14 +8,15 @@ import type {
   JobPosting,
   JobSearchPreferences,
   JobSource,
+  ResumeExportArtifact,
   SavedJob,
-  TailoredAsset,
 } from '@unemployed/contracts'
 import type { JobFinderAiClient } from '@unemployed/ai-providers'
 
 export interface ExecuteEasyApplyInput {
   job: SavedJob;
-  asset: TailoredAsset;
+  resumeExport: ResumeExportArtifact;
+  resumeFilePath: string;
   profile: CandidateProfile;
   settings: JobFinderSettings;
   instructions?: readonly string[];

@@ -6,6 +6,12 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ResumeAssistantMessageSchema,
+  ResumeDraftRevisionSchema,
+  ResumeDraftSchema,
+  ResumeExportArtifactSchema,
+  ResumeResearchArtifactSchema,
+  ResumeValidationResultSchema,
   SavedJobSchema,
   SourceDebugEvidenceRefSchema,
   SourceDebugRunRecordSchema,
@@ -22,10 +28,13 @@ import {
   bootstrapState,
   cloneValue,
   hasPersistedState,
+  listResumeDraftValues,
   readState,
   replaceCollection,
+  replaceIndexedCollection,
   saveSingletonValue,
   upsertCollectionValue,
+  upsertIndexedCollectionValue,
   writeState,
 } from "./internal/state";
 import type {
@@ -77,6 +86,80 @@ export async function createFileJobFinderRepository(
       saveSingletonValue(database, "discovery_state", state.discovery);
       replaceCollection(database, "saved_jobs", state.savedJobs);
       replaceCollection(database, "tailored_assets", state.tailoredAssets);
+      replaceIndexedCollection(database, "resume_drafts", state.resumeDrafts, {
+        columnNames: ["job_id", "created_at", "updated_at"],
+        getColumns: (value) => {
+          const draft = ResumeDraftSchema.parse(cloneValue(value));
+          return [draft.jobId, draft.createdAt, draft.updatedAt];
+        },
+      });
+      replaceIndexedCollection(
+        database,
+        "resume_draft_revisions",
+        state.resumeDraftRevisions,
+        {
+          columnNames: ["draft_id", "created_at"],
+          getColumns: (value) => {
+            const revision = ResumeDraftRevisionSchema.parse(cloneValue(value));
+            return [revision.draftId, revision.createdAt];
+          },
+        },
+      );
+      replaceIndexedCollection(
+        database,
+        "resume_export_artifacts",
+        state.resumeExportArtifacts,
+        {
+          columnNames: ["job_id", "draft_id", "exported_at", "is_approved"],
+          getColumns: (value) => {
+            const artifact = ResumeExportArtifactSchema.parse(cloneValue(value));
+            return [
+              artifact.jobId,
+              artifact.draftId,
+              artifact.exportedAt,
+              artifact.isApproved ? 1 : 0,
+            ];
+          },
+        },
+      );
+      replaceIndexedCollection(
+        database,
+        "resume_research_artifacts",
+        state.resumeResearchArtifacts,
+        {
+          columnNames: ["job_id", "fetched_at"],
+          getColumns: (value) => {
+            const artifact = ResumeResearchArtifactSchema.parse(cloneValue(value));
+            return [artifact.jobId, artifact.fetchedAt];
+          },
+        },
+      );
+      replaceIndexedCollection(
+        database,
+        "resume_validation_results",
+        state.resumeValidationResults,
+        {
+          columnNames: ["draft_id", "validated_at"],
+          getColumns: (value) => {
+            const validation = ResumeValidationResultSchema.parse(
+              cloneValue(value),
+            );
+            return [validation.draftId, validation.validatedAt];
+          },
+        },
+      );
+      replaceIndexedCollection(
+        database,
+        "resume_assistant_messages",
+        state.resumeAssistantMessages,
+        {
+          columnNames: ["job_id", "created_at"],
+          getColumns: (value) => {
+            const message = ResumeAssistantMessageSchema.parse(cloneValue(value));
+            return [message.jobId, message.createdAt];
+          },
+        },
+      );
       replaceCollection(database, "application_records", state.applicationRecords);
       replaceCollection(
         database,
@@ -107,6 +190,12 @@ export async function createFileJobFinderRepository(
   function upsertPersistedValue(
     tableName:
       | "tailored_assets"
+      | "resume_drafts"
+      | "resume_draft_revisions"
+      | "resume_export_artifacts"
+      | "resume_research_artifacts"
+      | "resume_validation_results"
+      | "resume_assistant_messages"
       | "application_records"
       | "application_attempts"
       | "source_debug_runs"
@@ -116,10 +205,111 @@ export async function createFileJobFinderRepository(
     value: { id: string },
   ): Promise<void> {
     runImmediateTransaction(database, () => {
-      upsertCollectionValue(database, tableName, value);
+      writePersistedValue(tableName, value);
     });
 
     return secureDatabaseFile(options.filePath);
+  }
+
+  function writePersistedValue(
+    tableName:
+      | "tailored_assets"
+      | "resume_drafts"
+      | "resume_draft_revisions"
+      | "resume_export_artifacts"
+      | "resume_research_artifacts"
+      | "resume_validation_results"
+      | "resume_assistant_messages"
+      | "application_records"
+      | "application_attempts"
+      | "source_debug_runs"
+      | "source_debug_attempts"
+      | "source_instruction_artifacts"
+      | "source_debug_evidence_refs",
+    value: { id: string },
+  ): void {
+      if (tableName === "resume_drafts") {
+        upsertIndexedCollectionValue(database, tableName, value, {
+          columnNames: ["job_id", "created_at", "updated_at"],
+          getColumns: (candidate) => {
+            const draft = ResumeDraftSchema.parse(cloneValue(candidate));
+            return [draft.jobId, draft.createdAt, draft.updatedAt];
+          },
+        });
+        return;
+      }
+
+      if (tableName === "resume_draft_revisions") {
+        upsertIndexedCollectionValue(database, tableName, value, {
+          columnNames: ["draft_id", "created_at"],
+          getColumns: (candidate) => {
+            const revision = ResumeDraftRevisionSchema.parse(
+              cloneValue(candidate),
+            );
+            return [revision.draftId, revision.createdAt];
+          },
+        });
+        return;
+      }
+
+      if (tableName === "resume_export_artifacts") {
+        upsertIndexedCollectionValue(database, tableName, value, {
+          columnNames: ["job_id", "draft_id", "exported_at", "is_approved"],
+          getColumns: (candidate) => {
+            const artifact = ResumeExportArtifactSchema.parse(
+              cloneValue(candidate),
+            );
+            return [
+              artifact.jobId,
+              artifact.draftId,
+              artifact.exportedAt,
+              artifact.isApproved ? 1 : 0,
+            ];
+          },
+        });
+        return;
+      }
+
+      if (tableName === "resume_research_artifacts") {
+        upsertIndexedCollectionValue(database, tableName, value, {
+          columnNames: ["job_id", "fetched_at"],
+          getColumns: (candidate) => {
+            const artifact = ResumeResearchArtifactSchema.parse(
+              cloneValue(candidate),
+            );
+            return [artifact.jobId, artifact.fetchedAt];
+          },
+        });
+        return;
+      }
+
+      if (tableName === "resume_validation_results") {
+        upsertIndexedCollectionValue(database, tableName, value, {
+          columnNames: ["draft_id", "validated_at"],
+          getColumns: (candidate) => {
+            const validation = ResumeValidationResultSchema.parse(
+              cloneValue(candidate),
+            );
+            return [validation.draftId, validation.validatedAt];
+          },
+        });
+        return;
+      }
+
+      if (tableName === "resume_assistant_messages") {
+        upsertIndexedCollectionValue(database, tableName, value, {
+          columnNames: ["job_id", "created_at"],
+          getColumns: (candidate) => {
+            const message = ResumeAssistantMessageSchema.parse(
+              cloneValue(candidate),
+            );
+            return [message.jobId, message.createdAt];
+          },
+        });
+        return;
+      }
+
+      upsertCollectionValue(database, tableName, value);
   }
 
   return {
@@ -180,6 +370,276 @@ export async function createFileJobFinderRepository(
     upsertTailoredAsset(tailoredAsset) {
       const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
       return upsertPersistedValue("tailored_assets", normalizedAsset);
+    },
+    listResumeDrafts() {
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(database, "resume_drafts", ResumeDraftSchema, {
+            orderBySql: "updated_at DESC, id ASC",
+          }),
+        ),
+      );
+    },
+    getResumeDraftByJobId(jobId) {
+      const draft = listResumeDraftValues(
+        database,
+        "resume_drafts",
+        ResumeDraftSchema,
+        {
+          whereSql: "job_id = ?",
+          params: [jobId],
+          orderBySql: "updated_at DESC, id ASC",
+        },
+      )[0];
+      return Promise.resolve(draft ? cloneValue(draft) : null);
+    },
+    upsertResumeDraft(draft) {
+      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      return upsertPersistedValue("resume_drafts", normalizedDraft);
+    },
+    listResumeDraftRevisions(draftId) {
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(
+            database,
+            "resume_draft_revisions",
+            ResumeDraftRevisionSchema,
+            draftId
+              ? {
+                  whereSql: "draft_id = ?",
+                  params: [draftId],
+                  orderBySql: "created_at DESC, id ASC",
+                }
+              : { orderBySql: "created_at DESC, id ASC" },
+          ),
+        ),
+      );
+    },
+    upsertResumeDraftRevision(revision) {
+      const normalizedRevision = ResumeDraftRevisionSchema.parse(
+        cloneValue(revision),
+      );
+      return upsertPersistedValue("resume_draft_revisions", normalizedRevision);
+    },
+    listResumeExportArtifacts(options) {
+      const whereParts: string[] = [];
+      const params: Array<string> = [];
+
+      if (options?.jobId) {
+        whereParts.push("job_id = ?");
+        params.push(options.jobId);
+      }
+
+      if (options?.draftId) {
+        whereParts.push("draft_id = ?");
+        params.push(options.draftId);
+      }
+
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(
+            database,
+            "resume_export_artifacts",
+            ResumeExportArtifactSchema,
+            {
+              ...(whereParts.length > 0
+                ? { whereSql: whereParts.join(" AND "), params }
+                : {}),
+              orderBySql: "exported_at DESC, id ASC",
+            },
+          ),
+        ),
+      );
+    },
+    upsertResumeExportArtifact(artifact) {
+      const normalizedArtifact = ResumeExportArtifactSchema.parse(
+        cloneValue(artifact),
+      );
+      return upsertPersistedValue("resume_export_artifacts", normalizedArtifact);
+    },
+    listResumeResearchArtifacts(jobId) {
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(
+            database,
+            "resume_research_artifacts",
+            ResumeResearchArtifactSchema,
+            jobId
+              ? {
+                  whereSql: "job_id = ?",
+                  params: [jobId],
+                  orderBySql: "fetched_at DESC, id ASC",
+                }
+              : { orderBySql: "fetched_at DESC, id ASC" },
+          ),
+        ),
+      );
+    },
+    upsertResumeResearchArtifact(artifact) {
+      const normalizedArtifact = ResumeResearchArtifactSchema.parse(
+        cloneValue(artifact),
+      );
+      return upsertPersistedValue("resume_research_artifacts", normalizedArtifact);
+    },
+    listResumeValidationResults(draftId) {
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(
+            database,
+            "resume_validation_results",
+            ResumeValidationResultSchema,
+            draftId
+              ? {
+                  whereSql: "draft_id = ?",
+                  params: [draftId],
+                  orderBySql: "validated_at DESC, id ASC",
+                }
+              : { orderBySql: "validated_at DESC, id ASC" },
+          ),
+        ),
+      );
+    },
+    upsertResumeValidationResult(validationResult) {
+      const normalizedValidation = ResumeValidationResultSchema.parse(
+        cloneValue(validationResult),
+      );
+      return upsertPersistedValue("resume_validation_results", normalizedValidation);
+    },
+    listResumeAssistantMessages(jobId) {
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(
+            database,
+            "resume_assistant_messages",
+            ResumeAssistantMessageSchema,
+            jobId
+              ? {
+                  whereSql: "job_id = ?",
+                  params: [jobId],
+                  orderBySql: "created_at ASC, id ASC",
+                }
+              : { orderBySql: "created_at ASC, id ASC" },
+          ),
+        ),
+      );
+    },
+    upsertResumeAssistantMessage(message) {
+      const normalizedMessage = ResumeAssistantMessageSchema.parse(
+        cloneValue(message),
+      );
+      return upsertPersistedValue("resume_assistant_messages", normalizedMessage);
+    },
+    saveResumeDraftWithValidation({ draft, validation, tailoredAsset }) {
+      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      const normalizedValidation = ResumeValidationResultSchema.parse(
+        cloneValue(validation),
+      );
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+
+      runImmediateTransaction(database, () => {
+        if (!normalizedDraft.approvedExportId) {
+          database
+            .prepare(
+              "UPDATE resume_export_artifacts SET is_approved = 0 WHERE job_id = ?",
+            )
+            .run(normalizedDraft.jobId);
+        }
+
+        writePersistedValue("resume_drafts", normalizedDraft);
+        writePersistedValue("resume_validation_results", normalizedValidation);
+        if (normalizedAsset) {
+          writePersistedValue("tailored_assets", normalizedAsset);
+        }
+      });
+
+      return secureDatabaseFile(options.filePath);
+    },
+    applyResumePatchWithRevision({ draft, revision, validation, tailoredAsset }) {
+      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      const normalizedRevision = ResumeDraftRevisionSchema.parse(
+        cloneValue(revision),
+      );
+      const normalizedValidation = ResumeValidationResultSchema.parse(
+        cloneValue(validation),
+      );
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+
+      runImmediateTransaction(database, () => {
+        if (!normalizedDraft.approvedExportId) {
+          database
+            .prepare(
+              "UPDATE resume_export_artifacts SET is_approved = 0 WHERE job_id = ?",
+            )
+            .run(normalizedDraft.jobId);
+        }
+
+        writePersistedValue("resume_drafts", normalizedDraft);
+        writePersistedValue("resume_draft_revisions", normalizedRevision);
+        writePersistedValue("resume_validation_results", normalizedValidation);
+        if (normalizedAsset) {
+          writePersistedValue("tailored_assets", normalizedAsset);
+        }
+      });
+
+      return secureDatabaseFile(options.filePath);
+    },
+    approveResumeExport({ draft, exportArtifact, validation, tailoredAsset }) {
+      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      const normalizedArtifact = ResumeExportArtifactSchema.parse(
+        cloneValue(exportArtifact),
+      );
+      const normalizedValidation = validation
+        ? ResumeValidationResultSchema.parse(cloneValue(validation))
+        : null;
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+
+      runImmediateTransaction(database, () => {
+        database
+          .prepare(
+            "UPDATE resume_export_artifacts SET is_approved = 0 WHERE job_id = ?",
+          )
+          .run(normalizedArtifact.jobId);
+
+        writePersistedValue("resume_drafts", normalizedDraft);
+        writePersistedValue("resume_export_artifacts", normalizedArtifact);
+        if (normalizedValidation) {
+          writePersistedValue("resume_validation_results", normalizedValidation);
+        }
+        if (normalizedAsset) {
+          writePersistedValue("tailored_assets", normalizedAsset);
+        }
+      });
+
+      return secureDatabaseFile(options.filePath);
+    },
+    clearResumeApproval({ draft, staleReason, tailoredAsset }) {
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue({ ...draft, staleReason }),
+      );
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+
+      runImmediateTransaction(database, () => {
+        database
+          .prepare(
+            "UPDATE resume_export_artifacts SET is_approved = 0 WHERE job_id = ?",
+          )
+          .run(normalizedDraft.jobId);
+
+        writePersistedValue("resume_drafts", normalizedDraft);
+        if (normalizedAsset) {
+          writePersistedValue("tailored_assets", normalizedAsset);
+        }
+      });
+
+      return secureDatabaseFile(options.filePath);
     },
     listApplicationRecords() {
       return Promise.resolve(

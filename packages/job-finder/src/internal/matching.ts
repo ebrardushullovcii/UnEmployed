@@ -9,6 +9,8 @@ import {
   type JobSearchPreferences,
   type JobPosting,
   type MatchAssessment,
+  type ResumeDraft,
+  type ResumeExportArtifact,
   type ReviewQueueItem,
   type SavedJob,
   type SavedJobDiscoveryProvenance,
@@ -42,7 +44,7 @@ const annualCompensationMultipliers: Record<string, number> = {
 };
 const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi;
 const secondaryCompensationBeforePattern = /\b(bonus|commission|sign[- ]?on|equity|ote)\b/i;
-const secondaryCompensationAfterPattern = /^(?:[:\-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
+const secondaryCompensationAfterPattern = /^(?:[:-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
 
 function readPeriodUnit(salaryText: string, startIndex: number): string | null {
   const followingText = salaryText.slice(startIndex).trimStart().toLowerCase();
@@ -203,15 +205,35 @@ export function toSavedJobId(posting: JobPosting): string {
 export function buildReviewQueue(
   savedJobs: readonly SavedJob[],
   tailoredAssets: readonly TailoredAsset[],
+  resumeDrafts: readonly ResumeDraft[],
+  resumeExportArtifacts: readonly ResumeExportArtifact[],
 ): ReviewQueueItem[] {
   const assetsByJobId = new Map(
     tailoredAssets.map((asset) => [asset.jobId, asset]),
   );
+  const draftsByJobId = new Map(
+    resumeDrafts.map((draft) => [draft.jobId, draft]),
+  );
+  const approvedExportsByJobId = new Map<string, ResumeExportArtifact>();
+
+  for (const artifact of resumeExportArtifacts) {
+    if (artifact.isApproved && !approvedExportsByJobId.has(artifact.jobId)) {
+      approvedExportsByJobId.set(artifact.jobId, artifact);
+    }
+  }
 
   return savedJobs
     .filter((job) => reviewableStatuses.has(job.status))
     .map<ReviewQueueItem>((job) => {
       const asset = assetsByJobId.get(job.id) ?? null;
+      const draft = draftsByJobId.get(job.id) ?? null;
+      const approvedExport = approvedExportsByJobId.get(job.id) ?? null;
+      const updatedAtCandidates = [
+        asset?.updatedAt,
+        draft?.updatedAt,
+        approvedExport?.exportedAt,
+        job.discoveredAt,
+      ].filter((value): value is string => Boolean(value));
 
       return {
         jobId: job.id,
@@ -223,7 +245,14 @@ export function buildReviewQueue(
         assetStatus: asset?.status ?? "not_started",
         progressPercent: asset?.progressPercent ?? null,
         resumeAssetId: asset?.id ?? null,
-        updatedAt: asset?.updatedAt ?? job.discoveredAt,
+        resumeDraftStatus: draft?.status ?? null,
+        resumeApprovedAt: draft?.approvedAt ?? null,
+        resumeIsStale:
+          draft?.status === "stale" || Boolean(draft?.staleReason),
+        approvedResumeExportId:
+          approvedExport?.id ?? draft?.approvedExportId ?? null,
+        approvedResumeFormat: approvedExport?.format ?? null,
+        updatedAt: updatedAtCandidates.sort().at(-1) ?? job.discoveredAt,
       };
     })
     .sort((left, right) => {

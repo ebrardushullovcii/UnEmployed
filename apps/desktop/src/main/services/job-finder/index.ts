@@ -7,6 +7,7 @@ export {
 export { createJobFinderWorkspaceServiceAsync } from './create-workspace-service'
 export { getJobFinderWorkspaceService } from './workspace-service'
 export { importResumeFromSourcePath } from './import-resume'
+export { loadResumeWorkspaceDemoState } from './load-demo-state'
 export { resetJobFinderWorkspace } from './reset-workspace'
 export {
   isBrowserHeadlessEnabled,

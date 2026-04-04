@@ -2,6 +2,7 @@ import { AgentProviderStatusSchema, JobPostingSchema, type JobPosting, type Tool
 import {
   JobFitAssessmentSchema,
   OpenAiCompatibleJobFinderAiClientOptionsSchema,
+  ResumeAssistantReplySchema,
   ResumeProfileExtractionSchema,
   TailoredResumeDraftSchema,
   type AgentCapableJobFinderAiClient,
@@ -11,6 +12,7 @@ import {
 } from "./shared";
 import {
   buildDeterministicResumeProfileExtraction,
+  buildDeterministicStructuredResumeDraft,
   buildGenericCanonicalUrl,
   buildGenericJobId,
   buildInvalidJobSample,
@@ -29,7 +31,60 @@ function summarizeError(error: unknown): string {
 }
 
 function logFallbackError(operation: string, error: unknown): void {
-  console.error(`[AI Provider] ${operation} failed; falling back to deterministic client.`, error);
+  console.error(
+    `[AI Provider] ${operation} failed; falling back to deterministic client. ${summarizeError(error)}`,
+  );
+}
+
+function completeTailoredResumeDraft(
+  primary: unknown,
+  fallbackInput: Parameters<typeof buildDeterministicStructuredResumeDraft>[0],
+) {
+  const fallback = buildDeterministicStructuredResumeDraft(fallbackInput);
+  const normalizedPrimary =
+    primary && typeof primary === "object" && !Array.isArray(primary)
+      ? (primary as Record<string, unknown>)
+      : {};
+
+  return TailoredResumeDraftSchema.parse({
+    ...fallback,
+    ...normalizedPrimary,
+    label:
+      typeof normalizedPrimary.label === "string"
+        ? normalizedPrimary.label
+        : fallback.label,
+    summary:
+      typeof normalizedPrimary.summary === "string" &&
+      normalizedPrimary.summary.trim().length > 0
+        ? normalizedPrimary.summary
+        : fallback.summary,
+    experienceHighlights: Array.isArray(normalizedPrimary.experienceHighlights)
+      ? normalizedPrimary.experienceHighlights
+      : fallback.experienceHighlights,
+    coreSkills: Array.isArray(normalizedPrimary.coreSkills)
+      ? normalizedPrimary.coreSkills
+      : fallback.coreSkills,
+    targetedKeywords: Array.isArray(normalizedPrimary.targetedKeywords)
+      ? normalizedPrimary.targetedKeywords
+      : fallback.targetedKeywords,
+    fullText:
+      typeof normalizedPrimary.fullText === "string" &&
+      normalizedPrimary.fullText.trim().length > 0
+        ? normalizedPrimary.fullText
+        : fallback.fullText,
+    compatibilityScore:
+      typeof normalizedPrimary.compatibilityScore === "number"
+        ? normalizedPrimary.compatibilityScore
+        : fallback.compatibilityScore,
+    notes: uniqueStrings([
+      ...fallback.notes,
+      ...(Array.isArray(normalizedPrimary.notes)
+        ? normalizedPrimary.notes.filter(
+            (note): note is string => typeof note === "string" && note.trim().length > 0,
+          )
+        : []),
+    ]),
+  });
 }
 
 function isTextContentPart(value: unknown): value is { text: string } {
@@ -102,6 +157,15 @@ type ChatCompletionsPayload = {
 };
 
 const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "flexible"]);
+const jobBoardHostFragments = [
+  "linkedin.com",
+  "indeed.com",
+  "greenhouse.io",
+  "lever.co",
+  "workday.com",
+  "ashbyhq.com",
+  "smartrecruiters.com",
+];
 
 async function parseModelJsonResponse(response: Response): Promise<unknown> {
   const rawBody = await response.text();
@@ -179,6 +243,86 @@ async function parseResponsePayload(response: Response): Promise<ChatCompletions
 function buildChatCompletionsUrl(baseUrl: string): string {
   const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   return new URL("chat/completions", normalizedBaseUrl).toString();
+}
+
+function trimToNull(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  return null;
+}
+
+function toIsoDateTimeOrNull(value: unknown): string | null {
+  const trimmed = trimToNull(value);
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
+}
+
+function summarizeJobPosting(input: {
+  title: string;
+  company: string;
+  description: string;
+  responsibilities: readonly string[];
+  minimumQualifications: readonly string[];
+  preferredQualifications: readonly string[];
+}): string {
+  const firstStructuredLine = [
+    ...input.responsibilities,
+    ...input.minimumQualifications,
+    ...input.preferredQualifications,
+  ][0] ?? null;
+
+  if (firstStructuredLine) {
+    return firstStructuredLine;
+  }
+
+  const normalizedDescription = input.description.trim();
+  if (!normalizedDescription) {
+    return `${input.title} opportunity at ${input.company}`;
+  }
+
+  const firstSentence = normalizedDescription
+    .split(/(?<=[.!?])\s+/)
+    .map((entry) => entry.trim())
+    .find(Boolean);
+
+  return firstSentence ? firstSentence.slice(0, 280) : normalizedDescription.slice(0, 280);
+}
+
+function toHostnameOrNull(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function isLikelyJobBoardHost(hostname: string | null): boolean {
+  if (!hostname) {
+    return false;
+  }
+
+  return jobBoardHostFragments.some(
+    (fragment) => hostname === fragment || hostname.endsWith(`.${fragment}`),
+  );
 }
 
 export function createOpenAiCompatibleJobFinderAiClient(
@@ -298,6 +442,32 @@ export function createOpenAiCompatibleJobFinderAiClient(
         analysisProviderLabel: status.label,
       });
     },
+    async createResumeDraft(input) {
+      const payload = await fetchModelJson(
+        [
+          "You create a structured, grounded tailored resume draft for a job.",
+          "Return JSON only.",
+          "Use the provided evidence and research only to prioritize or reframe existing candidate facts.",
+          "Never invent candidate dates, titles, employers, metrics, or credentials.",
+          "Keep the output ATS-friendly and concise.",
+        ].join(" "),
+        input,
+      );
+      return completeTailoredResumeDraft(payload, input);
+    },
+    async reviseResumeDraft(input) {
+      const payload = await fetchModelJson(
+        [
+          "You are a resume editing assistant.",
+          "Return JSON only with content and typed patches.",
+          "Patches must make bounded edits to the supplied draft rather than rewriting the whole resume.",
+          "Do not invent candidate facts.",
+          "Avoid touching locked content by leaving it unchanged.",
+        ].join(" "),
+        input,
+      );
+      return ResumeAssistantReplySchema.parse(payload);
+    },
     async tailorResume(input) {
       const payload = await fetchModelJson(
         [
@@ -309,7 +479,13 @@ export function createOpenAiCompatibleJobFinderAiClient(
         ].join(" "),
         input,
       );
-      return TailoredResumeDraftSchema.parse(payload);
+      return completeTailoredResumeDraft(payload, {
+        profile: input.profile,
+        searchPreferences: input.searchPreferences,
+        settings: input.settings,
+        job: input.job,
+        resumeText: input.resumeText,
+      });
     },
     async assessJobFit(input) {
       const payload = await fetchModelJson(
@@ -344,11 +520,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
               `You extract job listings from a careers or job-search page on ${pageHostLabel}.`,
               'Return JSON with a "jobs" array.',
               "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-              "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description (short summary from the listing), applyPath, and easyApplyEligible.",
+              "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills, responsibilities, minimumQualifications, preferredQualifications, seniority, employmentType, department, team, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
               'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
               'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
               'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
               "If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.",
+              "Do not fabricate posted dates. Use null when exact posting time is unknown and preserve any visible relative string in postedAtText.",
               "Do not invent companies, locations, or URLs.",
               `Return at most ${effectiveMaxJobs} jobs.`,
             ].join(" ")
@@ -356,10 +533,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
               `You extract one structured job posting from a job-detail page on ${pageHostLabel}.`,
               'Return JSON with a "jobs" array containing one job object.',
               "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-              "Each job should include canonicalUrl, title, company, location, salaryText (or null), description (full job description text), applyPath, and easyApplyEligible.",
+              "Each job should include canonicalUrl, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills, responsibilities, minimumQualifications, preferredQualifications, seniority, employmentType, department, team, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
               'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
               'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
               "Use the page URL as the source of truth for canonicalUrl whenever available.",
+              "Do not fabricate posted dates. Use null when exact posting time is unknown and preserve any visible relative string in postedAtText.",
               'If the page is not clearly a job detail page, return { "jobs": [] }.',
             ].join(" ");
 
@@ -374,8 +552,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
         return "";
       };
 
-      const toStringArray = (value: unknown): string[] => {
-        if (Array.isArray(value)) {
+        const toStringArray = (value: unknown): string[] => {
+          if (Array.isArray(value)) {
           return value.flatMap((entry) => {
             const normalized = toStr(entry).trim();
             return normalized ? [normalized] : [];
@@ -386,12 +564,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
         return normalized ? [normalized] : [];
       };
 
-      const toWorkModeArray = (value: unknown): string[] => {
+        const toWorkModeArray = (value: unknown): string[] => {
         return toStringArray(value)
           .flatMap((entry) => entry.split(","))
           .map((entry) => entry.trim().toLowerCase())
           .filter((entry) => supportedWorkModes.has(entry));
-      };
+        };
 
       if (
         !payload ||
@@ -431,7 +609,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
         }
       }
 
-      for (const raw of rawJobs) {
+        for (const raw of rawJobs) {
         if (parsedJobs.length >= effectiveMaxJobs) {
           break;
         }
@@ -458,6 +636,15 @@ export function createOpenAiCompatibleJobFinderAiClient(
           continue;
         }
 
+        const responsibilities = toStringArray(raw.responsibilities);
+        const minimumQualifications = toStringArray(
+          raw.minimumQualifications ?? raw.requirements ?? raw.qualifications,
+        );
+        const preferredQualifications = toStringArray(
+          raw.preferredQualifications ?? raw.preferredRequirements,
+        );
+        const description = toStr(raw.description);
+        const employerWebsiteUrl = trimToNull(raw.employerWebsiteUrl);
         const candidate = {
           source: "target_site" as const,
           sourceJobId: derivedSourceJobId,
@@ -474,12 +661,42 @@ export function createOpenAiCompatibleJobFinderAiClient(
               ? raw.applyPath
               : "unknown",
           easyApplyEligible: raw.easyApplyEligible === true,
-          postedAt: new Date().toISOString(),
+          postedAt: toIsoDateTimeOrNull(raw.postedAt),
+          postedAtText: trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative),
           discoveredAt: new Date().toISOString(),
           salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
-          summary: toStr(raw.description).slice(0, 240),
-          description: toStr(raw.description),
+          summary:
+            trimToNull(raw.summary) ??
+            summarizeJobPosting({
+              title: toStr(raw.title),
+              company: toStr(raw.company),
+              description,
+              responsibilities,
+              minimumQualifications,
+              preferredQualifications,
+            }),
+          description,
           keySkills: toStringArray(raw.keySkills),
+          responsibilities,
+          minimumQualifications,
+          preferredQualifications,
+          seniority: trimToNull(raw.seniority ?? raw.level),
+          employmentType: trimToNull(raw.employmentType),
+          department: trimToNull(raw.department),
+          team: trimToNull(raw.team),
+          employerWebsiteUrl,
+          employerDomain: (() => {
+            const explicitHost = toHostnameOrNull(employerWebsiteUrl);
+            if (explicitHost) {
+              return explicitHost;
+            }
+
+            const canonicalHost = toHostnameOrNull(derivedCanonicalUrl);
+            return canonicalHost && !isLikelyJobBoardHost(canonicalHost)
+              ? canonicalHost
+              : null;
+          })(),
+          benefits: toStringArray(raw.benefits),
         };
 
         const parsed = JobPostingSchema.safeParse(candidate);
@@ -682,6 +899,30 @@ export function createJobFinderAiClientFromEnvironment(
             `Primary AI extraction failed: ${summarizeError(error)}`,
           ]),
         };
+      }
+    },
+    async createResumeDraft(input) {
+      try {
+        return await primaryClient.createResumeDraft(input);
+      } catch (error) {
+        logFallbackError("createResumeDraft", error);
+        const fallback = await fallbackClient.createResumeDraft(input);
+        return {
+          ...fallback,
+          notes: uniqueStrings([
+            ...fallback.notes,
+            "Fell back to the deterministic resume draft creator after the model call failed.",
+            `Primary AI draft creation failed: ${summarizeError(error)}`,
+          ]),
+        };
+      }
+    },
+    async reviseResumeDraft(input) {
+      try {
+        return await primaryClient.reviseResumeDraft(input);
+      } catch (error) {
+        logFallbackError("reviseResumeDraft", error);
+        return fallbackClient.reviseResumeDraft(input);
       }
     },
     async tailorResume(input) {

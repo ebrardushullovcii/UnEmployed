@@ -14,26 +14,26 @@ interface ReviewQueueListPanelProps {
 
 export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: ReviewQueueListPanelProps) {
   return (
-    <section className="flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5 xl:h-full xl:min-h-0">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) xl:h-full xl:min-h-0">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-2 pt-5">
         <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Active Queue</p>
         <Badge variant="section">{formatCountLabel(queue.length, 'item')}</Badge>
       </div>
       {queue.length === 0 ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center">
+        <div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-5 pt-4">
           <EmptyState
             title="No jobs in review yet"
             description="Discovery and tailoring are wired to support review queue items once jobs move beyond the shortlist stage."
           />
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1">
+        <div className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4">
           {queue.map((item) => (
             <Button
               aria-current={selectedItem?.jobId === item.jobId ? 'true' : undefined}
               key={item.jobId}
               className={cn(
-                'h-auto grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 text-left text-foreground transition-colors hover:bg-(--field)',
+                'flex h-auto min-w-0 w-full flex-col items-stretch justify-start gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-4 text-left text-foreground transition-colors hover:bg-(--field)',
                 selectedItem?.jobId === item.jobId ? 'border-(--field-border) bg-(--field)' : ''
               )}
               onClick={() => onSelectItem(item.jobId)}
@@ -41,19 +41,20 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
               type="button"
               variant="ghost"
             >
-              <div className="grid items-start gap-3 sm:grid-cols-[1fr_auto]">
-                <div>
-                  <span className="mb-1 block font-mono text-[10px] text-muted-foreground">ID: {item.jobId.toUpperCase()}</span>
-                  <strong className="line-clamp-2 font-display text-[1rem] font-semibold tracking-[-0.015em] text-foreground">{item.title}</strong>
+              <div className="flex min-w-0 w-full flex-col gap-3">
+                <div className="flex w-full justify-end">
+                  <StatusBadge tone={getAssetTone(item.assetStatus)}>{formatStatusLabel(item.assetStatus)}</StatusBadge>
                 </div>
-                <StatusBadge tone={getAssetTone(item.assetStatus)}>{formatStatusLabel(item.assetStatus)}</StatusBadge>
+                <div className="min-w-0 w-full">
+                  <strong className="block break-words font-display text-[1rem] font-semibold tracking-[-0.015em] text-foreground">{item.title}</strong>
+                </div>
               </div>
-              <span className="text-[0.8rem] text-foreground-muted">{item.company}</span>
-              <div className="grid items-center gap-3 sm:grid-cols-[1fr_auto]">
+              <span className="block w-full text-[0.8rem] text-foreground-muted">{item.company}</span>
+              <div className="grid min-w-0 w-full gap-1.5">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-[rgba(0,0,0,0.4)]">
                   <span className="block h-full bg-accent" style={{ width: `${item.progressPercent ?? 0}%` }} />
                 </div>
-                <span className="font-mono text-[9px] uppercase tracking-(--tracking-normal) text-primary">{item.progressPercent ?? 0}%</span>
+                <span className="block w-full text-right font-mono text-[9px] uppercase tracking-(--tracking-normal) text-primary">{item.progressPercent ?? 0}%</span>
               </div>
             </Button>
           ))}

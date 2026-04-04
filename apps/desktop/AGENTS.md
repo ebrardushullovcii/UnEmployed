@@ -19,6 +19,8 @@ Owns the Electron shell, preload bridge, and renderer entrypoint.
 - `pnpm --filter @unemployed/desktop ui:capture`
 - `pnpm --filter @unemployed/desktop ui:resume-import`
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`
+- `pnpm --filter @unemployed/desktop ui:resume-workspace`
+- `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
 
 ## Read This Before Editing
 
@@ -32,6 +34,8 @@ Owns the Electron shell, preload bridge, and renderer entrypoint.
 - `ui:capture` builds the app, launches Electron through Playwright, navigates the seeded Job Finder screens, and saves screenshots under `apps/desktop/test-artifacts/ui/`.
 - `ui:resume-import` builds the app, enables a test-only preload bridge, imports a resume from disk without the native file-picker, reloads the workspace, and saves screenshots plus workspace JSON under `apps/desktop/test-artifacts/ui/`.
 - `ui:profile-baseline` builds the app, hydrates the current preferred Profile state from a saved workspace snapshot, captures the top-level Job Finder tabs, and records top/full/scroll screenshots for every screen under `apps/desktop/test-artifacts/ui/`.
+- `ui:resume-workspace` builds the app, loads a deterministic review-queue and resume-workspace demo state through the test-only preload bridge, walks the full resume flow (open, edit, assistant, export, approve, apply), and saves screenshots plus final workspace JSON under `apps/desktop/test-artifacts/ui/`.
+- `ui:resume-workspace-dirty` builds the app, loads the same deterministic demo state, then proves dirty-draft safety across refresh, assistant requests, clear-approval, shell navigation, and back navigation while saving screenshots plus JSON assertions under `apps/desktop/test-artifacts/ui/`.
 - Pass `--resume`, `--expected-name`, `--expected-headline`, `--expected-location`, `--expected-summary-contains`, and `--label` to `scripts/capture-resume-import.mjs` when you need targeted validation for a specific file.
 - Pass `--snapshot` and `--label` to `scripts/capture-profile-baseline.mjs` when you need to document another imported-profile baseline or save into a new artifact folder.
 - The default capture size is `1440x920`; use `UI_CAPTURE_WIDTH`, `UI_CAPTURE_HEIGHT`, and `UI_CAPTURE_LABEL` to run other desktop sizes.
@@ -102,6 +106,9 @@ import { StatusBadge } from "../../../../features/job-finder/components/status-b
 
 - Treat repeated PR feedback as a documentation bug, not just a code bug: when a desktop review issue looks reusable, update this file or the closest canonical doc in the same task.
 - Before finishing renderer UI work, do a quick pass for the patterns that have repeated in review: labeled controls need `useId()` + `htmlFor` / `triggerId`, status banners need the right live-region semantics, and active navigation or selection states need ARIA state in addition to visual styling.
+- For nested full-height workspace routes, give shrinking grid or flex ancestors `min-h-0` and `min-w-0`, then assign scrolling to the intended pane explicitly instead of relying on the shell to absorb overflow.
+- When a panel owns its own vertical scroll, keep the scrollbar flush on the true panel edge: avoid padding the outer scroll container itself, and instead put spacing on inner header/body wrappers (`px-*`, `pt-*`, `pb-*`) so the content stays padded without insetting the scrollbar.
+- If a dedicated child route still feels tighter than the main product screens, prefer the same page-level vertical scroll behavior as the other screens over forcing a fully locked three-pane viewport; only keep pane-local scrolling when the content genuinely needs simultaneous fixed columns.
 - Modal dialogs must trap focus, restore the previously focused element, and make the background inert or `aria-hidden` while open.
 - Single-selection controls should use `aria-current` or `aria-selected` instead of `aria-pressed`.
 - Use semantic structure for screen sections and collections (`header`, headings, `ul`/`li`, landmark-friendly `section` / `article`) instead of visually styled `div`/`p` wrappers when the content represents named regions or lists.

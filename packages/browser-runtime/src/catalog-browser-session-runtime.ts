@@ -159,7 +159,7 @@ export function createCatalogBrowserSessionRuntime(
       }
 
       const now = new Date().toISOString()
-      const { asset, job } = input
+      const { job, resumeExport, resumeFilePath } = input
 
       if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
         return Promise.resolve(
@@ -184,23 +184,23 @@ export function createCatalogBrowserSessionRuntime(
         )
       }
 
-      if (asset.status !== 'ready') {
+      if (!resumeFilePath.trim()) {
         return Promise.resolve(
           ApplyExecutionResultSchema.parse({
             state: 'failed',
-            summary: 'Tailored resume is not ready',
+            summary: 'Approved resume export is missing',
             detail:
-              'The apply flow cannot continue until a ready tailored resume is available.',
+              'The apply flow cannot continue until an approved tailored resume export path is available.',
             submittedAt: null,
             outcome: null,
-            nextActionLabel: 'Generate a tailored resume',
+            nextActionLabel: 'Re-export and approve the tailored resume',
             checkpoints: [
               {
                 id: `checkpoint_${job.id}_asset_missing`,
                 at: now,
-                label: 'Resume readiness failed',
+                label: 'Resume export missing',
                 detail:
-                  'The adapter refused to submit without a ready tailored asset.',
+                  'The adapter refused to submit without an approved resume export file path.',
                 state: 'failed',
               },
             ],
@@ -247,14 +247,14 @@ export function createCatalogBrowserSessionRuntime(
         )
       }
 
-      return Promise.resolve(
-        ApplyExecutionResultSchema.parse({
-          state: 'submitted',
-          summary: 'Easy Apply submitted',
-          detail: `Submitted ${job.title} at ${job.company} with ${asset.label.toLowerCase()} ${asset.version}.`,
-          submittedAt: now,
-          outcome: 'submitted',
-          nextActionLabel: 'Monitor your inbox for recruiter follow-up',
+        return Promise.resolve(
+          ApplyExecutionResultSchema.parse({
+            state: 'submitted',
+            summary: 'Easy Apply submitted',
+            detail: `Submitted ${job.title} at ${job.company} with approved ${resumeExport.format.toUpperCase()} export ${resumeExport.id}.`,
+            submittedAt: now,
+            outcome: 'submitted',
+            nextActionLabel: 'Monitor your inbox for recruiter follow-up',
           checkpoints: [
             {
               id: `checkpoint_${job.id}_open_listing`,
@@ -264,13 +264,13 @@ export function createCatalogBrowserSessionRuntime(
                 'The adapter opened the Easy Apply workflow from the selected listing.',
               state: 'in_progress',
             },
-            {
-              id: `checkpoint_${job.id}_resume_attached`,
-              at: now,
-              label: 'Attached tailored resume',
-              detail: `Attached ${asset.label.toLowerCase()} ${asset.version}.`,
-              state: 'in_progress',
-            },
+              {
+                id: `checkpoint_${job.id}_resume_attached`,
+                at: now,
+                label: 'Attached tailored resume',
+                detail: `Attached approved resume export from ${resumeFilePath}.`,
+                state: 'in_progress',
+              },
             {
               id: `checkpoint_${job.id}_submitted`,
               at: now,

@@ -10,6 +10,7 @@ import {
   createAiClient,
   createBrowserRuntime,
   createDocumentManager,
+  createResearchAdapter,
 } from "./workspace-service.test-runtimes";
 
 export function createWorkspaceServiceHarness(
@@ -18,6 +19,8 @@ export function createWorkspaceServiceHarness(
     browserRuntime?: BrowserSessionRuntime;
     aiClient?: JobFinderAiClient;
     documentManager?: ReturnType<typeof createDocumentManager>;
+    exportFileVerifier?: { exists(filePath: string): Promise<boolean> };
+    researchAdapter?: ReturnType<typeof createResearchAdapter>;
   } = {},
 ) {
   const repository = createInMemoryJobFinderRepository(
@@ -26,11 +29,18 @@ export function createWorkspaceServiceHarness(
   const browserRuntime = options.browserRuntime ?? createBrowserRuntime();
   const aiClient = options.aiClient ?? createAiClient();
   const documentManager = options.documentManager ?? createDocumentManager();
+  const exportFileVerifier =
+    options.exportFileVerifier ?? {
+      exists: () => Promise.resolve(true),
+    };
+  const researchAdapter = options.researchAdapter ?? createResearchAdapter();
   const workspaceService = createJobFinderWorkspaceService({
     repository,
     browserRuntime,
     aiClient,
     documentManager,
+    exportFileVerifier,
+    researchAdapter,
   });
 
   return {
@@ -38,6 +48,8 @@ export function createWorkspaceServiceHarness(
     browserRuntime,
     aiClient,
     documentManager,
+    exportFileVerifier,
+    researchAdapter,
     workspaceService,
   };
 }

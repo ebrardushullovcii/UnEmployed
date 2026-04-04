@@ -33,6 +33,14 @@ export function formatDateOnly(timestamp: string): string {
   }).format(new Date(timestamp))
 }
 
+export function formatOptionalDateOnly(timestamp: string | null, fallback: string | null = null): string {
+  if (!timestamp) {
+    return fallback ?? 'Unknown'
+  }
+
+  return formatDateOnly(timestamp)
+}
+
 export function formatStatusLabel(value: string): string {
   return value
     .replace(/_/g, ' ')

@@ -10,6 +10,7 @@ export function ReviewQueueScreen(props: {
   busy: boolean
   browserSession: BrowserSessionState
   onApproveApply: (jobId: string) => void
+  onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
   onSelectItem: (jobId: string) => void
   queue: readonly ReviewQueueItem[]
@@ -22,6 +23,7 @@ export function ReviewQueueScreen(props: {
     browserSession,
     busy,
     onApproveApply,
+    onEditResumeWorkspace,
     onGenerateResume,
     onSelectItem,
     queue,
@@ -51,6 +53,7 @@ export function ReviewQueueScreen(props: {
           browserSession={browserSession}
           busy={busy}
           onApproveApply={onApproveApply}
+          onEditResumeWorkspace={onEditResumeWorkspace}
           onGenerateResume={onGenerateResume}
           selectedAsset={selectedAsset}
           selectedItem={selectedItem}

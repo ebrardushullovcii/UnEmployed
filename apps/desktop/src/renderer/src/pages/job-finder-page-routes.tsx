@@ -2,18 +2,23 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderResumeWorkspace,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
+  ResumeAssistantMessage,
+  ResumeDraft,
+  ResumeDraftPatch,
   SourceDebugRunDetails
 } from '@unemployed/contracts'
 import { ProfileScreen } from '@renderer/features/job-finder/screens/profile-screen'
 import { ApplicationsScreen } from '@renderer/features/job-finder/screens/applications-screen'
 import { DiscoveryScreen } from '@renderer/features/job-finder/screens/discovery-screen'
 import { ReviewQueueScreen } from '@renderer/features/job-finder/screens/review-queue-screen'
+import { ResumeWorkspaceScreen } from '@renderer/features/job-finder/screens/review-queue/resume-workspace-screen'
 import { SettingsScreen } from '@renderer/features/job-finder/screens/settings-screen'
 import type { ActionState } from '@renderer/features/job-finder/lib/job-finder-types'
-import { useOutletContext } from 'react-router-dom'
+import { Navigate, useOutletContext, useParams } from 'react-router-dom'
 
 export interface JobFinderPageContext {
   actionState: ActionState
@@ -23,13 +28,29 @@ export interface JobFinderPageContext {
   onApproveApply: (jobId: string) => void
   onCheckBrowserSession: () => void
   onDismissJob: (jobId: string) => void
+  onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
+  onApproveResume: (jobId: string, exportId: string) => void
+  onClearResumeApproval: (jobId: string) => void
+  onExportResumePdf: (jobId: string) => void
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
   onOpenBrowserSession: () => void
   onQueueJob: (jobId: string) => void
   onResetWorkspace: () => void
   onRunAgentDiscovery: (() => void) | undefined
+  onRefreshResumeWorkspace: (jobId: string) => void
+  onResumeWorkspaceDirtyChange: (dirty: boolean) => void
+  onRegenerateResumeDraft: (jobId: string) => void
+  onRegenerateResumeSection: (jobId: string, sectionId: string) => void
+  onSaveResumeDraft: (draft: ResumeDraft) => void
+  onSaveResumeDraftAndThen: (
+    draft: ResumeDraft,
+    next: () => void,
+    successMessage?: string | null
+  ) => void
+  onApplyResumePatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void
+  onSendResumeAssistantMessage: (jobId: string, content: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onSaveProfile: (profile: CandidateProfile) => void
@@ -57,6 +78,9 @@ export interface JobFinderPageContext {
   selectedTailoredAsset:
     | JobFinderWorkspaceSnapshot['tailoredAssets'][number]
     | null
+  resumeAssistantMessages: readonly ResumeAssistantMessage[]
+  resumeAssistantPending: boolean
+  resumeWorkspace: JobFinderResumeWorkspace | null
   workspace: JobFinderWorkspaceSnapshot
 }
 
@@ -215,12 +239,51 @@ export function JobFinderReviewQueueRoute() {
       browserSession={context.workspace.browserSession}
       busy={context.busy}
       onApproveApply={context.onApproveApply}
+      onEditResumeWorkspace={context.onEditResumeWorkspace}
       onGenerateResume={context.onGenerateResume}
       onSelectItem={context.onSelectReviewItem}
       queue={context.workspace.reviewQueue}
       selectedAsset={context.selectedTailoredAsset}
       selectedItem={context.selectedReviewItem}
       selectedJob={context.selectedReviewJob}
+    />
+  )
+}
+
+export function JobFinderResumeWorkspaceRoute() {
+  const context = useJobFinderPageContext()
+  const { jobId } = useParams<{ jobId: string }>()
+
+  if (!jobId) {
+    return <Navigate replace to="/job-finder/review-queue" />
+  }
+
+  const reviewItem = context.workspace.reviewQueue.find((item) => item.jobId === jobId)
+
+  if (!reviewItem) {
+    return <Navigate replace to="/job-finder/review-queue" />
+  }
+
+  return (
+    <ResumeWorkspaceScreen
+      actionMessage={context.actionState.message}
+      assistantMessages={context.resumeAssistantMessages}
+      assistantPending={context.resumeAssistantPending}
+      busy={context.busy}
+      jobId={jobId}
+      onApproveResume={context.onApproveResume}
+      onBack={() => context.onEditResumeWorkspace('')}
+      onClearResumeApproval={context.onClearResumeApproval}
+      onExportPdf={context.onExportResumePdf}
+      onApplyPatch={context.onApplyResumePatch}
+      onDirtyChange={context.onResumeWorkspaceDirtyChange}
+      onRefresh={() => context.onRefreshResumeWorkspace(jobId)}
+      onRegenerateDraft={context.onRegenerateResumeDraft}
+      onRegenerateSection={context.onRegenerateResumeSection}
+      onSaveDraft={context.onSaveResumeDraft}
+      onSaveDraftAndThen={context.onSaveResumeDraftAndThen}
+      onSendAssistantMessage={context.onSendResumeAssistantMessage}
+      workspace={context.resumeWorkspace}
     />
   )
 }

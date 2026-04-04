@@ -2,6 +2,7 @@ import { CandidateProfileSchema, JobFinderDiscoveryStateSchema, JobFinderSetting
 import type { JobFinderRepositorySeed } from "@unemployed/db";
 import { buildApplicationRecords, buildDiscoveryJobs, buildReviewQueue } from "./matching";
 import { mergeResumeExtractionIntoWorkspace, normalizeProfileBeforeSave } from "./profile-merge";
+import { hasResumeAffectingProfileChange, hasResumeAffectingSettingsChange } from "./resume-workspace-staleness";
 import { createBrowserSessionSnapshot } from "./workspace-service-helpers";
 import { getPreferredSessionAdapter, normalizeSearchPreferences } from "./workspace-helpers";
 import { SOURCE_DEBUG_RECENT_HISTORY_LIMIT } from "./workspace-defaults";
@@ -60,6 +61,9 @@ export function createWorkspaceSnapshotProfileMethods(
       searchPreferences,
       savedJobs,
       tailoredAssets,
+      resumeDrafts,
+      resumeExportArtifacts,
+      resumeResearchArtifacts,
       applicationRecords,
       applicationAttempts,
       sourceInstructionArtifacts,
@@ -70,6 +74,9 @@ export function createWorkspaceSnapshotProfileMethods(
       ctx.repository.getSearchPreferences(),
       ctx.repository.listSavedJobs(),
       ctx.repository.listTailoredAssets(),
+      ctx.repository.listResumeDrafts(),
+      ctx.repository.listResumeExportArtifacts(),
+      ctx.repository.listResumeResearchArtifacts(),
       ctx.repository.listApplicationRecords(),
       ctx.repository.listApplicationAttempts(),
       ctx.repository.listSourceInstructionArtifacts(),
@@ -95,7 +102,12 @@ export function createWorkspaceSnapshotProfileMethods(
     const discoveryJobs = [...persistedDiscoveryJobs, ...mergedPendingJobs].sort(
       (left, right) => right.matchAssessment.score - left.matchAssessment.score,
     );
-    const reviewQueue = buildReviewQueue(savedJobs, tailoredAssets);
+    const reviewQueue = buildReviewQueue(
+      savedJobs,
+      tailoredAssets,
+      resumeDrafts,
+      resumeExportArtifacts,
+    );
     const orderedApplicationRecords = buildApplicationRecords(applicationRecords);
 
     return JobFinderWorkspaceSnapshotSchema.parse({
@@ -117,6 +129,9 @@ export function createWorkspaceSnapshotProfileMethods(
       reviewQueue,
       selectedReviewJobId: reviewQueue[0]?.jobId ?? null,
       tailoredAssets,
+      resumeDrafts,
+      resumeExportArtifacts,
+      resumeResearchArtifacts,
       applicationRecords: orderedApplicationRecords,
       applicationAttempts,
       sourceInstructionArtifacts,
@@ -153,11 +168,19 @@ export function createWorkspaceSnapshotProfileMethods(
     },
     async saveProfile(profile: CandidateProfile) {
       const currentProfile = await ctx.repository.getProfile();
+      const nextProfile = normalizeProfileBeforeSave(
+        currentProfile,
+        CandidateProfileSchema.parse(profile),
+      );
+
+      if (hasResumeAffectingProfileChange(currentProfile, nextProfile)) {
+        await ctx.staleApprovedResumeDrafts(
+          "Profile details changed after approval and the resume needs a fresh review.",
+        );
+      }
+
       await ctx.repository.saveProfile(
-        normalizeProfileBeforeSave(
-          currentProfile,
-          CandidateProfileSchema.parse(profile),
-        ),
+        nextProfile,
       );
       return getWorkspaceSnapshot();
     },
@@ -166,14 +189,21 @@ export function createWorkspaceSnapshotProfileMethods(
       searchPreferences: JobSearchPreferences,
     ) {
       const currentProfile = await ctx.repository.getProfile();
-
-      await ctx.repository.saveProfileAndSearchPreferences(
-        normalizeProfileBeforeSave(
-          currentProfile,
-          CandidateProfileSchema.parse(profile),
-        ),
-        normalizeSearchPreferences(JobSearchPreferencesSchema.parse(searchPreferences)),
+      const nextProfile = normalizeProfileBeforeSave(
+        currentProfile,
+        CandidateProfileSchema.parse(profile),
       );
+      const nextSearchPreferences = normalizeSearchPreferences(
+        JobSearchPreferencesSchema.parse(searchPreferences),
+      );
+
+      if (hasResumeAffectingProfileChange(currentProfile, nextProfile)) {
+        await ctx.staleApprovedResumeDrafts(
+          "Profile details changed after approval and the resume needs a fresh review.",
+        );
+      }
+
+      await ctx.repository.saveProfileAndSearchPreferences(nextProfile, nextSearchPreferences);
 
       return getWorkspaceSnapshot();
     },
@@ -228,7 +258,19 @@ export function createWorkspaceSnapshotProfileMethods(
       return getWorkspaceSnapshot();
     },
     async saveSettings(settings: JobFinderSettings) {
-      await ctx.repository.saveSettings(JobFinderSettingsSchema.parse(settings));
+      const currentSettings = await ctx.repository.getSettings();
+      const nextSettings = JobFinderSettingsSchema.parse({
+        ...settings,
+        resumeFormat: "pdf",
+      });
+
+      if (hasResumeAffectingSettingsChange(currentSettings, nextSettings)) {
+        await ctx.staleApprovedResumeDrafts(
+          "Resume settings changed after approval and the resume needs a fresh review.",
+        );
+      }
+
+      await ctx.repository.saveSettings(nextSettings);
       return getWorkspaceSnapshot();
     },
   };

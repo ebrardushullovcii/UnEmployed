@@ -3,6 +3,26 @@ import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
 import { formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
 
+function getResumeReviewTone(item: ReviewQueueItem | null) {
+  if (!item?.resumeDraftStatus) {
+    return 'muted' as const
+  }
+
+  if (item.resumeIsStale || item.resumeDraftStatus === 'stale') {
+    return 'critical' as const
+  }
+
+  if (item.resumeDraftStatus === 'approved') {
+    return 'positive' as const
+  }
+
+  if (item.resumeDraftStatus === 'needs_review') {
+    return 'active' as const
+  }
+
+  return 'muted' as const
+}
+
 interface ReviewQueuePreviewPanelProps {
   previewState: PreviewState
   queue: readonly ReviewQueueItem[]
@@ -83,8 +103,23 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
             </div>
             <div className="grid items-end gap-3 border-b border-(--surface-panel-border) pb-4 sm:grid-cols-[1fr_auto]">
               <strong className="text-[1.1rem] text-(--text-headline)">{selectedJob?.title ?? selectedItem.title}</strong>
-              <span className="text-[0.9rem] text-foreground-soft">{selectedAsset.label}</span>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="text-[0.9rem] text-foreground-soft">{selectedAsset.label}</span>
+                <StatusBadge tone={getResumeReviewTone(selectedItem)}>
+                  {selectedItem.resumeDraftStatus?.replaceAll('_', ' ') ?? 'not started'}
+                </StatusBadge>
+              </div>
             </div>
+            {selectedItem.resumeApprovedAt ? (
+              <p className="text-(length:--text-small) text-foreground-soft">
+                Approved resume export: {selectedItem.approvedResumeFormat?.toUpperCase() ?? 'Unknown'} • {new Date(selectedItem.resumeApprovedAt).toLocaleString()}
+              </p>
+            ) : null}
+            {selectedItem.resumeIsStale ? (
+              <p className="text-(length:--text-small) text-warning">
+                Resume is stale and needs another review before Easy Apply.
+              </p>
+            ) : null}
             {selectedAsset.previewSections.map((section) => (
               <div key={section.heading} className="grid gap-2">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">{section.heading}</p>

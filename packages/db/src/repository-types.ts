@@ -6,6 +6,12 @@ import type {
   JobFinderRepositoryState,
   JobFinderSettings,
   JobSearchPreferences,
+  ResumeAssistantMessage,
+  ResumeDraft,
+  ResumeDraftRevision,
+  ResumeExportArtifact,
+  ResumeResearchArtifact,
+  ResumeValidationResult,
   SavedJob,
   SourceDebugEvidenceRef,
   SourceDebugRunRecord,
@@ -31,6 +37,56 @@ export interface JobFinderRepository {
   replaceSavedJobs(savedJobs: readonly SavedJob[]): Promise<void>;
   listTailoredAssets(): Promise<readonly TailoredAsset[]>;
   upsertTailoredAsset(tailoredAsset: TailoredAsset): Promise<void>;
+  listResumeDrafts(): Promise<readonly ResumeDraft[]>;
+  getResumeDraftByJobId(jobId: string): Promise<ResumeDraft | null>;
+  upsertResumeDraft(draft: ResumeDraft): Promise<void>;
+  listResumeDraftRevisions(
+    draftId?: string,
+  ): Promise<readonly ResumeDraftRevision[]>;
+  upsertResumeDraftRevision(revision: ResumeDraftRevision): Promise<void>;
+  listResumeExportArtifacts(options?: {
+    jobId?: string;
+    draftId?: string;
+  }): Promise<readonly ResumeExportArtifact[]>;
+  upsertResumeExportArtifact(artifact: ResumeExportArtifact): Promise<void>;
+  listResumeResearchArtifacts(
+    jobId?: string,
+  ): Promise<readonly ResumeResearchArtifact[]>;
+  upsertResumeResearchArtifact(artifact: ResumeResearchArtifact): Promise<void>;
+  listResumeValidationResults(
+    draftId?: string,
+  ): Promise<readonly ResumeValidationResult[]>;
+  upsertResumeValidationResult(
+    validationResult: ResumeValidationResult,
+  ): Promise<void>;
+  listResumeAssistantMessages(
+    jobId?: string,
+  ): Promise<readonly ResumeAssistantMessage[]>;
+  upsertResumeAssistantMessage(
+    message: ResumeAssistantMessage,
+  ): Promise<void>;
+  saveResumeDraftWithValidation(input: {
+    draft: ResumeDraft;
+    validation: ResumeValidationResult;
+    tailoredAsset?: TailoredAsset | null;
+  }): Promise<void>;
+  applyResumePatchWithRevision(input: {
+    draft: ResumeDraft;
+    revision: ResumeDraftRevision;
+    validation: ResumeValidationResult;
+    tailoredAsset?: TailoredAsset | null;
+  }): Promise<void>;
+  approveResumeExport(input: {
+    draft: ResumeDraft;
+    exportArtifact: ResumeExportArtifact;
+    validation?: ResumeValidationResult | null;
+    tailoredAsset?: TailoredAsset | null;
+  }): Promise<void>;
+  clearResumeApproval(input: {
+    draft: ResumeDraft;
+    staleReason: string;
+    tailoredAsset?: TailoredAsset | null;
+  }): Promise<void>;
   listApplicationRecords(): Promise<readonly ApplicationRecord[]>;
   upsertApplicationRecord(applicationRecord: ApplicationRecord): Promise<void>;
   listApplicationAttempts(): Promise<readonly ApplicationAttempt[]>;
