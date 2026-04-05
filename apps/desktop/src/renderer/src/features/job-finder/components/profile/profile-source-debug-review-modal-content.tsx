@@ -102,10 +102,10 @@ export function ProfileSourceDebugReviewModalContent({
       <aside
         aria-labelledby={recentRunsLabelId}
         className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r"
-      >
-        <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted" id={recentRunsLabelId}>
-          Recent runs
-        </p>
+        >
+          <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted" id={recentRunsLabelId}>
+          Recent tests
+          </p>
         <ul className="grid gap-2 pb-1">
           {recentRuns.map((run) => {
             const isSelected = run.id === selectedRun?.id
@@ -143,7 +143,7 @@ export function ProfileSourceDebugReviewModalContent({
             className="surface-card-tint rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4 text-[0.9rem] text-foreground-soft"
             role="status"
           >
-            Loading run details...
+            Loading test details...
           </div>
         ) : errorMessage ? (
           <div
@@ -160,7 +160,7 @@ export function ProfileSourceDebugReviewModalContent({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="grid gap-1">
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Latest run
+                    Latest test
                   </p>
                   <p className="text-[1rem] font-medium text-foreground">
                     {formatRunStateLabel(details.run.state)}
@@ -221,7 +221,7 @@ export function ProfileSourceDebugReviewModalContent({
           </>
         ) : (
           <div className="surface-card-tint rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4 text-[0.9rem] text-foreground-soft">
-            No saved run details are available for this source yet.
+            No saved test details are available for this source yet.
           </div>
         )}
       </section>

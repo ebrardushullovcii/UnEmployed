@@ -12,9 +12,9 @@ Key shipped results:
 - top navigation now uses clearer product labels: `Find Jobs`, `Shortlisted`, and `Applied`
 - `Discovery` detail removed low-value jargon like `Discovery mode` and renamed `Provenance` to `Found on`
 - the shortlist and resume-editor flow now uses calmer, more product-facing language and hides default source-ref or evidence internals
-- `Profile` source setup now uses `Job sources`, `Learn this source`, `Learned navigation steps`, and a simplified source-review modal instead of heavier debug wording
+- `Profile` source setup now uses `Job sources`, `Test source`, `Navigation steps`, clearer source-status language, and a simplified source-review modal instead of heavier debug wording
 - `Applied` no longer shows internal reference IDs in the main table or detail panel
-- `Settings` removed the single-option `Resume format` field and `Template notes`, renamed display and service sections, and simplified destructive reset framing
+- `Settings` removed the single-option `Resume format` field and `Template notes`, simplified remaining toggle language, removed the read-only AI provider stat, and reduced destructive reset framing
 - desktop capture scripts were updated to the new navigation labels and page headings
 
 ## Validation Notes

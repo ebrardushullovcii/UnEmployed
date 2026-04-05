@@ -262,9 +262,9 @@ export function ProfilePreferencesTab({
               values={parseListInput(watchPreferences('companyWhitelist'))}
             />
             <ProfileListEditor
-              label="Blocked companies"
+              label="Companies to exclude"
               onChange={(values) => setPreferenceValue('companyBlacklist', joinListInput(values), listFieldOptions)}
-              placeholder="Add a blocked company"
+              placeholder="Add a company to exclude"
               values={parseListInput(watchPreferences('companyBlacklist'))}
             />
           </div>
@@ -304,15 +304,15 @@ export function ProfilePreferencesTab({
               name="tailoringMode"
               render={({ field }) => (
                 <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
-                  <FieldLabel htmlFor={tailoringModeId}>Tailoring mode</FieldLabel>
+                  <FieldLabel htmlFor={tailoringModeId}>Resume rewrite strength</FieldLabel>
                   <FormSelect
                     onValueChange={field.onChange}
                     options={[
-                      { label: 'Conservative', value: 'conservative' },
+                      { label: 'Light touch', value: 'conservative' },
                       { label: 'Balanced', value: 'balanced' },
-                      { label: 'Aggressive', value: 'aggressive' }
+                      { label: 'Strong rewrite', value: 'aggressive' }
                     ]}
-                    placeholder="Select mode"
+                    placeholder="Select strength"
                     triggerClassName={profileSelectTriggerClassName}
                     triggerId={tailoringModeId}
                     value={field.value}

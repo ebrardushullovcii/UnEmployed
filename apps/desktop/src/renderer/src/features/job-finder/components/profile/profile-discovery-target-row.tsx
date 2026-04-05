@@ -49,15 +49,15 @@ function formatInstructionStatusSummary(target: DiscoveryTargetValue): string {
     case 'validated':
       return target.lastVerifiedAt
         ? `Ready — verified ${new Date(target.lastVerifiedAt).toLocaleString()}`
-        : 'Ready to use'
+        : 'Ready'
     case 'draft':
-      return 'Draft steps saved'
+      return 'Draft steps pending'
     case 'stale':
       return target.staleReason ? `Needs review — ${target.staleReason}` : 'Needs review'
     case 'unsupported':
-      return 'Not supported yet'
+      return 'Not supported'
     default:
-      return 'Not set up yet'
+      return 'Not started'
   }
 }
 
@@ -239,13 +239,13 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            aria-label={`Learn this source for ${displayName}`}
+            aria-label={`Test this source for ${displayName}`}
             disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
             onClick={handleRunSourceDebug}
             type="button"
             variant="secondary"
           >
-            Learn this source
+            Test source
           </Button>
           <Button
             aria-label={`Move ${displayName} up`}
@@ -291,12 +291,12 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           />
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={instructionsId}>Custom instructions</FieldLabel>
+          <FieldLabel htmlFor={instructionsId}>Notes for this source</FieldLabel>
           <ProfileTextarea
             className="min-h-(--textarea-tall)"
             id={instructionsId}
             onChange={handleCustomInstructionsChange}
-            placeholder="Optional: add notes you always want used for this source."
+            placeholder="Optional: add notes like 'skip contract roles' or 'focus on remote jobs'."
             rows={4}
             value={props.target.customInstructions}
           />
@@ -305,16 +305,16 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <div className="surface-card-tint grid h-full min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-                Last run
+                Last test
               </p>
               <Button
-                aria-label={`View details for the latest run for ${displayName}`}
+                aria-label={`View details for the latest test for ${displayName}`}
                 disabled={props.busy}
                 onClick={handleReviewLatestRun}
                 type="button"
                 variant="ghost"
               >
-                View details
+                Review test
               </Button>
             </div>
             <div aria-live="polite" className="grid gap-1" role="status">
@@ -347,7 +347,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             onCheckedChange={handleToggleEnabled}
           />
           <p aria-live="polite" aria-atomic="true" className="text-[0.82rem] leading-6 text-foreground-soft" role="status">
-            Source setup: <strong>{formatInstructionStatusSummary(props.target)}</strong>
+            Status: <strong>{formatInstructionStatusSummary(props.target)}</strong>
           </p>
         </div>
       </div>

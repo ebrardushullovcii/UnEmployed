@@ -255,7 +255,7 @@ export function DiscoveryFiltersPanel({
             variant="ghost"
           >
             <History className="size-4" />
-            View search history
+            View recent searches
           </Button>
 
           {onRunAgentDiscovery ? (

@@ -68,7 +68,7 @@ export function ProfileSourceDebugReviewModal(props: {
               {props.targetLabel}
             </h2>
             <p className="text-[0.9rem] leading-6 text-foreground-soft">
-              Review what the latest learning run found before including this
+              Review what the latest source test found before including this
               source in search.
             </p>
           </div>
@@ -79,7 +79,7 @@ export function ProfileSourceDebugReviewModal(props: {
               type="button"
               variant="secondary"
             >
-              Run again
+              Test again
             </Button>
             <Button
               aria-label="Close"

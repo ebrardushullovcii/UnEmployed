@@ -139,48 +139,48 @@ export function buildSourceDebugOutcomeMessage(
 
   if (activeRunIsLatest) {
     return latestRun?.state === 'idle'
-      ? 'Source setup is starting for this source.'
-      : 'Source setup is running for this source.'
+      ? 'Testing this source now.'
+      : 'Still testing this source.'
   }
 
   if (latestRun?.state === 'paused_manual') {
     return (
       latestRun.manualPrerequisiteSummary ??
       latestRun.finalSummary ??
-      'Source setup paused until a manual step is completed.'
+      'Testing paused until a manual step is completed.'
     )
   }
 
   if (latestRun?.state === 'failed') {
     return (
       latestRun.finalSummary ??
-      'Source setup finished without saving reusable navigation steps.'
+      'The source test finished without saving reusable navigation steps.'
     )
   }
 
   if (latestRun?.state === 'interrupted') {
-    return latestRun.finalSummary ?? 'Source setup was interrupted before it could finish.'
+    return latestRun.finalSummary ?? 'The source test was interrupted before it could finish.'
   }
 
   if (latestRun?.state === 'cancelled') {
-    return latestRun.finalSummary ?? 'Source setup was cancelled before it could finish.'
+    return latestRun.finalSummary ?? 'The source test was cancelled before it could finish.'
   }
 
   if (target?.instructionStatus === 'validated') {
-    return 'Source setup finished and saved verified navigation steps.'
+    return 'This source is ready to use.'
   }
 
   if (target?.instructionStatus === 'draft') {
-    return 'Source setup finished with draft navigation steps. Review them before relying on this source.'
+    return 'The source test saved draft navigation steps. Review them before relying on this source.'
   }
 
   if (target?.instructionStatus === 'unsupported') {
-    return 'Source setup finished, but this source is not supported yet.'
+    return 'This source is not supported yet.'
   }
 
   return (
     latestRun?.finalSummary ??
-    'Source setup finished without saving reusable navigation steps.'
+    'The source test finished without saving reusable navigation steps.'
   )
 }
 
@@ -307,7 +307,6 @@ export function JobFinderSettingsRoute() {
   return (
     <SettingsScreen
       actionState={context.actionState}
-      agentProvider={context.workspace.agentProvider}
       availableResumeTemplates={context.workspace.availableResumeTemplates}
       browserSession={context.workspace.browserSession}
       busy={context.busy}

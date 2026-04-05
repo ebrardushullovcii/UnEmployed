@@ -67,26 +67,26 @@ export function SettingsEditableDefaults({
         </Field>
         <ToggleField
           checked={settingsForm.keepSessionAlive}
-          description="Keep your browser session available between searches and application steps."
-          label="Keep browser signed in"
+          description="Stay signed in between searches and application steps. Turn this off if you share this computer."
+          label="Stay signed in across searches"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
         />
         <ToggleField
           checked={settingsForm.humanReviewRequired}
-          description="Require a manual review before a job can move into Applied."
-          label="Resume review"
+          description="Approve the resume PDF before Job Finder can submit an application."
+          label="Require approval before applying"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, humanReviewRequired: checked }))}
         />
         <ToggleField
           checked={settingsForm.allowAutoSubmitOverride}
-          description="Allow supported application flows to submit automatically when that option is available."
-          label="Automatic submission"
+          description="Let supported application flows submit for you once everything is ready."
+          label="Apply automatically when supported"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, allowAutoSubmitOverride: checked }))}
         />
         <ToggleField
           checked={settingsForm.discoveryOnly}
-          description="Keep search results separate from your shortlist until you decide to move a job forward."
-          label="Browse without shortlisting"
+          description="New search results stay temporary until you shortlist or dismiss them."
+          label="Only save jobs after I shortlist them"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
         />
       </div>

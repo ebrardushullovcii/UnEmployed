@@ -1,9 +1,4 @@
-import type {
-  AgentProviderStatus,
-  BrowserSessionState,
-  JobFinderSettings,
-  ResumeTemplateDefinition
-} from '@unemployed/contracts'
+import type { BrowserSessionState, JobFinderSettings, ResumeTemplateDefinition } from '@unemployed/contracts'
 import { PageHeader } from '../../components/page-header'
 import { SettingsEditableDefaults } from './settings-editable-defaults'
 import { SettingsRuntimeSummary } from './settings-runtime-summary'
@@ -11,7 +6,6 @@ import { SettingsWorkspaceControls } from './settings-workspace-controls'
 
 export function SettingsScreen(props: {
   actionState: { busy: boolean; message: string | null }
-  agentProvider: AgentProviderStatus
   availableResumeTemplates: readonly ResumeTemplateDefinition[]
   browserSession: BrowserSessionState
   busy: boolean
@@ -21,7 +15,6 @@ export function SettingsScreen(props: {
 }) {
   const {
     actionState,
-    agentProvider,
     availableResumeTemplates,
     browserSession,
     busy,
@@ -40,7 +33,6 @@ export function SettingsScreen(props: {
 
       <SettingsWorkspaceControls busy={busy} onResetWorkspace={onResetWorkspace} />
       <SettingsRuntimeSummary
-        agentProvider={agentProvider}
         availableResumeTemplates={availableResumeTemplates}
         browserSession={browserSession}
         settings={settings}
