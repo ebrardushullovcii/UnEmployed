@@ -4,7 +4,7 @@ import type {
   SourceInstructionArtifact
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
-import { formatStatusLabel } from '../../lib/job-finder-utils'
+import { formatDuration, formatStatusLabel } from '../../lib/job-finder-utils'
 
 function formatTimestamp(value: string | null): string | null {
   if (!value) {
@@ -12,6 +12,12 @@ function formatTimestamp(value: string | null): string | null {
   }
 
   return new Date(value).toLocaleString()
+}
+
+function calcAttemptDurationMs(startedAt: string, completedAt: string | null): number | null {
+  if (!completedAt) return null
+  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime()
+  return ms > 0 ? ms : null
 }
 
 function formatEvidenceCount(details: SourceDebugRunDetails, attemptId: string): number {
@@ -87,6 +93,9 @@ export function ProfileSourceDebugReviewModalContent({
                 >
                   <span className="text-[0.82rem] font-medium text-foreground">{formatStatusLabel(run.state)}</span>
                   <span className="text-[0.76rem] text-foreground-muted">{formatTimestamp(run.completedAt ?? run.updatedAt)}</span>
+                  {run.timing ? (
+                    <span className="text-[0.74rem] text-foreground-muted">{formatDuration(run.timing.totalDurationMs)}</span>
+                  ) : null}
                   {run.finalSummary ? (
                     <span className="line-clamp-3 text-[0.78rem] leading-5 text-foreground-soft">{run.finalSummary}</span>
                   ) : null}
@@ -144,6 +153,20 @@ export function ProfileSourceDebugReviewModalContent({
               {details.run.finalSummary ? (
                 <p className="text-[0.92rem] leading-6 text-foreground">{details.run.finalSummary}</p>
               ) : null}
+              {details.run.timing ? (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.82rem] text-foreground-muted">
+                  <span>Duration: {formatDuration(details.run.timing.totalDurationMs)}</span>
+                  {details.run.timing.longestGapMs > 10000 ? (
+                    <span>Longest quiet gap: {formatDuration(details.run.timing.longestGapMs)}</span>
+                  ) : null}
+                  {details.run.timing.browserSetupMs != null ? (
+                    <span>Browser setup: {formatDuration(details.run.timing.browserSetupMs)}</span>
+                  ) : null}
+                  {details.run.timing.finalReviewMs != null ? (
+                    <span>AI review: {formatDuration(details.run.timing.finalReviewMs)}</span>
+                  ) : null}
+                </div>
+              ) : null}
               {details.run.manualPrerequisiteSummary ? (
                 <p className="text-[0.85rem] leading-6 text-foreground-soft">{details.run.manualPrerequisiteSummary}</p>
               ) : null}
@@ -152,6 +175,7 @@ export function ProfileSourceDebugReviewModalContent({
             <div className="grid gap-3">
               {details.attempts.map((attempt) => {
                 const evidenceCount = formatEvidenceCount(details, attempt.id)
+                const attemptDurationMs = calcAttemptDurationMs(attempt.startedAt, attempt.completedAt)
 
                 return (
                   <article
@@ -169,6 +193,7 @@ export function ProfileSourceDebugReviewModalContent({
                       </div>
                       <div className="text-right text-[0.76rem] text-foreground-muted">
                         <p>{formatTimestamp(attempt.completedAt ?? attempt.startedAt)}</p>
+                        {attemptDurationMs != null ? <p>{formatDuration(attemptDurationMs)}</p> : null}
                         <p>{evidenceCount} evidence refs</p>
                       </div>
                     </div>

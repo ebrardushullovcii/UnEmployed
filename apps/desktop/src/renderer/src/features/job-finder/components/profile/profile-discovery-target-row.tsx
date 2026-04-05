@@ -7,7 +7,7 @@ import type {
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { FieldLabel } from '@renderer/components/ui/field'
-import { formatStatusLabel } from '../../lib/job-finder-utils'
+import { formatDuration, formatStatusLabel } from '../../lib/job-finder-utils'
 import type { SearchPreferencesEditorValues } from '../../lib/profile-editor'
 import { CheckboxField } from '../checkbox-field'
 import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
@@ -293,6 +293,13 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
               {latestDebugRun.manualPrerequisiteSummary || latestDebugRun.finalSummary ? (
                 <p className="text-[0.82rem] leading-6 text-foreground-soft">
                   {latestDebugRun.manualPrerequisiteSummary ?? latestDebugRun.finalSummary}
+                </p>
+              ) : null}
+              {latestDebugRun.timing ? (
+                <p className="text-[0.78rem] leading-6 text-foreground-muted">
+                  {`Duration: ${formatDuration(latestDebugRun.timing.totalDurationMs)}`}
+                  {latestDebugRun.timing.longestGapMs > 10000 ? ` · Longest quiet gap: ${formatDuration(latestDebugRun.timing.longestGapMs)}` : ''}
+                  {latestDebugRun.timing.finalReviewMs != null ? ` · AI review: ${formatDuration(latestDebugRun.timing.finalReviewMs)}` : ''}
                 </p>
               ) : null}
             </div>

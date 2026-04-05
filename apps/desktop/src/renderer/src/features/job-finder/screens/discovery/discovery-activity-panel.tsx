@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { DiscoveryActivityEvent, DiscoveryRunRecord } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import { formatDuration } from '../../lib/job-finder-utils'
 import {
   buildLiveRunRecord,
   formatOutcomeLabel,
@@ -256,7 +257,7 @@ export function DiscoveryHistoryModal(props: {
                       ) : null}
                     </div>
                     <span className="text-[0.8rem] text-foreground-muted">{formatRunLabel(run.startedAt)}</span>
-                    <span className="text-[0.8rem] text-foreground-muted">{run.summary.targetsCompleted}/{run.summary.targetsPlanned} targets · {run.summary.validJobsFound} found</span>
+                    <span className="text-[0.8rem] text-foreground-muted">{run.summary.targetsCompleted}/{run.summary.targetsPlanned} targets · {run.summary.validJobsFound} found{run.summary.durationMs > 0 ? ` · ${formatDuration(run.summary.durationMs)}` : ''}</span>
                   </button>
                 )
               }) : (
@@ -284,6 +285,18 @@ export function DiscoveryHistoryModal(props: {
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Saved / staged</p>
                   <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.jobsPersisted} / {selectedRun.summary.jobsStaged}</p>
                 </div>
+                {selectedRun.summary.durationMs > 0 ? (
+                  <div>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Duration</p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.durationMs)}</p>
+                  </div>
+                ) : null}
+                {selectedRun.summary.timing?.longestGapMs != null && selectedRun.summary.timing.longestGapMs > 10000 ? (
+                  <div>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Longest quiet gap</p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.timing.longestGapMs)}</p>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

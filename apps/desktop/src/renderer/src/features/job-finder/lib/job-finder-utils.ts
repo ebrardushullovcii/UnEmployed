@@ -194,6 +194,27 @@ export function createProfileEntryId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+export function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return '<1s'
+  }
+
+  const totalSeconds = Math.round(ms / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`
+  }
+
+  return `${seconds}s`
+}
+
 export function parseRequiredNonNegativeInteger(value: string): number | null {
   const trimmedValue = value.trim()
 

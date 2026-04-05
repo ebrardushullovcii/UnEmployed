@@ -170,6 +170,20 @@ async function getLlmResponse(
   let lastLlmError: unknown = null
 
   for (let attempt = 0; attempt < MAX_LLM_RETRY_ATTEMPTS; attempt += 1) {
+    const callStartMs = Date.now()
+    let heartbeat: ReturnType<typeof setInterval> | null = null
+
+    if (emitProgress) {
+      heartbeat = setInterval(() => {
+        const waitedSec = Math.round((Date.now() - callStartMs) / 1000)
+        emitProgress?.({
+          currentAction: 'thinking',
+          waitReason: 'waiting_on_ai',
+          message: `Waiting for AI response (${waitedSec}s)…`
+        })
+      }, 10_000)
+    }
+
     try {
       llmResponse = await llmClient.chatWithTools(state.conversation, tools, signal)
       break
@@ -188,6 +202,8 @@ async function getLlmResponse(
         })
         await page.waitForTimeout(500 * (attempt + 1))
       }
+    } finally {
+      if (heartbeat !== null) clearInterval(heartbeat)
     }
   }
 
