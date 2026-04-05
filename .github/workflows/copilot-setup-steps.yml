@@ -35,10 +35,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm --dir apps/desktop exec playwright install --with-deps chromium
 
       - name: Expose Chromium for browser-runtime
         shell: bash
         run: |
-          CHROME_PATH="$(pnpm exec node --input-type=module -e 'import { chromium } from "playwright"; process.stdout.write(chromium.executablePath())')"
+          CHROME_PATH="$(pnpm --dir apps/desktop exec node --input-type=module -e 'import { chromium } from "playwright"; process.stdout.write(chromium.executablePath())')"
           echo "UNEMPLOYED_CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
