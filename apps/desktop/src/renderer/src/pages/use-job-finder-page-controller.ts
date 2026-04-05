@@ -573,14 +573,19 @@ export function useJobFinderPageController() {
         () => undefined,
         "Source instructions re-verified.",
       ),
-    onResetWorkspace: () =>
+    onResetWorkspace: () => {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
+        return;
+      }
+
       void runAction(
         actions.resetWorkspace,
         () => {
           void navigate("/job-finder/profile");
         },
         "Workspace reset to a fresh profile, cleared resume state, and empty job history.",
-      ),
+      );
+    },
     onSaveAll: (
       profile: CandidateProfile,
       searchPreferences: JobSearchPreferences,
@@ -669,7 +674,7 @@ export function useJobFinderPageController() {
         const requestToken = ++resumeAssistantRequestTokenRef.current;
         const createdAt = new Date().toISOString();
         const optimisticUserMessage: ResumeAssistantMessage = {
-          id: `resume_message_user_optimistic_${jobId}_${Date.now()}`,
+          id: `resume_message_user_optimistic_${jobId}_${requestToken}`,
           jobId,
           role: "user",
           content,
@@ -677,7 +682,7 @@ export function useJobFinderPageController() {
           createdAt,
         };
         const optimisticAssistantMessage: ResumeAssistantMessage = {
-          id: `resume_message_assistant_pending_${jobId}_${Date.now()}`,
+          id: `resume_message_assistant_pending_${jobId}_${requestToken}`,
           jobId,
           role: "assistant",
           content: "Working on it...",
