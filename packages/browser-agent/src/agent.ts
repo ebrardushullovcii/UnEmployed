@@ -36,7 +36,7 @@ export type AgentExtractorPageType = 'search_results' | 'job_detail'
 const MAX_LLM_RETRY_ATTEMPTS = 3
 const DEFERRED_SEARCH_EXTRACTION_BATCH_SIZE = 3
 const DEFERRED_SEARCH_EXTRACTION_FLUSH_STEP_INTERVAL = 10
-const MAX_SEARCH_RESULTS_EXTRACTION_JOBS = 7
+const MAX_SEARCH_RESULTS_EXTRACTION_JOBS = 4
 
 export interface LLMClient {
   chatWithTools(

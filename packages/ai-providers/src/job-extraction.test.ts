@@ -304,4 +304,94 @@ describe('job extraction with openai-compatible client', () => {
       restoreFetch()
     }
   })
+
+  test('uses lighter request limits for search-results extraction to reduce first-pass stalls', async () => {
+    const originalFetch = globalThis.fetch
+    let capturedBody: { messages?: Array<{ content: string }> } | null = null
+
+    globalThis.fetch = ((_, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content: string }> }
+
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ jobs: [] })
+              }
+            }
+          ]
+        }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+      )
+    }) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      await client.extractJobsFromPage({
+        pageText: 'x'.repeat(15000),
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 20
+      })
+
+      expect(capturedBody).not.toBeNull()
+      if (!capturedBody) {
+        throw new Error('Expected the extraction request body to be captured.')
+      }
+      const capturedRequestBody = capturedBody as { messages?: Array<{ content: string }> }
+      const messages = capturedRequestBody.messages ?? []
+      expect(messages[0]?.content).toContain('Return at most 4 jobs.')
+      expect(messages[0]?.content).toContain('If only a short search-results snippet is visible')
+      const userPayload = JSON.parse(messages[1]?.content ?? '{}') as { pageText?: string }
+      expect(userPayload.pageText).toHaveLength(8000)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('reports search-results extraction timeouts clearly before falling back', async () => {
+    vi.useFakeTimers()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = ((_, init) => new Promise((_, reject) => {
+      const signal = init?.signal as AbortSignal | undefined
+
+      if (signal?.aborted) {
+        reject(new DOMException('This operation was aborted', 'AbortError'))
+        return
+      }
+
+      signal?.addEventListener('abort', () => {
+        reject(new DOMException('This operation was aborted', 'AbortError'))
+      }, { once: true })
+    })) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const extractionPromise = client.extractJobsFromPage({
+        pageText: 'Frontend Engineer role at Acme',
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 5
+      })
+
+      await vi.advanceTimersByTimeAsync(35000)
+
+      await expect(extractionPromise).resolves.toEqual([])
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[AI Provider] extractJobsFromPage failed; falling back to deterministic client. Model request timed out after 35s'
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      errorSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
 })

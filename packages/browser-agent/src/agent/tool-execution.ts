@@ -4,7 +4,7 @@ import { getToolExecutor } from '../tools'
 import type { JobExtractor } from '../agent'
 import { addExtractedJobsToState } from './evidence'
 
-const MAX_SEARCH_RESULTS_EXTRACTION_JOBS = 7
+const MAX_SEARCH_RESULTS_EXTRACTION_JOBS = 4
 
 function isExtractJobsPayload(value: unknown): value is {
   pageText: string
