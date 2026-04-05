@@ -13,19 +13,19 @@ interface ReviewQueueListPanelProps {
 
 export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: ReviewQueueListPanelProps) {
   return (
-    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
-      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-2 pt-5">
-        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Active Queue</p>
-        <Badge variant="section">{formatCountLabel(queue.length, 'item')}</Badge>
-      </div>
-      {queue.length === 0 ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-5 pt-4">
-          <EmptyState
-            title="No jobs in review yet"
-            description="Discovery and tailoring are wired to support review queue items once jobs move beyond the shortlist stage."
-          />
+      <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
+        <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-2 pt-5">
+          <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Jobs to review</p>
+          <Badge variant="section">{formatCountLabel(queue.length, 'job')}</Badge>
         </div>
-      ) : (
+        {queue.length === 0 ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-5 pt-4">
+            <EmptyState
+              title="Nothing to review yet"
+              description="Jobs appear here after you send them from Discovery for resume review."
+            />
+          </div>
+        ) : (
         <div className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4">
           {queue.map((item) => {
             const progressPercent = Number.isFinite(item.progressPercent) ? item.progressPercent ?? 0 : 0

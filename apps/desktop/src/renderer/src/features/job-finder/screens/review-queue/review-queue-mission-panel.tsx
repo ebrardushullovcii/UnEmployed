@@ -1,10 +1,10 @@
-import { Info, Pencil, Trash2, View } from 'lucide-react'
+import { Pencil } from 'lucide-react'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button, ProgressBar } from '@renderer/components/ui'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
-import { formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
+import { getAssetTone } from '../../lib/job-finder-utils'
 
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
@@ -16,6 +16,47 @@ interface ReviewQueueMissionPanelProps {
   selectedAsset: TailoredAsset | null
   selectedItem: ReviewQueueItem | null
   selectedJob: SavedJob | null
+}
+
+function getBrowserStatusLabel(status: BrowserSessionState['status']): string {
+  switch (status) {
+    case 'ready':
+      return 'Ready'
+    case 'login_required':
+      return 'Sign-in needed'
+    case 'blocked':
+      return 'Needs attention'
+    default:
+      return 'Not checked'
+  }
+}
+
+function getResumeStatusLabel(status: ReviewQueueItem['assetStatus']): string {
+  switch (status) {
+    case 'not_started':
+      return 'Needs resume'
+    case 'generating':
+      return 'Creating'
+    case 'queued':
+      return 'Queued'
+    case 'failed':
+      return 'Needs attention'
+    default:
+      return 'Ready'
+  }
+}
+
+function getResumeReviewStatusLabel(status: ReviewQueueItem['resumeReview']['status']): string {
+  switch (status) {
+    case 'approved':
+      return 'Approved'
+    case 'stale':
+      return 'Out of date'
+    case 'needs_review':
+      return 'Needs review'
+    default:
+      return 'Not started'
+  }
 }
 
 export function ReviewQueueMissionPanel({
@@ -46,60 +87,55 @@ export function ReviewQueueMissionPanel({
     browserSession.status === 'ready' &&
     hasApprovedResumeExport &&
     hasReadyApprovedAsset
-  const tailoringStateLabel = selectedItem ? formatStatusLabel(selectedItem.assetStatus) : 'No asset'
+  const tailoringStateLabel = selectedItem ? getResumeStatusLabel(selectedItem.assetStatus) : 'No resume'
   const tailoringStateTone = selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'
+  const resumeReviewLabel = getResumeReviewStatusLabel(resumeReviewStatus)
+  const primaryActionLabel = isGenerating
+    ? 'Creating resume...'
+    : needsGeneration
+      ? 'Create resume'
+      : 'Move to Applications'
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
-        <p className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Mission Details</p>
-        <Info className="size-4 text-muted-foreground" />
+        <p className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Review Summary</p>
       </div>
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Confidence Score</div>
+            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Job match</div>
             <div className="font-display text-xl font-bold text-positive">{selectedItem?.matchScore ?? '--'}%</div>
           </div>
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Session State</div>
-            <div className="font-display text-xl font-bold text-primary">{formatStatusLabel(browserSession.status)}</div>
+            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Browser</div>
+            <div className="font-display text-xl font-bold text-primary">{getBrowserStatusLabel(browserSession.status)}</div>
           </div>
         </div>
         <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
           <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Tailoring state</span>
+            <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume status</span>
             <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
           </div>
-          <ProgressBar ariaLabel="Tailoring progress" percent={selectedItem?.progressPercent ?? 0} />
+          <ProgressBar ariaLabel="Resume progress" percent={selectedItem?.progressPercent ?? 0} />
         </div>
         {selectedItem && selectedJob ? (
           <>
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-              <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Template</span>
-                <strong className="mt-2 block font-display text-sm uppercase text-foreground">{selectedAsset?.templateName ?? 'Pending'}</strong>
-              </div>
-              <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Generation</span>
-                <strong className="mt-2 block font-display text-sm uppercase text-foreground">{selectedAsset ? formatStatusLabel(selectedAsset.generationMethod) : 'Pending'}</strong>
-              </div>
-            </div>
             <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume review</span>
+                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Approval</span>
                 <StatusBadge tone={resumeReviewStatus === 'stale' ? 'critical' : resumeReviewStatus === 'approved' ? 'positive' : 'active'}>
-                  {resumeReviewStatus.replaceAll('_', ' ')}
+                  {resumeReviewLabel}
                 </StatusBadge>
               </div>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                 {resumeReviewStatus === 'approved'
-                  ? 'Resume approval is complete and the latest approved export can be used for apply.'
-                  : 'Open Resume Workspace to review the draft, export the PDF, and approve the resume before apply.'}
+                  ? 'The approved PDF is ready, and this job can move into Applications.'
+                  : 'Open Resume Workspace to edit the draft, export the PDF, and approve it before this job moves forward.'}
               </p>
               {resumeReviewStatus === 'stale' ? (
                 <p className="text-(length:--text-small) leading-6 text-(--warning-text)">
-                  The approved resume is stale. Re-open the workspace and re-approve before continuing.
+                  The approved PDF is out of date. Open Resume Workspace and approve a fresh version.
                 </p>
               ) : null}
             </div>
@@ -110,27 +146,11 @@ export function ReviewQueueMissionPanel({
                   Employer site: {selectedJob.employerWebsiteUrl}
                 </p>
               ) : null}
-              {selectedAsset?.storagePath ? (
-                <div className="grid min-w-0 gap-1">
-                  <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Generated file</span>
-                  <p className="min-w-0 break-all font-mono text-(length:--text-small) text-foreground-soft">{selectedAsset.storagePath}</p>
-                </div>
-              ) : null}
             </div>
             <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-              <PreferenceList label="Role fit" values={selectedJob.matchAssessment.reasons} />
+              <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} />
             </div>
-            <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-              <h3 className="mb-4 block font-display text-(length:--text-field-label) font-bold uppercase tracking-(--tracking-caps) text-muted-foreground">Telemetry Stream</h3>
-              <div className="min-w-0 space-y-1 font-mono text-(length:--text-label) leading-relaxed text-foreground-soft">
-                {selectedAsset?.notes.length
-                  ? selectedAsset.notes.map((note, index) => (
-                    <div className="min-w-0 break-all" key={`telemetry_${index}`}>{note}</div>
-                  ))
-                  : <div>No telemetry recorded yet.</div>}
-              </div>
-            </div>
-            {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words font-mono text-(length:--text-small) uppercase tracking-(--tracking-normal) text-primary" role="status">{actionMessage}</p> : null}
+            {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words text-(length:--text-small) leading-6 text-primary" role="status">{actionMessage}</p> : null}
             <div className="grid min-w-0 gap-2.5">
               <Button
                 className="h-11 w-full"
@@ -146,24 +166,23 @@ export function ReviewQueueMissionPanel({
                 }}
                 type="button"
               >
-                 {needsGeneration ? 'Generate tailored resume' : 'Approve Easy Apply'}
-               </Button>
-              <div className="grid gap-2">
-                <Button
-                  className="h-11 w-full"
-                  onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
-                  type="button"
-                  variant="secondary"
-                ><Pencil aria-hidden="true" className="size-4" focusable="false" />Edit asset</Button>
-                <Button aria-label="View source unavailable yet" className="h-11 w-full" disabled title="View source coming soon" type="button" variant="secondary"><View aria-hidden="true" className="size-4" focusable="false" />View source</Button>
-              </div>
+                {primaryActionLabel}
+              </Button>
+              <Button
+                className="h-11 w-full"
+                onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                type="button"
+                variant="secondary"
+              >
+                <Pencil aria-hidden="true" className="size-4" focusable="false" />
+                Open Resume Workspace
+              </Button>
             </div>
-            <Button aria-label="Purge job application unavailable yet" className="h-11 w-full" disabled title="Purge job application not available yet" type="button" variant="destructive"><Trash2 aria-hidden="true" className="size-4" focusable="false" />Purge job application</Button>
           </>
         ) : (
           <EmptyState
-            title="Choose a queued item"
-            description="Select a job in the review queue to inspect asset readiness and pre-apply context."
+            title="Choose a job to review"
+            description="Select a job to see its resume progress, approval status, and next step."
           />
         )}
       </div>

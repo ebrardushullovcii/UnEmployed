@@ -36,14 +36,14 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
           onClick={() =>
             props.runWithSavedDraft(
               () => props.onRegenerateDraft(props.jobId),
-              'Resume draft saved before regenerate.',
+              'Saved your changes before regenerating the resume.',
             )
           }
           type="button"
           variant="secondary"
         >
           <RefreshCcw className="size-4" />
-          Regenerate Draft
+          Regenerate resume
         </Button>
         <Button
           disabled={props.busy}
@@ -51,14 +51,14 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
           type="button"
           variant="primary"
         >
-          Save Draft
+          Save changes
         </Button>
         <Button
           disabled={props.busy}
           onClick={() =>
             props.runWithSavedDraft(
               () => props.onExportPdf(props.jobId),
-              'Resume draft saved before export.',
+              'Saved your changes before exporting the PDF.',
             )
           }
           type="button"
@@ -73,13 +73,13 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
             onClick={() =>
               props.runWithSavedDraftAsync(
                 () => props.onClearResumeApproval(props.jobId),
-                'Resume draft saved before clearing approval.',
+                'Saved your changes before clearing the approved PDF.',
               )
             }
             type="button"
             variant="destructive"
           >
-            Clear Approval
+            Clear approved PDF
           </Button>
         ) : null}
         {!props.approvedExportId && exportIdToApprove ? (
@@ -88,13 +88,13 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
             onClick={() =>
               props.runWithSavedDraft(
                 () => props.onApproveResume(props.jobId, exportIdToApprove),
-                'Resume draft saved before approval.',
+                'Saved your changes before approving the PDF.',
               )
             }
             type="button"
             variant="primary"
           >
-            Approve Resume
+            Approve PDF
           </Button>
         ) : null}
       </div>
@@ -113,13 +113,13 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
                     props.withDraftPatch(patch),
                     revisionReason,
                   ),
-                'Resume draft saved before applying the change.',
+                'Saved your changes before applying this update.',
               )
             }
             onRegenerate={() =>
               props.runWithSavedDraft(
                 () => props.onRegenerateSection(props.jobId, section.id),
-                'Resume draft saved before section regenerate.',
+                'Saved your changes before regenerating this section.',
               )
             }
           />
@@ -128,7 +128,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
 
       <div className="border-t border-(--surface-panel-border) px-4 py-3">
         {props.actionMessage ? (
-          <p className="font-mono text-(length:--text-tiny) uppercase tracking-(--tracking-normal) text-primary">
+          <p className="text-(length:--text-small) leading-6 text-primary">
             {props.actionMessage}
           </p>
         ) : <div className="h-action-message" />}

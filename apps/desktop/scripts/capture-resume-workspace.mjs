@@ -63,7 +63,7 @@ async function captureResumeWorkspace() {
 
     const window = await app.firstWindow()
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
+    await window.getByRole('heading', { name: 'Your profile' }).waitFor({ timeout: 15000 })
     await window.setViewportSize({ width, height })
 
     await window.evaluate(async () => {
@@ -77,7 +77,7 @@ async function captureResumeWorkspace() {
     await window.waitForLoadState('domcontentloaded')
 
     await window.getByRole('button', { name: /^Review Queue/ }).click()
-    await window.getByRole('heading', { level: 1, name: 'Tailored asset review' }).waitFor({ timeout: 10000 })
+    await window.getByRole('heading', { level: 1, name: 'Resume review queue' }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '01-review-queue.png') })
 
     await window.getByText(/Employer site:/).waitFor({ timeout: 10000 })
@@ -124,7 +124,7 @@ async function captureResumeWorkspace() {
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '05-after-export.png') })
 
     await window.getByRole('button', { name: /Back to Review Queue/i }).click()
-    await window.getByRole('heading', { level: 1, name: 'Tailored asset review' }).waitFor({ timeout: 10000 })
+    await window.getByRole('heading', { level: 1, name: 'Resume review queue' }).waitFor({ timeout: 10000 })
     const gatedApproveButton = window.getByRole('button', { name: 'Approve Easy Apply' })
     if (!(await gatedApproveButton.isDisabled())) {
       throw new Error('Approve Easy Apply should stay disabled before resume approval.')
@@ -147,7 +147,7 @@ async function captureResumeWorkspace() {
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '07-after-approval.png') })
 
     await window.getByRole('button', { name: /Back to Review Queue/i }).click()
-    await window.getByRole('heading', { level: 1, name: 'Tailored asset review' }).waitFor({ timeout: 10000 })
+    await window.getByRole('heading', { level: 1, name: 'Resume review queue' }).waitFor({ timeout: 10000 })
     const readyApproveButton = window.getByRole('button', { name: 'Approve Easy Apply' })
     if (await readyApproveButton.isDisabled()) {
       throw new Error('Approve Easy Apply should be enabled after resume approval.')
@@ -156,7 +156,7 @@ async function captureResumeWorkspace() {
 
     await readyApproveButton.click()
     await window.getByRole('button', { name: /^Applications/ }).click()
-    await window.getByRole('heading', { level: 1, name: 'Application history' }).waitFor({ timeout: 10000 })
+    await window.getByRole('heading', { level: 1, name: 'Track applications' }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '09-applications-after-apply.png') })
 
     const workspace = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())

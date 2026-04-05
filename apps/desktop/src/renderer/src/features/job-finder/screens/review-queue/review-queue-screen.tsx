@@ -40,8 +40,8 @@ export function ReviewQueueScreen(props: {
       topContent={(
         <PageHeader
           eyebrow="Review Queue"
-          title="Tailored asset review"
-          description="A supervised queue for generated resume variants before the first supported Easy Apply automation path begins."
+          title="Resume review queue"
+          description="Review each job, approve the resume PDF, and move ready applications forward with confidence."
         />
       )}
     >

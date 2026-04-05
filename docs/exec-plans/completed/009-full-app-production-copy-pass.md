@@ -1,8 +1,7 @@
 # 009 Full App Production Copy Pass
 
-Status: ready
-
-This plan is queued follow-on work. Do not mark it active until the current higher-priority implementation slices settle.
+Status: completed
+This plan is complete and now serves as implementation background for later polish or follow-on cleanup.
 
 ## Goal
 

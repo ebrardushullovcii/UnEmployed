@@ -42,12 +42,12 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `Plan 009 Full App Copy Pass`
 
-- status: `ready`
+- status: `done`
 - last updated: `2026-04-05`
-- linked plan: `docs/exec-plans/queued/009-full-app-production-copy-pass.md`
+- linked plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - code areas: `apps/desktop`, `packages/job-finder`, `docs/Design`
-- current focus: queued full-app production copy and surface cleanup pass across all shipped `Job Finder` and shared shell surfaces, with aggressive removal of internal or noisy wording and permission for small user-facing cleanup where the audit exposes obvious redundancy or missing clarity
-- next step: once higher-priority slices settle, start with a full shipped-surface inventory and classify each string cluster or user-facing control as keep, rewrite, shorten, remove, add, or restructure before broad edits begin
+- current focus: completed full-app production copy and surface cleanup pass across shipped `Job Finder` and shared shell surfaces, including page-title rewrites, settings cleanup, dead placeholder removal, and updated capture-script heading expectations
+- next step: reuse this completed copy baseline for later UX polish or any follow-on wording cleanup that lands alongside active implementation work
 - blockers: none
 
 ### `Plan 010 Browser Efficiency And Speed`

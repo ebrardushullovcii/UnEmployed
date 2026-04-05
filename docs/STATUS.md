@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Plan `007` implementation and hardening. Plan `008` is now defined as the next queued follow-on slice, and plans `009` and `010` remain queued behind it.
+Plan `007` implementation and hardening. Plan `008` remains the next queued follow-on slice, plan `009` is complete, and plan `010` remains queued after that.
 
 ## Snapshot
 
@@ -13,7 +13,8 @@ Plan `007` implementation and hardening. Plan `008` is now defined as the next q
 - Plans `003`, `004`, and `005` are no longer the active focus and now serve mainly as completed implementation background.
 - Plan `007` is still the only active implementation plan; the `Resume Workspace` works in a bare-bones form and is being tightened into a more reliable usable slice.
 - Plan `008` now has a concrete exec plan and intentionally defines a more autonomous future apply direction, but current shipped apply behavior remains more conservative until that work lands.
-- The queued order after `007` is `008` automatic job apply, then `009` full-app copy, then `010` under `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md` for browser efficiency and speed improvements across discovery and debugging.
+- The queued order after `007` is `008` automatic job apply, then `010` under `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md` for browser efficiency and speed improvements across discovery and debugging.
+- Plan `009` completed a shipped-surface copy and naming cleanup across Job Finder and the shared shell, including capture-script alignment for the updated page headings.
 - Older milestone detail lives in `docs/HISTORY.md`.
 
 ## Active Work
@@ -23,18 +24,19 @@ Plan `007` implementation and hardening. Plan `008` is now defined as the next q
 - Re-run targeted desktop QA around export, approval, and apply safety.
 - Keep browser-agent ownership clear: prompts, transcript compaction, tool policy, and deterministic catalog workflow policy belong there, while runtime stays generic.
 - Keep the queued `008` automatic-apply follow-on defined and ready, but do not start it until `007` settles.
+- Treat the completed `009` copy pass as the current wording baseline for later UX polish and QA.
 
 ## Immediate Next Steps
 
 - Close the remaining `007` functional gaps and rough edges.
 - Re-run the resume-workspace harnesses and targeted service checks.
-- Once `007` settles, start `008` from `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`, then keep `009` and `010` queued behind it in that order.
+- Once `007` settles, start `008` from `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`, then keep `010` queued behind it while `009` remains completed background.
 
 ## Key References
 
 - `docs/TRACKS.md`
 - `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
-- `docs/exec-plans/queued/009-full-app-production-copy-pass.md`
+- `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md`
 - `docs/HISTORY.md`

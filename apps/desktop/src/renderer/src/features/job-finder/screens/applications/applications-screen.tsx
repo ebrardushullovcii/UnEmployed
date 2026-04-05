@@ -19,8 +19,8 @@ export function ApplicationsScreen(props: {
       topContent={(
         <PageHeader
           eyebrow="Applications"
-          title="Application history"
-          description="Tracked statuses, follow-ups, and timeline events for the first set of saved application records."
+          title="Track applications"
+          description="See each submission, follow-up, and status change in one place."
         />
       )}
     >

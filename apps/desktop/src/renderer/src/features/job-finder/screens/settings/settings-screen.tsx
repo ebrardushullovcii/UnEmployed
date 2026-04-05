@@ -34,8 +34,8 @@ export function SettingsScreen(props: {
     <section className="grid gap-(--gap-section) pb-8">
       <PageHeader
         eyebrow="Settings"
-        title="MVP defaults"
-        description="The current slice keeps settings intentionally narrow: session persistence, resume defaults, and review safety controls."
+        title="Preferences"
+        description="Choose how Job Finder saves your work, prepares resumes, and handles review safeguards."
       />
 
       <SettingsWorkspaceControls busy={busy} onResetWorkspace={onResetWorkspace} />

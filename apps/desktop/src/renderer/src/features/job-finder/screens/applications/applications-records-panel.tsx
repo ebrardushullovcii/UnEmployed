@@ -1,5 +1,4 @@
 import type { ApplicationRecord } from '@unemployed/contracts'
-import { Filter, Search } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import {
   Table,
@@ -31,22 +30,15 @@ export function ApplicationsRecordsPanel({
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-8 py-5">
         <div className="flex items-center gap-4">
-          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">Applications Log</h2>
-          <Badge variant="section">{recordCount} {recordCount === 1 ? 'record' : 'records'}</Badge>
-        </div>
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <Badge variant="outline">ALL</Badge>
-          <Badge variant="outline">INTERVIEW</Badge>
-          <Badge variant="outline">PENDING</Badge>
-          <Filter className="size-4" />
-          <Search className="size-4" />
+          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">Tracked applications</h2>
+          <Badge variant="section">{recordCount} {recordCount === 1 ? 'application' : 'applications'}</Badge>
         </div>
       </div>
       {applicationRecords.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center p-8">
           <EmptyState
             title="No application records yet"
-            description="Successful submissions and paused attempts will appear here once the apply workflow is active."
+            description="Applications appear here after you move a reviewed job forward or record a submission."
           />
         </div>
       ) : (
@@ -54,9 +46,9 @@ export function ApplicationsRecordsPanel({
           <Table>
             <TableHeader>
               <TableRow className="border-(--surface-panel-border) hover:bg-transparent">
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">ID_STAMP</TableHead>
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Position entity</TableHead>
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Last action</TableHead>
+                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Reference</TableHead>
+                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Role</TableHead>
+                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Last update</TableHead>
                 <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Status</TableHead>
               </TableRow>
             </TableHeader>

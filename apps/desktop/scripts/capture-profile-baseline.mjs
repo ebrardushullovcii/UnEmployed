@@ -205,7 +205,7 @@ const topLevelScreens = [
   {
     buttonName: /^Profile$/,
     slug: 'profile',
-    heading: 'Candidate setup',
+    heading: 'Your profile',
     beforeCapture: async (page) => {
       await clickNavigationControl(page, 'Basics')
       await ensureLocatorText(page, 'Resume Source')
@@ -214,22 +214,22 @@ const topLevelScreens = [
   {
     buttonName: /^Discovery\s+\d+$/,
     slug: 'discovery',
-    heading: 'Adapter-driven discovery'
+    heading: 'Discover jobs'
   },
   {
     buttonName: /^Review Queue\s+\d+$/,
     slug: 'review-queue',
-    heading: 'Tailored asset review'
+    heading: 'Resume review queue'
   },
   {
     buttonName: /^Applications\s+\d+$/,
     slug: 'applications',
-    heading: 'Application history'
+    heading: 'Track applications'
   },
   {
     buttonName: /^Settings$/,
     slug: 'settings',
-    heading: 'MVP defaults'
+    heading: 'Preferences'
   }
 ]
 
@@ -300,7 +300,7 @@ async function captureProfileBaseline() {
     const page = await app.firstWindow()
 
     await page.waitForLoadState('domcontentloaded')
-    await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
+    await page.getByRole('heading', { name: 'Your profile' }).waitFor({ timeout: 15000 })
     await page.setViewportSize({ width, height })
 
     await page.evaluate(async ({ profile, searchPreferences, settings }) => {
@@ -320,7 +320,7 @@ async function captureProfileBaseline() {
     await page.waitForLoadState('domcontentloaded')
 
     await clickNavigationControl(page, /^Profile$/)
-    await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 10000 })
+    await page.getByRole('heading', { name: 'Your profile' }).waitFor({ timeout: 10000 })
     await clickNavigationControl(page, 'Basics')
     await ensureLocatorText(page, 'Resume Source')
     await ensureLocatorText(page, snapshot.profile.fullName)
@@ -356,7 +356,7 @@ async function captureProfileBaseline() {
     }
 
     await clickNavigationControl(page, /^Profile$/)
-    await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 10000 })
+    await page.getByRole('heading', { name: 'Your profile' }).waitFor({ timeout: 10000 })
 
     for (const profileTab of profileTabs) {
       await clickNavigationControl(page, profileTab.label)

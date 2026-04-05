@@ -64,14 +64,14 @@ export function DiscoveryScreen(props: {
   const emptyStateContent =
     browserSession.status === 'ready'
       ? {
-          title: 'No jobs saved yet',
+          title: 'No jobs yet',
           description:
-            'The active discovery adapter is ready, but this search has not written any saved results yet. Refine roles, locations, work modes, or discovery targets in Profile preferences, then run discovery again.'
+            'Nothing matched this search yet. Adjust your roles, locations, work modes, or sources in Profile, then run the search again.'
         }
       : {
-          title: 'Discovery is waiting on the browser session',
+          title: 'Search is waiting on your browser',
           description:
-            'The search controls are configured, but saved results will stay empty until the active adapter session reports a ready state.'
+            'Your search is ready, but new results will only appear after the browser is available.'
         }
 
   return (
@@ -82,8 +82,8 @@ export function DiscoveryScreen(props: {
         topContent={(
           <PageHeader
             eyebrow="Discovery"
-            title="Adapter-driven discovery"
-            description="Run ordered discovery targets and review the highest-fit jobs across the site entrypoints you configured."
+            title="Discover jobs"
+            description="Run your saved search and review the best matches from the sources you chose."
           />
         )}
       >
@@ -100,7 +100,7 @@ export function DiscoveryScreen(props: {
             />
             <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-6 xl:h-full xl:min-h-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Saved results</p>
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Results</p>
                 <span className="inline-flex items-center rounded-(--radius-small) border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-(--tracking-heading) text-muted-foreground">0 jobs</span>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -110,7 +110,7 @@ export function DiscoveryScreen(props: {
               </div>
               <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto pr-1">
                 <EmptyState className="min-h-80" description={emptyStateContent.description} title={emptyStateContent.title} />
-                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">Configure discovery targets in Profile preferences, validate the active browser session when needed, then rerun discovery from the left rail.</p>
+                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">Update your search in Profile, open the browser if a site needs it, then run the search again from the left panel.</p>
               </div>
             </section>
           </div>

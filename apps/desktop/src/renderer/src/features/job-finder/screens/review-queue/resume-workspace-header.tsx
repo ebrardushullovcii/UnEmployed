@@ -3,7 +3,7 @@ import type { ResumeDraft } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { StatusBadge } from '../../components/status-badge'
-import { formatTimestamp, toDraftStatusTone } from './resume-workspace-utils'
+import { formatDraftStatusLabel, formatTimestamp, toDraftStatusTone } from './resume-workspace-utils'
 
 interface ResumeWorkspaceHeaderProps {
   draft: ResumeDraft
@@ -38,15 +38,15 @@ export function ResumeWorkspaceHeader({
           </Button>
           <Button onClick={onRefresh} type="button" variant="secondary">
             <RefreshCcw className="size-4" />
-            Refresh
+            Reload
           </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge tone={toDraftStatusTone(draft.status)}>
-            {draft.status.replaceAll('_', ' ')}
+            {formatDraftStatusLabel(draft.status)}
           </StatusBadge>
-          <Badge variant="section">{validationIssueCount} validation issues</Badge>
-          <Badge variant="section">{researchCount} research pages</Badge>
+          <Badge variant="section">{validationIssueCount} {validationIssueCount === 1 ? 'check' : 'checks'}</Badge>
+          <Badge variant="section">{researchCount} {researchCount === 1 ? 'research note' : 'research notes'}</Badge>
           {hasUnsavedChanges ? <StatusBadge tone="active">Unsaved edits</StatusBadge> : null}
         </div>
       </div>
@@ -67,7 +67,7 @@ export function ResumeWorkspaceHeader({
             </div>
           </div>
           <p className="max-w-[72ch] text-(length:--type-body-md) leading-7 text-foreground-soft">
-            Edit structured resume sections, export the PDF, and approve the final tailored artifact before Easy Apply.
+            Edit each section, export the PDF, and approve the final version before moving this job into Applications.
           </p>
         </div>
 

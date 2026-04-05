@@ -20,7 +20,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         <ProfileSectionHeader
           eyebrow="Basics"
           title="Personal details"
-          description="Start with the basics people expect to see first: name, contact info, location, and public links."
+          description="Start with the basics people expect first: name, contact info, location, and links."
         />
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
@@ -41,7 +41,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
             <Field><FieldLabel>Primary email</FieldLabel><ProfileInput {...register('identity.email')} /></Field>
             <Field><FieldLabel>Secondary email</FieldLabel><ProfileInput {...register('identity.secondaryEmail')} /></Field>
             <Field><FieldLabel>Phone</FieldLabel><ProfileInput {...register('identity.phone')} /></Field>
-            <Field><FieldLabel>Timezone</FieldLabel><ProfileInput {...register('identity.timeZone')} /></Field>
+            <Field><FieldLabel>Time zone</FieldLabel><ProfileInput {...register('identity.timeZone')} /></Field>
           </div>
         </article>
 
@@ -49,14 +49,14 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">Location</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>City</FieldLabel><ProfileInput {...register('identity.currentCity')} /></Field>
-            <Field><FieldLabel>Region / state</FieldLabel><ProfileInput {...register('identity.currentRegion')} /></Field>
+            <Field><FieldLabel>State or region</FieldLabel><ProfileInput {...register('identity.currentRegion')} /></Field>
             <Field><FieldLabel>Country</FieldLabel><ProfileInput {...register('identity.currentCountry')} /></Field>
-            <Field><FieldLabel>Location display</FieldLabel><ProfileInput {...register('identity.currentLocation')} /></Field>
+            <Field><FieldLabel>Display location</FieldLabel><ProfileInput {...register('identity.currentLocation')} /></Field>
           </div>
         </article>
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Public links</p>
+          <p className="text-[0.98rem] font-semibold text-(--text-headline)">Links</p>
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field><FieldLabel>LinkedIn URL</FieldLabel><ProfileInput {...register('identity.linkedinUrl')} /></Field>
             <Field><FieldLabel>Portfolio URL</FieldLabel><ProfileInput {...register('identity.portfolioUrl')} /></Field>
@@ -70,7 +70,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         <ProfileSectionHeader
           eyebrow="Narrative"
           title="Summary"
-          description="This is the part you would usually rewrite the most. Keep the short positioning clear, then expand into the fuller story."
+          description="Start with the short version of your story, then expand into the fuller summary."
         />
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
@@ -95,7 +95,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
               <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.careerThemes')} />
             </Field>
             <Field>
-              <FieldLabel>Strengths / differentiators</FieldLabel>
+              <FieldLabel>Strengths and differentiators</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.strengths')} />
             </Field>
             <Field>
@@ -114,7 +114,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         <ProfileSectionHeader
           eyebrow="Skills"
           title="Skills"
-          description="Keep your core skills tidy here so tailored resumes and future form fill stay grounded in the same set of facts."
+          description="Keep your core skills here so resumes and future form fill stay grounded in the same facts."
         />
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
@@ -145,13 +145,13 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
               values={parseListInput(watch('skillGroups.coreSkills'))}
             />
             <ProfileListEditor
-              label="Tools / platforms"
+              label="Tools and platforms"
               onChange={(values) => setValue('skillGroups.tools', joinListInput(values), listFieldOptions)}
               placeholder="Add a tool"
               values={parseListInput(watch('skillGroups.tools'))}
             />
             <ProfileListEditor
-              label="Languages / frameworks"
+              label="Languages and frameworks"
               onChange={(values) => setValue('skillGroups.languagesAndFrameworks', joinListInput(values), listFieldOptions)}
               placeholder="Add a language or framework"
               values={parseListInput(watch('skillGroups.languagesAndFrameworks'))}

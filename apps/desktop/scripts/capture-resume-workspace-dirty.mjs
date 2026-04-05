@@ -58,7 +58,7 @@ function assistantField(window) {
 
 async function loadDemo(window) {
   await window.waitForLoadState('domcontentloaded')
-  await window.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
+  await window.getByRole('heading', { name: 'Your profile' }).waitFor({ timeout: 15000 })
   await window.setViewportSize({ width, height })
 
   await window.evaluate(async () => {
@@ -75,7 +75,7 @@ async function loadDemo(window) {
 
 async function openResumeWorkspace(window) {
   await window.getByRole('button', { name: /^Review Queue/ }).click()
-  await window.getByRole('heading', { level: 1, name: 'Tailored asset review' }).waitFor({ timeout: 10000 })
+  await window.getByRole('heading', { level: 1, name: 'Resume review queue' }).waitFor({ timeout: 10000 })
   await window.getByRole('button', { name: /Edit asset/i }).first().click()
   await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
 }

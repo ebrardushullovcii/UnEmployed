@@ -167,9 +167,9 @@ export function useJobFinderPageController() {
           const detail =
             error instanceof Error
               ? error.message
-              : "The resume workspace could not refresh automatically.";
+              : "The resume editor could not refresh automatically.";
           setActionState({
-            message: `Resume action succeeded, but the workspace could not refresh automatically. ${detail}`,
+            message: `Resume action succeeded, but the editor could not refresh automatically. ${detail}`,
             busy: false,
           });
           return;
@@ -180,7 +180,7 @@ export function useJobFinderPageController() {
         const message =
           error instanceof Error
             ? error.message
-            : "The requested resume workspace action failed.";
+            : "The requested resume action failed.";
         setActionState({ busy: false, message });
       }
     },
@@ -437,20 +437,20 @@ export function useJobFinderPageController() {
           setResumeWorkspaceDirty(false);
           void navigate("/job-finder/applications");
         },
-        "Easy Apply marked as submitted and moved into Applications.",
+        "Job moved to Applications.",
       );
     },
     onCheckBrowserSession: () =>
       void runAction(
         actions.checkBrowserSession,
         () => undefined,
-        "Browser session status refreshed.",
+        "Browser status refreshed.",
       ),
     onDismissJob: (jobId: string) =>
       void runAction(
         () => actions.dismissDiscoveryJob(jobId),
         () => undefined,
-        "Saved job archived from discovery.",
+        "Job removed from Discovery.",
       ),
     onEditResumeWorkspace: (jobId: string) => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -470,7 +470,7 @@ export function useJobFinderPageController() {
       void runAction(
         () => actions.generateResume(jobId),
         () => setSelectedReviewJobId(jobId),
-        "A tailored resume was generated for the selected job.",
+        "Resume created for this job.",
       ),
     onApproveResume: (jobId: string, exportId: string) =>
       void runResumeWorkspaceAction(
@@ -484,15 +484,15 @@ export function useJobFinderPageController() {
       void runAction(
         actions.importResume,
         () => undefined,
-        "Base resume replaced from a local document.",
+        "Resume imported from your device.",
       ),
     onOpenBrowserSession: () =>
       void runAction(
         actions.openBrowserSession,
         () => undefined,
         workspace.browserSession.status === "ready"
-          ? "Chrome session refreshed."
-          : "Chrome profile opened and session status refreshed.",
+          ? "Browser refreshed."
+          : "Browser opened and status refreshed.",
       ),
     onQueueJob: (jobId: string) => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -506,7 +506,7 @@ export function useJobFinderPageController() {
           setSelectedReviewJobId(jobId);
           void navigate("/job-finder/review-queue");
         },
-        "Job moved into the review queue.",
+        "Job added to Review Queue.",
       );
     },
     onRefreshResumeWorkspace: (jobId: string) =>
@@ -521,7 +521,7 @@ export function useJobFinderPageController() {
           setResumeAssistantMessages(nextWorkspace.assistantMessages);
           setResumeAssistantPending(false);
         },
-        "Resume workspace refreshed.",
+        "Resume reloaded.",
       ),
     onRegenerateResumeDraft: (jobId: string) =>
       void runResumeWorkspaceAction(
@@ -529,7 +529,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(jobId);
         },
-        "Resume draft regenerated.",
+        "Resume regenerated.",
       ),
     onRegenerateResumeSection: (jobId: string, sectionId: string) =>
       void runResumeWorkspaceAction(
@@ -537,7 +537,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(jobId);
         },
-        "Resume section regenerated.",
+        "Section regenerated.",
       ),
     onRunAgentDiscovery: () => {
       setLiveDiscoveryEvents([]);
@@ -549,7 +549,7 @@ export function useJobFinderPageController() {
         () => {
           setLiveDiscoveryEvents([]);
         },
-        "AI Agent discovery run completed and saved locally.",
+        "Search finished and results were saved on this device.",
       );
     },
     onRunSourceDebug: (targetId: string) => {
@@ -583,7 +583,7 @@ export function useJobFinderPageController() {
         () => {
           void navigate("/job-finder/profile");
         },
-        "Workspace reset to a fresh profile, cleared resume state, and empty job history.",
+        "Workspace reset. Your profile, resume, jobs, and browser session were cleared on this device.",
       );
     },
     onSaveAll: (
@@ -601,7 +601,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(draft.jobId);
         },
-        "Resume draft saved.",
+        "Changes saved.",
       ),
     onSaveResumeDraftAndThen: (
       draft: ResumeDraft,
@@ -618,7 +618,7 @@ export function useJobFinderPageController() {
             saveSucceeded = true;
             await refreshResumeWorkspace(jobId);
           },
-          successMessage === undefined ? "Resume draft saved." : successMessage,
+          successMessage === undefined ? "Changes saved." : successMessage,
         );
 
         if (saveSucceeded && isCurrentResumeWorkspaceJob(jobId)) {
@@ -640,7 +640,7 @@ export function useJobFinderPageController() {
             updateAssistantMessages: true,
           });
         },
-        "Resume change applied.",
+        "Resume updated.",
       ),
     onSaveProfile: (profile: CandidateProfile) =>
       void runAction(() => actions.saveProfile(profile), () => undefined, null),
@@ -650,7 +650,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(jobId);
         },
-        "Resume PDF exported.",
+        "PDF exported.",
       ),
     onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
       void runAction(
@@ -664,7 +664,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(jobId);
         },
-        "Resume approval cleared.",
+        "Approved PDF cleared.",
       ),
     onSaveSettings: (settings: JobFinderSettings) =>
       void runAction(() => actions.saveSettings(settings), () => undefined, null),
@@ -685,7 +685,7 @@ export function useJobFinderPageController() {
           id: `resume_message_assistant_pending_${jobId}_${requestToken}`,
           jobId,
           role: "assistant",
-          content: "Working on it...",
+          content: "Working on your resume...",
           patches: [],
           createdAt,
         };
@@ -698,7 +698,7 @@ export function useJobFinderPageController() {
         ]);
         setActionState({
           busy: true,
-          message: "Assistant is working on your resume request...",
+          message: "Assistant is updating your resume...",
         });
 
         try {
@@ -729,7 +729,7 @@ export function useJobFinderPageController() {
             refreshMessage =
               error instanceof Error
                 ? error.message
-                : "The workspace could not refresh automatically.";
+                : "The editor could not refresh automatically.";
           }
 
           if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
@@ -737,7 +737,7 @@ export function useJobFinderPageController() {
               busy: false,
               message:
                 refreshMessage !== null
-                  ? `Assistant finished${appliedCount > 0 ? ` and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}` : ""}, but the workspace could not refresh automatically. ${refreshMessage}`
+                  ? `Assistant finished${appliedCount > 0 ? ` and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}` : ""}, but the editor could not refresh automatically. ${refreshMessage}`
                   : appliedCount > 0
                     ? `Assistant finished and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}.`
                     : "Assistant finished and shared a reply with no direct resume changes.",
@@ -747,7 +747,7 @@ export function useJobFinderPageController() {
           const message =
             error instanceof Error
               ? error.message
-              : "The requested resume workspace action failed.";
+              : "The requested resume action failed.";
           if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
             setResumeAssistantPending(false);
             setResumeAssistantMessages((current) =>

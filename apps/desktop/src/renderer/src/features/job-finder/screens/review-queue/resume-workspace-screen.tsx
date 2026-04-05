@@ -153,7 +153,7 @@ export function ResumeWorkspaceScreen(props: {
       props.onSaveDraftAndThen(
         cloneDraft(currentDraft),
         next,
-        successMessage ?? "Resume draft saved.",
+        successMessage ?? "Changes saved.",
       );
       return;
     }
@@ -178,14 +178,14 @@ export function ResumeWorkspaceScreen(props: {
   }, [draft]);
 
   if (!props.workspace || !draft) {
-    return (
-      <main className="grid min-h-full place-items-center px-6 py-10">
-        <EmptyState
-          title="Resume workspace unavailable"
-          description="The selected review item could not be loaded. Return to Review Queue and pick another job."
-        />
-      </main>
-    );
+      return (
+        <main className="grid min-h-full place-items-center px-6 py-10">
+          <EmptyState
+            title="Resume editor unavailable"
+            description="We couldn't load this resume. Go back to Review Queue and try another job."
+          />
+        </main>
+      );
   }
 
   const { job, research, validation } = props.workspace;
@@ -205,7 +205,7 @@ export function ResumeWorkspaceScreen(props: {
           onRefresh={() =>
             runWithSavedDraftAsync(
               () => props.onRefresh(),
-              'Resume draft saved before refresh.',
+              'Saved your changes before reloading the latest version.',
             )
           }
           researchCount={research.length}
@@ -259,7 +259,7 @@ export function ResumeWorkspaceScreen(props: {
             onSendAssistantMessage={(content) =>
               runWithSavedDraftAsync(
                 () => props.onSendAssistantMessage(props.jobId, content),
-                "Resume draft saved before assistant changes.",
+                "Saved your changes before sending them to the assistant.",
               )
             }
           />

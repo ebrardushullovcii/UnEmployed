@@ -1,7 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Bell,
   ClipboardCheck,
   Compass,
   FileText,
@@ -162,7 +161,7 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
           <div className="row-span-2 flex min-w-0 items-center pl-2 sm:pl-3" style={dragRegionStyle}>
             <div className="flex min-w-0 flex-col">
               <span className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2.7rem]">UNEMPLOYED</span>
-              <span className="text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:text-(length:var(--text-tiny))">Job Finder Desktop</span>
+              <span className="text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:text-(length:var(--text-tiny))">Job Finder</span>
             </div>
           </div>
 
@@ -252,9 +251,9 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
 
           <div className="col-start-3 row-start-2 flex items-center justify-end gap-2" style={noDragRegionStyle}>
             {[
-              ['Saved', workspace.discoveryJobs.length],
-              ['Queue', workspace.reviewQueue.length],
-              ['Tracked', workspace.applicationRecords.length]
+              ['Jobs', workspace.discoveryJobs.length],
+              ['Review', workspace.reviewQueue.length],
+              ['Applied', workspace.applicationRecords.length]
             ].map(([label, value]) => (
               <div key={label} className="hidden h-12 min-w-[4.35rem] rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-2.5 xl:grid xl:content-center xl:text-center">
                 <div className="text-[0.58rem] uppercase leading-none tracking-(--tracking-caps) text-muted-foreground">{label}</div>
@@ -276,9 +275,6 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
               <Settings2 className="size-4" />
               Settings
             </Button>
-            <Button aria-label="Notifications coming soon" className="h-10 w-10 rounded-(--radius-button) border-(--surface-panel-border) bg-(--surface-panel) text-(--text-headline) hover:bg-(--surface-panel-raised) md:hidden" disabled size="icon-sm" type="button" variant="secondary">
-              <Bell className="size-4" />
-            </Button>
           </div>
         </div>
       </header>
@@ -297,7 +293,7 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
 
         <footer className="border-t border-border/10 px-4 py-3 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground sm:px-6">
           <div className="mx-auto flex max-w-472 items-center justify-between gap-3">
-            <span>Job Finder MVP</span>
+            <span>Job Finder</span>
             {actionMessage ? <span className="truncate text-foreground-soft">{actionMessage}</span> : null}
           </div>
         </footer>

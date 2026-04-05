@@ -19,6 +19,19 @@ export function formatOptionalDate(
   return fallback ?? "Unknown";
 }
 
+export function formatDraftStatusLabel(status: ResumeDraft["status"]): string {
+  switch (status) {
+    case "approved":
+      return "Approved";
+    case "needs_review":
+      return "Needs review";
+    case "stale":
+      return "Out of date";
+    default:
+      return "Draft";
+  }
+}
+
 export function toDraftStatusTone(
   status: ResumeDraft["status"],
 ): "active" | "critical" | "muted" | "neutral" | "positive" {

@@ -43,15 +43,15 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       ? getAssetTone(selectedItem.assetStatus)
       : 'muted'
   const previewLabel = previewState === 'missing'
-    ? 'Asset not found'
+    ? 'Unavailable'
     : selectedItem
       ? formatStatusLabel(selectedItem.assetStatus)
-      : 'No asset'
+      : 'No resume'
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <header className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
-        <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Asset Preview</h2>
+        <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Resume Preview</h2>
         <StatusBadge tone={previewTone}>
           {previewLabel}
         </StatusBadge>
@@ -59,8 +59,8 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       {queue.length === 0 ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
-            title="Review queue is empty"
-            description="Once a saved job moves into drafting or ready-for-review status, its asset preview will appear here."
+            title="Nothing to review yet"
+            description="Saved jobs appear here after you send them to Review Queue."
           />
         </div>
       ) : null}
@@ -70,11 +70,11 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
             <div className="grid aspect-square w-40 place-items-center rounded-full border-[3px] border-border/30 border-t-primary text-[1.1rem] font-semibold text-(--text-headline)">
               <span>{selectedItem.progressPercent ?? 0}%</span>
             </div>
-            <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{needsGeneration ? 'Tailored resume required' : 'Tailored resume in progress'}</h2>
+            <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{needsGeneration ? 'Resume needed' : 'Resume in progress'}</h2>
             <p className="max-w-136 text-(length:--text-body) leading-7 text-foreground-soft">
               {needsGeneration
-                ? `Generate a tailored resume for ${selectedItem.title} before the apply review step can continue.`
-                : `Resume generation is still running for ${selectedItem.title}. Approval stays locked until the asset reaches a ready state.`}
+                ? `Create a resume for ${selectedItem.title} before you move this job forward.`
+                : `We're still building the resume for ${selectedItem.title}. You can continue once it's ready.`}
             </p>
           </div>
         </div>
@@ -82,16 +82,16 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       {queue.length > 0 && !selectedItem ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
-            title="Select a job to preview"
-            description="Choose a queued job to inspect the generated asset preview and review-ready resume sections."
+            title="Choose a job to preview"
+            description="Select a job to review the current resume and approval status."
           />
         </div>
       ) : null}
       {queue.length > 0 && previewState === 'missing' ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
-            title="Asset not found"
-            description="The selected queue item points to a tailored asset that is not available right now. Refresh the workspace or regenerate the asset if this persists."
+            title="Resume unavailable"
+            description="We couldn't load the latest resume for this job. Refresh the workspace or create a new version if the problem continues."
           />
         </div>
       ) : null}
@@ -99,7 +99,7 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           <div className="surface-card-tint relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-6 text-(length:--text-body) leading-[1.48] text-foreground">
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.03]">
-              <span className="-rotate-45 text-[120px] font-black tracking-tighter">TAILORED</span>
+              <span className="-rotate-45 text-[120px] font-black tracking-tighter">RESUME</span>
             </div>
             <div className="grid items-end gap-3 border-b border-(--surface-panel-border) pb-4 sm:grid-cols-[1fr_auto]">
               <strong className="text-[1.1rem] text-(--text-headline)">{selectedJob?.title ?? selectedItem.title}</strong>
@@ -112,12 +112,12 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
             </div>
             {selectedItem.resumeReview.status === 'approved' ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                Approved resume export: {selectedItem.resumeReview.approvedFormat.toUpperCase()} • {new Date(selectedItem.resumeReview.approvedAt).toLocaleString()}
+                Approved PDF: {selectedItem.resumeReview.approvedFormat.toUpperCase()} • {new Date(selectedItem.resumeReview.approvedAt).toLocaleString()}
               </p>
             ) : null}
             {selectedItem.resumeReview.status === 'stale' ? (
               <p className="text-(length:--text-small) text-(--warning-text)">
-                Resume is stale and needs another review before Easy Apply.
+                This approved resume is out of date. Review it again before moving the job forward.
               </p>
             ) : null}
             {selectedAsset.previewSections.map((section, sectionIndex) => (

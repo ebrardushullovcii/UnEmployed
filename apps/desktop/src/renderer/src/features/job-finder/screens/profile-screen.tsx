@@ -280,25 +280,25 @@ export function ProfileScreen(props: {
       {
         id: 'basics' as const,
         label: 'Basics',
-        description: 'Review the contact details, summary, and skills that resume analysis fills first.',
+        description: 'Review your contact info, summary, and skills in one place.',
         progress: sectionProgress.basics
       },
       {
         id: 'experience' as const,
         label: 'Experience',
-        description: 'Maintain each role separately so tailoring and form-fill stay grounded.',
+        description: 'Keep each role separate so resumes and forms stay accurate.',
         progress: sectionProgress.experience
       },
       {
         id: 'background' as const,
         label: 'Background',
-        description: 'Manage education, certifications, projects, public links, and languages.',
+        description: 'Manage education, certifications, projects, links, and languages.',
         progress: sectionProgress.background
       },
       {
         id: 'preferences' as const,
         label: 'Preferences',
-        description: 'Keep eligibility answers and job-targeting rules in a separate workspace.',
+        description: 'Set job preferences and eligibility answers for future searches and applications.',
         progress: sectionProgress.preferences
       }
     ],
@@ -334,8 +334,8 @@ export function ProfileScreen(props: {
         <>
           <PageHeader
             eyebrow="Profile"
-            title="Candidate setup"
-            description="Import your resume once, then review the structured profile it creates. Each tab below focuses on one part of the candidate record so the form feels lighter and easier to edit."
+            title="Your profile"
+            description="Import your resume once, then review the details Job Finder uses for search, resume editing, and application prep."
           />
 
           <ProfileResumePanel

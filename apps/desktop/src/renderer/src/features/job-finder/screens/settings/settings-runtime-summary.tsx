@@ -26,27 +26,24 @@ export function SettingsRuntimeSummary({
       <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <KeyRound className="size-4 text-primary" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Session management</h2>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">App defaults</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SettingsStat label="Appearance" value={formatStatusLabel(settings.appearanceTheme)} />
-          <SettingsStat label="Keep session alive" value={settings.keepSessionAlive ? 'Enabled' : 'Disabled'} />
-          <SettingsStat label="Approval default" value={settings.humanReviewRequired ? 'Human review' : 'Auto'} />
+          <SettingsStat label="Keep browser signed in" value={settings.keepSessionAlive ? 'Enabled' : 'Disabled'} />
         </div>
       </section>
 
       <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <FileText className="size-4 text-primary" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Automation runtime</h2>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">AI and browser</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <SettingsStat label="Model provider" value={agentProvider.label} />
-          <SettingsStat label="Browser driver" value={formatStatusLabel(browserSession.driver)} />
-          <SettingsStat label="Session status" value={formatStatusLabel(browserSession.status)} />
+          <SettingsStat label="AI provider" value={agentProvider.label} />
+          <SettingsStat label="Browser" value={formatStatusLabel(browserSession.driver)} />
+          <SettingsStat label="Browser status" value={formatStatusLabel(browserSession.status)} />
         </div>
-        {agentProvider.detail ? <p className="text-(length:--text-description) leading-6 text-foreground-muted">{agentProvider.detail}</p> : null}
-        {browserSession.detail ? <p className="text-(length:--text-description) leading-6 text-foreground-muted">{browserSession.detail}</p> : null}
       </section>
 
       <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
@@ -67,11 +64,11 @@ export function SettingsRuntimeSummary({
       <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8 md:col-span-2">
         <div className="flex items-center gap-3">
           <ShieldAlert className="size-4 text-destructive" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Safety protocols</h2>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Review safety</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <SettingsStat label="Human in the loop" value={settings.humanReviewRequired ? 'Required' : 'Disabled'} />
-          <SettingsStat label="Auto-submit override" value={settings.allowAutoSubmitOverride ? 'Enabled' : 'Disabled'} />
+          <SettingsStat label="Resume review" value={settings.humanReviewRequired ? 'Required' : 'Optional'} />
+          <SettingsStat label="Automatic submission" value={settings.allowAutoSubmitOverride ? 'Allowed' : 'Off'} />
         </div>
       </section>
     </div>

@@ -25,7 +25,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 
 - Resume workspace plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - Automatic job apply plan: `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
-- Full-app copy pass plan: `docs/exec-plans/queued/009-full-app-production-copy-pass.md`
+- Completed full-app copy pass plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - Browser efficiency and speed plan: `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md`
 - `008` intentionally defines the next queued direction toward autonomous single-job and queue submission, but the current shipped apply flow remains more conservative until that plan lands.
 

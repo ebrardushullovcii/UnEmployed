@@ -31,8 +31,8 @@ export function ProfileResumePanel({
   const hasImportedResume = resumeFileName !== 'No resume imported yet'
   const uploadedLabel = profile.baseResume.uploadedAt
     ? `Imported ${formatDateOnly(profile.baseResume.uploadedAt)}`
-    : 'Import a resume to prefill the profile below.'
-  const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Profile name not set'
+    : 'Import a resume to fill in this profile faster.'
+  const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Name not set yet'
   const headline = profile.headline.trim() || 'Headline not set yet'
   const location = profile.currentLocation.trim() || 'Location not set yet'
   const experienceLabel = profile.yearsExperience === 1 ? '1 year' : `${profile.yearsExperience} years`
@@ -44,11 +44,11 @@ export function ProfileResumePanel({
         <div className="grid gap-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="grid gap-2">
-              <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Resume Source</p>
+              <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Resume</p>
               <div className="grid gap-2">
-                <h2 className="text-[1.35rem] font-semibold tracking-[-0.03em] text-(--text-headline)">Import once, then refine the sections below</h2>
+                <h2 className="text-[1.35rem] font-semibold tracking-[-0.03em] text-(--text-headline)">Import your resume, then review the details below</h2>
                 <p className="max-w-[62ch] text-(length:--text-description) leading-6 text-foreground-muted">
-                  We extract text from your saved resume, prefill the profile fields, and keep review notes here so the rest of the page can stay focused on editing.
+                  We use your saved resume to prefill this profile and surface anything that may need a manual check.
                 </p>
               </div>
             </div>
@@ -68,7 +68,7 @@ export function ProfileResumePanel({
                 </span>
               ) : (
                 <span className="text-(length:--text-description) leading-6 text-foreground-muted">
-                  After import, run analysis any time you want to refresh the structured profile fields from the stored resume text.
+                  After import, analyze the saved text any time you want to refresh the profile fields.
                 </span>
               )}
             </div>
@@ -86,24 +86,24 @@ export function ProfileResumePanel({
                 variant="primary"
               >
                 <Sparkles className="size-4" />
-                Analyze saved text
+                Analyze resume
               </Button>
             </div>
           </article>
 
           {profile.baseResume.analysisWarnings.length > 0 ? (
             <article className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border-warm) bg-(--surface-overlay-strong) p-4">
-              <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Review Notes</p>
-              <PreferenceList label="Check these items before saving" values={profile.baseResume.analysisWarnings} />
+              <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Review before saving</p>
+              <PreferenceList label="Check these details before saving" values={profile.baseResume.analysisWarnings} />
             </article>
           ) : null}
         </div>
 
         <aside className="grid gap-3 self-start rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-strong) p-4">
           <div className="grid gap-1">
-            <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Prefilled Snapshot</p>
+            <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Resume snapshot</p>
             <p className="text-(length:--text-description) leading-6 text-foreground-muted">
-              Resume analysis fills these sections first. Use the tabs to review and tighten the details.
+              These details came from your resume. Use the tabs to confirm them and tighten anything that needs work.
             </p>
           </div>
 

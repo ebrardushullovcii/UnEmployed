@@ -61,10 +61,10 @@ export function ResumeWorkspaceSecondaryRail(props: {
         </div>
         <div className="min-w-0">
           <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
-            Assistant Chat
+            Resume assistant
           </h2>
           <p className="text-sm text-foreground-soft">
-            Ask for rewrites, tighter phrasing, and job-specific edits.
+            Ask for sharper bullets, shorter summaries, and job-specific edits.
           </p>
         </div>
       </header>
@@ -115,10 +115,10 @@ export function ResumeWorkspaceSecondaryRail(props: {
                   <MessageSquare className="size-4" />
                 </div>
                 <p className="font-display text-sm text-foreground">
-                  No messages yet
+                  No assistant requests yet
                 </p>
                 <p className="text-sm leading-6 text-foreground-soft">
-                  Start a chat to refine this resume in natural language.
+                  Ask the assistant to rewrite or tighten this resume in plain language.
                 </p>
               </div>
             </div>
@@ -128,21 +128,21 @@ export function ResumeWorkspaceSecondaryRail(props: {
         <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
           <div className="grid gap-3">
             <div className="grid min-w-0 gap-2">
-              <FieldLabel htmlFor={assistantId}>Message</FieldLabel>
+              <FieldLabel htmlFor={assistantId}>Ask the assistant</FieldLabel>
               <Textarea
                 className="min-w-0"
                 id={assistantId}
                 disabled={props.busy || props.assistantPending}
                 onChange={(event) => setAssistantInput(event.currentTarget.value)}
                 onKeyDown={handleComposerKeyDown}
-                placeholder="Ask for a rewrite, shorter summary, stronger bullets, or ATS cleanup..."
+                placeholder="Ask for a rewrite, shorter summary, stronger bullets, or ATS-friendly wording..."
                 rows={4}
                 value={assistantInput}
               />
             </div>
             <div className="flex items-center justify-between gap-3">
               <p className="text-(length:--text-tiny) text-muted-foreground">
-                Enter sends. Shift+Enter adds a new line.
+                Press Enter to send. Shift+Enter adds a new line.
               </p>
               <Button
                 className="min-w-28 px-4"

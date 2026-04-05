@@ -31,8 +31,8 @@ export function SettingsEditableDefaults({
   return (
     <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Editable defaults</p>
-        <Badge variant="section">Persist locally</Badge>
+        <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Edit preferences</p>
+        <Badge variant="section">Saved on this device</Badge>
       </div>
       <div className="grid gap-(--gap-content) md:grid-cols-2">
         <Field>
@@ -77,38 +77,33 @@ export function SettingsEditableDefaults({
         </Field>
         <ToggleField
           checked={settingsForm.keepSessionAlive}
-          description="Keep browser session alive between discovery and apply runs."
-          label="Persistence toggle"
+          description="Keep your browser session available between searches and application steps."
+          label="Keep browser signed in"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
         />
         <ToggleField
           checked={settingsForm.humanReviewRequired}
-          description="Require explicit human review before every Easy Apply attempt."
-          label="Human review"
+          description="Require a manual review before a job can move into Applications."
+          label="Resume review"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, humanReviewRequired: checked }))}
         />
         <ToggleField
           checked={settingsForm.allowAutoSubmitOverride}
-          description="Allow future adapter overrides to submit automatically when the flow is fully supported."
-          label="Auto-submit override"
+          description="Allow supported application flows to submit automatically when that option is available."
+          label="Automatic submission"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, allowAutoSubmitOverride: checked }))}
         />
         <ToggleField
           checked={settingsForm.discoveryOnly}
-          description="Browse discovered jobs without saving them to your database. Use the review queue to save specific jobs."
-          label="Discovery only"
+          description="Browse results without adding them to saved jobs. Use Review Queue when you want to move a job forward."
+          label="Search without saving"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
         />
       </div>
       {availableResumeTemplates.length > 0 ? (
         <PreferenceList label="Template notes" values={availableResumeTemplates.map((template) => `${template.label}: ${template.description}`)} />
       ) : null}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-4 border-t border-border/10 pt-6">
-        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-(--tracking-heading) text-muted-foreground">
-          <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-positive" />LOCAL_CACHE: SYNCED</span>
-          <span className="opacity-30">|</span>
-          <span>LAST_MODIFIED: 2024.05.12_14:22</span>
-        </div>
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-4 border-t border-border/10 pt-6">
         <Button variant="primary" disabled={busy} onClick={() => onSaveSettings(settingsForm)} type="button">
           Save settings
         </Button>

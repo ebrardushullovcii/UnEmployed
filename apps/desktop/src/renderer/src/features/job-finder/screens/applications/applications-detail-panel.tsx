@@ -14,13 +14,13 @@ export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: App
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-(--tracking-badge) text-muted-foreground">Current record</p>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-(--tracking-badge) text-muted-foreground">Selected application</p>
           <strong className="font-mono text-[10px] uppercase tracking-(--tracking-heading) text-primary">
-            {selectedRecord ? `#${selectedRecord.id.slice(0, 7).toUpperCase()}` : 'No selection'}
+            {selectedRecord ? `#${selectedRecord.id.slice(0, 7).toUpperCase()}` : 'Nothing selected'}
           </strong>
         </div>
         <StatusBadge tone={selectedRecord ? getApplicationTone(selectedRecord.status) : 'muted'}>
-          {selectedRecord ? formatStatusLabel(selectedRecord.status) : 'No selection'}
+          {selectedRecord ? formatStatusLabel(selectedRecord.status) : 'Nothing selected'}
         </StatusBadge>
       </div>
       {selectedRecord ? (
@@ -31,11 +31,11 @@ export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: App
            </div>
            <div className="grid gap-3 md:grid-cols-2">
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Last updated</span><strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{formatTimestamp(selectedRecord.lastUpdatedAt)}</strong></div>
-              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Next step</span><strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{selectedRecord.nextActionLabel ?? 'None'}</strong></div>
+              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Next follow-up</span><strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{selectedRecord.nextActionLabel ?? 'No follow-up scheduled'}</strong></div>
            </div>
            {selectedAttempt ? (
               <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-                <p className="font-display text-[10px] uppercase tracking-(--tracking-mono) text-primary">Latest apply attempt</p>
+                <p className="font-display text-[10px] uppercase tracking-(--tracking-mono) text-primary">Latest attempt</p>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <strong>{selectedAttempt.summary}</strong>
                 <StatusBadge tone={getAssetTone(selectedAttempt.state === 'submitted' ? 'ready' : selectedAttempt.state === 'paused' ? 'queued' : selectedAttempt.state === 'unsupported' ? 'failed' : selectedAttempt.state === 'failed' ? 'failed' : 'generating')}>
@@ -61,8 +61,8 @@ export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: App
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <EmptyState
-            title="Choose an application record"
-            description="Select a tracked application to inspect the latest events and determine what needs attention next."
+            title="Choose an application"
+            description="Select an application to review its latest update, follow-up, and timeline."
           />
         </div>
       )}

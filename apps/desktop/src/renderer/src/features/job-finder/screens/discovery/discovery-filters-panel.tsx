@@ -14,9 +14,9 @@ const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
   source: "target_site",
   status: "unknown",
   driver: "chrome_profile_agent",
-  label: "Browser profile available on demand",
+  label: "Browser optional",
   detail:
-    "Discovery can run across targets without prevalidating a special session first. Open the dedicated Chrome profile when you want to warm up a site or sign in before the next run.",
+    "You can run this search without opening the browser first. Open it when you want to sign in or prepare a site before the next run.",
   lastCheckedAt: new Date(0).toISOString(),
 };
 
@@ -36,6 +36,19 @@ type SectionValue =
       key: string;
       label: string;
     };
+
+function getBrowserStatusLabel(status: BrowserSessionState["status"]): string {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "login_required":
+      return "Sign-in needed";
+    case "blocked":
+      return "Needs attention";
+    default:
+      return "Optional";
+  }
+}
 
 export function DiscoveryFiltersPanel({
   actionMessage,
@@ -59,25 +72,25 @@ export function DiscoveryFiltersPanel({
       {
         label: "Roles",
         values: searchPreferences.targetRoles,
-        empty: "No role targets configured yet.",
+        empty: "No roles added yet.",
       },
       {
         label: "Locations",
         values: searchPreferences.locations,
-        empty: "No preferred locations configured yet.",
+        empty: "No locations added yet.",
       },
       {
         label: "Work modes",
         values: searchPreferences.workModes,
-        empty: "No work modes configured yet.",
+        empty: "No work modes added yet.",
       },
       {
-        label: "Discovery targets",
+        label: "Sources",
         values: searchPreferences.discovery.targets.map((target) => ({
           key: target.id,
-          label: `${target.label}${target.enabled ? "" : " (disabled)"}`,
+          label: `${target.label}${target.enabled ? "" : " (off)"}`,
         })),
-        empty: "No discovery targets configured yet.",
+        empty: "No sources added yet.",
       },
     ],
     [searchPreferences],
@@ -119,20 +132,20 @@ export function DiscoveryFiltersPanel({
         className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted"
         id={searchControlsHeadingId}
       >
-        Search controls
+        Search setup
       </h2>
 
       <div className="surface-card-tint flex min-h-106 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) xl:min-h-0">
-        <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
-          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-            <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
-              {displaySessionSnapshot.label}
-            </StatusBadge>
-            <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
-              {isChromeAgent ? "Browser profile" : "Target-ready"}
-            </span>
-          </div>
-          {sessionDetail ? (
+          <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+              <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
+                {getBrowserStatusLabel(displaySessionSnapshot.status)}
+              </StatusBadge>
+              <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
+                {isChromeAgent ? "Browser" : "Search"}
+              </span>
+            </div>
+            {sessionDetail ? (
             <p className="max-w-full wrap-break-word text-(length:--text-field) leading-7 text-foreground-soft">
               {sessionDetail}
             </p>
@@ -145,9 +158,8 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--warning-text)"
                 >
-                  The browser profile needs login or recovery. Discovery can
-                  still be started, but the run will record any auth blocker
-                  instead of guessing past it.
+                  The browser needs sign-in or attention. You can still start
+                  the search, and we'll tell you exactly where it stops.
                 </div>
               ) : null}
               {isReady ? (
@@ -155,9 +167,8 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--success-border) bg-(--success-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--success-text)"
                 >
-                  The browser profile is available and can be reused for sites
-                  that benefit from an authenticated or warmed-up browser
-                  context.
+                  The browser is ready for sources that work better when you're
+                  signed in.
                 </div>
               ) : null}
               {!needsLogin && !isBlocked && !isReady ? (
@@ -165,9 +176,8 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
                 >
-                  Open the browser profile when you want to prewarm a site,
-                  confirm auth, or keep a real session ready before the next
-                  discovery run.
+                  Open the browser if you want to sign in or prepare a site
+                  before the next search.
                 </div>
               ) : null}
             </div>
@@ -233,7 +243,7 @@ export function DiscoveryFiltersPanel({
               variant="secondary"
             >
               <Search className="size-4" />
-              {isReady ? "Refresh browser profile" : "Open browser profile"}
+              {isReady ? "Refresh browser" : "Open browser"}
             </Button>
           </div>
 
@@ -245,7 +255,7 @@ export function DiscoveryFiltersPanel({
             variant="ghost"
           >
             <History className="size-4" />
-            View progress and full history
+            View search history
           </Button>
 
           {onRunAgentDiscovery ? (
@@ -257,7 +267,7 @@ export function DiscoveryFiltersPanel({
               type="button"
               variant="primary"
             >
-              Run discovery across targets
+              Run search
             </Button>
           ) : null}
 
