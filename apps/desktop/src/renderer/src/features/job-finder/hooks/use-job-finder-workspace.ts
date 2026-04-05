@@ -4,6 +4,8 @@ import type {
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
+  ResumeDraft,
+  ResumeDraftPatch,
 } from "@unemployed/contracts";
 import type { JobFinderShellActions } from "../lib/job-finder-types";
 
@@ -64,6 +66,36 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.dismissDiscoveryJob(jobId),
         ),
+      getResumeWorkspace: (jobId: string) =>
+        window.unemployed.jobFinder.getResumeWorkspace(jobId),
+      saveResumeDraft: (draft: ResumeDraft) =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.saveResumeDraft(draft)),
+      regenerateResumeDraft: (jobId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.regenerateResumeDraft(jobId),
+        ),
+      regenerateResumeSection: (jobId: string, sectionId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.regenerateResumeSection(jobId, sectionId),
+        ),
+      exportResumePdf: (jobId: string) =>
+        runWorkspaceAction(() => window.unemployed.jobFinder.exportResumePdf(jobId)),
+      approveResume: (jobId: string, exportId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.approveResume(jobId, exportId),
+        ),
+      clearResumeApproval: (jobId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.clearResumeApproval(jobId),
+        ),
+      applyResumePatch: (patch: ResumeDraftPatch, revisionReason?: string | null) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.applyResumePatch(patch, revisionReason),
+        ),
+      getResumeAssistantMessages: (jobId: string) =>
+        window.unemployed.jobFinder.getResumeAssistantMessages(jobId),
+      sendResumeAssistantMessage: (jobId: string, content: string) =>
+        window.unemployed.jobFinder.sendResumeAssistantMessage(jobId, content),
       generateResume: (jobId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.generateResume(jobId),

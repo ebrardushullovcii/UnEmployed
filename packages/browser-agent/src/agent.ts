@@ -51,22 +51,39 @@ export interface JobExtractor {
     pageUrl: string
     pageType: AgentExtractorPageType
     maxJobs: number
-  }): Promise<Array<Pick<
-    JobPosting,
-    | 'sourceJobId'
-    | 'canonicalUrl'
-    | 'title'
-    | 'company'
-    | 'location'
-    | 'description'
-    | 'salaryText'
-    | 'summary'
-    | 'postedAt'
-    | 'workMode'
-    | 'applyPath'
-    | 'easyApplyEligible'
-    | 'keySkills'
-  >>>
+  }): Promise<Array<
+    Pick<
+      JobPosting,
+      | 'sourceJobId'
+      | 'canonicalUrl'
+      | 'title'
+      | 'company'
+      | 'location'
+      | 'description'
+      | 'salaryText'
+      | 'summary'
+      | 'postedAt'
+      | 'workMode'
+      | 'applyPath'
+      | 'easyApplyEligible'
+      | 'keySkills'
+    > & Partial<
+      Pick<
+        JobPosting,
+        | 'postedAtText'
+        | 'responsibilities'
+        | 'minimumQualifications'
+        | 'preferredQualifications'
+        | 'seniority'
+        | 'employmentType'
+        | 'department'
+        | 'team'
+        | 'employerWebsiteUrl'
+        | 'employerDomain'
+        | 'benefits'
+      >
+    >
+  >>
 }
 
 function buildResult(state: AgentState, partial: Omit<AgentResult, 'jobs' | 'steps' | 'transcriptMessageCount' | 'reviewTranscript' | 'compactionState'>): AgentResult {

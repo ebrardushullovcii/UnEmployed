@@ -11,7 +11,7 @@ interface ApplicationsDetailPanelProps {
 
 export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: ApplicationsDetailPanelProps) {
   return (
-    <section className="flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-8 py-5 xl:h-full xl:min-h-0">
+    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
           <p className="font-mono text-[10px] font-bold uppercase tracking-(--tracking-badge) text-muted-foreground">Current record</p>
@@ -30,11 +30,11 @@ export function ApplicationsDetailPanel({ selectedAttempt, selectedRecord }: App
              <p className="text-(length:--text-field) text-foreground-muted">{selectedRecord.company}</p>
            </div>
            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Last updated</span><strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{formatTimestamp(selectedRecord.lastUpdatedAt)}</strong></div>
-              <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Next step</span><strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{selectedRecord.nextActionLabel ?? 'None'}</strong></div>
+              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Last updated</span><strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{formatTimestamp(selectedRecord.lastUpdatedAt)}</strong></div>
+              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Next step</span><strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{selectedRecord.nextActionLabel ?? 'None'}</strong></div>
            </div>
            {selectedAttempt ? (
-             <section className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4">
+              <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
                 <p className="font-display text-[10px] uppercase tracking-(--tracking-mono) text-primary">Latest apply attempt</p>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <strong>{selectedAttempt.summary}</strong>

@@ -9,6 +9,8 @@ import {
   type JobSearchPreferences,
   type JobPosting,
   type MatchAssessment,
+  type ResumeDraft,
+  type ResumeExportArtifact,
   type ReviewQueueItem,
   type SavedJob,
   type SavedJobDiscoveryProvenance,
@@ -42,7 +44,7 @@ const annualCompensationMultipliers: Record<string, number> = {
 };
 const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi;
 const secondaryCompensationBeforePattern = /\b(bonus|commission|sign[- ]?on|equity|ote)\b/i;
-const secondaryCompensationAfterPattern = /^(?:[:\-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
+const secondaryCompensationAfterPattern = /^(?:[:-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
 
 function readPeriodUnit(salaryText: string, startIndex: number): string | null {
   const followingText = salaryText.slice(startIndex).trimStart().toLowerCase();
@@ -80,6 +82,59 @@ const assetStatusPriority: Record<AssetStatus, number> = {
   failed: 3,
   not_started: 4,
 };
+
+function getLatestApprovedExport(
+  current: ResumeExportArtifact | null,
+  candidate: ResumeExportArtifact,
+): ResumeExportArtifact {
+  if (!current) {
+    return candidate;
+  }
+
+  return new Date(candidate.exportedAt).getTime() >
+    new Date(current.exportedAt).getTime()
+    ? candidate
+    : current;
+}
+
+function buildResumeReviewState(
+  draft: ResumeDraft | null,
+  approvedExport: ResumeExportArtifact | null,
+): ReviewQueueItem["resumeReview"] {
+  if (!draft) {
+    return { status: "not_started" };
+  }
+
+  if (draft.status === "approved" && draft.approvedAt && approvedExport) {
+    return {
+      status: "approved",
+      approvedAt: draft.approvedAt,
+      approvedExportId: approvedExport.id,
+      approvedFormat: approvedExport.format,
+      approvedFilePath: approvedExport.filePath,
+    };
+  }
+
+  if (draft.status === "stale") {
+    return {
+      status: "stale",
+      staleReason: draft.staleReason ?? null,
+    };
+  }
+
+  // An approved draft should always resolve to a concrete approved export.
+  // Treat any missing export metadata as needing review so downstream apply
+  // flows fail safe instead of assuming approval still points at a live file.
+  if (draft.status === "approved") {
+    return {
+      status: "needs_review",
+    };
+  }
+
+  return {
+    status: draft.status,
+  };
+}
 
 export interface MergeDiscoveryResult {
   mergedJobs: SavedJob[];
@@ -203,15 +258,44 @@ export function toSavedJobId(posting: JobPosting): string {
 export function buildReviewQueue(
   savedJobs: readonly SavedJob[],
   tailoredAssets: readonly TailoredAsset[],
+  resumeDrafts: readonly ResumeDraft[],
+  resumeExportArtifacts: readonly ResumeExportArtifact[],
 ): ReviewQueueItem[] {
   const assetsByJobId = new Map(
     tailoredAssets.map((asset) => [asset.jobId, asset]),
   );
+  const draftsByJobId = new Map(
+    resumeDrafts.map((draft) => [draft.jobId, draft]),
+  );
+  const approvedExportsByJobId = new Map<string, ResumeExportArtifact>();
+
+  for (const artifact of resumeExportArtifacts) {
+    if (!artifact.isApproved) {
+      continue;
+    }
+
+    approvedExportsByJobId.set(
+      artifact.jobId,
+      getLatestApprovedExport(
+        approvedExportsByJobId.get(artifact.jobId) ?? null,
+        artifact,
+      ),
+    );
+  }
 
   return savedJobs
     .filter((job) => reviewableStatuses.has(job.status))
     .map<ReviewQueueItem>((job) => {
       const asset = assetsByJobId.get(job.id) ?? null;
+      const draft = draftsByJobId.get(job.id) ?? null;
+      const approvedExport = approvedExportsByJobId.get(job.id) ?? null;
+      const resumeReview = buildResumeReviewState(draft, approvedExport);
+      const updatedAtCandidates = [
+        asset?.updatedAt,
+        draft?.updatedAt,
+        approvedExport?.exportedAt,
+        job.discoveredAt,
+      ].filter((value): value is string => Boolean(value));
 
       return {
         jobId: job.id,
@@ -223,7 +307,8 @@ export function buildReviewQueue(
         assetStatus: asset?.status ?? "not_started",
         progressPercent: asset?.progressPercent ?? null,
         resumeAssetId: asset?.id ?? null,
-        updatedAt: asset?.updatedAt ?? job.discoveredAt,
+        resumeReview,
+        updatedAt: updatedAtCandidates.sort().at(-1) ?? job.discoveredAt,
       };
     })
     .sort((left, right) => {

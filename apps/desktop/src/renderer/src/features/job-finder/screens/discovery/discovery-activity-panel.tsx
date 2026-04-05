@@ -28,7 +28,7 @@ function ActivityEventCard(props: { event: DiscoveryActivityEvent; targetLabel: 
   const { event, targetLabel } = props
 
   return (
-    <article className="grid gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-3">
+    <article className="surface-card-tint grid gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[0.78rem] text-foreground-muted">
         <span className="min-w-0 wrap-break-word">{targetLabel ?? event.stage}</span>
         <span className="shrink-0">{formatTimestamp(event.timestamp)}</span>
@@ -201,11 +201,11 @@ export function DiscoveryHistoryModal(props: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-6 backdrop-blur-sm" onClick={props.onClose}>
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-(--modal-scrim) px-4 py-6 backdrop-blur-sm" onClick={props.onClose}>
       <div
         aria-labelledby={dialogTitleId}
         aria-modal="true"
-        className="mx-auto flex min-h-0 max-h-(--discovery-history-max-height) w-full max-w-6xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) shadow-[0_32px_120px_rgba(0,0,0,0.55)]"
+        className="mx-auto flex min-h-0 max-h-(--discovery-history-max-height) w-full max-w-6xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) shadow-(--modal-shadow)"
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"

@@ -9,12 +9,14 @@ const browserRuntimePath = path.resolve(currentDir, '../../packages/browser-runt
 const contractsPath = path.resolve(currentDir, '../../packages/contracts/src/index.ts')
 const dbPath = path.resolve(currentDir, '../../packages/db/src/index.ts')
 const jobFinderPath = path.resolve(currentDir, '../../packages/job-finder/src/index.ts')
+const knowledgeBasePath = path.resolve(currentDir, '../../packages/knowledge-base/src/index.ts')
 
 const workspaceAliases = {
   '@unemployed/browser-runtime': browserRuntimePath,
   '@unemployed/contracts': contractsPath,
   '@unemployed/db': dbPath,
-  '@unemployed/job-finder': jobFinderPath
+  '@unemployed/job-finder': jobFinderPath,
+  '@unemployed/knowledge-base': knowledgeBasePath
 }
 
 export default defineConfig({
@@ -24,7 +26,7 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        external: ['playwright', 'playwright-core', 'chromium-bidi']
+        external: ['playwright', 'playwright-core', 'chromium-bidi', 'jsdom', '@mozilla/readability']
       }
     }
   },

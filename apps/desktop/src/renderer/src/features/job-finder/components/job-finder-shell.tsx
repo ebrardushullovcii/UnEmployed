@@ -23,6 +23,7 @@ import { formatStatusLabel } from '../lib/job-finder-utils'
 interface JobFinderShellProps {
   actionMessage: string | null
   children: ReactNode
+  onNavigate?: (path: string) => void
   platform: 'darwin' | 'linux' | 'win32'
   workspace: JobFinderWorkspaceSnapshot
 }
@@ -47,7 +48,7 @@ function getActiveScreen(pathname: string): JobFinderScreen {
     return 'discovery'
   }
 
-  if (pathname.endsWith('/review-queue')) {
+  if (pathname.includes('/review-queue')) {
     return 'review-queue'
   }
 
@@ -62,7 +63,7 @@ function getActiveScreen(pathname: string): JobFinderScreen {
   return 'profile'
 }
 
-export function JobFinderShell({ actionMessage, children, platform, workspace }: JobFinderShellProps) {
+export function JobFinderShell({ actionMessage, children, onNavigate, platform, workspace }: JobFinderShellProps) {
   const isMac = platform === 'darwin'
   const location = useLocation()
   const navigate = useNavigate()
@@ -75,7 +76,10 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
   })
 
   const activeScreen = useMemo(() => getActiveScreen(location.pathname), [location.pathname])
-  const usesLockedScreenLayout = LOCKED_LAYOUT_SCREENS.includes(activeScreen)
+  const usesLockedScreenLayout = useMemo(
+    () => LOCKED_LAYOUT_SCREENS.includes(activeScreen),
+    [activeScreen]
+  )
 
   const screenDefinitions = useMemo(
     () => [
@@ -138,13 +142,20 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
   }
 
   function handleScreenChange(nextScreen: string) {
-    void navigate(screenRouteMap[nextScreen as JobFinderScreen])
+    const nextPath = screenRouteMap[nextScreen as JobFinderScreen]
+
+    if (onNavigate) {
+      onNavigate(nextPath)
+      return
+    }
+
+    void navigate(nextPath)
   }
 
   return (
     <div className={cn('h-screen overflow-hidden text-foreground', `platform-${platform}`)}>
       <header
-        className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-[rgba(12,12,12,0.92)] backdrop-blur-sm"
+        className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm"
         style={dragRegionStyle}
       >
         <div className="grid grid-cols-[15.5rem_minmax(0,1fr)_auto] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:grid-cols-[18.5rem_minmax(0,1fr)_auto] sm:pl-3 sm:pr-0">
@@ -156,14 +167,14 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
           </div>
 
           <div className="col-start-2 row-start-1 flex items-center justify-center" style={dragRegionStyle}>
-            <div className="flex items-center gap-4" role="list" style={noDragRegionStyle}>
+            <div className="flex items-center gap-6" role="list" style={noDragRegionStyle}>
               {suiteModules.map((moduleName, index) => (
-                <div key={moduleName} className="flex items-center gap-4" role="listitem">
+                <div key={moduleName} className="flex items-center gap-6" role="listitem">
                   {index > 0 ? <span aria-hidden="true" className="h-4 w-px bg-border/50" /> : null}
                   <span
                     aria-current={moduleName === 'job-finder' ? 'page' : undefined}
                     className={cn(
-                      'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[10px] font-semibold tracking-(--tracking-badge) shadow-none',
+                      'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none sm:text-[15px]',
                       moduleName === 'job-finder'
                         ? 'text-(--text-headline)'
                         : 'text-muted-foreground'
@@ -202,7 +213,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
                 </Button>
                 <Button
                   aria-label="Close window"
-                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--button-close-hover) hover:text-white"
+                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--button-close-hover) hover:text-primary-foreground"
                   disabled={!windowControlsState.isClosable}
                   onClick={closeWindow}
                   size="icon-xs"
@@ -230,7 +241,7 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
                 >
                   <span>{screen.label}</span>
                   {screen.count !== null ? (
-                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-(--text-badge)">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground">
                       {screen.count}
                     </span>
                   ) : null}
@@ -274,10 +285,14 @@ export function JobFinderShell({ actionMessage, children, platform, workspace }:
 
       <div className="flex h-full flex-col pt-[6.75rem]">
         <main className={cn(
-          'flex-1 overflow-x-hidden px-4 sm:px-6',
-          usesLockedScreenLayout ? 'overflow-hidden pb-4 pt-0' : 'screen-scroll-area overflow-y-auto pb-12 pt-8'
+          'flex-1 overflow-x-hidden',
+          usesLockedScreenLayout
+            ? 'overflow-hidden px-2 pb-4 pt-0 sm:px-4'
+            : 'screen-scroll-area overflow-y-auto px-4 pb-12 pt-8 sm:px-6'
         )}>
-          <div className="mx-auto h-full w-full max-w-472 min-h-full">{children}</div>
+          <div className={cn('mx-auto w-full max-w-472 min-w-0', usesLockedScreenLayout ? 'h-full min-h-full' : 'min-h-full')}>
+            {children}
+          </div>
         </main>
 
         <footer className="border-t border-border/10 px-4 py-3 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground sm:px-6">

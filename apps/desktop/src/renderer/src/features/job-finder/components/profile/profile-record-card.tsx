@@ -21,7 +21,7 @@ export function ProfileRecordCard({ children, className, defaultOpen = false, su
   return (
     <details
       className={cn(
-        'group rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4 [&_summary::-webkit-details-marker]:hidden',
+        'surface-card-tint group rounded-(--radius-panel) border border-(--surface-panel-border) p-4 [&_summary::-webkit-details-marker]:hidden',
         className
       )}
       onToggle={(event) => setIsOpen(event.currentTarget.open)}

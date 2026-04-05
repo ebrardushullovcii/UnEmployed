@@ -18,6 +18,12 @@ describe("createJobFinderWorkspaceService", () => {
       ...createSeed(),
       savedJobs: [],
       tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
     });
     const browserRuntime = createAgentBrowserRuntime(
       [
@@ -34,11 +40,13 @@ describe("createJobFinderWorkspaceService", () => {
           applyPath: "unknown",
           easyApplyEligible: false,
           postedAt: "2026-03-20T09:00:00.000Z",
+          postedAtText: null,
           discoveredAt: "2026-03-20T10:04:00.000Z",
           salaryText: null,
           summary: "URL shortcut only coverage.",
           description: "URL shortcut only coverage.",
           keySkills: ["React"],
+          responsibilities: [],
         },
       ],
       {
@@ -81,6 +89,12 @@ describe("createJobFinderWorkspaceService", () => {
       ...createSeed(),
       savedJobs: [],
       tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
     });
     const browserRuntime = createAgentBrowserRuntime(
       [
@@ -97,11 +111,13 @@ describe("createJobFinderWorkspaceService", () => {
           applyPath: "easy_apply",
           easyApplyEligible: true,
           postedAt: "2026-03-20T09:00:00.000Z",
+          postedAtText: null,
           discoveredAt: "2026-03-20T10:04:00.000Z",
           salaryText: null,
           summary: "Mixed auth surface coverage.",
           description: "Mixed auth surface coverage.",
           keySkills: ["React"],
+          responsibilities: [],
         },
       ],
       {
@@ -148,6 +164,12 @@ describe("createJobFinderWorkspaceService", () => {
       ...createSeed(),
       savedJobs: [],
       tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
     });
     const browserRuntime = createAgentBrowserRuntime(
       [
@@ -164,11 +186,13 @@ describe("createJobFinderWorkspaceService", () => {
           applyPath: "easy_apply",
           easyApplyEligible: true,
           postedAt: "2026-03-20T09:00:00.000Z",
+          postedAtText: null,
           discoveredAt: "2026-03-20T10:04:00.000Z",
           salaryText: null,
           summary: "Noise cleanup coverage.",
           description: "Noise cleanup coverage.",
           keySkills: ["React"],
+          responsibilities: [],
         },
       ],
       {
@@ -270,6 +294,12 @@ describe("createJobFinderWorkspaceService", () => {
       ...createSeed(),
       savedJobs: [],
       tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
     });
     const browserRuntime = createAgentBrowserRuntime(
       [
@@ -286,11 +316,13 @@ describe("createJobFinderWorkspaceService", () => {
           applyPath: "easy_apply",
           easyApplyEligible: true,
           postedAt: "2026-03-20T09:00:00.000Z",
+          postedAtText: null,
           discoveredAt: "2026-03-20T10:04:00.000Z",
           salaryText: null,
           summary: "Reconciliation case.",
           description: "Reconciliation case.",
           keySkills: ["React"],
+          responsibilities: [],
         },
       ],
       {

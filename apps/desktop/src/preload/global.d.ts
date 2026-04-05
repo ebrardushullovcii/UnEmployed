@@ -4,7 +4,12 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderResumeWorkspace,
+  JobFinderRepositoryState,
   JobFinderSettings,
+  ResumeAssistantMessage,
+  ResumeDraft,
+  ResumeDraftPatch,
   SourceDebugRunRecord,
   SourceDebugRunDetails,
   SaveJobFinderWorkspaceInput,
@@ -86,9 +91,41 @@ declare global {
         dismissDiscoveryJob: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
+        getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
+        saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
+        regenerateResumeDraft: (
+          jobId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        regenerateResumeSection: (
+          jobId: string,
+          sectionId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        exportResumePdf: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+        approveResume: (
+          jobId: string,
+          exportId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        clearResumeApproval: (
+          jobId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        applyResumePatch: (
+          patch: ResumeDraftPatch,
+          revisionReason?: string | null,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        getResumeAssistantMessages: (
+          jobId: string,
+        ) => Promise<readonly ResumeAssistantMessage[]>;
+        sendResumeAssistantMessage: (
+          jobId: string,
+          content: string,
+        ) => Promise<readonly ResumeAssistantMessage[]>;
         generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         test?: {
+          loadResumeWorkspaceDemo: () => Promise<JobFinderWorkspaceSnapshot>;
+          resetWorkspaceState: (
+            state: JobFinderRepositoryState,
+          ) => Promise<JobFinderWorkspaceSnapshot>;
           importResumeFromPath: (
             sourcePath: string,
           ) => Promise<JobFinderWorkspaceSnapshot>;

@@ -1,7 +1,22 @@
-import { dialog, type IpcMain } from "electron";
+import path from "node:path";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  type IpcMain,
+  type SaveDialogOptions,
+} from "electron";
 import {
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,
+  JobFinderApplyResumePatchInputSchema,
+  JobFinderApproveResumeInputSchema,
+  JobFinderResumeAssistantMessageInputSchema,
+  JobFinderRepositoryStateSchema,
+  JobFinderResumeWorkspaceQuerySchema,
+  JobFinderSaveResumeDraftInputSchema,
+  JobFinderResumeWorkspaceSchema,
+  JobFinderResumeSectionActionInputSchema,
   JobFinderJobActionInputSchema,
   JobFinderSaveSourceInstructionInputSchema,
   JobFinderSourceDebugActionInputSchema,
@@ -18,6 +33,7 @@ import {
   getJobFinderWorkspaceService,
   importResumeFromSourcePath,
   isDesktopTestApiEnabled,
+  loadResumeWorkspaceDemoState,
   parseResumeImportPathPayload,
   resetJobFinderWorkspace,
 } from "../services/job-finder";
@@ -33,6 +49,23 @@ function parseAgentDiscoveryRequestId(payload: unknown): string {
   }
 
   return requestId;
+}
+
+function sanitizeFileNameSegment(value: string): string {
+  return value
+    .replace(/[<>:"/\\|?*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildResumeExportDefaultPath(jobTitle: string, company: string): string {
+  const titleSegment = sanitizeFileNameSegment(jobTitle) || "Resume";
+  const companySegment = sanitizeFileNameSegment(company);
+  const fileName = companySegment
+    ? `${titleSegment} - ${companySegment}.pdf`
+    : `${titleSegment}.pdf`;
+
+  return path.join(app.getPath("documents"), fileName);
 }
 
 export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
@@ -148,6 +181,38 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
 
     return importResumeFromSourcePath(sourcePath);
   });
+
+  ipcMain.handle(
+    "job-finder:test-reset-workspace-state",
+    async (_event, payload: unknown) => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      const state = JobFinderRepositoryStateSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.resetWorkspace(state);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:test-load-resume-workspace-demo",
+    async () => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      const snapshot = await loadResumeWorkspaceDemoState();
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
 
   ipcMain.handle(
     "job-finder:test-import-resume-from-path",
@@ -356,6 +421,169 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         await jobFinderWorkspaceService.dismissDiscoveryJob(jobId);
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:get-resume-workspace",
+    async (_event, payload: unknown) => {
+      const { jobId } = JobFinderResumeWorkspaceQuerySchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const workspace = await jobFinderWorkspaceService.getResumeWorkspace(jobId);
+
+      return JobFinderResumeWorkspaceSchema.parse(workspace);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:save-resume-draft",
+    async (_event, payload: unknown) => {
+      const { draft } = JobFinderSaveResumeDraftInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.saveResumeDraft(draft);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:regenerate-resume-draft",
+    async (_event, payload: unknown) => {
+      const { jobId } = JobFinderJobActionInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.regenerateResumeDraft(jobId);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:regenerate-resume-section",
+    async (_event, payload: unknown) => {
+      const { jobId, sectionId } =
+        JobFinderResumeSectionActionInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.regenerateResumeSection(
+        jobId,
+        sectionId,
+      );
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:export-resume-pdf",
+    async (event, payload: unknown) => {
+      const { jobId } = JobFinderJobActionInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      let outputPath: string | null = null;
+
+      if (!isDesktopTestApiEnabled()) {
+        const workspace = await jobFinderWorkspaceService.getResumeWorkspace(jobId);
+        const browserWindow = BrowserWindow.fromWebContents(event.sender);
+        const saveDialogOptions: SaveDialogOptions = {
+          defaultPath: buildResumeExportDefaultPath(
+            workspace.job.title,
+            workspace.job.company,
+          ),
+          filters: [
+            {
+              name: "PDF",
+              extensions: ["pdf"],
+            },
+          ],
+          properties: ["createDirectory", "showOverwriteConfirmation"],
+          title: "Export tailored resume PDF",
+        };
+        const saveResult = browserWindow
+          ? await dialog.showSaveDialog(browserWindow, saveDialogOptions)
+          : await dialog.showSaveDialog(saveDialogOptions);
+
+        if (saveResult.canceled || !saveResult.filePath) {
+          const snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot();
+
+          return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+        }
+
+        outputPath = saveResult.filePath.toLowerCase().endsWith(".pdf")
+          ? saveResult.filePath
+          : `${saveResult.filePath}.pdf`;
+      }
+
+      const snapshot = await jobFinderWorkspaceService.exportResumePdf(
+        jobId,
+        outputPath,
+      );
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:approve-resume",
+    async (_event, payload: unknown) => {
+      const { jobId, exportId } = JobFinderApproveResumeInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.approveResume(
+        jobId,
+        exportId,
+      );
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:clear-resume-approval",
+    async (_event, payload: unknown) => {
+      const { jobId } = JobFinderJobActionInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.clearResumeApproval(jobId);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:apply-resume-patch",
+    async (_event, payload: unknown) => {
+      const { patch, revisionReason } =
+        JobFinderApplyResumePatchInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.applyResumePatch(
+        patch,
+        revisionReason,
+      );
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:get-resume-assistant-messages",
+    async (_event, payload: unknown) => {
+      const { jobId } = JobFinderResumeWorkspaceQuerySchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const messages =
+        await jobFinderWorkspaceService.getResumeAssistantMessages(jobId);
+
+      return JobFinderResumeWorkspaceSchema.shape.assistantMessages.parse(messages);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:send-resume-assistant-message",
+    async (_event, payload: unknown) => {
+      const { jobId, content } =
+        JobFinderResumeAssistantMessageInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const messages = await jobFinderWorkspaceService.sendResumeAssistantMessage(
+        jobId,
+        content,
+      );
+
+      return JobFinderResumeWorkspaceSchema.shape.assistantMessages.parse(messages);
     },
   );
 

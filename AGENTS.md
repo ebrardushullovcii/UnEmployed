@@ -7,24 +7,18 @@ Agent-first Electron monorepo for two modules:
 ## Fast Start
 
 - Read [docs/README.md](docs/README.md) for the doc map.
-- Read [docs/STATUS.md](docs/STATUS.md) for the current snapshot.
-- Read [docs/TRACKS.md](docs/TRACKS.md) and any linked active exec plan before non-trivial work.
+- Read [docs/STATUS.md](docs/STATUS.md), [docs/TRACKS.md](docs/TRACKS.md), and any linked active or queued exec plan before non-trivial work.
 - Read the nearest package-local `AGENTS.md` before changing code in that area.
-- Read only the docs relevant to the task; do not re-scan the whole repo when the canonical docs already answer it.
+- Read only the docs relevant to the task; do not re-scan the repo when the canonical docs already answer it.
 
 ## Canonical Sources
 
 - [docs/README.md](docs/README.md): documentation entrypoint and reading order
-- [docs/PLAN.md](docs/PLAN.md): durable project plan and rollout shape
-- [docs/PRODUCT.md](docs/PRODUCT.md): product shape and module intent
-- [docs/STATUS.md](docs/STATUS.md): short current-state snapshot
-- [docs/TRACKS.md](docs/TRACKS.md): live workboard and handoff registry
-- [docs/HISTORY.md](docs/HISTORY.md): condensed repo milestones and notable changes
-- [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT.md): agent layout, handoff rules, generated-adapter policy
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): workspace boundaries and data flow
-- [docs/CONTRACTS.md](docs/CONTRACTS.md): shared schemas, adapters, and IPC rules
-- [docs/TESTING.md](docs/TESTING.md): required checks and validation workflows
-- [.agents/registry.yaml](.agents/registry.yaml): machine-readable registry for docs, guides, and adapters
+- [docs/STATUS.md](docs/STATUS.md) and [docs/TRACKS.md](docs/TRACKS.md): current handoff state
+- `docs/exec-plans/active/` and `docs/exec-plans/queued/`: task-scoped implementation detail and prepared follow-on plans
+- [docs/PLAN.md](docs/PLAN.md) and [docs/HISTORY.md](docs/HISTORY.md): durable direction and completed background
+- [docs/PRODUCT.md](docs/PRODUCT.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/CONTRACTS.md](docs/CONTRACTS.md), [docs/TESTING.md](docs/TESTING.md), and [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT.md): on-demand references for scope, boundaries, verification, and repo-guidance work
+- [.agents/registry.yaml](.agents/registry.yaml): machine-readable map for docs, guides, and adapters
 
 ## Repo Rules
 
@@ -40,11 +34,18 @@ Agent-first Electron monorepo for two modules:
 
 - Update docs in the same task when code changes behavior, contracts, architecture, workflows, or delivery shape.
 - When PR or review feedback exposes a repeated mistake, checklist gap, or reusable implementation pattern, update the nearest relevant `AGENTS.md` or canonical doc in the same task so later agents inherit the lesson instead of re-learning it from comments.
+- When fixing PR or review feedback, prefer the smallest repo-wide or pattern-level correction that removes the whole class of issue instead of only patching the single commented line.
 - Update `docs/PRODUCT.md` or module docs for user-facing behavior and scope changes.
 - Update `docs/ARCHITECTURE.md` for package boundaries, data flow, or ownership changes.
 - Update `docs/CONTRACTS.md` when schemas, DTOs, preload APIs, or adapter payloads change.
 - Update `docs/TESTING.md` when required checks, harnesses, or live QA workflows change.
-- Update `docs/STATUS.md`, `docs/TRACKS.md`, and the relevant exec plan when preparing work for handoff, commit, or PR review.
+- Update `docs/STATUS.md`, `docs/TRACKS.md`, and the relevant exec plan when preparing work for handoff, commit, or PR review, and move stale exec plans from `active` to `completed` once they stop driving current work.
+
+## Verification
+
+- [docs/TESTING.md](docs/TESTING.md) is the source of truth for repo checks and UI QA workflows.
+- Use `pnpm verify` as the broad default check when the task does not call for narrower validation.
+- After shared guidance changes, run `pnpm agents:sync`, `pnpm agents:check`, and `pnpm docs:check`.
 
 ## Git And PR Workflow
 
@@ -55,41 +56,10 @@ Agent-first Electron monorepo for two modules:
 - Treat CodeRabbit as required repo feedback on every PR, but not as a hard merge gate for those two maintainers.
 - Treat documentation updates as part of the same deliverable, not optional follow-up.
 
-## Commands
+## Agent Assets
 
-- `pnpm dev`
-- `pnpm desktop:dev`
-- `pnpm lint`
-- `pnpm lsp:typescript`
-- `pnpm typecheck`
-- `pnpm test`
-- `pnpm agents:sync`
-- `pnpm agents:check`
-- `pnpm docs:check`
-- `pnpm verify`
-
-## Agent Context
-
-- `.agents/skills` is the canonical project-local skill directory.
+- `.agents/skills/` is the canonical project-local skill directory.
+- `.agents/registry.yaml` is the machine-readable source for canonical docs, required package guides, and generated adapters.
 - `.claude/skills` is a generated compatibility symlink created by `pnpm agents:sync`.
 - `CLAUDE.md` and `.cursor/rules/00-project.mdc` are generated adapters; do not hand-edit them.
 - After updating repo-wide guidance, registry entries, or project-local skills, run `pnpm agents:sync`.
-
-## Repo-Owned Skills
-
-- `.agents/skills/repo-governance`: repo-wide docs, structure, and adapter changes
-
-## Installed Stack Skills
-
-- `.agents/skills/electron`: Electron implementation guidance
-- `.agents/skills/vercel-react-best-practices`: React implementation and performance guidance
-- `.agents/skills/react-hook-form`: React Hook Form form patterns and performance guidance
-- `.agents/skills/shadcn`: shadcn/ui component architecture, forms, and composition guidance
-- `.agents/skills/typescript-advanced-types`: strict TypeScript and advanced typing patterns
-- `.agents/skills/zod`: schema and validation patterns
-- `.agents/skills/vitest`: Vitest testing patterns
-- `.agents/skills/sqlite-database-expert`: SQLite design and query guidance
-- `.agents/skills/playwright-best-practices`: Playwright testing and automation guidance
-- `.agents/skills/frontend-design`: polished UI exploration guidance
-- `.agents/skills/context-driven-development`: context and handoff workflow guidance
-- `.agents/skills/architecture-decision-records`: ADR writing and maintenance guidance

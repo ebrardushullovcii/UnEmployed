@@ -337,6 +337,25 @@ async function extractPdfText(filePath: string): Promise<string | null> {
   return normalizeExtractedText(pageTexts.join('\n\n'))
 }
 
+export async function getPdfPageCount(filePath: string): Promise<number> {
+  ensurePdfJsRuntimePolyfills()
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  configurePdfJsWorker(pdfjs)
+  const rawBytes = await readFile(filePath)
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(rawBytes),
+    useWorkerFetch: false,
+    isEvalSupported: false
+  })
+  const document = await loadingTask.promise
+
+  try {
+    return document.numPages
+  } finally {
+    await document.destroy()
+  }
+}
+
 async function extractDocxText(filePath: string): Promise<string | null> {
   const mammoth = await import('mammoth')
   const result = await mammoth.extractRawText({ path: filePath })

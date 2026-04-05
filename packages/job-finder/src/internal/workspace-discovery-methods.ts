@@ -20,6 +20,7 @@ import {
   resolveActiveSourceInstructionArtifact,
   resolveAdapterKind,
 } from "./workspace-helpers";
+import { collectResumeAffectingChangedJobIds } from "./resume-workspace-staleness";
 import {
   DEFAULT_MAX_STEPS,
   DEFAULT_ROLE,
@@ -94,6 +95,7 @@ export function createWorkspaceDiscoveryMethods(
           discoveredAt: new Date().toISOString(),
         }),
       );
+      const changedJobIds = collectResumeAffectingChangedJobIds(savedJobs, mergeResult.mergedJobs);
 
       if (settings.discoveryOnly) {
         const nextPendingJobs = mergeResult.mergedJobs.filter(
@@ -115,6 +117,12 @@ export function createWorkspaceDiscoveryMethods(
         }));
       } else {
         await ctx.repository.replaceSavedJobs(mergeResult.mergedJobs);
+        if (changedJobIds.length > 0) {
+          await ctx.staleApprovedResumeDrafts(
+            "Saved job details changed after approval and the resume needs a fresh review.",
+            changedJobIds,
+          );
+        }
         await ctx.persistDiscoveryState((current) => ({
           ...current,
           pendingDiscoveryJobs: current.pendingDiscoveryJobs,
@@ -354,6 +362,10 @@ export function createWorkspaceDiscoveryMethods(
             }),
             signal,
           );
+          const changedJobIds = collectResumeAffectingChangedJobIds(
+            workingSavedJobs,
+            mergeResult.mergedJobs,
+          );
 
           const persistedSavedJobIds = new Set(workingSavedJobs.map((job) => job.id));
           let jobsPersisted = mergeResult.mergedJobs.length - mergeResult.newJobs.length;
@@ -428,6 +440,12 @@ export function createWorkspaceDiscoveryMethods(
               touchedSavedJobIds,
             ),
           );
+          if (!settings.discoveryOnly && changedJobIds.length > 0) {
+            await ctx.staleApprovedResumeDrafts(
+              "Saved job details changed after approval and the resume needs a fresh review.",
+              changedJobIds,
+            );
+          }
           await ctx.repository.saveDiscoveryState(
             finalizeDiscoveryState(
               {

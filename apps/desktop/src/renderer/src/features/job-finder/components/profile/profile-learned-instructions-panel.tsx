@@ -46,7 +46,7 @@ export function ProfileLearnedInstructionsPanel({
   }
 
   return (
-    <section className="grid h-full min-w-0 content-start gap-(--gap-field) rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 md:col-span-2">
+    <section className="surface-card-tint grid h-full min-w-0 content-start gap-(--gap-field) rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
       <header className="grid gap-1">
         <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
           Learned source instructions
@@ -68,7 +68,7 @@ export function ProfileLearnedInstructionsPanel({
                 return (
                   <li
                     key={`${targetId}_${section.label}_${line.normalizedKey}`}
-                    className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2"
+                    className="surface-card-tint grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-2"
                   >
                     {isEditing ? (
                       <div className="grid gap-2">

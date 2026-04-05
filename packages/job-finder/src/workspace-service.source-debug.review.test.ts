@@ -20,6 +20,12 @@ describe("createJobFinderWorkspaceService", () => {
       ...createSeed(),
       savedJobs: [],
       tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
     });
     const reviewPrompts: string[] = [];
     const fallbackClient = createDeterministicJobFinderAiClient(
@@ -127,6 +133,12 @@ describe("createJobFinderWorkspaceService", () => {
       ...createSeed(),
       savedJobs: [],
       tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
     });
     const reviewPrompts: string[] = [];
     const fallbackClient = createDeterministicJobFinderAiClient(
@@ -232,6 +244,12 @@ describe("createJobFinderWorkspaceService", () => {
       ...createSeed(),
       savedJobs: [],
       tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
     });
     const browserRuntime = createAgentBrowserRuntime(
       [

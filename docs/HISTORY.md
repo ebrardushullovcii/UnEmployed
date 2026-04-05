@@ -4,6 +4,12 @@ Use this file for condensed repo milestones and notable completed changes.
 
 `docs/STATUS.md` stays short and current.
 
+## 2026-04-05
+
+- Tightened the handoff layer by shortening `docs/STATUS.md` and `docs/TRACKS.md`, moving stale Job Finder foundation plans out of `active`, and trimming local guidance that had started duplicating canonical docs.
+- Added a missing `packages/browser-agent/AGENTS.md` guide and slimmed the generated Claude and Cursor adapters so they point agents to the smallest relevant doc set first.
+- Reclassified plans `003` through `005` as completed background, renamed the old discovery plan around the generic-discovery direction that actually shipped, and queued future `008` automatic apply, `009` full-app copy pass, and `010` browser-efficiency work in the handoff docs.
+
 ## 2026-03-26
 
 - Added AI-driven LinkedIn job discovery agent with persistent Chrome authentication and cancellation support

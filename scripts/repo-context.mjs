@@ -20,19 +20,19 @@ function buildClaudeMd() {
 
 # Claude-Specific
 
-- Reference @docs/README.md for the canonical docs map
-- Reference @docs/PLAN.md for the durable project plan
-- Reference @docs/AGENT_CONTEXT.md for the agent-native layout and handoff model
-- Reference @docs/STATUS.md before starting work
-- Reference @docs/TRACKS.md for active workstreams and handoffs
-- Reference @docs/ARCHITECTURE.md and @docs/CONTRACTS.md before changing package boundaries or shared types
-- Reference @docs/TESTING.md before adding or changing verification workflows
+- Start with @docs/README.md, then @docs/STATUS.md and @docs/TRACKS.md
+- Read only the smallest relevant doc set and the linked active or queued exec plan for the task
+- Prefer the nearest package-local @AGENTS.md before editing code in that area
+- Reference @docs/AGENT_CONTEXT.md and @.agents/registry.yaml only when changing repo guidance, generated adapters, or the handoff model
+- Reference @docs/ARCHITECTURE.md, @docs/CONTRACTS.md, and @docs/TESTING.md only when the task touches those concerns
 - Project-local skills live in @.agents/skills
 - @.claude/skills is a compatibility symlink created by \`pnpm agents:sync\`
-- Update docs in the same task when behavior, contracts, or architecture change
+- Update docs in the same task when behavior, contracts, architecture, or workflow change
+- When fixing PR or review feedback, prefer a root-cause or reusable pattern fix over a one-off patch when the broader correction is clear and safe
 - If preparing work for commit or PR handoff, update the relevant docs proactively in the same task
 - Never create a git commit or PR action unless the user explicitly asks for it
 - Run \`pnpm agents:sync\` after updating repo-wide guidance
+- After shared guidance changes, run \`pnpm agents:check\` and \`pnpm docs:check\`
 `
 }
 
@@ -45,13 +45,17 @@ alwaysApply: true
 
 # UnEmployed
 
-- Start with \`AGENTS.md\`, \`docs/README.md\`, \`docs/PLAN.md\`, \`docs/AGENT_CONTEXT.md\`, \`docs/STATUS.md\`, and \`docs/TRACKS.md\`.
+- Start with \`AGENTS.md\`, then \`docs/README.md\`, \`docs/STATUS.md\`, \`docs/TRACKS.md\`, and the linked active or queued exec plan.
+- Read only the smallest relevant doc set for the task.
 - Prefer package-local \`AGENTS.md\` files when working inside one workspace.
+- Use \`docs/AGENT_CONTEXT.md\` and \`.agents/registry.yaml\` only when changing repo guidance or generated adapters.
 - Shared contracts live in \`packages/contracts\`; do not introduce untyped cross-package boundaries.
-- Update docs in the same task when behavior, contracts, or architecture change.
+- Update docs in the same task when behavior, contracts, architecture, or workflow change.
+- When fixing PR or review feedback, prefer a root-cause or reusable pattern fix over a one-off patch when the broader correction is clear and safe.
 - If preparing work for commit or PR handoff, update the relevant docs proactively in the same task.
 - Never create a git commit or PR action unless the user explicitly asks for it.
-- Run \`pnpm agents:sync\`, \`pnpm docs:check\`, and the relevant lint/typecheck/test commands before closing work.
+- Run \`pnpm verify\` as the broad default check when the task does not call for something narrower.
+- After shared guidance changes, run \`pnpm agents:sync\`, \`pnpm agents:check\`, and \`pnpm docs:check\`.
 `
 }
 
@@ -80,11 +84,11 @@ async function checkAgents() {
   const failures = []
   const registry = await readRegistry()
 
-  for (const guide of registry.requiredPackageGuides) {
+  for (const guide of registry.requiredLocalGuides) {
     try {
       await fs.access(path.join(rootDir, guide))
     } catch {
-      failures.push(`Missing package guide: ${guide}`)
+      failures.push(`Missing local guide: ${guide}`)
     }
   }
 
@@ -157,6 +161,7 @@ async function checkAgents() {
 async function checkDocs() {
   const failures = []
   const markdownLinkPattern = /\[[^\]]+\]\(([^)]+)\)/g
+  const statusPattern = /^Status:\s+(.*)$/m
 
   function isExternalLink(link) {
     return (
@@ -189,6 +194,20 @@ async function checkDocs() {
     }
   }
 
+  async function checkPlanStatus(relativePath, allowedStatuses) {
+    const absolutePath = path.join(rootDir, relativePath)
+    const content = await fs.readFile(absolutePath, 'utf8')
+    const match = content.match(statusPattern)
+    if (!match) {
+      failures.push(`Missing Status line in ${relativePath}`)
+      return
+    }
+    const status = match[1].trim()
+    if (!allowedStatuses.includes(status)) {
+      failures.push(`Unexpected plan status in ${relativePath}: ${status}`)
+    }
+  }
+
   const registry = await readRegistry()
   for (const doc of registry.canonicalDocs) {
     const absolutePath = path.join(rootDir, doc.path)
@@ -201,7 +220,41 @@ async function checkDocs() {
     await checkMarkdownFile(doc.path)
   }
 
-  await checkMarkdownFile('AGENTS.md')
+  await checkMarkdownFile('README.md')
+  await checkMarkdownFile(registry.rootInstructions)
+
+  for (const guide of registry.requiredLocalGuides) {
+    const absolutePath = path.join(rootDir, guide)
+    try {
+      await fs.access(absolutePath)
+    } catch {
+      failures.push(`Missing local guide: ${guide}`)
+      continue
+    }
+    await checkMarkdownFile(guide)
+  }
+
+  const execPlansRoot = path.join(rootDir, 'docs', 'exec-plans')
+  for (const [subdir, allowedStatuses] of [
+    ['active', ['active', 'ready']],
+    ['queued', ['ready']],
+    ['completed', ['completed']]
+  ]) {
+    const directoryPath = path.join(execPlansRoot, subdir)
+    let entries = []
+    try {
+      entries = await fs.readdir(directoryPath, { withFileTypes: true })
+    } catch {
+      failures.push(`Missing exec-plan directory: docs/exec-plans/${subdir}`)
+      continue
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) {
+        continue
+      }
+      await checkPlanStatus(path.join('docs', 'exec-plans', subdir, entry.name), allowedStatuses)
+    }
+  }
 
   if (failures.length > 0) {
     fail(failures.join('\n'))

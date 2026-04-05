@@ -1,11 +1,13 @@
 import {
   type AgentProviderStatus,
   NonEmptyStringSchema,
+  ResumeDraftPatchSchema,
   candidateLinkKindValues,
   type CandidateProfile,
   type JobFinderSettings,
   type JobPosting,
   type JobSearchPreferences,
+  type ResumeDraft,
   type Tool,
   type ToolCall,
   workModeValues,
@@ -171,6 +173,39 @@ export interface TailorResumeInput {
   resumeText: string | null;
 }
 
+export interface CreateResumeDraftInput extends TailorResumeInput {
+  evidence?: {
+    summary: readonly string[];
+    candidateSummary: readonly string[];
+    experience: readonly string[];
+    skills: readonly string[];
+    keywords: readonly string[];
+  };
+  researchContext?: {
+    companyNotes: readonly string[];
+    domainVocabulary: readonly string[];
+    priorityThemes: readonly string[];
+  };
+}
+
+export const ResumeAssistantReplySchema = z.object({
+  content: NonEmptyStringSchema,
+  patches: z.array(ResumeDraftPatchSchema).default([]),
+});
+export type ResumeAssistantReply = z.infer<typeof ResumeAssistantReplySchema>;
+
+export interface ReviseResumeDraftInput {
+  draft: ResumeDraft;
+  job: JobPosting;
+  request: string;
+  validationIssues?: readonly string[];
+  researchContext?: {
+    companyNotes: readonly string[];
+    domainVocabulary: readonly string[];
+    priorityThemes: readonly string[];
+  };
+}
+
 export interface AssessJobFitInput {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
@@ -195,6 +230,8 @@ export interface JobFinderAiClient {
   extractProfileFromResume(
     input: ExtractProfileFromResumeInput,
   ): Promise<ResumeProfileExtraction>;
+  createResumeDraft(input: CreateResumeDraftInput): Promise<TailoredResumeDraft>;
+  reviseResumeDraft(input: ReviseResumeDraftInput): Promise<ResumeAssistantReply>;
   tailorResume(input: TailorResumeInput): Promise<TailoredResumeDraft>;
   assessJobFit(input: AssessJobFitInput): Promise<JobFitAssessment | null>;
   extractJobsFromPage(input: ExtractJobsFromPageInput): Promise<JobPosting[]>;

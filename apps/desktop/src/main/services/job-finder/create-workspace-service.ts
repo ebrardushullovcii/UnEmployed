@@ -1,11 +1,18 @@
-import { createJobFinderAiClientFromEnvironment } from '@unemployed/ai-providers'
+import {
+  createDeterministicJobFinderAiClient,
+  createJobFinderAiClientFromEnvironment,
+} from '@unemployed/ai-providers'
 import { createBrowserAgentRuntime, createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import { createFileJobFinderRepository } from '@unemployed/db'
 import { createJobFinderWorkspaceService } from '@unemployed/job-finder'
 import { createLocalJobFinderDocumentManager } from '../../adapters/job-finder-document-manager'
+import { createLocalResumeExportFileVerifier } from '../../adapters/job-finder-export-file-verifier'
 import { createEmptyJobFinderRepositoryState } from '../../adapters/job-finder-initial-state'
+import { createDesktopResumeResearchAdapter } from '../../adapters/job-finder-research-adapter'
 import { getBrowserAgentProfileDirectory, getGeneratedResumeDocumentsDirectory, getJobFinderWorkspaceFilePath } from './paths'
-import { isBrowserAgentEnabled, isBrowserHeadlessEnabled } from './test-api'
+import { isBrowserAgentEnabled, isBrowserHeadlessEnabled, isDesktopTestApiEnabled } from './test-api'
+
+const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
 
 export async function createJobFinderWorkspaceServiceAsync() {
   const jobFinderRepository = await createFileJobFinderRepository({
@@ -18,7 +25,11 @@ export async function createJobFinderWorkspaceServiceAsync() {
   const chromeDebugPort = (rawPort !== null && Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535)
     ? rawPort
     : null
-  const aiClient = createJobFinderAiClientFromEnvironment(process.env)
+  const aiClient = isDesktopTestApiEnabled()
+    ? createDeterministicJobFinderAiClient(
+        'Deterministic desktop test runtime is active for scripted UI validation.',
+      )
+    : createJobFinderAiClientFromEnvironment(process.env)
   const browserAgentEnabled = isBrowserAgentEnabled()
   const browserRuntime = browserAgentEnabled
     ? createBrowserAgentRuntime({
@@ -32,17 +43,34 @@ export async function createJobFinderWorkspaceServiceAsync() {
         aiClient
       })
     : createCatalogBrowserSessionRuntime({
-        sessions: [],
+        sessions: [
+          {
+            source: 'target_site',
+            status: 'ready',
+            driver: 'catalog_seed',
+            label: 'Browser session ready',
+            detail: isDesktopTestApiEnabled()
+              ? 'Deterministic desktop test runtime is ready.'
+              : 'Deterministic catalog runtime is ready.',
+            lastCheckedAt: isDesktopTestApiEnabled()
+              ? deterministicTestTimestamp
+              : new Date().toISOString()
+          }
+        ],
         catalog: []
       })
   const documentManager = createLocalJobFinderDocumentManager({
     outputDirectory: getGeneratedResumeDocumentsDirectory()
   })
+  const exportFileVerifier = createLocalResumeExportFileVerifier()
+  const researchAdapter = createDesktopResumeResearchAdapter()
 
   return createJobFinderWorkspaceService({
     aiClient,
     documentManager,
+    exportFileVerifier,
     repository: jobFinderRepository,
-    browserRuntime
+    browserRuntime,
+    researchAdapter
   })
 }

@@ -291,6 +291,14 @@ describe("createJobFinderWorkspaceService", () => {
       },
     });
 
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    expect(approvedExport).toBeTruthy();
+
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
     await workspaceService.approveApply("job_ready");
 
     expect(capturedInstructions).toEqual(
@@ -375,6 +383,14 @@ describe("createJobFinderWorkspaceService", () => {
       },
     });
 
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    expect(approvedExport).toBeTruthy();
+
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
     await workspaceService.approveApply("job_ready");
 
     expect(capturedInstructions).toEqual(
@@ -457,11 +473,22 @@ describe("createJobFinderWorkspaceService", () => {
           applyPath: "easy_apply",
           easyApplyEligible: true,
           postedAt: "2026-03-20T09:00:00.000Z",
+          postedAtText: null,
           discoveredAt: "2026-03-20T10:04:00.000Z",
           salaryText: null,
           summary: "Verify artifact coverage.",
           description: "Verify artifact coverage.",
           keySkills: ["React"],
+          responsibilities: ["Verify artifact coverage."],
+          minimumQualifications: [],
+          preferredQualifications: [],
+          seniority: null,
+          employmentType: null,
+          department: null,
+          team: null,
+          employerWebsiteUrl: null,
+          employerDomain: null,
+          benefits: [],
         },
       ],
       {

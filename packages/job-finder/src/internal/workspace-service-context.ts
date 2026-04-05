@@ -10,7 +10,14 @@ import type {
   SourceDebugRunRecord,
 } from "@unemployed/contracts";
 import type { JobFinderRepository } from "@unemployed/db";
-import type { JobFinderDocumentManager } from "./workspace-service-contracts";
+import type {
+  JobFinderDocumentManager,
+  ResumeResearchAdapter,
+} from "./workspace-service-contracts";
+
+export interface ResumeExportFileVerifier {
+  exists(filePath: string): Promise<boolean>;
+}
 
 export interface MutableRef<T> {
   current: T;
@@ -20,6 +27,8 @@ export interface WorkspaceServiceContext {
   aiClient: JobFinderAiClient;
   browserRuntime: BrowserSessionRuntime;
   documentManager: JobFinderDocumentManager;
+  exportFileVerifier?: ResumeExportFileVerifier;
+  researchAdapter?: ResumeResearchAdapter;
   repository: JobFinderRepository;
   activeSourceDebugExecutionIdRef: MutableRef<string | null>;
   activeSourceDebugAbortControllerRef: MutableRef<AbortController | null>;
@@ -45,6 +54,10 @@ export interface WorkspaceServiceContext {
   persistSourceDebugRun: (run: SourceDebugRunRecord) => Promise<void>;
   persistBrowserSessionState: (
     session: Awaited<ReturnType<BrowserSessionRuntime["openSession"]>>,
+  ) => Promise<void>;
+  staleApprovedResumeDrafts: (
+    staleReason: string,
+    jobIds?: readonly string[],
   ) => Promise<void>;
   openRunBrowserSession: (source: JobSource) => Promise<void>;
   closeRunBrowserSession: (source: JobSource) => Promise<void>;

@@ -1,0 +1,444 @@
+import { describe, expect, test } from "vitest";
+import {
+  createInMemoryJobFinderRepository,
+} from "./index";
+import { createSeed } from "./test-fixtures";
+
+describe("createInMemoryJobFinderRepository", () => {
+  test("returns cloned values and supports asset and attempt upserts", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const profile = await repository.getProfile();
+
+    profile.fullName = "Changed locally";
+
+    const freshProfile = await repository.getProfile();
+
+    expect(freshProfile.fullName).toBe("Alex Vanguard");
+
+    await repository.upsertTailoredAsset({
+      id: "asset_1",
+      jobId: "job_1",
+      kind: "resume",
+      status: "ready",
+      label: "Tailored Resume",
+      version: "v1",
+      templateName: "Classic ATS",
+      compatibilityScore: 98,
+      progressPercent: 100,
+      updatedAt: "2026-03-20T10:05:00.000Z",
+      storagePath: null,
+      contentText: "Resume text",
+      previewSections: [],
+      generationMethod: "deterministic",
+      notes: [],
+    });
+
+    await repository.upsertApplicationAttempt({
+      id: "attempt_1",
+      jobId: "job_1",
+      state: "submitted",
+      summary: "Easy Apply submitted",
+      detail: "Submitted successfully.",
+      startedAt: "2026-03-20T10:04:00.000Z",
+      updatedAt: "2026-03-20T10:05:00.000Z",
+      completedAt: "2026-03-20T10:05:00.000Z",
+      outcome: "submitted",
+      nextActionLabel: "Monitor inbox",
+      checkpoints: [],
+    });
+
+    const assets = await repository.listTailoredAssets();
+    const attempts = await repository.listApplicationAttempts();
+
+    expect(assets).toHaveLength(1);
+    expect(assets[0]?.contentText).toBe("Resume text");
+    expect(attempts[0]?.state).toBe("submitted");
+
+    await repository.reset(createSeed());
+
+    const resetAssets = await repository.listTailoredAssets();
+    const resetAttempts = await repository.listApplicationAttempts();
+
+    expect(resetAssets).toHaveLength(0);
+    expect(resetAttempts).toHaveLength(0);
+  });
+
+  test("stores resume workspace collections with the expected ordering", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+
+    await repository.upsertResumeDraft({
+      id: "resume_draft_old",
+      jobId: "job_1",
+      status: "draft",
+      templateId: "classic_ats",
+      sections: [],
+      targetPageCount: 2,
+      generationMethod: "manual",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+      createdAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:00:00.000Z",
+    });
+    await repository.upsertResumeDraft({
+      id: "resume_draft_new",
+      jobId: "job_1",
+      status: "needs_review",
+      templateId: "classic_ats",
+      sections: [],
+      targetPageCount: 2,
+      generationMethod: "ai",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+      createdAt: "2026-03-20T10:05:00.000Z",
+      updatedAt: "2026-03-20T10:06:00.000Z",
+    });
+    await repository.upsertResumeDraftRevision({
+      id: "revision_1",
+      draftId: "resume_draft_new",
+      snapshotSections: [],
+      createdAt: "2026-03-20T10:06:30.000Z",
+      reason: "Initial save",
+    });
+    await repository.upsertResumeExportArtifact({
+      id: "resume_export_1",
+      draftId: "resume_draft_new",
+      jobId: "job_1",
+      format: "pdf",
+      filePath: "/tmp/resume-1.pdf",
+      pageCount: 2,
+      templateId: "classic_ats",
+      exportedAt: "2026-03-20T10:07:00.000Z",
+      isApproved: false,
+    });
+    await repository.upsertResumeResearchArtifact({
+      id: "resume_research_1",
+      jobId: "job_1",
+      sourceUrl: "https://example.com/about",
+      pageTitle: "About",
+      fetchedAt: "2026-03-20T10:04:00.000Z",
+      extractedText: "Example about page.",
+      companyNotes: null,
+      domainVocabulary: ["workflow"],
+      priorityThemes: ["systems"],
+      fetchStatus: "success",
+    });
+    await repository.upsertResumeValidationResult({
+      id: "resume_validation_1",
+      draftId: "resume_draft_new",
+      issues: [],
+      pageCount: 2,
+      validatedAt: "2026-03-20T10:06:45.000Z",
+    });
+    await repository.upsertResumeAssistantMessage({
+      id: "assistant_message_1",
+      jobId: "job_1",
+      role: "assistant",
+      content: "Tightened the summary.",
+      patches: [],
+      createdAt: "2026-03-20T10:06:40.000Z",
+    });
+
+    await expect(repository.getResumeDraftByJobId("job_1")).resolves.toEqual(
+      expect.objectContaining({ id: "resume_draft_new" }),
+    );
+    await expect(repository.listResumeDrafts()).resolves.toEqual([
+      expect.objectContaining({ id: "resume_draft_new" }),
+      expect.objectContaining({ id: "resume_draft_old" }),
+    ]);
+    await expect(
+      repository.listResumeDraftRevisions("resume_draft_new"),
+    ).resolves.toEqual([expect.objectContaining({ id: "revision_1" })]);
+    await expect(
+      repository.listResumeExportArtifacts({ jobId: "job_1" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "resume_export_1" })]);
+    await expect(repository.listResumeResearchArtifacts("job_1")).resolves.toEqual([
+      expect.objectContaining({ id: "resume_research_1" }),
+    ]);
+    await expect(
+      repository.listResumeValidationResults("resume_draft_new"),
+    ).resolves.toEqual([expect.objectContaining({ id: "resume_validation_1" })]);
+    await expect(repository.listResumeAssistantMessages("job_1")).resolves.toEqual([
+      expect.objectContaining({ id: "assistant_message_1" }),
+    ]);
+  });
+
+  test("applies aggregate resume approval updates atomically", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+
+    await repository.upsertResumeExportArtifact({
+      id: "resume_export_old",
+      draftId: "resume_draft_1",
+      jobId: "job_1",
+      format: "pdf",
+      filePath: "/tmp/old.pdf",
+      pageCount: 2,
+      templateId: "classic_ats",
+      exportedAt: "2026-03-20T10:00:00.000Z",
+      isApproved: true,
+    });
+
+    await repository.approveResumeExport({
+      draft: {
+        id: "resume_draft_1",
+        jobId: "job_1",
+        status: "approved",
+        templateId: "classic_ats",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "ai",
+        approvedAt: "2026-03-20T10:07:00.000Z",
+        approvedExportId: "resume_export_new",
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:07:00.000Z",
+      },
+      exportArtifact: {
+        id: "resume_export_new",
+        draftId: "resume_draft_1",
+        jobId: "job_1",
+        format: "pdf",
+        filePath: "/tmp/new.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:07:00.000Z",
+        isApproved: true,
+      },
+      validation: {
+        id: "resume_validation_1",
+        draftId: "resume_draft_1",
+        issues: [],
+        pageCount: 2,
+        validatedAt: "2026-03-20T10:06:50.000Z",
+      },
+      tailoredAsset: {
+        id: "asset_1",
+        jobId: "job_1",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored Resume",
+        version: "v2",
+        templateName: "Classic ATS",
+        compatibilityScore: 97,
+        progressPercent: 100,
+        updatedAt: "2026-03-20T10:07:00.000Z",
+        storagePath: "/tmp/new.pdf",
+        contentText: "Resume text",
+        previewSections: [],
+        generationMethod: "ai_assisted",
+        notes: [],
+      },
+    });
+
+    const exports = await repository.listResumeExportArtifacts({ jobId: "job_1" });
+    const draft = await repository.getResumeDraftByJobId("job_1");
+    const tailoredAssets = await repository.listTailoredAssets();
+
+    expect(exports.find((entry) => entry.id === "resume_export_new")?.isApproved).toBe(
+      true,
+    );
+    expect(exports.find((entry) => entry.id === "resume_export_old")?.isApproved).toBe(
+      false,
+    );
+    expect(draft?.approvedExportId).toBe("resume_export_new");
+    expect(tailoredAssets[0]?.storagePath).toBe("/tmp/new.pdf");
+  });
+
+  test("clears approved export flags when a draft becomes stale", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+
+    await repository.upsertResumeExportArtifact({
+      id: "resume_export_old",
+      draftId: "resume_draft_1",
+      jobId: "job_1",
+      format: "pdf",
+      filePath: "/tmp/old.pdf",
+      pageCount: 2,
+      templateId: "classic_ats",
+      exportedAt: "2026-03-20T10:00:00.000Z",
+      isApproved: true,
+    });
+
+    await repository.saveResumeDraftWithValidation({
+      draft: {
+        id: "resume_draft_1",
+        jobId: "job_1",
+        status: "stale",
+        templateId: "classic_ats",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "ai",
+        approvedAt: null,
+        approvedExportId: null,
+        staleReason: "Draft changed after approval and needs a fresh review.",
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:08:00.000Z",
+      },
+      validation: {
+        id: "resume_validation_1",
+        draftId: "resume_draft_1",
+        issues: [],
+        pageCount: 2,
+        validatedAt: "2026-03-20T10:08:00.000Z",
+      },
+      tailoredAsset: {
+        id: "asset_1",
+        jobId: "job_1",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored Resume",
+        version: "v2",
+        templateName: "Classic ATS",
+        compatibilityScore: 97,
+        progressPercent: 100,
+        updatedAt: "2026-03-20T10:08:00.000Z",
+        storagePath: null,
+        contentText: "Resume text",
+        previewSections: [],
+        generationMethod: "ai_assisted",
+        notes: [],
+      },
+    });
+
+    const exports = await repository.listResumeExportArtifacts({ jobId: "job_1" });
+
+    expect(exports.find((entry) => entry.id === "resume_export_old")?.isApproved).toBe(
+      false,
+    );
+  });
+
+  test("atomically replaces saved jobs while clearing resume approval", async () => {
+    const seed = createSeed();
+    seed.savedJobs = [
+      {
+        id: "job_ready",
+        source: "target_site",
+        sourceJobId: "target_job_ready",
+        discoveryMethod: "catalog_seed",
+        canonicalUrl: "https://jobs.example.com/roles/target_job_ready",
+        title: "Lead Designer",
+        company: "Signal Systems",
+        location: "Remote",
+        workMode: ["remote"],
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        postedAt: "2026-03-20T10:00:00.000Z",
+        postedAtText: null,
+        discoveredAt: "2026-03-20T10:01:00.000Z",
+        salaryText: "$180k",
+        summary: "Lead product design.",
+        description: "Lead product design for operational software.",
+        keySkills: ["Figma"],
+        responsibilities: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
+        seniority: null,
+        employmentType: null,
+        department: null,
+        team: null,
+        employerWebsiteUrl: null,
+        employerDomain: null,
+        benefits: [],
+        status: "ready_for_review",
+        matchAssessment: {
+          score: 94,
+          reasons: ["Strong overlap"],
+          gaps: [],
+        },
+        provenance: [],
+      },
+    ];
+    const repository = createInMemoryJobFinderRepository(seed);
+
+    await repository.upsertResumeDraft({
+      id: "resume_draft_1",
+      jobId: "job_ready",
+      status: "approved",
+      templateId: "classic_ats",
+      sections: [],
+      targetPageCount: 2,
+      generationMethod: "ai",
+      approvedAt: "2026-03-20T10:07:00.000Z",
+      approvedExportId: "resume_export_old",
+      staleReason: null,
+      createdAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:07:00.000Z",
+    });
+    await repository.upsertResumeExportArtifact({
+      id: "resume_export_old",
+      draftId: "resume_draft_1",
+      jobId: "job_ready",
+      format: "pdf",
+      filePath: "/tmp/old.pdf",
+      pageCount: 2,
+      templateId: "classic_ats",
+      exportedAt: "2026-03-20T10:06:00.000Z",
+      isApproved: true,
+    });
+
+    const savedJobs = await repository.listSavedJobs();
+    const nextJobs = savedJobs.map((job) =>
+      job.id === "job_ready"
+        ? { ...job, description: `${job.description} Updated.` }
+        : job,
+    );
+
+    await repository.replaceSavedJobsAndClearResumeApproval({
+      savedJobs: nextJobs,
+      draft: {
+        id: "resume_draft_1",
+        jobId: "job_ready",
+        status: "stale",
+        templateId: "classic_ats",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "ai",
+        approvedAt: null,
+        approvedExportId: null,
+        staleReason: "Saved job details changed after approval and the resume needs a fresh review.",
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:08:00.000Z",
+      },
+      staleReason:
+        "Saved job details changed after approval and the resume needs a fresh review.",
+      tailoredAsset: {
+        id: "asset_ready",
+        jobId: "job_ready",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored Resume",
+        version: "v2",
+        templateName: "Classic ATS",
+        compatibilityScore: 97,
+        progressPercent: 100,
+        updatedAt: "2026-03-20T10:08:00.000Z",
+        storagePath: null,
+        contentText: "Resume text",
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+      },
+    });
+
+    const refreshedJobs = await repository.listSavedJobs();
+    const refreshedDraft = await repository.getResumeDraftByJobId("job_ready");
+    const exports = await repository.listResumeExportArtifacts({ jobId: "job_ready" });
+    const assets = await repository.listTailoredAssets();
+
+    expect(refreshedJobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "job_ready",
+          description: expect.stringMatching(/Updated\./),
+        }),
+      ]),
+    );
+    expect(refreshedDraft?.status).toBe("stale");
+    expect(refreshedDraft?.approvedExportId).toBeNull();
+    expect(exports.find((entry) => entry.id === "resume_export_old")?.isApproved).toBe(
+      false,
+    );
+    expect(assets.find((asset) => asset.jobId === "job_ready")?.storagePath).toBeNull();
+  });
+});

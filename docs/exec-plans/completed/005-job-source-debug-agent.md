@@ -1,6 +1,8 @@
 # 005 Job Source Debug Agent
 
-Status: active
+Status: completed
+
+Historical note: this plan is landed enough for current work and now serves as completed background unless future tightening requires a new follow-on plan.
 Last updated: 2026-04-02
 
 ## Implementation Status
@@ -324,6 +326,6 @@ Exit signal:
 
 ## Relationship To Existing Discovery Work
 
-This plan is a follow-on to `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md`.
+This plan is a follow-on to `docs/exec-plans/completed/004-job-finder-generic-discovery.md`.
 
 Plan `004` made target configuration, retained activity, and sequential discovery orchestration real. Plan `005` turns the per-target instruction seam into a first-class product workflow by letting the app learn and verify those instructions when the user cannot supply them alone.

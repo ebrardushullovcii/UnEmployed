@@ -21,7 +21,47 @@ export type ExtractedJobInput = Pick<JobPosting,
   | 'workMode'
   | 'applyPath'
   | 'easyApplyEligible'
-  | 'keySkills'>
+  | 'keySkills'> & Partial<Pick<JobPosting,
+  | 'postedAtText'
+  | 'responsibilities'
+  | 'minimumQualifications'
+  | 'preferredQualifications'
+  | 'seniority'
+  | 'employmentType'
+  | 'department'
+  | 'team'
+  | 'employerWebsiteUrl'
+  | 'employerDomain'
+  | 'benefits'>>
+
+function trimToNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
+function summarizeJobInput(job: ExtractedJobInput): string {
+  const firstStructuredLine = [
+    ...(job.responsibilities ?? []),
+    ...(job.minimumQualifications ?? []),
+    ...(job.preferredQualifications ?? [])
+  ][0] ?? null
+
+  if (firstStructuredLine) {
+    return firstStructuredLine
+  }
+
+  const description = job.description.trim()
+  if (!description) {
+    return `${job.title} opportunity at ${job.company}`
+  }
+
+  const firstSentence = description
+    .split(/(?<=[.!?])\s+/)
+    .map((entry) => entry.trim())
+    .find(Boolean)
+
+  return (firstSentence ?? description).slice(0, 280)
+}
 
 function isToolResult(value: unknown): value is ToolExecutionResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -338,12 +378,23 @@ export function addExtractedJobsToState(
         ? job.applyPath
         : 'unknown',
       easyApplyEligible: job.easyApplyEligible ?? false,
-      postedAt: job.postedAt || new Date().toISOString(),
+      postedAt: job.postedAt ?? null,
+      postedAtText: trimToNull(job.postedAtText),
       discoveredAt: new Date().toISOString(),
       salaryText: job.salaryText || null,
-      summary: job.summary || job.description.slice(0, 240),
+      summary: trimToNull(job.summary) ?? summarizeJobInput(job),
       description: job.description,
-      keySkills: job.keySkills ?? []
+      keySkills: job.keySkills ?? [],
+      responsibilities: job.responsibilities ?? [],
+      minimumQualifications: job.minimumQualifications ?? [],
+      preferredQualifications: job.preferredQualifications ?? [],
+      seniority: trimToNull(job.seniority),
+      employmentType: trimToNull(job.employmentType),
+      department: trimToNull(job.department),
+      team: trimToNull(job.team),
+      employerWebsiteUrl: trimToNull(job.employerWebsiteUrl),
+      employerDomain: trimToNull(job.employerDomain),
+      benefits: job.benefits ?? []
     }
 
     const validation = JobPostingSchema.safeParse(jobToAdd)

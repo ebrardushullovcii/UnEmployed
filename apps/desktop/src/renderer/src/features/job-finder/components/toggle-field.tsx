@@ -24,7 +24,7 @@ export function ToggleField({
   return (
     <div
       className={cn(
-        'grid min-w-0 content-start gap-(--gap-field) h-full rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4',
+        'surface-card-tint grid min-w-0 content-start gap-(--gap-field) h-full rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4',
         className
       )}
     >

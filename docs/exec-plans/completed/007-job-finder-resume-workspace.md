@@ -6,6 +6,19 @@ Status: active
 
 Deliver a dedicated `Resume Workspace` for a selected job where the app can generate, inspect, edit, validate, export, approve, and reuse a grounded job-specific resume before the apply flow uploads it.
 
+## Delivery Standard For Implementing Agents
+
+This plan is not complete when the code merely compiles or the happy-path contracts exist.
+
+Required implementation bar:
+
+- finish the feature to a product-demo standard, not a placeholder or scaffolding standard
+- add any missing internal tooling or scripted harnesses needed to trigger generation, editing, chat-assisted changes, export, approval, and apply validation end-to-end
+- verify the desktop UI by actually interacting with it and capturing screenshots of the important states instead of relying only on typecheck or build success
+- keep durable instructions, QA workflow, and evidence paths updated in repo docs during the same task so the implementation does not become “chat-only knowledge” after long sessions or compaction
+
+In plain terms: another agent should be able to read this plan, run the documented harness, and watch a full demo of the shipped workspace without having to reconstruct missing steps from chat history.
+
 ## Locked Product Decisions
 
 - Grounding starts from the imported base resume plus the structured profile extracted or edited in `Profile`.
@@ -129,6 +142,8 @@ Migration-safe sequence for implementation:
 - `Review Queue`: entry point, final apply approval, overview state
 - `Resume Workspace`: draft creation, editing, validation, preview, export, resume approval
 - `Applications` and apply runtime: consume the approved tailored artifact for later submission paths
+- `packages/browser-agent`: owns prompts, transcript compaction, tool policy, and deterministic catalog workflow policy that sits on top of generic browser session primitives
+- `packages/browser-runtime`: owns browser lifecycle and generic automation primitives, not site- or workflow-specific review/apply policy
 
 ### Route And Shell Recommendation
 
@@ -439,14 +454,24 @@ z.object({
 
 #### Review Queue Bridge Fields
 
-Add these fields to `ReviewQueueItemSchema`:
+Add a single discriminated `resumeReview` field to `ReviewQueueItemSchema` so review-only state cannot drift into impossible combinations:
 
 ```ts
-resumeDraftStatus: ResumeDraftStatusSchema.nullable().default(null),
-resumeApprovedAt: IsoDateTimeSchema.nullable().default(null),
-resumeIsStale: z.boolean().default(false),
-approvedResumeExportId: NonEmptyStringSchema.nullable().default(null),
-approvedResumeFormat: z.enum(["html", "pdf"]).nullable().default(null),
+resumeReview: z.discriminatedUnion("status", [
+  z.object({ status: z.literal("not_started") }),
+  z.object({ status: z.literal("draft") }),
+  z.object({ status: z.literal("needs_review") }),
+  z.object({
+    status: z.literal("stale"),
+    staleReason: NonEmptyStringSchema.nullable().default(null),
+  }),
+  z.object({
+    status: z.literal("approved"),
+    approvedAt: IsoDateTimeSchema,
+    approvedExportId: NonEmptyStringSchema,
+    approvedFormat: z.enum(["html", "pdf"]),
+  }),
+]).default({ status: "not_started" })
 ```
 
 #### Repository State Extension
@@ -571,15 +596,15 @@ Recommended direction:
 - add a separate `ResumeDraftStatus` for workspace-owned editing states such as `draft`, `needs_review`, `approved`, and `stale`
 - add explicit approval or stale fields to review-summary payloads instead of trying to encode those concepts into the existing `AssetStatus`
 
-Recommended first bridge fields on the review-facing summary surface:
+Recommended first bridge shape on the review-facing summary surface:
 
-- `resumeDraftStatus`
-- `resumeApprovedAt`
-- `resumeIsStale`
-- `approvedResumeExportId`
-- `approvedResumeFormat`
+- `resumeReview.status`
+- `resumeReview.staleReason`
+- `resumeReview.approvedAt`
+- `resumeReview.approvedExportId`
+- `resumeReview.approvedFormat`
 
-Those exact names can change, but the bridge object must make these concepts explicit so another agent does not have to infer them from `assetStatus` alone.
+The exact field names can change, but the bridge object must keep these concepts explicit so another agent does not have to infer them from `assetStatus` alone.
 
 This keeps backward-compatible review surfaces simple while letting the workspace own richer state.
 
@@ -675,10 +700,12 @@ Retrieval should be section-aware. For example:
 Expected first package additions by workspace:
 
 - `packages/knowledge-base`: `minisearch`, `@mozilla/readability`, `jsdom`
-- `apps/desktop` or renderer-side diff presentation layer: `diff`
+- `apps/desktop` or renderer-side diff presentation layer: `diff` only if a future manual preview surface becomes necessary
 - `apps/desktop` only if richer drag and drop becomes necessary: `@dnd-kit/core`
 
 Do not add embedding or vector packages in the first pass unless lexical retrieval proves clearly insufficient.
+
+Rely on grounded auto-apply plus revision-backed recovery by default; include `diff` only when a manual preview surface truly requires explicit change presentation.
 
 ## Desktop UX Plan
 
@@ -696,7 +723,7 @@ The first version should be desktop-first and structured, not a document canvas 
 
 Recommended layout:
 
-- top bar: job, company, draft state, template selector, export state, resume approval actions
+- top bar: job, company, draft state, template selector, export action, resume approval actions
 - left rail: section outline, validation summary, page-budget warnings, research-source count
 - main editor: structured fields, bullets, include or exclude toggles, reorder actions, pin or lock controls
 - right rail: rendered preview and assistant panel, either stacked or tabbed to preserve space
@@ -740,9 +767,9 @@ Expected intents:
 
 Assistant outputs should resolve into typed resume patch operations.
 
-Small changes can auto-apply with clear undo.
+Small changes can auto-apply with clear revision-backed recovery.
 
-Larger changes should show a diff preview before they are accepted.
+An extra manual preview surface is not required for this slice; correctness, grounded patches, auto-apply behavior, revision-backed recovery, and safe persistence matter more than adding another review surface.
 
 ## Template And Export Strategy
 
@@ -806,6 +833,9 @@ The editing preview should stay reliable and easy to implement in v1:
 - keep final PDF generation in the Electron main process only
 - do not add a renderer-side PDF viewer or renderer-side PDF parsing dependency in the first pass
 - treat the exported PDF page count as the final source of truth for page-budget warnings
+- keep scripted desktop QA on deterministic AI even when local live-provider credentials are present, so resume generation and assistant validation stay repeatable across capture runs
+- for the dedicated workspace route, put scroll ownership on the left rail, main editor column, and right rail explicitly with `min-h-0`/`min-w-0` guards on ancestor containers so long structured content does not clip behind the shell
+- keep the workspace on the shared locked-screen shell when simultaneous left-rail context, central editing, and right-rail preview are useful; the top header should scroll away first, then the left rail, editor column, and right rail should keep independent scroll ownership inside the remaining viewport height
 
 ### `resumeFormat` Migration Rule
 
@@ -849,12 +879,42 @@ Validation belongs in `packages/job-finder`, not in the provider adapter.
 - low-confidence extracted facts that are being overused
 - stale approvals after important upstream changes
 
+### Immediate Follow-Up Fixes
+
+The current shipped baseline proves the end-to-end workspace, export, and approval loop, but the next hardening pass should focus on resume composition quality and assistant reliability before widening scope.
+
+#### Resume Structure Fixes
+
+- enforce strict section boundaries so contact data never leaks into experience, skills, or other content blocks
+- keep job-target context as tailoring input only; do not let raw job-posting text render inside skills or experience sections
+- add a pre-export dedupe pass for repeated bullets, repeated role lines, and repeated section text
+- render work experience in a fixed role-first structure: title, company, location, dates, then scoped bullets
+- group skills into stable categories instead of one mixed keyword dump
+- keep education, languages, and other trailing sections compact and isolated from experience content
+- reduce over-aggressive heading tracking or letter spacing in PDF output so exported text parses cleanly and remains ATS-friendly
+
+#### Assistant Editing Fixes
+
+- make assistant replies summarize the concrete change set more clearly instead of falling back to generic unavailable language when a request should be actionable
+- tighten the patch planner so assistant edits stay inside the intended section instead of producing broad or confusing changes
+- keep optimistic chat feedback, but improve completion messaging so the user can tell whether the assistant rewrote text, declined the request, or hit a patch-application failure
+- add focused QA coverage for common assistant-edit requests such as shortening a summary, tightening bullets, and removing duplicated wording
+
+#### Validation Additions
+
+Add explicit validation failures or warnings when:
+
+- contact or identity fields appear in non-header sections
+- the same sentence or bullet appears in multiple rendered sections
+- the skills block contains job-description prose or full experience lines
+- a rendered section contains obvious concatenation artifacts from multiple source records
+
 ### Non-Negotiable Safety Rules
 
 - never invent dates, titles, employers, or credentials
 - never let public employer research create candidate facts
 - never silently overwrite user-edited or pinned content during regenerate
-- never let the assistant perform a broad rewrite without either explicit user intent or a visible diff step
+- never let the assistant perform a broad rewrite without explicit user intent and a revision-backed recovery path that keeps the prior draft restorable
 - never fall back to the base resume silently when the user expects a tailored approved artifact
 
 ## Research And Source Transparency
@@ -943,7 +1003,7 @@ Use proven packages where they fit the repo and keep custom code for product-spe
 - `pdfjs-dist`: reuse for generated `pdf` page-count inspection and validation
 - `minisearch`: first deterministic local retrieval layer in `packages/knowledge-base`
 - `@mozilla/readability` plus `jsdom`: bounded public page cleanup and text extraction for employer research
-- `diff`: resume patch previews and assistant change review
+- `diff`: optional only if a future manual preview surface becomes necessary; the current shipped flow relies on grounded auto-apply plus revision-backed recovery instead
 - `@dnd-kit/core`: optional if drag or reorder interactions need more than simple move-up and move-down controls
 - current `packages/db` SQLite pattern plus explicit query columns and indexes on new resume tables: keep this instead of introducing an ORM for v1
 - `docx`: later follow-up for programmatic `docx` generation when the `pdf` path is stable
@@ -1185,7 +1245,7 @@ pnpm lint
 - keep `Review Queue` highlighted in the shell nav while the workspace is open
 - update shell active-nav logic so any `/job-finder/review-queue*` path keeps `Review Queue` highlighted
 - implement the workspace layout:
-  - top bar: job/company info, draft status, template selector, export state, approval actions
+  - top bar: job/company info, draft status, template selector, export action, approval actions
   - left rail: section outline, validation summary, page-budget warnings
   - main editor: structured section and bullet editing with include/exclude toggles, reorder, pin/lock
   - right rail: rendered HTML preview (stacked or tabbed with assistant panel)
@@ -1220,8 +1280,7 @@ pnpm lint
   1. receive the user message and current draft state
   2. call the AI client with the message, draft context, and available patch operations
   3. parse the response into `ResumeDraftPatch` operations
-  4. for small changes (1-2 patches): auto-apply with undo
-  5. for larger changes (3+ patches): show a diff preview before accepting
+  4. auto-apply the typed patches while preserving revision-backed recovery
 - implement patch application logic that respects lock/pin state:
   - if a patch targets a locked section or bullet, reject it with a structured conflict result
   - log the conflict in the assistant message response
@@ -1239,7 +1298,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-**Done when**: the assistant can receive user requests, propose typed patches, show diffs for large changes, auto-apply small changes, respect lock state, and persist the conversation. Undo works via revision snapshots.
+**Done when**: the assistant can receive user requests, propose grounded typed patches, auto-apply them safely, respect locked sections and bullets, persist the conversation, and leave revision snapshots for recovery without requiring a separate preview UI.
 
 ### Slice 10: Apply Integration And Staleness
 
@@ -1254,7 +1313,7 @@ pnpm lint
   - mark the draft stale when the draft is edited after approval
   - mark the draft stale when the selected job detail changes materially
   - mark the draft stale when template or page-budget settings change
-- update Review Queue summary rendering to show the new bridge fields: `resumeDraftStatus`, `resumeApprovedAt`, `resumeIsStale`
+- update Review Queue summary rendering to show the new `resumeReview` bridge state instead of inferring review readiness from legacy asset fields
 - wire the resume approval action from the workspace
 - add safe-stop behavior when the approved file is missing from disk
 - add orchestration tests for the approval, staleness, and apply-rejection paths
@@ -1274,6 +1333,14 @@ pnpm lint
 
 **Done when**: apply refuses without an approved non-stale PDF. Staleness triggers correctly. Review Queue shows resume approval state. All tests pass.
 
+**Status update (`2026-04-04`)**:
+
+- implemented apply refusal when the approved tailored PDF is missing on disk by injecting a main-process file verifier into the workspace service
+- implemented stale approval transitions when resume-affecting profile data, template settings, saved job details, or the approved draft itself change after approval
+- normalized approval display and apply lookup around `draft.approvedExportId` so stale legacy export flags no longer bypass the real approval source of truth
+- added service tests for profile-change, settings-change, saved-job-change, stale-after-edit, and missing-file apply-rejection paths
+- desktop UI now protects unsaved resume edits during actions and navigation, and the current follow-up priority is reliability of the shipped auto-apply patch flow rather than adding another preview surface
+
 ### Slice 11: Tests, QA, And Doc Updates
 
 **Goal**: comprehensive test coverage, visual QA, and documentation updates.
@@ -1288,13 +1355,16 @@ pnpm lint
 - add a repeatable desktop QA workflow or Playwright capture for:
   - initial generation
   - manual bullet editing
-  - assistant patch preview
+  - assistant-driven changes auto-applied with revision-backed recovery
   - locked content surviving regenerate
   - PDF export state and page-budget warnings
+  - review-queue entry into the dedicated resume workspace route
+  - resume approval followed by apply approval gating
+  - assistant-driven changes applied from a real chat interaction
 - update these docs:
   - `docs/STATUS.md`: reflect workspace implementation progress
-  - `docs/TRACKS.md`: update `JF-04` track status and focus
-  - `docs/modules/JOB_FINDER.md`: add workspace feature documentation
+  - `docs/TRACKS.md`: update the `Plan 007 Resume Workspace` track status and focus to match the current handoff state
+  - `docs/modules/JOB_FINDER.md`: add `Resume Workspace` feature documentation
   - `docs/CONTRACTS.md`: add the new contract schemas
   - `docs/ARCHITECTURE.md`: update package ownership for knowledge-base and research adapter
   - `docs/TESTING.md`: add the resume-workspace QA harness
@@ -1308,6 +1378,17 @@ pnpm docs:check
 ```
 
 **Done when**: all tests pass, desktop builds, doc checks pass, and the workspace lifecycle works end-to-end.
+
+**Status update (`2026-04-04`)**:
+
+- targeted verification now passes for `pnpm --filter @unemployed/job-finder test`, `pnpm --filter @unemployed/job-finder typecheck`, `pnpm --filter @unemployed/db test`, `pnpm --filter @unemployed/contracts test`, `pnpm --filter @unemployed/ai-providers test`, `pnpm --filter @unemployed/browser-agent typecheck`, `pnpm --filter @unemployed/browser-agent test`, `pnpm --filter @unemployed/desktop typecheck`, `pnpm --filter @unemployed/desktop lint`, `pnpm docs:check`, `pnpm lint`, and `pnpm --filter @unemployed/desktop ui:resume-workspace`
+- repo docs were updated to capture stale-approval behavior, missing-file apply safety, and the expectation that non-happy-path guards also receive targeted service coverage
+- `pnpm verify` is now unblocked by the earlier knowledge-base lint issue, but still depends on clearing any unrelated repo-wide lint fallout that surfaces during the full run
+- the scripted UI proof set now includes the dedicated `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty` harness for save-before-action and dirty-navigation coverage alongside the happy-path workspace capture
+
+Additional completion rule for this slice:
+
+- the implementing agent must leave behind a repeatable UI capture or QA harness plus saved screenshot artifacts that demonstrate the generation, edit, assistant, export, approval, and apply-gating states of the workspace on the current branch
 
 ## Codebase Patterns To Preserve
 
@@ -1496,7 +1577,7 @@ Desktop QA should also add a repeatable resume-workspace capture or harness so a
 
 - initial generation
 - manual bullet editing
-- assistant patch preview
+- assistant-driven changes auto-applied with revision-backed recovery
 - locked content surviving regenerate
 - `pdf` export state and page-budget warnings
 

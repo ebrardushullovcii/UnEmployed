@@ -98,7 +98,7 @@ export function DiscoveryScreen(props: {
               onViewProgress={() => setShowHistory(true)}
               searchPreferences={searchPreferences}
             />
-            <section className="flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-6 xl:h-full xl:min-h-0">
+            <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-6 xl:h-full xl:min-h-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Saved results</p>
                 <span className="inline-flex items-center rounded-(--radius-small) border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-(--tracking-heading) text-muted-foreground">0 jobs</span>

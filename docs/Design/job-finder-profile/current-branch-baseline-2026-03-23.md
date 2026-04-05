@@ -1,6 +1,8 @@
-# Current Branch Baseline (2026-03-23)
+# Historical Branch Baseline (2026-03-23)
 
-This note documents the current `codex/profile-resume-polish` visual baseline before the larger renderer refactor is merged in.
+This note documents the `codex/profile-resume-polish` visual baseline before the larger renderer refactor landed.
+
+Treat it as a historical regression note, not an active design brief.
 
 ## Why this exists
 

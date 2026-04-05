@@ -4,39 +4,39 @@
 
 Owns job discovery, drafting, application review, submission orchestration, and application tracking.
 
-## Early Scope
+## Current Product Shape
 
 - Candidate profile import and normalization
-- Browser-driven target-site discovery
-- Job-source debug-agent bootstrap for unfamiliar discovery targets
-- Custom per-job resume generation
-- Review-gated `Easy Apply` workflow for supported paths
-- Applications table with status, notes, attempt history, and failure reasons
+- Generic browser discovery across configured targets
+- Source-debug instruction learning for unfamiliar targets
+- Dedicated per-job resume workspace with grounded edits and approval gating
+- Review-gated supported apply flow with tracked attempts and safe-stop behavior
+- Applications tracking with attempt history and recovery context
 
-## Active Slice
+## Current Implementation
 
-- Current execution plan: `docs/exec-plans/active/002-job-finder-browser-apply.md`
-- Discovery expansion plan: `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md`
-- Source-debug orchestration plan (shipped): `docs/exec-plans/active/005-job-source-debug-agent.md`
-- Production-copy pass plan: `docs/exec-plans/active/006-profile-discovery-production-copy-pass.md`
+- Job Finder persists local state in SQLite and exposes typed contracts for profile data, saved jobs, resume workflows, application records, and discovery state.
+- Desktop surfaces for `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` are live.
+- Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback.
+- Discovery supports generic configured targets, retained run history, activity timelines, and reusable source-debug instruction artifacts.
+- The `Resume Workspace` under `/job-finder/review-queue/:jobId/resume` supports structured drafting, assistant patching, `pdf` export, approval, and apply-time safety checks.
+
+## Current And Queued Plans
+
 - Resume workspace plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
-- Discovery targets are site-specific and resolved automatically from their configured entrypoints
-- First submission path: `Easy Apply` only
-- First approval mode: `review-before-submit`
+- Automatic job apply plan: `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
+- Full-app copy pass plan: `docs/exec-plans/queued/009-full-app-production-copy-pass.md`
+- Browser efficiency and speed plan: `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md`
+- `008` intentionally defines the next queued direction toward autonomous single-job and queue submission, but the current shipped apply flow remains more conservative until that plan lands.
 
-## Current Implementation Snapshot
+## Completed Background Plans
 
-- Typed Job Finder contracts now cover profile/contact fields, stored resume-text extraction state, saved jobs, tailored assets, browser session state, application records, agent-provider status, and the desktop workspace snapshot
-- The desktop app renders `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` surfaces, with the Profile screen now centered on top-of-page resume intake and simpler add/remove editors for list-style candidate data
-- Desktop capture tooling now includes a profile-baseline flow that can hydrate a saved imported-profile snapshot and capture top-level shell tabs plus scrolled screenshots of every Profile subtab before renderer refactors land
-- Job Finder now supports an OpenAI-compatible provider seam for resume-text profile extraction, job-fit assessment, and resume tailoring, with deterministic fallbacks kept in place for tests and offline use
-- Browser discovery can run either through the deterministic catalog seed or a configurable dedicated Chrome-profile browser agent, enabled by default on desktop when not explicitly disabled, backed by a user-authenticated local profile
-- Discovery targets already support per-target custom instructions plus a shipped source-debug workflow that can learn, review, and verify reusable instructions for newly added sources from the Profile Preferences flow
-- The Discovery full-history view now keeps the current in-flight run visible alongside retained runs, marks the live run clearly, and auto-follows new activity until the user scrolls away
-- The planned UI polish pass keeps the current Profile fields and overall Discovery structure but trims developer-oriented copy, low-value statuses, and other text noise before broader capability expands again
-- Desktop actions can import `txt`, `md`, `pdf`, and `docx` resumes, reset stale profile/search state before re-analysis, extract resume text for the profile agent, analyze that text into structured candidate details including grouped skills and repeatable records, supplement partial model output with deterministic cleanup, render generated resume text into a fixed template set, and create tracked apply attempts through typed preload flows
-- The current tailored-resume path still maps a flat AI draft directly into a fixed-template `html` artifact, and the active next extension is a dedicated resume workspace with structured drafts, bounded employer research, source-backed editing, and `pdf`-first export
-- The next profile-model redesign is documented in `docs/exec-plans/active/003-job-finder-profile-information-architecture.md`, now refined against current ATS and hiring-platform patterns with a proposed split between candidate identity, eligibility, background, job-search preferences, and profile artifacts so the UI can separate ATS-critical facts from AI-derived resume content
+- Generic discovery background plan: `docs/exec-plans/completed/004-job-finder-generic-discovery.md`
+- Source-debug background plan: `docs/exec-plans/completed/005-job-source-debug-agent.md`
+
+## Historical Foundation
+
+- `docs/exec-plans/completed/002-job-finder-browser-apply.md` documents the original LinkedIn-first Job Finder slice that later work generalized.
 
 ## Agent Runtime Configuration
 
@@ -55,12 +55,13 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Input sources: plain text, Markdown, PDF, and DOCX resumes are imported and normalized into stored text before the AI profile/tailoring agent runs
 - Extraction path: `pdfjs-dist` handles PDF text recovery, `mammoth` handles DOCX raw-text extraction, and plain-text sources pass through directly
 - Output path: the AI agent produces the resume text and section content, then Job Finder renders that content into a small fixed template set instead of asking the model to invent document layout from scratch
-- Current artifact shape: generated resumes save a local HTML template file plus the underlying generated text content so the formatting layer stays inspectable and replaceable later
-- Next planned artifact path: keep `html` as the render and debug layer, add `pdf` as the first uploadable artifact, and leave `docx` as a later follow-up once the dedicated workspace is stable
+- Current artifact shape: the workspace keeps structured `ResumeDraft` data as the editable source of truth, renders through HTML for preview/debug, exports a real local PDF artifact, and records export metadata plus approval state for review/apply flows
+- Follow-up artifact path: keep `html` as the intermediate render/debug layer, keep `pdf` as the required upload artifact, and leave `docx` as a later follow-up once the workspace UX is fully hardened
 
 ## Package Boundaries
 
 - Contracts from `packages/contracts`
+- Agent runtime orchestration from `packages/browser-agent`
 - Browser control from `packages/browser-runtime`
 - Storage from `packages/db`
 - Shared retrieval from `packages/knowledge-base`

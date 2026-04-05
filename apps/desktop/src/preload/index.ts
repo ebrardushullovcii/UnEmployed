@@ -5,7 +5,12 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderResumeWorkspace,
+  JobFinderRepositoryState,
   JobFinderSettings,
+  ResumeAssistantMessage,
+  ResumeDraft,
+  ResumeDraftPatch,
   SourceDebugRunRecord,
   SourceDebugRunDetails,
   SaveJobFinderWorkspaceInput,
@@ -223,6 +228,50 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:dismiss-discovery-job", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
+    getResumeWorkspace: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:get-resume-workspace", {
+        jobId,
+      }) as Promise<JobFinderResumeWorkspace>,
+    saveResumeDraft: (draft: ResumeDraft) =>
+      ipcRenderer.invoke("job-finder:save-resume-draft", {
+        draft,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    regenerateResumeDraft: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:regenerate-resume-draft", {
+        jobId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    regenerateResumeSection: (jobId: string, sectionId: string) =>
+      ipcRenderer.invoke("job-finder:regenerate-resume-section", {
+        jobId,
+        sectionId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    exportResumePdf: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:export-resume-pdf", {
+        jobId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    approveResume: (jobId: string, exportId: string) =>
+      ipcRenderer.invoke("job-finder:approve-resume", {
+        jobId,
+        exportId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    clearResumeApproval: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:clear-resume-approval", {
+        jobId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    applyResumePatch: (patch: ResumeDraftPatch, revisionReason?: string | null) =>
+      ipcRenderer.invoke("job-finder:apply-resume-patch", {
+        patch,
+        revisionReason: revisionReason ?? null,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    getResumeAssistantMessages: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:get-resume-assistant-messages", {
+        jobId,
+      }) as Promise<readonly ResumeAssistantMessage[]>,
+    sendResumeAssistantMessage: (jobId: string, content: string) =>
+      ipcRenderer.invoke("job-finder:send-resume-assistant-message", {
+        jobId,
+        content,
+      }) as Promise<readonly ResumeAssistantMessage[]>,
     generateResume: (jobId: string) =>
       ipcRenderer.invoke("job-finder:generate-resume", {
         jobId,
@@ -234,6 +283,15 @@ const desktopApi = {
     ...(testApiEnabled
       ? {
           test: {
+            loadResumeWorkspaceDemo: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-load-resume-workspace-demo",
+              ) as Promise<JobFinderWorkspaceSnapshot>,
+            resetWorkspaceState: (state: JobFinderRepositoryState) =>
+              ipcRenderer.invoke(
+                "job-finder:test-reset-workspace-state",
+                state,
+              ) as Promise<JobFinderWorkspaceSnapshot>,
             importResumeFromPath: (sourcePath: string) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
                 sourcePath,

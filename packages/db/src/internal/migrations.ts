@@ -40,7 +40,7 @@ export function runMigrations(database: DatabaseSync): void {
     .get() as { version?: number } | undefined;
   const currentVersion = Number(versionRow?.version ?? 0);
 
-  if (currentVersion >= 2) {
+  if (currentVersion >= 3) {
     return;
   }
 
@@ -106,6 +106,80 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(2, "job_finder_source_debug_artifacts");
+    }
+
+    if (currentVersion < 3) {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS resume_drafts (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_drafts_job_id_idx
+          ON resume_drafts(job_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS resume_draft_revisions (
+          id TEXT PRIMARY KEY,
+          draft_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_draft_revisions_draft_id_idx
+          ON resume_draft_revisions(draft_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS resume_export_artifacts (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          draft_id TEXT NOT NULL,
+          exported_at TEXT NOT NULL,
+          is_approved INTEGER NOT NULL DEFAULT 0,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_export_artifacts_job_id_idx
+          ON resume_export_artifacts(job_id, exported_at DESC);
+
+        CREATE INDEX IF NOT EXISTS resume_export_artifacts_draft_id_idx
+          ON resume_export_artifacts(draft_id, exported_at DESC);
+
+        CREATE TABLE IF NOT EXISTS resume_research_artifacts (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          fetched_at TEXT NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_research_artifacts_job_id_idx
+          ON resume_research_artifacts(job_id, fetched_at DESC);
+
+        CREATE TABLE IF NOT EXISTS resume_validation_results (
+          id TEXT PRIMARY KEY,
+          draft_id TEXT NOT NULL,
+          validated_at TEXT NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_validation_results_draft_id_idx
+          ON resume_validation_results(draft_id, validated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS resume_assistant_messages (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_assistant_messages_job_id_idx
+          ON resume_assistant_messages(job_id, created_at ASC);
+      `);
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(3, "job_finder_resume_workspace");
     }
 
     database.exec("COMMIT");

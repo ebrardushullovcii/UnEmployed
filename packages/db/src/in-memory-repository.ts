@@ -6,6 +6,12 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ResumeAssistantMessageSchema,
+  ResumeDraftRevisionSchema,
+  ResumeDraftSchema,
+  ResumeExportArtifactSchema,
+  ResumeResearchArtifactSchema,
+  ResumeValidationResultSchema,
   SavedJobSchema,
   SourceDebugEvidenceRefSchema,
   SourceDebugRunRecordSchema,
@@ -36,6 +42,123 @@ function upsertById<TValue extends { id: string }>(
   return nextValues;
 }
 
+function sortResumeDrafts<TValue extends { id?: string; updatedAt: string }>(
+  values: readonly TValue[],
+): TValue[] {
+  return [...values].sort(
+    (left, right) => {
+      const difference = new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      return difference !== 0
+        ? difference
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
+          );
+    },
+  );
+}
+
+function sortNewestFirst<TValue extends { id?: string; createdAt: string }>(
+  values: readonly TValue[],
+): TValue[] {
+  return [...values].sort(
+    (left, right) => {
+      const difference = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+      return difference !== 0
+        ? difference
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
+          );
+    },
+  );
+}
+
+function sortValidationResults<TValue extends { id?: string; validatedAt: string }>(
+  values: readonly TValue[],
+): TValue[] {
+  return [...values].sort(
+    (left, right) => {
+      const difference = new Date(right.validatedAt).getTime() - new Date(left.validatedAt).getTime();
+      return difference !== 0
+        ? difference
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
+          );
+    },
+  );
+}
+
+function sortExports<TValue extends { id?: string; exportedAt: string }>(
+  values: readonly TValue[],
+): TValue[] {
+  return [...values].sort(
+    (left, right) => {
+      const difference = new Date(right.exportedAt).getTime() - new Date(left.exportedAt).getTime();
+      return difference !== 0
+        ? difference
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
+          );
+    },
+  );
+}
+
+function sortResearch<TValue extends { id?: string; fetchedAt: string }>(
+  values: readonly TValue[],
+): TValue[] {
+  return [...values].sort(
+    (left, right) => {
+      const difference = new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime();
+      return difference !== 0
+        ? difference
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
+          );
+    },
+  );
+}
+
+function sortMessages<TValue extends { id?: string; createdAt: string }>(
+  values: readonly TValue[],
+): TValue[] {
+  return [...values].sort(
+    (left, right) => {
+      const difference = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+      return difference !== 0
+        ? difference
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
+          );
+    },
+  );
+}
+
+function clearApprovedResumeExportsForJob<TValue extends { jobId: string; isApproved: boolean }>(
+  values: readonly TValue[],
+  jobId: string,
+): TValue[] {
+  return values.map((entry) =>
+    entry.jobId === jobId ? { ...entry, isApproved: false } : entry,
+    );
+}
+
+function resolveApprovedExportId(
+  currentArtifacts: readonly { id: string; draftId: string; jobId: string }[],
+  draft: { approvedExportId: string | null; id: string; jobId: string },
+): string | null {
+  if (!draft.approvedExportId) {
+    return null;
+  }
+
+  return currentArtifacts.some(
+    (artifact) =>
+      artifact.id === draft.approvedExportId &&
+      artifact.draftId === draft.id &&
+      artifact.jobId === draft.jobId,
+  )
+    ? draft.approvedExportId
+    : null;
+}
+
 export function createInMemoryJobFinderRepository(
   seed: JobFinderRepositorySeed,
 ): JobFinderRepository {
@@ -54,6 +177,12 @@ export function createInMemoryJobFinderRepository(
       state.searchPreferences = normalizedSeed.searchPreferences;
       state.savedJobs = normalizedSeed.savedJobs;
       state.tailoredAssets = normalizedSeed.tailoredAssets;
+      state.resumeDrafts = normalizedSeed.resumeDrafts;
+      state.resumeDraftRevisions = normalizedSeed.resumeDraftRevisions;
+      state.resumeExportArtifacts = normalizedSeed.resumeExportArtifacts;
+      state.resumeResearchArtifacts = normalizedSeed.resumeResearchArtifacts;
+      state.resumeValidationResults = normalizedSeed.resumeValidationResults;
+      state.resumeAssistantMessages = normalizedSeed.resumeAssistantMessages;
       state.applicationRecords = normalizedSeed.applicationRecords;
       state.applicationAttempts = normalizedSeed.applicationAttempts;
       state.sourceDebugRuns = normalizedSeed.sourceDebugRuns;
@@ -95,12 +224,348 @@ export function createInMemoryJobFinderRepository(
       state.savedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
       return Promise.resolve();
     },
+    replaceSavedJobsAndClearResumeApproval({
+      savedJobs,
+      draft,
+      staleReason,
+      tailoredAsset,
+    }) {
+      const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue({
+          ...draft,
+          staleReason,
+          approvedAt: null,
+          approvedExportId: null,
+        }),
+      );
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
+
+      state.savedJobs = normalizedJobs;
+      state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+        state.resumeExportArtifacts,
+        normalizedDraft.jobId,
+      );
+      if (normalizedAsset) {
+        state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
+      }
+      return Promise.resolve();
+    },
     listTailoredAssets() {
       return Promise.resolve(cloneValue(state.tailoredAssets));
     },
     upsertTailoredAsset(tailoredAsset) {
       const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
       state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
+      return Promise.resolve();
+    },
+    listResumeDrafts() {
+      return Promise.resolve(sortResumeDrafts(cloneValue(state.resumeDrafts)));
+    },
+    getResumeDraftByJobId(jobId) {
+      const draft = sortResumeDrafts(state.resumeDrafts).find(
+        (entry) => entry.jobId === jobId,
+      );
+      return Promise.resolve(draft ? cloneValue(draft) : null);
+    },
+    upsertResumeDraft(draft) {
+      const normalizedDraft = ResumeDraftSchema.parse(cloneValue(draft));
+      state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      return Promise.resolve();
+    },
+    listResumeDraftRevisions(draftId) {
+      const values = draftId
+        ? state.resumeDraftRevisions.filter((entry) => entry.draftId === draftId)
+        : state.resumeDraftRevisions;
+      return Promise.resolve(sortNewestFirst(cloneValue(values)));
+    },
+    upsertResumeDraftRevision(revision) {
+      const normalizedRevision = ResumeDraftRevisionSchema.parse(
+        cloneValue(revision),
+      );
+      state.resumeDraftRevisions = upsertById(
+        state.resumeDraftRevisions,
+        normalizedRevision,
+      );
+      return Promise.resolve();
+    },
+    listResumeExportArtifacts(options) {
+      const values = state.resumeExportArtifacts.filter((entry) => {
+        if (options?.jobId && entry.jobId !== options.jobId) {
+          return false;
+        }
+
+        if (options?.draftId && entry.draftId !== options.draftId) {
+          return false;
+        }
+
+        return true;
+      });
+      return Promise.resolve(sortExports(cloneValue(values)));
+    },
+    upsertResumeExportArtifact(artifact) {
+      const normalizedArtifact = ResumeExportArtifactSchema.parse(
+        cloneValue(artifact),
+      );
+      state.resumeExportArtifacts = upsertById(
+        state.resumeExportArtifacts,
+        normalizedArtifact,
+      );
+      return Promise.resolve();
+    },
+    listResumeResearchArtifacts(jobId) {
+      const values = jobId
+        ? state.resumeResearchArtifacts.filter((entry) => entry.jobId === jobId)
+        : state.resumeResearchArtifacts;
+      return Promise.resolve(sortResearch(cloneValue(values)));
+    },
+    upsertResumeResearchArtifact(artifact) {
+      const normalizedArtifact = ResumeResearchArtifactSchema.parse(
+        cloneValue(artifact),
+      );
+      state.resumeResearchArtifacts = upsertById(
+        state.resumeResearchArtifacts,
+        normalizedArtifact,
+      );
+      return Promise.resolve();
+    },
+    listResumeValidationResults(draftId) {
+      const values = draftId
+        ? state.resumeValidationResults.filter((entry) => entry.draftId === draftId)
+        : state.resumeValidationResults;
+      return Promise.resolve(sortValidationResults(cloneValue(values)));
+    },
+    upsertResumeValidationResult(validationResult) {
+      const normalizedValidation = ResumeValidationResultSchema.parse(
+        cloneValue(validationResult),
+      );
+      state.resumeValidationResults = upsertById(
+        state.resumeValidationResults,
+        normalizedValidation,
+      );
+      return Promise.resolve();
+    },
+    listResumeAssistantMessages(jobId) {
+      const values = jobId
+        ? state.resumeAssistantMessages.filter((entry) => entry.jobId === jobId)
+        : state.resumeAssistantMessages;
+      return Promise.resolve(sortMessages(cloneValue(values)));
+    },
+    upsertResumeAssistantMessage(message) {
+      const normalizedMessage = ResumeAssistantMessageSchema.parse(
+        cloneValue(message),
+      );
+      state.resumeAssistantMessages = upsertById(
+        state.resumeAssistantMessages,
+        normalizedMessage,
+      );
+      return Promise.resolve();
+    },
+    saveResumeDraftWithValidation({ draft, validation, tailoredAsset }) {
+      const parsedDraft = ResumeDraftSchema.parse(
+        cloneValue(
+          draft.approvedExportId
+            ? draft
+            : { ...draft, approvedAt: null, approvedExportId: null },
+        ),
+      );
+      const normalizedValidation = ResumeValidationResultSchema.parse(
+        cloneValue(validation),
+      );
+      const normalizedDraft = {
+        ...parsedDraft,
+        approvedExportId: resolveApprovedExportId(state.resumeExportArtifacts, parsedDraft),
+      };
+      if (!normalizedDraft.approvedExportId) {
+        normalizedDraft.approvedAt = null;
+      }
+
+      if (normalizedValidation.draftId !== normalizedDraft.id) {
+        throw new Error("Resume validation result does not belong to the provided draft.");
+      }
+
+      const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      const nextResumeExportArtifacts = clearApprovedResumeExportsForJob(
+        state.resumeExportArtifacts,
+        normalizedDraft.jobId,
+      ).map((artifact) =>
+        artifact.jobId === normalizedDraft.jobId && artifact.id === normalizedDraft.approvedExportId
+          ? { ...artifact, isApproved: true }
+          : artifact,
+      );
+      const nextResumeValidationResults = upsertById(
+        state.resumeValidationResults,
+        normalizedValidation,
+      );
+      const nextTailoredAssets = tailoredAsset
+        ? (() => {
+            const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+            if (normalizedAsset.jobId !== normalizedDraft.jobId) {
+              throw new Error("Tailored asset job does not match the provided draft.");
+            }
+            return upsertById(state.tailoredAssets, normalizedAsset);
+          })()
+        : state.tailoredAssets;
+
+      state.resumeDrafts = nextResumeDrafts;
+      state.resumeExportArtifacts = nextResumeExportArtifacts;
+      state.resumeValidationResults = nextResumeValidationResults;
+      state.tailoredAssets = nextTailoredAssets;
+      return Promise.resolve();
+    },
+    applyResumePatchWithRevision({ draft, revision, validation, tailoredAsset }) {
+      const parsedDraft = ResumeDraftSchema.parse(
+        cloneValue(
+          draft.approvedExportId
+            ? draft
+            : { ...draft, approvedAt: null, approvedExportId: null },
+        ),
+      );
+      const normalizedRevision = ResumeDraftRevisionSchema.parse(
+        cloneValue(revision),
+      );
+      const normalizedValidation = ResumeValidationResultSchema.parse(
+        cloneValue(validation),
+      );
+      const normalizedDraft = {
+        ...parsedDraft,
+        approvedExportId: resolveApprovedExportId(state.resumeExportArtifacts, parsedDraft),
+      };
+      if (!normalizedDraft.approvedExportId) {
+        normalizedDraft.approvedAt = null;
+      }
+
+      if (normalizedRevision.draftId !== normalizedDraft.id) {
+        throw new Error("Resume revision does not belong to the provided draft.");
+      }
+
+      if (normalizedValidation.draftId !== normalizedDraft.id) {
+        throw new Error("Resume validation result does not belong to the provided draft.");
+      }
+
+      const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      const nextResumeExportArtifacts = clearApprovedResumeExportsForJob(
+        state.resumeExportArtifacts,
+        normalizedDraft.jobId,
+      ).map((artifact) =>
+        artifact.jobId === normalizedDraft.jobId && artifact.id === normalizedDraft.approvedExportId
+          ? { ...artifact, isApproved: true }
+          : artifact,
+      );
+      const nextResumeDraftRevisions = upsertById(
+        state.resumeDraftRevisions,
+        normalizedRevision,
+      );
+      const nextResumeValidationResults = upsertById(
+        state.resumeValidationResults,
+        normalizedValidation,
+      );
+      const nextTailoredAssets = tailoredAsset
+        ? (() => {
+            const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+            if (normalizedAsset.jobId !== normalizedDraft.jobId) {
+              throw new Error("Tailored asset job does not match the provided draft.");
+            }
+            return upsertById(state.tailoredAssets, normalizedAsset);
+          })()
+        : state.tailoredAssets;
+
+      state.resumeDrafts = nextResumeDrafts;
+      state.resumeExportArtifacts = nextResumeExportArtifacts;
+      state.resumeDraftRevisions = nextResumeDraftRevisions;
+      state.resumeValidationResults = nextResumeValidationResults;
+      state.tailoredAssets = nextTailoredAssets;
+      return Promise.resolve();
+    },
+    approveResumeExport({ draft, exportArtifact, validation, tailoredAsset }) {
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue({
+          ...draft,
+          approvedExportId: exportArtifact.id,
+        }),
+      );
+      const normalizedArtifact = ResumeExportArtifactSchema.parse(
+        cloneValue({ ...exportArtifact, isApproved: true }),
+      );
+
+      if (normalizedArtifact.draftId !== normalizedDraft.id) {
+        throw new Error("Approved export does not belong to the provided resume draft.");
+      }
+
+      if (normalizedArtifact.jobId !== normalizedDraft.jobId) {
+        throw new Error("Approved export job does not match the provided resume draft.");
+      }
+
+      const normalizedValidation = validation
+        ? ResumeValidationResultSchema.parse(cloneValue(validation))
+        : null;
+      if (normalizedValidation && normalizedValidation.draftId !== normalizedDraft.id) {
+        throw new Error("Resume validation result does not belong to the provided draft.");
+      }
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
+
+      const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      const nextResumeExportArtifacts = upsertById(
+        state.resumeExportArtifacts,
+        normalizedArtifact,
+      ).map((entry) =>
+        entry.jobId === normalizedArtifact.jobId && entry.id !== normalizedArtifact.id
+          ? { ...entry, isApproved: false }
+          : entry,
+      );
+      const nextResumeValidationResults = normalizedValidation
+        ? upsertById(state.resumeValidationResults, normalizedValidation)
+        : state.resumeValidationResults;
+      const nextTailoredAssets = normalizedAsset
+        ? upsertById(state.tailoredAssets, normalizedAsset)
+        : state.tailoredAssets;
+
+      state.resumeDrafts = nextResumeDrafts;
+      state.resumeExportArtifacts = nextResumeExportArtifacts;
+      state.resumeValidationResults = nextResumeValidationResults;
+      state.tailoredAssets = nextTailoredAssets;
+      return Promise.resolve();
+    },
+    clearResumeApproval({ draft, staleReason, tailoredAsset }) {
+      const normalizedDraft = ResumeDraftSchema.parse(
+        cloneValue({
+          ...draft,
+          staleReason,
+          approvedAt: null,
+            approvedExportId: null,
+        }),
+      );
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
+
+      const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      const nextResumeExportArtifacts = clearApprovedResumeExportsForJob(
+        state.resumeExportArtifacts,
+        normalizedDraft.jobId,
+      );
+      const nextTailoredAssets = normalizedAsset
+        ? upsertById(state.tailoredAssets, normalizedAsset)
+        : state.tailoredAssets;
+
+      state.resumeDrafts = nextResumeDrafts;
+      state.resumeExportArtifacts = nextResumeExportArtifacts;
+      state.tailoredAssets = nextTailoredAssets;
       return Promise.resolve();
     },
     listApplicationRecords() {

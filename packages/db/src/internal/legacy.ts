@@ -6,6 +6,12 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ResumeAssistantMessageSchema,
+  ResumeDraftRevisionSchema,
+  ResumeDraftSchema,
+  ResumeExportArtifactSchema,
+  ResumeResearchArtifactSchema,
+  ResumeValidationResultSchema,
   SavedJobSchema,
   SourceDebugEvidenceRefSchema,
   SourceDebugRunRecordSchema,
@@ -280,6 +286,24 @@ export async function readLegacySeed(
     const tailoredAssets = TailoredAssetSchema.array().safeParse(
       migratedData.tailoredAssets,
     );
+    const resumeDrafts = ResumeDraftSchema.array().safeParse(
+      migratedData.resumeDrafts ?? [],
+    );
+    const resumeDraftRevisions = ResumeDraftRevisionSchema.array().safeParse(
+      migratedData.resumeDraftRevisions ?? [],
+    );
+    const resumeExportArtifacts = ResumeExportArtifactSchema.array().safeParse(
+      migratedData.resumeExportArtifacts ?? [],
+    );
+    const resumeResearchArtifacts = ResumeResearchArtifactSchema.array().safeParse(
+      migratedData.resumeResearchArtifacts ?? [],
+    );
+    const resumeValidationResults = ResumeValidationResultSchema.array().safeParse(
+      migratedData.resumeValidationResults ?? [],
+    );
+    const resumeAssistantMessages = ResumeAssistantMessageSchema.array().safeParse(
+      migratedData.resumeAssistantMessages ?? [],
+    );
     const applicationRecords = ApplicationRecordSchema.array().safeParse(
       migratedData.applicationRecords,
     );
@@ -317,6 +341,24 @@ export async function readLegacySeed(
       tailoredAssets: tailoredAssets.success
         ? tailoredAssets.data
         : cloneValue(seed.tailoredAssets),
+      resumeDrafts: resumeDrafts.success
+        ? resumeDrafts.data
+        : cloneValue(seed.resumeDrafts),
+      resumeDraftRevisions: resumeDraftRevisions.success
+        ? resumeDraftRevisions.data
+        : cloneValue(seed.resumeDraftRevisions),
+      resumeExportArtifacts: resumeExportArtifacts.success
+        ? resumeExportArtifacts.data
+        : cloneValue(seed.resumeExportArtifacts),
+      resumeResearchArtifacts: resumeResearchArtifacts.success
+        ? resumeResearchArtifacts.data
+        : cloneValue(seed.resumeResearchArtifacts),
+      resumeValidationResults: resumeValidationResults.success
+        ? resumeValidationResults.data
+        : cloneValue(seed.resumeValidationResults),
+      resumeAssistantMessages: resumeAssistantMessages.success
+        ? resumeAssistantMessages.data
+        : cloneValue(seed.resumeAssistantMessages),
       applicationRecords: applicationRecords.success
         ? applicationRecords.data
         : cloneValue(seed.applicationRecords),

@@ -4,7 +4,9 @@
 
 Owns interview prep, live transcript context, screenshot capture, and suggestion generation.
 
-## Early Scope
+## Planned Scope
+
+- This module is planned but not yet driving any active or queued exec plan.
 
 - Prep workspace for interview context
 - Full chat/panel interface

@@ -1,9 +1,9 @@
-import { AgentProviderStatusSchema, JobPostingSchema, type JobPosting, type ToolCall } from "@unemployed/contracts";
+import { AgentProviderStatusSchema, ResumeDraftPatchSchema, type ToolCall } from "@unemployed/contracts";
 import {
   JobFitAssessmentSchema,
   OpenAiCompatibleJobFinderAiClientOptionsSchema,
+  ResumeAssistantReplySchema,
   ResumeProfileExtractionSchema,
-  TailoredResumeDraftSchema,
   type AgentCapableJobFinderAiClient,
   type JobFinderAiClient,
   type OpenAiCompatibleJobFinderAiClientOptions,
@@ -11,175 +11,24 @@ import {
 } from "./shared";
 import {
   buildDeterministicResumeProfileExtraction,
-  buildGenericCanonicalUrl,
-  buildGenericJobId,
-  buildInvalidJobSample,
   completeResumeExtraction,
   createDeterministicJobFinderAiClient,
-  describeInvalidFieldCounts,
   uniqueStrings,
 } from "./deterministic";
-
-function summarizeError(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
-  }
-
-  return "Unknown error";
-}
-
-function logFallbackError(operation: string, error: unknown): void {
-  console.error(`[AI Provider] ${operation} failed; falling back to deterministic client.`, error);
-}
-
-function isTextContentPart(value: unknown): value is { text: string } {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      "text" in value &&
-      typeof value.text === "string",
-  );
-}
-
-function extractContentString(rawContent: unknown): string {
-  if (typeof rawContent === "string") {
-    return rawContent;
-  }
-
-  if (Array.isArray(rawContent)) {
-    return rawContent
-      .flatMap((entry) => {
-        if (typeof entry === "string") {
-          return [entry];
-        }
-
-        if (isTextContentPart(entry)) {
-          return [entry.text];
-        }
-
-        return [];
-      })
-      .join("\n");
-  }
-
-  return "";
-}
-
-function extractJsonString(rawContent: string): string {
-  const fencedMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/i);
-
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
-  }
-
-  const firstBraceIndex = rawContent.indexOf("{");
-  const lastBraceIndex = rawContent.lastIndexOf("}");
-
-  if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
-    return rawContent.slice(firstBraceIndex, lastBraceIndex + 1);
-  }
-
-  return rawContent.trim();
-}
-
-type ChatCompletionsPayload = {
-  choices?: Array<{
-    message?: {
-      content?: string;
-      tool_calls?: Array<{
-        id: string;
-        type: string;
-        function: {
-          name: string;
-          arguments: string;
-        };
-      }>;
-    };
-  }>;
-  error?: {
-    message?: string;
-  };
-};
-
-const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "flexible"]);
-
-async function parseModelJsonResponse(response: Response): Promise<unknown> {
-  const rawBody = await response.text();
-  const payload = rawBody.length > 0
-    ? (() => {
-        try {
-          return JSON.parse(rawBody) as {
-            choices?: Array<{
-              message?: {
-                content?: unknown;
-              };
-            }>;
-            error?: {
-              message?: string;
-            };
-          };
-        } catch {
-          return null;
-        }
-      })()
-    : null;
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error?.message ??
-        `Model request failed with status ${response.status}`,
-    );
-  }
-
-  if (!payload) {
-    throw new Error("Model returned a non-JSON response");
-  }
-
-  const rawContent = extractContentString(
-    payload.choices?.[0]?.message?.content,
-  );
-  const jsonString = extractJsonString(rawContent);
-
-  try {
-    return JSON.parse(jsonString) as unknown;
-  } catch (error) {
-    throw new Error(
-      `Model returned invalid JSON: ${error instanceof Error ? error.message : "Unknown parse error"}`,
-    );
-  }
-}
-
-async function parseResponsePayload(response: Response): Promise<ChatCompletionsPayload> {
-  const rawBody = await response.text();
-
-  let payload: ChatCompletionsPayload | null = null;
-
-  if (rawBody.length > 0) {
-    try {
-      payload = JSON.parse(rawBody) as ChatCompletionsPayload;
-    } catch {
-      payload = null;
-    }
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error?.message ??
-        `Chat request failed with status ${response.status}`,
-    );
-  }
-
-  if (!payload) {
-    throw new Error("Chat request returned a non-JSON response");
-  }
-
-  return payload;
-}
-
-function buildChatCompletionsUrl(baseUrl: string): string {
-  const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  return new URL("chat/completions", normalizedBaseUrl).toString();
-}
+import {
+  completeTailoredResumeDraft,
+  logFallbackError,
+  summarizeError,
+} from "./openai-compatible-shared";
+import {
+  buildChatCompletionsUrl,
+  parseModelJsonResponse,
+  parseResponsePayload,
+} from "./openai-compatible-transport";
+import {
+  buildJobsExtractionPrompt,
+  normalizeExtractedJobs,
+} from "./openai-compatible-jobs";
 
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions,
@@ -298,6 +147,50 @@ export function createOpenAiCompatibleJobFinderAiClient(
         analysisProviderLabel: status.label,
       });
     },
+    async createResumeDraft(input) {
+      const payload = await fetchModelJson(
+        [
+          "You create a structured, grounded tailored resume draft for a job.",
+          "Return JSON only.",
+          "Use the provided evidence and research only to prioritize or reframe existing candidate facts.",
+          "Never invent candidate dates, titles, employers, metrics, or credentials.",
+          "Keep the output ATS-friendly and concise.",
+        ].join(" "),
+        input,
+      );
+      return completeTailoredResumeDraft(payload, input);
+    },
+    async reviseResumeDraft(input) {
+      const payload = await fetchModelJson(
+        [
+          "You are a resume editing assistant.",
+          "Return JSON only with content and typed patches.",
+          "Patches must make bounded edits to the supplied draft rather than rewriting the whole resume.",
+          "Do not invent candidate facts.",
+          "Avoid touching locked content by leaving it unchanged.",
+        ].join(" "),
+        input,
+      );
+      const normalizedPayload =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+      const validatedPatches = Array.isArray(normalizedPayload.patches)
+        ? normalizedPayload.patches.flatMap((patch) => {
+            const parsedPatch = ResumeDraftPatchSchema.safeParse(patch);
+            return parsedPatch.success ? [parsedPatch.data] : [];
+          })
+        : [];
+
+      return ResumeAssistantReplySchema.parse({
+        ...normalizedPayload,
+        patches: validatedPatches,
+        content:
+          typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
+            ? normalizedPayload.content
+            : "I could not turn that request into a safe grounded edit, so no changes were applied.",
+      });
+    },
     async tailorResume(input) {
       const payload = await fetchModelJson(
         [
@@ -309,7 +202,13 @@ export function createOpenAiCompatibleJobFinderAiClient(
         ].join(" "),
         input,
       );
-      return TailoredResumeDraftSchema.parse(payload);
+      return completeTailoredResumeDraft(payload, {
+        profile: input.profile,
+        searchPreferences: input.searchPreferences,
+        settings: input.settings,
+        job: input.job,
+        resumeText: input.resumeText,
+      });
     },
     async assessJobFit(input) {
       const payload = await fetchModelJson(
@@ -338,185 +237,24 @@ export function createOpenAiCompatibleJobFinderAiClient(
           return "the configured job site";
         }
       })();
-      const systemPrompt =
-        input.pageType === "search_results"
-          ? [
-              `You extract job listings from a careers or job-search page on ${pageHostLabel}.`,
-              'Return JSON with a "jobs" array.',
-              "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-              "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description (short summary from the listing), applyPath, and easyApplyEligible.",
-              'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
-              'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
-              'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
-              "If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.",
-              "Do not invent companies, locations, or URLs.",
-              `Return at most ${effectiveMaxJobs} jobs.`,
-            ].join(" ")
-          : [
-              `You extract one structured job posting from a job-detail page on ${pageHostLabel}.`,
-              'Return JSON with a "jobs" array containing one job object.',
-              "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-              "Each job should include canonicalUrl, title, company, location, salaryText (or null), description (full job description text), applyPath, and easyApplyEligible.",
-              'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
-              'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
-              "Use the page URL as the source of truth for canonicalUrl whenever available.",
-              'If the page is not clearly a job detail page, return { "jobs": [] }.',
-            ].join(" ");
+      const systemPrompt = buildJobsExtractionPrompt({
+        pageHostLabel,
+        pageType: input.pageType,
+        effectiveMaxJobs,
+      });
 
       const payload = await fetchModelJson(systemPrompt, {
         pageUrl: input.pageUrl,
         pageText: input.pageText.slice(0, 12000),
       });
 
-      const toStr = (value: unknown): string => {
-        if (typeof value === "string") return value;
-        if (typeof value === "number") return String(value);
-        return "";
-      };
-
-      const toStringArray = (value: unknown): string[] => {
-        if (Array.isArray(value)) {
-          return value.flatMap((entry) => {
-            const normalized = toStr(entry).trim();
-            return normalized ? [normalized] : [];
-          });
-        }
-
-        const normalized = toStr(value).trim();
-        return normalized ? [normalized] : [];
-      };
-
-      const toWorkModeArray = (value: unknown): string[] => {
-        return toStringArray(value)
-          .flatMap((entry) => entry.split(","))
-          .map((entry) => entry.trim().toLowerCase())
-          .filter((entry) => supportedWorkModes.has(entry));
-      };
-
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        !Array.isArray((payload as { jobs?: unknown }).jobs)
-      ) {
-        throw new Error(
-          `[AI Provider] Expected a top-level jobs array when extracting jobs from ${pageHostLabel}, received: ${JSON.stringify(payload)}`,
-        );
-      }
-
-      const rawJobCandidates = (payload as { jobs: unknown[] }).jobs;
-      const rawJobs: Array<Record<string, unknown>> = [];
-
-      const parsedJobs: JobPosting[] = [];
-      let skippedJobs = 0;
-      const invalidFieldCounts = new Map<string, number>();
-      const invalidSamples: string[] = [];
-
-      for (const candidate of rawJobCandidates) {
-        if (
-          candidate &&
-          typeof candidate === "object" &&
-          !Array.isArray(candidate)
-        ) {
-          rawJobs.push(candidate as Record<string, unknown>);
-          continue;
-        }
-
-        skippedJobs += 1;
-        invalidFieldCounts.set(
-          "payload_shape",
-          (invalidFieldCounts.get("payload_shape") ?? 0) + 1,
-        );
-        if (invalidSamples.length < 3) {
-          invalidSamples.push(JSON.stringify({ invalidItem: candidate }));
-        }
-      }
-
-      for (const raw of rawJobs) {
-        if (parsedJobs.length >= effectiveMaxJobs) {
-          break;
-        }
-
-        const rawSourceJobId = toStr(raw.sourceJobId);
-        const rawCanonicalUrl =
-          toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link);
-
-        const fallbackUrl =
-          input.pageType === "job_detail" ? input.pageUrl : "";
-        const derivedCanonicalUrl = buildGenericCanonicalUrl(
-          rawCanonicalUrl || fallbackUrl,
-          input.pageUrl,
-        );
-        const derivedSourceJobId =
-          rawSourceJobId || buildGenericJobId(derivedCanonicalUrl);
-
-        if (!derivedCanonicalUrl || !derivedSourceJobId) {
-          skippedJobs += 1;
-          invalidFieldCounts.set(
-            "stable_identity",
-            (invalidFieldCounts.get("stable_identity") ?? 0) + 1,
-          );
-          continue;
-        }
-
-        const candidate = {
-          source: "target_site" as const,
-          sourceJobId: derivedSourceJobId,
-          discoveryMethod: "browser_agent" as const,
-          canonicalUrl: derivedCanonicalUrl,
-          title: toStr(raw.title),
-          company: toStr(raw.company),
-          location: toStr(raw.location),
-          workMode: toWorkModeArray(raw.workMode),
-          applyPath:
-            raw.applyPath === "easy_apply" ||
-            raw.applyPath === "external_redirect" ||
-            raw.applyPath === "unknown"
-              ? raw.applyPath
-              : "unknown",
-          easyApplyEligible: raw.easyApplyEligible === true,
-          postedAt: new Date().toISOString(),
-          discoveredAt: new Date().toISOString(),
-          salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
-          summary: toStr(raw.description).slice(0, 240),
-          description: toStr(raw.description),
-          keySkills: toStringArray(raw.keySkills),
-        };
-
-        const parsed = JobPostingSchema.safeParse(candidate);
-        if (parsed.success) {
-          parsedJobs.push(parsed.data);
-          continue;
-        }
-
-        skippedJobs += 1;
-        for (const issue of parsed.error.issues) {
-          const field = issue.path[0];
-          const normalizedField =
-            typeof field === "string" && field.length > 0 ? field : "unknown";
-          invalidFieldCounts.set(
-            normalizedField,
-            (invalidFieldCounts.get(normalizedField) ?? 0) + 1,
-          );
-        }
-
-        if (invalidSamples.length < 3) {
-          invalidSamples.push(buildInvalidJobSample(candidate));
-        }
-      }
-
-      if (skippedJobs > 0) {
-        console.warn(
-          `[AI Provider] Model returned ${rawJobs.length} job candidates on ${pageHostLabel}; extracted ${parsedJobs.length} valid jobs and skipped ${skippedJobs} invalid jobs. Top invalid fields: ${describeInvalidFieldCounts(invalidFieldCounts)}`,
-        );
-
-        if (invalidSamples.length > 0) {
-          console.warn(
-            `[AI Provider] Invalid job samples: ${invalidSamples.join(" | ")}`,
-          );
-        }
-      }
-
-      return parsedJobs;
+      return normalizeExtractedJobs({
+        payload,
+        pageHostLabel,
+        pageUrl: input.pageUrl,
+        pageType: input.pageType,
+        effectiveMaxJobs,
+      });
     },
     async chatWithTools(messages, tools, signal) {
       if (!validatedOptions) {
@@ -682,6 +420,30 @@ export function createJobFinderAiClientFromEnvironment(
             `Primary AI extraction failed: ${summarizeError(error)}`,
           ]),
         };
+      }
+    },
+    async createResumeDraft(input) {
+      try {
+        return await primaryClient.createResumeDraft(input);
+      } catch (error) {
+        logFallbackError("createResumeDraft", error);
+        const fallback = await fallbackClient.createResumeDraft(input);
+        return {
+          ...fallback,
+          notes: uniqueStrings([
+            ...fallback.notes,
+            "Fell back to the deterministic resume draft creator after the model call failed.",
+            `Primary AI draft creation failed: ${summarizeError(error)}`,
+          ]),
+        };
+      }
+    },
+    async reviseResumeDraft(input) {
+      try {
+        return await primaryClient.reviseResumeDraft(input);
+      } catch (error) {
+        logFallbackError("reviseResumeDraft", error);
+        return fallbackClient.reviseResumeDraft(input);
       }
     },
     async tailorResume(input) {
