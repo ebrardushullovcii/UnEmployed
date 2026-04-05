@@ -214,13 +214,16 @@ export function useJobFinderPageController() {
   const readyWorkspaceState =
     workspaceState.status === "ready" ? workspaceState : null;
   const actions = readyWorkspaceState?.actions ?? null;
-  const lastKnownPlatformRef = useRef<"darwin" | "win32" | "linux">(
-    workspaceState.status === "ready" ? workspaceState.platform : "win32",
+  const lastKnownPlatformRef = useRef<"darwin" | "win32" | "linux" | undefined>(
+    workspaceState.status === "ready" ? workspaceState.platform : undefined,
   );
   if (readyWorkspaceState?.platform) {
     lastKnownPlatformRef.current = readyWorkspaceState.platform;
   }
-  const platform = readyWorkspaceState?.platform ?? lastKnownPlatformRef.current;
+  const platform =
+    readyWorkspaceState?.platform ??
+    lastKnownPlatformRef.current ??
+    (workspaceState.status === "ready" ? workspaceState.platform : undefined);
   const workspace = readyWorkspaceState?.workspace ?? null;
   const activeResumeWorkspaceJobIdRef = useRef<string | null>(
     activeResumeWorkspaceJobId,

@@ -25,7 +25,7 @@ export function JobFinderPage() {
   } =
     useJobFinderPageController();
 
-  if (!context || !workspace) {
+  if (!context || !workspace || !platform) {
     if (workspaceState.status === "loading") {
       return (
         <WorkspaceStateScreen
