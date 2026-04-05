@@ -348,8 +348,8 @@ export async function runAgentDiscovery(
         config,
         jobExtractor,
         emitProgress,
-        signal,
-        mode: 'final'
+        mode: 'final',
+        ...(signal ? { signal } : {})
       })
     }
 
@@ -561,7 +561,7 @@ export async function runAgentDiscovery(
           jobExtractor,
           emitProgress,
           mode: 'batch',
-          signal
+          ...(signal ? { signal } : {})
         })
       }
 

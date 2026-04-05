@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
   createAgentAiClient,
   createAgentBrowserRuntime,
+  createAiClient,
   createBrowserRuntime,
   createDocumentManager,
   createSeed,
@@ -184,6 +185,45 @@ describe("createJobFinderWorkspaceService", () => {
     await expect(repository.listSavedJobs()).resolves.toHaveLength(0);
     expect(snapshot.applicationRecords).toHaveLength(0);
     expect(snapshot.applicationAttempts).toHaveLength(0);
+  });
+
+  test("agent discovery does not throw when the configured AI client lacks tool calling", async () => {
+    const discoveryResult = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
+      "target_site",
+      createSeed().searchPreferences,
+    );
+    const baseAgentRuntime = createAgentBrowserRuntime(discoveryResult.jobs);
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseAgentRuntime,
+      runAgentDiscovery(source, options) {
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Agent discovery test run",
+          warning: options.aiClient?.chatWithTools
+            ? null
+            : "AI client does not support tool calling. Cannot run agent discovery.",
+          jobs: [],
+          agentMetadata: null,
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createDiscoveryOnlySeed(),
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+
+    expect(snapshot.discoveryJobs).toHaveLength(0);
+    expect(snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.warning).toBe(
+      "AI client does not support tool calling. Cannot run agent discovery.",
+    );
   });
 
   test("generates a tailored resume and submits a supported Easy Apply attempt", async () => {

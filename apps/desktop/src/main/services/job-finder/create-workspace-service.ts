@@ -1,5 +1,4 @@
 import {
-  createDeterministicJobFinderAiClient,
   createJobFinderAiClientFromEnvironment,
 } from '@unemployed/ai-providers'
 import { createBrowserAgentRuntime, createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
@@ -14,6 +13,10 @@ import { isBrowserAgentEnabled, isBrowserHeadlessEnabled, isDesktopTestApiEnable
 
 const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
 
+export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.env) {
+  return createJobFinderAiClientFromEnvironment(env)
+}
+
 export async function createJobFinderWorkspaceServiceAsync() {
   const jobFinderRepository = await createFileJobFinderRepository({
     filePath: getJobFinderWorkspaceFilePath(),
@@ -25,11 +28,7 @@ export async function createJobFinderWorkspaceServiceAsync() {
   const chromeDebugPort = (rawPort !== null && Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535)
     ? rawPort
     : null
-  const aiClient = isDesktopTestApiEnabled()
-    ? createDeterministicJobFinderAiClient(
-        'Deterministic desktop test runtime is active for scripted UI validation.',
-      )
-    : createJobFinderAiClientFromEnvironment(process.env)
+  const aiClient = createDesktopJobFinderAiClient(process.env)
   const browserAgentEnabled = isBrowserAgentEnabled()
   const browserRuntime = browserAgentEnabled
     ? createBrowserAgentRuntime({

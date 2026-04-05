@@ -15,6 +15,7 @@ This plan is now active. The current implementation slice focuses on exposing na
 - Discovery search-results extraction now caps each page-level AI batch size so heavy search pages are less likely to spend a full minute in a single extraction call before yielding progress.
 - Discovery and source-debug now retain bounded timing summaries on run records, target executions, attempts, and phase summaries so long quiet spans can be attributed after the run instead of guessed from browser motion alone.
 - The desktop test API now exposes a performance snapshot path for benchmark and QA flows so representative runs can be inspected without digging through raw repository state.
+- Enabling the desktop test API no longer swaps discovery onto the deterministic AI client, so benchmark and snapshot workflows can keep using a real tool-calling provider.
 - The next tightening pass should focus on representative benchmark capture and any remaining long waits in final review, persistence, or retry paths that the new retained timings expose.
 
 ## Goal

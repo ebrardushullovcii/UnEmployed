@@ -279,12 +279,6 @@ export function createWorkspaceDiscoveryMethods(
         throw new Error("Browser runtime does not support agent discovery");
       }
 
-      if (!ctx.aiClient.chatWithTools) {
-        throw new Error(
-          "Configured AI client does not support chatWithTools / tool calling",
-        );
-      }
-
       const enrichedPreferences = enrichSearchPreferencesFromProfile(
         searchPreferences,
         profile,
