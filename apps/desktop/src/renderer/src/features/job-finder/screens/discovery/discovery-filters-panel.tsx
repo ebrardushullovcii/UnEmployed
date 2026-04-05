@@ -167,8 +167,7 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--success-border) bg-(--success-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--success-text)"
                 >
-                  The browser is ready for sources that work better when you're
-                  signed in.
+                  Browser ready — you're signed in on sources that need it.
                 </div>
               ) : null}
               {!needsLogin && !isBlocked && !isReady ? (
@@ -176,8 +175,8 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
                 >
-                  Open the browser if you want to sign in or prepare a site
-                  before the next search.
+                  You can open the browser to sign in or manually prepare a site
+                  before running this search.
                 </div>
               ) : null}
             </div>

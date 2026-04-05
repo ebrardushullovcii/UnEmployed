@@ -99,13 +99,13 @@ export function ReviewQueueMissionPanel({
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
         <div className="grid min-w-0 gap-3">
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Job match</div>
+            <div className="mb-1 text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Job match</div>
             <div className="font-display text-xl font-bold text-positive">{selectedItem?.matchScore ?? '--'}%</div>
           </div>
         </div>
         <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
           <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume status</span>
+            <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume status</span>
             <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
           </div>
           <ProgressBar ariaLabel="Resume progress" percent={selectedItem?.progressPercent ?? 0} />
@@ -114,7 +114,7 @@ export function ReviewQueueMissionPanel({
           <>
             <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume approval</span>
+                <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume approval</span>
                 <StatusBadge tone={resumeReviewStatus === 'stale' ? 'critical' : resumeReviewStatus === 'approved' ? 'positive' : 'active'}>
                   {resumeReviewLabel}
                 </StatusBadge>

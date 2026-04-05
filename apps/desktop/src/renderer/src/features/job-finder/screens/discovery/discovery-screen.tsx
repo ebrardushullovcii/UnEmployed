@@ -81,7 +81,7 @@ export function DiscoveryScreen(props: {
         topClassName="pb-(--gap-section) pt-8"
         topContent={(
           <PageHeader
-            eyebrow="Search"
+            eyebrow="Find Jobs"
             title="Find jobs"
             description="Search your saved roles and job sources, then review the strongest matches."
           />

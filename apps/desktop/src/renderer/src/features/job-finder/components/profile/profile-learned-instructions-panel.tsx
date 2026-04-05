@@ -49,9 +49,10 @@ export function ProfileLearnedInstructionsPanel({
     <section className="surface-card-tint grid h-full min-w-0 content-start gap-(--gap-field) rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
       <header className="grid gap-1">
         <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-          Navigation steps
+          How to navigate this source
         </p>
         <p className="text-[0.82rem] leading-6 text-foreground-soft">{instructionArtifactDescription}</p>
+        <p className="text-[0.78rem] leading-5 text-foreground-muted">These steps tell Job Finder how to move around this site to find jobs.</p>
       </header>
       <div className="grid gap-3">
         {sections.map((section) => (

@@ -1,6 +1,6 @@
 import type { JobFinderResumeWorkspace, ResumeDraft } from '@unemployed/contracts'
 import { StatusBadge } from '../../components/status-badge'
-import { formatOptionalDate, formatDraftStatusLabel, formatTimestamp, toDraftStatusTone } from './resume-workspace-utils'
+import { formatDraftStatusLabel, formatOptionalDate, toDraftStatusTone } from './resume-workspace-utils'
 
 interface ResumeWorkspaceSidebarProps {
   draft: ResumeDraft
@@ -15,15 +15,13 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
     <aside className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-5 xl:h-full">
       <div className="flex items-center justify-between gap-3">
         <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
-          Resume status
+          Resume
         </p>
         <StatusBadge tone={toDraftStatusTone(draft.status)}>
           {formatDraftStatusLabel(draft.status)}
         </StatusBadge>
       </div>
       <div className="grid gap-2 text-sm text-foreground-soft">
-        <p>Approved PDF: {draft.approvedAt ? formatTimestamp(draft.approvedAt) : 'Not approved yet'}</p>
-        <p>Updated: {formatTimestamp(draft.updatedAt)}</p>
         <p>Sources: {research.length}</p>
         <p>Issues: {validation?.issues.length ?? 0}</p>
         {hasUnsavedChanges ? (

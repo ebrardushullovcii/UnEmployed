@@ -38,7 +38,7 @@ export function ApplicationsRecordsPanel({
         <div className="flex min-h-0 flex-1 items-center p-8">
           <EmptyState
             title="No applications yet"
-            description="Applications appear here after you move a shortlisted job forward or record a submission."
+            description="Applications appear here after you move a shortlisted job into Applied, or when you manually track an application."
           />
         </div>
       ) : (
@@ -46,9 +46,9 @@ export function ApplicationsRecordsPanel({
           <Table>
             <TableHeader>
               <TableRow className="border-(--surface-panel-border) hover:bg-transparent">
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Job</TableHead>
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Last update</TableHead>
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Status</TableHead>
+                <TableHead className="px-4 text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Job</TableHead>
+                <TableHead className="px-4 text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Last update</TableHead>
+                <TableHead className="px-4 text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

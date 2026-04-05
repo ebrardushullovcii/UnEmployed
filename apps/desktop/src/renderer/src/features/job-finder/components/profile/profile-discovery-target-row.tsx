@@ -30,7 +30,7 @@ function formatRunStateLabel(state: SourceDebugRunRecord['state']): string {
     case 'completed':
       return 'Completed'
     case 'paused_manual':
-      return 'Needs your help'
+      return 'Needs manual step'
     case 'failed':
       return 'Needs attention'
     case 'cancelled':
@@ -291,12 +291,12 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           />
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={instructionsId}>Notes for this source</FieldLabel>
+          <FieldLabel htmlFor={instructionsId}>Search instructions</FieldLabel>
           <ProfileTextarea
             className="min-h-(--textarea-tall)"
             id={instructionsId}
             onChange={handleCustomInstructionsChange}
-            placeholder="Optional: add notes like 'skip contract roles' or 'focus on remote jobs'."
+            placeholder="Optional: add hints like 'skip contract roles' or 'focus on remote jobs'."
             rows={4}
             value={props.target.customInstructions}
           />
@@ -305,7 +305,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <div className="surface-card-tint grid h-full min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-                Last test
+                Latest test
               </p>
               <Button
                 aria-label={`View details for the latest test for ${displayName}`}

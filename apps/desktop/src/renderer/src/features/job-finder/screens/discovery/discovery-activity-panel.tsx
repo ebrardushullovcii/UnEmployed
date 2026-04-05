@@ -232,8 +232,8 @@ export function DiscoveryHistoryModal(props: {
       >
         <div className="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-(--surface-panel-border) px-5 py-4">
           <div className="grid gap-1">
-            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Search history</p>
-            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-(--text-headline)" id={dialogTitleId}>Activity for the selected search run</h2>
+            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Recent searches</p>
+            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-(--text-headline)" id={dialogTitleId}>Search activity</h2>
             <p className="text-[0.9rem] leading-6 text-foreground-soft">
               {selectedRunIsLive
                 ? 'The current run stays visible here in real time while new activity arrives.'
@@ -247,7 +247,7 @@ export function DiscoveryHistoryModal(props: {
 
         <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <aside className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r">
-            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Runs</p>
+            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Recent searches</p>
             <div className="grid gap-2 pb-1">
               {runOptions.length > 0 ? runOptions.map((run) => {
                 const isSelected = run.id === selectedRun?.id
@@ -317,7 +317,7 @@ export function DiscoveryHistoryModal(props: {
                   </span>
                 ) : (
                   <Button onClick={resumeLiveFollow} size="sm" type="button" variant="secondary">
-                    Jump to latest
+                    Show latest
                   </Button>
                 )
               ) : null}

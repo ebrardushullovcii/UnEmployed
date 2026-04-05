@@ -18,7 +18,7 @@ function formatRunStateLabel(state: SourceDebugRunRecord['state']): string {
     case 'completed':
       return 'Completed'
     case 'paused_manual':
-      return 'Needs your help'
+      return 'Needs manual step'
     case 'failed':
       return 'Needs attention'
     case 'cancelled':
@@ -35,20 +35,20 @@ function formatRunStateLabel(state: SourceDebugRunRecord['state']): string {
 function formatAttemptOutcomeLabel(outcome: SourceDebugRunDetails['attempts'][number]['outcome']): string {
   switch (outcome) {
     case 'succeeded':
-      return 'Worked'
+      return 'Successful'
     case 'partial':
-      return 'Partly worked'
+      return 'Partial success'
     case 'blocked_auth':
       return 'Needs sign-in'
     case 'blocked_manual_step':
       return 'Needs a manual step'
     case 'blocked_site_protection':
-      return 'Blocked by the site'
+      return 'Site blocked access'
     case 'unsupported_layout':
-      return 'Unsupported layout'
+      return 'Site layout not supported'
     case 'exhausted_duplicate_paths':
     case 'exhausted_no_progress':
-      return 'Could not find a reliable path'
+      return 'Could not find a consistent path'
     case 'failed_runtime':
       return 'Runtime issue'
     default:
@@ -62,7 +62,7 @@ function formatInstructionActionLabel(artifact: SourceInstructionArtifact | null
   }
 
   return artifact.status === 'draft' || artifact.status === 'validated'
-    ? 'Verify steps'
+    ? 'Approve navigation steps'
     : null
 }
 
@@ -104,7 +104,7 @@ export function ProfileSourceDebugReviewModalContent({
         className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r"
         >
           <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted" id={recentRunsLabelId}>
-          Recent tests
+          Test history
           </p>
         <ul className="grid gap-2 pb-1">
           {recentRuns.map((run) => {
@@ -143,7 +143,7 @@ export function ProfileSourceDebugReviewModalContent({
             className="surface-card-tint rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4 text-[0.9rem] text-foreground-soft"
             role="status"
           >
-            Loading test details...
+            Retrieving test results...
           </div>
         ) : errorMessage ? (
           <div

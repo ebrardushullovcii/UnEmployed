@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import type { JobFinderSettings, ResumeTemplateDefinition } from '@unemployed/contracts'
-import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
@@ -30,8 +29,7 @@ export function SettingsEditableDefaults({
   return (
     <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Edit preferences</p>
-        <Badge variant="section">Saved on this device</Badge>
+        <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Your settings</p>
       </div>
       <div className="grid gap-(--gap-content) md:grid-cols-2">
         <Field>
