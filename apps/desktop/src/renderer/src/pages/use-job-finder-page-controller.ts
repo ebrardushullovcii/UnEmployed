@@ -187,15 +187,29 @@ export function useJobFinderPageController() {
     [],
   );
 
+  const activeRouteResumeWorkspace =
+    activeResumeWorkspaceJobId && resumeWorkspace?.job.id === activeResumeWorkspaceJobId
+      ? resumeWorkspace
+      : null;
+  const activeRouteResumeAssistantMessages = activeRouteResumeWorkspace
+    ? resumeAssistantMessages
+    : [];
+  const activeRouteResumeAssistantPending = activeRouteResumeWorkspace
+    ? resumeAssistantPending
+    : false;
+  const activeRouteResumeWorkspaceDirty = activeRouteResumeWorkspace
+    ? resumeWorkspaceDirty
+    : false;
+
   const confirmLeaveDirtyResumeWorkspace = useCallback(() => {
-    if (!activeResumeWorkspaceJobId || !resumeWorkspaceDirty) {
+    if (!activeResumeWorkspaceJobId || !activeRouteResumeWorkspaceDirty) {
       return true;
     }
 
     return window.confirm(
       "You have unsaved resume edits. Leave this workspace and discard them?",
     );
-  }, [activeResumeWorkspaceJobId, resumeWorkspaceDirty]);
+  }, [activeResumeWorkspaceJobId, activeRouteResumeWorkspaceDirty]);
 
   const readyWorkspaceState =
     workspaceState.status === "ready" ? workspaceState : null;
@@ -242,27 +256,22 @@ export function useJobFinderPageController() {
       jobId: string,
       options?: {
         updateAssistantMessages?: boolean;
-        callNext?: () => void;
       },
     ) => {
-      try {
-        const nextWorkspace = await actions?.getResumeWorkspace(jobId);
+      const nextWorkspace = await actions?.getResumeWorkspace(jobId);
 
-        if (!nextWorkspace || !isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
-          return;
-        }
-
-        setResumeWorkspace(nextWorkspace);
-
-        if (options?.updateAssistantMessages) {
-          setResumeAssistantMessages(nextWorkspace.assistantMessages);
-          setResumeAssistantPending(false);
-        }
-      } finally {
-        if (isCurrentResumeWorkspaceJob(jobId)) {
-          options?.callNext?.();
-        }
+      if (!nextWorkspace || !isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+        return false;
       }
+
+      setResumeWorkspace(nextWorkspace);
+
+      if (options?.updateAssistantMessages) {
+        setResumeAssistantMessages(nextWorkspace.assistantMessages);
+        setResumeAssistantPending(false);
+      }
+
+      return true;
     },
     [actions, isCurrentResumeWorkspaceJob],
   );
@@ -463,7 +472,9 @@ export function useJobFinderPageController() {
     onApproveResume: (jobId: string, exportId: string) =>
       void runResumeWorkspaceAction(
         () => actions.approveResume(jobId, exportId),
-        () => refreshResumeWorkspace(jobId),
+        async () => {
+          await refreshResumeWorkspace(jobId);
+        },
         "Resume approved for this job.",
       ),
     onImportResume: () =>
@@ -512,13 +523,17 @@ export function useJobFinderPageController() {
     onRegenerateResumeDraft: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.regenerateResumeDraft(jobId),
-        () => refreshResumeWorkspace(jobId),
+        async () => {
+          await refreshResumeWorkspace(jobId);
+        },
         "Resume draft regenerated.",
       ),
     onRegenerateResumeSection: (jobId: string, sectionId: string) =>
       void runResumeWorkspaceAction(
         () => actions.regenerateResumeSection(jobId, sectionId),
-        () => refreshResumeWorkspace(jobId),
+        async () => {
+          await refreshResumeWorkspace(jobId);
+        },
         "Resume section regenerated.",
       ),
     onRunAgentDiscovery: () => {
@@ -575,7 +590,9 @@ export function useJobFinderPageController() {
     onSaveResumeDraft: (draft: ResumeDraft) =>
       void runResumeWorkspaceAction(
         () => actions.saveResumeDraft(draft),
-        () => refreshResumeWorkspace(draft.jobId),
+        async () => {
+          await refreshResumeWorkspace(draft.jobId);
+        },
         "Resume draft saved.",
       ),
     onSaveResumeDraftAndThen: (
@@ -585,10 +602,12 @@ export function useJobFinderPageController() {
     ) =>
       void runResumeWorkspaceAction(
         () => actions.saveResumeDraft(draft),
-        () =>
-          refreshResumeWorkspace(draft.jobId, {
-            callNext: next,
-          }),
+        async () => {
+          const refreshed = await refreshResumeWorkspace(draft.jobId);
+          if (refreshed) {
+            next();
+          }
+        },
         successMessage === undefined ? "Resume draft saved." : successMessage,
       ),
     onApplyResumePatch: (
@@ -613,7 +632,9 @@ export function useJobFinderPageController() {
     onExportResumePdf: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.exportResumePdf(jobId),
-        () => refreshResumeWorkspace(jobId),
+        async () => {
+          await refreshResumeWorkspace(jobId);
+        },
         "Resume PDF exported.",
       ),
     onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
@@ -625,7 +646,9 @@ export function useJobFinderPageController() {
     onClearResumeApproval: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.clearResumeApproval(jobId),
-        () => refreshResumeWorkspace(jobId),
+        async () => {
+          await refreshResumeWorkspace(jobId);
+        },
         "Resume approval cleared.",
       ),
     onSaveSettings: (settings: JobFinderSettings) =>
@@ -742,9 +765,9 @@ export function useJobFinderPageController() {
     selectedReviewItem,
     selectedReviewJob,
     selectedTailoredAsset,
-    resumeAssistantMessages,
-    resumeAssistantPending,
-    resumeWorkspace,
+    resumeAssistantMessages: activeRouteResumeAssistantMessages,
+    resumeAssistantPending: activeRouteResumeAssistantPending,
+    resumeWorkspace: activeRouteResumeWorkspace,
     workspace,
   })}, [
     actionState,
@@ -756,9 +779,9 @@ export function useJobFinderPageController() {
     liveDiscoveryEvents,
     navigate,
     refreshResumeWorkspace,
-    resumeAssistantMessages,
-    resumeAssistantPending,
-    resumeWorkspace,
+    activeRouteResumeAssistantMessages,
+    activeRouteResumeAssistantPending,
+    activeRouteResumeWorkspace,
     selectedApplicationAttempt,
     selectedApplicationRecord,
     selectedDiscoveryJob,
