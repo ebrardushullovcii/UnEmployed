@@ -12,6 +12,17 @@ interface DiscoveryResultsPanelProps {
   selectedJob: SavedJob | null
 }
 
+function getApplyPathLabel(applyPath: SavedJob['applyPath']): string {
+  switch (applyPath) {
+    case 'easy_apply':
+      return 'Apply here'
+    case 'external_redirect':
+      return 'External site'
+    default:
+      return 'Manual apply'
+  }
+}
+
 export function DiscoveryResultsPanel({
   browserSession,
   jobs,
@@ -104,13 +115,13 @@ export function DiscoveryResultsPanel({
                         </span>
                       </div>
                       <span className="text-(length:--text-body) font-semibold text-(--text-headline)">
-                        Match {job.matchAssessment.score}%
+                        {job.matchAssessment.score}% fit
                       </span>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
                       <StatusBadge tone={getApplicationTone(job.status)}>{formatStatusLabel(job.status)}</StatusBadge>
-                      <Badge variant="outline">{formatStatusLabel(job.applyPath)}</Badge>
+                      <Badge variant="outline">{getApplyPathLabel(job.applyPath)}</Badge>
                       <Badge variant="outline">Posted {formatOptionalDateOnly(job.postedAt, job.postedAtText)}</Badge>
                     </div>
                   </button>

@@ -58,7 +58,7 @@ export function DiscoveryScreen(props: {
     formatCountLabel(searchPreferences.targetRoles.length, 'role'),
     formatCountLabel(searchPreferences.locations.length, 'location'),
     formatCountLabel(searchPreferences.workModes.length, 'work mode'),
-    formatCountLabel(searchPreferences.discovery.targets.length, 'target')
+    formatCountLabel(searchPreferences.discovery.targets.length, 'source')
   ]
 
   const emptyStateContent =
@@ -66,7 +66,7 @@ export function DiscoveryScreen(props: {
       ? {
           title: 'No jobs yet',
           description:
-            'Nothing matched this search yet. Adjust your roles, locations, work modes, or sources in Profile, then run the search again.'
+            'Nothing matched this search yet. Adjust your roles, locations, work modes, or job sources in Profile, then run the search again.'
         }
       : {
           title: 'Search is waiting on your browser',
@@ -81,9 +81,9 @@ export function DiscoveryScreen(props: {
         topClassName="pb-(--gap-section) pt-8"
         topContent={(
           <PageHeader
-            eyebrow="Discovery"
-            title="Discover jobs"
-            description="Run your saved search and review the best matches from the sources you chose."
+            eyebrow="Search"
+            title="Find jobs"
+            description="Search your saved roles and job sources, then review the strongest matches."
           />
         )}
       >
@@ -110,7 +110,7 @@ export function DiscoveryScreen(props: {
               </div>
               <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto pr-1">
                 <EmptyState className="min-h-80" description={emptyStateContent.description} title={emptyStateContent.title} />
-                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">Update your search in Profile, open the browser if a site needs it, then run the search again from the left panel.</p>
+                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">Update your search in Profile, make sure the browser is ready for any site that needs it, then run the search again from the left panel.</p>
               </div>
             </section>
           </div>

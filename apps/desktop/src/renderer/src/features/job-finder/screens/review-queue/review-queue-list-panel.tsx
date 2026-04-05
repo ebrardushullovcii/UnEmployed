@@ -13,16 +13,16 @@ interface ReviewQueueListPanelProps {
 
 export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: ReviewQueueListPanelProps) {
   return (
-      <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
+        <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
         <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-2 pt-5">
-          <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Jobs to review</p>
+          <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Shortlisted</p>
           <Badge variant="section">{formatCountLabel(queue.length, 'job')}</Badge>
         </div>
         {queue.length === 0 ? (
           <div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-5 pt-4">
             <EmptyState
-              title="Nothing to review yet"
-              description="Jobs appear here after you send them from Discovery for resume review."
+              title="No shortlisted jobs yet"
+              description="Shortlist a job from Find Jobs to start resume review."
             />
           </div>
         ) : (
@@ -55,7 +55,6 @@ export function ReviewQueueListPanel({ onSelectItem, queue, selectedItem }: Revi
               <span className="block w-full text-[0.8rem] text-foreground-muted">{item.company}</span>
               <div className="grid min-w-0 w-full gap-1.5">
                 <ProgressBar className="h-1.5 w-full rounded-full bg-(--surface-progress-track)" percent={clampedProgress} />
-                <span className="block w-full text-right font-mono text-[9px] uppercase tracking-(--tracking-normal) text-primary">{clampedProgress}%</span>
               </div>
             </Button>
           )})}

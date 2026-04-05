@@ -18,19 +18,19 @@ const screens = [
     heading: 'Your profile'
   },
   {
-    buttonName: /^Discovery\s+\d+$/,
+    buttonName: /^Find Jobs\s+\d+$/,
     fileName: 'discovery.png',
-    heading: 'Discover jobs'
+    heading: 'Find jobs'
   },
   {
-    buttonName: /^Review Queue\s+\d+$/,
+    buttonName: /^Shortlisted\s+\d+$/,
     fileName: 'review-queue.png',
-    heading: 'Resume review queue'
+    heading: 'Shortlisted jobs'
   },
   {
-    buttonName: /^Applications\s+\d+$/,
+    buttonName: /^Applied\s+\d+$/,
     fileName: 'applications.png',
-    heading: 'Track applications'
+    heading: 'Your applications'
   },
   {
     buttonName: /^Settings$/,

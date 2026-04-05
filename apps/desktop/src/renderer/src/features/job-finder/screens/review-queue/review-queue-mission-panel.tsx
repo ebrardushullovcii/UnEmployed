@@ -18,19 +18,6 @@ interface ReviewQueueMissionPanelProps {
   selectedJob: SavedJob | null
 }
 
-function getBrowserStatusLabel(status: BrowserSessionState['status']): string {
-  switch (status) {
-    case 'ready':
-      return 'Ready'
-    case 'login_required':
-      return 'Sign-in needed'
-    case 'blocked':
-      return 'Needs attention'
-    default:
-      return 'Not checked'
-  }
-}
-
 function getResumeStatusLabel(status: ReviewQueueItem['assetStatus']): string {
   switch (status) {
     case 'not_started':
@@ -53,7 +40,7 @@ function getResumeReviewStatusLabel(status: ReviewQueueItem['resumeReview']['sta
     case 'stale':
       return 'Out of date'
     case 'needs_review':
-      return 'Needs review'
+      return 'Needs approval'
     default:
       return 'Not started'
   }
@@ -94,22 +81,26 @@ export function ReviewQueueMissionPanel({
     ? 'Creating resume...'
     : needsGeneration
       ? 'Create resume'
-      : 'Move to Applications'
+      : 'Move to Applied'
+  const browserActionMessage =
+    browserSession.status === 'ready'
+      ? null
+      : browserSession.status === 'login_required'
+        ? 'Sign in to the browser before moving this job into Applied.'
+        : browserSession.status === 'blocked'
+          ? 'Resolve the browser issue before moving this job into Applied.'
+          : 'Wait for the browser to finish starting before moving this job into Applied.'
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
-        <p className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Review Summary</p>
+        <p className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Actions</p>
       </div>
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
-        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-3">
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
             <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Job match</div>
             <div className="font-display text-xl font-bold text-positive">{selectedItem?.matchScore ?? '--'}%</div>
-          </div>
-          <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Browser</div>
-            <div className="font-display text-xl font-bold text-primary">{getBrowserStatusLabel(browserSession.status)}</div>
           </div>
         </div>
         <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
@@ -123,19 +114,19 @@ export function ReviewQueueMissionPanel({
           <>
             <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Approval</span>
+                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume approval</span>
                 <StatusBadge tone={resumeReviewStatus === 'stale' ? 'critical' : resumeReviewStatus === 'approved' ? 'positive' : 'active'}>
                   {resumeReviewLabel}
                 </StatusBadge>
               </div>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                 {resumeReviewStatus === 'approved'
-                  ? 'The approved PDF is ready, and this job can move into Applications.'
-                  : 'Open Resume Workspace to edit the draft, export the PDF, and approve it before this job moves forward.'}
+                  ? 'The approved PDF is ready. Move this job into Applied when you are ready.'
+                  : 'Open the resume editor to update the draft, export the PDF, and approve it before this job moves forward.'}
               </p>
               {resumeReviewStatus === 'stale' ? (
                 <p className="text-(length:--text-small) leading-6 text-(--warning-text)">
-                  The approved PDF is out of date. Open Resume Workspace and approve a fresh version.
+                  The approved PDF is out of date. Open the resume editor and approve a fresh version.
                 </p>
               ) : null}
             </div>
@@ -151,6 +142,11 @@ export function ReviewQueueMissionPanel({
               <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} />
             </div>
             {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words text-(length:--text-small) leading-6 text-primary" role="status">{actionMessage}</p> : null}
+            {!needsGeneration && browserActionMessage ? (
+              <p className="min-w-0 break-words text-(length:--text-small) leading-6 text-(--warning-text)">
+                {browserActionMessage}
+              </p>
+            ) : null}
             <div className="grid min-w-0 gap-2.5">
               <Button
                 className="h-11 w-full"
@@ -175,13 +171,13 @@ export function ReviewQueueMissionPanel({
                 variant="secondary"
               >
                 <Pencil aria-hidden="true" className="size-4" focusable="false" />
-                Open Resume Workspace
+                Open resume editor
               </Button>
             </div>
           </>
         ) : (
           <EmptyState
-            title="Choose a job to review"
+            title="Choose a shortlisted job"
             description="Select a job to see its resume progress, approval status, and next step."
           />
         )}

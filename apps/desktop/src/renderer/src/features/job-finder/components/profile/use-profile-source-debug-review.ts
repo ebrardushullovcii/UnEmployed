@@ -104,7 +104,7 @@ export function useProfileSourceDebugReview({
         }
 
         setReviewDetails(null)
-        setReviewError(error instanceof Error ? error.message : 'Unable to load source-debug run details.')
+        setReviewError(error instanceof Error ? error.message : 'Unable to load source setup details.')
         setReviewLoading(false)
       })
 

@@ -15,6 +15,24 @@ interface SettingsRuntimeSummaryProps {
   settings: JobFinderSettings
 }
 
+function getBrowserLabel(driver: BrowserSessionState['driver']): string {
+  switch (driver) {
+    case 'chrome_profile_agent':
+      return 'Managed Chrome'
+    default:
+      return 'Catalog search'
+  }
+}
+
+function getFontPresetLabel(fontPreset: JobFinderSettings['fontPreset']): string {
+  switch (fontPreset) {
+    case 'space_grotesk_display':
+      return 'Display sans'
+    default:
+      return 'Clean sans'
+  }
+}
+
 export function SettingsRuntimeSummary({
   agentProvider,
   availableResumeTemplates,
@@ -26,7 +44,7 @@ export function SettingsRuntimeSummary({
       <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <KeyRound className="size-4 text-primary" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">App defaults</h2>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Display</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SettingsStat label="Appearance" value={formatStatusLabel(settings.appearanceTheme)} />
@@ -37,23 +55,22 @@ export function SettingsRuntimeSummary({
       <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <FileText className="size-4 text-primary" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">AI and browser</h2>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Services</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SettingsStat label="AI provider" value={agentProvider.label} />
-          <SettingsStat label="Browser" value={formatStatusLabel(browserSession.driver)} />
-          <SettingsStat label="Browser status" value={formatStatusLabel(browserSession.status)} />
+          <SettingsStat label="Browser" value={getBrowserLabel(browserSession.driver)} />
+          <SettingsStat label="Status" value={formatStatusLabel(browserSession.status)} />
         </div>
       </section>
 
       <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
         <div className="flex items-center gap-3">
           <FileText className="size-4 text-primary" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Document defaults</h2>
+          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Resume defaults</h2>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <SettingsStat label="Export format" value={settings.resumeFormat.toUpperCase()} />
-          <SettingsStat label="Font preset" value={formatStatusLabel(settings.fontPreset)} />
+          <SettingsStat label="Resume font" value={getFontPresetLabel(settings.fontPreset)} />
           <SettingsStat
             label="Template"
             value={availableResumeTemplates.find((template) => template.id === settings.resumeTemplateId)?.label ?? formatStatusLabel(settings.resumeTemplateId)}

@@ -7,8 +7,8 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 ## Current Product Shape
 
 - Candidate profile import and normalization
-- Generic browser discovery across configured targets
-- Source-debug instruction learning for unfamiliar targets
+- Generic browser discovery across configured job sources
+- Source-setup learning for unfamiliar job sources
 - Dedicated per-job resume workspace with grounded edits and approval gating
 - Review-gated supported apply flow with tracked attempts and safe-stop behavior
 - Applications tracking with attempt history and recovery context
@@ -16,9 +16,9 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 ## Current Implementation
 
 - Job Finder persists local state in SQLite and exposes typed contracts for profile data, saved jobs, resume workflows, application records, and discovery state.
-- Desktop surfaces for `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` are live.
+- Desktop surfaces for `Profile`, `Find Jobs`, `Shortlisted`, `Applied`, and `Settings` are live.
 - Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback.
-- Discovery supports generic configured targets, retained run history, activity timelines, and reusable source-debug instruction artifacts.
+- Discovery supports generic configured job sources, retained run history, activity timelines, and reusable source-setup navigation artifacts.
 - The `Resume Workspace` under `/job-finder/review-queue/:jobId/resume` supports structured drafting, assistant patching, `pdf` export, approval, and apply-time safety checks.
 
 ## Current And Queued Plans

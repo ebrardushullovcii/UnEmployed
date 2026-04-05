@@ -39,9 +39,9 @@ export function ReviewQueueScreen(props: {
       topClassName="pb-(--gap-section) pt-8"
       topContent={(
         <PageHeader
-          eyebrow="Review Queue"
-          title="Resume review queue"
-          description="Review each job, approve the resume PDF, and move ready applications forward with confidence."
+          eyebrow="Shortlisted"
+          title="Shortlisted jobs"
+          description="Review each shortlisted job, approve the PDF, and move ready jobs into Applied."
         />
       )}
     >

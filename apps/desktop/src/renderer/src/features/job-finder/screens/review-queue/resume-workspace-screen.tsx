@@ -182,7 +182,7 @@ export function ResumeWorkspaceScreen(props: {
         <main className="grid min-h-full place-items-center px-6 py-10">
           <EmptyState
             title="Resume editor unavailable"
-            description="We couldn't load this resume. Go back to Review Queue and try another job."
+            description="We couldn't load this resume. Go back to Shortlisted and try another job."
           />
         </main>
       );

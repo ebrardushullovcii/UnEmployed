@@ -30,15 +30,15 @@ export function ApplicationsRecordsPanel({
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-8 py-5">
         <div className="flex items-center gap-4">
-          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">Tracked applications</h2>
+          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">Applications</h2>
           <Badge variant="section">{recordCount} {recordCount === 1 ? 'application' : 'applications'}</Badge>
         </div>
       </div>
       {applicationRecords.length === 0 ? (
         <div className="flex min-h-0 flex-1 items-center p-8">
           <EmptyState
-            title="No application records yet"
-            description="Applications appear here after you move a reviewed job forward or record a submission."
+            title="No applications yet"
+            description="Applications appear here after you move a shortlisted job forward or record a submission."
           />
         </div>
       ) : (
@@ -46,8 +46,7 @@ export function ApplicationsRecordsPanel({
           <Table>
             <TableHeader>
               <TableRow className="border-(--surface-panel-border) hover:bg-transparent">
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Reference</TableHead>
-                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Role</TableHead>
+                <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Job</TableHead>
                 <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Last update</TableHead>
                 <TableHead className="px-4 font-mono text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Status</TableHead>
               </TableRow>
@@ -61,7 +60,6 @@ export function ApplicationsRecordsPanel({
                     selectedRecord?.id === record.id ? 'border-l-2 border-l-primary bg-(--surface-panel-raised)' : ''
                   )}
                 >
-                  <TableCell className="px-4 py-4 font-mono text-[10px] text-muted-foreground">#{record.id.slice(0, 7).toUpperCase()}</TableCell>
                   <TableCell className="px-4 py-4 align-top">
                     <button
                       aria-current={selectedRecord?.id === record.id ? 'true' : undefined}

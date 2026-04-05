@@ -3,6 +3,28 @@
 Status: completed
 This plan is complete and now serves as implementation background for later polish or follow-on cleanup.
 
+## Implemented Outcome
+
+The completed pass landed as a stronger second product rewrite, not just a lighter wording sweep.
+
+Key shipped results:
+
+- top navigation now uses clearer product labels: `Find Jobs`, `Shortlisted`, and `Applied`
+- `Discovery` detail removed low-value jargon like `Discovery mode` and renamed `Provenance` to `Found on`
+- the shortlist and resume-editor flow now uses calmer, more product-facing language and hides default source-ref or evidence internals
+- `Profile` source setup now uses `Job sources`, `Learn this source`, `Learned navigation steps`, and a simplified source-review modal instead of heavier debug wording
+- `Applied` no longer shows internal reference IDs in the main table or detail panel
+- `Settings` removed the single-option `Resume format` field and `Template notes`, renamed display and service sections, and simplified destructive reset framing
+- desktop capture scripts were updated to the new navigation labels and page headings
+
+## Validation Notes
+
+- `pnpm --filter @unemployed/desktop lint` passed
+- `pnpm --filter @unemployed/desktop typecheck` passed
+- `pnpm --filter @unemployed/desktop build` passed
+- `pnpm docs:check` passed
+- `pnpm --filter @unemployed/desktop ui:capture` still fails before renderer interaction because Playwright Electron cannot launch the desktop process in this environment, so selector alignment was updated in code but not confirmed through a full capture run
+
 ## Goal
 
 Run a full production-readiness pass on copy across every currently shipped desktop surface so the app reads like a confident product: shorter where it can be, clearer where it must be, and stronger in voice without losing safety, trust, or recovery guidance.

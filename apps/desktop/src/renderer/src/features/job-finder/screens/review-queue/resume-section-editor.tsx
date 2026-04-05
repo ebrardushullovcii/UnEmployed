@@ -9,7 +9,6 @@ import { Field, FieldLabel } from "@renderer/components/ui/field";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
-import { SourceRefsList } from "./source-refs-list";
 
 export function ResumeSectionEditor(props: {
   section: ResumeDraftSection;
@@ -27,13 +26,13 @@ export function ResumeSectionEditor(props: {
           <h3 className="font-display text-base font-semibold text-(--text-headline)">
             {props.section.label}
           </h3>
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-            {props.section.kind} • {props.section.locked ? "Locked" : "Editable"}
-          </p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <StatusBadge tone={props.section.included ? "active" : "muted"}>
             {props.section.included ? "Included" : "Excluded"}
+          </StatusBadge>
+          <StatusBadge tone={props.section.locked ? "muted" : "active"}>
+            {props.section.locked ? "Locked" : "Editable"}
           </StatusBadge>
           <Button
             className="h-9"
@@ -112,7 +111,7 @@ export function ResumeSectionEditor(props: {
       </header>
 
       <Field>
-        <FieldLabel htmlFor={textId}>Section Text</FieldLabel>
+        <FieldLabel htmlFor={textId}>Section content</FieldLabel>
         <Textarea
           id={textId}
           disabled={props.disabled || props.section.locked}
@@ -136,14 +135,12 @@ export function ResumeSectionEditor(props: {
         {props.section.bullets.length === 0 ? (
           <EmptyState
             title="No bullets yet"
-            description="Regenerate this section or add manual detail in the text area above."
+            description="Regenerate this section or add the main detail in the field above."
           />
         ) : (
           props.section.bullets.map((bullet, bulletIndex) => (
             <Field key={bullet.id}>
-              <FieldLabel htmlFor={`bullet_${bullet.id}`}>
-                {bullet.origin.replaceAll("_", " ")}
-              </FieldLabel>
+              <FieldLabel htmlFor={`bullet_${bullet.id}`}>Bullet text</FieldLabel>
               <div className="mb-2 flex flex-wrap gap-2">
                 <Button
                   className="h-8"
@@ -305,32 +302,10 @@ export function ResumeSectionEditor(props: {
                   })
                 }
               />
-              <details className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-3">
-                <summary className="cursor-pointer text-sm font-medium text-foreground">
-                  Why this bullet exists
-                </summary>
-                <div className="mt-3">
-                  <SourceRefsList
-                    emptyLabel="This bullet does not have source refs yet."
-                    sourceRefs={bullet.sourceRefs}
-                  />
-                </div>
-              </details>
             </Field>
           ))
         )}
       </div>
-      <details className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-3">
-        <summary className="cursor-pointer text-sm font-medium text-foreground">
-          Section evidence
-        </summary>
-        <div className="mt-3">
-          <SourceRefsList
-            emptyLabel="This section does not have source refs yet."
-            sourceRefs={props.section.sourceRefs}
-          />
-        </div>
-      </details>
     </article>
   );
 }

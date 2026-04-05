@@ -23,6 +23,19 @@ function getResumeReviewTone(item: ReviewQueueItem | null) {
   return 'muted' as const
 }
 
+function getResumeReviewLabel(status: ReviewQueueItem['resumeReview']['status']): string {
+  switch (status) {
+    case 'approved':
+      return 'Approved'
+    case 'stale':
+      return 'Out of date'
+    case 'needs_review':
+      return 'Needs approval'
+    default:
+      return 'Not started'
+  }
+}
+
 interface ReviewQueuePreviewPanelProps {
   previewState: PreviewState
   queue: readonly ReviewQueueItem[]
@@ -59,8 +72,8 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       {queue.length === 0 ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
-            title="Nothing to review yet"
-            description="Saved jobs appear here after you send them to Review Queue."
+            title="No shortlisted jobs yet"
+            description="Shortlist a job from Find Jobs to start building a resume."
           />
         </div>
       ) : null}
@@ -82,7 +95,7 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       {queue.length > 0 && !selectedItem ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <EmptyState
-            title="Choose a job to preview"
+            title="Choose a shortlisted job"
             description="Select a job to review the current resume and approval status."
           />
         </div>
@@ -98,15 +111,12 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       {queue.length > 0 && selectedItem && !showGenerationState && selectedAsset ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           <div className="surface-card-tint relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-6 text-(length:--text-body) leading-[1.48] text-foreground">
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.03]">
-              <span className="-rotate-45 text-[120px] font-black tracking-tighter">RESUME</span>
-            </div>
             <div className="grid items-end gap-3 border-b border-(--surface-panel-border) pb-4 sm:grid-cols-[1fr_auto]">
               <strong className="text-[1.1rem] text-(--text-headline)">{selectedJob?.title ?? selectedItem.title}</strong>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <span className="text-[0.9rem] text-foreground-soft">{selectedAsset.label}</span>
                 <StatusBadge tone={getResumeReviewTone(selectedItem)}>
-                  {selectedItem.resumeReview.status.replaceAll('_', ' ')}
+                  {getResumeReviewLabel(selectedItem.resumeReview.status)}
                 </StatusBadge>
               </div>
             </div>

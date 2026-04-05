@@ -1,7 +1,5 @@
 import type { JobFinderResumeWorkspace, ResumeDraft } from '@unemployed/contracts'
-import { Badge } from '@renderer/components/ui/badge'
 import { StatusBadge } from '../../components/status-badge'
-import { formatStatusLabel } from '../../lib/job-finder-utils'
 import { formatOptionalDate, formatDraftStatusLabel, formatTimestamp, toDraftStatusTone } from './resume-workspace-utils'
 
 interface ResumeWorkspaceSidebarProps {
@@ -24,10 +22,10 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
         </StatusBadge>
       </div>
       <div className="grid gap-2 text-sm text-foreground-soft">
-        <p>Approved PDF: {formatTimestamp(draft.approvedAt)}</p>
+        <p>Approved PDF: {draft.approvedAt ? formatTimestamp(draft.approvedAt) : 'Not approved yet'}</p>
         <p>Updated: {formatTimestamp(draft.updatedAt)}</p>
-        <p>Research notes: {research.length}</p>
-        <p>Checks: {validation?.issues.length ?? 0}</p>
+        <p>Sources: {research.length}</p>
+        <p>Issues: {validation?.issues.length ?? 0}</p>
         {hasUnsavedChanges ? (
           <p className="text-(--warning-text)">
             Unsaved edits stay local until you save or run another action.
@@ -119,35 +117,23 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
 
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-            Research
+            Sources
           </p>
           {research.length ? (
             research.map((artifact) => (
               <div
                 key={artifact.id}
                 className="grid min-w-0 gap-1 text-sm text-foreground-soft"
-              >
-                <strong className="text-foreground">
-                  {artifact.pageTitle ?? artifact.sourceUrl}
-                </strong>
-                <span className="break-all">{artifact.sourceUrl}</span>
-                <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                  {formatStatusLabel(artifact.fetchStatus)}
-                </span>
-                {artifact.domainVocabulary.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    {artifact.domainVocabulary.slice(0, 4).map((term, index) => (
-                      <Badge key={`${artifact.id}_${term}_${index}`} variant="section">
-                        {term}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ))
+                >
+                  <strong className="text-foreground">
+                    {artifact.pageTitle ?? artifact.sourceUrl}
+                  </strong>
+                  <span className="break-all">{artifact.sourceUrl}</span>
+                </div>
+              ))
           ) : (
             <p className="text-sm text-foreground-soft">
-              No research saved yet.
+              No sources saved yet.
             </p>
           )}
         </div>

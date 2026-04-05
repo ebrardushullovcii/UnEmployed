@@ -339,15 +339,15 @@ export function ProfilePreferencesTab({
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
-              <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Discovery targets</h3>
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">Configure the ordered entrypoints the discovery agent should run through. Each target is treated as a site-specific flow learned from its own starting URL and debug evidence.</p>
+              <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Job sources</h3>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">Add the job boards or company career pages you want Job Finder to search. Each source can learn its own navigation steps from the starting URL you provide.</p>
             </div>
-            <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add target</Button>
+            <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add source</Button>
           </div>
 
           <div className="grid gap-3">
             {discoveryTargets.length === 0 ? (
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">No discovery targets configured yet. Add the first site entrypoint you want the debugger to learn and reuse.</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">No job sources are configured yet. Add the first source you want Job Finder to search.</p>
             ) : null}
 
             {discoveryTargets.map((target, index) => {

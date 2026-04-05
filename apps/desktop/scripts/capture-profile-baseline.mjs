@@ -212,19 +212,19 @@ const topLevelScreens = [
     }
   },
   {
-    buttonName: /^Discovery\s+\d+$/,
+    buttonName: /^Find Jobs\s+\d+$/,
     slug: 'discovery',
-    heading: 'Discover jobs'
+    heading: 'Find jobs'
   },
   {
-    buttonName: /^Review Queue\s+\d+$/,
+    buttonName: /^Shortlisted\s+\d+$/,
     slug: 'review-queue',
-    heading: 'Resume review queue'
+    heading: 'Shortlisted jobs'
   },
   {
-    buttonName: /^Applications\s+\d+$/,
+    buttonName: /^Applied\s+\d+$/,
     slug: 'applications',
-    heading: 'Track applications'
+    heading: 'Your applications'
   },
   {
     buttonName: /^Settings$/,

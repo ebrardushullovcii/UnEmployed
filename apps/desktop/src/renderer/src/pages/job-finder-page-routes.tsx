@@ -139,48 +139,48 @@ export function buildSourceDebugOutcomeMessage(
 
   if (activeRunIsLatest) {
     return latestRun?.state === 'idle'
-      ? 'Source debug is starting for this target.'
-      : 'Source debug is running for this target.'
+      ? 'Source setup is starting for this source.'
+      : 'Source setup is running for this source.'
   }
 
   if (latestRun?.state === 'paused_manual') {
     return (
       latestRun.manualPrerequisiteSummary ??
       latestRun.finalSummary ??
-      'Source debug paused until a manual step is completed.'
+      'Source setup paused until a manual step is completed.'
     )
   }
 
   if (latestRun?.state === 'failed') {
     return (
       latestRun.finalSummary ??
-      'Source debug finished without producing reusable instructions.'
+      'Source setup finished without saving reusable navigation steps.'
     )
   }
 
   if (latestRun?.state === 'interrupted') {
-    return latestRun.finalSummary ?? 'Source debug was interrupted before it could finish.'
+    return latestRun.finalSummary ?? 'Source setup was interrupted before it could finish.'
   }
 
   if (latestRun?.state === 'cancelled') {
-    return latestRun.finalSummary ?? 'Source debug was cancelled before it could finish.'
+    return latestRun.finalSummary ?? 'Source setup was cancelled before it could finish.'
   }
 
   if (target?.instructionStatus === 'validated') {
-    return 'Source debug completed and validated learned instructions.'
+    return 'Source setup finished and saved verified navigation steps.'
   }
 
   if (target?.instructionStatus === 'draft') {
-    return 'Source debug completed with a draft source profile. It needs stronger findings before validation.'
+    return 'Source setup finished with draft navigation steps. Review them before relying on this source.'
   }
 
   if (target?.instructionStatus === 'unsupported') {
-    return 'Source debug completed, but this source remains unsupported.'
+    return 'Source setup finished, but this source is not supported yet.'
   }
 
   return (
     latestRun?.finalSummary ??
-    'Source debug finished without producing reusable instructions.'
+    'Source setup finished without saving reusable navigation steps.'
   )
 }
 

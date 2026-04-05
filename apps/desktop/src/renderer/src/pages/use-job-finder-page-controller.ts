@@ -308,7 +308,7 @@ export function useJobFinderPageController() {
     setActionState({
       busy: false,
       message:
-        "The selected resume workspace is no longer available. Review Queue is shown instead.",
+        "This resume is no longer available. Shortlisted is shown instead.",
     });
     void navigate("/job-finder/review-queue", { replace: true });
   }, [activeResumeWorkspaceJobId, navigate, workspace?.reviewQueue]);
@@ -345,8 +345,8 @@ export function useJobFinderPageController() {
             busy: false,
             message:
               error instanceof Error
-                ? `Resume workspace could not be loaded. ${error.message}`
-                : "Resume workspace could not be loaded. Review Queue is shown instead.",
+                ? `Resume editor could not be loaded. ${error.message}`
+                : "Resume editor could not be loaded. Shortlisted is shown instead.",
           });
           void navigate("/job-finder/review-queue", { replace: true });
         }
@@ -437,7 +437,7 @@ export function useJobFinderPageController() {
           setResumeWorkspaceDirty(false);
           void navigate("/job-finder/applications");
         },
-        "Job moved to Applications.",
+        "Job moved to Applied.",
       );
     },
     onCheckBrowserSession: () =>
@@ -450,7 +450,7 @@ export function useJobFinderPageController() {
       void runAction(
         () => actions.dismissDiscoveryJob(jobId),
         () => undefined,
-        "Job removed from Discovery.",
+        "Job dismissed.",
       ),
     onEditResumeWorkspace: (jobId: string) => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -506,7 +506,7 @@ export function useJobFinderPageController() {
           setSelectedReviewJobId(jobId);
           void navigate("/job-finder/review-queue");
         },
-        "Job added to Review Queue.",
+        "Job added to Shortlisted.",
       );
     },
     onRefreshResumeWorkspace: (jobId: string) =>
@@ -565,13 +565,13 @@ export function useJobFinderPageController() {
       void runAction(
         () => actions.saveSourceInstructionArtifact(targetId, artifact),
         () => undefined,
-        "Source instructions updated.",
+        "Navigation steps updated.",
       ),
     onVerifySourceInstructions: (targetId: string, instructionId: string) =>
       void runAction(
         () => actions.verifySourceInstructions(targetId, instructionId),
         () => undefined,
-        "Source instructions re-verified.",
+        "Navigation steps verified.",
       ),
     onResetWorkspace: () => {
       if (!confirmLeaveDirtyResumeWorkspace()) {

@@ -49,7 +49,7 @@ export function ProfileLearnedInstructionsPanel({
     <section className="surface-card-tint grid h-full min-w-0 content-start gap-(--gap-field) rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
       <header className="grid gap-1">
         <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-          Learned source instructions
+          Learned navigation steps
         </p>
         <p className="text-[0.82rem] leading-6 text-foreground-soft">{instructionArtifactDescription}</p>
       </header>

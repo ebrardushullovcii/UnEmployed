@@ -18,8 +18,8 @@ export function ApplicationsScreen(props: {
       topClassName="pb-(--gap-section) pt-8"
       topContent={(
         <PageHeader
-          eyebrow="Applications"
-          title="Track applications"
+          eyebrow="Applied"
+          title="Your applications"
           description="See each submission, follow-up, and status change in one place."
         />
       )}

@@ -37,14 +37,14 @@ export function DiscoveryDetailPanel({
             <div className="grid gap-3">
               <h2 className="text-(length:--text-section-title) font-semibold tracking-[-0.03em] text-(--text-headline)">{selectedJob.title}</h2>
               <p className="text-(length:--text-description) text-foreground-muted">
-                {selectedJob.company} - {selectedJob.location}
+                {selectedJob.company} • {selectedJob.location}
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Fit score</span>
-                <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">{selectedJob.matchAssessment.score}</strong>
+                <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">{selectedJob.matchAssessment.score}%</strong>
               </div>
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Posted</span>
@@ -54,11 +54,10 @@ export function DiscoveryDetailPanel({
 
             <p className="text-(length:--text-body) leading-7 text-foreground-soft">{selectedJob.summary ?? selectedJob.description}</p>
 
-            <PreferenceList compact label="Discovery mode" values={[formatStatusLabel(selectedJob.discoveryMethod)]} />
-            <PreferenceList compact label="Provenance" values={selectedJob.provenance.map((entry) => discoveryTargetLabels.get(entry.targetId) ?? 'Configured target')} />
+            <PreferenceList compact label="Found on" values={selectedJob.provenance.map((entry) => discoveryTargetLabels.get(entry.targetId) ?? 'Saved source')} />
             <PreferenceList compact label="Key skills" values={selectedJob.keySkills} />
-            <PreferenceList label="Fit reasons" values={selectedJob.matchAssessment.reasons} />
-            <PreferenceList label="Watch-outs" values={selectedJob.matchAssessment.gaps} />
+            <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} />
+            <PreferenceList label="Watch outs" values={selectedJob.matchAssessment.gaps} />
 
             <div className="grid gap-2.5 sm:grid-cols-2">
               <Button className="h-11 w-full" disabled={busy} onClick={() => onQueueJob(selectedJob.id)} type="button" variant="primary">
@@ -73,7 +72,7 @@ export function DiscoveryDetailPanel({
       ) : (
         <EmptyState
           className="min-h-80"
-          description="Select a saved discovery result to inspect fit reasons, provenance, and the next action toward resume tailoring."
+          description="Select a saved result to see why it fits, where it was found, and whether it should move to Shortlisted."
           title="Choose a job result"
         />
       )}

@@ -45,8 +45,8 @@ Use one track per meaningful workstream, not per person or per chat.
 - status: `done`
 - last updated: `2026-04-05`
 - linked plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
-- code areas: `apps/desktop`, `packages/job-finder`, `docs/Design`
-- current focus: completed full-app production copy and surface cleanup pass across shipped `Job Finder` and shared shell surfaces, including page-title rewrites, settings cleanup, dead placeholder removal, and updated capture-script heading expectations
+- code areas: `apps/desktop`, `docs`
+- current focus: completed full-app product-language and surface cleanup pass across shipped `Job Finder` and shared shell surfaces, including nav renames (`Find Jobs`, `Shortlisted`, `Applied`), removal of low-value internal fields, simplified source-setup copy, settings cleanup, and updated capture-script expectations
 - next step: reuse this completed copy baseline for later UX polish or any follow-on wording cleanup that lands alongside active implementation work
 - blockers: none
 

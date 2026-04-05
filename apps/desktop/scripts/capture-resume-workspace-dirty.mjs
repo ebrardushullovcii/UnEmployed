@@ -49,7 +49,7 @@ async function clickAndDismissDialog(window, locator) {
 }
 
 function summaryField(window) {
-  return window.getByLabel('Section Text').first()
+  return window.getByLabel('Section content').first()
 }
 
 function assistantField(window) {
@@ -74,8 +74,8 @@ async function loadDemo(window) {
 }
 
 async function openResumeWorkspace(window) {
-  await window.getByRole('button', { name: /^Review Queue/ }).click()
-  await window.getByRole('heading', { level: 1, name: 'Resume review queue' }).waitFor({ timeout: 10000 })
+  await window.getByRole('button', { name: /^Shortlisted/ }).click()
+  await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
   await window.getByRole('button', { name: /Edit asset/i }).first().click()
   await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
 }
@@ -222,7 +222,7 @@ async function captureResumeWorkspaceDirtyState() {
     await summaryField(window).fill(shellNavigationSentinel)
     const shellDialogMessage = await clickAndDismissDialog(
       window,
-      window.getByRole('button', { name: /^Applications/ }),
+      window.getByRole('button', { name: /^Applied/ }),
     )
     await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
     const shellNavigationFieldValue = await summaryField(window).inputValue()
@@ -241,7 +241,7 @@ async function captureResumeWorkspaceDirtyState() {
     await summaryField(window).fill(backNavigationSentinel)
     const backDialogMessage = await clickAndDismissDialog(
       window,
-      window.getByRole('button', { name: /Back to Review Queue/i }),
+      window.getByRole('button', { name: /Back to Shortlisted/i }),
     )
     await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
     const backNavigationFieldValue = await summaryField(window).inputValue()

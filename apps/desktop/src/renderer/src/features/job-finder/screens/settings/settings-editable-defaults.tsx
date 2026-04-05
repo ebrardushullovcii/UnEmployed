@@ -4,7 +4,6 @@ import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
-import { PreferenceList } from '../../components/preference-list'
 import { ToggleField } from '../../components/toggle-field'
 
 interface SettingsEditableDefaultsProps {
@@ -49,15 +48,6 @@ export function SettingsEditableDefaults({
           />
         </Field>
         <Field>
-          <FieldLabel>Resume format</FieldLabel>
-          <FormSelect
-            onValueChange={(value) => setSettingsForm((current) => ({ ...current, resumeFormat: value as JobFinderSettings['resumeFormat'] }))}
-            options={[{ label: 'PDF', value: 'pdf' }]}
-            placeholder="Select format"
-            value={settingsForm.resumeFormat}
-          />
-        </Field>
-        <Field>
           <FieldLabel>Resume template</FieldLabel>
           <FormSelect
             onValueChange={(value) => setSettingsForm((current) => ({ ...current, resumeTemplateId: value as JobFinderSettings['resumeTemplateId'] }))}
@@ -67,11 +57,11 @@ export function SettingsEditableDefaults({
           />
         </Field>
         <Field>
-          <FieldLabel>Font preset</FieldLabel>
+          <FieldLabel>Resume font</FieldLabel>
           <FormSelect
             onValueChange={(value) => setSettingsForm((current) => ({ ...current, fontPreset: value as JobFinderSettings['fontPreset'] }))}
-            options={[{ label: 'Inter Requisite', value: 'inter_requisite' }, { label: 'Space Grotesk Display', value: 'space_grotesk_display' }]}
-            placeholder="Select preset"
+            options={[{ label: 'Clean sans', value: 'inter_requisite' }, { label: 'Display sans', value: 'space_grotesk_display' }]}
+            placeholder="Select font"
             value={settingsForm.fontPreset}
           />
         </Field>
@@ -83,7 +73,7 @@ export function SettingsEditableDefaults({
         />
         <ToggleField
           checked={settingsForm.humanReviewRequired}
-          description="Require a manual review before a job can move into Applications."
+          description="Require a manual review before a job can move into Applied."
           label="Resume review"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, humanReviewRequired: checked }))}
         />
@@ -95,14 +85,11 @@ export function SettingsEditableDefaults({
         />
         <ToggleField
           checked={settingsForm.discoveryOnly}
-          description="Browse results without adding them to saved jobs. Use Review Queue when you want to move a job forward."
-          label="Search without saving"
+          description="Keep search results separate from your shortlist until you decide to move a job forward."
+          label="Browse without shortlisting"
           onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
         />
       </div>
-      {availableResumeTemplates.length > 0 ? (
-        <PreferenceList label="Template notes" values={availableResumeTemplates.map((template) => `${template.label}: ${template.description}`)} />
-      ) : null}
       <div className="mt-4 flex flex-wrap items-center justify-end gap-4 border-t border-border/10 pt-6">
         <Button variant="primary" disabled={busy} onClick={() => onSaveSettings(settingsForm)} type="button">
           Save settings

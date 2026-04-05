@@ -416,7 +416,7 @@ export function buildSearchPreferencesPayload(
 
   if (invalidTargetStatus) {
     return {
-      validationMessage: `Discovery target "${invalidTargetStatus.label.trim() || invalidTargetStatus.id}" has an invalid instruction status.`
+      validationMessage: `Job source "${invalidTargetStatus.label.trim() || invalidTargetStatus.id}" has an invalid setup status.`
     }
   }
 
