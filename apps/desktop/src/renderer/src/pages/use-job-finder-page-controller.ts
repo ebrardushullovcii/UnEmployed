@@ -245,20 +245,24 @@ export function useJobFinderPageController() {
         callNext?: () => void;
       },
     ) => {
-      const nextWorkspace = await actions?.getResumeWorkspace(jobId);
+      try {
+        const nextWorkspace = await actions?.getResumeWorkspace(jobId);
 
-      if (!nextWorkspace || !isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
-        return;
+        if (!nextWorkspace || !isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+          return;
+        }
+
+        setResumeWorkspace(nextWorkspace);
+
+        if (options?.updateAssistantMessages) {
+          setResumeAssistantMessages(nextWorkspace.assistantMessages);
+          setResumeAssistantPending(false);
+        }
+      } finally {
+        if (isCurrentResumeWorkspaceJob(jobId)) {
+          options?.callNext?.();
+        }
       }
-
-      setResumeWorkspace(nextWorkspace);
-
-      if (options?.updateAssistantMessages) {
-        setResumeAssistantMessages(nextWorkspace.assistantMessages);
-        setResumeAssistantPending(false);
-      }
-
-      options?.callNext?.();
     },
     [actions, isCurrentResumeWorkspaceJob],
   );
