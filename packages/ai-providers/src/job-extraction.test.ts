@@ -257,4 +257,51 @@ describe('job extraction with openai-compatible client', () => {
       errorSpy.mockRestore()
     }
   })
+
+  test('uses the grounded summary as description on search-results pages when the model omits description', async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              jobs: [
+                {
+                  title: 'Frontend Engineer',
+                  company: 'Acme',
+                  location: 'Remote',
+                  canonicalUrl: 'https://jobs.example.com/frontend-engineer',
+                  sourceJobId: 'job_summary_fallback',
+                  description: '',
+                  summary: 'Build product experiences from the search results snippet.',
+                  applyPath: 'external_redirect',
+                  easyApplyEligible: false,
+                  workMode: ['remote'],
+                  keySkills: ['React']
+                }
+              ]
+            })
+          }
+        }
+      ]
+    })
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: 'Frontend Engineer role at Acme with a visible summary snippet',
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 5
+      })
+
+      expect(jobs).toHaveLength(1)
+      expect(jobs[0]).toMatchObject({
+        summary: 'Build product experiences from the search results snippet.',
+        description: 'Build product experiences from the search results snippet.'
+      })
+    } finally {
+      restoreFetch()
+    }
+  })
 })

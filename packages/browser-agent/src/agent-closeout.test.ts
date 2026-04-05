@@ -283,4 +283,90 @@ describe("runAgentDiscovery closeout behavior", () => {
     expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
     expect(result.jobs).toHaveLength(1);
   });
+
+  test("discovery flushes deferred search-result extraction before max steps so it can stop early", async () => {
+    const page = createPage() as Page;
+    const llmClient: LLMClient = {
+      chatWithTools: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: "capture the first results page",
+          toolCalls: [
+            createToolCall(
+              "extract_jobs",
+              { pageType: "search_results", maxJobs: 1 },
+              "tool_extract_batch_1",
+            ),
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: "capture a second results page",
+          toolCalls: [
+            createToolCall(
+              "navigate",
+              { url: "https://www.linkedin.com/jobs/collections/recommended/", timeout: 5000 },
+              "tool_nav_batch_2",
+            ),
+            createToolCall(
+              "extract_jobs",
+              { pageType: "search_results", maxJobs: 1 },
+              "tool_extract_batch_2",
+            ),
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: "capture a third results page",
+          toolCalls: [
+            createToolCall(
+              "navigate",
+              { url: "https://www.linkedin.com/jobs/collections/recommended/?collection=engineering", timeout: 5000 },
+              "tool_nav_batch_3",
+            ),
+            createToolCall(
+              "extract_jobs",
+              { pageType: "search_results", maxJobs: 1 },
+              "tool_extract_batch_3",
+            ),
+          ],
+        })
+    };
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () => [
+        {
+          sourceJobId: "job_batch_1",
+          canonicalUrl: "https://www.linkedin.com/jobs/view/job_batch_1",
+          title: "Workflow Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote" as const],
+          applyPath: "unknown" as const,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          salaryText: null,
+          summary: "Deferred batch extraction sample.",
+          description: "Deferred batch extraction sample.",
+          easyApplyEligible: false,
+          keySkills: ["React"],
+          responsibilities: [],
+        },
+      ]),
+    };
+
+    const config = createConfig();
+    config.maxSteps = 5;
+    config.promptContext = {
+      siteLabel: "Primary target",
+    };
+
+    const result = await runAgentDiscovery(
+      page,
+      config,
+      llmClient,
+      jobExtractor,
+    );
+
+    expect(llmClient.chatWithTools).toHaveBeenCalledTimes(3);
+    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
+    expect(result.jobs).toHaveLength(1);
+    expect(result.steps).toBe(3);
+  });
 });

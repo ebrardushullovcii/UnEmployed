@@ -250,8 +250,21 @@ export function normalizeExtractedJobs(input: {
     const preferredQualifications = toStringArray(
       raw.preferredQualifications ?? raw.preferredRequirements,
     );
-    const description = toStr(raw.description);
+    const rawDescription = toStr(raw.description);
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
+    const summary =
+      trimToNull(raw.summary) ??
+      summarizeJobPosting({
+        title: toStr(raw.title),
+        company: toStr(raw.company),
+        description: rawDescription,
+        responsibilities,
+        minimumQualifications,
+        preferredQualifications,
+      });
+    const description =
+      rawDescription ||
+      (input.pageType === "search_results" ? summary ?? "" : "");
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,
@@ -272,16 +285,7 @@ export function normalizeExtractedJobs(input: {
       postedAtText: trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative),
       discoveredAt: new Date().toISOString(),
       salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
-      summary:
-        trimToNull(raw.summary) ??
-        summarizeJobPosting({
-          title: toStr(raw.title),
-          company: toStr(raw.company),
-          description,
-          responsibilities,
-          minimumQualifications,
-          preferredQualifications,
-        }),
+      summary,
       description,
       keySkills: toStringArray(raw.keySkills),
       responsibilities,

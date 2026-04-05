@@ -34,6 +34,8 @@ import { buildForcedFinishPrompt, createUserPrompt } from './agent/user-prompts'
 
 export type AgentExtractorPageType = 'search_results' | 'job_detail'
 const MAX_LLM_RETRY_ATTEMPTS = 3
+const DEFERRED_SEARCH_EXTRACTION_BATCH_SIZE = 3
+const DEFERRED_SEARCH_EXTRACTION_FLUSH_STEP_INTERVAL = 10
 
 export interface LLMClient {
   chatWithTools(
@@ -104,6 +106,7 @@ async function flushDeferredSearchExtractions(input: {
   config: AgentConfig
   jobExtractor: JobExtractor
   emitProgress: ReturnType<typeof createProgressEmitter>
+  mode?: 'batch' | 'final'
   signal?: AbortSignal
 }): Promise<void> {
   const deferredSearchPages = [...input.state.deferredSearchExtractions.values()]
@@ -117,9 +120,13 @@ async function flushDeferredSearchExtractions(input: {
     waitReason: 'extracting_jobs',
     jobsFound: input.state.collectedJobs.length,
     message:
-      deferredSearchPages.length === 1
-        ? 'Reviewing the captured results page before wrapping up.'
-        : `Reviewing ${deferredSearchPages.length} captured results pages before wrapping up.`
+      input.mode === 'final'
+        ? (deferredSearchPages.length === 1
+            ? 'Reviewing the captured results page before wrapping up.'
+            : `Reviewing ${deferredSearchPages.length} captured results pages before wrapping up.`)
+        : (deferredSearchPages.length === 1
+            ? 'Reviewing the captured results page to see if we already have enough jobs.'
+            : `Reviewing ${deferredSearchPages.length} captured results pages to see if we already have enough jobs.`)
   })
 
   for (let index = 0; index < deferredSearchPages.length; index += 1) {
@@ -140,9 +147,13 @@ async function flushDeferredSearchExtractions(input: {
       waitReason: 'extracting_jobs',
       jobsFound: input.state.collectedJobs.length,
       message:
-        deferredSearchPages.length === 1
-          ? 'Extracting jobs from the captured results page.'
-          : `Extracting jobs from captured results page ${index + 1}/${deferredSearchPages.length}.`
+        input.mode === 'final'
+          ? (deferredSearchPages.length === 1
+              ? 'Extracting jobs from the captured results page.'
+              : `Extracting jobs from captured results page ${index + 1}/${deferredSearchPages.length}.`)
+          : (deferredSearchPages.length === 1
+              ? 'Extracting jobs from the captured results page before continuing.'
+              : `Extracting jobs from captured results page ${index + 1}/${deferredSearchPages.length} before continuing.`)
     })
 
     const extractedJobs = await input.jobExtractor.extractJobsFromPage({
@@ -333,7 +344,8 @@ export async function runAgentDiscovery(
         config,
         jobExtractor,
         emitProgress,
-        signal
+        signal,
+        mode: 'final'
       })
     }
 
@@ -528,6 +540,25 @@ export async function runAgentDiscovery(
             debugFindings: pendingDebugFindings
           })
         }
+      }
+
+      if (
+        !requiresExplicitFinish &&
+        state.deferredSearchExtractions.size > 0 &&
+        (
+          state.deferredSearchExtractions.size >= DEFERRED_SEARCH_EXTRACTION_BATCH_SIZE ||
+          state.stepCount % DEFERRED_SEARCH_EXTRACTION_FLUSH_STEP_INTERVAL === 0 ||
+          state.stepCount >= config.maxSteps - 2
+        )
+      ) {
+        await flushDeferredSearchExtractions({
+          state,
+          config,
+          jobExtractor,
+          emitProgress,
+          mode: 'batch',
+          signal
+        })
       }
 
       if (state.collectedJobs.length < config.targetJobCount) {
