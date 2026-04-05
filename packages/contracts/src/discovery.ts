@@ -7,6 +7,7 @@ import {
   ApprovalModeSchema,
   AssetGenerationMethodSchema,
   AssetStatusSchema,
+  BrowserRunWaitReasonSchema,
   BrowserDriverSchema,
   BrowserSessionStatusSchema,
   DiscoveryActivityKindSchema,
@@ -305,6 +306,30 @@ export type DiscoveryAdapterSessionState = z.infer<
   typeof DiscoveryAdapterSessionStateSchema
 >;
 
+export const DiscoveryStageDurationSchema = z.object({
+  stage: DiscoveryActivityStageSchema,
+  durationMs: z.number().int().nonnegative().default(0),
+});
+export type DiscoveryStageDuration = z.infer<typeof DiscoveryStageDurationSchema>;
+
+export const DiscoveryWaitReasonDurationSchema = z.object({
+  waitReason: BrowserRunWaitReasonSchema,
+  durationMs: z.number().int().nonnegative().default(0),
+});
+export type DiscoveryWaitReasonDuration = z.infer<
+  typeof DiscoveryWaitReasonDurationSchema
+>;
+
+export const DiscoveryTimingSummarySchema = z.object({
+  totalDurationMs: z.number().int().nonnegative().default(0),
+  firstActivityMs: z.number().int().nonnegative().nullable().default(null),
+  longestGapMs: z.number().int().nonnegative().default(0),
+  eventCount: z.number().int().nonnegative().default(0),
+  stageDurations: z.array(DiscoveryStageDurationSchema).default([]),
+  waitReasonDurations: z.array(DiscoveryWaitReasonDurationSchema).default([]),
+});
+export type DiscoveryTimingSummary = z.infer<typeof DiscoveryTimingSummarySchema>;
+
 export const DiscoveryTargetExecutionSchema = z.object({
   targetId: NonEmptyStringSchema,
   adapterKind: JobSourceAdapterKindSchema,
@@ -316,6 +341,7 @@ export const DiscoveryTargetExecutionSchema = z.object({
   jobsPersisted: z.number().int().nonnegative().default(0),
   jobsStaged: z.number().int().nonnegative().default(0),
   warning: NonEmptyStringSchema.nullable().default(null),
+  timing: DiscoveryTimingSummarySchema.nullable().default(null),
 });
 export type DiscoveryTargetExecution = z.infer<
   typeof DiscoveryTargetExecutionSchema
@@ -327,6 +353,7 @@ export const DiscoveryActivityEventSchema = z.object({
   timestamp: IsoDateTimeSchema,
   kind: DiscoveryActivityKindSchema,
   stage: DiscoveryActivityStageSchema,
+  waitReason: BrowserRunWaitReasonSchema.nullable().default(null),
   targetId: NonEmptyStringSchema.nullable().default(null),
   adapterKind: JobSourceAdapterKindSchema.nullable().default(null),
   resolvedAdapterKind: JobSourceSchema.nullable().default(null),
@@ -353,6 +380,7 @@ export const DiscoveryRunSummarySchema = z.object({
   invalidSkipped: z.number().int().nonnegative().default(0),
   durationMs: z.number().int().nonnegative().default(0),
   outcome: DiscoveryRunStateSchema.default("idle"),
+  timing: DiscoveryTimingSummarySchema.nullable().default(null),
 });
 export type DiscoveryRunSummary = z.infer<typeof DiscoveryRunSummarySchema>;
 

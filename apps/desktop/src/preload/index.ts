@@ -5,6 +5,7 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderPerformanceSnapshot,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderSettings,
@@ -330,6 +331,10 @@ const desktopApi = {
                 "job-finder:test-reset-workspace-state",
                 state,
               ) as Promise<JobFinderWorkspaceSnapshot>,
+            getPerformanceSnapshot: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-get-performance-snapshot",
+              ) as Promise<JobFinderPerformanceSnapshot>,
             importResumeFromPath: (sourcePath: string) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
                 sourcePath,

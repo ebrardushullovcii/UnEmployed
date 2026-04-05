@@ -13,7 +13,7 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - Plans `003`, `004`, and `005` are no longer the active focus and now serve mainly as completed implementation background.
 - Plan `007` remains an active implementation plan; the `Resume Workspace` works in a bare-bones form and is being tightened into a more reliable usable slice.
 - Plan `008` now has a concrete exec plan and intentionally defines a more autonomous future apply direction, but current shipped apply behavior remains more conservative until that work lands.
-- Plan `010` is now active for a measurement-first pass that adds live wait-state visibility, sources of silent idle attribution, and initial browser-speed tightening across discovery and debugging.
+- Plan `010` is now active for a measurement-first pass that adds live wait-state visibility, retained timing summaries, a test-only performance snapshot, and initial browser-speed tightening across discovery and debugging.
 - Older milestone detail lives in `docs/HISTORY.md`.
 
 ## Active Work
@@ -29,7 +29,7 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 
 - Close the remaining `007` functional gaps and rough edges.
 - Re-run the resume-workspace harnesses and targeted service checks.
-- Continue the active `010` slice by validating the new progress and timing surfaces, then use those measurements to tighten browser-heavy discovery and source-debug behavior further.
+- Continue the active `010` slice by running representative discovery and source-debug benchmarks, inspecting the retained timing snapshot, and using those measurements to tighten browser-heavy behavior further.
 - Once `007` settles, start `008` from `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`, with `009` queued after it.
 
 ## Key References

@@ -53,6 +53,14 @@
 - Ensure the Profile source-debug review modal traps focus while open, announces loading and error states clearly, and that inline learned-instruction edits only mutate the editable instruction fields.
 - Confirm that `Verify` replays the selected learned-instruction artifact, leaves the reviewed artifact intact, and promotes or drafts a successor artifact based on the new replay result.
 
+## Plan 010 Performance Snapshot
+
+- Enable the desktop test API with `UNEMPLOYED_ENABLE_TEST_API=1` when you need retained timing data during a local benchmark or QA run.
+- After running discovery or source-debug in the desktop app, inspect `await window.unemployed.jobFinder.test?.getPerformanceSnapshot()` from DevTools to fetch the latest retained timing snapshot.
+- Discovery timing currently lives on `latestDiscoveryRun.summary.timing` and `latestDiscoveryRun.targetExecutions[].timing`.
+- Source-debug timing currently lives on `latestSourceDebugRun.run.timing`, `latestSourceDebugRun.attempts[].timing`, and `latestSourceDebugRun.run.phaseSummaries[].timing`.
+- Use `totalDurationMs`, `firstActivityMs` or `firstProgressMs`, `longestGapMs`, and the grouped stage or wait-reason durations to explain long visible idle spans before making further runtime changes.
+
 ## Live Agent Config
 
 - `UNEMPLOYED_AI_API_KEY` enables the OpenAI-compatible provider path used for resume extraction and resume tailoring.

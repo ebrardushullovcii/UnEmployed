@@ -18,6 +18,7 @@ import {
   JobFinderResumeWorkspaceSchema,
   JobFinderResumeSectionActionInputSchema,
   JobFinderJobActionInputSchema,
+  JobFinderPerformanceSnapshotSchema,
   JobFinderSaveSourceInstructionInputSchema,
   JobFinderSourceDebugActionInputSchema,
   JobFinderSourceDebugRunQuerySchema,
@@ -225,6 +226,35 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const snapshot = await loadResumeWorkspaceDemoState();
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:test-get-performance-snapshot",
+    async () => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const workspace = await jobFinderWorkspaceService.getWorkspaceSnapshot();
+      const latestDiscoveryRun =
+        workspace.activeDiscoveryRun ?? workspace.recentDiscoveryRuns[0] ?? null;
+      const latestSourceDebugSummary =
+        workspace.activeSourceDebugRun ?? workspace.recentSourceDebugRuns[0] ?? null;
+      const latestSourceDebugRun = latestSourceDebugSummary
+        ? await jobFinderWorkspaceService.getSourceDebugRunDetails(
+            latestSourceDebugSummary.id,
+          )
+        : null;
+
+      return JobFinderPerformanceSnapshotSchema.parse({
+        generatedAt: new Date().toISOString(),
+        latestDiscoveryRun,
+        latestSourceDebugRun,
+      });
     },
   );
 

@@ -4,6 +4,7 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderPerformanceSnapshot,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderSettings,
@@ -128,6 +129,7 @@ declare global {
           resetWorkspaceState: (
             state: JobFinderRepositoryState,
           ) => Promise<JobFinderWorkspaceSnapshot>;
+          getPerformanceSnapshot: () => Promise<JobFinderPerformanceSnapshot>;
           importResumeFromPath: (
             sourcePath: string,
           ) => Promise<JobFinderWorkspaceSnapshot>;

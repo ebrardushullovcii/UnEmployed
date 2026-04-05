@@ -388,6 +388,7 @@ export function buildSourceDebugPhaseSummary(
       nextRecommendedStrategies: attempt.nextRecommendedStrategies,
       avoidStrategyFingerprints: attempt.avoidStrategyFingerprints,
       producedAttemptIds: [attempt.id],
+      timing: attempt.timing,
     });
   }
 

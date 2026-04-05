@@ -248,6 +248,30 @@ describe("createJobFinderWorkspaceService", () => {
         event.message.includes("Reviewing the collected evidence"),
       ),
     ).toBe(true);
+    const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
+
+    expect(latestRunId).toBeTruthy();
+
+    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+
+    expect(latestRun.run.timing?.browserSetupMs).not.toBeNull();
+    expect(latestRun.run.timing?.finalReviewMs).not.toBeNull();
+    expect(latestRun.run.timing?.finalizationMs).not.toBeNull();
+    expect(
+      latestRun.run.timing?.waitReasonDurations.some(
+        (entry) => entry.waitReason === "waiting_on_ai",
+      ),
+    ).toBe(true);
+    expect(
+      latestRun.attempts.every(
+        (attempt) => (attempt.timing?.eventCount ?? 0) > 0,
+      ),
+    ).toBe(true);
+    expect(
+      latestRun.run.phaseSummaries.every(
+        (summary) => summary.timing !== null,
+      ),
+    ).toBe(true);
   });
 
   test("rejects starting a second source-debug run while one is already active", async () => {

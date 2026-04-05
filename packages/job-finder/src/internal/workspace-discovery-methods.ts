@@ -1,7 +1,12 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   DiscoveryRunRecordSchema,
+  DiscoveryTimingSummarySchema,
+  browserRunWaitReasonValues,
+  discoveryActivityStageValues,
   type DiscoveryActivityEvent,
+  type DiscoveryRunRecord,
+  type DiscoveryTargetExecution,
   type JobSource,
 } from "@unemployed/contracts";
 import {
@@ -33,8 +38,130 @@ import {
   overlayTouchedPendingJobs,
   overlayTouchedSavedJobs,
 } from "./workspace-service-helpers";
+import {
+  calculateDurationMs,
+  computeTimelineSummary,
+  serializeOrderedDurationEntries,
+} from "./performance-timing";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
+
+function buildDiscoveryTimingSummary(
+  events: readonly DiscoveryActivityEvent[],
+  startedAt: string,
+  completedAt: string,
+) {
+  const stageTimeline = computeTimelineSummary({
+    startedAt,
+    completedAt,
+    events: events.map((event) => ({
+      timestamp: event.timestamp,
+      key: event.stage,
+    })),
+  });
+  const waitReasonTimeline = computeTimelineSummary({
+    startedAt,
+    completedAt,
+    events: events
+      .filter(
+        (
+          event,
+        ): event is DiscoveryActivityEvent & {
+          waitReason: NonNullable<DiscoveryActivityEvent["waitReason"]>;
+        } => event.waitReason !== null,
+      )
+      .map((event) => ({
+        timestamp: event.timestamp,
+        key: event.waitReason,
+      })),
+  });
+
+  return DiscoveryTimingSummarySchema.parse({
+    totalDurationMs: stageTimeline.totalDurationMs,
+    firstActivityMs: stageTimeline.firstEventMs,
+    longestGapMs: Math.max(stageTimeline.longestGapMs, waitReasonTimeline.longestGapMs),
+    eventCount: events.length,
+    stageDurations: serializeOrderedDurationEntries(
+      stageTimeline.durationsMsByKey,
+      discoveryActivityStageValues,
+      (stage, durationMs) => ({
+        stage,
+        durationMs,
+      }),
+    ),
+    waitReasonDurations: serializeOrderedDurationEntries(
+      waitReasonTimeline.durationsMsByKey,
+      browserRunWaitReasonValues,
+      (waitReason, durationMs) => ({
+        waitReason,
+        durationMs,
+      }),
+    ),
+  });
+}
+
+function completeTargetExecution(
+  run: DiscoveryRunRecord,
+  targetId: string,
+  completedAt: string,
+  patch: Partial<DiscoveryTargetExecution>,
+): DiscoveryRunRecord {
+  return updateTargetExecution(run, targetId, (entry) => ({
+    ...entry,
+    ...patch,
+    completedAt,
+    timing:
+      entry.startedAt === null
+        ? null
+        : buildDiscoveryTimingSummary(
+            run.activity.filter((event) => event.targetId === entry.targetId),
+            entry.startedAt,
+            completedAt,
+          ),
+  }));
+}
+
+function finalizeRunningTargetExecutions(
+  run: DiscoveryRunRecord,
+  state: "cancelled" | "failed",
+  completedAt: string,
+): DiscoveryRunRecord {
+  let nextRun = run;
+
+  for (const targetExecution of run.targetExecutions) {
+    if (targetExecution.state !== "running") {
+      continue;
+    }
+
+    nextRun = completeTargetExecution(nextRun, targetExecution.targetId, completedAt, {
+      state,
+      warning:
+        state === "cancelled"
+          ? "Discovery was cancelled before this target finished."
+          : targetExecution.warning,
+    });
+  }
+
+  return nextRun;
+}
+
+function finalizeDiscoveryRun(
+  run: DiscoveryRunRecord,
+  state: "completed" | "cancelled" | "failed",
+  completedAt: string,
+): DiscoveryRunRecord {
+  return DiscoveryRunRecordSchema.parse({
+    ...run,
+    state,
+    completedAt,
+    summary: {
+      ...run.summary,
+      durationMs: calculateDurationMs(run.startedAt, completedAt),
+      outcome: state,
+      timing: buildDiscoveryTimingSummary(run.activity, run.startedAt, completedAt),
+    },
+  });
+}
 
 export function createWorkspaceDiscoveryMethods(
   ctx: WorkspaceServiceContext,
@@ -216,6 +343,7 @@ export function createWorkspaceDiscoveryMethods(
           timestamp: new Date().toISOString(),
           kind: "info",
           stage: "planning",
+          waitReason: "waiting_on_ai",
           targetId: null,
           adapterKind: null,
           resolvedAdapterKind: null,
@@ -267,6 +395,7 @@ export function createWorkspaceDiscoveryMethods(
               timestamp: targetStartedAt,
               kind: "info",
               stage: "navigation",
+              waitReason: "executing_tool",
               targetId: target.id,
               adapterKind: target.adapterKind,
               resolvedAdapterKind: adapterKind,
@@ -287,6 +416,7 @@ export function createWorkspaceDiscoveryMethods(
                 timestamp: new Date().toISOString(),
                 kind: "progress",
                 stage: "navigation",
+                waitReason: "starting_browser",
                 targetId: target.id,
                 adapterKind: target.adapterKind,
                 resolvedAdapterKind: adapterKind,
@@ -307,6 +437,7 @@ export function createWorkspaceDiscoveryMethods(
                 timestamp: new Date().toISOString(),
                 kind: "progress",
                 stage: "navigation",
+                waitReason: "attaching_browser",
                 targetId: target.id,
                 adapterKind: target.adapterKind,
                 resolvedAdapterKind: adapterKind,
@@ -364,6 +495,7 @@ export function createWorkspaceDiscoveryMethods(
                     timestamp: new Date().toISOString(),
                     kind: "progress",
                     stage: summary.stage,
+                    waitReason: summary.waitReason,
                     targetId: target.id,
                     adapterKind: target.adapterKind,
                     resolvedAdapterKind: adapterKind,
@@ -386,6 +518,7 @@ export function createWorkspaceDiscoveryMethods(
               timestamp: new Date().toISOString(),
               kind: "progress",
               stage: "scoring",
+              waitReason: "merging_results",
               targetId: target.id,
               adapterKind: target.adapterKind,
               resolvedAdapterKind: adapterKind,
@@ -450,6 +583,7 @@ export function createWorkspaceDiscoveryMethods(
               timestamp: new Date().toISOString(),
               kind: "progress",
               stage: "persistence",
+              waitReason: "persisting_results",
               targetId: target.id,
               adapterKind: target.adapterKind,
               resolvedAdapterKind: adapterKind,
@@ -462,15 +596,6 @@ export function createWorkspaceDiscoveryMethods(
               invalidSkipped: mergeResult.invalidSkipped,
             }),
           );
-          activeRun = updateTargetExecution(activeRun, target.id, (entry) => ({
-            ...entry,
-            state: "completed",
-            completedAt: new Date().toISOString(),
-            jobsFound: mergeResult.validatedCount,
-            jobsPersisted,
-            jobsStaged,
-            warning: discoveryResult.warning,
-          }));
           activeRun = DiscoveryRunRecordSchema.parse({
             ...activeRun,
             summary: {
@@ -484,13 +609,15 @@ export function createWorkspaceDiscoveryMethods(
               invalidSkipped: activeRun.summary.invalidSkipped + mergeResult.invalidSkipped,
             },
           });
+          const targetCompletedAt = new Date().toISOString();
 
           emitActivity(
             createDiscoveryEvent({
               runId: activeRun.id,
-              timestamp: new Date().toISOString(),
+              timestamp: targetCompletedAt,
               kind: "success",
               stage: "persistence",
+              waitReason: "persisting_results",
               targetId: target.id,
               adapterKind: target.adapterKind,
               resolvedAdapterKind: adapterKind,
@@ -503,6 +630,13 @@ export function createWorkspaceDiscoveryMethods(
               invalidSkipped: mergeResult.invalidSkipped,
             }),
           );
+          activeRun = completeTargetExecution(activeRun, target.id, targetCompletedAt, {
+            state: "completed",
+            jobsFound: mergeResult.validatedCount,
+            jobsPersisted,
+            jobsStaged,
+            warning: discoveryResult.warning,
+          });
 
           const latestDiscoveryState = await ctx.repository.getDiscoveryState();
           await ctx.repository.replaceSavedJobs(
@@ -535,17 +669,17 @@ export function createWorkspaceDiscoveryMethods(
         }
       } catch (error) {
         const interrupted = error instanceof DOMException && error.name === "AbortError";
-        activeRun = DiscoveryRunRecordSchema.parse({
-          ...activeRun,
-          state: interrupted ? "cancelled" : "failed",
-          completedAt: new Date().toISOString(),
-          summary: {
-            ...activeRun.summary,
-            durationMs:
-              new Date().getTime() - new Date(activeRun.startedAt).getTime(),
-            outcome: interrupted ? "cancelled" : "failed",
-          },
-        });
+        const completedAt = new Date().toISOString();
+        activeRun = finalizeRunningTargetExecutions(
+          activeRun,
+          interrupted ? "cancelled" : "failed",
+          completedAt,
+        );
+        activeRun = finalizeDiscoveryRun(
+          activeRun,
+          interrupted ? "cancelled" : "failed",
+          completedAt,
+        );
 
         const latestDiscoveryState = await ctx.repository.getDiscoveryState();
         await ctx.repository.replaceSavedJobs(
@@ -581,16 +715,7 @@ export function createWorkspaceDiscoveryMethods(
         }
       }
 
-      activeRun = DiscoveryRunRecordSchema.parse({
-        ...activeRun,
-        state: "completed",
-        completedAt: new Date().toISOString(),
-        summary: {
-          ...activeRun.summary,
-          durationMs: new Date().getTime() - new Date(activeRun.startedAt).getTime(),
-          outcome: "completed",
-        },
-      });
+      activeRun = finalizeDiscoveryRun(activeRun, "completed", new Date().toISOString());
 
       const latestDiscoveryState = await ctx.repository.getDiscoveryState();
       await ctx.repository.replaceSavedJobs(

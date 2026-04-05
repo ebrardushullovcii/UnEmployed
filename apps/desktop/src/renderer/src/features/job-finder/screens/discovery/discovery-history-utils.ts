@@ -24,7 +24,8 @@ function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetE
     jobsFound: 0,
     jobsPersisted: 0,
     jobsStaged: 0,
-    warning: null
+    warning: null,
+    timing: null
   }
 }
 
@@ -39,7 +40,8 @@ function createSyntheticExecution(event: DiscoveryActivityEvent): DiscoveryTarge
     jobsFound: 0,
     jobsPersisted: 0,
     jobsStaged: 0,
-    warning: null
+    warning: null,
+    timing: null
   }
 }
 
@@ -154,7 +156,8 @@ export function buildLiveRunRecord(
       duplicatesMerged: 0,
       invalidSkipped: 0,
       durationMs: Math.max(0, new Date().getTime() - new Date(firstEvent.timestamp).getTime()),
-      outcome: 'running'
+      outcome: 'running',
+      timing: null
     }
   }
 }

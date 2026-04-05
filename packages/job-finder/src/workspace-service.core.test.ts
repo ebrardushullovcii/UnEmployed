@@ -148,6 +148,11 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationAttempts).toHaveLength(0);
     expect(openSessionCalls).toBe(1);
     expect(closeSessionCalls).toBe(1);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.timing?.eventCount).toBeGreaterThan(0);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.timing?.firstActivityMs).not.toBeNull();
+    expect(
+      snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.timing?.eventCount,
+    ).toBeGreaterThan(0);
   });
 
   test("agent discovery abort keeps streamed activity and avoids persistence", async () => {

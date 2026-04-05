@@ -41,6 +41,7 @@ import {
 import {
   EditableSourceInstructionArtifactSchema,
   SourceDebugEvidenceRefSchema,
+  SourceDebugRunDetailsSchema,
   SourceDebugRunRecordSchema,
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
@@ -256,6 +257,15 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
 });
 export type JobFinderWorkspaceSnapshot = z.infer<
   typeof JobFinderWorkspaceSnapshotSchema
+>;
+
+export const JobFinderPerformanceSnapshotSchema = z.object({
+  generatedAt: IsoDateTimeSchema,
+  latestDiscoveryRun: DiscoveryRunRecordSchema.nullable().default(null),
+  latestSourceDebugRun: SourceDebugRunDetailsSchema.nullable().default(null),
+});
+export type JobFinderPerformanceSnapshot = z.infer<
+  typeof JobFinderPerformanceSnapshotSchema
 >;
 
 export const SaveCandidateProfileInputSchema = CandidateProfileSchema;

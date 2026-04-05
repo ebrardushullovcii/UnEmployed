@@ -56,8 +56,8 @@ Use one track per meaningful workstream, not per person or per chat.
 - last updated: `2026-04-05`
 - linked plan: `docs/exec-plans/active/010-job-finder-browser-efficiency-and-speed.md`
 - code areas: `packages/browser-runtime`, `packages/browser-agent`, `packages/job-finder`, `apps/desktop`
-- current focus: measurement-first implementation is underway to surface named waiting states, explain silent browser idle time, remove obvious fixed browser waits, and tighten the first avoidable source-debug persistence gaps
-- next step: validate the new live progress stream and timing-friendly attribution, then use that evidence to keep tightening discovery and source-debug runtime behavior without reducing result quality
+- current focus: measurement-first implementation now includes named waiting states, retained discovery and source-debug timing summaries, a test-only performance snapshot, and the first fixed-wait removal and phase-attribution improvements
+- next step: run representative discovery and source-debug benchmarks through the retained timing snapshot, identify the slowest real wait buckets, and use that evidence to keep tightening runtime behavior without reducing result quality
 - blockers: broader benchmarking still depends on `007` hardening enough to produce trustworthy side-by-side baselines, but the current visibility and idle-gap slice is actively implementable now
 
 ## Completed Background

@@ -37,15 +37,20 @@ export function summarizeProgressAction(
   siteLabel: string,
   jobsFound: number,
   stepCount: number,
-): { message: string; stage: DiscoveryActivityEvent["stage"] } {
+): {
+  message: string;
+  stage: DiscoveryActivityEvent["stage"];
+  waitReason: BrowserRunWaitReason | null;
+} {
   const message = progress.message?.trim();
-  const waitReason = progress.waitReason ?? null;
+  const waitReason = inferWaitReason(progress);
   const normalizedAction = (progress.currentAction ?? "").toLowerCase();
 
   if (message) {
     return {
       message,
       stage: mapWaitReasonToStage(waitReason),
+      waitReason,
     };
   }
 
@@ -53,6 +58,7 @@ export function summarizeProgressAction(
     return {
       message: `Planning step ${stepCount}${formatFoundSuffix(jobsFound)}`,
       stage: "planning",
+      waitReason,
     };
   }
 
@@ -75,6 +81,7 @@ export function summarizeProgressAction(
       return {
         message: `Found ${addedCount} new job${addedCount === 1 ? "" : "s"} on this pass (${totalCount} total so far)`,
         stage: "extraction",
+        waitReason,
       };
     }
 
@@ -82,6 +89,7 @@ export function summarizeProgressAction(
       return {
         message: `No new jobs were kept from this pass (${attemptedCount} reviewed, ${totalCount} total so far)`,
         stage: "extraction",
+        waitReason,
       };
     }
   }
@@ -90,6 +98,7 @@ export function summarizeProgressAction(
     return {
       message: `Opening ${siteLabel}${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
@@ -97,6 +106,7 @@ export function summarizeProgressAction(
     return {
       message: `Gathering jobs from the current page${formatFoundSuffix(jobsFound)}`,
       stage: "extraction",
+      waitReason,
     };
   }
 
@@ -104,6 +114,7 @@ export function summarizeProgressAction(
     return {
       message: `Loading more results${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
@@ -111,6 +122,7 @@ export function summarizeProgressAction(
     return {
       message: `Returning to the previous results page${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
@@ -118,6 +130,7 @@ export function summarizeProgressAction(
     return {
       message: `Refining the search controls${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
@@ -125,13 +138,59 @@ export function summarizeProgressAction(
     return {
       message: `Opening a job detail or result card${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
   return {
     message: `Continuing discovery on the current page${formatFoundSuffix(jobsFound)}`,
     stage: "navigation",
+    waitReason,
   };
+}
+
+function inferWaitReason(
+  progress: Pick<AgentDiscoveryProgress, "currentAction" | "waitReason">,
+): BrowserRunWaitReason | null {
+  if (progress.waitReason) {
+    return progress.waitReason;
+  }
+
+  const normalizedAction = (progress.currentAction ?? "").toLowerCase();
+
+  if (!normalizedAction || normalizedAction === "thinking...") {
+    return "waiting_on_ai";
+  }
+
+  if (normalizedAction.includes("retrying_ai")) {
+    return "retrying_ai";
+  }
+
+  if (
+    normalizedAction.startsWith("retry:") ||
+    normalizedAction.includes("retrying_tool")
+  ) {
+    return "retrying_tool";
+  }
+
+  if (
+    normalizedAction.includes("extract_result") ||
+    normalizedAction.includes("extract_jobs")
+  ) {
+    return "extracting_jobs";
+  }
+
+  if (
+    normalizedAction.includes("navigate") ||
+    normalizedAction.includes("scroll_down") ||
+    normalizedAction.includes("go_back") ||
+    normalizedAction.includes("click") ||
+    normalizedAction.includes("fill")
+  ) {
+    return "executing_tool";
+  }
+
+  return null;
 }
 
 function mapWaitReasonToStage(
@@ -164,11 +223,11 @@ function mapWaitReasonToStage(
 export function createDiscoveryEvent(
   input: Omit<
     DiscoveryActivityEvent,
-    "id" | "resolvedAdapterKind" | "terminalState"
+    "id" | "resolvedAdapterKind" | "terminalState" | "waitReason"
   > &
     Pick<
       Partial<DiscoveryActivityEvent>,
-      "resolvedAdapterKind" | "terminalState"
+      "resolvedAdapterKind" | "terminalState" | "waitReason"
     >,
 ): DiscoveryActivityEvent {
   return DiscoveryActivityEventSchema.parse({
@@ -187,6 +246,7 @@ export function appendDiscoveryEvent(
     previousEvent &&
     previousEvent.message === event.message &&
     previousEvent.stage === event.stage &&
+    previousEvent.waitReason === event.waitReason &&
     previousEvent.targetId === event.targetId &&
     previousEvent.url === event.url
   ) {
