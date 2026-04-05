@@ -1,7 +1,6 @@
 import { Info, Pencil, Trash2, View } from 'lucide-react'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
-import { Button } from '@renderer/components/ui/button'
-import { ProgressBar } from '@renderer/components/ui/progress-bar'
+import { Button, ProgressBar } from '@renderer/components/ui'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'

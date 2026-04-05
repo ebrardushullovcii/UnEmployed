@@ -32,5 +32,12 @@ export {
 } from './agent'
 
 export {
+  createCatalogSessionAgent,
+  type CatalogSessionAgentDiscoveryOptions,
+  type CatalogSessionEasyApplyInput,
+  type CatalogSessionRuntimePrimitives,
+} from './catalog-session-agent'
+
+export {
   createSystemPrompt
 } from './prompts'

@@ -11,7 +11,10 @@ import type {
   ResumeDraftPatch,
 } from "@unemployed/contracts";
 import { useJobFinderWorkspace } from "@renderer/features/job-finder/hooks/use-job-finder-workspace";
-import type { ActionState } from "@renderer/features/job-finder/lib/job-finder-types";
+import type {
+  ActionState,
+  JobFinderShellActions,
+} from "@renderer/features/job-finder/lib/job-finder-types";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   buildSourceDebugOutcomeMessage,
@@ -202,50 +205,78 @@ export function useJobFinderPageController() {
   const activeResumeWorkspaceJobIdRef = useRef<string | null>(
     activeResumeWorkspaceJobId,
   );
+  const getResumeWorkspaceRef = useRef<
+    JobFinderShellActions["getResumeWorkspace"] | null
+  >(actions?.getResumeWorkspace ?? null);
   const resumeAssistantRequestTokenRef = useRef(0);
   activeResumeWorkspaceJobIdRef.current = activeResumeWorkspaceJobId;
+  getResumeWorkspaceRef.current = actions?.getResumeWorkspace ?? null;
+
+  const clearResumeWorkspaceState = useCallback(() => {
+    setResumeWorkspace(null);
+    setResumeAssistantMessages([]);
+    setResumeAssistantPending(false);
+    setResumeWorkspaceDirty(false);
+  }, []);
 
   const isCurrentResumeWorkspaceJob = useCallback(
     (jobId: string) => activeResumeWorkspaceJobIdRef.current === jobId,
     [],
   );
 
+  const isCurrentResumeAssistantRequest = useCallback(
+    (jobId: string, requestToken: number) =>
+      activeResumeWorkspaceJobIdRef.current === jobId &&
+      resumeAssistantRequestTokenRef.current === requestToken,
+    [],
+  );
+
+  useEffect(() => {
+    if (
+      resumeWorkspace?.job.id &&
+      resumeWorkspace.job.id !== activeResumeWorkspaceJobId
+    ) {
+      clearResumeWorkspaceState();
+    }
+
+    if (!activeResumeWorkspaceJobId) {
+      clearResumeWorkspaceState();
+    }
+  }, [
+    activeResumeWorkspaceJobId,
+    clearResumeWorkspaceState,
+    resumeWorkspace?.job.id,
+  ]);
+
+  useEffect(() => {
+    if (
+      !activeResumeWorkspaceJobId ||
+      !workspace?.reviewQueue ||
+      workspace.reviewQueue.some((item) => item.jobId === activeResumeWorkspaceJobId)
+    ) {
+      return;
+    }
+
+    setActionState({
+      busy: false,
+      message:
+        "The selected resume workspace is no longer available. Review Queue is shown instead.",
+    });
+    void navigate("/job-finder/review-queue", { replace: true });
+  }, [activeResumeWorkspaceJobId, navigate, workspace?.reviewQueue]);
+
   useEffect(() => {
     let cancelled = false;
 
-    if (
-      !activeResumeWorkspaceJobId ||
-      !readyWorkspaceState ||
-      !workspace ||
-      !actions
-    ) {
-      setResumeWorkspace(null);
-      setResumeAssistantMessages([]);
-      setResumeAssistantPending(false);
-      setResumeWorkspaceDirty(false);
+    const getResumeWorkspace = getResumeWorkspaceRef.current;
+
+    if (!activeResumeWorkspaceJobId || !actions || !getResumeWorkspace) {
       return () => {
         cancelled = true;
       };
     }
 
-    if (
-      !workspace.reviewQueue.some(
-        (item) => item.jobId === activeResumeWorkspaceJobId,
-      )
-    ) {
-      setActionState({
-        busy: false,
-        message:
-          "The selected resume workspace is no longer available. Review Queue is shown instead.",
-      });
-      void navigate("/job-finder/review-queue", { replace: true });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    void actions
-      .getResumeWorkspace(activeResumeWorkspaceJobId)
+    void getResumeWorkspace(activeResumeWorkspaceJobId)
       .then((nextWorkspace) => {
         if (
           !cancelled &&
@@ -277,9 +308,7 @@ export function useJobFinderPageController() {
     activeResumeWorkspaceJobId,
     actions,
     navigate,
-    readyWorkspaceState,
     setSelectedReviewJobId,
-    workspace,
   ]);
 
   const navigateFromShell = useCallback(
@@ -661,33 +690,39 @@ export function useJobFinderPageController() {
                 : "The workspace could not refresh automatically.";
           }
 
-          setActionState({
-            busy: false,
-            message:
-              refreshMessage !== null
-                ? `Assistant finished${appliedCount > 0 ? ` and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}` : ""}, but the workspace could not refresh automatically. ${refreshMessage}`
-                : appliedCount > 0
-                  ? `Assistant finished and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}.`
-                  : "Assistant finished and shared a reply with no direct resume changes.",
-          });
+          if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
+            setActionState({
+              busy: false,
+              message:
+                refreshMessage !== null
+                  ? `Assistant finished${appliedCount > 0 ? ` and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}` : ""}, but the workspace could not refresh automatically. ${refreshMessage}`
+                  : appliedCount > 0
+                    ? `Assistant finished and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}.`
+                    : "Assistant finished and shared a reply with no direct resume changes.",
+            });
+          }
         } catch (error) {
           const message =
             error instanceof Error
               ? error.message
               : "The requested resume workspace action failed.";
-          setResumeAssistantPending(false);
-          setResumeAssistantMessages((current) =>
-            current.filter(
-              (entry) =>
-                entry.id !== optimisticUserMessage.id &&
-                entry.id !== optimisticAssistantMessage.id,
-            ),
-          );
-          setActionState({ busy: false, message });
+          if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
+            setResumeAssistantPending(false);
+            setResumeAssistantMessages((current) =>
+              current.filter(
+                (entry) =>
+                  entry.id !== optimisticUserMessage.id &&
+                  entry.id !== optimisticAssistantMessage.id,
+              ),
+            );
+            setActionState({ busy: false, message });
+          }
         } finally {
-          setActionState((current) =>
-            current.busy ? { ...current, busy: false } : current,
-          );
+          if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
+            setActionState((current) =>
+              current.busy ? { ...current, busy: false } : current,
+            );
+          }
         }
       })(),
     onResumeWorkspaceDirtyChange: (dirty: boolean) => {
@@ -711,6 +746,7 @@ export function useJobFinderPageController() {
     actionState,
     actions,
     confirmLeaveDirtyResumeWorkspace,
+    isCurrentResumeAssistantRequest,
     isCurrentResumeWorkspaceJob,
     liveDiscoveryEvents,
     navigate,

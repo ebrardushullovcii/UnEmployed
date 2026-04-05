@@ -1,7 +1,5 @@
 import type { ReviewQueueItem } from '@unemployed/contracts'
-import { Badge } from '@renderer/components/ui/badge'
-import { Button } from '@renderer/components/ui/button'
-import { ProgressBar } from '@renderer/components/ui/progress-bar'
+import { Badge, Button, ProgressBar } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'

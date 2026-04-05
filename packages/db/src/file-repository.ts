@@ -301,88 +301,19 @@ export async function createFileJobFinderRepository(
       | "source_debug_evidence_refs",
     value: { id: string },
   ): void {
-      if (tableName === "resume_drafts") {
-        upsertIndexedCollectionValue(database, tableName, value, {
-          columnNames: ["job_id", "created_at", "updated_at"],
-          getColumns: (candidate) => {
-            const draft = ResumeDraftSchema.parse(cloneValue(candidate));
-            return [draft.jobId, draft.createdAt, draft.updatedAt];
-          },
-        });
-        return;
-      }
+    const indexedConfig =
+      tableName in INDEXED_COLLECTION_CONFIGS
+        ? INDEXED_COLLECTION_CONFIGS[
+            tableName as keyof typeof INDEXED_COLLECTION_CONFIGS
+          ]
+        : null;
 
-      if (tableName === "resume_draft_revisions") {
-        upsertIndexedCollectionValue(database, tableName, value, {
-          columnNames: ["draft_id", "created_at"],
-          getColumns: (candidate) => {
-            const revision = ResumeDraftRevisionSchema.parse(
-              cloneValue(candidate),
-            );
-            return [revision.draftId, revision.createdAt];
-          },
-        });
-        return;
-      }
+    if (indexedConfig) {
+      upsertIndexedCollectionValue(database, tableName, value, indexedConfig);
+      return;
+    }
 
-      if (tableName === "resume_export_artifacts") {
-        upsertIndexedCollectionValue(database, tableName, value, {
-          columnNames: ["job_id", "draft_id", "exported_at", "is_approved"],
-          getColumns: (candidate) => {
-            const artifact = ResumeExportArtifactSchema.parse(
-              cloneValue(candidate),
-            );
-            return [
-              artifact.jobId,
-              artifact.draftId,
-              artifact.exportedAt,
-              artifact.isApproved ? 1 : 0,
-            ];
-          },
-        });
-        return;
-      }
-
-      if (tableName === "resume_research_artifacts") {
-        upsertIndexedCollectionValue(database, tableName, value, {
-          columnNames: ["job_id", "fetched_at"],
-          getColumns: (candidate) => {
-            const artifact = ResumeResearchArtifactSchema.parse(
-              cloneValue(candidate),
-            );
-            return [artifact.jobId, artifact.fetchedAt];
-          },
-        });
-        return;
-      }
-
-      if (tableName === "resume_validation_results") {
-        upsertIndexedCollectionValue(database, tableName, value, {
-          columnNames: ["draft_id", "validated_at"],
-          getColumns: (candidate) => {
-            const validation = ResumeValidationResultSchema.parse(
-              cloneValue(candidate),
-            );
-            return [validation.draftId, validation.validatedAt];
-          },
-        });
-        return;
-      }
-
-      if (tableName === "resume_assistant_messages") {
-        upsertIndexedCollectionValue(database, tableName, value, {
-          columnNames: ["job_id", "created_at"],
-          getColumns: (candidate) => {
-            const message = ResumeAssistantMessageSchema.parse(
-              cloneValue(candidate),
-            );
-            return [message.jobId, message.createdAt];
-          },
-        });
-        return;
-      }
-
-      upsertCollectionValue(database, tableName, value);
+    upsertCollectionValue(database, tableName, value);
   }
 
   return {
@@ -783,10 +714,6 @@ export async function createFileJobFinderRepository(
 
       if (normalizedValidation && normalizedValidation.draftId !== normalizedDraft.id) {
         throw new Error("Resume validation result does not belong to the provided draft.");
-      }
-
-      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
-        throw new Error("Tailored asset job does not match the provided draft.");
       }
 
       runImmediateTransaction(database, () => {
