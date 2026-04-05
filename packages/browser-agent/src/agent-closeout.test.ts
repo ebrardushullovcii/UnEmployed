@@ -219,4 +219,68 @@ describe("runAgentDiscovery closeout behavior", () => {
       countForcedCloseoutPrompts(secondCallMessages),
     ).toBeGreaterThan(countForcedCloseoutPrompts(firstCallMessages));
   });
+
+  test("discovery defers repeated search-result extraction until the end of the run", async () => {
+    const page = createPage() as Page;
+    const llmClient: LLMClient = {
+      chatWithTools: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: "capture the first results page",
+          toolCalls: [
+            createToolCall(
+              "extract_jobs",
+              { pageType: "search_results", maxJobs: 1 },
+              "tool_extract_deferred_1",
+            ),
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: "capture the same results page again after more browsing",
+          toolCalls: [
+            createToolCall(
+              "extract_jobs",
+              { pageType: "search_results", maxJobs: 1 },
+              "tool_extract_deferred_2",
+            ),
+          ],
+        }),
+    };
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () => [
+        {
+          sourceJobId: "job_deferred_1",
+          canonicalUrl: "https://www.linkedin.com/jobs/view/job_deferred_1",
+          title: "Workflow Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote" as const],
+          applyPath: "unknown" as const,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          salaryText: null,
+          summary: "Deferred extraction sample.",
+          description: "Deferred extraction sample.",
+          easyApplyEligible: false,
+          keySkills: ["React"],
+          responsibilities: [],
+        },
+      ]),
+    };
+
+    const config = createConfig();
+    config.maxSteps = 2;
+    config.promptContext = {
+      siteLabel: "Primary target",
+    };
+
+    const result = await runAgentDiscovery(
+      page,
+      config,
+      llmClient,
+      jobExtractor,
+    );
+
+    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
+    expect(result.jobs).toHaveLength(1);
+  });
 });

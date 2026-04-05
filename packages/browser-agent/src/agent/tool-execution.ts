@@ -1,5 +1,5 @@
 import type { Page } from 'playwright'
-import type { AgentConfig, AgentState, OnProgressCallback, ToolCall } from '../types'
+import type { AgentConfig, AgentState, DeferredSearchExtraction, OnProgressCallback, ToolCall } from '../types'
 import { getToolExecutor } from '../tools'
 import type { JobExtractor } from '../agent'
 import { addExtractedJobsToState } from './evidence'
@@ -58,6 +58,36 @@ function describeToolAction(toolName: string): string {
       return 'Wrapping up this browser pass.'
     default:
       return `Executing ${toolName.replace(/_/g, ' ')}.`
+  }
+}
+
+function buildDeferredSearchExtractionKey(pageUrl: string): string {
+  try {
+    const parsedUrl = new URL(pageUrl)
+    const removableParams = ['currentJobId', 'selectedJobId', 'jobId', 'trk', 'trackingId']
+
+    for (const key of removableParams) {
+      parsedUrl.searchParams.delete(key)
+    }
+
+    parsedUrl.hash = ''
+    const normalizedSearch = parsedUrl.searchParams.toString()
+
+    return `${parsedUrl.origin}${parsedUrl.pathname}${normalizedSearch ? `?${normalizedSearch}` : ''}`
+  } catch {
+    return pageUrl
+  }
+}
+
+function createDeferredSearchExtraction(input: {
+  pageUrl: string
+  pageText: string
+}): DeferredSearchExtraction {
+  return {
+    key: buildDeferredSearchExtractionKey(input.pageUrl),
+    pageUrl: input.pageUrl,
+    pageText: input.pageText,
+    capturedAt: new Date().toISOString()
   }
 }
 
@@ -136,6 +166,47 @@ export async function executeToolCall(
       const normalizedPageType = extractData.pageType === 'job_detail'
         ? 'job_detail'
         : 'search_results'
+      const shouldDeferSearchExtraction =
+        normalizedPageType === 'search_results' &&
+        !config.promptContext.taskPacket
+
+      if (shouldDeferSearchExtraction) {
+        const deferredSnapshot = createDeferredSearchExtraction({
+          pageUrl: extractData.pageUrl,
+          pageText: extractData.pageText
+        })
+        const existingSnapshot = state.deferredSearchExtractions.get(deferredSnapshot.key)
+
+        if (!existingSnapshot || deferredSnapshot.pageText.length >= existingSnapshot.pageText.length) {
+          state.deferredSearchExtractions.set(deferredSnapshot.key, deferredSnapshot)
+        }
+
+        onProgress?.({
+          currentUrl: extractData.pageUrl,
+          jobsFound: state.collectedJobs.length,
+          stepCount: state.stepCount,
+          currentAction: 'defer_extract_jobs',
+          message:
+            state.deferredSearchExtractions.size === 1
+              ? 'Captured this results page for end-of-run extraction.'
+              : `Captured this results page for end-of-run extraction (${state.deferredSearchExtractions.size} queued).`,
+          waitReason: 'extracting_jobs',
+          targetId: null,
+          adapterKind: config.source
+        })
+
+        return {
+          ...result,
+          data: {
+            ...result.data,
+            jobsExtracted: 0,
+            jobsDeferred: state.deferredSearchExtractions.size,
+            totalJobs: state.collectedJobs.length,
+            deferredExtraction: true
+          }
+        }
+      }
+
       const maxJobs = Math.max(0, config.targetJobCount - state.collectedJobs.length)
       onProgress?.({
         currentUrl: extractData.pageUrl,

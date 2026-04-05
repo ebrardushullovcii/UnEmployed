@@ -7,6 +7,7 @@ function createState(): AgentState {
     conversation: [],
     reviewTranscript: [],
     collectedJobs: [],
+    deferredSearchExtractions: new Map(),
     visitedUrls: new Set(),
     stepCount: 0,
     currentUrl: 'https://jobs.example.com/search?debug=1',

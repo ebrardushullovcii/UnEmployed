@@ -47,6 +47,13 @@ export interface AgentExtractionContext {
   relevantUrlSubstrings?: string[];
 }
 
+export interface DeferredSearchExtraction {
+  key: string;
+  pageUrl: string;
+  pageText: string;
+  capturedAt: string;
+}
+
 export interface AgentCompactionConfig {
   maxTranscriptMessages: number;
   preserveRecentMessages: number;
@@ -70,6 +77,7 @@ export interface AgentState {
   conversation: AgentMessage[];
   reviewTranscript: string[];
   collectedJobs: JobPosting[];
+  deferredSearchExtractions: Map<string, DeferredSearchExtraction>;
   visitedUrls: Set<string>;
   stepCount: number;
   currentUrl: string;

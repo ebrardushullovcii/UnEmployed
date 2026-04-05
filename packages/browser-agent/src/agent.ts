@@ -21,6 +21,7 @@ import {
 } from './agent/conversation'
 import {
   appendPhaseEvidence,
+  addExtractedJobsToState,
   createEmptyPhaseEvidence,
   hasMeaningfulPhaseEvidence,
   recordToolEvidence,
@@ -96,6 +97,79 @@ function buildResult(state: AgentState, partial: Omit<AgentResult, 'jobs' | 'ste
     compactionState: state.compactionState,
     ...partial
   }
+}
+
+async function flushDeferredSearchExtractions(input: {
+  state: AgentState
+  config: AgentConfig
+  jobExtractor: JobExtractor
+  emitProgress: ReturnType<typeof createProgressEmitter>
+  signal?: AbortSignal
+}): Promise<void> {
+  const deferredSearchPages = [...input.state.deferredSearchExtractions.values()]
+
+  if (deferredSearchPages.length === 0) {
+    return
+  }
+
+  input.emitProgress({
+    currentAction: 'finalize_deferred_extraction',
+    waitReason: 'extracting_jobs',
+    jobsFound: input.state.collectedJobs.length,
+    message:
+      deferredSearchPages.length === 1
+        ? 'Reviewing the captured results page before wrapping up.'
+        : `Reviewing ${deferredSearchPages.length} captured results pages before wrapping up.`
+  })
+
+  for (let index = 0; index < deferredSearchPages.length; index += 1) {
+    if (input.signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
+
+    const deferredSearchPage = deferredSearchPages[index]!
+    const maxJobs = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
+
+    if (maxJobs === 0) {
+      break
+    }
+
+    input.emitProgress({
+      currentAction: 'finalize_deferred_extraction',
+      currentUrl: deferredSearchPage.pageUrl,
+      waitReason: 'extracting_jobs',
+      jobsFound: input.state.collectedJobs.length,
+      message:
+        deferredSearchPages.length === 1
+          ? 'Extracting jobs from the captured results page.'
+          : `Extracting jobs from captured results page ${index + 1}/${deferredSearchPages.length}.`
+    })
+
+    const extractedJobs = await input.jobExtractor.extractJobsFromPage({
+      pageText: deferredSearchPage.pageText,
+      pageUrl: deferredSearchPage.pageUrl,
+      pageType: 'search_results',
+      maxJobs
+    })
+    const addedCount = addExtractedJobsToState(extractedJobs, input.state, input.config.source)
+
+    if (addedCount > 0) {
+      console.log(`[Agent] +${addedCount} jobs (${input.state.collectedJobs.length} total) from deferred extraction ${deferredSearchPage.pageUrl.slice(0, 60)}...`)
+    }
+
+    input.emitProgress({
+      currentAction: `deferred_extract_result:${addedCount}:${input.state.collectedJobs.length}:${extractedJobs.length}`,
+      currentUrl: deferredSearchPage.pageUrl,
+      waitReason: 'extracting_jobs',
+      jobsFound: input.state.collectedJobs.length,
+      message:
+        addedCount > 0
+          ? `Kept ${addedCount} new job${addedCount === 1 ? '' : 's'} from deferred extraction.`
+          : 'Reviewed the deferred extraction pass and kept no new jobs.'
+    })
+  }
+
+  input.state.deferredSearchExtractions.clear()
 }
 
 function createProgressEmitter(
@@ -238,6 +312,7 @@ export async function runAgentDiscovery(
       renderReviewTranscriptMessage({ role: 'user', content: createUserPrompt(config) })
     ],
     collectedJobs: [],
+    deferredSearchExtractions: new Map(),
     visitedUrls: new Set(),
     stepCount: 0,
     currentUrl: '',
@@ -249,6 +324,21 @@ export async function runAgentDiscovery(
 
   const tools = getToolDefinitions()
   const emitProgress = createProgressEmitter(state, config, onProgress)
+  const buildDiscoveryResult = async (
+    partial: Omit<AgentResult, 'jobs' | 'steps' | 'transcriptMessageCount' | 'reviewTranscript' | 'compactionState'>
+  ): Promise<AgentResult> => {
+    if (!requiresExplicitFinish && state.deferredSearchExtractions.size > 0) {
+      await flushDeferredSearchExtractions({
+        state,
+        config,
+        jobExtractor,
+        emitProgress,
+        signal
+      })
+    }
+
+    return buildResult(state, partial)
+  }
 
   try {
     const firstUrl = config.startingUrls[0]
@@ -371,7 +461,7 @@ export async function runAgentDiscovery(
         maybeCompactConversation(state, config, createUserPrompt)
 
         if (!requiresExplicitFinish && state.stepCount >= config.maxSteps - 5) {
-          return buildResult(state, {
+          return await buildDiscoveryResult({
             incomplete: true,
             phaseCompletionMode: null,
             phaseCompletionReason: null,
@@ -427,7 +517,7 @@ export async function runAgentDiscovery(
           pendingDebugFindings =
             (result as { data?: { debugFindings?: AgentResult['debugFindings'] } }).data?.debugFindings ?? pendingDebugFindings
           console.log(`[Agent] Finished: ${state.collectedJobs.length} jobs found`)
-          return buildResult(state, {
+          return await buildDiscoveryResult({
             phaseCompletionMode: requiresExplicitFinish
               ? (forcedFinishPromptSent ? 'forced_finish' : 'structured_finish')
               : null,
@@ -458,7 +548,7 @@ export async function runAgentDiscovery(
       }
 
       console.log(`[Agent] Target reached: ${state.collectedJobs.length} jobs`)
-      return buildResult(state, {
+      return await buildDiscoveryResult({
         phaseCompletionMode: null,
         phaseCompletionReason: null,
         phaseEvidence: null,
@@ -469,7 +559,7 @@ export async function runAgentDiscovery(
     console.log(`[Agent] Max steps reached: ${state.collectedJobs.length} jobs`)
     const fallbackDebugFindings = pendingDebugFindings ?? (requiresExplicitFinish ? synthesizeFallbackDebugFindings(state) : null)
     const hasEvidence = hasMeaningfulPhaseEvidence(state)
-    return buildResult(state, {
+    return await buildDiscoveryResult({
       incomplete: state.stepCount >= config.maxSteps,
       phaseCompletionMode: requiresExplicitFinish
         ? (hasEvidence ? 'timed_out_with_partial_evidence' : 'timed_out_without_evidence')
