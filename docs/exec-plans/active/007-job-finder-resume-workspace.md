@@ -471,7 +471,7 @@ resumeReview: z.discriminatedUnion("status", [
     approvedExportId: NonEmptyStringSchema,
     approvedFormat: z.enum(["html", "pdf"]),
   }),
-])
+]).default({ status: "not_started" })
 ```
 
 #### Repository State Extension
@@ -700,10 +700,12 @@ Retrieval should be section-aware. For example:
 Expected first package additions by workspace:
 
 - `packages/knowledge-base`: `minisearch`, `@mozilla/readability`, `jsdom`
-- `apps/desktop` or renderer-side diff presentation layer: `diff`
+- `apps/desktop` or renderer-side diff presentation layer: `diff` only if a future manual preview surface becomes necessary
 - `apps/desktop` only if richer drag and drop becomes necessary: `@dnd-kit/core`
 
 Do not add embedding or vector packages in the first pass unless lexical retrieval proves clearly insufficient.
+
+Rely on grounded auto-apply plus revision-backed recovery by default; include `diff` only when a manual preview surface truly requires explicit change presentation.
 
 ## Desktop UX Plan
 
@@ -1379,7 +1381,7 @@ pnpm docs:check
 
 **Status update (`2026-04-04`)**:
 
-- targeted verification now passes for `pnpm --filter @unemployed/job-finder test`, `pnpm --filter @unemployed/job-finder typecheck`, `pnpm --filter @unemployed/desktop typecheck`, `pnpm docs:check`, and `pnpm --filter @unemployed/desktop ui:resume-workspace`
+- targeted verification now passes for `pnpm --filter @unemployed/job-finder test`, `pnpm --filter @unemployed/job-finder typecheck`, `pnpm --filter @unemployed/db test`, `pnpm --filter @unemployed/contracts test`, `pnpm --filter @unemployed/ai-providers test`, `pnpm --filter @unemployed/browser-agent typecheck`, `pnpm --filter @unemployed/browser-agent test`, `pnpm --filter @unemployed/desktop typecheck`, `pnpm --filter @unemployed/desktop lint`, `pnpm docs:check`, `pnpm lint`, and `pnpm --filter @unemployed/desktop ui:resume-workspace`
 - repo docs were updated to capture stale-approval behavior, missing-file apply safety, and the expectation that non-happy-path guards also receive targeted service coverage
 - `pnpm verify` is now unblocked by the earlier knowledge-base lint issue, but still depends on clearing any unrelated repo-wide lint fallout that surfaces during the full run
 - the scripted UI proof set now includes the dedicated `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty` harness for save-before-action and dirty-navigation coverage alongside the happy-path workspace capture
