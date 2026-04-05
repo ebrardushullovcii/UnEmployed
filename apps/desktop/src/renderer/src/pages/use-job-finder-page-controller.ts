@@ -603,16 +603,23 @@ export function useJobFinderPageController() {
       next: () => void,
       successMessage?: string | null,
     ) =>
-      void runResumeWorkspaceAction(
-        () => actions.saveResumeDraft(draft),
-        async () => {
-          const refreshed = await refreshResumeWorkspace(draft.jobId);
-          if (refreshed) {
-            next();
-          }
-        },
-        successMessage === undefined ? "Resume draft saved." : successMessage,
-      ),
+      void (async () => {
+        const jobId = draft.jobId;
+        let saveSucceeded = false;
+
+        await runResumeWorkspaceAction(
+          () => actions.saveResumeDraft(draft),
+          async () => {
+            saveSucceeded = true;
+            await refreshResumeWorkspace(jobId);
+          },
+          successMessage === undefined ? "Resume draft saved." : successMessage,
+        );
+
+        if (saveSucceeded && isCurrentResumeWorkspaceJob(jobId)) {
+          next();
+        }
+      })(),
     onApplyResumePatch: (
       patch: ResumeDraftPatch,
       revisionReason?: string | null,
@@ -620,11 +627,11 @@ export function useJobFinderPageController() {
       void runResumeWorkspaceAction(
         () => actions.applyResumePatch(patch, revisionReason),
         async () => {
-          if (!resumeWorkspace) {
+          if (!activeRouteResumeWorkspace) {
             return;
           }
 
-          await refreshResumeWorkspace(resumeWorkspace.job.id, {
+          await refreshResumeWorkspace(activeRouteResumeWorkspace.job.id, {
             updateAssistantMessages: true,
           });
         },
