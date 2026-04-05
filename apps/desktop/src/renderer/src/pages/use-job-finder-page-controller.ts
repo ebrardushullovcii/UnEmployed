@@ -200,7 +200,13 @@ export function useJobFinderPageController() {
   const readyWorkspaceState =
     workspaceState.status === "ready" ? workspaceState : null;
   const actions = readyWorkspaceState?.actions ?? null;
-  const platform = readyWorkspaceState?.platform ?? "win32";
+  const lastKnownPlatformRef = useRef<"darwin" | "win32" | "linux">(
+    workspaceState.status === "ready" ? workspaceState.platform : "win32",
+  );
+  if (readyWorkspaceState?.platform) {
+    lastKnownPlatformRef.current = readyWorkspaceState.platform;
+  }
+  const platform = readyWorkspaceState?.platform ?? lastKnownPlatformRef.current;
   const workspace = readyWorkspaceState?.workspace ?? null;
   const activeResumeWorkspaceJobIdRef = useRef<string | null>(
     activeResumeWorkspaceJobId,
@@ -408,7 +414,7 @@ export function useJobFinderPageController() {
       void runAction(
         () => actions.approveApply(jobId),
         () => {
-          void navigate("/job-finder/applications");
+          navigateFromShell("/job-finder/applications");
         },
         "Easy Apply marked as submitted and moved into Applications.",
       ),
@@ -430,10 +436,7 @@ export function useJobFinderPageController() {
       }
 
       if (!jobId) {
-        setResumeWorkspace(null);
-        setResumeAssistantMessages([]);
-        setResumeAssistantPending(false);
-        setResumeWorkspaceDirty(false);
+        clearResumeWorkspaceState();
         void navigate("/job-finder/review-queue");
         return;
       }
@@ -472,7 +475,7 @@ export function useJobFinderPageController() {
         () => actions.queueJobForReview(jobId),
         () => {
           setSelectedReviewJobId(jobId);
-          void navigate("/job-finder/review-queue");
+          navigateFromShell("/job-finder/review-queue");
         },
         "Job moved into the review queue.",
       ),
@@ -730,6 +733,7 @@ export function useJobFinderPageController() {
   })}, [
     actionState,
     actions,
+    clearResumeWorkspaceState,
     confirmLeaveDirtyResumeWorkspace,
     isCurrentResumeAssistantRequest,
     isCurrentResumeWorkspaceJob,

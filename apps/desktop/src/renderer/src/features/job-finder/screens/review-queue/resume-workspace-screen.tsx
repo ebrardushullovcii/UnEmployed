@@ -123,20 +123,12 @@ export function ResumeWorkspaceScreen(props: {
     [props.workspace],
   );
 
-  if (!props.workspace || !draft) {
-    return (
-      <main className="grid min-h-full place-items-center px-6 py-10">
-        <EmptyState
-          title="Resume workspace unavailable"
-          description="The selected review item could not be loaded. Return to Review Queue and pick another job."
-        />
-      </main>
-    );
-  }
-
-  const { job, research, validation } = props.workspace;
   const availableExportToApprove = (() => {
     if (hasUnsavedChanges) {
+      return null;
+    }
+
+    if (!props.workspace) {
       return null;
     }
 
@@ -184,6 +176,19 @@ export function ResumeWorkspaceScreen(props: {
       draftId: draft?.id ?? patch.draftId,
     };
   }, [draft]);
+
+  if (!props.workspace || !draft) {
+    return (
+      <main className="grid min-h-full place-items-center px-6 py-10">
+        <EmptyState
+          title="Resume workspace unavailable"
+          description="The selected review item could not be loaded. Return to Review Queue and pick another job."
+        />
+      </main>
+    );
+  }
+
+  const { job, research, validation } = props.workspace;
 
   return (
     <LockedScreenLayout
