@@ -381,6 +381,8 @@ Owns bounded live-browser reasoning tasks such as:
 - deciding which visible controls matter on the current page
 - bounded submit-readiness reasoning
 - optional use of prior learned target guidance
+- prompts, transcript compaction, and tool policy for those bounded workflows
+- deterministic catalog workflow policy layered over generic runtime primitives when seeded or fallback paths need filtering, eligibility gates, checkpoint shaping, or approved-resume usage rules
 
 It should not become the owner of product approval policy or application state persistence.
 

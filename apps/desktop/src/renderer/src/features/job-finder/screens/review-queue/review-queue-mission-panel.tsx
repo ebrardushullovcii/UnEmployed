@@ -32,31 +32,43 @@ export function ReviewQueueMissionPanel({
   const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
   const isGenerating = selectedItem?.assetStatus === 'generating' || selectedItem?.assetStatus === 'queued'
   const resumeReviewStatus = selectedItem?.resumeReview.status ?? 'not_started'
-  const hasApprovedResumeExport = selectedItem?.resumeReview.status === 'approved'
-  const canApproveApply = browserSession.status === 'ready' && hasApprovedResumeExport
+  const approvedResumeReview = selectedItem?.resumeReview.status === 'approved'
+    ? selectedItem.resumeReview
+    : null
+  const hasApprovedResumeExport = approvedResumeReview !== null
+  const hasReadyApprovedAsset =
+    selectedAsset !== null &&
+    selectedAsset.status === 'ready' &&
+    selectedItem?.resumeAssetId === selectedAsset.id &&
+    approvedResumeReview !== null &&
+    selectedAsset.storagePath === approvedResumeReview.approvedFilePath
+  const canApproveApply =
+    browserSession.status === 'ready' &&
+    hasApprovedResumeExport &&
+    hasReadyApprovedAsset
   const tailoringStateLabel = selectedItem ? formatStatusLabel(selectedItem.assetStatus) : 'No asset'
   const tailoringStateTone = selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
-        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">Mission Details</p>
+        <p className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Mission Details</p>
         <Info className="size-4 text-muted-foreground" />
       </div>
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-            <div className="mb-1 font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Confidence Score</div>
+            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Confidence Score</div>
             <div className="font-display text-xl font-bold text-positive">{selectedItem?.matchScore ?? '--'}%</div>
           </div>
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-            <div className="mb-1 font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Session State</div>
+            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Session State</div>
             <div className="font-display text-xl font-bold text-primary">{formatStatusLabel(browserSession.status)}</div>
           </div>
         </div>
         <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
           <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Tailoring state</span>
+            <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Tailoring state</span>
             <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
           </div>
           <ProgressBar ariaLabel="Tailoring progress" percent={selectedItem?.progressPercent ?? 0} />
@@ -65,17 +77,17 @@ export function ReviewQueueMissionPanel({
           <>
             <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Template</span>
+                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Template</span>
                 <strong className="mt-2 block font-display text-sm uppercase text-foreground">{selectedAsset?.templateName ?? 'Pending'}</strong>
               </div>
               <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Generation</span>
+                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Generation</span>
                 <strong className="mt-2 block font-display text-sm uppercase text-foreground">{selectedAsset ? formatStatusLabel(selectedAsset.generationMethod) : 'Pending'}</strong>
               </div>
             </div>
             <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Resume review</span>
+                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume review</span>
                 <StatusBadge tone={resumeReviewStatus === 'stale' ? 'critical' : resumeReviewStatus === 'approved' ? 'positive' : 'active'}>
                   {resumeReviewStatus.replaceAll('_', ' ')}
                 </StatusBadge>
@@ -100,8 +112,8 @@ export function ReviewQueueMissionPanel({
               ) : null}
               {selectedAsset?.storagePath ? (
                 <div className="grid min-w-0 gap-1">
-                  <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Generated file</span>
-                  <p className="min-w-0 break-all font-mono text-[10px] text-foreground-soft">{selectedAsset.storagePath}</p>
+                  <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Generated file</span>
+                  <p className="min-w-0 break-all font-mono text-(length:--text-small) text-foreground-soft">{selectedAsset.storagePath}</p>
                 </div>
               ) : null}
             </div>
@@ -109,8 +121,8 @@ export function ReviewQueueMissionPanel({
               <PreferenceList label="Role fit" values={selectedJob.matchAssessment.reasons} />
             </div>
             <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-              <h3 className="mb-4 block font-display text-[10px] font-bold uppercase tracking-(--tracking-caps) text-muted-foreground">Telemetry Stream</h3>
-              <div className="min-w-0 space-y-1 font-mono text-[9px] leading-relaxed text-foreground-soft">
+              <h3 className="mb-4 block font-display text-(length:--text-field-label) font-bold uppercase tracking-(--tracking-caps) text-muted-foreground">Telemetry Stream</h3>
+              <div className="min-w-0 space-y-1 font-mono text-(length:--text-label) leading-relaxed text-foreground-soft">
                 {selectedAsset?.notes.length
                   ? selectedAsset.notes.map((note, index) => (
                     <div className="min-w-0 break-all" key={`telemetry_${index}`}>{note}</div>
@@ -118,7 +130,7 @@ export function ReviewQueueMissionPanel({
                   : <div>No telemetry recorded yet.</div>}
               </div>
             </div>
-            {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words font-mono text-[10px] uppercase tracking-(--tracking-normal) text-primary" role="status">{actionMessage}</p> : null}
+            {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words font-mono text-(length:--text-small) uppercase tracking-(--tracking-normal) text-primary" role="status">{actionMessage}</p> : null}
             <div className="grid min-w-0 gap-2.5">
               <Button
                 className="h-11 w-full"

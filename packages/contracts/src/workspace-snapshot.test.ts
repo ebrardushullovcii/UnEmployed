@@ -217,6 +217,7 @@ describe("contracts workspace snapshot schema", () => {
             approvedAt: "2026-03-20T10:03:30.000Z",
             approvedExportId: "resume_export_1",
             approvedFormat: "pdf",
+            approvedFilePath: "/tmp/alex-signal.pdf",
           },
           updatedAt: "2026-03-20T10:03:00.000Z",
         },

@@ -111,6 +111,7 @@ function buildResumeReviewState(
       approvedAt: draft.approvedAt,
       approvedExportId: approvedExport.id,
       approvedFormat: approvedExport.format,
+      approvedFilePath: approvedExport.filePath,
     };
   }
 

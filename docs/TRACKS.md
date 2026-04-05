@@ -26,8 +26,8 @@ Use one track per meaningful workstream, not per person or per chat.
 - last updated: `2026-04-05`
 - linked plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - code areas: `packages/job-finder`, `packages/contracts`, `packages/db`, `packages/knowledge-base`, `packages/browser-runtime`, `apps/desktop`
-- current focus: this is the only current active plan; the workspace flow mostly works in a bare-bones form and is being tightened into a stronger usable slice
-- next step: finish the remaining functionality and harden quality, assistant edits, export or approval paths, apply safety, and desktop QA
+- current focus: this is the only current active plan; the workspace flow mostly works in a bare-bones form and is being tightened into a stronger usable slice, including aligning review-queue apply gating with approved export and tailored-asset reality
+- next step: finish the remaining functionality and harden quality, assistant edits, export or approval paths, apply safety, desktop QA, and handoff clarity around browser-agent versus browser-runtime ownership
 - blockers: none
 
 ### `Plan 008 Automatic Job Apply`
@@ -36,7 +36,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - last updated: `2026-04-05`
 - linked plan: `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
 - code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/browser-runtime`, `packages/browser-agent`, `apps/desktop`
-- current focus: queued follow-on slice that redefines the next apply direction toward autonomous single-job and queue submission with run-scoped multi-submit approval, live consent interrupts, generated profile-grounded answers, and skip-with-artifacts recovery
+- current focus: queued follow-on slice that redefines the next apply direction toward autonomous single-job and queue submission with run-scoped multi-submit approval, live consent interrupts, generated profile-grounded answers, skip-with-artifacts recovery, and clear package ownership where browser-agent holds bounded workflow policy while runtime stays generic
 - next step: start after `007` hardens the resume-approval and apply-safety prerequisites enough that automatic submission can build on them instead of reopening them
 - blockers: depends on `007` hardening first; current shipped behavior remains more conservative until `008` lands
 

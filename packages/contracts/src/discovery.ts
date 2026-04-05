@@ -186,6 +186,7 @@ export const ReviewQueueResumeReviewStateSchema = z.discriminatedUnion("status",
     approvedAt: IsoDateTimeSchema,
     approvedExportId: NonEmptyStringSchema,
     approvedFormat: ResumeExportFormatSchema,
+    approvedFilePath: NonEmptyStringSchema,
   }),
 ]);
 export type ReviewQueueResumeReviewState = z.infer<

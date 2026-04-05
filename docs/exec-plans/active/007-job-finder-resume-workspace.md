@@ -142,6 +142,8 @@ Migration-safe sequence for implementation:
 - `Review Queue`: entry point, final apply approval, overview state
 - `Resume Workspace`: draft creation, editing, validation, preview, export, resume approval
 - `Applications` and apply runtime: consume the approved tailored artifact for later submission paths
+- `packages/browser-agent`: owns prompts, transcript compaction, tool policy, and deterministic catalog workflow policy that sits on top of generic browser session primitives
+- `packages/browser-runtime`: owns browser lifecycle and generic automation primitives, not site- or workflow-specific review/apply policy
 
 ### Route And Shell Recommendation
 

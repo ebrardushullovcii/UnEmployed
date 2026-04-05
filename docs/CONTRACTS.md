@@ -64,4 +64,4 @@
 - `resumeReview.status = "draft"`: draft exists and is still being edited.
 - `resumeReview.status = "needs_review"`: draft is reviewable but not approved yet, including defensive fallback when approval metadata is inconsistent.
 - `resumeReview.status = "stale"`: approval is invalidated and may include nullable `staleReason`.
-- `resumeReview.status = "approved"`: requires `approvedAt`, `approvedExportId`, and `approvedFormat`; downstream flows should trust these fields instead of inferring approval from coarse asset state.
+- `resumeReview.status = "approved"`: requires `approvedAt`, `approvedExportId`, `approvedFormat`, and `approvedFilePath`; downstream flows should trust these fields instead of inferring approval from coarse asset state, and renderer gating may compare the approved file path against the current tailored asset path.

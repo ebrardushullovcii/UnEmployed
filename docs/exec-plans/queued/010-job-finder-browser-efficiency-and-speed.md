@@ -146,6 +146,7 @@ Implementation rule:
 - The current agent loop reports a generic `Thinking...` state before tool execution, which hides whether the run is waiting on AI, planning, or a retry.
 - The startup path already includes conservative waits and step-driven loops that are good first audit targets.
 - Source-debug forced-finish behavior and phase budgets are likely good candidates for turn-count reduction.
+- Prompt construction, transcript compaction, tool policy, and deterministic catalog workflow policy belong here rather than in `packages/browser-runtime`, so performance work should tune them in this package without leaking those concerns across the boundary.
 
 ### `packages/job-finder`
 

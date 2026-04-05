@@ -282,6 +282,9 @@ export function useJobFinderPageController() {
           !cancelled &&
           nextWorkspace.job.id === activeResumeWorkspaceJobIdRef.current
         ) {
+          setActionState((current) =>
+            current.message === null ? current : { ...current, message: null },
+          );
           setResumeWorkspace(nextWorkspace);
           setResumeAssistantMessages(nextWorkspace.assistantMessages);
           setResumeAssistantPending(false);
