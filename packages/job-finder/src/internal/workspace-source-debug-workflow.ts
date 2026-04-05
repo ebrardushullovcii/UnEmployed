@@ -1,11 +1,14 @@
 import {
+  type AgentDiscoveryProgress,
   SourceDebugCompactionStateSchema,
   SourceDebugEvidenceRefSchema,
+  SourceDebugProgressEventSchema,
   SourceDebugRunRecordSchema,
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
   SourceInstructionVerificationSchema,
   type JobDiscoveryTarget,
+  type SourceDebugProgressEvent,
   type SourceDebugPhase,
   type SourceInstructionArtifact,
   type SourceDebugWorkerAttempt,
@@ -41,6 +44,156 @@ import {
 } from "./workspace-service-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
+function normalizeProgressUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
+  }
+}
+
+function buildSourceDebugProgressEmitter(input: {
+  runId: string;
+  targetId: string;
+  onProgress?: (event: SourceDebugProgressEvent) => void;
+}) {
+  const startedAtMs = Date.now();
+  let lastActivityAt = new Date().toISOString();
+
+  return (eventInput: {
+    phase?: SourceDebugPhase | null;
+    waitReason: SourceDebugProgressEvent["waitReason"];
+    message: string;
+    currentUrl?: string | null;
+    stepCount?: number;
+    jobsFound?: number;
+  }) => {
+    lastActivityAt = new Date().toISOString();
+    const event = SourceDebugProgressEventSchema.parse({
+      runId: input.runId,
+      targetId: input.targetId,
+      phase: eventInput.phase ?? null,
+      waitReason: eventInput.waitReason,
+      timestamp: lastActivityAt,
+      elapsedMs: Date.now() - startedAtMs,
+      lastActivityAt,
+      message: eventInput.message,
+      currentUrl: normalizeProgressUrl(eventInput.currentUrl),
+      stepCount: eventInput.stepCount ?? 0,
+      jobsFound: eventInput.jobsFound ?? 0,
+    });
+
+    input.onProgress?.(event);
+    return event;
+  };
+}
+
+function inferProgressWaitReason(
+  progress: Pick<AgentDiscoveryProgress, "currentAction" | "waitReason">,
+): SourceDebugProgressEvent["waitReason"] {
+  if (progress.waitReason) {
+    return progress.waitReason;
+  }
+
+  const normalizedAction = (progress.currentAction ?? "").toLowerCase();
+
+  if (!normalizedAction || normalizedAction === "thinking...") {
+    return "waiting_on_ai";
+  }
+
+  if (normalizedAction === "thinking" || normalizedAction.includes("retrying_ai")) {
+    return normalizedAction.includes("retrying_ai")
+      ? "retrying_ai"
+      : "waiting_on_ai";
+  }
+
+  if (
+    normalizedAction.startsWith("retry:") ||
+    normalizedAction.includes("retrying_tool")
+  ) {
+    return "retrying_tool";
+  }
+
+  if (
+    normalizedAction.startsWith("extract_result:") ||
+    normalizedAction.includes("extract_jobs")
+  ) {
+    return "extracting_jobs";
+  }
+
+  return "executing_tool";
+}
+
+function buildFallbackProgressMessage(
+  waitReason: SourceDebugProgressEvent["waitReason"],
+  phaseLabel: string,
+  jobsFound: number,
+  stepCount: number,
+): string {
+  switch (waitReason) {
+    case "waiting_on_ai":
+      return `${phaseLabel}: planning the next browser action (step ${stepCount}).`;
+    case "retrying_ai":
+      return `${phaseLabel}: retrying AI planning after a temporary model error.`;
+    case "waiting_on_page":
+      return `${phaseLabel}: waiting for the page to settle before continuing.`;
+    case "executing_tool":
+      return `${phaseLabel}: executing the next browser action.`;
+    case "retrying_tool":
+      return `${phaseLabel}: retrying the last browser action after a temporary page error.`;
+    case "extracting_jobs":
+      return `${phaseLabel}: extracting jobs from the current page (${jobsFound} found so far).`;
+    case "persisting_results":
+      return `${phaseLabel}: saving the findings from this phase.`;
+    case "manual_prerequisite":
+      return `${phaseLabel}: waiting on a manual browser prerequisite.`;
+    case "finalizing":
+      return "Finalizing the source-debug run.";
+    case "starting_browser":
+      return "Starting or attaching the browser profile for source debug.";
+    case "attaching_browser":
+      return "Preparing the browser tab for the next phase.";
+    case "merging_results":
+      return `${phaseLabel}: organizing the collected findings.`;
+    default:
+      return `${phaseLabel}: continuing source debug.`;
+  }
+}
+
+function summarizeAgentProgressForSourceDebug(
+  progress: AgentDiscoveryProgress,
+  phase: SourceDebugPhase,
+): {
+  waitReason: SourceDebugProgressEvent["waitReason"];
+  message: string;
+} {
+  const phaseLabel = formatStatusLabel(phase);
+  const waitReason = inferProgressWaitReason(progress);
+  const message =
+    progress.message?.trim() ||
+    buildFallbackProgressMessage(
+      waitReason,
+      phaseLabel,
+      progress.jobsFound,
+      progress.stepCount,
+    );
+
+  return {
+    waitReason,
+    message:
+      message.toLowerCase().startsWith(phaseLabel.toLowerCase()) ||
+      waitReason === "starting_browser" ||
+      waitReason === "attaching_browser" ||
+      waitReason === "finalizing"
+        ? message
+        : `${phaseLabel}: ${message}`,
+  };
+}
+
 export async function runSourceDebugWorkflow(
   ctx: WorkspaceServiceContext,
   targetId: string,
@@ -49,6 +202,7 @@ export async function runSourceDebugWorkflow(
     clearExistingInstructions?: boolean;
     reviewInstructionId?: string | null;
   },
+  onProgress?: (event: SourceDebugProgressEvent) => void,
 ) {
   if (ctx.activeSourceDebugAbortControllerRef.current) {
     throw new Error(
@@ -127,6 +281,11 @@ export async function runSourceDebugWorkflow(
   const adapterKind = resolveAdapterKind(normalizedTarget);
   const adapter = discoveryAdapters[adapterKind];
   const runId = `source_debug_${normalizedTarget.id}_${Date.now()}`;
+  const emitProgress = buildSourceDebugProgressEmitter({
+    runId,
+    targetId: normalizedTarget.id,
+    ...(onProgress ? { onProgress } : {}),
+  });
   ctx.activeSourceDebugExecutionIdRef.current = runId;
 
   let run = SourceDebugRunRecordSchema.parse({
@@ -170,6 +329,11 @@ export async function runSourceDebugWorkflow(
   let browserSessionOpened = false;
 
   try {
+    emitProgress({
+      waitReason: "starting_browser",
+      message: `Starting or attaching the browser profile for ${normalizedTarget.label}.`,
+      currentUrl: normalizedTarget.startingUrl,
+    });
     await ctx.openRunBrowserSession(adapterKind);
     browserSessionOpened = true;
     await runSequentialArtifactOrchestrator<SourceDebugPhase, SourceDebugWorkerAttempt>({
@@ -185,6 +349,12 @@ export async function runSourceDebugWorkflow(
           updatedAt: new Date().toISOString(),
         });
         await ctx.persistSourceDebugRun(run);
+        emitProgress({
+          phase,
+          waitReason: "waiting_on_ai",
+          message: `${formatStatusLabel(phase)} started. Waiting on AI to choose the next browser action.`,
+          currentUrl: normalizedTarget.startingUrl,
+        });
       },
       executePhase: async (phase, index) => {
         const phasePacket = buildSourceDebugPhasePacket(
@@ -237,6 +407,17 @@ export async function runSourceDebugWorkflow(
           skipSessionValidation: true,
           aiClient: ctx.aiClient,
           signal: executionSignal,
+          onProgress: (progress) => {
+            const summary = summarizeAgentProgressForSourceDebug(progress, phase);
+            emitProgress({
+              phase,
+              waitReason: summary.waitReason,
+              message: summary.message,
+              currentUrl: progress.currentUrl,
+              stepCount: progress.stepCount,
+              jobsFound: progress.jobsFound,
+            });
+          },
         });
 
         if (!debugResult) {
@@ -248,6 +429,14 @@ export async function runSourceDebugWorkflow(
         const outcome = classifySourceDebugAttemptOutcome(debugResult, phase);
         const completion = resolveSourceDebugCompletion(debugResult);
         const attemptId = `source_debug_attempt_${phase}_${Date.now()}`;
+        emitProgress({
+          phase,
+          waitReason: "persisting_results",
+          message: `Saving the findings from ${formatStatusLabel(phase)}.`,
+          currentUrl: debugResult.jobs[0]?.canonicalUrl ?? normalizedTarget.startingUrl,
+          stepCount: debugResult.agentMetadata?.steps ?? 0,
+          jobsFound: debugResult.jobs.length,
+        });
         const evidenceRefs = [
           SourceDebugEvidenceRefSchema.parse({
             id: `${attemptId}_start`,
@@ -440,7 +629,6 @@ export async function runSourceDebugWorkflow(
             attemptIds: [...run.attemptIds, attempt.id],
             phaseSummaries: [...run.phaseSummaries, phaseSummary],
           });
-          await ctx.repository.upsertSourceDebugRun(run);
           await ctx.persistSourceDebugRun(run);
           await ctx.saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
             ...currentTarget,
@@ -449,6 +637,14 @@ export async function runSourceDebugWorkflow(
               : "missing",
             lastDebugRunId: run.id,
           }));
+          emitProgress({
+            phase,
+            waitReason: "manual_prerequisite",
+            message:
+              attempt.blockerSummary ??
+              `${formatStatusLabel(phase)} is paused until a manual browser step is completed.`,
+            currentUrl: normalizedTarget.startingUrl,
+          });
           return;
         }
 
@@ -520,6 +716,13 @@ export async function runSourceDebugWorkflow(
       adapterKind,
       verification,
     );
+    emitProgress({
+      waitReason: "waiting_on_ai",
+      message:
+        "Reviewing the collected evidence and organizing the final source instructions.",
+      currentUrl: normalizedTarget.startingUrl,
+      jobsFound: attempts.filter((attempt) => attempt.outcome === "succeeded").length,
+    });
     const reviewOverride = await reviewSourceInstructionArtifactWithAi({
       aiClient: ctx.aiClient,
       target: normalizedTarget,
@@ -561,6 +764,12 @@ export async function runSourceDebugWorkflow(
           updatedAt: new Date().toISOString(),
         })
       : finalizedInstruction;
+    emitProgress({
+      waitReason: "finalizing",
+      message: "Saving the final source instructions and verification result.",
+      currentUrl: normalizedTarget.startingUrl,
+      jobsFound: attempts.filter((attempt) => attempt.outcome === "succeeded").length,
+    });
     await ctx.repository.upsertSourceInstructionArtifact(instructionToPersist);
     run = SourceDebugRunRecordSchema.parse({
       ...run,

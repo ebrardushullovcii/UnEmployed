@@ -2,6 +2,7 @@ import type { Page } from 'playwright'
 import type { JobPosting } from '@unemployed/contracts'
 import type {
   AgentConfig,
+  AgentProgress,
   AgentMessage,
   AgentResult,
   AgentState,
@@ -97,11 +98,72 @@ function buildResult(state: AgentState, partial: Omit<AgentResult, 'jobs' | 'ste
   }
 }
 
+function createProgressEmitter(
+  state: AgentState,
+  config: AgentConfig,
+  onProgress?: OnProgressCallback
+) {
+  const startedAtMs = Date.now()
+
+  return (input: {
+    currentAction?: string
+    currentUrl?: string
+    jobsFound?: number
+    stepCount?: number
+    waitReason?: AgentProgress['waitReason']
+    message?: AgentProgress['message']
+  }) => {
+    const lastActivityAt = new Date().toISOString()
+    const currentUrl =
+      input.currentUrl ||
+      state.currentUrl ||
+      state.lastStableUrl ||
+      config.startingUrls[0] ||
+      'about:blank'
+
+    onProgress?.({
+      currentUrl,
+      jobsFound: input.jobsFound ?? state.collectedJobs.length,
+      stepCount: input.stepCount ?? state.stepCount,
+      currentAction: input.currentAction,
+      message: input.message ?? null,
+      waitReason: input.waitReason ?? null,
+      elapsedMs: Date.now() - startedAtMs,
+      lastActivityAt,
+      targetId: null,
+      adapterKind: config.source
+    })
+  }
+}
+
+function canWaitForLoadState(
+  page: Page
+): page is Page & { waitForLoadState: Page['waitForLoadState'] } {
+  const pageWithOptionalWaitForLoadState: { waitForLoadState?: unknown } = page
+  return typeof pageWithOptionalWaitForLoadState.waitForLoadState === 'function'
+}
+
+async function waitForInitialPageReady(page: Page): Promise<void> {
+  if (!canWaitForLoadState(page)) {
+    return
+  }
+
+  await Promise.any([
+    page.waitForLoadState('load', { timeout: 1_000 }),
+    page.waitForLoadState('networkidle', { timeout: 1_000 })
+  ]).catch(() => undefined)
+}
+
 async function getLlmResponse(
   page: Page,
   state: AgentState,
   tools: ReturnType<typeof getToolDefinitions>,
   llmClient: LLMClient,
+  emitProgress?: (input: {
+    currentAction?: string
+    waitReason?: AgentProgress['waitReason']
+    message?: AgentProgress['message']
+  }) => void,
   signal?: AbortSignal
 ): Promise<{ content?: string; toolCalls?: ToolCall[]; reasoning?: string }> {
   let llmResponse: { content?: string; toolCalls?: ToolCall[]; reasoning?: string } | null = null
@@ -119,6 +181,11 @@ async function getLlmResponse(
       lastLlmError = llmError
 
       if (attempt < MAX_LLM_RETRY_ATTEMPTS - 1) {
+        emitProgress?.({
+          currentAction: 'retrying_ai',
+          waitReason: 'retrying_ai',
+          message: `Retrying AI planning after a temporary model error (${attempt + 2}/${MAX_LLM_RETRY_ATTEMPTS}).`
+        })
         await page.waitForTimeout(500 * (attempt + 1))
       }
     }
@@ -165,6 +232,7 @@ export async function runAgentDiscovery(
   }
 
   const tools = getToolDefinitions()
+  const emitProgress = createProgressEmitter(state, config, onProgress)
 
   try {
     const firstUrl = config.startingUrls[0]
@@ -189,8 +257,24 @@ export async function runAgentDiscovery(
       })
     }
 
+    emitProgress({
+      currentAction: 'navigate',
+      waitReason: 'waiting_on_page',
+      message: 'Opening the starting page for this run.',
+      currentUrl: firstUrl,
+      stepCount: 0,
+      jobsFound: 0
+    })
     await page.goto(firstUrl, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(2000)
+    emitProgress({
+      currentAction: 'page_settle',
+      waitReason: 'waiting_on_page',
+      message: 'Waiting for the starting page to settle before the first action.',
+      currentUrl: page.url() || firstUrl,
+      stepCount: 0,
+      jobsFound: 0
+    })
+    await waitForInitialPageReady(page)
     const landedUrl = page.url()
     const landedUrlValidation = isAllowedUrl(landedUrl, config.navigationPolicy)
     if (!landedUrlValidation.valid) {
@@ -236,18 +320,18 @@ export async function runAgentDiscovery(
         maybeCompactConversation(state, config, createUserPrompt)
       }
 
-      onProgress?.({
+      emitProgress({
         currentUrl: state.currentUrl,
         jobsFound: state.collectedJobs.length,
         stepCount: state.stepCount,
-        currentAction: 'Thinking...',
-        targetId: null,
-        adapterKind: config.source
+        currentAction: 'thinking',
+        message: `Planning the next browser action (step ${state.stepCount}/${config.maxSteps}).`,
+        waitReason: 'waiting_on_ai'
       })
 
       let response: { content?: string; toolCalls?: ToolCall[]; reasoning?: string }
       try {
-        response = await getLlmResponse(page, state, tools, llmClient, signal)
+        response = await getLlmResponse(page, state, tools, llmClient, emitProgress, signal)
       } catch (llmError) {
         if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {
           throw llmError

@@ -224,6 +224,24 @@ export const sourceDebugPhaseValues = [
 export const SourceDebugPhaseSchema = z.enum(sourceDebugPhaseValues);
 export type SourceDebugPhase = z.infer<typeof SourceDebugPhaseSchema>;
 
+export const browserRunWaitReasonValues = [
+  "starting_browser",
+  "attaching_browser",
+  "waiting_on_page",
+  "waiting_on_ai",
+  "retrying_ai",
+  "executing_tool",
+  "retrying_tool",
+  "extracting_jobs",
+  "merging_results",
+  "persisting_results",
+  "manual_prerequisite",
+  "finalizing",
+] as const;
+
+export const BrowserRunWaitReasonSchema = z.enum(browserRunWaitReasonValues);
+export type BrowserRunWaitReason = z.infer<typeof BrowserRunWaitReasonSchema>;
+
 export const sourceDebugAttemptOutcomeValues = [
   "succeeded",
   "partial",

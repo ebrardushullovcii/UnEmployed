@@ -1,8 +1,15 @@
 # 010 Job Finder Browser Efficiency And Speed
 
-Status: ready
+Status: active
 
-This plan is defined but not started. It remains queued follow-on work until the current higher-priority Job Finder slices settle enough that browser-heavy performance can be measured cleanly.
+This plan is now active. The current implementation slice focuses on exposing named waiting states, reducing obvious silent-idle behavior, and making discovery and source-debug stage attribution easier to verify before broader runtime tuning continues.
+
+## Current Implementation Status
+
+- Discovery now emits clearer browser-startup, browser-ready, merge, and persistence progress so healthy runs no longer look like unexplained blank browser time quite as often.
+- Source-debug now streams typed live progress to the desktop renderer, including current phase, wait reason, elapsed time, and product-facing status text.
+- Browser-agent startup no longer pays a fixed `2s` post-navigation pause; it now uses a short bounded readiness wait instead.
+- The next tightening pass should focus on representative benchmark capture and any remaining long waits in final review, persistence, or retry paths that the new progress signals expose.
 
 ## Goal
 

@@ -52,13 +52,13 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `Plan 010 Browser Efficiency And Speed`
 
-- status: `ready`
+- status: `in_progress`
 - last updated: `2026-04-05`
-- linked plan: `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md`
+- linked plan: `docs/exec-plans/active/010-job-finder-browser-efficiency-and-speed.md`
 - code areas: `packages/browser-runtime`, `packages/browser-agent`, `packages/job-finder`, `apps/desktop`
-- current focus: queued measurement-first work to make discovery and source-debug faster, reduce silent idle time, and cut inefficient browser or agent behavior
-- next step: start milestone 1 after `007` settles by adding timing instrumentation, representative baseline runs, and live progress visibility before runtime tuning
-- blockers: depends on `007` hardening enough to produce trustworthy baselines
+- current focus: measurement-first implementation is underway to surface named waiting states, explain silent browser idle time, remove obvious fixed browser waits, and tighten the first avoidable source-debug persistence gaps
+- next step: validate the new live progress stream and timing-friendly attribution, then use that evidence to keep tightening discovery and source-debug runtime behavior without reducing result quality
+- blockers: broader benchmarking still depends on `007` hardening enough to produce trustworthy side-by-side baselines, but the current visibility and idle-gap slice is actively implementable now
 
 ## Completed Background
 

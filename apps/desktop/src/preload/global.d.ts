@@ -10,6 +10,7 @@ import type {
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
+  SourceDebugProgressEvent,
   SourceDebugRunRecord,
   SourceDebugRunDetails,
   SaveJobFinderWorkspaceInput,
@@ -60,6 +61,7 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
         runSourceDebug: (
           targetId: string,
+          onProgress?: (event: SourceDebugProgressEvent) => void,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         cancelSourceDebug: (
           runId: string,

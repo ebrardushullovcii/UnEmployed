@@ -37,6 +37,12 @@
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them
 
+## Discovery And Source-Debug Progress
+
+- `AgentDiscoveryProgress` is the shared browser-agent progress envelope for discovery-facing orchestration and may carry product-facing `message`, `waitReason`, `phase`, `elapsedMs`, and `lastActivityAt` fields in addition to the current URL, jobs found, and step count.
+- `SourceDebugProgressEvent` is the typed live progress payload for `runSourceDebug`; desktop IPC may stream it while a run is active so renderer surfaces can explain browser startup, AI waiting, tool execution, persistence, manual prerequisites, and final review or finalization work in real time.
+- Progress wait states should reuse the shared `BrowserRunWaitReason` vocabulary instead of package-local ad hoc strings so discovery, source-debug, and renderer status surfaces stay aligned.
+
 ## Job Posting Fields
 
 - `postedAt`: nullable ISO datetime, defaults to `null`; only use for exact machine-readable posting timestamps.

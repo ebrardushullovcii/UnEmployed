@@ -1,5 +1,6 @@
 import type {
   EditableSourceInstructionArtifact,
+  SourceDebugProgressEvent,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
 } from "@unemployed/contracts";
@@ -28,17 +29,18 @@ export function createWorkspaceSourceDebugMethods(
       clearExistingInstructions?: boolean;
       reviewInstructionId?: string | null;
     },
+    onProgress?: (event: SourceDebugProgressEvent) => void,
   ) => Promise<ReturnType<WorkspaceServiceContext["getWorkspaceSnapshot"]> extends Promise<infer T> ? T : never>;
 } {
   const storeMethods = createWorkspaceSourceDebugStoreMethods(ctx);
 
   return {
-    runSourceDebugWorkflow: (targetId, signal, options) =>
-      runSourceDebugWorkflow(ctx, targetId, signal, options),
-    async runSourceDebug(targetId, signal) {
+    runSourceDebugWorkflow: (targetId, signal, options, onProgress) =>
+      runSourceDebugWorkflow(ctx, targetId, signal, options, onProgress),
+    async runSourceDebug(targetId, signal, onProgress) {
       return runSourceDebugWorkflow(ctx, targetId, signal, {
         clearExistingInstructions: true,
-      });
+      }, onProgress);
     },
     async cancelSourceDebug(runId) {
       if (
@@ -80,7 +82,7 @@ export function createWorkspaceSourceDebugMethods(
     acceptSourceInstructionDraft(targetId, instructionId) {
       return storeMethods.acceptSourceInstructionDraft(targetId, instructionId);
     },
-    async verifySourceInstructions(targetId, instructionId, signal) {
+    async verifySourceInstructions(targetId, instructionId, signal, onProgress) {
       const artifacts = await ctx.repository.listSourceInstructionArtifacts();
       const artifact = artifacts.find(
         (entry) => entry.id === instructionId && entry.targetId === targetId,
@@ -93,7 +95,7 @@ export function createWorkspaceSourceDebugMethods(
       return runSourceDebugWorkflow(ctx, targetId, signal, {
         clearExistingInstructions: false,
         reviewInstructionId: artifact.id,
-      });
+      }, onProgress);
     },
   };
 }

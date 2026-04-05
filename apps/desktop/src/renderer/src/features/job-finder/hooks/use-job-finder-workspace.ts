@@ -114,9 +114,9 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.runAgentDiscovery(onProgress),
         ),
-      runSourceDebug: (targetId: string) =>
+      runSourceDebug: (targetId: string, onProgress) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.runSourceDebug(targetId),
+          window.unemployed.jobFinder.runSourceDebug(targetId, onProgress),
         ),
       getSourceDebugRunDetails: (runId: string) =>
         window.unemployed.jobFinder.getSourceDebugRunDetails(runId),

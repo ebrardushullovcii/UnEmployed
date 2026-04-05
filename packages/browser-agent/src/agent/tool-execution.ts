@@ -38,6 +38,29 @@ function redactToolArgs(value: unknown): unknown {
   )
 }
 
+function describeToolAction(toolName: string): string {
+  switch (toolName) {
+    case 'navigate':
+      return 'Opening the next page.'
+    case 'click':
+      return 'Opening a result, detail page, or in-page control.'
+    case 'fill':
+      return 'Filling a form or filter control.'
+    case 'select_option':
+      return 'Choosing a value from the current page.'
+    case 'scroll_down':
+      return 'Scrolling to reveal more results.'
+    case 'go_back':
+      return 'Returning to the previous page.'
+    case 'extract_jobs':
+      return 'Preparing the current page for job extraction.'
+    case 'finish':
+      return 'Wrapping up this browser pass.'
+    default:
+      return `Executing ${toolName.replace(/_/g, ' ')}.`
+  }
+}
+
 export async function executeToolCall(
   toolCall: ToolCall,
   page: Page,
@@ -70,6 +93,8 @@ export async function executeToolCall(
     jobsFound: state.collectedJobs.length,
     stepCount: state.stepCount,
     currentAction: `${toolName}: ${JSON.stringify(redactedArgs)}`,
+    message: describeToolAction(toolName),
+    waitReason: 'executing_tool',
     targetId: null,
     adapterKind: config.source
   })
@@ -112,6 +137,16 @@ export async function executeToolCall(
         ? 'job_detail'
         : 'search_results'
       const maxJobs = Math.max(0, config.targetJobCount - state.collectedJobs.length)
+      onProgress?.({
+        currentUrl: extractData.pageUrl,
+        jobsFound: state.collectedJobs.length,
+        stepCount: state.stepCount,
+        currentAction: 'extract_jobs',
+        message: 'Extracting jobs from the current page.',
+        waitReason: 'extracting_jobs',
+        targetId: null,
+        adapterKind: config.source
+      })
       const extractedJobs = maxJobs === 0
         ? []
         : await jobExtractor.extractJobsFromPage({
@@ -131,6 +166,10 @@ export async function executeToolCall(
         jobsFound: state.collectedJobs.length,
         stepCount: state.stepCount,
         currentAction: `extract_result:${addedCount}:${state.collectedJobs.length}:${extractedJobs.length}`,
+        message: addedCount > 0
+          ? `Kept ${addedCount} new job${addedCount === 1 ? '' : 's'} from this extraction pass.`
+          : 'Reviewed the extraction pass and kept no new jobs.',
+        waitReason: 'extracting_jobs',
         targetId: null,
         adapterKind: config.source
       })
@@ -160,6 +199,16 @@ export async function executeToolCall(
       if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError')
       }
+      onProgress?.({
+        currentUrl: state.currentUrl,
+        jobsFound: state.collectedJobs.length,
+        stepCount: state.stepCount,
+        currentAction: `retry:${toolName}`,
+        message: `Retrying ${toolName.replace(/_/g, ' ')} after a temporary browser error (${attempt + 1}/${maxRetries}).`,
+        waitReason: 'retrying_tool',
+        targetId: null,
+        adapterKind: config.source
+      })
       await new Promise(resolve => setTimeout(resolve, 500 * attempt))
     }
   }

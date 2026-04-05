@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  BrowserRunWaitReasonSchema,
   IsoDateTimeSchema,
   NonEmptyStringSchema,
   SourceDebugAttemptOutcomeSchema,
@@ -386,3 +387,20 @@ export const SourceDebugRunDetailsSchema = z.object({
   instructionArtifact: SourceInstructionArtifactSchema.nullable().default(null),
 });
 export type SourceDebugRunDetails = z.infer<typeof SourceDebugRunDetailsSchema>;
+
+export const SourceDebugProgressEventSchema = z.object({
+  runId: NonEmptyStringSchema,
+  targetId: NonEmptyStringSchema,
+  phase: SourceDebugPhaseSchema.nullable().default(null),
+  waitReason: BrowserRunWaitReasonSchema,
+  timestamp: IsoDateTimeSchema,
+  elapsedMs: z.number().nonnegative(),
+  lastActivityAt: IsoDateTimeSchema,
+  message: NonEmptyStringSchema,
+  currentUrl: UrlStringSchema.nullable().default(null),
+  stepCount: z.number().int().nonnegative().default(0),
+  jobsFound: z.number().int().nonnegative().default(0),
+});
+export type SourceDebugProgressEvent = z.infer<
+  typeof SourceDebugProgressEventSchema
+>;

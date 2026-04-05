@@ -553,12 +553,30 @@ export function useJobFinderPageController() {
       );
     },
     onRunSourceDebug: (targetId: string) => {
-      void runAction(
-        () => actions.runSourceDebug(targetId),
-        () => undefined,
-        (nextWorkspace) =>
-          buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
-      );
+      setActionState({
+        busy: true,
+        message: "Starting source debug and attaching the browser profile...",
+      });
+      void actions
+        .runSourceDebug(targetId, (progressEvent) => {
+          setActionState({
+            busy: true,
+            message: progressEvent.message,
+          });
+        })
+        .then((nextWorkspace) => {
+          setActionState({
+            busy: false,
+            message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
+          });
+        })
+        .catch((error) => {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "The requested Job Finder action failed.";
+          setActionState({ busy: false, message });
+        });
     },
     onGetSourceDebugRunDetails: actions.getSourceDebugRunDetails,
     onSaveSourceInstructionArtifact: (targetId, artifact) =>

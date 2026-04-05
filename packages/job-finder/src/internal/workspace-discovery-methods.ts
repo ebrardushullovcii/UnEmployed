@@ -281,8 +281,44 @@ export function createWorkspaceDiscoveryMethods(
           );
 
           if (!openedSessionSources.has(adapterKind)) {
+            emitActivity(
+              createDiscoveryEvent({
+                runId: activeRun.id,
+                timestamp: new Date().toISOString(),
+                kind: "progress",
+                stage: "navigation",
+                targetId: target.id,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: adapterKind,
+                message: `Starting or attaching the browser profile for ${target.label}`,
+                url: target.startingUrl,
+                jobsFound: 0,
+                jobsPersisted: activeRun.summary.jobsPersisted,
+                jobsStaged: activeRun.summary.jobsStaged,
+                duplicatesMerged: activeRun.summary.duplicatesMerged,
+                invalidSkipped: activeRun.summary.invalidSkipped,
+              }),
+            );
             await ctx.openRunBrowserSession(adapterKind);
             openedSessionSources.add(adapterKind);
+            emitActivity(
+              createDiscoveryEvent({
+                runId: activeRun.id,
+                timestamp: new Date().toISOString(),
+                kind: "progress",
+                stage: "navigation",
+                targetId: target.id,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: adapterKind,
+                message: `Browser ready for ${target.label}. Opening the target pages next.`,
+                url: target.startingUrl,
+                jobsFound: 0,
+                jobsPersisted: activeRun.summary.jobsPersisted,
+                jobsStaged: activeRun.summary.jobsStaged,
+                duplicatesMerged: activeRun.summary.duplicatesMerged,
+                invalidSkipped: activeRun.summary.invalidSkipped,
+              }),
+            );
           }
 
           const activeInstruction = resolveActiveSourceInstructionArtifact(
@@ -317,7 +353,7 @@ export function createWorkspaceDiscoveryMethods(
               ...(signal ? { signal } : {}),
               onProgress: (progress) => {
                 const summary = summarizeProgressAction(
-                  progress.currentAction,
+                  progress,
                   target.label,
                   progress.jobsFound,
                   progress.stepCount,
@@ -344,6 +380,24 @@ export function createWorkspaceDiscoveryMethods(
             },
           );
 
+          emitActivity(
+            createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: "progress",
+              stage: "scoring",
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message: `Merging and reviewing the results from ${target.label}`,
+              url: target.startingUrl,
+              jobsFound: discoveryResult.jobs.length,
+              jobsPersisted: activeRun.summary.jobsPersisted,
+              jobsStaged: activeRun.summary.jobsStaged,
+              duplicatesMerged: activeRun.summary.duplicatesMerged,
+              invalidSkipped: activeRun.summary.invalidSkipped,
+            }),
+          );
           const mergeSeedJobs = settings.discoveryOnly
             ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
             : workingSavedJobs;
@@ -390,6 +444,24 @@ export function createWorkspaceDiscoveryMethods(
             jobsPersisted = mergeResult.mergedJobs.length;
           }
 
+          emitActivity(
+            createDiscoveryEvent({
+              runId: activeRun.id,
+              timestamp: new Date().toISOString(),
+              kind: "progress",
+              stage: "persistence",
+              targetId: target.id,
+              adapterKind: target.adapterKind,
+              resolvedAdapterKind: adapterKind,
+              message: `Saving the kept jobs and updated run state for ${target.label}`,
+              url: target.startingUrl,
+              jobsFound: mergeResult.validatedCount,
+              jobsPersisted,
+              jobsStaged,
+              duplicatesMerged: mergeResult.duplicatesMerged,
+              invalidSkipped: mergeResult.invalidSkipped,
+            }),
+          );
           activeRun = updateTargetExecution(activeRun, target.id, (entry) => ({
             ...entry,
             state: "completed",

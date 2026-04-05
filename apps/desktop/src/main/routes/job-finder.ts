@@ -24,6 +24,7 @@ import {
   JobFinderSourceInstructionActionInputSchema,
   JobFinderSettingsSchema,
   SaveJobFinderWorkspaceInputSchema,
+  SourceDebugProgressEventSchema,
   SourceDebugRunDetailsSchema,
   SourceDebugRunRecordSchema,
   JobFinderWorkspaceSnapshotSchema,
@@ -46,6 +47,19 @@ function parseAgentDiscoveryRequestId(payload: unknown): string {
   const requestId = (payload as { requestId?: unknown }).requestId;
   if (typeof requestId !== "string" || requestId.trim().length === 0) {
     throw new Error("Invalid agent discovery request id payload");
+  }
+
+  return requestId;
+}
+
+function parseOptionalRequestId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const requestId = (payload as { requestId?: unknown }).requestId;
+  if (typeof requestId !== "string" || requestId.trim().length === 0) {
+    return null;
   }
 
   return requestId;
@@ -299,10 +313,22 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
 
   ipcMain.handle(
     "job-finder:run-source-debug",
-    async (_event, payload: unknown) => {
+    async (event, payload: unknown) => {
       const { targetId } = JobFinderSourceDebugActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.runSourceDebug(targetId);
+      const requestId = parseOptionalRequestId(payload);
+      const snapshot = await jobFinderWorkspaceService.runSourceDebug(
+        targetId,
+        undefined,
+        requestId
+          ? (progressEvent) => {
+              event.sender.send(
+                `job-finder:source-debug-progress:${requestId}`,
+                SourceDebugProgressEventSchema.parse(progressEvent),
+              );
+            }
+          : undefined,
+      );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
