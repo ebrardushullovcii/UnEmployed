@@ -36,6 +36,7 @@ export type AgentExtractorPageType = 'search_results' | 'job_detail'
 const MAX_LLM_RETRY_ATTEMPTS = 3
 const DEFERRED_SEARCH_EXTRACTION_BATCH_SIZE = 3
 const DEFERRED_SEARCH_EXTRACTION_FLUSH_STEP_INTERVAL = 10
+const MAX_SEARCH_RESULTS_EXTRACTION_JOBS = 7
 
 export interface LLMClient {
   chatWithTools(
@@ -135,7 +136,10 @@ async function flushDeferredSearchExtractions(input: {
     }
 
     const deferredSearchPage = deferredSearchPages[index]!
-    const maxJobs = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
+    const maxJobs = Math.min(
+      Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length),
+      MAX_SEARCH_RESULTS_EXTRACTION_JOBS
+    )
 
     if (maxJobs === 0) {
       break

@@ -15,6 +15,8 @@ import {
   SelectOptionSchema,
 } from "./shared";
 
+const CLICK_TIMEOUT_MS = 5000;
+
 function normalizeOptionText(value: string | null | undefined): string {
   return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
 }
@@ -164,9 +166,39 @@ If the click fails, you'll get details about why so you can decide whether to re
           await locator.scrollIntoViewIfNeeded().catch(() => {});
           await page.waitForTimeout(500);
         }
+        const visibleAfterScroll = await locator.isVisible().catch(() => false);
+
+        if (!visibleAfterScroll && role === 'link') {
+          const href = await locator.getAttribute('href').catch(() => null)
+
+          if (href) {
+            const absoluteUrl = new URL(href, state.currentUrl || page.url()).toString()
+            const urlValidation = isAllowedUrl(absoluteUrl, context.config.navigationPolicy)
+
+            if (urlValidation.valid) {
+              await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: CLICK_TIMEOUT_MS })
+              const newUrl = page.url()
+              state.currentUrl = newUrl
+              state.visitedUrls.add(newUrl)
+
+              return {
+                success: true,
+                data: {
+                  role,
+                  name: name.slice(0, 50),
+                  index,
+                  text: await locator.textContent().catch(() => null),
+                  navigated: true,
+                  newUrl,
+                  navigationMethod: 'href_fallback'
+                }
+              }
+            }
+          }
+        }
 
         const text = await locator.textContent().catch(() => null);
-        await locator.click({ timeout: 10000 });
+        await locator.click({ timeout: CLICK_TIMEOUT_MS });
         await page.waitForTimeout(1000);
 
         const newUrl = page.url();

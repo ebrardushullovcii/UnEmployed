@@ -10,8 +10,9 @@ This plan is now active. The current implementation slice focuses on exposing na
 - Source-debug now streams typed live progress to the desktop renderer, including current phase, wait reason, elapsed time, and product-facing status text.
 - Browser-agent startup no longer pays a fixed `2s` post-navigation pause; it now uses a short bounded readiness wait instead.
 - Discovery now batches repeated search-results extraction, deduping re-checks of the same results route and flushing periodically so discovery can still stop early instead of drifting to max steps with `0` collected jobs.
-- Tool-driven navigation now caps `networkidle` waits and treats timed-out-but-usable pages as partial successes, while missing click targets fail fast instead of spending the full locator timeout on exact-name misses.
+- Tool-driven navigation now caps `networkidle` waits and treats timed-out-but-usable pages as partial successes, while missing click targets fail fast and hidden matched links can fall back to direct `href` navigation instead of burning the full click timeout.
 - Search-results extraction now treats a grounded summary snippet as the description fallback when the model omits a full description, which improves LinkedIn extraction yield without inventing new content.
+- Discovery search-results extraction now caps each page-level AI batch size so heavy search pages are less likely to spend a full minute in a single extraction call before yielding progress.
 - Discovery and source-debug now retain bounded timing summaries on run records, target executions, attempts, and phase summaries so long quiet spans can be attributed after the run instead of guessed from browser motion alone.
 - The desktop test API now exposes a performance snapshot path for benchmark and QA flows so representative runs can be inspected without digging through raw repository state.
 - The next tightening pass should focus on representative benchmark capture and any remaining long waits in final review, persistence, or retry paths that the new retained timings expose.

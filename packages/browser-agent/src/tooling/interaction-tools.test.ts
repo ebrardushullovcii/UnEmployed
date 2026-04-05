@@ -26,6 +26,7 @@ describe('select_option', () => {
     const locator = {
       count: vi.fn().mockResolvedValue(1),
       nth: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(true),
       elementHandle: vi.fn().mockResolvedValue({
         evaluate: vi.fn().mockResolvedValue({
           selected: false,
@@ -151,5 +152,69 @@ describe('click', () => {
         errorType: 'click_failed'
       })
     })
+  })
+
+  test('falls back to navigating the href directly when a matching link stays hidden', async () => {
+    const hiddenLocator = {
+      count: vi.fn().mockResolvedValue(1),
+      nth: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(false),
+      scrollIntoViewIfNeeded: vi.fn().mockResolvedValue(undefined),
+      getAttribute: vi.fn().mockResolvedValue('/jobs/123'),
+      textContent: vi.fn().mockResolvedValue('Customer Experience Specialist')
+    }
+    hiddenLocator.nth.mockReturnValue(hiddenLocator)
+
+    let currentUrl = 'https://example.com/jobs'
+    const page = {
+      getByRole: vi.fn(() => hiddenLocator),
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url
+        return null
+      }),
+      url: vi.fn(() => currentUrl),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined)
+    } as unknown as Page
+
+    const tool = interactionTools.find((candidate) => candidate.name === 'click')
+    if (!tool) {
+      throw new Error('click tool is not registered')
+    }
+
+    const state = {
+      currentUrl: 'https://example.com/jobs',
+      visitedUrls: new Set<string>()
+    }
+
+    const result = await tool.execute(
+      {
+        role: 'link',
+        name: 'Customer Experience Specialist',
+        index: 0
+      },
+      {
+        page,
+        state: state as never,
+        config: {
+          navigationPolicy: {
+            allowedHostnames: ['example.com']
+          }
+        } as never
+      }
+    )
+
+    expect(page.goto).toHaveBeenCalledWith('https://example.com/jobs/123', {
+      waitUntil: 'domcontentloaded',
+      timeout: 5000
+    })
+    expect(result).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        navigated: true,
+        newUrl: 'https://example.com/jobs/123',
+        navigationMethod: 'href_fallback'
+      })
+    })
+    expect(state.currentUrl).toBe('https://example.com/jobs/123')
   })
 })

@@ -4,6 +4,8 @@ import { getToolExecutor } from '../tools'
 import type { JobExtractor } from '../agent'
 import { addExtractedJobsToState } from './evidence'
 
+const MAX_SEARCH_RESULTS_EXTRACTION_JOBS = 7
+
 function isExtractJobsPayload(value: unknown): value is {
   pageText: string
   pageUrl: string
@@ -207,7 +209,10 @@ export async function executeToolCall(
         }
       }
 
-      const maxJobs = Math.max(0, config.targetJobCount - state.collectedJobs.length)
+      const remainingJobs = Math.max(0, config.targetJobCount - state.collectedJobs.length)
+      const maxJobs = normalizedPageType === 'search_results'
+        ? Math.min(remainingJobs, MAX_SEARCH_RESULTS_EXTRACTION_JOBS)
+        : remainingJobs
       onProgress?.({
         currentUrl: extractData.pageUrl,
         jobsFound: state.collectedJobs.length,

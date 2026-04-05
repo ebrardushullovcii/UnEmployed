@@ -425,8 +425,38 @@ export async function resolveRoleLocator(
   name: string,
   index: number,
 ): Promise<ReturnType<Page["getByRole"]>> {
+  async function findVisibleLocator(
+    locator: ReturnType<Page["getByRole"]>,
+    visibleIndex: number,
+  ): Promise<ReturnType<Page["getByRole"]> | null> {
+    const count = await locator.count().catch(() => 0);
+    let matchedVisibleCount = 0;
+
+    for (let candidateIndex = 0; candidateIndex < count; candidateIndex += 1) {
+      const candidate = locator.nth(candidateIndex);
+      const visible = await candidate.isVisible().catch(() => false);
+
+      if (!visible) {
+        continue;
+      }
+
+      if (matchedVisibleCount === visibleIndex) {
+        return candidate;
+      }
+
+      matchedVisibleCount += 1;
+    }
+
+    return null;
+  }
+
   const exactLocator = page.getByRole(role, { name, exact: true });
   const exactCount = await exactLocator.count().catch(() => 0);
+  const exactVisibleLocator = await findVisibleLocator(exactLocator, index);
+
+  if (exactVisibleLocator) {
+    return exactVisibleLocator;
+  }
 
   if (exactCount > index) {
     return exactLocator.nth(index);
@@ -434,6 +464,11 @@ export async function resolveRoleLocator(
 
   const looseLocator = page.getByRole(role, { name: buildLooseAccessibleNamePattern(name) });
   const looseCount = await looseLocator.count().catch(() => 0);
+  const looseVisibleLocator = await findVisibleLocator(looseLocator, index);
+
+  if (looseVisibleLocator) {
+    return looseVisibleLocator;
+  }
 
   if (looseCount > index) {
     return looseLocator.nth(index);
