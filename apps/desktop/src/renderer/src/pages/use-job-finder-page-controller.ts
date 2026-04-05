@@ -414,14 +414,20 @@ export function useJobFinderPageController() {
     busy: actionState.busy,
     onAnalyzeProfileFromResume: () =>
       void runAction(actions.analyzeProfileFromResume, () => undefined, null),
-    onApproveApply: (jobId: string) =>
+    onApproveApply: (jobId: string) => {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
+        return;
+      }
+
       void runAction(
         () => actions.approveApply(jobId),
         () => {
-          navigateFromShell("/job-finder/applications");
+          setResumeWorkspaceDirty(false);
+          void navigate("/job-finder/applications");
         },
         "Easy Apply marked as submitted and moved into Applications.",
-      ),
+      );
+    },
     onCheckBrowserSession: () =>
       void runAction(
         actions.checkBrowserSession,
@@ -474,15 +480,21 @@ export function useJobFinderPageController() {
           ? "Chrome session refreshed."
           : "Chrome profile opened and session status refreshed.",
       ),
-    onQueueJob: (jobId: string) =>
+    onQueueJob: (jobId: string) => {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
+        return;
+      }
+
       void runAction(
         () => actions.queueJobForReview(jobId),
         () => {
+          setResumeWorkspaceDirty(false);
           setSelectedReviewJobId(jobId);
-          navigateFromShell("/job-finder/review-queue");
+          void navigate("/job-finder/review-queue");
         },
         "Job moved into the review queue.",
-      ),
+      );
+    },
     onRefreshResumeWorkspace: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.getResumeWorkspace(jobId),
