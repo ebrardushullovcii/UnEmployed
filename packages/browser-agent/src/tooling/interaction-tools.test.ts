@@ -100,3 +100,56 @@ describe('select_option', () => {
     expect(keyboardPress).not.toHaveBeenCalled()
   })
 })
+
+describe('click', () => {
+  test('fails fast when no matching role and name are present', async () => {
+    const exactLocator = {
+      count: vi.fn().mockResolvedValue(0),
+      nth: vi.fn()
+    }
+    const looseLocator = {
+      count: vi.fn().mockResolvedValue(0),
+      nth: vi.fn()
+    }
+    const page = {
+      getByRole: vi.fn((_role, options) => options?.exact ? exactLocator : looseLocator),
+      url: vi.fn(() => 'https://example.com/jobs')
+    } as unknown as Page
+
+    const tool = interactionTools.find((candidate) => candidate.name === 'click')
+    if (!tool) {
+      throw new Error('click tool is not registered')
+    }
+
+    const result = await tool.execute(
+      {
+        role: 'link',
+        name: 'Senior Next.js Developer',
+        index: 0
+      },
+      {
+        page,
+        state: {
+          currentUrl: 'https://example.com/jobs',
+          visitedUrls: new Set<string>()
+        } as never,
+        config: {
+          navigationPolicy: {
+            allowedHostnames: ['example.com']
+          }
+        } as never
+      }
+    )
+
+    expect(result).toEqual({
+      success: false,
+      error: 'No link matched accessible name "Senior Next.js Developer".',
+      data: expect.objectContaining({
+        role: 'link',
+        name: 'Senior Next.js Developer',
+        index: 0,
+        errorType: 'click_failed'
+      })
+    })
+  })
+})

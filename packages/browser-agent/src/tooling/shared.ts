@@ -439,7 +439,7 @@ export async function resolveRoleLocator(
     return looseLocator.nth(index);
   }
 
-  return exactLocator.nth(index);
+  throw new Error(`No ${role} matched accessible name "${name}".`);
 }
 
 export async function recoverFromOffAllowlist(
