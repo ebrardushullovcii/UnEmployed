@@ -479,10 +479,15 @@ export function useJobFinderPageController() {
     onRefreshResumeWorkspace: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.getResumeWorkspace(jobId),
-        () =>
-          refreshResumeWorkspace(jobId, {
-            updateAssistantMessages: true,
-          }),
+        (nextWorkspace) => {
+          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
+            return;
+          }
+
+          setResumeWorkspace(nextWorkspace);
+          setResumeAssistantMessages(nextWorkspace.assistantMessages);
+          setResumeAssistantPending(false);
+        },
         "Resume workspace refreshed.",
       ),
     onRegenerateResumeDraft: (jobId: string) =>
@@ -699,7 +704,6 @@ export function useJobFinderPageController() {
           }
         } finally {
           if (resumeAssistantRequestTokenRef.current === requestToken) {
-            resumeAssistantRequestTokenRef.current = 0;
             setActionState((current) =>
               current.busy ? { ...current, busy: false } : current,
             );
