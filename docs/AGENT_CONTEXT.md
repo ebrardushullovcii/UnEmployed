@@ -13,6 +13,7 @@ This doc explains how agent-facing guidance is layered in the repo. Use it when 
 - `docs/Design/README.md`: UI reference map
 - `.agents/skills/`: specialized reusable workflows
 - `.agents/registry.yaml`: machine-readable map for docs, guides, and adapters
+- `.github/workflows/copilot-setup-steps.yml`: Copilot cloud-agent bootstrap for deterministic tool and dependency setup
 - `CLAUDE.md`, `.cursor/rules/00-project.mdc`, and `.claude/skills/`: generated compatibility artifacts
 
 ## Default Reading Order
@@ -37,6 +38,7 @@ This doc explains how agent-facing guidance is layered in the repo. Use it when 
 - Put durable knowledge in `docs/`, reusable workflows in skills, and task detail in exec plans.
 - Do not duplicate repo-local skills across tool-specific directories in git.
 - Treat `.claude/skills` as a generated compatibility path, not an authored source.
+- Keep `.github/workflows/copilot-setup-steps.yml` aligned with repo runtime needs; this repo's cloud-agent bootstrap should continue to provision Node 22, workspace dependencies, and a Chromium path for browser-runtime tasks.
 - Before starting non-trivial work, read `docs/STATUS.md`, `docs/TRACKS.md`, and the relevant active or queued exec plan.
 - When pausing or finishing a workstream, update `docs/TRACKS.md` with the next concrete action or blocker.
 - Move not-started follow-on plans into `docs/exec-plans/queued/`, and move stale or finished plans out of `docs/exec-plans/active/` once they stop driving current work.
