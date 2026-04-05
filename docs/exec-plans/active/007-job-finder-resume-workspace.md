@@ -1361,8 +1361,8 @@ pnpm lint
   - assistant-driven changes applied from a real chat interaction
 - update these docs:
   - `docs/STATUS.md`: reflect workspace implementation progress
-  - `docs/TRACKS.md`: update `JF-04` track status and focus
-  - `docs/modules/JOB_FINDER.md`: add workspace feature documentation
+  - `docs/TRACKS.md`: update the `Plan 007 Resume Workspace` track status and focus to match the current handoff state
+  - `docs/modules/JOB_FINDER.md`: add `Resume Workspace` feature documentation
   - `docs/CONTRACTS.md`: add the new contract schemas
   - `docs/ARCHITECTURE.md`: update package ownership for knowledge-base and research adapter
   - `docs/TESTING.md`: add the resume-workspace QA harness

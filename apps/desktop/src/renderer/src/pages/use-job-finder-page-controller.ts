@@ -160,6 +160,7 @@ export function useJobFinderPageController() {
       try {
         setActionState({ busy: true, message: null });
         const result = await action();
+        setActionState({ busy: false, message: null });
 
         try {
           await onSuccess(result);
@@ -169,8 +170,8 @@ export function useJobFinderPageController() {
               ? error.message
               : "The resume workspace could not refresh automatically.";
           setActionState({
-            busy: false,
             message: `Resume action succeeded, but the workspace could not refresh automatically. ${detail}`,
+            busy: false,
           });
           return;
         }
@@ -721,7 +722,8 @@ export function useJobFinderPageController() {
             setActionState({ busy: false, message });
           }
         } finally {
-          if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
+          if (resumeAssistantRequestTokenRef.current === requestToken) {
+            resumeAssistantRequestTokenRef.current = 0;
             setActionState((current) =>
               current.busy ? { ...current, busy: false } : current,
             );
