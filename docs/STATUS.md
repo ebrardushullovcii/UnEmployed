@@ -2,90 +2,37 @@
 
 ## Current Phase
 
-Job Finder foundation with local persistence, structured profile editing, resume ingestion, and review-gated browser-assisted application workflows
+Plan `007` implementation and hardening. Plan `008` is now defined as the next queued follow-on slice, and plans `009` and `010` remain queued behind it.
 
 ## Snapshot
 
-- The desktop shell is runnable and organized around typed Electron main, preload, and renderer boundaries.
-- `Job Finder` persists local state in SQLite and already supports profile editing, saved jobs, tailored assets, application records, and tracked apply attempts.
-- Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback and provenance tracking.
-- The browser-runtime layer now supports adapter-driven discovery with deterministic fixtures and a dedicated Chrome-profile browser agent enabled by default in desktop builds unless explicitly disabled.
-- Discovery targets now have a source-debug bootstrap flow: Profile Preferences can launch a sequential debug run that learns bounded source guidance for discovery, detail navigation, and apply-entry paths, stores structured attempt/evidence artifacts, validates replayable instructions before promoting them, forwards the newest draft or validated target guidance into live discovery and the supported browser apply runtime, shows the learned instructions separately from the manual override field in Preferences, lets the user edit or remove individual learned-instruction rows directly from the target card, curates those instructions toward reusable site-specific guidance instead of raw phase boilerplate, keeps thin route-only findings in `draft` until the run proves a repeatable entry path plus stronger search/filter and detail/apply guidance, now requires at least one positively proven reusable search/filter or recommendation-route signal before validation can pass, prefers visible controls over URL-parameter shortcuts when the UI already exposes reusable search/filter surfaces, treats recommendation and `show all` routes as first-class discovery evidence when they are real, no longer pre-blocks source-debug behind source-specific session readiness checks, now uses a DOM-backed interactive-control fallback plus looser role-name matching when the accessibility snapshot is thin, preserves complete assistant/tool-call context during transcript compaction so long runs do not trip provider tool-calling errors, forces source-debug phases to emit explicit structured finish data or fall back to typed partial-evidence outcomes near step limits, persists completion-mode and phase-evidence metadata on attempts and phase summaries, exposes a compact per-target source-debug review modal in Profile Preferences, ties the visible browser window to live discovery/source-debug run lifetime by opening it at run start and closing it at run end or cancellation, explicitly terminates the spawned Chrome process when a run shuts down so the browser does not linger after completion, teaches the worker to return to the top of long pages and re-check header controls before giving up on visible search/filter UI, uses a target's visible draft artifact automatically during discovery/apply instead of hiding it behind a separate accept step, treats internal agent/runtime failures as run failures instead of learned instructions, and now runs a dedicated end-of-run instruction reviewer that sees richer per-phase timestamps, attempted actions, compaction summaries, and ephemeral review-transcript lines before the final artifact is persisted.
-- The renderer now uses routed screen structure, feature-local composition, shared design tokens, and a repeatable Playwright screenshot workflow for UI QA.
-- The desktop renderer now supports persisted `dark`, `light`, and `system` appearance modes, defaults new workspaces to `system`, applies the saved preference before React mounts to avoid a dark startup flash, and uses expanded light-safe surface, field, modal, status, and scrollbar tokens so existing screens remain readable on white backgrounds.
-- The Profile screen now keeps resume import and analysis in a persistent top panel, with lighter review tabs for basics, experience, background, and preferences plus tab-level completion progress.
-- Older completed milestones now live in `docs/HISTORY.md` so this file stays useful as a handoff snapshot.
+- The desktop shell is stable around typed Electron main, preload, and renderer boundaries.
+- `Job Finder` persists local state in SQLite and supports profile editing, saved jobs, discovery history, tailored resume workflows, application records, and tracked apply attempts.
+- Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback.
+- Plans `003`, `004`, and `005` are no longer the active focus and now serve mainly as completed implementation background.
+- Plan `007` is still the only active implementation plan; the `Resume Workspace` works in a bare-bones form and is being tightened into a more reliable usable slice.
+- Plan `008` now has a concrete exec plan and intentionally defines a more autonomous future apply direction, but current shipped apply behavior remains more conservative until that work lands.
+- The queued order after `007` is `008` automatic job apply, then `009` full-app copy, then `010` under `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md` for browser efficiency and speed improvements across discovery and debugging.
+- Older milestone detail lives in `docs/HISTORY.md`.
 
 ## Active Work
 
-- Harden the new Job Finder agent workflow now that local persistence, resume-text extraction, optional live browser discovery, and attempt tracking exist
-- QA and harden the new adapter-driven multi-target discovery flow now that retained run history, target configuration, and the discovery activity timeline are wired end-to-end
-- Keep the generic target-site flow in scope while the debugger learns source-specific behavior from each configured target
-- QA and harden the new modular source-debug workflow now that targets can store draft/validated instruction artifacts, manual-prerequisite pauses, apply guidance, and replay verification results
-- Run a production copy pass on Profile and Discovery so user-facing text is shorter, clearer, and less developer-oriented
-- Keep improving the live authenticated browser path now that the managed Playwright runtime can open real discovery sessions and supported apply entrypoints
-- Keep the durable project plan and commit-time doc workflow explicit for future agents
-- Keep the desktop capture workflow available for regression checks while functional work expands
-- Preserve safe-stop behavior for unsupported apply branches instead of widening automation blindly
-- Harden the shipped `Resume Workspace` now that structured drafts, live research capture, richer job-grounding fields, inline source inspection, unsaved-edit guards, approval staleness handling, missing-file safety, approved `pdf`-gated apply behavior, deterministic partial-draft fallback normalization, and a locked desktop layout with per-column scrolling are demoable end-to-end
-- Keep the current template pipeline stable while widening it from saved `html` only into `pdf`-first export with future `docx` room rather than trying to invent a freeform document editor
-- Continue the profile-information-architecture rollout by connecting the new structured identity, eligibility, summary, skill, experience, project, and language records to resume extraction, tailoring prompts, and apply-form answers
+- Finish the current bare-bones but working `Resume Workspace` flow under plan `007`.
+- Improve resume composition quality and assistant edit reliability.
+- Re-run targeted desktop QA around export, approval, and apply safety.
+- Keep the queued `008` automatic-apply follow-on defined and ready, but do not start it until `007` settles.
 
 ## Immediate Next Steps
 
-- Run real desktop QA on the new target editor plus discovery timeline surfaces and tighten any copy/layout gaps the first live users hit
-- Audit Profile and Discovery text for developer-only statuses, verbose helper copy, and low-value labels, then remove or rewrite them for a more production-ready feel
-- Run desktop QA on the new `Debug source` target action, instruction-status copy, and recent source-debug history surfaces, then tighten any rough edges in wording and state transitions
-- Harden the generic target-site path against more hostile page structures and add more stable identity checks before treating it as more than a bounded experiment
-- Harden the live browser runtime with selector coverage, auth recovery, and broader supported field filling
-- Run follow-up UX QA on `/job-finder/review-queue/:jobId/resume` now that the scripted harness also checks structured job context, employer-site targeting, source-evidence inspection, and full export or apply safety paths
-- Fix resume composition quality in the new workspace by enforcing clean section boundaries, removing duplicated rendered content, restoring role-scoped experience formatting, and making exported headings parse more cleanly
-- Decide whether the remaining dev-only `pdfjs-dist` page-count warnings about `@napi-rs/canvas` / `ImageData` are worth quieting now that the resume flow itself completes successfully
-- Keep the current typed assistant patch flow stable and trustworthy instead of widening scope with a diff-preview surface
-- Make the editing assistant more reliable for common rewrite requests so it responds with concrete scoped edits and clearer completion summaries instead of generic fallback replies
-- Expand the Applications screen with filtering, retry helpers, and attempt-centric recovery flows
-- Add richer fallback extraction and cleanup for edge-case PDF and DOCX resumes that do not yield clean text on the first pass
-- Keep improving structured resume extraction so imported resumes fill deeper education, certification, and project records with less cleanup after import
+- Close the remaining `007` functional gaps and rough edges.
+- Re-run the resume-workspace harnesses and targeted service checks.
+- Once `007` settles, start `008` from `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`, then keep `009` and `010` queued behind it in that order.
 
 ## Key References
 
-- `docs/TRACKS.md` for current workstream ownership and next actions
-- `docs/exec-plans/active/002-job-finder-browser-apply.md` for the main Job Finder delivery plan
-- `docs/exec-plans/active/003-job-finder-profile-information-architecture.md` for the active profile rollout
-- `docs/exec-plans/active/004-job-finder-adapter-driven-discovery.md` for the adapter-driven discovery, target configuration, and activity-timeline refactor
-- `docs/exec-plans/active/005-job-source-debug-agent.md` for the active source-debug workflow that learns and validates reusable site instructions
-- `docs/exec-plans/active/006-profile-discovery-production-copy-pass.md` for the production-ready copy cleanup across Profile and Discovery
-- `docs/exec-plans/active/007-job-finder-resume-workspace.md` for the dedicated resume workspace, grounded editing, employer research, and `pdf`-first export plan
-- `docs/HISTORY.md` for older completed milestones
-
-## Recently Completed
-
-- `2026-04-02`: replaced the largest package and renderer mini-monoliths with thin package entrypoints, feature-local internal modules, split source-debug and discovery helpers, smaller desktop Profile route/components, and a new warn-only `pnpm structure:check` plus `pnpm hotspots` workflow so future file-growth regressions show up during verification instead of after files reach multi-thousand-line size
-- `2026-04-03`: landed the first end-to-end `Resume Workspace` slice for Job Finder by adding structured resume-draft orchestration and validation in `packages/job-finder`, explicit resume-workspace load/save/regenerate/export/approve/patch/message service methods, typed Electron IPC and preload support for those actions, a dedicated desktop child route at `/job-finder/review-queue/:jobId/resume` with a first structured editor and export/approval UI, real review-queue navigation into that workspace, and apply/runtime enforcement that now requires an approved tailored PDF export path instead of implicitly trusting a coarse ready asset
-- `2026-04-04`: completed the next resume-workspace hardening pass by wiring bounded live research capture into draft generation, replacing the assistant placeholder with typed patch application, deepening the editor with include/lock/reorder controls, adding deterministic desktop demo-state loaders plus a scripted `ui:resume-workspace` Electron capture flow, and validating the full open/edit/assistant/export/approve/apply path with saved screenshots and final workspace JSON evidence
-- `2026-04-04`: completed another resume-workspace safety pass by clearing stale approvals after upstream profile, settings, job-detail, or local draft changes, blocking apply when the approved tailored PDF is missing on disk, preserving unsaved workspace edits across actions and navigation, wiring desktop main-process file-existence verification into the service layer, and revalidating the full desktop demo plus a dedicated dirty-state desktop harness and targeted service tests
-- `2026-04-04`: hardened the latest resume-workspace follow-up by filling incomplete model `createResumeDraft` payloads with deterministic structured fallback fields instead of failing on missing required keys, forcing the desktop test API to use deterministic AI so scripted UI captures stay stable even when live credentials exist locally, and fixing the workspace shell plus side rails to scroll cleanly without clipped content
-- `2026-04-04`: adjusted the resume workspace again after more desktop UI review so the route now uses the same locked header-plus-content scroll model as the other desktop workspaces, letting the top header scroll away while the left rail, editor column, and right rail keep their own fixed-height scroll areas
-- `2026-04-04`: simplified the resume workspace rails again by removing the export-state and preview panels, dropping the left-rail validation card, and switching real desktop PDF export to a native Save dialog so users can choose any destination folder while scripted test-mode exports stay deterministic for the harnesses
-- `2026-04-04`: redesigned the resume workspace right rail into a dedicated assistant chat surface with a fixed header, scrolling transcript, bottom composer, Enter-to-send behavior, and cleaner user or assistant message bubbles instead of the earlier stacked utility cards
-- `2026-04-04`: made the resume assistant chat feel live by showing optimistic user messages immediately, inserting a temporary assistant "Working on it..." state while the backend revises and applies patches, disabling the send action during processing, and finishing with a clearer completion summary once the assistant work returns
-- `2026-04-04`: completed a repo hotspot cleanup pass around the resume-workspace branch by splitting the remaining `>800` line files across `packages/ai-providers`, `packages/browser-agent`, `packages/contracts`, `packages/db`, `packages/job-finder`, and the desktop resume workspace renderer so `pnpm structure:check` now reports no oversized source warnings while lint and targeted package tests stay green
-- `2026-03-29`: tightened source-debug toward reusable operator guidance by forcing stronger proof of entry paths, visible search/filter controls, recommendation or `show all` routes, filtering tool-chatter out of learned instructions, hardening target-site auth detection, removing target-level session gating from discovery/source-debug orchestration, clearing prior learned instructions for a target before a fresh `Debug source` rerun rebuilds them, teaching the browser-agent to surface recommendation/search/filter controls from either accessibility or DOM signals so recommendation and `Show all` surfaces are less likely to be missed, fixing transcript compaction so provider tool-calling sessions no longer get broken by orphaned `tool` messages, teaching source-debug workers to keep exploring until they explicitly `finish` instead of auto-stopping after the first sampled job, and tightening promotion so “controls were visible but not proven” stays `draft` while visible UI surfaces are preferred over direct URL hacks
-- `2026-03-29`: hardened source-debug phase completion so task-packet runs get a forced final closeout turn before timeout, synthesize typed partial-evidence findings when the worker still fails to `finish`, persist completion-mode plus phase-evidence metadata through runtime/orchestrator storage, added a typed `getSourceDebugRunDetails` IPC path, and exposed a compact Profile Preferences review modal that shows per-phase outcomes, end reasons, evidence counts, and existing accept/verify actions for retained runs
-- `2026-03-29`: tied the visible browser lifetime to live discovery/source-debug run lifetime by adding explicit runtime `closeSession()` support, opening the browser session when agent discovery or source-debug starts, and closing it again on completion, failure, or cancellation so an open browser remains a reliable signal that the run is still active
-- `2026-03-30`: tightened generic landing-page probing by adding a `scroll_to_top` worker tool plus stronger prompt guidance to re-check header search/filter controls after scrolling long pages, hardened source-instruction promotion so visibility-only or disproof-only search guidance cannot validate, and updated runtime shutdown to terminate the spawned Chrome process instead of leaving the browser window open after discovery/source-debug ends
-- `2026-03-30`: tightened active learned-instruction selection so live discovery and supported apply flows now use the current draft or validated instruction artifact for the matching target, exposed inline edit/remove controls for learned instruction rows in Profile Preferences, filtered more runtime/tool chatter (`extract_jobs`, `get_interactive_elements`, pointer-event and timeout hints) out of stored guidance, suppressed contradictory “no visible filters” lines when phase evidence already saw named controls, and escalated browser shutdown from gentle close to explicit launched-process termination when needed while refusing to adopt unrelated Chrome sessions on the debug port
-- `2026-03-30`: added a final source-instruction reconciliation pass in the orchestrator so learned artifacts now collapse stronger duplicate guidance by family, prefer later proven search/detail/apply findings over earlier weaker failure notes, and drop superseded contradiction lines before persistence
-- `2026-03-30`: added a dedicated end-of-run source-instruction reviewer that receives richer per-phase worker timestamps, attempted actions, compaction metadata, and ephemeral review-transcript lines so final curation can reconcile contradictions with more than the synthesized bullet lists while still keeping raw worker chat out of persisted artifacts by default
-- `2026-03-30`: tightened both source-debug worker and final-review prompts so they treat learned artifacts as reusable instructions for future discovery runs rather than reports about the sampled run, removed synthetic per-phase job-count lines from retained findings, and filtered extraction/sample-size chatter such as `0 or 1 jobs extracted` out of the final artifact unless it reflects a durable site constraint
-- `2026-04-02`: changed the final source-debug reviewer from a late heuristic cleanup step into an organizer over the full sequence of phase tests, goals, outcomes, and retained evidence, stopped forwarding retained warning text into live discovery/apply as if it were runtime guidance, and made `Verify` replay the selected instruction artifact without mutating it in place by publishing a successor artifact from the new replay result instead
-- `2026-03-28`: updated the Discovery full-history modal so the current in-flight run stays visible alongside retained runs, with a clear live state and auto-follow behavior for new events until the user scrolls away
-- `2026-03-28`: landed the first source-debug bootstrap architecture with dedicated source-debug contracts/persistence, a reusable sequential artifact orchestrator, worker transcript compaction, replay-gated instruction artifacts, apply-path validation guidance, and a Profile Preferences `Debug source` action
-- `2026-03-27`: completed the adapter-driven discovery refactor with nested discovery preferences, retained run history, activity timeline events, adapter-scoped session state, provenance tracking, sequential multi-target orchestration, and desktop target/timeline UI updates while keeping target-site discovery working
-- `2026-03-26`: implemented AI browser agent for autonomous target-site job discovery with LLM tool calling, replacing the old deterministic discovery button; the agent controls navigation strategy, timeouts, and retry logic while using the user's profile preferences to guide bounded discovery
-- `2026-03-25`: refocused the Profile screen around a persistent resume source panel, simpler tab labels, and collapsible record cards so resume-driven editing feels less dense
-- `2026-03-24`: tightened repo guidance so `AGENTS.md`, `docs/README.md`, `docs/AGENT_CONTEXT.md`, and `apps/desktop/AGENTS.md` are shorter, clearer, and less duplicative
-- `2026-03-24`: configured PR-only `main` governance with a live GitHub ruleset, CodeRabbit defaults, and `.github/CODEOWNERS`
-- `2026-03-24`: added a root `pnpm desktop:dev` shortcut for local desktop startup
-- `2026-03-23`: aligned the desktop renderer around routed screens, shared tokens, and real `shadcn` primitives while keeping the existing visual language
-- `2026-03-21`: expanded structured profile editing, resume extraction cleanup, and imported-profile visual QA workflows
+- `docs/TRACKS.md`
+- `docs/exec-plans/active/007-job-finder-resume-workspace.md`
+- `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
+- `docs/exec-plans/queued/009-full-app-production-copy-pass.md`
+- `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md`
+- `docs/HISTORY.md`

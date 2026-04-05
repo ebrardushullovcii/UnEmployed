@@ -12,7 +12,7 @@
 - `packages/job-finder`: discovery, drafting, apply workflow orchestration
 - `packages/interview-helper`: prep, live session, transcript, cue generation
 - `packages/ai-providers`: provider interfaces and adapters
-- `packages/os-integration`: tray, hotkeys, overlay window lifecycle, and window/capture policy adapters
+- `packages/os-integration`: tray, hotkeys, overlay window lifecycle, and window or capture policy adapters
 - `packages/testing`: fake providers, fixtures, and integration harnesses
 
 ## Architectural Rules
@@ -25,15 +25,10 @@
 - Agent handoff state lives in docs, not in chat history.
 - Interview overlay state belongs to `packages/interview-helper`; platform window behavior belongs to `packages/os-integration`.
 
-## Near-Term Foundation
+## Cross-Package Flows
 
-- Establish the monorepo, canonical docs, and validation commands
-- Keep module packages thin until real workflows land
-- Grow package internals behind stable contracts instead of letting the app become a direct-import mesh
-- Keep large workflows split behind feature-local internal modules and helper factories instead of appending more logic to one service file or route shell
-- Current Job Finder flow uses `packages/ai-providers` for structured resume extraction, fit assessment, and tailoring, `apps/desktop` for local resume ingestion/extraction plus template-file rendering, and `packages/browser-runtime` for switching between deterministic catalog fixtures and a dedicated Chrome-profile browser agent connected over CDP
-- Job Finder discovery now runs through discovery adapters, keeps `packages/browser-agent` generic through policy/config injection, uses adapter-scoped session state instead of a single browser-session assumption, translates raw browser/runtime progress into retained user-facing discovery events, and executes multi-target discovery sequentially by default; the UI now treats targets as generic site entrypoints while adapter resolution stays internal to the runtime
-- Job Finder source bootstrap now follows an orchestrator-worker model: `packages/job-finder` owns the sequential source-debug run, phase handoff, artifact synthesis, apply-path probing, and replay verification, while `packages/browser-agent` keeps raw worker transcripts ephemeral and returns structured attempt metadata plus compaction snapshots instead of feeding full chat history back into the orchestrator
-- The sequential phase runner now lives in a reusable orchestrator helper inside `packages/job-finder`, so the same artifact-first orchestration pattern can be reused for future debugging, verification, or agent-coordination flows without re-embedding another large phase loop in a service method
-- Source-debug persistence is no longer folded into the single discovery-state blob alone; dedicated repository collections now retain source-debug runs, attempts, evidence refs, and instruction artifacts while the workspace snapshot keeps only lightweight active/recent summaries for the UI
-- Approved browser apply now forwards validated learned source guidance into the browser runtime, so the supported apply path can carry the same orchestrator-produced instructions without widening into unsafe generic auto-submission
+- Desktop flow: renderer -> typed preload APIs -> Electron main -> package services.
+- Resume and profile flow: `apps/desktop` handles local file ingress and desktop rendering concerns, `packages/job-finder` owns orchestration, `packages/ai-providers` normalizes model outputs, and `packages/db` persists the resulting state.
+- Discovery and apply flow: `packages/job-finder` owns orchestration and adapter selection, `packages/browser-agent` owns bounded agent tasks and worker policy, and `packages/browser-runtime` owns browser session lifecycle and automation primitives.
+- Source-debug flow: `packages/job-finder` owns phase orchestration, artifact synthesis, and replay verification; `packages/browser-agent` keeps worker transcripts ephemeral and returns structured attempt data; `packages/db` retains durable run and artifact records while workspace snapshots keep only lightweight UI summaries.
+- Interview flow: `packages/interview-helper` owns prep and live-session state, while `packages/os-integration` owns tray, hotkeys, overlay window lifecycle, and platform-specific capture policy.

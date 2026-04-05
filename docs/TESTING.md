@@ -1,14 +1,17 @@
 # Testing
 
-## Required Commands
+## Baseline Repo Checks
 
 - `pnpm lint`
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm structure:check`
-- `pnpm agents:sync`
-- `pnpm agents:check`
-- `pnpm docs:check`
+
+## Guidance Validation
+
+- Run `pnpm agents:sync` after changing repo-wide guidance, registry entries, or project-local skills.
+- Run `pnpm agents:check` after changing generated adapter sources, registry entries, required package guides, or project-local skills.
+- Run `pnpm docs:check` after changing canonical docs, root guidance, or internal markdown links.
 
 ## Structure Checks
 
@@ -40,7 +43,7 @@
 - Prefer a repeatable Playwright or Electron capture harness over one-off manual clicking whenever the flow changes.
 - Save screenshot artifacts and any supporting JSON snapshots under `apps/desktop/test-artifacts/ui/` during validation runs; treat them as QA evidence, not committed source files.
 - Resume-workspace safety changes should also prove the non-happy paths they touch, especially stale-after-edit behavior, upstream-change staleness, unsaved-edit navigation guards, and missing-approved-file apply refusal.
-- When the workflow expands, update this file and the active exec plan in the same task so later agents inherit the exact demo path instead of rediscovering it from chat context.
+- When the workflow expands, update this file and the relevant active or queued exec plan in the same task so later agents inherit the exact demo path instead of rediscovering it from chat context.
 
 ## Source-Debug QA
 

@@ -1,6 +1,8 @@
 # 002 Job Finder LinkedIn Easy Apply
 
-Status: active
+Status: completed
+
+Historical note: this plan captures the original LinkedIn-first Job Finder foundation slice. Active work later generalized discovery and resume workflows into plans `003` through `007`.
 
 ## Goal
 
@@ -154,7 +156,7 @@ Replace the placeholder shell with the first Job Finder workflow surfaces in `ap
 
 Companion brief:
 
-- `docs/exec-plans/active/002-job-finder-browser-apply-ui-brief.md`
+- `docs/exec-plans/completed/002-job-finder-browser-apply-ui-brief.md`
 
 Expected screens:
 

@@ -336,18 +336,12 @@ export function useJobFinderPageController() {
     [selectedApplicationRecordId, workspace],
   );
 
-  if (!readyWorkspaceState || !workspace || !actions) {
-    return {
-      appearanceTheme: null,
-      context: null,
-      navigateFromShell,
-      platform,
-      workspace,
-      workspaceState,
-    };
-  }
+  const context = useMemo<JobFinderPageContext | null>(() => {
+    if (!readyWorkspaceState || !workspace || !actions) {
+      return null;
+    }
 
-  const context: JobFinderPageContext = useMemo(() => ({
+    return ({
     actionState,
     busy: actionState.busy,
     onAnalyzeProfileFromResume: () =>
@@ -713,7 +707,7 @@ export function useJobFinderPageController() {
     resumeAssistantPending,
     resumeWorkspace,
     workspace,
-  }), [
+  })}, [
     actionState,
     actions,
     confirmLeaveDirtyResumeWorkspace,
@@ -735,9 +729,20 @@ export function useJobFinderPageController() {
     workspace,
   ]);
 
+  if (!readyWorkspaceState || !workspace || !actions) {
+    return {
+      appearanceTheme: null,
+      context: null,
+      navigateFromShell,
+      platform,
+      workspace,
+      workspaceState,
+    };
+  }
+
   return {
     appearanceTheme: workspace.settings.appearanceTheme,
-    context,
+    context: context!,
     navigateFromShell,
     platform,
     workspace,

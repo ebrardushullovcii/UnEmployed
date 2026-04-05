@@ -15,18 +15,26 @@ Agent-first desktop monorepo for:
 
 - Repo contract: [AGENTS.md](AGENTS.md)
 - Docs map: [docs/README.md](docs/README.md)
-- Full project plan: [docs/PLAN.md](docs/PLAN.md)
-- Agent context layout: [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT.md)
 - Current status: [docs/STATUS.md](docs/STATUS.md)
 - Live workboard: [docs/TRACKS.md](docs/TRACKS.md)
+- Relevant package-local `AGENTS.md` for the area you are touching, such as [apps/desktop/AGENTS.md](apps/desktop/AGENTS.md) or [packages/job-finder/AGENTS.md](packages/job-finder/AGENTS.md)
 - UI design references: [docs/Design/README.md](docs/Design/README.md)
 
-## Commands
+Pull in [docs/PLAN.md](docs/PLAN.md), [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT.md), and the architecture or contract docs only when the task needs them.
+
+## Common Commands
 
 ```bash
 pnpm install
 pnpm lsp:typescript
-pnpm agents:sync
 pnpm verify
 pnpm desktop:dev
+```
+
+## Guidance Maintenance
+
+```bash
+pnpm agents:sync
+pnpm agents:check
+pnpm docs:check
 ```

@@ -7,19 +7,23 @@
 - Use typed `Result` objects for recoverable workflow outcomes.
 - Keep IPC commands narrow and capability-based.
 - Avoid package-internal imports across workspace boundaries.
+- Keep this doc focused on cross-package contract surfaces and semantic rules; field detail that matters only inside one package should stay in `packages/contracts`.
 
-## Current Shared Domains
+## Shared Domains
 
 - Candidate profile and resume source metadata
 - Candidate contact fields, stored resume text, extraction status, and provider-visible profile state
 - Job search preferences, approval mode, and tailoring mode
-- Job posting, adapter-driven discovery targets with optional per-target custom navigation instructions, target-level source-instruction status/ids, source-debug run and attempt artifacts, per-phase completion modes and lightweight phase-evidence payloads, evidence refs, retained discovery runs, activity timeline events, fit assessment, discovery provenance, and review queue items, plus learned navigation/search/detail/apply guidance artifacts for each target; live discovery/apply consumes only the active instruction artifact for that exact target (the newest bound `draft`, or `validated` when no newer draft is present)
+- Job posting, adapter-driven discovery targets, retained discovery runs, activity timeline events, fit assessment, discovery provenance, and review queue items
+- Source-debug run and attempt artifacts, per-phase completion metadata, evidence refs, and learned navigation/search/detail/apply guidance artifacts for each target
+- Live discovery and supported apply consume only the active instruction artifact for the exact target: the newest bound `draft`, or `validated` when no newer draft is present
 - Review Queue resume-review state is modeled as a typed discriminated object instead of loosely related approval or stale fields, so renderer and service code can reason about `not_started`, `draft`, `needs_review`, `stale`, and `approved` states consistently
 - Fixed resume template definitions, selected template settings, and template-driven tailored resume asset metadata
 - Tailored resume asset metadata, stored content, preview sections, generation-method notes, and saved artifact paths
 - Application record, event timeline, attempt checkpoints, and apply execution results
 - Browser session state, adapter-scoped discovery sessions, driver metadata, run-scoped browser open/close lifecycle for live discovery and source-debug work, and agent-provider status for source adapters
-- Job Finder repository/workspace snapshot state plus typed save/update IPC payloads for profile, preferences, settings, retained run history, staged discovery results, source-debug launch/query/cancel actions, additive source-debug run-details review payloads, source-instruction promotion/verification actions, and renderer-visible learned instruction artifacts
+- Job Finder repository and workspace snapshot state plus typed save/update IPC payloads for profile, preferences, settings, retained run history, and staged discovery results
+- Source-debug IPC payloads for launch/query/cancel actions, additive run-details review data, source-instruction promotion or verification actions, and renderer-visible learned instruction artifacts
 - Interview workspace, transcript chunks, and live suggestions later in the roadmap
 
 ## Validation Policy

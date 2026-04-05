@@ -1,6 +1,8 @@
 # 003 Job Finder Profile Information Architecture
 
-Status: active
+Status: completed
+
+Historical note: this plan is largely landed and now serves as background for later tightening rather than active implementation guidance.
 
 ## Goal
 

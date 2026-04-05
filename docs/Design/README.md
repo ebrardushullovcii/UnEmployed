@@ -7,7 +7,7 @@ This directory holds the current visual references for the first `Job Finder` MV
 - These design artifacts are guidance for layout, hierarchy, states, and overall workflow feel.
 - They are not a feature-complete product blueprint.
 - If a control, panel, metric, or status appears in a design, that does not automatically mean it must exist as a real feature.
-- Implementation should follow the active exec plan, contracts, product scope, and engineering constraints first.
+- Implementation should follow the relevant active or queued exec plan, contracts, product scope, and engineering constraints first.
 - When design references and real product scope diverge, treat the design as a directional aid and implement the scoped behavior instead.
 
 ## Current Reference Set
@@ -22,7 +22,11 @@ This directory holds the current visual references for the first `Job Finder` MV
 - `job-finder-state-review-generation/`
 - `job-finder-state-apply-paused/`
 - `job-finder-state-submission-success/`
-- `tactical-command-design-system/`
+- `tactical-command-design-system/` for optional visual-direction ideas, not literal product voice or hard component rules
+
+## Historical References
+
+- `job-finder-profile/current-branch-baseline-2026-03-23.md` is a branch-era regression note, not an active design brief
 
 ## How To Use These Files
 
@@ -50,6 +54,6 @@ This directory holds the current visual references for the first `Job Finder` MV
 
 ## Tone And Visual Direction
 
-- `tactical-command-design-system/README.md` captures the current visual direction well for density, hierarchy, contrast, and intentional structure.
-- Do not treat its more extreme mission-console framing as literal shipped product voice.
-- Keep the strong desktop-workspace feel, but avoid over-indexing on military or command-center styling when turning the designs into the real product.
+- `tactical-command-design-system/README.md` is useful for density, hierarchy, contrast, and intentional structure.
+- Treat it as an exploratory style reference, not the product source of truth.
+- Keep the strong desktop-workspace feel, but avoid over-indexing on military or command-center styling in shipped UI.

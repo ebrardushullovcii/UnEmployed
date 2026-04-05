@@ -1,6 +1,8 @@
-# 004 Job Finder Adapter-Driven Discovery
+# 004 Job Finder Generic Discovery
 
-Status: active
+Status: completed
+
+Historical note: this plan captured the shift away from LinkedIn-first discovery toward a more generic multi-target discovery model. It is kept as completed background, not active direction.
 
 ## Goal
 

@@ -42,7 +42,7 @@ function upsertById<TValue extends { id: string }>(
   return nextValues;
 }
 
-function sortResumeDrafts<TValue extends { updatedAt: string }>(
+function sortResumeDrafts<TValue extends { id?: string; updatedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
@@ -50,14 +50,14 @@ function sortResumeDrafts<TValue extends { updatedAt: string }>(
       const difference = new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
       return difference !== 0
         ? difference
-        : String((left as { id?: string }).id ?? "").localeCompare(
-            String((right as { id?: string }).id ?? ""),
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
           );
     },
   );
 }
 
-function sortNewestFirst<TValue extends { createdAt: string }>(
+function sortNewestFirst<TValue extends { id?: string; createdAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
@@ -65,14 +65,14 @@ function sortNewestFirst<TValue extends { createdAt: string }>(
       const difference = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
       return difference !== 0
         ? difference
-        : String((left as { id?: string }).id ?? "").localeCompare(
-            String((right as { id?: string }).id ?? ""),
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
           );
     },
   );
 }
 
-function sortValidationResults<TValue extends { validatedAt: string }>(
+function sortValidationResults<TValue extends { id?: string; validatedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
@@ -80,14 +80,14 @@ function sortValidationResults<TValue extends { validatedAt: string }>(
       const difference = new Date(right.validatedAt).getTime() - new Date(left.validatedAt).getTime();
       return difference !== 0
         ? difference
-        : String((left as { id?: string }).id ?? "").localeCompare(
-            String((right as { id?: string }).id ?? ""),
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
           );
     },
   );
 }
 
-function sortExports<TValue extends { exportedAt: string }>(
+function sortExports<TValue extends { id?: string; exportedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
@@ -95,14 +95,14 @@ function sortExports<TValue extends { exportedAt: string }>(
       const difference = new Date(right.exportedAt).getTime() - new Date(left.exportedAt).getTime();
       return difference !== 0
         ? difference
-        : String((left as { id?: string }).id ?? "").localeCompare(
-            String((right as { id?: string }).id ?? ""),
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
           );
     },
   );
 }
 
-function sortResearch<TValue extends { fetchedAt: string }>(
+function sortResearch<TValue extends { id?: string; fetchedAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
@@ -110,14 +110,14 @@ function sortResearch<TValue extends { fetchedAt: string }>(
       const difference = new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime();
       return difference !== 0
         ? difference
-        : String((left as { id?: string }).id ?? "").localeCompare(
-            String((right as { id?: string }).id ?? ""),
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
           );
     },
   );
 }
 
-function sortMessages<TValue extends { createdAt: string }>(
+function sortMessages<TValue extends { id?: string; createdAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
   return [...values].sort(
@@ -125,8 +125,8 @@ function sortMessages<TValue extends { createdAt: string }>(
       const difference = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
       return difference !== 0
         ? difference
-        : String((left as { id?: string }).id ?? "").localeCompare(
-            String((right as { id?: string }).id ?? ""),
+        : String(left.id ?? "").localeCompare(
+            String(right.id ?? ""),
           );
     },
   );
@@ -544,21 +544,28 @@ export function createInMemoryJobFinderRepository(
           ...draft,
           staleReason,
           approvedAt: null,
-          approvedExportId: null,
+            approvedExportId: null,
         }),
       );
-      state.resumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
-      state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+      const normalizedAsset = tailoredAsset
+        ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
+        : null;
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
+
+      const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
+      const nextResumeExportArtifacts = clearApprovedResumeExportsForJob(
         state.resumeExportArtifacts,
         normalizedDraft.jobId,
       );
-      if (tailoredAsset) {
-        const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
-        if (normalizedAsset.jobId !== normalizedDraft.jobId) {
-          throw new Error("Tailored asset job does not match the provided draft.");
-        }
-        state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
-      }
+      const nextTailoredAssets = normalizedAsset
+        ? upsertById(state.tailoredAssets, normalizedAsset)
+        : state.tailoredAssets;
+
+      state.resumeDrafts = nextResumeDrafts;
+      state.resumeExportArtifacts = nextResumeExportArtifacts;
+      state.tailoredAssets = nextTailoredAssets;
       return Promise.resolve();
     },
     listApplicationRecords() {

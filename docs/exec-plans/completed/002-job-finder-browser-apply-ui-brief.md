@@ -1,4 +1,8 @@
-# Design Brief: Job Finder MVP Screens
+# Historical Design Brief: Job Finder MVP Screens
+
+Status: completed
+
+This brief is kept as historical context for the first Job Finder UI slice. Later implementation and design work generalized beyond its original LinkedIn-first assumptions.
 
 Design the screen system for a desktop app called `UnEmployed`.
 

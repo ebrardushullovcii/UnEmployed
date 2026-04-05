@@ -391,7 +391,7 @@ describe("createFileJobFinderRepository", () => {
         pageCount: 2,
         templateId: "classic_ats",
         exportedAt: "2026-03-20T10:06:00.000Z",
-        isApproved: true,
+        isApproved: false,
       });
 
       const savedJobs = await repository.listSavedJobs();

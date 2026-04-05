@@ -563,6 +563,13 @@ export async function createFileJobFinderRepository(
       const normalizedArtifact = ResumeExportArtifactSchema.parse(
         cloneValue(artifact),
       );
+
+      if (normalizedArtifact.isApproved) {
+        throw new Error(
+          "Approved resume exports must be written through approveResumeExport().",
+        );
+      }
+
       return upsertPersistedValue("resume_export_artifacts", normalizedArtifact);
     },
     listResumeResearchArtifacts(jobId) {
@@ -812,6 +819,10 @@ export async function createFileJobFinderRepository(
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
         : null;
+
+      if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
+        throw new Error("Tailored asset job does not match the provided draft.");
+      }
 
       runImmediateTransaction(database, () => {
         syncApprovedResumeExportsForJob(database, normalizedDraft.jobId, null);

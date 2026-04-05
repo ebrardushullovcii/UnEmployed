@@ -1,11 +1,11 @@
 # Design System Strategy: Tactical Command
 
 ## 1. Overview & Creative North Star
-**The Creative North Star: "The Orchestrated Ops-Center"**
+**The Creative North Star: "The Orchestrated Workspace"**
 
-This design system is not a consumer-grade dashboard; it is a high-utility, supervised automation environment. It breaks from the "friendly SaaS" template by embracing **Instrumental Density**—a philosophy where information is treated as a critical asset rather than something to be hidden behind whitespace. 
+This design system is not a consumer-grade dashboard; it is a high-utility, supervised automation environment. It breaks from the "friendly SaaS" template by embracing **Instrumental Density** - a philosophy where information is treated as a critical asset rather than something to be hidden behind whitespace.
 
-The aesthetic is built on **Intentional Rigidity**. By utilizing sharp 0px corners and a strictly monochromatic base, we create an environment of absolute reliability. The "military-grade" feel is achieved through intentional asymmetry: large, authoritative display type balanced against hyper-dense terminal status blocks. This isn't just an app; it's a mission-critical console for the "UnEmployed" operator.
+The aesthetic is built on **Intentional Rigidity**. By leaning on sharp corners, restrained color, and intentional asymmetry, the UI can feel focused and trustworthy without drifting into a literal mission-console theme. Large display type can balance denser operational details, but the shipped product should still read as a grounded desktop workspace.
 
 ### Implementation Note
 
@@ -29,7 +29,7 @@ We do not use drop shadows to define space. Depth is achieved via **Tonal Stacki
 *   **Floating/Modal Elements:** `surface_bright` (#2b2c2c) – For elements that require immediate visual prominence.
 
 ### The "No-Line" Rule
-Prohibit 1px solid borders for standard sectioning. Define boundaries through background shifts (e.g., a `surface_container_low` sidebar against a `surface` main content area). 
+Avoid relying on 1px solid borders as the primary sectioning tool. Prefer background shifts first (for example, a `surface_container_low` sidebar against a `surface` main content area).
 
 ### Signature Textures
 *   **Functional Glass:** Use `surface_variant` with a 60% opacity and `backdrop-blur: 12px` for floating navigation bars or tooltips. This allows the high-density grid to remain visible beneath, maintaining the "cockpit" feel.
@@ -80,13 +80,13 @@ Forbid the use of divider lines. Separate job application entries or log rows us
 ## 6. Do’s and Don’ts
 
 ### Do
-*   **DO** use underscores instead of spaces for technical labels (e.g., `SYSTEM_ID` vs `System ID`).
-*   **DO** maintain high information density. The user is an "operator," not a "consumer."
+*   **DO** keep technical labels compact when the surrounding context is already system-facing.
+*   **DO** maintain useful information density for a focused desktop workflow.
 *   **DO** use `tertiary` (muted blue) for non-critical telemetry and secondary data.
 *   **DO** utilize the `0.5` spacing (0.1rem) for tight "cockpit" groupings.
 
 ### Don’t
-*   **DON’T** use border-radius. Every element must have sharp 0px corners.
+*   **DON’T** default to soft consumer-style rounding; prefer sharper shapes unless a small radius improves usability or aligns with the shipped component set.
 *   **DON’T** use standard blue for links. Use `primary` (off-white) with an underline or `tertiary` for a muted functional feel.
 *   **DON’T** use drop shadows for hierarchy. Use color shifts.
 *   **DON’T** let the exploratory console theme override product clarity or grounded shipped UX.
