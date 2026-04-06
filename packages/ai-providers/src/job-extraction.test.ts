@@ -344,8 +344,9 @@ test('uses summary fallback for description on search-results pages when descrip
       if (!capturedBody) {
         throw new Error('Expected the extraction request body to be captured.')
       }
-      const capturedRequestBody: { messages?: Array<{ content: string }> } = capturedBody
-      const messages = capturedRequestBody.messages ?? []
+      // TypeScript needs explicit type annotation after null check due to control flow analysis
+      const requestBody: { messages?: Array<{ content: string }> } = capturedBody
+      const messages = requestBody.messages ?? []
       expect(messages[0]?.content).toContain('Return at most 4 jobs.')
       expect(messages[0]?.content).toContain('If only a short search-results snippet is visible')
       const userPayload = JSON.parse(messages[1]?.content ?? '{}') as { pageText?: string }

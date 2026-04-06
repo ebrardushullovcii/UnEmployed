@@ -6,7 +6,6 @@ import {
   describeInvalidFieldCounts,
 } from "./deterministic";
 
-const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "flexible"]);
 const jobBoardHostFragments = [
   "linkedin.com",
   "indeed.com",
@@ -178,7 +177,7 @@ const toWorkModeArray = (value: unknown): string[] => {
     if (!parsed.success) {
       return [];
     }
-    return parsed.data.filter((entry) => supportedWorkModes.has(entry));
+    return parsed.data;
   };
 
   if (

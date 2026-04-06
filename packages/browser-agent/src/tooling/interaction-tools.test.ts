@@ -873,13 +873,14 @@ describe('select_option navigation state', () => {
       }
     )
 
-    expect(result).toEqual({
+expect(result).toEqual({
       success: true,
       data: expect.objectContaining({
         navigated: false,
         selectedLabel: 'Remote'
       })
     })
-    expect(state.failedInteractionAttempts.size).toBe(0)
+    expect(state.failedInteractionAttempts.size).toBe(1)
+    expect(state.failedInteractionAttempts.has('fill::searchbox::search jobs::0')).toBe(true)
   })
 })

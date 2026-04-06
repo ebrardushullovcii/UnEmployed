@@ -80,6 +80,16 @@ Use one track per meaningful workstream, not per person or per chat.
 - next step: decide the shared settings shape and whether the first implementation should stay `Job Finder`-scoped or immediately become repo-shared infrastructure for all agentic flows
 - blockers: current compaction already exists in `browser-agent`, so this work should extend that path rather than replacing it with a second unrelated system
 
+### `Plan 017 Browser Substrate Evaluation And Direction`
+
+- status: `ready`
+- last updated: `2026-04-06`
+- linked plan: `docs/exec-plans/queued/017-browser-substrate-evaluation-and-direction.md`
+- code areas: `packages/browser-runtime`, `packages/browser-agent`, `packages/job-finder`, `apps/desktop`, `docs`
+- current focus: queued small cross-cutting direction note capturing the current conclusion that `agent-browser` is the leading browser-substrate candidate when speed and quality dominate the decision, while `UnEmployed` should keep its own orchestration, source-debug model, and approval logic and continue deeper benchmarking later before choosing a larger runtime move
+- next step: use the current `010` performance work plus later discovery and source-debug and apply benchmarks to decide whether the next serious runtime move is `keep Playwright`, `add agent-browser as an alternate backend`, or `migrate the default substrate`
+- blockers: should remain a direction note until stronger representative benchmarking exists across discovery, source-debug, and apply flows
+
 ## Completed Background
 
 ### `Plan 005 Source Debug Agent`

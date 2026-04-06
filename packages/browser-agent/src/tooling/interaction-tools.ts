@@ -178,7 +178,7 @@ async function clickCheckboxWithLabelFallback(locator: Locator): Promise<boolean
 
     const forAttr = await labelLocator.getAttribute('for').catch(() => null);
     const inputLocator = forAttr
-      ? labelLocator.page().locator(`[id="${forAttr.replace(/"/g, '\\"')}"]`)
+      ? labelLocator.page().locator(`[id="${forAttr.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`)
       : labelLocator.locator('input[type="checkbox"], input[type="radio"]').first();
 
     const inputCount = await inputLocator.count().catch(() => 0);
@@ -656,6 +656,25 @@ You get role, name, and index from get_interactive_elements().`,
       const { page, state } = context;
       const previousUrl = state.currentUrl;
       await syncFailedInteractionAttemptsWithPageState(page, state);
+      const interactionAttemptKey = buildInteractionAttemptKey("select_option", role, name, index);
+      const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
+
+      if (
+        priorAttempt &&
+        priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
+        shouldTreatAsRepeatedFillFailure(priorAttempt.lastError)
+      ) {
+        return {
+          success: false,
+          error: `Skipping repeated select_option attempt for ${role} "${name}" after ${priorAttempt.count} similar failures: ${priorAttempt.lastError}`,
+          data: {
+            role,
+            name: name.slice(0, 50),
+            index,
+            errorType: "repeated_select_blocked",
+          },
+        };
+      }
 
       try {
         const locator = await resolveRoleLocator(page, role, name, index);
@@ -736,7 +755,7 @@ You get role, name, and index from get_interactive_elements().`,
             state.currentUrl = newUrl;
             state.visitedUrls.add(newUrl);
           } else {
-            await syncFailedInteractionAttemptsWithPageState(page, state);
+            state.failedInteractionAttempts?.delete(interactionAttemptKey);
           }
 
           return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: comboboxSelection.selectedLabel ?? optionText, selectedValue: comboboxSelection.selectedValue ?? null } };
@@ -766,13 +785,12 @@ You get role, name, and index from get_interactive_elements().`,
           state.currentUrl = newUrl;
           state.visitedUrls.add(newUrl);
         } else {
-          await syncFailedInteractionAttemptsWithPageState(page, state);
+          state.failedInteractionAttempts?.delete(interactionAttemptKey);
         }
 
         return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: selectionResult.selectedLabel ?? optionText, selectedValue: selectionResult.selectedValue ?? null } };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Select option failed";
-        const interactionAttemptKey = buildInteractionAttemptKey("select_option", role, name, index);
         const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
         recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
 
