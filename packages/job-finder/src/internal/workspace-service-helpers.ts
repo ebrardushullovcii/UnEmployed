@@ -51,6 +51,7 @@ function canonicalizeSourceDebugRouteHint(
 
 function shouldReadRouteHintSection(
   line: string,
+  phase: SourceDebugPhase,
 ): boolean {
   const trimmedLine = line.trim();
 
@@ -58,7 +59,9 @@ function shouldReadRouteHintSection(
     return true;
   }
 
-  return trimmedLine.startsWith("[Search]");
+  return trimmedLine.startsWith("[Search]") &&
+    phase !== "site_structure_mapping" &&
+    !phase.includes("auth");
 }
 
 export function mergeSessionStates(
@@ -301,7 +304,7 @@ export function deriveSourceDebugStartingUrls(
     const landingUrls: string[] = [];
     const otherUrls: string[] = [];
     for (const line of routeHints) {
-      if (!shouldReadRouteHintSection(line)) {
+      if (!shouldReadRouteHintSection(line, phase)) {
         continue;
       }
 

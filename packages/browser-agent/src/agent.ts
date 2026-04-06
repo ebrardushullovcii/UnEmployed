@@ -509,7 +509,6 @@ export async function runAgentDiscovery(
   const maybeStopForStagnation = async (): Promise<AgentResult | null> => {
     if (
       requiresExplicitFinish ||
-      state.collectedJobs.length === 0 ||
       state.collectedJobs.length >= config.targetJobCount ||
       state.deferredSearchExtractions.size > 0 ||
       consecutiveZeroYieldExtractionPasses < DISCOVERY_STAGNATION_ZERO_YIELD_LIMIT ||
@@ -551,7 +550,14 @@ export async function runAgentDiscovery(
       })
     }
 
-    return buildResult(state, partial)
+    const resolvedPartial = !requiresExplicitFinish && partial.incomplete === true
+      ? {
+          ...partial,
+          incomplete: state.collectedJobs.length < config.targetJobCount
+        }
+      : partial
+
+    return buildResult(state, resolvedPartial)
   }
 
   try {

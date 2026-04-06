@@ -258,7 +258,7 @@ describe('job extraction with openai-compatible client', () => {
     }
   })
 
-  test('uses the grounded summary as description on search-results pages when the model omits description', async () => {
+  test('does not promote a generated summary into description on search-results pages', async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
         {
@@ -295,11 +295,7 @@ describe('job extraction with openai-compatible client', () => {
         maxJobs: 5
       })
 
-      expect(jobs).toHaveLength(1)
-      expect(jobs[0]).toMatchObject({
-        summary: 'Build product experiences from the search results snippet.',
-        description: 'Build product experiences from the search results snippet.'
-      })
+      expect(jobs).toHaveLength(0)
     } finally {
       restoreFetch()
     }

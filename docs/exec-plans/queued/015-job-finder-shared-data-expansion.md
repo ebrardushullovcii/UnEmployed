@@ -38,6 +38,15 @@ The repo already has a stronger structured profile than most job tools, but the 
 
 ### 1. Candidate narrative and proof domain
 
+Reuse or extend existing schema roots such as `SavedJob`, source-debug evidence refs, and repository-state snapshots before introducing any new top-level store. New top-level domains require explicit justification and review.
+
+Extension checklist:
+
+- locate the closest existing schema or repository root that already owns the surrounding workflow data
+- extend that schema with fields or nested sub-schemas before inventing a parallel store
+- update shared contracts, repository persistence, and migration notes together
+- document any genuinely new top-level domain and why the existing roots could not support it cleanly
+
 Add or formalize storage for:
 
 - exit story or career narrative
@@ -194,6 +203,6 @@ Additional completion rule:
 
 ## Notes For A Deeper Follow-On Plan
 
-- Decide whether employer or provider metadata deserves its own first-class entity or should remain attached to saved jobs and learned source artifacts for now.
-- Decide which answer-bank entries are safe to auto-apply and which require per-job confirmation.
-- Decide how much of the blocker and replay model should be visible in the main `Applications` surface versus a deeper troubleshooting view.
+- Evaluate whether employer or provider metadata deserves its own first-class entity or should remain attached to saved jobs and learned source artifacts for now.
+- Determine which answer-bank entries are safe to auto-apply and which require per-job confirmation.
+- Choose how much of the blocker and replay model should be visible in the main `Applications` surface versus a deeper troubleshooting view.

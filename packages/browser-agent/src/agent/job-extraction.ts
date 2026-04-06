@@ -72,7 +72,7 @@ const EASY_APPLY_PATTERN =
   /\b(easy apply|quick apply|one[- ]click apply|apply instantly|instant apply)\b/i;
 const APPLY_PATTERN = /\bapply\b/i;
 const POSTED_PATTERN =
-  /\b(posted|ago|today|yesterday|just posted|new)\b/i;
+  /\b(posted|ago|today|yesterday|just posted)\b/i;
 const SALARY_PATTERN =
   /(\$|€|£)\s?\d[\d,.]*(?:\s?[kKmM])?(?:\s?(?:-|–|to)\s?(?:\$|€|£)?\s?\d[\d,.]*(?:\s?[kKmM])?)?(?:\s?\/?\s?(?:yr|year|month|mo|week|wk|day|hour|hr))?/;
 const COMPANY_NOISE_PATTERN =
@@ -243,13 +243,16 @@ function isLocationLike(value: string): boolean {
     return false;
   }
 
-  const wordCount = normalized.split(/\s+/).length;
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const wordCount = tokens.length;
   if (normalized.includes(",") && wordCount <= 8) {
     return true;
   }
 
   if (wordCount <= 3) {
-    return false;
+    return wordCount >= 2 &&
+      tokens.every((token) => /^[A-Z][\p{L}\p{N}.'’-]*$/u.test(token)) &&
+      !COMPANY_NOISE_PATTERN.test(normalized);
   }
 
   return /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b/.test(normalized) &&
@@ -488,9 +491,21 @@ function buildJobFromCardCandidate(
   const canonicalUrl = canonicalizeUrl(candidate.canonicalUrl, pageUrl);
   const title = cleanLine(candidate.headingText) || cleanLine(candidate.anchorText);
   const lines = uniqueStrings(candidate.lines);
-  const workMode = normalizeWorkModes(lines, lines.join(" "));
-  const location = inferLocation(lines, workMode);
-  const company = inferCompany(lines, title, location);
+  const metadataLines = lines.filter(
+    (line) => cleanLine(line).toLowerCase() !== title.toLowerCase(),
+  );
+  const workMode = normalizeWorkModes(metadataLines, metadataLines.join(" "));
+  const initialLocation = inferLocation(metadataLines, workMode);
+  const initialCompany = inferCompany(metadataLines, title, initialLocation);
+  const location = initialLocation ?? inferLocation(
+    metadataLines.filter((line) => cleanLine(line).toLowerCase() !== (initialCompany?.toLowerCase() ?? "")),
+    workMode,
+  );
+  const company = initialCompany ?? inferCompany(
+    metadataLines.filter((line) => cleanLine(line).toLowerCase() !== (location?.toLowerCase() ?? "")),
+    title,
+    location,
+  );
 
   if (!canonicalUrl || !title || !company || !location) {
     return null;

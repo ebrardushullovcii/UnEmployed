@@ -4,7 +4,7 @@ import type {
   SourceInstructionArtifact
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
-import { formatDuration } from '../../lib/job-finder-utils'
+import { formatDuration, formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
 
 function formatTimestamp(value: string | null): string | null {
   if (!value) {
@@ -12,25 +12,6 @@ function formatTimestamp(value: string | null): string | null {
   }
 
   return new Date(value).toLocaleString()
-}
-
-function formatRunStateLabel(state: SourceDebugRunRecord['state']): string {
-  switch (state) {
-    case 'completed':
-      return 'Completed'
-    case 'paused_manual':
-      return 'Needs manual step'
-    case 'failed':
-      return 'Needs attention'
-    case 'cancelled':
-      return 'Cancelled'
-    case 'interrupted':
-      return 'Interrupted'
-    case 'running':
-      return 'Running'
-    default:
-      return 'Not started'
-  }
 }
 
 function formatAttemptOutcomeLabel(outcome: SourceDebugRunDetails['attempts'][number]['outcome']): string {

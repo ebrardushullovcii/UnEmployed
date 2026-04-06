@@ -24,17 +24,8 @@ function clearFailedInteractionAttemptsAfterNavigation(state: { failedInteractio
 }
 
 function normalizeInteractionAttemptRole(kind: "click" | "fill" | "select_option", role: string): string {
-  const normalizedRole = role.trim().toLowerCase();
-
-  if (kind === "click" && (normalizedRole === "link" || normalizedRole === "button")) {
-    return "clickable";
-  }
-
-  if (kind === "fill" && (normalizedRole === "searchbox" || normalizedRole === "textbox" || normalizedRole === "combobox")) {
-    return "input";
-  }
-
-  return normalizedRole;
+  void kind;
+  return role.trim().toLowerCase();
 }
 
 function normalizeInteractionAttemptName(name: string): string {
@@ -310,6 +301,30 @@ If the click fails, you'll get details about why so you can decide whether to re
             const previousUrl = state.currentUrl || page.url()
             const absoluteUrl = new URL(href, previousUrl).toString()
             const urlValidation = isAllowedUrl(absoluteUrl, context.config.navigationPolicy)
+
+            if (!urlValidation.valid) {
+              const repeatedFailureCount = recordFailedInteractionAttempt(
+                state,
+                interactionAttemptKey,
+                priorAttempt,
+                urlValidation.error ?? 'Navigation went to disallowed URL.',
+              )
+
+              return {
+                success: false,
+                error: urlValidation.error,
+                data: {
+                  role,
+                  name: name.slice(0, 50),
+                  index,
+                  invalidUrl: absoluteUrl,
+                  recovered: false,
+                  navigationMethod: 'href_fallback',
+                  errorType: 'not_allowed_by_navigation_policy',
+                  repeatedFailureCount,
+                },
+              }
+            }
 
             if (urlValidation.valid) {
               await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: CLICK_TIMEOUT_MS })

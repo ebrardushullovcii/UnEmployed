@@ -83,6 +83,7 @@ export function useJobFinderPageController() {
   >([]);
   const [resumeAssistantPending, setResumeAssistantPending] = useState(false);
   const [resumeWorkspaceDirty, setResumeWorkspaceDirty] = useState(false);
+  const sourceDebugRunIdRef = useRef(0);
   const activeResumeWorkspaceJobId = getActiveResumeWorkspaceJobId(
     location.pathname,
   );
@@ -553,24 +554,40 @@ export function useJobFinderPageController() {
       );
     },
     onRunSourceDebug: (targetId: string) => {
+      const runId = sourceDebugRunIdRef.current + 1;
+      sourceDebugRunIdRef.current = runId;
       setActionState({
         busy: true,
         message: "Starting source debug and attaching the browser profile...",
       });
       void actions
         .runSourceDebug(targetId, (progressEvent) => {
+          if (sourceDebugRunIdRef.current !== runId) {
+            return;
+          }
+
           setActionState({
             busy: true,
             message: progressEvent.message,
           });
         })
         .then((nextWorkspace) => {
+          if (sourceDebugRunIdRef.current !== runId) {
+            return;
+          }
+
+          sourceDebugRunIdRef.current = 0;
           setActionState({
             busy: false,
             message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
           });
         })
         .catch((error) => {
+          if (sourceDebugRunIdRef.current !== runId) {
+            return;
+          }
+
+          sourceDebugRunIdRef.current = 0;
           const message =
             error instanceof Error
               ? error.message

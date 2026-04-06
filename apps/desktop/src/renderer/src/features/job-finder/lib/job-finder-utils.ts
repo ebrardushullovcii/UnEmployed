@@ -3,7 +3,8 @@ import type {
   ApplicationStatus,
   AssetStatus,
   BrowserSessionState,
-  CandidateProfile
+  CandidateProfile,
+  SourceDebugRunRecord
 } from '@unemployed/contracts'
 import type {
   BadgeTone,
@@ -63,6 +64,25 @@ export function formatResumeAnalysisSummary(profile: CandidateProfile): string |
 
 export function formatCountLabel(value: number, noun: string): string {
   return `${value} ${noun}${value === 1 ? '' : 's'}`
+}
+
+export function formatRunStateLabel(state: SourceDebugRunRecord['state']): string {
+  switch (state) {
+    case 'completed':
+      return 'Completed'
+    case 'paused_manual':
+      return 'Needs manual step'
+    case 'failed':
+      return 'Needs attention'
+    case 'cancelled':
+      return 'Cancelled'
+    case 'interrupted':
+      return 'Interrupted'
+    case 'running':
+      return 'Running'
+    default:
+      return 'Not started'
+  }
 }
 
 export function getApplicationTone(status: ApplicationStatus): BadgeTone {
@@ -194,6 +214,10 @@ export function createProfileEntryId(prefix: string): string {
 }
 
 export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return '—'
+  }
+
   if (ms < 1000) {
     return '<1s'
   }

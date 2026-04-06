@@ -26,7 +26,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - last updated: `2026-04-06`
 - linked plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - code areas: `packages/job-finder`, `packages/contracts`, `packages/db`, `packages/knowledge-base`, `packages/browser-runtime`, `apps/desktop`
-- current focus: this is the only current active plan; the workspace flow mostly works in a bare-bones form and is being tightened into a stronger usable slice, including aligning review-queue apply gating with approved export reality, a clearer checklist-style readiness view in `Shortlisted`, truthful supported-versus-manual apply-path messaging, and stronger handoff clarity for apply safety
+- current focus: active alongside plan `010`; the workspace flow mostly works in a bare-bones form and is being tightened into a stronger usable slice, including aligning review-queue apply gating with approved export reality, a clearer checklist-style readiness view in `Shortlisted`, truthful supported-versus-manual apply-path messaging, and stronger handoff clarity for apply safety
 - next step: finish the remaining functionality and harden quality, assistant edits, export or approval paths, apply safety, desktop QA, and handoff clarity around browser-agent versus browser-runtime ownership, especially any remaining follow-up on live apply-path support signals beyond saved-job metadata
 - blockers: none
 
@@ -53,12 +53,22 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `Plan 010 Browser Efficiency And Speed`
 
 - status: `in_progress`
-- last updated: `2026-04-05`
+- last updated: `2026-04-06`
 - linked plan: `docs/exec-plans/active/010-job-finder-browser-efficiency-and-speed.md`
 - code areas: `packages/browser-runtime`, `packages/browser-agent`, `packages/job-finder`, `apps/desktop`
 - current focus: measurement-first implementation now includes named waiting states, retained discovery and source-debug timing summaries, a test-only performance snapshot, dynamic per-target discovery budgets, deterministic discovery-merge fit scoring, a narrower discovery-hot-path SQLite persistence path, earlier deferred-extraction flushes, early shutdown for cold discovery sources, source-debug later-phase route reuse with tighter budgets and actual starting-url evidence, guards against malformed templated route hints plus repeated click/fill evidence misses, and early closeout for phase-driven browser passes once evidence has stalled after enough proof is already collected
 - next step: rerun LinkedIn source-debug on the new build, inspect whether phases now close out well before their old 16/18/22-step ceilings, then compare the retained timing snapshot against Wellfound and Kosovajob to separate generic wins from site-specific issues
 - blockers: broader benchmarking still depends on `007` hardening enough to produce trustworthy side-by-side baselines, but the current visibility and idle-gap slice is actively implementable now
+
+### `Plan 015 Job Finder Shared Data Expansion`
+
+- status: `ready`
+- last updated: `2026-04-06`
+- linked plan: `docs/exec-plans/queued/015-job-finder-shared-data-expansion.md`
+- code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `apps/desktop`, `docs`
+- current focus: queued follow-on schema and storage expansion for shared narrative, proof-bank, answer-bank, richer job or employer context, and blocker or replay data that later discovery, resume, and apply flows can all reuse
+- next step: start by auditing the existing schema roots and repository state, extend those roots where possible, and only propose a new top-level domain when the existing saved-job, source-debug, or workspace state structures cannot own the new data cleanly
+- blockers: should stay queued until the active `007` and `010` slices settle enough that the broader schema expansion can land without churn
 
 ## Completed Background
 

@@ -243,7 +243,6 @@ describe("createJobFinderWorkspaceService", () => {
     expect(capturedPhaseInputs.get("Site Structure Mapping")).toEqual({
       startingUrls: [
         "https://www.linkedin.com/jobs/collections/recommended/",
-        "https://www.linkedin.com/jobs/search/",
         "https://www.linkedin.com/jobs/",
       ],
       maxSteps: 18,
@@ -372,7 +371,6 @@ describe("createJobFinderWorkspaceService", () => {
     expect(capturedPhaseInputs.get("Site Structure Mapping")).toEqual({
       startingUrls: [
         "https://example.com/careers/open-roles/",
-        "https://example.com/careers/open-roles/search?team=product",
         "https://example.com/",
       ],
       maxSteps: 18,

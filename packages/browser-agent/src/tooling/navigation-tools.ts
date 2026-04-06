@@ -45,6 +45,7 @@ export const navigationTools: ToolDefinition[] = [
       const { url, timeout, waitFor } = parseResult.data;
       const { page, state } = context;
       const startTime = Date.now();
+      const previousUrl = state.currentUrl;
       const effectiveTimeout =
         waitFor === "networkidle" ? Math.min(timeout, MAX_NETWORKIDLE_TIMEOUT) : timeout;
 
@@ -105,11 +106,7 @@ export const navigationTools: ToolDefinition[] = [
 
         const finalUrlAllowed =
           Boolean(finalUrl) && isAllowedUrl(finalUrl, context.config.navigationPolicy).valid;
-        const changedToAllowedUrl = Boolean(finalUrl && finalUrlAllowed && finalUrl !== state.currentUrl);
-
-        if (finalUrl && finalUrlAllowed) {
-          state.currentUrl = finalUrl;
-        }
+        const changedToAllowedUrl = Boolean(finalUrl && finalUrlAllowed && finalUrl !== previousUrl);
 
         const isTimeoutError = /timeout/i.test(errorMessage);
 
@@ -118,11 +115,11 @@ export const navigationTools: ToolDefinition[] = [
           isTimeoutError &&
           finalUrl &&
           finalUrlAllowed &&
+          changedToAllowedUrl &&
           readyState !== "loading"
         ) {
-          if (changedToAllowedUrl) {
-            state.failedInteractionAttempts?.clear();
-          }
+          state.currentUrl = finalUrl;
+          state.failedInteractionAttempts?.clear();
           state.visitedUrls.add(finalUrl);
 
           return {

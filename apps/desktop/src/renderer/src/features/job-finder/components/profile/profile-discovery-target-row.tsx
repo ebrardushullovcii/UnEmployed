@@ -7,7 +7,7 @@ import type {
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { FieldLabel } from '@renderer/components/ui/field'
-import { formatDuration } from '../../lib/job-finder-utils'
+import { formatDuration, formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
 import type { SearchPreferencesEditorValues } from '../../lib/profile-editor'
 import { CheckboxField } from '../checkbox-field'
 import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
@@ -25,25 +25,6 @@ import {
 import { useProfileSourceDebugReview } from './use-profile-source-debug-review'
 
 type DiscoveryTargetValue = SearchPreferencesEditorValues['discoveryTargets'][number]
-
-function formatRunStateLabel(state: SourceDebugRunRecord['state']): string {
-  switch (state) {
-    case 'completed':
-      return 'Completed'
-    case 'paused_manual':
-      return 'Needs manual step'
-    case 'failed':
-      return 'Needs attention'
-    case 'cancelled':
-      return 'Cancelled'
-    case 'interrupted':
-      return 'Interrupted'
-    case 'running':
-      return 'Running'
-    default:
-      return 'Not started'
-  }
-}
 
 function formatInstructionStatusSummary(target: DiscoveryTargetValue): string {
   switch (target.instructionStatus) {

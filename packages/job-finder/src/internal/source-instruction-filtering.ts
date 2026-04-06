@@ -185,6 +185,8 @@ export function isLowSignalSourceInstruction(value: string): boolean {
     /\b\d+ jobs? (?:extracted|found|sampled)\b/.test(normalized) ||
     normalized.includes("location encoding") ||
     normalized.includes("geoid") ||
+    normalized.includes("currentjobid") ||
+    normalized.includes("selectedjobid") ||
     normalized.includes("domcontentloaded") ||
     normalized.includes("jobs landing url") ||
     normalized.includes("jobs url pattern") ||

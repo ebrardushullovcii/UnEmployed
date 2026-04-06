@@ -38,7 +38,7 @@ function requireSnapshotPath() {
     return process.env.UI_PROFILE_BASELINE_SNAPSHOT
   }
 
-  throw new Error('Pass --snapshot or set UI_PROFILE_BASELINE_SNAPSHOT to a committed workspace snapshot fixture.')
+  throw new Error('Profile-baseline capture now requires an explicit snapshot path. Pass --snapshot <path> or set UI_PROFILE_BASELINE_SNAPSHOT to a committed workspace snapshot fixture.')
 }
 
 function parseProfileBaselineSnapshot(rawSnapshot) {

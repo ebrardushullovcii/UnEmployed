@@ -210,13 +210,6 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 null
               );
             };
-            const asRecordArray = (value: unknown): Array<Record<string, unknown>> =>
-              Array.isArray(value)
-                ? value.filter(
-                    (entry): entry is Record<string, unknown> =>
-                      Boolean(entry) && typeof entry === "object" && !Array.isArray(entry),
-                  )
-                : [];
             const normalizeEmploymentType = (value: unknown): string | null => {
               if (Array.isArray(value)) {
                 return toText(value[0]);

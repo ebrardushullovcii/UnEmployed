@@ -10,6 +10,8 @@ interface ResumeWorkspaceSidebarProps {
 
 export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: ResumeWorkspaceSidebarProps) {
   const { job, research, validation } = workspace
+  const researchCount = research.length
+  const validationCount = validation?.issues.length ?? 0
 
   return (
     <aside className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-5 xl:h-full">
@@ -22,8 +24,8 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
         </StatusBadge>
       </div>
       <div className="grid gap-2 text-sm text-foreground-soft">
-        <p>Saved sources: {research.length}</p>
-        <p>Validation checks: {validation?.issues.length ?? 0}</p>
+        <p>{researchCount === 1 ? 'Saved source' : 'Saved sources'}: {researchCount}</p>
+        <p>{validationCount === 1 ? 'Validation check' : 'Validation checks'}: {validationCount}</p>
         {hasUnsavedChanges ? (
           <p className="text-(--warning-text)">
             Unsaved edits stay local until you save or run another action.

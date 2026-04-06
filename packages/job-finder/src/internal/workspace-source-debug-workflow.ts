@@ -55,6 +55,8 @@ import {
 } from "./performance-timing";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
+const MAX_PROGRESS_EVENTS = 1000;
+
 function normalizeProgressUrl(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -371,6 +373,9 @@ export async function runSourceDebugWorkflow(
     runId,
     targetId: normalizedTarget.id,
     onProgress: (event) => {
+      if (progressEvents.length >= MAX_PROGRESS_EVENTS) {
+        progressEvents.shift();
+      }
       progressEvents.push(event);
       onProgress?.(event);
     },

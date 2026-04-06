@@ -262,9 +262,11 @@ describe("createJobFinderWorkspaceService", () => {
         (entry) => entry.waitReason === "waiting_on_ai",
       ),
     ).toBe(true);
+    expect(latestRun.attempts.length).toBeGreaterThan(0);
+    expect(latestRun.run.phaseSummaries.length).toBeGreaterThan(0);
     expect(
       latestRun.attempts.every(
-        (attempt) => (attempt.timing?.eventCount ?? 0) > 0,
+        (attempt) => attempt.timing != null && attempt.timing.eventCount > 0,
       ),
     ).toBe(true);
     expect(

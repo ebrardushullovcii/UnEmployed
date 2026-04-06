@@ -126,7 +126,7 @@ async function captureResumeWorkspace() {
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
     const gatedApproveButton = window.getByRole('button', { name: 'Start application' })
     if (!(await gatedApproveButton.isDisabled())) {
-      throw new Error('Approve Easy Apply should stay disabled before resume approval.')
+      throw new Error('Start application should stay disabled before resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06-review-queue-gated.png') })
 
@@ -149,7 +149,7 @@ async function captureResumeWorkspace() {
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
     const readyApproveButton = window.getByRole('button', { name: 'Start application' })
     if (await readyApproveButton.isDisabled()) {
-      throw new Error('Approve Easy Apply should be enabled after resume approval.')
+      throw new Error('Start application should be enabled after resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '08-review-queue-approved.png') })
 

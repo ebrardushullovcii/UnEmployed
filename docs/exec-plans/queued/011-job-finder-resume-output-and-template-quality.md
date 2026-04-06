@@ -30,11 +30,13 @@ In plain terms: the app now has a stronger workflow than the artifact it produce
 
 ### Local reference already reviewed
 
-- `D:\Projects-Personal\Temp\career-ops\modes\pdf.md`
-- `D:\Projects-Personal\Temp\career-ops\templates\cv-template.html`
-- `D:\Projects-Personal\Temp\career-ops\generate-pdf.mjs`
+- the `career-ops` PDF mode guide
+- the `career-ops` CV HTML template
+- the `career-ops` PDF generator entrypoint
 
 Key takeaways from `career-ops`:
+
+- the exact machine-local paths used during prep were intentionally removed here; keep only durable repo docs or the summarized takeaways below in committed plans
 
 - strong ATS-safe rules
 - better section order for recruiter scanning

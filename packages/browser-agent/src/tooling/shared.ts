@@ -313,30 +313,55 @@ function normalizeLooseLocatorName(value: string): string {
     .replace(/\bverified job\b/g, ' ')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .replace(/\s+/g, ' ')
-    .trim()
+    .trim();
 }
 
 function titleCaseWords(value: string): string {
-  return value.replace(/\b\p{L}[\p{L}\p{N}]*/gu, (word) => word.charAt(0).toUpperCase() + word.slice(1))
+  return value.replace(/\b\p{L}[\p{L}\p{N}]*/gu, (word) => word.charAt(0).toUpperCase() + word.slice(1));
 }
 
 function looseLocatorNameMatches(target: string, candidate: string): boolean {
-  const normalizedTarget = normalizeLooseLocatorName(target)
-  const normalizedCandidate = normalizeLooseLocatorName(candidate)
+  const normalizedTarget = normalizeLooseLocatorName(target);
+  const normalizedCandidate = normalizeLooseLocatorName(candidate);
 
   if (!normalizedTarget || !normalizedCandidate) {
-    return false
+    return false;
   }
 
   if (
     normalizedCandidate.includes(normalizedTarget) ||
     normalizedTarget.includes(normalizedCandidate)
   ) {
-    return true
+    return true;
   }
 
-  const targetTokens = normalizedTarget.split(' ').filter(Boolean)
-  return targetTokens.length >= 2 && targetTokens.every((token) => normalizedCandidate.includes(token))
+  const targetTokens = normalizedTarget.split(' ').filter(Boolean);
+  return targetTokens.length >= 2 && targetTokens.every((token) => normalizedCandidate.includes(token));
+}
+
+async function findVisibleLocator(
+  locator: Locator,
+  visibleIndex: number,
+): Promise<Locator | null> {
+  const count = await locator.count().catch(() => 0);
+  let matchedVisibleCount = 0;
+
+  for (let candidateIndex = 0; candidateIndex < count; candidateIndex += 1) {
+    const candidate = locator.nth(candidateIndex);
+    const visible = await candidate.isVisible().catch(() => false);
+
+    if (!visible) {
+      continue;
+    }
+
+    if (matchedVisibleCount === visibleIndex) {
+      return candidate;
+    }
+
+    matchedVisibleCount += 1;
+  }
+
+  return null;
 }
 
 async function readLocatorAccessibleName(locator: Locator): Promise<string | null> {
@@ -579,31 +604,6 @@ export async function resolveRoleLocator(
   }
 
   alternateNames.add(titleCaseWords(baseName))
-
-  async function findVisibleLocator(
-    locator: ReturnType<Page["getByRole"]>,
-    visibleIndex: number,
-  ): Promise<ReturnType<Page["getByRole"]> | null> {
-    const count = await locator.count().catch(() => 0);
-    let matchedVisibleCount = 0;
-
-    for (let candidateIndex = 0; candidateIndex < count; candidateIndex += 1) {
-      const candidate = locator.nth(candidateIndex);
-      const visible = await candidate.isVisible().catch(() => false);
-
-      if (!visible) {
-        continue;
-      }
-
-      if (matchedVisibleCount === visibleIndex) {
-        return candidate;
-      }
-
-      matchedVisibleCount += 1;
-    }
-
-    return null;
-  }
 
   for (const candidateRole of roleSearchOrder) {
     for (const candidateName of alternateNames) {

@@ -107,8 +107,7 @@ export function ProfileScreen(props: {
     workModes,
     tailoringMode,
     minimumSalaryUsd,
-    targetSalaryUsd,
-    salaryCurrency
+    targetSalaryUsd
   ] = useWatch({
     control: preferencesForm.control,
     name: [
@@ -125,8 +124,7 @@ export function ProfileScreen(props: {
       'workModes',
       'tailoringMode',
       'minimumSalaryUsd',
-      'targetSalaryUsd',
-      'salaryCurrency'
+      'targetSalaryUsd'
     ]
   })
 
@@ -258,7 +256,6 @@ export function ProfileScreen(props: {
     minimumSalaryUsd,
     profileSkillValues,
     projectValues,
-    salaryCurrency,
     seniorityLevels,
     skillGroupValues,
     summaryValues,

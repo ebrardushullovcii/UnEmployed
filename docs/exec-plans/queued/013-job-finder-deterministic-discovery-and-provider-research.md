@@ -39,9 +39,11 @@ The active `010` work is already reducing visible waiting and obvious waste, but
 
 ### Local comparative reference
 
-- `D:\Projects-Personal\Temp\career-ops\modes\scan.md`
+- the `career-ops` scan workflow notes
 
 Key takeaways from `career-ops`:
+
+- the exact machine-local path used during prep was intentionally removed here; keep only durable docs references or the summarized takeaways below in committed plans
 
 - use tiered collection methods
 - separate tracked-company scanning from broad search fallback

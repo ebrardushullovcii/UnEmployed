@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { DiscoveryActivityEvent, DiscoveryRunRecord } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
-import { formatDuration } from '../../lib/job-finder-utils'
+import { formatDuration } from '@renderer/features/job-finder/lib/job-finder-utils'
 import {
   buildLiveRunRecord,
   formatOutcomeLabel,
@@ -252,6 +252,9 @@ export function DiscoveryHistoryModal(props: {
               {runOptions.length > 0 ? runOptions.map((run) => {
                 const isSelected = run.id === selectedRun?.id
                 const isLive = liveRun?.id === run.id
+                const durationSummary = run.summary.durationMs > 0
+                  ? ` · ${formatDuration(run.summary.durationMs)}`
+                  : ''
 
                 return (
                   <button
@@ -275,7 +278,9 @@ export function DiscoveryHistoryModal(props: {
                       ) : null}
                     </div>
                     <span className="text-[0.8rem] text-foreground-muted">{formatRunLabel(run.startedAt)}</span>
-<span className="text-[0.8rem] text-foreground-muted">{run.summary.targetsCompleted}/{run.summary.targetsPlanned} sources completed · {run.summary.validJobsFound} jobs found{run.summary.durationMs > 0 ? ` · ${formatDuration(run.summary.durationMs)}` : ''}</span>
+                    <span className="text-[0.8rem] text-foreground-muted">
+                      {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${run.summary.validJobsFound} jobs found${durationSummary}`}
+                    </span>
                   </button>
                 )
               }) : (

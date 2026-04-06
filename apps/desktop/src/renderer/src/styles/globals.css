@@ -418,6 +418,23 @@ h1 {
   width: var(--progress-width);
 }
 
+.label-mono-xs {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-badge);
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.card-heading-sm {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: var(--tracking-heading);
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
 h2 {
   font-family: var(--font-headline);
   font-size: clamp(1.22rem, 1.12vw, 1.58rem);

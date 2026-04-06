@@ -19,6 +19,13 @@ const extractionStatusToAssetStatus: Record<ResumeExtractionStatus, AssetStatus>
   not_started: 'not_started'
 }
 
+const extractionStatusToLabel: Record<ResumeExtractionStatus, string> = {
+  ready: 'Ready to review',
+  failed: 'Import failed',
+  needs_text: 'Needs better text',
+  not_started: 'Not imported'
+}
+
 export function ProfileResumePanel({
   busy,
   onAnalyzeProfileFromResume,
@@ -46,18 +53,7 @@ export function ProfileResumePanel({
   const uploadedLabel = profile.baseResume.uploadedAt
     ? `Imported ${formatDateOnly(profile.baseResume.uploadedAt)}`
     : 'Import your resume to fill in this profile faster.'
-  const extractionStatusLabel = (() => {
-    switch (profile.baseResume.extractionStatus) {
-      case 'ready':
-        return 'Ready to review'
-      case 'needs_text':
-        return 'Needs better text'
-      case 'failed':
-        return 'Import failed'
-      default:
-        return 'Not imported'
-    }
-  })()
+  const extractionStatusLabel = extractionStatusToLabel[profile.baseResume.extractionStatus] || 'Not imported'
   const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Name not set yet'
   const headline = profile.headline.trim() || 'Headline not set yet'
   const location = profile.currentLocation.trim() || 'Location not set yet'

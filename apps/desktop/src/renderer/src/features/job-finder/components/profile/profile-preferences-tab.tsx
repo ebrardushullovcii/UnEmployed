@@ -354,13 +354,13 @@ export function ProfilePreferencesTab({
         </ProfileOptionalSection>
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="grid gap-1">
-                <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Job sources</h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="grid gap-1">
+              <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Job sources</h3>
               <p className="text-[0.9rem] leading-6 text-foreground-soft">Add the job boards or company career pages you want Job Finder to search. Each source can save reusable guidance after a quick source check.</p>
-              </div>
-              <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add source</Button>
             </div>
+            <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add source</Button>
+          </div>
 
           <div className="grid gap-3">
             {discoveryTargets.length === 0 ? (
@@ -374,20 +374,20 @@ export function ProfilePreferencesTab({
                 : null
 
               return (
-              <ProfileDiscoveryTargetRow
-                busy={busy}
-                discoveryTargets={discoveryTargets}
-                index={index}
-                instructionArtifact={instructionArtifact}
-                key={target.id}
-                onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-                onRunSourceDebug={onRunSourceDebug}
-                onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
-                onVerifySourceInstructions={onVerifySourceInstructions}
-                recentSourceDebugRuns={recentSourceDebugRuns}
-                target={target}
-                updateDiscoveryTargets={updateDiscoveryTargets}
-              />
+                <ProfileDiscoveryTargetRow
+                  busy={busy}
+                  discoveryTargets={discoveryTargets}
+                  index={index}
+                  instructionArtifact={instructionArtifact}
+                  key={target.id}
+                  onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+                  onRunSourceDebug={onRunSourceDebug}
+                  onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
+                  onVerifySourceInstructions={onVerifySourceInstructions}
+                  recentSourceDebugRuns={recentSourceDebugRuns}
+                  target={target}
+                  updateDiscoveryTargets={updateDiscoveryTargets}
+                />
               )
             })}
           </div>

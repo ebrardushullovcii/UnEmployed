@@ -122,17 +122,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
       return parseModelJsonResponse(response);
     } catch (error) {
-      if (
-        controller.signal.aborted &&
-        error instanceof Error &&
-        error.name === "AbortError"
-      ) {
-        throw new Error(
-          `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
-        );
-      }
-
-      throw error;
+      throw normalizeTimeoutLikeError(error, timeoutMs);
     } finally {
       clearTimeout(timeoutId);
     }

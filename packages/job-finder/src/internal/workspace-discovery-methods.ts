@@ -233,7 +233,6 @@ export function createWorkspaceDiscoveryMethods(
         ? mergeSavedJobs(savedJobs, discoveryState.pendingDiscoveryJobs)
         : savedJobs;
       const mergeResult = await mergeDiscoveredPostings(
-        ctx.aiClient,
         profile,
         enrichedPreferences,
         mergeSeedJobs,
@@ -542,7 +541,6 @@ export function createWorkspaceDiscoveryMethods(
                   progress,
                   target.label,
                   progress.jobsFound,
-                  progress.stepCount,
                 );
                 emitActivity(
                   createDiscoveryEvent({
@@ -590,7 +588,6 @@ export function createWorkspaceDiscoveryMethods(
             ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
             : workingSavedJobs;
           const mergeResult = await mergeDiscoveredPostings(
-            ctx.aiClient,
             profile,
             enrichedPreferences,
             mergeSeedJobs,

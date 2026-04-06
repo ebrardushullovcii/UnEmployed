@@ -125,12 +125,35 @@ function mergeCandidateList<T>(
 ): T[] {
   const merged = new Map<string, T>()
 
+  const getRichnessScore = (candidate: T): number => {
+    if (!candidate || typeof candidate !== 'object') {
+      return 0
+    }
+
+    return Object.values(candidate as Record<string, unknown>).reduce<number>((score, value) => {
+      if (typeof value === 'string') {
+        return score + (value.trim() ? 1 : 0)
+      }
+
+      if (Array.isArray(value)) {
+        return score + (value.length > 0 ? 1 : 0)
+      }
+
+      return score + (value == null ? 0 : 1)
+    }, 0)
+  }
+
   for (const candidate of existing ?? []) {
     merged.set(getKey(candidate), candidate)
   }
 
   for (const candidate of incoming ?? []) {
-    merged.set(getKey(candidate), candidate)
+    const key = getKey(candidate)
+    const current = merged.get(key)
+
+    if (!current || getRichnessScore(candidate) > getRichnessScore(current)) {
+      merged.set(key, candidate)
+    }
   }
 
   return [...merged.values()]
@@ -297,6 +320,12 @@ export async function executeToolCall(
       const maxJobs = normalizedPageType === 'search_results'
         ? Math.min(remainingJobs, MAX_SEARCH_RESULTS_EXTRACTION_JOBS)
         : remainingJobs
+      const requestedMaxJobs = typeof args.maxJobs === 'number' && Number.isFinite(args.maxJobs)
+        ? Math.max(0, Math.floor(args.maxJobs))
+        : null
+      const effectiveMaxJobs = requestedMaxJobs == null
+        ? maxJobs
+        : Math.min(requestedMaxJobs, maxJobs)
       const structuredDataCandidates = Array.isArray(extractData.structuredDataCandidates)
         ? extractData.structuredDataCandidates as NonNullable<Parameters<typeof buildStructuredCandidateJobs>[0]['structuredDataCandidates']>
         : []
@@ -306,7 +335,7 @@ export async function executeToolCall(
       const fastPathJobs = normalizedPageType === 'search_results'
         ? buildStructuredCandidateJobs({
             pageUrl: extractData.pageUrl,
-            maxJobs,
+            maxJobs: effectiveMaxJobs,
             structuredDataCandidates,
             cardCandidates
           })
@@ -314,7 +343,7 @@ export async function executeToolCall(
       const fastPathAddedCount = addExtractedJobsToState(fastPathJobs, state, config.source)
       const remainingJobsAfterFastPath = Math.max(0, config.targetJobCount - state.collectedJobs.length)
       const remainingSearchResultsBudget = normalizedPageType === 'search_results'
-        ? Math.min(remainingJobsAfterFastPath, Math.max(0, maxJobs - fastPathAddedCount))
+        ? Math.min(remainingJobsAfterFastPath, Math.max(0, effectiveMaxJobs - fastPathAddedCount))
         : remainingJobsAfterFastPath
       const shouldSkipSlowSearchResultsExtraction =
         normalizedPageType === 'search_results' &&

@@ -28,6 +28,8 @@ export function ResumeWorkspaceHeader({
   onBack,
   onRefresh
 }: ResumeWorkspaceHeaderProps) {
+  const companyLocationDisplay = [jobCompany, jobLocation].filter(Boolean).join(' • ')
+
   return (
     <section className="surface-panel-shell relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -57,9 +59,11 @@ export function ResumeWorkspaceHeader({
             <h1 className="max-w-[20ch] font-display text-(length:--type-headline-responsive) font-semibold tracking-[-0.05em] text-(--headline-primary)">
               {jobTitle}
             </h1>
-            <p className="text-(length:--type-body-lg) leading-7 text-foreground-soft">
-              {jobCompany} • {jobLocation}
-            </p>
+            {companyLocationDisplay ? (
+              <p className="text-(length:--type-body-lg) leading-7 text-foreground-soft">
+                {companyLocationDisplay}
+              </p>
+            ) : null}
           </div>
           <p className="max-w-[72ch] text-(length:--type-body-md) leading-7 text-foreground-soft">
             Save your draft, export a PDF, and approve the version you want Job Finder to use before starting the application.

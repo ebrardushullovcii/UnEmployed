@@ -4,7 +4,13 @@ import { Button, ProgressBar } from '@renderer/components/ui'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
-import { hasResumeGenerationFailure, isResumeGenerationInProgress, needsResumeGeneration } from './review-queue-status'
+import {
+  getApplyReadinessStatus,
+  hasResumeGenerationFailure,
+  isResumeGenerationInProgress,
+  needsResumeGeneration,
+  type ApplySupportState
+} from './review-queue-status'
 
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
@@ -23,13 +29,6 @@ interface ApplyChecklistItem {
   label: string
   state: 'attention' | 'complete' | 'in_progress' | 'blocked'
 }
-
-interface ApplyReadinessStatus {
-  label: string
-  tone: 'active' | 'critical' | 'muted' | 'positive'
-}
-
-type ApplySupportState = 'manual_follow_up' | 'supported'
 
 function getChecklistTone(state: ApplyChecklistItem['state']) {
   switch (state) {
@@ -86,96 +85,6 @@ function getNextChecklistItem(checklist: readonly ApplyChecklistItem[]) {
     checklist.find((item) => item.state === 'attention') ??
     null
   )
-}
-
-function getApplyReadinessStatus(params: {
-  applySupportState: ApplySupportState
-  browserSession: BrowserSessionState
-  hasGenerationFailure: boolean
-  hasReadyApprovedAsset: boolean
-  isGenerating: boolean
-  needsGeneration: boolean
-  resumeReviewStatus: ReviewQueueItem['resumeReview']['status'] | 'not_started'
-  selectedItem: ReviewQueueItem | null
-}): ApplyReadinessStatus {
-  const {
-    applySupportState,
-    browserSession,
-    hasGenerationFailure,
-    hasReadyApprovedAsset,
-    isGenerating,
-    needsGeneration,
-    resumeReviewStatus,
-    selectedItem
-  } = params
-
-  if (!selectedItem) {
-    return {
-      label: 'Choose a job',
-      tone: 'muted'
-    }
-  }
-
-  if (hasGenerationFailure) {
-    return {
-      label: 'Resume issue',
-      tone: 'critical'
-    }
-  }
-
-  if (needsGeneration) {
-    return {
-      label: 'Needs resume',
-      tone: 'muted'
-    }
-  }
-
-  if (isGenerating) {
-    return {
-      label: 'Preparing resume',
-      tone: 'active'
-    }
-  }
-
-  if (!hasReadyApprovedAsset) {
-    return {
-      label: resumeReviewStatus === 'stale' ? 'Out of date' : 'Needs approval',
-      tone: 'critical'
-    }
-  }
-
-  if (applySupportState === 'manual_follow_up') {
-    if (browserSession.status === 'blocked' || browserSession.status === 'login_required') {
-      return {
-        label: 'Browser blocked',
-        tone: 'critical'
-      }
-    }
-
-    return {
-      label: browserSession.status === 'unknown' ? 'Waiting for browser' : 'Apply path may be manual',
-      tone: 'active'
-    }
-  }
-
-  if (browserSession.status === 'ready') {
-    return {
-      label: 'Ready to start',
-      tone: 'positive'
-    }
-  }
-
-  if (browserSession.status === 'unknown') {
-    return {
-      label: 'Waiting for browser',
-      tone: 'active'
-    }
-  }
-
-  return {
-    label: 'Browser blocked',
-    tone: 'critical'
-  }
 }
 
 export function ReviewQueueMissionPanel({
@@ -247,13 +156,7 @@ export function ReviewQueueMissionPanel({
     },
     {
       label: 'Approved PDF ready',
-      state: hasReadyApprovedAsset
-        ? 'complete'
-        : resumeReviewStatus === 'approved'
-          ? 'blocked'
-          : resumeReviewStatus === 'stale'
-            ? 'blocked'
-            : 'blocked',
+      state: hasReadyApprovedAsset ? 'complete' : 'blocked',
       description: hasReadyApprovedAsset
         ? 'The current approved PDF will be used when you start the application.'
         : resumeReviewStatus === 'approved'
@@ -361,11 +264,6 @@ export function ReviewQueueMissionPanel({
               <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} />
             </div>
             {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words text-(length:--text-small) leading-6 text-primary" role="status">{actionMessage}</p> : null}
-            {nextBlockedChecklistItem && nextBlockedChecklistItem.state !== 'complete' ? (
-              <p className="min-w-0 break-words text-(length:--text-small) leading-6 text-(--warning-text)">
-                {nextBlockedChecklistItem.description}
-              </p>
-            ) : null}
             <div className="grid min-w-0 gap-2.5">
               <Button
                 className="h-11 w-full"

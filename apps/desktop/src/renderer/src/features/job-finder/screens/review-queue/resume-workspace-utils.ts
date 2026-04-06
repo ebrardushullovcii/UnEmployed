@@ -21,15 +21,19 @@ export function formatOptionalDate(
 
 export function formatDraftStatusLabel(status: ResumeDraft["status"]): string {
   switch (status) {
+    case "draft":
+      return "Draft";
     case "approved":
       return "Approved";
     case "needs_review":
       return "Needs review";
     case "stale":
       return "Out of date";
-    default:
-      return "Draft";
   }
+
+  const exhaustiveStatus: never = status;
+  void exhaustiveStatus;
+  throw new Error("Unhandled draft status.");
 }
 
 export function toDraftStatusTone(

@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Plan `007` implementation and hardening remain active. Plan `010` browser-efficiency work is now in progress as a focused measurement and idle-gap reduction slice across discovery and source-debug. Plan `008` remains the next queued follow-on implementation plan, but it has now been re-authored as a staged apply evolution: shared apply domains, one-job apply copilot, one-job auto-submit, then queue automation. Plan `009` completed as the current shipped wording baseline after stronger rewrite and later structural polish passes.
+Plan `007` implementation and hardening remain active. Plan `010` browser-efficiency work is now in progress as a focused measurement and idle-gap reduction slice across discovery and source-debug. Plan `008` remains the next queued follow-on implementation plan, but it has now been re-authored as a staged apply evolution: shared apply domains, one-job apply copilot, one-job auto-submit, then queue automation. Plan `015` is now the next queued shared-data follow-on after `008`, focused on expanding reusable narrative, answer, blocker, and enriched job context without forking the storage model. Plan `009` completed as the current shipped wording baseline after stronger rewrite and later structural polish passes.
 
 ## Snapshot
 
@@ -51,5 +51,6 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - `docs/exec-plans/active/010-job-finder-browser-efficiency-and-speed.md`
 - `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
+- `docs/exec-plans/queued/015-job-finder-shared-data-expansion.md`
 - `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - `docs/HISTORY.md`

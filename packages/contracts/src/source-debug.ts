@@ -427,7 +427,7 @@ export const SourceDebugProgressEventSchema = z.object({
   phase: SourceDebugPhaseSchema.nullable().default(null),
   waitReason: BrowserRunWaitReasonSchema,
   timestamp: IsoDateTimeSchema,
-  elapsedMs: z.number().nonnegative(),
+  elapsedMs: z.number().int().nonnegative(),
   lastActivityAt: IsoDateTimeSchema,
   message: NonEmptyStringSchema,
   currentUrl: UrlStringSchema.nullable().default(null),

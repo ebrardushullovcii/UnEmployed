@@ -36,7 +36,6 @@ export function summarizeProgressAction(
   progress: Pick<AgentDiscoveryProgress, "currentAction" | "message" | "waitReason">,
   siteLabel: string,
   jobsFound: number,
-  stepCount: number,
 ): {
   message: string;
   stage: DiscoveryActivityEvent["stage"];

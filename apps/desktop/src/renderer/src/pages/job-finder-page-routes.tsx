@@ -154,7 +154,7 @@ export function buildSourceDebugOutcomeMessage(
   if (latestRun?.state === 'failed') {
     return (
       latestRun.finalSummary ??
-      'The source check finished without saving reusable guidance.'
+      'The source check failed.'
     )
   }
 

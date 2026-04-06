@@ -266,7 +266,7 @@ export function normalizeExtractedJobs(input: {
       });
     const description =
       rawDescription ||
-      (input.pageType === "search_results" ? summary ?? "" : "");
+      (input.pageType === "search_results" ? "" : summary ?? "");
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,

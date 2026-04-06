@@ -50,7 +50,7 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-(--tracking-badge) text-muted-foreground">Details</p>
+          <p className="label-mono-xs">Details</p>
           {selectedRecord ? (
             <strong className="text-[0.95rem] text-(--text-headline)">{selectedRecord.company}</strong>
           ) : (
@@ -75,17 +75,38 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
               </section>
             ) : null}
             <div className="grid gap-3 md:grid-cols-2">
-               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Latest apply attempt</span><div className="mt-2"><StatusBadge tone={getAttemptTone(selectedAttempt?.state ?? selectedRecord.lastAttemptState)}>{selectedAttempt ? getAttemptStateLabel(selectedAttempt.state) : selectedRecord.lastAttemptState ? getAttemptStateLabel(selectedRecord.lastAttemptState) : 'No apply attempt'}</StatusBadge></div>{selectedAttempt?.summary ? <p className="mt-3 text-(length:--text-small) leading-6 text-foreground-soft">{selectedAttempt.summary}</p> : null}</div>
-               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4"><span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Last updated</span><strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{formatTimestamp(selectedRecord.lastUpdatedAt)}</strong></div>
+              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+                <span className="card-heading-sm">Latest apply attempt</span>
+                <div className="mt-2">
+                  <StatusBadge tone={getAttemptTone(selectedAttempt?.state ?? selectedRecord.lastAttemptState)}>
+                    {selectedAttempt
+                      ? getAttemptStateLabel(selectedAttempt.state)
+                      : selectedRecord.lastAttemptState
+                        ? getAttemptStateLabel(selectedRecord.lastAttemptState)
+                        : 'No apply attempt'}
+                  </StatusBadge>
+                </div>
+                {selectedAttempt?.summary ? (
+                  <p className="mt-3 text-(length:--text-small) leading-6 text-foreground-soft">
+                    {selectedAttempt.summary}
+                  </p>
+                ) : null}
+              </div>
+              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+                <span className="card-heading-sm">Last updated</span>
+                <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
+                  {formatTimestamp(selectedRecord.lastUpdatedAt)}
+                </strong>
+              </div>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-                <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Stage</span>
+                <span className="card-heading-sm">Stage</span>
                 <div className="mt-2"><StatusBadge tone={getApplicationTone(selectedRecord.status)}>{formatStatusLabel(selectedRecord.status)}</StatusBadge></div>
                 {selectedRecord.lastActionLabel ? <p className="mt-3 text-(length:--text-small) leading-6 text-foreground-soft">{selectedRecord.lastActionLabel}</p> : null}
               </div>
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-                <span className="font-mono text-[9px] uppercase tracking-(--tracking-heading) text-muted-foreground">Saved next step</span>
+                <span className="card-heading-sm">Saved next step</span>
                 <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">{selectedRecord.nextActionLabel ?? 'No next step saved'}</strong>
               </div>
             </div>
@@ -107,17 +128,17 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
               <p className="text-(length:--text-body) leading-7 text-foreground-soft">No apply attempt details were saved for this application yet.</p>
              </section>
            )}
-          <div className="grid gap-2">
-            <p className="font-mono text-[10px] uppercase tracking-(--tracking-heading) text-muted-foreground">Timeline</p>
-          <div className="grid gap-0">
-            {selectedRecord.events.map((event) => (
-              <article key={event.id} className="relative grid gap-3 border-l border-border/20 pl-8 pb-8 sm:grid-cols-[1fr]">
-                <div className={cn('absolute left-[-5px] top-1 h-2.5 w-2.5', getEventTone(event) === 'positive' ? 'bg-positive' : getEventTone(event) === 'active' ? 'bg-primary' : getEventTone(event) === 'critical' ? 'bg-destructive' : 'border border-border bg-background')} />
-                 <div>
-                   <div className="font-mono text-[10px] uppercase tracking-(--tracking-heading) text-muted-foreground">{formatTimestamp(event.at)}</div>
-                   <strong className={cn('mt-1 block text-sm font-medium', getEventTone(event) === 'positive' ? 'text-positive' : getEventTone(event) === 'active' ? 'text-primary' : getEventTone(event) === 'critical' ? 'text-destructive' : 'text-foreground')}>{event.title}</strong>
-                   <p className="mt-2 text-[0.84rem] leading-relaxed text-foreground-soft">{event.detail}</p>
-                 </div>
+           <div className="grid gap-2">
+             <p className="label-mono-xs">Timeline</p>
+           <div className="grid gap-0">
+             {selectedRecord.events.map((event) => (
+               <article key={event.id} className="relative grid gap-3 border-l border-border/20 pl-8 pb-8 sm:grid-cols-[1fr]">
+                  <div className={cn('absolute left-[-5px] top-1 h-2.5 w-2.5', getEventTone(event) === 'positive' ? 'bg-positive' : getEventTone(event) === 'active' ? 'bg-primary' : getEventTone(event) === 'critical' ? 'bg-destructive' : 'border border-border bg-background')} />
+                  <div>
+                    <div className="label-mono-xs">{formatTimestamp(event.at)}</div>
+                    <strong className={cn('mt-1 block text-sm font-medium', getEventTone(event) === 'positive' ? 'text-positive' : getEventTone(event) === 'active' ? 'text-primary' : getEventTone(event) === 'critical' ? 'text-destructive' : 'text-foreground')}>{event.title}</strong>
+                    <p className="mt-2 text-[0.84rem] leading-relaxed text-foreground-soft">{event.detail}</p>
+                  </div>
                 </article>
               ))}
            </div>

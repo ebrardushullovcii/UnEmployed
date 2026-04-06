@@ -299,7 +299,7 @@ describe('click', () => {
       })
     })
     expect(state.currentUrl).toBe('https://example.com/jobs')
-    expect(state.failedInteractionAttempts.get('click::clickable::customer experience specialist::0')).toEqual({
+    expect(state.failedInteractionAttempts.get('click::link::customer experience specialist::0')).toEqual({
       count: 1,
       lastError: 'Navigation went to disallowed URL: https://malicious.example.net/phish'
     })
@@ -320,7 +320,7 @@ describe('click', () => {
       currentUrl: 'https://example.com/jobs',
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
-        ['click::clickable::customer experience specialist::0', {
+        ['click::link::customer experience specialist::0', {
           count: 2,
           lastError: 'Navigation went to disallowed URL: https://malicious.example.net/phish'
         }]
@@ -455,7 +455,7 @@ describe('click', () => {
       currentUrl: 'https://example.com/jobs',
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
-        ['click::clickable::senior next js developer::0', {
+        ['click::link::senior next js developer::0', {
           count: 2,
           lastError: 'No link matched accessible name "Senior Next.js Developer".'
         }]
@@ -492,9 +492,17 @@ describe('click', () => {
     expect(page.getByRole).not.toHaveBeenCalled()
   })
 
-  test('blocks repeated click failures across button/link naming variants that share the same job-title stem', async () => {
+  test('does not block button attempts from a prior link failure key', async () => {
+    const exactLocator = {
+      count: vi.fn().mockResolvedValue(0),
+      nth: vi.fn()
+    }
+    const looseLocator = {
+      count: vi.fn().mockResolvedValue(0),
+      nth: vi.fn()
+    }
     const page = {
-      getByRole: vi.fn(),
+      getByRole: vi.fn((_role, options) => options?.exact ? exactLocator : looseLocator),
       url: vi.fn(() => 'https://example.com/jobs')
     } as unknown as Page
 
@@ -507,7 +515,7 @@ describe('click', () => {
       currentUrl: 'https://example.com/jobs',
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
-        ['click::clickable::senior next js developer::0', {
+        ['click::link::senior next js developer::0', {
           count: 2,
           lastError: 'No link matched accessible name "Senior Next.js Developer".'
         }]
@@ -533,14 +541,14 @@ describe('click', () => {
 
     expect(result).toEqual({
       success: false,
-      error: 'Skipping repeated click attempt for button "Senior Next.js Developer (Verified job) Proxify Kosovo Remote" after 2 similar failures: No link matched accessible name "Senior Next.js Developer".',
+      error: 'No button matched accessible name "Senior Next.js Developer (Verified job) Proxify Kosovo Remote".',
       data: expect.objectContaining({
         role: 'button',
         index: 0,
-        errorType: 'repeated_click_blocked'
+        errorType: 'click_failed'
       })
     })
-    expect(page.getByRole).not.toHaveBeenCalled()
+    expect(page.getByRole).toHaveBeenCalled()
   })
 
   test('blocks repeated pointer-interception click failures after the threshold is reached', async () => {
@@ -611,7 +619,7 @@ describe('fill', () => {
       currentUrl: 'https://example.com/jobs',
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
-        ['fill::input::search by title skill::0', {
+        ['fill::searchbox::search by title skill::0', {
           count: 2,
           lastError: 'No textbox matched accessible name "Search by title, skill, or company".'
         }]
@@ -717,7 +725,7 @@ describe('fill', () => {
         recovered: true
       })
     })
-    expect(state.failedInteractionAttempts.get('fill::input::search jobs::0')).toEqual({
+    expect(state.failedInteractionAttempts.get('fill::searchbox::search jobs::0')).toEqual({
       count: 1,
       lastError: 'Navigation went to disallowed URL: https://malicious.example.net/phish'
     })

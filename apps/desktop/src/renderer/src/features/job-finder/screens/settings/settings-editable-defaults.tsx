@@ -5,7 +5,11 @@ import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
 import { ToggleField } from '../../components/toggle-field'
 
-const fontPresetOptions = [
+const fontPresetOptions: ReadonlyArray<{
+  description: string
+  label: string
+  value: JobFinderSettings['fontPreset']
+}> = [
   {
     description: 'Clean, compact, and the safest default for high-volume applications.',
     label: 'Clean sans',
@@ -34,6 +38,8 @@ export function SettingsEditableDefaults({
   settings
 }: SettingsEditableDefaultsProps) {
   const [settingsForm, setSettingsForm] = useState(settings)
+  const isFontPresetOption = (value: string): value is JobFinderSettings['fontPreset'] =>
+    fontPresetOptions.some((fontPreset) => fontPreset.value === value)
   const selectedTemplate = availableResumeTemplates.find(
     (template) => template.id === settingsForm.resumeTemplateId
   )
@@ -86,7 +92,10 @@ export function SettingsEditableDefaults({
             <Field className="md:col-span-2">
               <FieldLabel>Resume font</FieldLabel>
               <FormSelect
-                onValueChange={(value) => setSettingsForm((current) => ({ ...current, fontPreset: value as JobFinderSettings['fontPreset'] }))}
+                onValueChange={(value) => setSettingsForm((current) => ({
+                  ...current,
+                  fontPreset: isFontPresetOption(value) ? value : current.fontPreset
+                }))}
                 options={fontPresetOptions.map((fontPreset) => ({ label: fontPreset.label, value: fontPreset.value }))}
                 placeholder="Select font"
                 value={settingsForm.fontPreset}

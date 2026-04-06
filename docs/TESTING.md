@@ -88,7 +88,8 @@
 - When apply-safety logic changes, pair the desktop capture flows with targeted service tests for stale approvals and missing-approved-file rejection because the happy-path demo still will not exercise every guarded failure state by itself.
 - The capture script builds the desktop app first, launches Electron through Playwright, waits for the seeded Job Finder workspace to load, clicks through the current MVP screens, and saves screenshots for visual review.
 - The resume-import capture defaults to `Resume.pdf` at the repo root; override with CLI flags like `--resume`, `--expected-name`, `--expected-headline`, `--expected-location`, `--expected-summary-contains`, and `--label`, or use the matching `UI_TEST_*` environment variables when validating other files.
-- The profile-baseline capture requires an explicit snapshot path. Pass `--snapshot <path>` or set `UI_PROFILE_BASELINE_SNAPSHOT` to the workspace snapshot you want to use for screenshots.
+- The profile-baseline capture now requires an explicit snapshot path. The old default snapshot-path fallback was removed, so pass `--snapshot <path>` or set `UI_PROFILE_BASELINE_SNAPSHOT` to the workspace snapshot you want to use for screenshots.
+- Migration example: `pnpm --filter @unemployed/desktop exec node ./scripts/capture-profile-baseline.mjs --snapshot ./test-fixtures/job-finder/profile-baseline-workspace.json`.
 - The current default capture size is `1440x920`.
 - The current standard multi-size review pass covers `1728x1080`, `1440x920`, `1280x800`, and `1024x768`.
 - Override capture size with environment variables when needed, for example: `UI_CAPTURE_WIDTH=1280 UI_CAPTURE_HEIGHT=800 UI_CAPTURE_LABEL=1280x800 pnpm --filter @unemployed/desktop exec node ./scripts/capture-ui.mjs`.

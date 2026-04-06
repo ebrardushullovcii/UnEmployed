@@ -29,7 +29,14 @@ export function calculateDurationMs(
   startedAt: TimestampInput,
   completedAt: TimestampInput,
 ): number {
-  return Math.max(0, toEpochMs(completedAt) - toEpochMs(startedAt));
+  const startedEpoch = toEpochMs(startedAt);
+  const completedEpoch = toEpochMs(completedAt);
+
+  if (!Number.isFinite(startedEpoch) || !Number.isFinite(completedEpoch)) {
+    return 0;
+  }
+
+  return Math.max(0, completedEpoch - startedEpoch);
 }
 
 export function computeTimelineSummary<TKey extends string>(input: {
