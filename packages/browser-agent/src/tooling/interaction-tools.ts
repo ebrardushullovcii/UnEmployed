@@ -123,7 +123,10 @@ function buildInteractionAttemptKey(
 ): string {
   const baseKey = `${kind}::${normalizeInteractionAttemptRole(kind, role)}::${normalizeInteractionAttemptName(name)}::${index}`;
   if (kind === "select_option" && optionText) {
-    return `${baseKey}::${normalizeInteractionAttemptName(optionText)}`;
+    const normalized = normalizeInteractionAttemptName(optionText);
+    if (normalized) {
+      return `${baseKey}::${normalized}`;
+    }
   }
   return baseKey;
 }
@@ -786,7 +789,7 @@ You get role, name, and index from get_interactive_elements().`,
               const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
               if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
               const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
-              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered, errorType: "select_failed", repeatedFailureCount } };
+return { success: false, error: recovery.error ?? "Navigation went to disallowed URL.", data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered, errorType: "select_failed", repeatedFailureCount } };
             }
             clearFailedInteractionAttemptsAfterNavigation(state);
             state.currentUrl = newUrl;
@@ -803,7 +806,7 @@ You get role, name, and index from get_interactive_elements().`,
             ? `select_option supports native select elements and common combobox widgets; received ${selectionResult.unsupportedTag}` 
             : `Option "${optionText}" was not found`;
           const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
-          return { success: false, error: errorMsg, data: { ...selectionResult, errorType: "select_failed", repeatedFailureCount } };
+          return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), ...selectionResult, errorType: "select_failed", repeatedFailureCount } };
         }
 
         if (submit) {
