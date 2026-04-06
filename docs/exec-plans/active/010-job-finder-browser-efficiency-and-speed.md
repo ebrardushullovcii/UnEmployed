@@ -16,6 +16,14 @@ This plan is now active. The current implementation slice focuses on exposing na
 - Discovery and source-debug now retain bounded timing summaries on run records, target executions, attempts, and phase summaries so long quiet spans can be attributed after the run instead of guessed from browser motion alone.
 - The desktop test API now exposes a performance snapshot path for benchmark and QA flows so representative runs can be inspected without digging through raw repository state.
 - Enabling the desktop test API no longer swaps discovery onto the deterministic AI client, so benchmark and snapshot workflows can keep using a real tool-calling provider.
+- Discovery now budgets job count and step count across the remaining run instead of asking every source to chase the full run-level target, and it can skip later targets once the run already has enough jobs.
+- Discovery merge now uses the existing deterministic fit scorer instead of serial model-backed `assessJobFit` calls, which removes a large post-browser wait bucket and the related fallback churn from discovery runs.
+- The SQLite file repository now uses table-specific reads and writes for discovery-hot-path state such as saved jobs and discovery state, avoiding repeated full-workspace rehydrates and rewrites during discovery persistence.
+- Discovery now flushes queued search-results extraction as soon as the agent falls into a no-op planning turn instead of spending more late steps thinking while reviewable pages are already queued.
+- Discovery now stops cold sources early after repeated zero-yield extraction passes and a stale step window, which should trim the long tail on sources that keep wandering after they stop producing new jobs.
+- Source-debug now reuses same-host learned route hints as transient later-phase starting URLs, prefers current-run hints over stale cleared guidance once a fresh run learns new routes, records the actual phase starting URL in evidence, and can probe collection routes before the homepage when no reusable search route has been proven yet.
+- Source-debug now ignores malformed wildcard/template route hints (for example `/jobs/collections/*` and `...` URL patterns) when deriving phase starting URLs, and the browser agent now blocks repeated click/fill misses across common naming variants so evidence recording stops burning turns on the same failed control.
+- Phase-driven source-debug runs now force an early browser closeout once evidence has stalled after enough proof is already collected, instead of waiting until the end of the full step budget for a late `finish` call.
 - The next tightening pass should focus on representative benchmark capture and any remaining long waits in final review, persistence, or retry paths that the new retained timings expose.
 
 ## Goal

@@ -141,6 +141,772 @@ describe("createJobFinderWorkspaceService", () => {
     );
   });
 
+  test("source debug reuses learned route hints for later phases and uses tighter phase budgets", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      startingUrl: "https://www.linkedin.com/jobs/",
+      instructionStatus: "draft",
+      draftInstructionId: "instruction_linkedin_debug_seeded",
+      validatedInstructionId: null,
+    };
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_debug_seeded",
+        targetId: "target_linkedin_default",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_seeded",
+        basedOnAttemptIds: ["debug_attempt_seeded"],
+        notes: "Seeded route hints.",
+        navigationGuidance: [
+          "Use https://www.linkedin.com/jobs/collections/recommended/ to access the recommended jobs collection.",
+        ],
+        searchGuidance: [
+          "Use https://www.linkedin.com/jobs/search/ to reach job results directly.",
+        ],
+        detailGuidance: [
+          "Click job card to view full details and apply options.",
+        ],
+        applyGuidance: [
+          "Apply button appears on job detail page after clicking a job card.",
+        ],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    const capturedPhaseInputs = new Map<
+      string,
+      { startingUrls: readonly string[]; maxSteps: number }
+    >();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_source_debug_seeded",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_source_debug_seeded",
+          title: "Senior Frontend Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Validate source-debug route seeding.",
+          description: "Validate source-debug route seeding.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
+          startingUrls: [...options.startingUrls],
+          maxSteps: options.maxSteps,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(capturedPhaseInputs.get("Access Auth Probe")).toEqual({
+      startingUrls: ["https://www.linkedin.com/jobs/"],
+      maxSteps: 16,
+    });
+    expect(capturedPhaseInputs.get("Site Structure Mapping")).toEqual({
+      startingUrls: [
+        "https://www.linkedin.com/jobs/collections/recommended/",
+        "https://www.linkedin.com/jobs/search/",
+        "https://www.linkedin.com/jobs/",
+      ],
+      maxSteps: 18,
+    });
+    expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
+      startingUrls: [
+        "https://www.linkedin.com/jobs/search/",
+        "https://www.linkedin.com/jobs/",
+        "https://www.linkedin.com/jobs/collections/recommended/",
+      ],
+      maxSteps: 22,
+    });
+    expect(capturedPhaseInputs.get("Job Detail Validation")?.maxSteps).toBe(18);
+    expect(capturedPhaseInputs.get("Apply Path Validation")?.maxSteps).toBe(18);
+    expect(capturedPhaseInputs.get("Replay Verification")?.maxSteps).toBe(18);
+
+    const latestRun = (await repository.listSourceDebugRuns())[0];
+    const siteStructureAttempt = (await repository.listSourceDebugAttempts()).find(
+      (attempt) => attempt.phase === "site_structure_mapping",
+    );
+    const startEvidence = (await repository.listSourceDebugEvidenceRefs()).find(
+      (entry) => entry.attemptId === siteStructureAttempt?.id && entry.label === "Starting URL",
+    );
+
+    expect(latestRun?.instructionArtifactId).toBeTruthy();
+    expect(siteStructureAttempt?.attemptedActions).toContain(
+      "Started from https://www.linkedin.com/jobs/collections/recommended/.",
+    );
+    expect(startEvidence?.url).toBe(
+      "https://www.linkedin.com/jobs/collections/recommended/",
+    );
+  });
+
+  test("source debug reuses exact same-host hinted routes for generic targets without fabricating jobs paths", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      id: "target_example_default",
+      label: "Example Careers",
+      startingUrl: "https://example.com/",
+      instructionStatus: "draft",
+      draftInstructionId: "instruction_example_seeded",
+      validatedInstructionId: null,
+    };
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_example_seeded",
+        targetId: "target_example_default",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_example_seeded",
+        basedOnAttemptIds: ["debug_attempt_example_seeded"],
+        notes: "Seeded generic route hints.",
+        navigationGuidance: [
+          "Use https://example.com/careers/open-roles/ to access the jobs collection.",
+        ],
+        searchGuidance: [
+          "Use https://example.com/careers/open-roles/search?team=product to reach filtered results.",
+        ],
+        detailGuidance: ["Open the role detail page from the careers collection."],
+        applyGuidance: ["Apply starts from the role detail page."],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    const capturedPhaseInputs = new Map<
+      string,
+      { startingUrls: readonly string[]; maxSteps: number }
+    >();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "example_source_debug_seeded",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl: "https://example.com/careers/open-roles/frontend-engineer",
+          title: "Frontend Engineer",
+          company: "Example Co",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "external_redirect",
+          easyApplyEligible: false,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Validate generic source-debug route seeding.",
+          description: "Validate generic source-debug route seeding.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
+          startingUrls: [...options.startingUrls],
+          maxSteps: options.maxSteps,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runSourceDebug("target_example_default");
+
+    expect(capturedPhaseInputs.get("Site Structure Mapping")).toEqual({
+      startingUrls: [
+        "https://example.com/careers/open-roles/",
+        "https://example.com/careers/open-roles/search?team=product",
+        "https://example.com/",
+      ],
+      maxSteps: 18,
+    });
+    expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
+      startingUrls: [
+        "https://example.com/careers/open-roles/search?team=product",
+        "https://example.com/",
+        "https://example.com/careers/open-roles/",
+      ],
+      maxSteps: 22,
+    });
+  });
+
+  test("search filter probe prefers proven collection routes when no search route hint exists", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      startingUrl: "https://www.linkedin.com/jobs/",
+      instructionStatus: "draft",
+      draftInstructionId: "instruction_linkedin_collection_only",
+      validatedInstructionId: null,
+    };
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_collection_only",
+        targetId: "target_linkedin_default",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_collection_only",
+        basedOnAttemptIds: ["debug_attempt_collection_only"],
+        notes: "Collection-first route hint.",
+        navigationGuidance: [
+          'Click "Show all top job picks for you" to open https://www.linkedin.com/jobs/collections/recommended/.',
+        ],
+        searchGuidance: [
+          'Recommendation routes are the primary way to access different job collections.',
+        ],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    const capturedPhaseInputs = new Map<
+      string,
+      { startingUrls: readonly string[]; maxSteps: number }
+    >();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_collection_only",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_collection_only",
+          title: "Senior Frontend Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Validate collection-first source-debug routing.",
+          description: "Validate collection-first source-debug routing.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
+          startingUrls: [...options.startingUrls],
+          maxSteps: options.maxSteps,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
+      startingUrls: [
+        "https://www.linkedin.com/jobs/collections/recommended/",
+        "https://www.linkedin.com/jobs/",
+      ],
+      maxSteps: 22,
+    });
+  });
+
+  test("route hints that mention both source and destination prioritize the proven destination route", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      startingUrl: "https://www.linkedin.com/jobs/",
+      instructionStatus: "draft",
+      draftInstructionId: "instruction_linkedin_from_to_route",
+      validatedInstructionId: null,
+    };
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_from_to_route",
+        targetId: "target_linkedin_default",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_from_to_route",
+        basedOnAttemptIds: ["debug_attempt_from_to_route"],
+        notes: "From-to route hint.",
+        navigationGuidance: [
+          "Navigate from https://www.linkedin.com/jobs/ to https://www.linkedin.com/jobs/search/?keywords=frontend&location=kosovo.",
+        ],
+        searchGuidance: [
+          "https://www.linkedin.com/jobs/search/?keywords=frontend&location=kosovo reliably returns job cards with filter controls.",
+        ],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    const capturedPhaseInputs = new Map<
+      string,
+      { startingUrls: readonly string[]; maxSteps: number }
+    >();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_from_to_route",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_from_to_route",
+          title: "Senior Frontend Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Validate destination route priority.",
+          description: "Validate destination route priority.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
+          startingUrls: [...options.startingUrls],
+          maxSteps: options.maxSteps,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
+      startingUrls: [
+        "https://www.linkedin.com/jobs/search/?keywords=frontend&location=kosovo",
+        "https://www.linkedin.com/jobs/",
+      ],
+      maxSteps: 22,
+    });
+  });
+
+  test("ignores wildcard and templated route hints when deriving starting urls", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      startingUrl: "https://www.linkedin.com/jobs/",
+      instructionStatus: "draft",
+      draftInstructionId: "instruction_linkedin_template_routes",
+      validatedInstructionId: null,
+    };
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_template_routes",
+        targetId: "target_linkedin_default",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_template_routes",
+        basedOnAttemptIds: ["debug_attempt_template_routes"],
+        notes: "Template route hints should be ignored.",
+        navigationGuidance: [
+          "Collection routes (/jobs/collections/*) trigger auth gates and return no interactive elements.",
+          "Job details can appear under /jobs/:jobId after a card click.",
+          "Clicking 'Show all top job picks for you' opens /jobs/collections/recommended/.",
+        ],
+        searchGuidance: [
+          "/jobs/search/?keywords=...&location=... reliably returns job cards with filter controls.",
+          "/jobs/search/?keywords=:keyword&location=:location should not be treated as a concrete replay URL.",
+        ],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    const capturedPhaseInputs = new Map<
+      string,
+      { startingUrls: readonly string[]; maxSteps: number }
+    >();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_template_routes",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_template_routes",
+          title: "Senior Frontend Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Validate templated route filtering.",
+          description: "Validate templated route filtering.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
+          startingUrls: [...options.startingUrls],
+          maxSteps: options.maxSteps,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(capturedPhaseInputs.get("Site Structure Mapping")).toEqual({
+      startingUrls: [
+        "https://www.linkedin.com/jobs/collections/recommended/",
+        "https://www.linkedin.com/jobs/",
+      ],
+      maxSteps: 18,
+    });
+    expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
+      startingUrls: [
+        "https://www.linkedin.com/jobs/collections/recommended/",
+        "https://www.linkedin.com/jobs/",
+      ],
+      maxSteps: 22,
+    });
+  });
+
+  test("replay verification strips unstable current-job query params from learned starting urls", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      startingUrl: "https://www.linkedin.com/jobs/",
+      instructionStatus: "draft",
+      draftInstructionId: "instruction_linkedin_unstable_job_route",
+      validatedInstructionId: null,
+    };
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_linkedin_unstable_job_route",
+        targetId: "target_linkedin_default",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_unstable_job_route",
+        basedOnAttemptIds: ["debug_attempt_unstable_job_route"],
+        notes: "Route hints include unstable selected-job params.",
+        navigationGuidance: [
+          "Collection route at /jobs/collections/recommended/?currentJobId=3973153031.",
+        ],
+        searchGuidance: [
+          "Use direct URL search: /jobs/search/?keywords=React%20Next.js%20Developer&location=Pristina%2C%20Kosovo&currentJobId=438896875.",
+        ],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    const capturedPhaseInputs = new Map<
+      string,
+      { startingUrls: readonly string[]; maxSteps: number }
+    >();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_unstable_job_route",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_unstable_job_route",
+          title: "Senior Frontend Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Validate unstable query stripping.",
+          description: "Validate unstable query stripping.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
+          startingUrls: [...options.startingUrls],
+          maxSteps: options.maxSteps,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
+      startingUrls: [
+        "https://www.linkedin.com/jobs/search/?keywords=React+Next.js+Developer&location=Pristina%2C+Kosovo",
+        "https://www.linkedin.com/jobs/",
+        "https://www.linkedin.com/jobs/collections/recommended/",
+      ],
+      maxSteps: 22,
+    });
+    expect(capturedPhaseInputs.get("Replay Verification")).toEqual({
+      startingUrls: [
+        "https://www.linkedin.com/jobs/collections/recommended/",
+        "https://www.linkedin.com/jobs/search/?keywords=React+Next.js+Developer&location=Pristina%2C+Kosovo",
+        "https://www.linkedin.com/jobs/",
+      ],
+      maxSteps: 18,
+    });
+  });
+
+  test("non-search same-host query urls are not promoted into search-filter starting urls", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      id: "target_example_query_detail",
+      label: "Example Careers",
+      startingUrl: "https://example.com/careers/",
+      instructionStatus: "draft",
+      draftInstructionId: "instruction_example_query_detail",
+      validatedInstructionId: null,
+    };
+    seed.sourceInstructionArtifacts = [
+      {
+        id: "instruction_example_query_detail",
+        targetId: "target_example_query_detail",
+        status: "draft",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: null,
+        basedOnRunId: "debug_run_example_query_detail",
+        basedOnAttemptIds: ["debug_attempt_example_query_detail"],
+        notes: "Detail route includes query params but should not become the search starting point.",
+        navigationGuidance: [
+          "Start at https://example.com/careers/open-roles/.",
+        ],
+        searchGuidance: [
+          "Use https://example.com/careers/search?team=product to reach the filtered results list.",
+        ],
+        detailGuidance: [
+          "Role details can open at https://example.com/careers/role/frontend-engineer?gh_jid=12345.",
+        ],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: null,
+      },
+    ];
+
+    const capturedPhaseInputs = new Map<
+      string,
+      { startingUrls: readonly string[]; maxSteps: number }
+    >();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "example_query_detail",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl: "https://example.com/careers/role/frontend-engineer",
+          title: "Frontend Engineer",
+          company: "Example Co",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "external_redirect",
+          easyApplyEligible: false,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Validate query detail route handling.",
+          description: "Validate query detail route handling.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
+          startingUrls: [...options.startingUrls],
+          maxSteps: options.maxSteps,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runSourceDebug("target_example_query_detail");
+
+    expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
+      startingUrls: [
+        "https://example.com/careers/search?team=product",
+        "https://example.com/careers/open-roles/",
+        "https://example.com/careers/",
+      ],
+      maxSteps: 22,
+    });
+  });
+
   test("saveSourceInstructionArtifact updates a bound target artifact and rejects unbound edits", async () => {
     const seed = createSeed();
     seed.searchPreferences.discovery.targets = [

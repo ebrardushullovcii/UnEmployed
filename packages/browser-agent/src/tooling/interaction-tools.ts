@@ -1,5 +1,6 @@
 import { isAllowedUrl } from "../allowlist";
 import type { ToolDefinition } from "../types";
+import type { Locator } from "playwright";
 import {
   buildComboboxOptionScopes,
   clickMatchingComboboxOption,
@@ -16,6 +17,121 @@ import {
 } from "./shared";
 
 const CLICK_TIMEOUT_MS = 5000;
+const REPEATED_FAILURE_BLOCK_THRESHOLD = 2;
+
+function clearFailedInteractionAttemptsAfterNavigation(state: { failedInteractionAttempts?: Map<string, { count: number; lastError: string }> }) {
+  state.failedInteractionAttempts?.clear();
+}
+
+function normalizeInteractionAttemptRole(kind: "click" | "fill" | "select_option", role: string): string {
+  const normalizedRole = role.trim().toLowerCase();
+
+  if (kind === "click" && (normalizedRole === "link" || normalizedRole === "button")) {
+    return "clickable";
+  }
+
+  if (kind === "fill" && (normalizedRole === "searchbox" || normalizedRole === "textbox" || normalizedRole === "combobox")) {
+    return "input";
+  }
+
+  return normalizedRole;
+}
+
+function normalizeInteractionAttemptName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\bverified job\b/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" ");
+}
+
+function buildInteractionAttemptKey(
+  kind: "click" | "fill" | "select_option",
+  role: string,
+  name: string,
+  index: number,
+): string {
+  return `${kind}::${normalizeInteractionAttemptRole(kind, role)}::${normalizeInteractionAttemptName(name)}::${index}`;
+}
+
+function shouldTreatAsRepeatedClickFailure(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    normalized.includes("no ") && normalized.includes(" matched accessible name")
+  ) || normalized.includes("intercepts pointer events") || normalized.includes("intercepts direct pointer clicks") || normalized.includes("disallowed url");
+}
+
+function shouldTreatAsRepeatedFillFailure(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    (normalized.includes("no ") && normalized.includes(" matched accessible name")) ||
+    normalized.includes("timeout") ||
+    normalized.includes("did not receive focus") ||
+    normalized.includes("disallowed url")
+  );
+}
+
+function summarizeClickFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/intercepts pointer events/i.test(message)) {
+    return "The matched control is present, but another visible element intercepts direct pointer clicks.";
+  }
+
+  if (/No .* matched accessible name/i.test(message)) {
+    return message;
+  }
+
+  return message;
+}
+
+function recordFailedInteractionAttempt(
+  state: { failedInteractionAttempts?: Map<string, { count: number; lastError: string }> },
+  interactionAttemptKey: string,
+  priorAttempt: { count: number; lastError: string } | undefined,
+  errorMessage: string,
+) {
+  const nextFailureCount = (priorAttempt?.count ?? 0) + 1;
+  state.failedInteractionAttempts?.set(interactionAttemptKey, {
+    count: nextFailureCount,
+    lastError: errorMessage,
+  });
+  return nextFailureCount;
+}
+
+async function clickCheckboxWithLabelFallback(locator: Locator): Promise<boolean> {
+  const inputId = await locator.getAttribute("id").catch(() => null);
+  const labelForSelector = inputId ? `label[for="${inputId.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]` : null;
+  const explicitLabel = labelForSelector ? locator.page().locator(labelForSelector).first() : null;
+  const wrappingLabel = locator.locator("xpath=ancestor::label[1]").first();
+
+  const tryLabel = async (labelLocator: Locator) => {
+    const labelCount = await labelLocator.count().catch(() => 0);
+    if (labelCount === 0) {
+      return false;
+    }
+
+    const visible = await labelLocator.isVisible().catch(() => false);
+    if (!visible) {
+      return false;
+    }
+
+    await labelLocator.scrollIntoViewIfNeeded().catch(() => {});
+    await labelLocator.click({ timeout: CLICK_TIMEOUT_MS / 2 });
+    return true;
+  };
+
+  if (explicitLabel && await tryLabel(explicitLabel).catch(() => false)) {
+    return true;
+  }
+
+  return await tryLabel(wrappingLabel).catch(() => false);
+}
 
 function normalizeOptionText(value: string | null | undefined): string {
   return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
@@ -158,6 +274,25 @@ If the click fails, you'll get details about why so you can decide whether to re
       if (!parseResult.success) return { success: false, error: `Invalid click arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
       const { role, name, index, retryIfNotVisible } = parseResult.data;
       const { page, state } = context;
+      const interactionAttemptKey = buildInteractionAttemptKey("click", role, name, index);
+      const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
+
+      if (
+        priorAttempt &&
+        priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
+        shouldTreatAsRepeatedClickFailure(priorAttempt.lastError)
+      ) {
+        return {
+          success: false,
+          error: `Skipping repeated click attempt for ${role} "${name}" after ${priorAttempt.count} similar failures: ${priorAttempt.lastError}`,
+          data: {
+            role,
+            name: name.slice(0, 50),
+            index,
+            errorType: "repeated_click_blocked",
+          },
+        };
+      }
 
       try {
         const locator = await resolveRoleLocator(page, role, name, index);
@@ -172,12 +307,49 @@ If the click fails, you'll get details about why so you can decide whether to re
           const href = await locator.getAttribute('href').catch(() => null)
 
           if (href) {
-            const absoluteUrl = new URL(href, state.currentUrl || page.url()).toString()
+            const previousUrl = state.currentUrl || page.url()
+            const absoluteUrl = new URL(href, previousUrl).toString()
             const urlValidation = isAllowedUrl(absoluteUrl, context.config.navigationPolicy)
 
             if (urlValidation.valid) {
               await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: CLICK_TIMEOUT_MS })
               const newUrl = page.url()
+              const finalUrlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy)
+
+              if (!finalUrlValidation.valid) {
+                const recovery = await recoverFromOffAllowlist(
+                  page,
+                  newUrl,
+                  previousUrl,
+                  context.config.navigationPolicy,
+                )
+                const repeatedFailureCount = recordFailedInteractionAttempt(
+                  state,
+                  interactionAttemptKey,
+                  priorAttempt,
+                  recovery.error,
+                )
+                if (recovery.recovered && recovery.recoveredUrl) {
+                  state.currentUrl = recovery.recoveredUrl
+                }
+
+                return {
+                  success: false,
+                  error: recovery.error,
+                  data: {
+                    role,
+                    name: name.slice(0, 50),
+                    index,
+                    invalidUrl: newUrl,
+                    recovered: recovery.recovered,
+                    navigationMethod: 'href_fallback',
+                    errorType: 'click_failed',
+                    repeatedFailureCount,
+                  },
+                }
+              }
+
+              clearFailedInteractionAttemptsAfterNavigation(state)
               state.currentUrl = newUrl
               state.visitedUrls.add(newUrl)
 
@@ -198,7 +370,16 @@ If the click fails, you'll get details about why so you can decide whether to re
         }
 
         const text = await locator.textContent().catch(() => null);
-        await locator.click({ timeout: CLICK_TIMEOUT_MS });
+        try {
+          await locator.click({ timeout: CLICK_TIMEOUT_MS });
+        } catch (clickError) {
+          const canUseCheckboxLabelFallback =
+            role === "checkbox" && /intercepts pointer events/i.test(clickError instanceof Error ? clickError.message : String(clickError));
+
+          if (!canUseCheckboxLabelFallback || !(await clickCheckboxWithLabelFallback(locator).catch(() => false))) {
+            throw clickError;
+          }
+        }
         await page.waitForTimeout(1000);
 
         const newUrl = page.url();
@@ -208,15 +389,32 @@ If the click fails, you'll get details about why so you can decide whether to re
           const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy);
+            const repeatedFailureCount = recordFailedInteractionAttempt(
+              state,
+              interactionAttemptKey,
+              priorAttempt,
+              recovery.error,
+            );
             if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-            return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, invalidUrl: newUrl, recovered: recovery.recovered } };
+            return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, invalidUrl: newUrl, recovered: recovery.recovered, errorType: 'click_failed', repeatedFailureCount } };
           }
+          clearFailedInteractionAttemptsAfterNavigation(state);
           state.currentUrl = newUrl;
           state.visitedUrls.add(newUrl);
+        } else {
+          state.failedInteractionAttempts?.delete(interactionAttemptKey);
         }
 
         return { success: true, data: { role, name: name.slice(0, 50), index, text: text?.slice(0, 100), navigated, newUrl: navigated ? newUrl : undefined } };
       } catch (error) {
+        const summarizedError = summarizeClickFailure(error);
+        const nextFailureCount = recordFailedInteractionAttempt(
+          state,
+          interactionAttemptKey,
+          priorAttempt,
+          summarizedError,
+        );
+
         const currentUrl = page.url();
         if (currentUrl) {
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy);
@@ -228,7 +426,17 @@ If the click fails, you'll get details about why so you can decide whether to re
           }
         }
 
-        return { success: false, error: error instanceof Error ? error.message : "Click failed", data: { role, name: name.slice(0, 50), index, errorType: error instanceof Error && error.message.includes("timeout") ? "timeout" : "click_failed" } };
+        return {
+          success: false,
+          error: summarizedError,
+          data: {
+            role,
+            name: name.slice(0, 50),
+            index,
+            errorType: error instanceof Error && error.message.includes("timeout") ? "timeout" : "click_failed",
+            repeatedFailureCount: nextFailureCount,
+          },
+        };
       }
     },
   },
@@ -256,6 +464,25 @@ If multiple elements have the same role and name, use the index to disambiguate 
       if (!parseResult.success) return { success: false, error: `Invalid fill arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
       const { role, name, text, index, submit } = parseResult.data;
       const { page, state } = context;
+      const interactionAttemptKey = buildInteractionAttemptKey("fill", role, name, index);
+      const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
+
+      if (
+        priorAttempt &&
+        priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
+        shouldTreatAsRepeatedFillFailure(priorAttempt.lastError)
+      ) {
+        return {
+          success: false,
+          error: `Skipping repeated fill attempt for ${role} "${name}" after ${priorAttempt.count} similar failures: ${priorAttempt.lastError}`,
+          data: {
+            role,
+            name: name.slice(0, 30),
+            index,
+            errorType: "repeated_fill_blocked",
+          },
+        };
+      }
 
       try {
         const locator = await resolveRoleLocator(page, role, name, index);
@@ -268,16 +495,34 @@ If multiple elements have the same role and name, use the index to disambiguate 
             const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
             if (!urlValidation.valid) {
               const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy);
+              const repeatedFailureCount = recordFailedInteractionAttempt(
+                state,
+                interactionAttemptKey,
+                priorAttempt,
+                recovery.error,
+              );
               if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 30), index, invalidUrl: newUrl, recovered: recovery.recovered } };
+              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 30), index, invalidUrl: newUrl, recovered: recovery.recovered, errorType: 'fill_failed', repeatedFailureCount } };
             }
+            clearFailedInteractionAttemptsAfterNavigation(state);
             state.currentUrl = newUrl;
             state.visitedUrls.add(newUrl);
+          } else {
+            state.failedInteractionAttempts?.delete(interactionAttemptKey);
           }
+        } else {
+          state.failedInteractionAttempts?.delete(interactionAttemptKey);
         }
 
         return { success: true, data: { role, name: name.slice(0, 30), index, submitted: submit } };
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Fill failed";
+        const nextFailureCount = (priorAttempt?.count ?? 0) + 1;
+        state.failedInteractionAttempts?.set(interactionAttemptKey, {
+          count: nextFailureCount,
+          lastError: errorMessage,
+        });
+
         const currentUrl = page.url();
         if (currentUrl) {
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy);
@@ -289,7 +534,17 @@ If multiple elements have the same role and name, use the index to disambiguate 
           }
         }
 
-        return { success: false, error: error instanceof Error ? error.message : "Fill failed", data: { role, name: name.slice(0, 30), index } };
+        return {
+          success: false,
+          error: errorMessage,
+          data: {
+            role,
+            name: name.slice(0, 30),
+            index,
+            errorType: /timeout/i.test(errorMessage) ? "timeout" : "fill_failed",
+            repeatedFailureCount: nextFailureCount,
+          },
+        };
       }
     },
   },
@@ -393,6 +648,7 @@ You get role, name, and index from get_interactive_elements().`,
               if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
               return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
             }
+            clearFailedInteractionAttemptsAfterNavigation(state);
             state.currentUrl = newUrl;
             state.visitedUrls.add(newUrl);
           }
@@ -417,9 +673,10 @@ You get role, name, and index from get_interactive_elements().`,
           const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
-            if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
+              if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
             return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
           }
+          clearFailedInteractionAttemptsAfterNavigation(state);
           state.currentUrl = newUrl;
           state.visitedUrls.add(newUrl);
         }

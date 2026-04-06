@@ -3,6 +3,7 @@ import type { AgentConfig, AgentState, DeferredSearchExtraction, OnProgressCallb
 import { getToolExecutor } from '../tools'
 import type { JobExtractor } from '../agent'
 import { addExtractedJobsToState } from './evidence'
+import { buildStructuredCandidateJobs } from './job-extraction'
 
 const MAX_SEARCH_RESULTS_EXTRACTION_JOBS = 4
 
@@ -11,6 +12,8 @@ function isExtractJobsPayload(value: unknown): value is {
   pageUrl: string
   pageType: string
   readyForExtraction: boolean
+  structuredDataCandidates?: unknown
+  cardCandidates?: unknown
 } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false
@@ -84,12 +87,86 @@ function buildDeferredSearchExtractionKey(pageUrl: string): string {
 function createDeferredSearchExtraction(input: {
   pageUrl: string
   pageText: string
+  structuredDataCandidates?: Parameters<typeof buildStructuredCandidateJobs>[0]['structuredDataCandidates']
+  cardCandidates?: Parameters<typeof buildStructuredCandidateJobs>[0]['cardCandidates']
 }): DeferredSearchExtraction {
   return {
     key: buildDeferredSearchExtractionKey(input.pageUrl),
     pageUrl: input.pageUrl,
     pageText: input.pageText,
-    capturedAt: new Date().toISOString()
+    capturedAt: new Date().toISOString(),
+    structuredDataCandidates: input.structuredDataCandidates ? [...input.structuredDataCandidates] : [],
+    cardCandidates: input.cardCandidates ? [...input.cardCandidates] : []
+  }
+}
+
+function getStructuredCandidateKey(candidate: Parameters<typeof buildStructuredCandidateJobs>[0]['structuredDataCandidates'] extends readonly (infer T)[] | undefined ? T : never): string {
+  const canonicalUrl = typeof candidate?.canonicalUrl === 'string' ? candidate.canonicalUrl.trim() : ''
+  if (canonicalUrl) {
+    return `url:${canonicalUrl}`
+  }
+
+  const sourceJobId = typeof candidate?.sourceJobId === 'string' ? candidate.sourceJobId.trim() : ''
+  if (sourceJobId) {
+    return `job:${sourceJobId}`
+  }
+
+  return `raw:${JSON.stringify(candidate)}`
+}
+
+function getCardCandidateKey(candidate: Parameters<typeof buildStructuredCandidateJobs>[0]['cardCandidates'] extends readonly (infer T)[] | undefined ? T : never): string {
+  return `url:${candidate.canonicalUrl}`
+}
+
+function mergeCandidateList<T>(
+  existing: readonly T[] | undefined,
+  incoming: readonly T[] | undefined,
+  getKey: (candidate: T) => string
+): T[] {
+  const merged = new Map<string, T>()
+
+  for (const candidate of existing ?? []) {
+    merged.set(getKey(candidate), candidate)
+  }
+
+  for (const candidate of incoming ?? []) {
+    merged.set(getKey(candidate), candidate)
+  }
+
+  return [...merged.values()]
+}
+
+function mergeDeferredSearchExtraction(
+  existing: DeferredSearchExtraction | undefined,
+  incoming: DeferredSearchExtraction
+): DeferredSearchExtraction {
+  if (!existing) {
+    return incoming
+  }
+
+  const mergedStructuredCandidates = mergeCandidateList(
+    existing.structuredDataCandidates,
+    incoming.structuredDataCandidates,
+    getStructuredCandidateKey
+  )
+  const mergedCardCandidates = mergeCandidateList(
+    existing.cardCandidates,
+    incoming.cardCandidates,
+    getCardCandidateKey
+  )
+  const shouldPreferIncomingPageText =
+    incoming.pageText.length >= existing.pageText.length ||
+    mergedStructuredCandidates.length > (existing.structuredDataCandidates?.length ?? 0) ||
+    mergedCardCandidates.length > (existing.cardCandidates?.length ?? 0)
+
+  return {
+    ...existing,
+    ...(shouldPreferIncomingPageText ? {
+      pageText: incoming.pageText,
+      capturedAt: incoming.capturedAt
+    } : {}),
+    structuredDataCandidates: mergedStructuredCandidates,
+    cardCandidates: mergedCardCandidates
   }
 }
 
@@ -175,13 +252,20 @@ export async function executeToolCall(
       if (shouldDeferSearchExtraction) {
         const deferredSnapshot = createDeferredSearchExtraction({
           pageUrl: extractData.pageUrl,
-          pageText: extractData.pageText
+          pageText: extractData.pageText,
+          structuredDataCandidates: Array.isArray(extractData.structuredDataCandidates)
+            ? extractData.structuredDataCandidates as Parameters<typeof buildStructuredCandidateJobs>[0]['structuredDataCandidates']
+            : [],
+          cardCandidates: Array.isArray(extractData.cardCandidates)
+            ? extractData.cardCandidates as Parameters<typeof buildStructuredCandidateJobs>[0]['cardCandidates']
+            : []
         })
         const existingSnapshot = state.deferredSearchExtractions.get(deferredSnapshot.key)
 
-        if (!existingSnapshot || deferredSnapshot.pageText.length >= existingSnapshot.pageText.length) {
-          state.deferredSearchExtractions.set(deferredSnapshot.key, deferredSnapshot)
-        }
+        state.deferredSearchExtractions.set(
+          deferredSnapshot.key,
+          mergeDeferredSearchExtraction(existingSnapshot, deferredSnapshot)
+        )
 
         onProgress?.({
           currentUrl: extractData.pageUrl,
@@ -213,6 +297,41 @@ export async function executeToolCall(
       const maxJobs = normalizedPageType === 'search_results'
         ? Math.min(remainingJobs, MAX_SEARCH_RESULTS_EXTRACTION_JOBS)
         : remainingJobs
+      const structuredDataCandidates = Array.isArray(extractData.structuredDataCandidates)
+        ? extractData.structuredDataCandidates as NonNullable<Parameters<typeof buildStructuredCandidateJobs>[0]['structuredDataCandidates']>
+        : []
+      const cardCandidates = Array.isArray(extractData.cardCandidates)
+        ? extractData.cardCandidates as NonNullable<Parameters<typeof buildStructuredCandidateJobs>[0]['cardCandidates']>
+        : []
+      const fastPathJobs = normalizedPageType === 'search_results'
+        ? buildStructuredCandidateJobs({
+            pageUrl: extractData.pageUrl,
+            maxJobs,
+            structuredDataCandidates,
+            cardCandidates
+          })
+        : []
+      const fastPathAddedCount = addExtractedJobsToState(fastPathJobs, state, config.source)
+      const remainingJobsAfterFastPath = Math.max(0, config.targetJobCount - state.collectedJobs.length)
+      const remainingSearchResultsBudget = normalizedPageType === 'search_results'
+        ? Math.min(remainingJobsAfterFastPath, Math.max(0, maxJobs - fastPathAddedCount))
+        : remainingJobsAfterFastPath
+      const shouldSkipSlowSearchResultsExtraction =
+        normalizedPageType === 'search_results' &&
+        Boolean(config.promptContext.taskPacket) &&
+        fastPathAddedCount > 0 &&
+        remainingSearchResultsBudget === 0
+
+      if (fastPathAddedCount > 0) {
+        console.log(`[Agent] +${fastPathAddedCount} jobs (${state.collectedJobs.length} total) from structured extraction ${extractData.pageUrl.slice(0, 60)}...`)
+      }
+
+      if (shouldSkipSlowSearchResultsExtraction) {
+        console.log(
+          `[Agent] Skipping slower model extraction for phase-driven search results after fast path added ${fastPathAddedCount} job${fastPathAddedCount === 1 ? '' : 's'} from ${extractData.pageUrl.slice(0, 60)}...`,
+        )
+      }
+
       onProgress?.({
         currentUrl: extractData.pageUrl,
         jobsFound: state.collectedJobs.length,
@@ -223,15 +342,16 @@ export async function executeToolCall(
         targetId: null,
         adapterKind: config.source
       })
-      const extractedJobs = maxJobs === 0
+      const extractedJobs = remainingSearchResultsBudget === 0 || shouldSkipSlowSearchResultsExtraction
         ? []
         : await jobExtractor.extractJobsFromPage({
             pageText: extractData.pageText,
             pageUrl: extractData.pageUrl,
             pageType: normalizedPageType,
-            maxJobs
+            maxJobs: remainingSearchResultsBudget
           })
       const addedCount = addExtractedJobsToState(extractedJobs, state, config.source)
+      const totalAddedCount = fastPathAddedCount + addedCount
 
       if (addedCount > 0) {
         console.log(`[Agent] +${addedCount} jobs (${state.collectedJobs.length} total) from ${extractData.pageUrl.slice(0, 60)}...`)
@@ -241,9 +361,9 @@ export async function executeToolCall(
         currentUrl: extractData.pageUrl,
         jobsFound: state.collectedJobs.length,
         stepCount: state.stepCount,
-        currentAction: `extract_result:${addedCount}:${state.collectedJobs.length}:${extractedJobs.length}`,
-        message: addedCount > 0
-          ? `Kept ${addedCount} new job${addedCount === 1 ? '' : 's'} from this extraction pass.`
+        currentAction: `extract_result:${totalAddedCount}:${state.collectedJobs.length}:${fastPathJobs.length + extractedJobs.length}`,
+        message: totalAddedCount > 0
+          ? `Kept ${totalAddedCount} new job${totalAddedCount === 1 ? '' : 's'} from this extraction pass.`
           : 'Reviewed the extraction pass and kept no new jobs.',
         waitReason: 'extracting_jobs',
         targetId: null,
@@ -254,7 +374,8 @@ export async function executeToolCall(
         ...result,
         data: {
           ...result.data,
-          jobsExtracted: addedCount,
+          jobsExtracted: totalAddedCount,
+          fastPathJobsExtracted: fastPathAddedCount,
           totalJobs: state.collectedJobs.length
         }
       }

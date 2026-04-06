@@ -56,8 +56,8 @@ Use one track per meaningful workstream, not per person or per chat.
 - last updated: `2026-04-05`
 - linked plan: `docs/exec-plans/active/010-job-finder-browser-efficiency-and-speed.md`
 - code areas: `packages/browser-runtime`, `packages/browser-agent`, `packages/job-finder`, `apps/desktop`
-- current focus: measurement-first implementation now includes named waiting states, retained discovery and source-debug timing summaries, a test-only performance snapshot, and the first fixed-wait removal and phase-attribution improvements
-- next step: run representative discovery and source-debug benchmarks through the retained timing snapshot, identify the slowest real wait buckets, and use that evidence to keep tightening runtime behavior without reducing result quality
+- current focus: measurement-first implementation now includes named waiting states, retained discovery and source-debug timing summaries, a test-only performance snapshot, dynamic per-target discovery budgets, deterministic discovery-merge fit scoring, a narrower discovery-hot-path SQLite persistence path, earlier deferred-extraction flushes, early shutdown for cold discovery sources, source-debug later-phase route reuse with tighter budgets and actual starting-url evidence, guards against malformed templated route hints plus repeated click/fill evidence misses, and early closeout for phase-driven browser passes once evidence has stalled after enough proof is already collected
+- next step: rerun LinkedIn source-debug on the new build, inspect whether phases now close out well before their old 16/18/22-step ceilings, then compare the retained timing snapshot against Wellfound and Kosovajob to separate generic wins from site-specific issues
 - blockers: broader benchmarking still depends on `007` hardening enough to produce trustworthy side-by-side baselines, but the current visibility and idle-gap slice is actively implementable now
 
 ## Completed Background

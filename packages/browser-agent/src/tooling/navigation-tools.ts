@@ -67,6 +67,9 @@ export const navigationTools: ToolDefinition[] = [
           return { success: false, error: recovery.error, data: { requestedUrl: url, finalUrl, recovered: recovery.recovered } };
         }
 
+        if (finalUrl !== state.currentUrl) {
+          state.failedInteractionAttempts?.clear();
+        }
         state.currentUrl = finalUrl;
         state.visitedUrls.add(finalUrl);
 
@@ -102,6 +105,7 @@ export const navigationTools: ToolDefinition[] = [
 
         const finalUrlAllowed =
           Boolean(finalUrl) && isAllowedUrl(finalUrl, context.config.navigationPolicy).valid;
+        const changedToAllowedUrl = Boolean(finalUrl && finalUrlAllowed && finalUrl !== state.currentUrl);
 
         if (finalUrl && finalUrlAllowed) {
           state.currentUrl = finalUrl;
@@ -116,6 +120,9 @@ export const navigationTools: ToolDefinition[] = [
           finalUrlAllowed &&
           readyState !== "loading"
         ) {
+          if (changedToAllowedUrl) {
+            state.failedInteractionAttempts?.clear();
+          }
           state.visitedUrls.add(finalUrl);
 
           return {
@@ -244,6 +251,7 @@ Use this after viewing a job detail to return to search results.`,
             }
             return { success: false, error: recovery.error, data: { wentBack: false, previousUrl, invalidUrl: newUrl, recovered: recovery.recovered } };
           }
+          state.failedInteractionAttempts?.clear();
           state.currentUrl = newUrl;
         }
 

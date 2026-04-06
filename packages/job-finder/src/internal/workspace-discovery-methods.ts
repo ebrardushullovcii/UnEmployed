@@ -163,6 +163,30 @@ function finalizeDiscoveryRun(
   });
 }
 
+const MIN_DISCOVERY_TARGET_MAX_STEPS = 20;
+
+function resolveDiscoveryTargetBudget(input: {
+  targetsRemaining: number;
+  validJobsFoundSoFar: number;
+}) {
+  const remainingJobs = Math.max(
+    1,
+    DEFAULT_TARGET_JOB_COUNT - input.validJobsFoundSoFar,
+  );
+  const targetJobCount = Math.min(
+    DEFAULT_TARGET_JOB_COUNT,
+    Math.ceil(remainingJobs / Math.max(1, input.targetsRemaining)),
+  );
+
+  return {
+    targetJobCount,
+    maxSteps: Math.min(
+      DEFAULT_MAX_STEPS,
+      Math.max(MIN_DISCOVERY_TARGET_MAX_STEPS, targetJobCount * 6),
+    ),
+  };
+}
+
 export function createWorkspaceDiscoveryMethods(
   ctx: WorkspaceServiceContext,
 ): Pick<JobFinderWorkspaceService, "runDiscovery" | "runAgentDiscovery"> {
@@ -362,6 +386,39 @@ export function createWorkspaceDiscoveryMethods(
 
       try {
         for (const [index, target] of targets.entries()) {
+          if (activeRun.summary.validJobsFound >= DEFAULT_TARGET_JOB_COUNT) {
+            const skippedAt = new Date().toISOString();
+
+            activeRun = completeTargetExecution(activeRun, target.id, skippedAt, {
+              state: "skipped",
+              jobsFound: 0,
+              jobsPersisted: 0,
+              jobsStaged: 0,
+              warning: `Skipped because the discovery run already reached ${DEFAULT_TARGET_JOB_COUNT} jobs.`,
+            });
+
+            emitActivity(
+              createDiscoveryEvent({
+                runId: activeRun.id,
+                timestamp: skippedAt,
+                kind: "success",
+                stage: "planning",
+                waitReason: "finalizing",
+                targetId: target.id,
+                adapterKind: target.adapterKind,
+                resolvedAdapterKind: resolveAdapterKind(target),
+                message: `Skipping ${target.label} because the run already has enough jobs.`,
+                url: target.startingUrl,
+                jobsFound: activeRun.summary.validJobsFound,
+                jobsPersisted: activeRun.summary.jobsPersisted,
+                jobsStaged: activeRun.summary.jobsStaged,
+                duplicatesMerged: activeRun.summary.duplicatesMerged,
+                invalidSkipped: activeRun.summary.invalidSkipped,
+              }),
+            );
+            continue;
+          }
+
           if (signal?.aborted) {
             throw new DOMException("Aborted", "AbortError");
           }
@@ -451,6 +508,10 @@ export function createWorkspaceDiscoveryMethods(
             sourceInstructionArtifacts,
           );
           const instructionLines = buildInstructionGuidance(activeInstruction);
+          const discoveryBudget = resolveDiscoveryTargetBudget({
+            targetsRemaining: targets.length - index,
+            validJobsFoundSoFar: activeRun.summary.validJobsFound,
+          });
           const discoveryResult = await ctx.browserRuntime.runAgentDiscovery(
             adapterKind,
             {
@@ -462,8 +523,8 @@ export function createWorkspaceDiscoveryMethods(
                     : [DEFAULT_ROLE],
                 locations: searchPreferences.locations,
               },
-              targetJobCount: DEFAULT_TARGET_JOB_COUNT,
-              maxSteps: DEFAULT_MAX_STEPS,
+              targetJobCount: discoveryBudget.targetJobCount,
+              maxSteps: discoveryBudget.maxSteps,
               startingUrls: [target.startingUrl],
               siteLabel: target.label,
               navigationHostnames: targetUrl ? [targetUrl.hostname] : [],

@@ -1,6 +1,40 @@
 import type { ToolDefinition } from "../types";
 import { ExtractJobsSchema } from "./shared";
 
+interface StructuredDataJobCandidate {
+  canonicalUrl?: string | null;
+  sourceJobId?: string | null;
+  title?: string | null;
+  company?: string | null;
+  location?: string | null;
+  description?: string | null;
+  summary?: string | null;
+  postedAt?: string | null;
+  postedAtText?: string | null;
+  salaryText?: string | null;
+  workMode?: string[] | null;
+  applyPath?: "easy_apply" | "external_redirect" | "unknown" | null;
+  easyApplyEligible?: boolean | null;
+  keySkills?: string[] | null;
+  responsibilities?: string[] | null;
+  minimumQualifications?: string[] | null;
+  preferredQualifications?: string[] | null;
+  seniority?: string | null;
+  employmentType?: string | null;
+  department?: string | null;
+  team?: string | null;
+  employerWebsiteUrl?: string | null;
+  employerDomain?: string | null;
+  benefits?: string[] | null;
+}
+
+interface SearchResultCardCandidate {
+  canonicalUrl: string;
+  anchorText: string;
+  headingText: string | null;
+  lines: string[];
+}
+
 export const extractionTools: ToolDefinition[] = [
   {
     name: "extract_jobs",
@@ -87,7 +121,278 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
         const readyForExtraction = hasMinimumContent && hasNoLoadingIndicators && hasJobContent;
 
-        return { success: true, data: { pageType, pageUrl, pageText: truncatedPageText, pageTextLength: extractionTextLength, pageTextTruncated, readyForExtraction, maxJobs, linkedInJobUrlsFound: discoveredUrls.length, checks: { hasMinimumContent, hasNoLoadingIndicators, hasJobContent } } };
+        const structuredCandidates = await page.evaluate(
+          (input: {
+            allowedHostnames: string[];
+            relevantUrlSubstrings: string[];
+            allowSubdomains: boolean;
+          }) => {
+            const toText = (value: unknown): string =>
+              typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+            const uniqueStrings = (values: readonly string[]): string[] => {
+              const seen = new Set<string>();
+              return values.flatMap((value) => {
+                const normalized = toText(value);
+                if (!normalized) {
+                  return [];
+                }
+                const key = normalized.toLowerCase();
+                if (seen.has(key)) {
+                  return [];
+                }
+                seen.add(key);
+                return [normalized];
+              });
+            };
+            const isAllowedInScopeUrl = (value: string | null | undefined): string | null => {
+              if (!value) {
+                return null;
+              }
+
+              try {
+                const absolute = new URL(value, window.location.href);
+                const hostname = absolute.hostname.toLowerCase();
+                const hostAllowed = input.allowedHostnames.some(
+                  (allowedHostname) =>
+                    hostname === allowedHostname ||
+                    (input.allowSubdomains && hostname.endsWith(`.${allowedHostname}`)),
+                );
+                if (!hostAllowed) {
+                  return null;
+                }
+
+                const haystack = `${absolute.pathname}${absolute.search}`.toLowerCase();
+                const matchesRelevantUrl =
+                  input.relevantUrlSubstrings.length === 0 ||
+                  input.relevantUrlSubstrings.some((substring) =>
+                    haystack.includes(substring.toLowerCase()),
+                  );
+                if (!matchesRelevantUrl) {
+                  return null;
+                }
+
+                for (const key of [...absolute.searchParams.keys()]) {
+                  const lowered = key.toLowerCase();
+                  if (
+                    lowered.startsWith("utm_") ||
+                    lowered === "trk" ||
+                    lowered === "trackingid"
+                  ) {
+                    absolute.searchParams.delete(key);
+                  }
+                }
+
+                absolute.hash = "";
+                return absolute.toString();
+              } catch {
+                return null;
+              }
+            };
+            const textArray = (value: unknown): string[] =>
+              uniqueStrings(
+                Array.isArray(value)
+                  ? value.map((entry) => toText(entry))
+                  : typeof value === "string"
+                    ? value.split(/\n+/g).map((entry) => toText(entry))
+                    : [],
+              );
+            const locationValue = (value: unknown): string | null => {
+              if (!value || typeof value !== "object") {
+                return null;
+              }
+
+              const candidate = value as Record<string, unknown>;
+              return (
+                toText(candidate.addressLocality) ||
+                toText(candidate.addressRegion) ||
+                toText(candidate.addressCountry) ||
+                toText(candidate.name) ||
+                null
+              );
+            };
+            const asRecordArray = (value: unknown): Array<Record<string, unknown>> =>
+              Array.isArray(value)
+                ? value.filter(
+                    (entry): entry is Record<string, unknown> =>
+                      Boolean(entry) && typeof entry === "object" && !Array.isArray(entry),
+                  )
+                : [];
+            const normalizeEmploymentType = (value: unknown): string | null => {
+              if (Array.isArray(value)) {
+                return toText(value[0]);
+              }
+              return toText(value) || null;
+            };
+            const normalizeStructuredJob = (
+              candidate: Record<string, unknown>,
+            ): StructuredDataJobCandidate | null => {
+              const candidateType = toText(candidate["@type"] || candidate.type).toLowerCase();
+              if (candidateType && candidateType !== "jobposting") {
+                return null;
+              }
+
+              const identifier = candidate.identifier;
+              const identifierValue =
+                typeof identifier === "object" && identifier && !Array.isArray(identifier)
+                  ? toText((identifier as Record<string, unknown>).value)
+                  : toText(identifier);
+              const companyCandidate =
+                typeof candidate.hiringOrganization === "object" &&
+                candidate.hiringOrganization &&
+                !Array.isArray(candidate.hiringOrganization)
+                  ? (candidate.hiringOrganization as Record<string, unknown>)
+                  : null;
+              const directApply =
+                Boolean(candidate.directApply === true) ||
+                toText(candidate.applicantLocationRequirements).toLowerCase().includes("easy apply");
+              const canonicalUrl = isAllowedInScopeUrl(
+                toText(candidate.url) || toText(candidate.sameAs) || toText(candidate.mainEntityOfPage),
+              );
+              const location =
+                locationValue(candidate.jobLocation) ||
+                locationValue(candidate.applicantLocationRequirements) ||
+                null;
+
+              if (!canonicalUrl) {
+                return null;
+              }
+
+              return {
+                canonicalUrl,
+                sourceJobId: identifierValue || null,
+                title: toText(candidate.title),
+                company:
+                  toText(companyCandidate?.name) || toText(candidate.hiringOrganizationName) || null,
+                location,
+                description:
+                  toText(candidate.description) ||
+                  toText(candidate.responsibilities) ||
+                  null,
+                summary: toText(candidate.responsibilities) || null,
+                postedAt: toText(candidate.datePosted) || null,
+                postedAtText: toText(candidate.datePosted) || null,
+                salaryText:
+                  toText(candidate.baseSalary) ||
+                  toText(candidate.salaryCurrency) ||
+                  null,
+                workMode: textArray(candidate.jobLocationType),
+                applyPath: directApply ? "easy_apply" : "unknown",
+                easyApplyEligible: directApply,
+                keySkills: textArray(candidate.skills),
+                responsibilities: textArray(candidate.responsibilities),
+                minimumQualifications: textArray(candidate.qualifications),
+                preferredQualifications: textArray(candidate.educationRequirements),
+                seniority: toText(candidate.experienceRequirements) || null,
+                employmentType: normalizeEmploymentType(candidate.employmentType),
+                department: toText(candidate.industry) || null,
+                team: null,
+                employerWebsiteUrl: isAllowedInScopeUrl(toText(companyCandidate?.sameAs)),
+                employerDomain: null,
+                benefits: textArray(candidate.jobBenefits),
+              };
+            };
+
+            const cardCandidates: SearchResultCardCandidate[] = [];
+            const cardSelectors = [
+              "article",
+              "li",
+              "[role='article']",
+              "[data-job-id]",
+              "[data-jobid]",
+              "[data-job-id] *",
+            ];
+            const seenCardUrls = new Set<string>();
+            for (const selector of cardSelectors) {
+              for (const element of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+                if (cardCandidates.length >= 30) {
+                  break;
+                }
+                const anchor =
+                  element.matches("a[href]")
+                    ? (element as HTMLAnchorElement)
+                    : element.querySelector<HTMLAnchorElement>("a[href]");
+                const canonicalUrl = isAllowedInScopeUrl(anchor?.getAttribute("href") ?? null);
+                if (!canonicalUrl || seenCardUrls.has(canonicalUrl)) {
+                  continue;
+                }
+
+                const lines = uniqueStrings(
+                  toText(element.innerText)
+                    .split(/\n+/g)
+                    .map((line) => toText(line)),
+                ).slice(0, 8);
+                const headingText =
+                  toText(
+                    element.querySelector("h1, h2, h3, h4, [role='heading']")?.textContent ?? null,
+                  ) || null;
+                const anchorText = toText(anchor?.textContent ?? null);
+                if (!anchorText && !headingText) {
+                  continue;
+                }
+
+                seenCardUrls.add(canonicalUrl);
+                cardCandidates.push({
+                  canonicalUrl,
+                  anchorText,
+                  headingText,
+                  lines,
+                });
+              }
+            }
+
+            const structuredJobs = uniqueStrings(
+              Array.from(
+                document.querySelectorAll<HTMLScriptElement>(
+                  'script[type="application/ld+json"]',
+                ),
+                (script) => script.textContent ?? "",
+              ),
+            ).flatMap((scriptText) => {
+              try {
+                const payload = JSON.parse(scriptText) as unknown;
+                const queue = Array.isArray(payload) ? [...payload] : [payload];
+                const jobs: StructuredDataJobCandidate[] = [];
+                while (queue.length > 0 && jobs.length < 20) {
+                  const current = queue.shift();
+                  if (!current || typeof current !== "object") {
+                    continue;
+                  }
+
+                  if (Array.isArray(current)) {
+                    queue.push(...current);
+                    continue;
+                  }
+
+                  const record = current as Record<string, unknown>;
+                  const normalized = normalizeStructuredJob(record);
+                  if (normalized) {
+                    jobs.push(normalized);
+                  }
+
+                  const graphValues = record["@graph"];
+                  if (Array.isArray(graphValues)) {
+                    queue.push(...graphValues);
+                  }
+                }
+                return jobs;
+              } catch {
+                return [];
+              }
+            });
+
+            return {
+              structuredDataCandidates: structuredJobs.slice(0, 20),
+              cardCandidates: cardCandidates.slice(0, 20),
+            };
+          },
+          {
+            allowedHostnames: context.config.navigationPolicy.allowedHostnames.map((hostname) => hostname.toLowerCase()),
+            relevantUrlSubstrings,
+            allowSubdomains: context.config.navigationPolicy.allowSubdomains === true,
+          },
+        );
+
+        return { success: true, data: { pageType, pageUrl, pageText: truncatedPageText, pageTextLength: extractionTextLength, pageTextTruncated, readyForExtraction, maxJobs, linkedInJobUrlsFound: discoveredUrls.length, structuredDataCandidates: structuredCandidates.structuredDataCandidates, cardCandidates: structuredCandidates.cardCandidates, checks: { hasMinimumContent, hasNoLoadingIndicators, hasJobContent } } };
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : "Failed to extract jobs" };
       }

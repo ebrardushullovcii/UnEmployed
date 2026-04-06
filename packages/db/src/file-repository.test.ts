@@ -200,6 +200,7 @@ describe("createFileJobFinderRepository", () => {
         finalSummary: "Replay verification reached jobs again.",
         attemptIds: ["source_debug_attempt_1"],
         phaseSummaries: [],
+        timing: null,
         instructionArtifactId: "source_instruction_1",
       });
       await firstRepository.upsertSourceDebugAttempt({
@@ -229,6 +230,7 @@ describe("createFileJobFinderRepository", () => {
         evidenceRefIds: ["source_debug_evidence_1"],
         phaseEvidence: null,
         compactionState: null,
+        timing: null,
       });
       await firstRepository.upsertSourceInstructionArtifact({
         id: "source_instruction_1",

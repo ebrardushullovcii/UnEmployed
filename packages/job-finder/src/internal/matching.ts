@@ -559,8 +559,7 @@ export async function mergeDiscoveredPostings(
 
     validatedCount += 1;
 
-    const matchAssessment = await createMatchAssessmentAsync(
-      aiClient,
+    const matchAssessment = createMatchAssessment(
       profile,
       searchPreferences,
       posting,

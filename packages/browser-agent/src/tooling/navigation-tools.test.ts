@@ -22,6 +22,12 @@ describe("navigate", () => {
     const state = {
       currentUrl: "https://www.linkedin.com/jobs/search",
       visitedUrls: new Set<string>(),
+      failedInteractionAttempts: new Map([
+        ["fill::input::search by title skill::0", {
+          count: 2,
+          lastError: 'No textbox matched accessible name "Search by title, skill, or company".',
+        }],
+      ]),
     };
 
     const result = await tool.execute(
@@ -57,5 +63,55 @@ describe("navigate", () => {
     });
     expect(state.currentUrl).toBe("https://www.linkedin.com/jobs");
     expect(state.visitedUrls.has("https://www.linkedin.com/jobs")).toBe(true);
+    expect(state.failedInteractionAttempts.size).toBe(0);
+  });
+
+  test("clears repeated interaction failures after a successful navigation to a new page", async () => {
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn(() => "https://www.linkedin.com/jobs/collections/recommended"),
+      title: vi.fn().mockResolvedValue("Recommended jobs | LinkedIn"),
+    } as unknown as Page;
+
+    const tool = navigationTools.find((candidate) => candidate.name === "navigate");
+    if (!tool) {
+      throw new Error("navigate tool is not registered");
+    }
+
+    const state = {
+      currentUrl: "https://www.linkedin.com/jobs/search",
+      visitedUrls: new Set<string>(),
+      failedInteractionAttempts: new Map([
+        ["fill::input::search by title skill::0", {
+          count: 2,
+          lastError: 'No textbox matched accessible name "Search by title, skill, or company".'
+        }]
+      ]),
+    };
+
+    const result = await tool.execute(
+      {
+        url: "https://www.linkedin.com/jobs/collections/recommended",
+        waitFor: "domcontentloaded",
+        timeout: 5000,
+      },
+      {
+        page,
+        state: state as never,
+        config: {
+          navigationPolicy: {
+            allowedHostnames: ["www.linkedin.com"],
+          },
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        url: "https://www.linkedin.com/jobs/collections/recommended",
+      }),
+    });
+    expect(state.failedInteractionAttempts.size).toBe(0);
   });
 });

@@ -36,6 +36,34 @@ const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
 const SEARCH_RESULTS_MAX_MODEL_JOBS = 4;
 
+function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
+  const message = error instanceof Error ? error.message.trim() : "";
+  const isAbortLikeMessage =
+    message === "This operation was aborted" ||
+    message === "The operation was aborted" ||
+    message === "signal is aborted without reason";
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return new Error(
+      `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+  }
+
+  if (error instanceof Error && error.name === "AbortError") {
+    return new Error(
+      `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+  }
+
+  if (isAbortLikeMessage) {
+    return new Error(
+      `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+  }
+
+  return error;
+}
+
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions,
 ): AgentCapableJobFinderAiClient {
@@ -508,7 +536,13 @@ export function createJobFinderAiClientFromEnvironment(
       try {
         return await primaryClient.extractJobsFromPage(input);
       } catch (error) {
-        logFallbackError("extractJobsFromPage", error);
+        const normalizedError = normalizeTimeoutLikeError(
+          error,
+          input.pageType === "search_results"
+            ? SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS
+            : DEFAULT_MODEL_TIMEOUT_MS,
+        );
+        logFallbackError("extractJobsFromPage", normalizedError);
         return fallbackClient.extractJobsFromPage(input);
       }
     },

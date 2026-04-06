@@ -42,6 +42,7 @@ import {
   buildSourceDebugPhaseSummary,
   classifySourceDebugAttemptOutcome,
   composeSourceDebugInstructions,
+  deriveSourceDebugStartingUrls,
   getSourceDebugMaxSteps,
   getSourceDebugTargetJobCount,
   resolveSourceDebugCompletion,
@@ -320,6 +321,11 @@ export async function runSourceDebugWorkflow(
   }
 
   const clearExistingInstructions = options?.clearExistingInstructions !== false;
+  const instructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
+  const preservedRouteHintArtifact = resolveActiveSourceInstructionArtifact(
+    target,
+    instructionArtifacts,
+  );
 
   if (clearExistingInstructions) {
     await ctx.repository.deleteSourceInstructionArtifactsForTarget(target.id);
@@ -343,7 +349,6 @@ export async function runSourceDebugWorkflow(
         staleReason: null,
       }
     : target;
-  const instructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
   const reviewInstructionArtifact = options?.reviewInstructionId
     ? (instructionArtifacts.find(
         (artifact) =>
@@ -463,7 +468,32 @@ export async function runSourceDebugWorkflow(
           phase === "replay_verification"
             ? (reviewInstructionArtifact ?? synthesizedInstruction)
             : null;
+        const phaseStartingUrlArtifact =
+          reviewInstructionArtifact ?? synthesizedInstruction;
         const nextPhase = SOURCE_DEBUG_PHASES[index + 1] ?? null;
+        const currentRouteHintStartingUrls = deriveSourceDebugStartingUrls(
+          normalizedTarget,
+          phaseStartingUrlArtifact,
+          phase,
+        );
+        const currentRunHasDistinctRouteHint = currentRouteHintStartingUrls.some(
+          (url) => url !== normalizedTarget.startingUrl,
+        );
+        const preservedRouteHintStartingUrls =
+          clearExistingInstructions && !currentRunHasDistinctRouteHint
+            ? deriveSourceDebugStartingUrls(
+                normalizedTarget,
+                preservedRouteHintArtifact,
+                phase,
+              )
+            : [];
+        const phaseStartingUrls = uniqueStrings(
+          currentRunHasDistinctRouteHint
+            ? [...currentRouteHintStartingUrls, ...preservedRouteHintStartingUrls]
+            : [...preservedRouteHintStartingUrls, ...currentRouteHintStartingUrls],
+        ).filter(Boolean);
+        const phasePrimaryStartingUrl =
+          phaseStartingUrls[0] ?? normalizedTarget.startingUrl;
         const debugResult = await ctx.browserRuntime.runAgentDiscovery?.(adapterKind, {
           userProfile: profile,
           searchPreferences: {
@@ -475,7 +505,7 @@ export async function runSourceDebugWorkflow(
           },
           targetJobCount: getSourceDebugTargetJobCount(phase),
           maxSteps: getSourceDebugMaxSteps(phase),
-          startingUrls: [normalizedTarget.startingUrl],
+          startingUrls: phaseStartingUrls,
           siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
           navigationHostnames: [targetUrl.hostname],
           siteInstructions: composeSourceDebugInstructions(
@@ -541,7 +571,7 @@ export async function runSourceDebugWorkflow(
             kind: "url",
             label: "Starting URL",
             capturedAt: new Date().toISOString(),
-            url: normalizedTarget.startingUrl,
+            url: phasePrimaryStartingUrl,
             storagePath: null,
             excerpt: debugResult.warning ?? null,
           }),
@@ -611,7 +641,7 @@ export async function runSourceDebugWorkflow(
           strategyFingerprint,
           confirmedFacts,
           attemptedActions: uniqueStrings([
-            `Started from ${normalizedTarget.startingUrl}.`,
+            `Started from ${phasePrimaryStartingUrl}.`,
             ...(phase === "apply_path_validation"
               ? [
                   "Inspected discovered jobs for apply entry points without submitting an application.",

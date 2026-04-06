@@ -34,6 +34,23 @@ const supportedInteractiveRoles = [
 const fillInteractiveRoles = ["searchbox", "textbox", "combobox"] as const;
 const selectOptionInteractiveRoles = ["combobox", "option", "listitem"] as const;
 
+function getRoleSearchOrder(role: SupportedInteractiveRole): SupportedInteractiveRole[] {
+  switch (role) {
+    case "button":
+      return ["button", "link"];
+    case "link":
+      return ["link", "button"];
+    case "textbox":
+      return ["textbox", "searchbox", "combobox"];
+    case "searchbox":
+      return ["searchbox", "textbox", "combobox"];
+    case "combobox":
+      return ["combobox", "searchbox", "textbox"];
+    default:
+      return [role];
+  }
+}
+
 export type SupportedInteractiveRole = (typeof supportedInteractiveRoles)[number];
 const SupportedInteractiveRoleSchema = z.enum(supportedInteractiveRoles);
 const FillRoleSchema = z.enum(fillInteractiveRoles);
@@ -290,6 +307,117 @@ function escapeAttributeValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function normalizeLooseLocatorName(value: string): string {
+  return normalizeInteractiveName(value)
+    .toLowerCase()
+    .replace(/\bverified job\b/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function titleCaseWords(value: string): string {
+  return value.replace(/\b\p{L}[\p{L}\p{N}]*/gu, (word) => word.charAt(0).toUpperCase() + word.slice(1))
+}
+
+function looseLocatorNameMatches(target: string, candidate: string): boolean {
+  const normalizedTarget = normalizeLooseLocatorName(target)
+  const normalizedCandidate = normalizeLooseLocatorName(candidate)
+
+  if (!normalizedTarget || !normalizedCandidate) {
+    return false
+  }
+
+  if (
+    normalizedCandidate.includes(normalizedTarget) ||
+    normalizedTarget.includes(normalizedCandidate)
+  ) {
+    return true
+  }
+
+  const targetTokens = normalizedTarget.split(' ').filter(Boolean)
+  return targetTokens.length >= 2 && targetTokens.every((token) => normalizedCandidate.includes(token))
+}
+
+async function readLocatorAccessibleName(locator: Locator): Promise<string | null> {
+  return locator.evaluate((element) => {
+    const readLabelledByText = (target: Element): string => {
+      const labelledBy = target.getAttribute('aria-labelledby')
+      if (!labelledBy) return ''
+      return labelledBy
+        .split(/\s+/)
+        .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+        .filter(Boolean)
+        .join(' ')
+    }
+
+    const ariaLabel = element.getAttribute('aria-label')?.trim()
+    if (ariaLabel) return ariaLabel
+
+    const labelledByText = readLabelledByText(element)
+    if (labelledByText) return labelledByText
+
+    if ('labels' in element) {
+      const labels = Array.from((element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).labels ?? [])
+        .map((label) => label.textContent?.trim() ?? '')
+        .filter(Boolean)
+      if (labels.length > 0) return labels.join(' ')
+    }
+
+    const title = element.getAttribute('title')?.trim()
+    if (title) return title
+
+    const placeholder = element.getAttribute('placeholder')?.trim()
+    if (placeholder) return placeholder
+
+    if (element instanceof HTMLInputElement) {
+      const value = element.value.trim()
+      if (value) return value
+    }
+
+    const innerText = element instanceof HTMLElement ? element.innerText.trim() : ''
+    if (innerText) return innerText
+
+    return (element.textContent ?? '').replace(/\s+/g, ' ').trim() || null
+  }).catch(() => null)
+}
+
+async function findLooselyMatchingVisibleLocator(
+  page: Page,
+  roles: readonly SupportedInteractiveRole[],
+  candidateNames: readonly string[],
+  visibleIndex: number,
+): Promise<ReturnType<Page['getByRole']> | null> {
+  let matchedVisibleCount = 0
+
+  for (const role of roles) {
+    const broadLocator = page.getByRole(role)
+    const count = await broadLocator.count().catch(() => 0)
+
+    for (let candidateIndex = 0; candidateIndex < count; candidateIndex += 1) {
+      const candidate = broadLocator.nth(candidateIndex)
+      const visible = await candidate.isVisible().catch(() => false)
+
+      if (!visible) {
+        continue
+      }
+
+      const accessibleName = await readLocatorAccessibleName(candidate)
+      if (!accessibleName || !candidateNames.some((name) => looseLocatorNameMatches(name, accessibleName))) {
+        continue
+      }
+
+      if (matchedVisibleCount === visibleIndex) {
+        return candidate
+      }
+
+      matchedVisibleCount += 1
+    }
+  }
+
+  return null
+}
+
 function logComboboxDebug(action: string, optionText: string, error: unknown): void {
   console.debug(`[Agent] fillComboboxValue ${action} failed`, {
     error,
@@ -425,6 +553,33 @@ export async function resolveRoleLocator(
   name: string,
   index: number,
 ): Promise<ReturnType<Page["getByRole"]>> {
+  const roleSearchOrder = getRoleSearchOrder(role)
+  const baseName = normalizeInteractiveName(name)
+  const alternateNames = new Set<string>([baseName])
+
+  if (role === 'button') {
+    if (/\ball filters\b/i.test(baseName)) {
+      alternateNames.add(baseName.replace(/\ball filters\b/i, 'show all filters'))
+      alternateNames.add(baseName.replace(/\ball filters\b/i, 'Show all filters'))
+    }
+
+    if (/\bshow all filters\b/i.test(baseName)) {
+      alternateNames.add(baseName.replace(/\bshow all filters\b/i, 'all filters'))
+      alternateNames.add(baseName.replace(/\bshow all filters\b/i, 'All filters'))
+    }
+  }
+
+  if (role === 'link') {
+    alternateNames.add(baseName.replace(/\s*\(verified job\)\s*/gi, ' ').replace(/\s+/g, ' ').trim())
+    alternateNames.add(baseName.replace(/\s*verified job\s*/gi, ' ').replace(/\s+/g, ' ').trim())
+    if (!/verified job/i.test(baseName)) {
+      alternateNames.add(`${baseName} (Verified job)`.trim())
+      alternateNames.add(`${baseName} Verified job`.trim())
+    }
+  }
+
+  alternateNames.add(titleCaseWords(baseName))
+
   async function findVisibleLocator(
     locator: ReturnType<Page["getByRole"]>,
     visibleIndex: number,
@@ -450,28 +605,41 @@ export async function resolveRoleLocator(
     return null;
   }
 
-  const exactLocator = page.getByRole(role, { name, exact: true });
-  const exactCount = await exactLocator.count().catch(() => 0);
-  const exactVisibleLocator = await findVisibleLocator(exactLocator, index);
+  for (const candidateRole of roleSearchOrder) {
+    for (const candidateName of alternateNames) {
+      if (!candidateName) {
+        continue
+      }
 
-  if (exactVisibleLocator) {
-    return exactVisibleLocator;
+      const exactLocator = page.getByRole(candidateRole, { name: candidateName, exact: true });
+      const exactCount = await exactLocator.count().catch(() => 0);
+      const exactVisibleLocator = await findVisibleLocator(exactLocator, index);
+
+      if (exactVisibleLocator) {
+        return exactVisibleLocator;
+      }
+
+      if (exactCount > index) {
+        return exactLocator.nth(index);
+      }
+
+      const looseLocator = page.getByRole(candidateRole, { name: buildLooseAccessibleNamePattern(candidateName) });
+      const looseCount = await looseLocator.count().catch(() => 0);
+      const looseVisibleLocator = await findVisibleLocator(looseLocator, index);
+
+      if (looseVisibleLocator) {
+        return looseVisibleLocator;
+      }
+
+      if (looseCount > index) {
+        return looseLocator.nth(index);
+      }
+    }
   }
 
-  if (exactCount > index) {
-    return exactLocator.nth(index);
-  }
-
-  const looseLocator = page.getByRole(role, { name: buildLooseAccessibleNamePattern(name) });
-  const looseCount = await looseLocator.count().catch(() => 0);
-  const looseVisibleLocator = await findVisibleLocator(looseLocator, index);
-
+  const looseVisibleLocator = await findLooselyMatchingVisibleLocator(page, roleSearchOrder, [...alternateNames], index)
   if (looseVisibleLocator) {
-    return looseVisibleLocator;
-  }
-
-  if (looseCount > index) {
-    return looseLocator.nth(index);
+    return looseVisibleLocator
   }
 
   throw new Error(`No ${role} matched accessible name "${name}".`);

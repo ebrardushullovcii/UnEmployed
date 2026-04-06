@@ -1,6 +1,6 @@
 import type { Page } from "playwright";
 import { describe, expect, test, vi } from "vitest";
-import { buildComboboxOptionScopes, buildLooseAccessibleNamePattern, ClickSchema, FillSchema, SelectOptionSchema } from "./shared";
+import { buildComboboxOptionScopes, buildLooseAccessibleNamePattern, ClickSchema, FillSchema, SelectOptionSchema, resolveRoleLocator } from "./shared";
 
 describe("buildComboboxOptionScopes", () => {
   test("limits combobox option clicks to the popup when aria-controls is present", () => {
@@ -58,5 +58,67 @@ describe("buildLooseAccessibleNamePattern", () => {
     const pattern = buildLooseAccessibleNamePattern(label)
 
     expect(pattern.test("different content entirely")).toBe(false)
+  })
+})
+
+describe("resolveRoleLocator", () => {
+  test("accepts LinkedIn-style button naming variants like All filters versus Show all filters", async () => {
+    const exactShowAllLocator = {
+      count: vi.fn().mockResolvedValue(1),
+      nth: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(true)
+    }
+    exactShowAllLocator.nth.mockReturnValue(exactShowAllLocator)
+
+    const emptyLocator = {
+      count: vi.fn().mockResolvedValue(0),
+      nth: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(false)
+    }
+    emptyLocator.nth.mockReturnValue(emptyLocator)
+
+    const page = {
+      getByRole: vi.fn((_role, options) => {
+        if (options?.exact && options.name === 'Show all filters') {
+          return exactShowAllLocator as never
+        }
+
+        return emptyLocator as never
+      })
+    } as unknown as Page
+
+    const locator = await resolveRoleLocator(page, 'button', 'All filters', 0)
+
+    expect(locator).toBe(exactShowAllLocator)
+  })
+
+  test("accepts job link naming variants that append Verified job", async () => {
+    const exactVerifiedLocator = {
+      count: vi.fn().mockResolvedValue(1),
+      nth: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(true)
+    }
+    exactVerifiedLocator.nth.mockReturnValue(exactVerifiedLocator)
+
+    const emptyLocator = {
+      count: vi.fn().mockResolvedValue(0),
+      nth: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(false)
+    }
+    emptyLocator.nth.mockReturnValue(emptyLocator)
+
+    const page = {
+      getByRole: vi.fn((_role, options) => {
+        if (options?.exact && options.name === 'Senior Next.js Developer (Verified job)') {
+          return exactVerifiedLocator as never
+        }
+
+        return emptyLocator as never
+      })
+    } as unknown as Page
+
+    const locator = await resolveRoleLocator(page, 'link', 'Senior Next.js Developer', 0)
+
+    expect(locator).toBe(exactVerifiedLocator)
   })
 })
