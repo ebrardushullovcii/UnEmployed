@@ -87,9 +87,11 @@ function getChecklistStateLabel(state: ApplyChecklistItem['state']) {
       return 'In progress'
     case 'attention':
       return 'Heads-up'
-    default:
+    case 'blocked':
       return 'Blocked'
   }
+
+  return assertChecklistStateUnreachable(state)
 }
 
 function getNextChecklistItem(checklist: readonly ApplyChecklistItem[]) {

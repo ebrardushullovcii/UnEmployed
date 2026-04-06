@@ -357,12 +357,18 @@ describe('click', () => {
     expect(page.getByRole).not.toHaveBeenCalled()
   })
 
-  test('falls back to clicking the associated checkbox label when the input intercepts pointer events', async () => {
+test('falls back to clicking the associated checkbox label when the input intercepts pointer events', async () => {
+    const inputLocator = {
+      count: vi.fn().mockResolvedValue(1),
+      isChecked: vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true),
+    }
     const labelLocator = {
       count: vi.fn().mockResolvedValue(1),
       isVisible: vi.fn().mockResolvedValue(true),
       scrollIntoViewIfNeeded: vi.fn().mockResolvedValue(undefined),
-      click: vi.fn().mockResolvedValue(undefined)
+      click: vi.fn().mockResolvedValue(undefined),
+      getAttribute: vi.fn().mockResolvedValue(null),
+      locator: vi.fn(() => ({ first: () => inputLocator })),
     }
     const checkboxLocator = {
       count: vi.fn().mockResolvedValue(1),

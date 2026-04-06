@@ -260,7 +260,7 @@ describe('job extraction with openai-compatible client', () => {
     }
   })
 
-  test('does not promote a generated summary into description on search-results pages', async () => {
+test('uses summary fallback for description on search-results pages when description is empty', async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
         {
@@ -297,7 +297,9 @@ describe('job extraction with openai-compatible client', () => {
         maxJobs: 5
       })
 
-      expect(jobs).toHaveLength(0)
+      expect(jobs).toHaveLength(1)
+      expect(jobs[0]?.description).toBe('Build product experiences from the search results snippet.')
+      expect(jobs[0]?.summary).toBe('Build product experiences from the search results snippet.')
     } finally {
       restoreFetch()
     }

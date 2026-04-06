@@ -176,9 +176,17 @@ async function clickCheckboxWithLabelFallback(locator: Locator): Promise<boolean
       return false;
     }
 
+    const forAttr = await labelLocator.getAttribute('for').catch(() => null);
+    const inputLocator = forAttr
+      ? labelLocator.page().locator(`#${CSS.escape(forAttr)}`)
+      : labelLocator.locator('input[type="checkbox"], input[type="radio"]').first();
+
+    const inputCount = await inputLocator.count().catch(() => 0);
+    const initialChecked = inputCount > 0 ? await inputLocator.isChecked().catch(() => false) : false;
     await labelLocator.scrollIntoViewIfNeeded().catch(() => {});
-    await labelLocator.click({ timeout: CLICK_TIMEOUT_MS / 2 });
-    return true;
+    await labelLocator.click({ timeout: CLICK_TIMEOUT_MS / 2 }).catch(() => {});
+    const checkedAfter = inputCount > 0 ? await inputLocator.isChecked().catch(() => initialChecked) : initialChecked;
+    return inputCount === 0 || checkedAfter !== initialChecked;
   };
 
   if (explicitLabel && await tryLabel(explicitLabel).catch(() => false)) {
@@ -377,7 +385,7 @@ If the click fails, you'll get details about why so you can decide whether to re
 
               return {
                 success: false,
-                error: urlValidation.error,
+                error: urlValidation.error ?? 'Navigation went to disallowed URL.',
                 data: {
                   role,
                   name: name.slice(0, 50),

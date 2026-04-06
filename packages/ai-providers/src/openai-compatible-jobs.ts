@@ -256,9 +256,9 @@ const toWorkModeArray = (value: unknown): string[] => {
     );
 const rawDescription = toStr(raw.description);
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
-    const summary =
+const summary =
       input.pageType === "search_results"
-        ? (trimToNull(raw.summary) ?? "")
+        ? trimToNull(raw.summary)
         : (trimToNull(raw.summary) ??
           summarizeJobPosting({
             title: toStr(raw.title),
@@ -270,7 +270,9 @@ const rawDescription = toStr(raw.description);
           }));
     const description =
       rawDescription ||
-      (input.pageType === "search_results" ? "" : summary ?? "");
+      (input.pageType === "search_results"
+        ? (summary ?? `${toStr(raw.title)} opportunity at ${toStr(raw.company)}`)
+        : summary ?? "");
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,
