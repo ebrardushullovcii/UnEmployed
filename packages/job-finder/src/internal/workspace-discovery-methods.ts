@@ -106,7 +106,7 @@ function completeTargetExecution(
   completedAt: string,
   patch: Partial<DiscoveryTargetExecution>,
 ): DiscoveryRunRecord {
-  return updateTargetExecution(run, targetId, (entry) => ({
+  const nextRun = updateTargetExecution(run, targetId, (entry) => ({
     ...entry,
     ...patch,
     completedAt,
@@ -119,6 +119,14 @@ function completeTargetExecution(
             completedAt,
           ),
   }));
+
+  return DiscoveryRunRecordSchema.parse({
+    ...nextRun,
+    summary: {
+      ...nextRun.summary,
+      targetsCompleted: countCompletedTargetExecutions(nextRun),
+    },
+  });
 }
 
 function finalizeRunningTargetExecutions(

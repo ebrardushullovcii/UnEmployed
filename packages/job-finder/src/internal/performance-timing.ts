@@ -46,25 +46,27 @@ export function computeTimelineSummary<TKey extends string>(input: {
 }): TimelineSummary<TKey> {
   const startedAtMs = toEpochMs(input.startedAt);
   const completedAtMs = toEpochMs(input.completedAt);
+  const hasFiniteWindow =
+    Number.isFinite(startedAtMs) && Number.isFinite(completedAtMs);
   const normalizedEvents = input.events
     .map((event) => ({
       atMs: toEpochMs(event.timestamp),
       key: event.key,
     }))
-    .filter((event) => event.atMs >= startedAtMs && event.atMs <= completedAtMs)
+    .filter((event) => hasFiniteWindow && event.atMs >= startedAtMs && event.atMs <= completedAtMs)
     .sort((left, right) => left.atMs - right.atMs);
   const durationsMsByKey = new Map<TKey, number>();
-  const totalDurationMs = Math.max(0, completedAtMs - startedAtMs);
+  const totalDurationMs = calculateDurationMs(input.startedAt, input.completedAt);
   const firstEventMs =
     normalizedEvents.length > 0
-      ? Math.max(0, normalizedEvents[0]!.atMs - startedAtMs)
+      ? calculateDurationMs(input.startedAt, normalizedEvents[0]!.atMs)
       : null;
   let longestGapMs = normalizedEvents.length > 0 ? firstEventMs ?? 0 : totalDurationMs;
 
   for (let index = 0; index < normalizedEvents.length; index += 1) {
     const currentEvent = normalizedEvents[index]!;
     const nextAtMs = normalizedEvents[index + 1]?.atMs ?? completedAtMs;
-    const durationMs = Math.max(0, nextAtMs - currentEvent.atMs);
+    const durationMs = calculateDurationMs(currentEvent.atMs, nextAtMs);
 
     durationsMsByKey.set(
       currentEvent.key,

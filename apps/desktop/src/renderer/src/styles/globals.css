@@ -157,6 +157,8 @@
   --text-small: 0.78rem;
   --text-tiny: 0.68rem;
   --text-label: 0.58rem;
+  --text-label-mono-xs: 10px;
+  --text-card-heading-sm: 9px;
   --text-count: 0.72rem;
   --text-item: 0.9rem;
   --text-icon-small: 0.8rem;
@@ -420,7 +422,7 @@ h1 {
 
 .label-mono-xs {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-label-mono-xs);
   font-weight: 700;
   letter-spacing: var(--tracking-badge);
   text-transform: uppercase;
@@ -429,7 +431,7 @@ h1 {
 
 .card-heading-sm {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-card-heading-sm);
   letter-spacing: var(--tracking-heading);
   text-transform: uppercase;
   color: var(--muted-foreground);

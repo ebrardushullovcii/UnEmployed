@@ -29,7 +29,7 @@ export function splitCustomDiscoveryInstructions(value: string | null): string[]
 export function normalizeInstructionLine(value: string): string {
   return value
     .replace(
-      /([?&])(currentJobId|selectedJobId)=[^&#)\s]+/gi,
+      /([?&])(currentJobId|selectedJobId)=[^&#)\s]+(?=(?:[).,;!?\s]|$))/gi,
       (_match, prefix: string) => (prefix === "?" ? "?" : ""),
     )
     .replace(/\?&/g, "?")

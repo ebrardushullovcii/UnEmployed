@@ -1,9 +1,9 @@
 import type { AssetStatus, CandidateProfile, ResumeExtractionStatus } from '@unemployed/contracts'
 import { Sparkles, Upload } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
+import { formatDateOnly, formatResumeAnalysisSummary, getAssetTone } from '@renderer/features/job-finder/lib/job-finder-utils'
 import { PreferenceList } from '../preference-list'
 import { StatusBadge } from '../status-badge'
-import { formatDateOnly, formatResumeAnalysisSummary, getAssetTone } from '../../lib/job-finder-utils'
 
 interface ProfileResumePanelProps {
   busy: boolean
@@ -34,8 +34,9 @@ export function ProfileResumePanel({
 }: ProfileResumePanelProps) {
   const resumeAnalysisSummary = formatResumeAnalysisSummary(profile)
   const resumeTextReadyToAnalyze = Boolean(profile.baseResume.textContent?.trim())
-  const resumeFileName = profile.baseResume.fileName.trim() || 'No resume imported yet'
-  const hasImportedResume = resumeFileName !== 'No resume imported yet'
+  const rawFileName = profile.baseResume.fileName.trim()
+  const hasImportedResume = rawFileName.length > 0
+  const resumeFileName = hasImportedResume ? rawFileName : 'No resume imported yet'
   const panelHeadline = resumeTextReadyToAnalyze
     ? 'Your saved resume can refresh this profile any time'
     : hasImportedResume

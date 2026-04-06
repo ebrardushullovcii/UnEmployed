@@ -604,6 +604,7 @@ export async function resolveRoleLocator(
   }
 
   alternateNames.add(titleCaseWords(baseName))
+  let hiddenFallback: ReturnType<Page["getByRole"]> | null = null
 
   for (const candidateRole of roleSearchOrder) {
     for (const candidateName of alternateNames) {
@@ -619,8 +620,8 @@ export async function resolveRoleLocator(
         return exactVisibleLocator;
       }
 
-      if (exactCount > index) {
-        return exactLocator.nth(index);
+      if (exactCount > index && hiddenFallback === null) {
+        hiddenFallback = exactLocator;
       }
 
       const looseLocator = page.getByRole(candidateRole, { name: buildLooseAccessibleNamePattern(candidateName) });
@@ -631,8 +632,8 @@ export async function resolveRoleLocator(
         return looseVisibleLocator;
       }
 
-      if (looseCount > index) {
-        return looseLocator.nth(index);
+      if (looseCount > index && hiddenFallback === null) {
+        hiddenFallback = looseLocator;
       }
     }
   }
@@ -640,6 +641,10 @@ export async function resolveRoleLocator(
   const looseVisibleLocator = await findLooselyMatchingVisibleLocator(page, roleSearchOrder, [...alternateNames], index)
   if (looseVisibleLocator) {
     return looseVisibleLocator
+  }
+
+  if (hiddenFallback) {
+    return hiddenFallback.nth(index)
   }
 
   throw new Error(`No ${role} matched accessible name "${name}".`);

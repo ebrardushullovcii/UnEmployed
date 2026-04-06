@@ -383,7 +383,7 @@ describe('click', () => {
     }
     checkboxLocator.nth.mockReturnValue(checkboxLocator)
 
-    let currentUrl = 'https://example.com/jobs'
+    const currentUrl = 'https://example.com/jobs'
     const page = {
       getByRole: vi.fn(() => checkboxLocator),
       locator: vi.fn(() => ({ first: () => labelLocator })),

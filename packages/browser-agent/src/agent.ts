@@ -24,7 +24,6 @@ import {
   addExtractedJobsToState,
   createEmptyPhaseEvidence,
   hasMeaningfulPhaseEvidence,
-  type ExtractedJobInput,
   recordToolEvidence,
   sanitizeUrl,
   synthesizeFallbackDebugFindings

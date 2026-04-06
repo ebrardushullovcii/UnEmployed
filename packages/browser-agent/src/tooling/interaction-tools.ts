@@ -1,6 +1,6 @@
 import { isAllowedUrl } from "../allowlist";
 import type { ToolDefinition } from "../types";
-import type { Locator } from "playwright";
+import type { Locator, Page } from "playwright";
 import {
   buildComboboxOptionScopes,
   clickMatchingComboboxOption,
@@ -19,8 +19,46 @@ import {
 const CLICK_TIMEOUT_MS = 5000;
 const REPEATED_FAILURE_BLOCK_THRESHOLD = 2;
 
-function clearFailedInteractionAttemptsAfterNavigation(state: { failedInteractionAttempts?: Map<string, { count: number; lastError: string }> }) {
+async function readInteractionPageStateToken(page: Page): Promise<string> {
+  try {
+    return await page.evaluate(() => {
+      const interactiveCount = document.querySelectorAll(
+        'a[href], button, input, select, textarea, [role], [contenteditable="true"]',
+      ).length;
+      const textLength = document.body?.innerText?.length ?? 0;
+      return `${window.location.href}::${document.title}::${interactiveCount}::${textLength}`;
+    });
+  } catch {
+    return page.url();
+  }
+}
+
+async function syncFailedInteractionAttemptsWithPageState(
+  page: Page,
+  state: {
+    failedInteractionAttempts?: Map<string, { count: number; lastError: string }>;
+    failedInteractionPageStateToken?: string;
+  },
+): Promise<void> {
+  const nextToken = await readInteractionPageStateToken(page);
+
+  if (
+    state.failedInteractionAttempts &&
+    state.failedInteractionPageStateToken &&
+    state.failedInteractionPageStateToken !== nextToken
+  ) {
+    state.failedInteractionAttempts.clear();
+  }
+
+  state.failedInteractionPageStateToken = nextToken;
+}
+
+function clearFailedInteractionAttemptsAfterNavigation(state: {
+  failedInteractionAttempts?: Map<string, { count: number; lastError: string }>;
+  failedInteractionPageStateToken?: string;
+}) {
   state.failedInteractionAttempts?.clear();
+  delete state.failedInteractionPageStateToken;
 }
 
 function normalizeInteractionAttemptRole(kind: "click" | "fill" | "select_option", role: string): string {
@@ -265,6 +303,7 @@ If the click fails, you'll get details about why so you can decide whether to re
       if (!parseResult.success) return { success: false, error: `Invalid click arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
       const { role, name, index, retryIfNotVisible } = parseResult.data;
       const { page, state } = context;
+      await syncFailedInteractionAttemptsWithPageState(page, state);
       const interactionAttemptKey = buildInteractionAttemptKey("click", role, name, index);
       const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
 
@@ -448,7 +487,7 @@ If the click fails, you'll get details about why so you can decide whether to re
             role,
             name: name.slice(0, 50),
             index,
-            errorType: error instanceof Error && error.message.includes("timeout") ? "timeout" : "click_failed",
+            errorType: /timeout/i.test(summarizedError) ? "timeout" : "click_failed",
             repeatedFailureCount: nextFailureCount,
           },
         };
@@ -479,6 +518,7 @@ If multiple elements have the same role and name, use the index to disambiguate 
       if (!parseResult.success) return { success: false, error: `Invalid fill arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
       const { role, name, text, index, submit } = parseResult.data;
       const { page, state } = context;
+      await syncFailedInteractionAttemptsWithPageState(page, state);
       const interactionAttemptKey = buildInteractionAttemptKey("fill", role, name, index);
       const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
 

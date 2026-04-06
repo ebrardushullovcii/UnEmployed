@@ -310,6 +310,8 @@ export function deriveSourceDebugStartingUrls(
 
       const normalizedLine = normalizeText(line);
       const absoluteUrlMatches = line.match(/https?:\/\/[^\s)\]>",]+/gi) ?? [];
+      // Matches same-host relative route hints like /jobs/search or /careers/open-roles?team=product,
+      // capturing the path in group 1 while allowing leading whitespace or an opening parenthesis.
       const relativePathMatches =
         line.match(/(?:^|[\s(])((?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)+(?:\/)?(?:\?[^\s)\]>",]+)?)/g) ?? [];
 

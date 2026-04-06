@@ -30,16 +30,24 @@ interface ApplyChecklistItem {
   state: 'attention' | 'complete' | 'in_progress' | 'blocked'
 }
 
+function assertChecklistStateUnreachable(value: never): never {
+  void value
+  throw new Error('Unhandled checklist state.')
+}
+
 function getChecklistTone(state: ApplyChecklistItem['state']) {
   switch (state) {
     case 'complete':
       return 'positive' as const
-    case 'in_progress':
     case 'attention':
       return 'active' as const
-    default:
+    case 'in_progress':
+      return 'active' as const
+    case 'blocked':
       return 'critical' as const
   }
+
+  return assertChecklistStateUnreachable(state)
 }
 
 function getChecklistIcon(state: ApplyChecklistItem['state']) {
@@ -50,9 +58,11 @@ function getChecklistIcon(state: ApplyChecklistItem['state']) {
       return CircleDashed
     case 'attention':
       return TriangleAlert
-    default:
+    case 'blocked':
       return TriangleAlert
   }
+
+  return assertChecklistStateUnreachable(state)
 }
 
 function getApplySupportState(selectedJob: SavedJob | null): ApplySupportState {
@@ -85,6 +95,54 @@ function getNextChecklistItem(checklist: readonly ApplyChecklistItem[]) {
     checklist.find((item) => item.state === 'attention') ??
     null
   )
+}
+
+function getReadinessDescription(input: {
+  selectedItem: ReviewQueueItem | null
+  hasGenerationFailure: boolean
+  needsGeneration: boolean
+  isGenerating: boolean
+  hasReadyApprovedAsset: boolean
+  resumeReviewStatus: ReviewQueueItem['resumeReview']['status'] | 'not_started'
+  applySupportState: ApplySupportState
+}): string {
+  const {
+    selectedItem,
+    hasGenerationFailure,
+    needsGeneration,
+    isGenerating,
+    hasReadyApprovedAsset,
+    resumeReviewStatus,
+    applySupportState
+  } = input
+
+  if (!selectedItem) {
+    return 'Select a shortlisted job to see what needs attention before you apply.'
+  }
+
+  if (hasGenerationFailure) {
+    return 'The last tailored resume run failed. Try again or open the resume workspace before you continue.'
+  }
+
+  if (needsGeneration) {
+    return 'Create a tailored resume first.'
+  }
+
+  if (isGenerating) {
+    return 'Job Finder is still preparing the latest resume for this job.'
+  }
+
+  if (!hasReadyApprovedAsset) {
+    return resumeReviewStatus === 'stale'
+      ? 'The last approved PDF is out of date and needs a fresh approval.'
+      : 'Open the resume workspace to export a PDF and approve it before applying.'
+  }
+
+  if (applySupportState === 'manual_follow_up') {
+    return 'The approved PDF is ready, but saved job data does not confirm a supported Easy Apply path. Starting can still stop with a manual-only next step.'
+  }
+
+  return 'The approved PDF is ready to use. Starting now can still pause if the live form asks for unsupported information.'
 }
 
 export function ReviewQueueMissionPanel({
@@ -181,6 +239,15 @@ export function ReviewQueueMissionPanel({
     }
   ]
   const nextBlockedChecklistItem = getNextChecklistItem(checklist)
+  const readinessDescription = getReadinessDescription({
+    selectedItem,
+    hasGenerationFailure,
+    needsGeneration,
+    isGenerating,
+    hasReadyApprovedAsset,
+    resumeReviewStatus,
+    applySupportState
+  })
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
@@ -194,23 +261,7 @@ export function ReviewQueueMissionPanel({
             <StatusBadge tone={applyReadinessStatus.tone}>{applyReadinessStatus.label}</StatusBadge>
           </div>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            {!selectedItem
-              ? 'Select a shortlisted job to see what needs attention before you apply.'
-              : hasGenerationFailure
-              ? 'The last tailored resume run failed. Try again or open the resume workspace before you continue.'
-              : needsGeneration
-              ? 'Create a tailored resume first.'
-              : isGenerating
-                ? 'Job Finder is still preparing the latest resume for this job.'
-                : !hasReadyApprovedAsset
-                  ? resumeReviewStatus === 'stale'
-                    ? 'The last approved PDF is out of date and needs a fresh approval.'
-                    : 'Open the resume workspace to export a PDF and approve it before applying.'
-                : applySupportState === 'manual_follow_up'
-                  ? 'The approved PDF is ready, but saved job data does not confirm a supported Easy Apply path. Starting can still stop with a manual-only next step.'
-                : hasReadyApprovedAsset
-                  ? 'The approved PDF is ready to use. Starting now can still pause if the live form asks for unsupported information.'
-                  : 'Open the resume workspace to export a PDF and approve it before applying.'}
+            {readinessDescription}
           </p>
           {selectedItem && isGenerating ? <ProgressBar ariaLabel="Resume progress" percent={selectedItem?.progressPercent ?? 0} /> : null}
         </div>

@@ -250,8 +250,7 @@ function isLocationLike(value: string): boolean {
   }
 
   if (wordCount <= 3) {
-    return wordCount >= 2 &&
-      tokens.every((token) => /^[A-Z][\p{L}\p{N}.'’-]*$/u.test(token)) &&
+    return tokens.every((token) => /^[A-Z][\p{L}\p{N}.'’-]*$/u.test(token)) &&
       !COMPANY_NOISE_PATTERN.test(normalized);
   }
 
@@ -319,6 +318,12 @@ function inferLocation(
   lines: readonly string[],
   workMode: JobPosting["workMode"],
 ): string | null {
+  for (const line of lines) {
+    if (LOCATION_HINT_PATTERN.test(cleanLine(line))) {
+      return cleanLine(line);
+    }
+  }
+
   for (const line of lines) {
     if (isLocationLike(line)) {
       return cleanLine(line);

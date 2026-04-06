@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { JobFinderSettings, ResumeTemplateDefinition } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
@@ -37,9 +37,21 @@ export function SettingsEditableDefaults({
   onSaveSettings,
   settings
 }: SettingsEditableDefaultsProps) {
+  const appearanceId = useId()
+  const resumeTemplateId = useId()
+  const fontPresetId = useId()
   const [settingsForm, setSettingsForm] = useState(settings)
+  const appearanceThemeOptions: ReadonlyArray<{ label: string; value: JobFinderSettings['appearanceTheme'] }> = [
+    { label: 'System', value: 'system' },
+    { label: 'Light', value: 'light' },
+    { label: 'Dark', value: 'dark' }
+  ]
   const isFontPresetOption = (value: string): value is JobFinderSettings['fontPreset'] =>
     fontPresetOptions.some((fontPreset) => fontPreset.value === value)
+  const isAppearanceThemeOption = (value: string): value is JobFinderSettings['appearanceTheme'] =>
+    appearanceThemeOptions.some((option) => option.value === value)
+  const isResumeTemplateOption = (value: string): value is JobFinderSettings['resumeTemplateId'] =>
+    availableResumeTemplates.some((template) => template.id === value)
   const selectedTemplate = availableResumeTemplates.find(
     (template) => template.id === settingsForm.resumeTemplateId
   )
@@ -68,29 +80,33 @@ export function SettingsEditableDefaults({
 
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field>
-              <FieldLabel>Appearance</FieldLabel>
+              <FieldLabel htmlFor={appearanceId}>Appearance</FieldLabel>
               <FormSelect
-                onValueChange={(value) => setSettingsForm((current) => ({ ...current, appearanceTheme: value as JobFinderSettings['appearanceTheme'] }))}
-                options={[
-                  { label: 'System', value: 'system' },
-                  { label: 'Light', value: 'light' },
-                  { label: 'Dark', value: 'dark' }
-                ]}
+                onValueChange={(value) => setSettingsForm((current) => ({
+                  ...current,
+                  appearanceTheme: isAppearanceThemeOption(value) ? value : current.appearanceTheme
+                }))}
+                options={appearanceThemeOptions}
                 placeholder="Select appearance"
+                triggerId={appearanceId}
                 value={settingsForm.appearanceTheme}
               />
             </Field>
             <Field>
-              <FieldLabel>Resume template</FieldLabel>
+              <FieldLabel htmlFor={resumeTemplateId}>Resume template</FieldLabel>
               <FormSelect
-                onValueChange={(value) => setSettingsForm((current) => ({ ...current, resumeTemplateId: value as JobFinderSettings['resumeTemplateId'] }))}
+                onValueChange={(value) => setSettingsForm((current) => ({
+                  ...current,
+                  resumeTemplateId: isResumeTemplateOption(value) ? value : current.resumeTemplateId
+                }))}
                 options={availableResumeTemplates.map((template) => ({ label: template.label, value: template.id }))}
                 placeholder="Select template"
+                triggerId={resumeTemplateId}
                 value={settingsForm.resumeTemplateId}
               />
             </Field>
             <Field className="md:col-span-2">
-              <FieldLabel>Resume font</FieldLabel>
+              <FieldLabel htmlFor={fontPresetId}>Resume font</FieldLabel>
               <FormSelect
                 onValueChange={(value) => setSettingsForm((current) => ({
                   ...current,
@@ -98,6 +114,7 @@ export function SettingsEditableDefaults({
                 }))}
                 options={fontPresetOptions.map((fontPreset) => ({ label: fontPreset.label, value: fontPreset.value }))}
                 placeholder="Select font"
+                triggerId={fontPresetId}
                 value={settingsForm.fontPreset}
               />
             </Field>

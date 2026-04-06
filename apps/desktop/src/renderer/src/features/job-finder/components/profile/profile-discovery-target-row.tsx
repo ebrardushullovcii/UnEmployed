@@ -62,7 +62,9 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   const labelId = `${baseId}-label`
   const startingUrlId = `${baseId}-starting-url`
   const instructionsId = `${baseId}-instructions`
-  const displayName = props.target.label.trim() || 'New source'
+  const targetLabel = props.target.label.trim()
+  const displayName = targetLabel || 'New source'
+  const accessibleLabel = targetLabel || `New source ${props.index + 1}`
   const learnedInstructionSections = useMemo(
     () => buildLearnedInstructionSections(props.instructionArtifact),
     [props.instructionArtifact]
@@ -221,7 +223,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            aria-label={`Check this source for ${displayName}`}
+            aria-label={`Check this source for ${accessibleLabel}`}
             disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
             onClick={handleRunSourceDebug}
             type="button"
@@ -230,7 +232,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             Check source
           </Button>
           <Button
-            aria-label={`Move ${displayName} up`}
+            aria-label={`Move ${accessibleLabel} up`}
             disabled={props.index === 0}
             onClick={handleMoveTargetUp}
             type="button"
@@ -239,7 +241,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             Move up
           </Button>
           <Button
-            aria-label={`Move ${displayName} down`}
+            aria-label={`Move ${accessibleLabel} down`}
             disabled={props.index === props.discoveryTargets.length - 1}
             onClick={handleMoveTargetDown}
             type="button"
@@ -248,7 +250,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             Move down
           </Button>
           <Button
-            aria-label={`Remove ${displayName}`}
+            aria-label={`Remove ${accessibleLabel}`}
             onClick={handleRemoveTarget}
             type="button"
             variant="ghost"
@@ -290,7 +292,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
                 Last source check
               </p>
               <Button
-                aria-label={`Review the latest source check for ${displayName}`}
+                aria-label={`Review the latest source check for ${accessibleLabel}`}
                 disabled={props.busy}
                 onClick={handleReviewLatestRun}
                 type="button"

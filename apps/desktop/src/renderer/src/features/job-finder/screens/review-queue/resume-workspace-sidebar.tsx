@@ -124,12 +124,12 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
               <div
                 key={artifact.id}
                 className="grid min-w-0 gap-1 text-sm text-foreground-soft"
-                >
-                  <strong className="text-foreground">
-                    {artifact.pageTitle ?? artifact.sourceUrl}
-                  </strong>
-                  <span className="break-all">{artifact.sourceUrl}</span>
-                </div>
+              >
+                <strong className="text-foreground">
+                  {artifact.pageTitle ?? artifact.sourceUrl}
+                </strong>
+                <span className="break-all">{artifact.sourceUrl}</span>
+              </div>
             ))
           ) : (
             <p className="text-sm text-foreground-soft">

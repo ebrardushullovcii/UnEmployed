@@ -1,8 +1,8 @@
 import type { ApplicationAttempt, ApplicationRecord } from '@unemployed/contracts'
 import { cn } from '@renderer/lib/utils'
+import { formatTimestamp, formatStatusLabel, getApplicationTone, getEventTone } from '@renderer/features/job-finder/lib/job-finder-utils'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
-import { formatTimestamp, formatStatusLabel, getApplicationTone, getEventTone } from '../../lib/job-finder-utils'
 import type { ApplicationsViewFilter } from './applications-screen'
 
 interface ApplicationsDetailPanelProps {
@@ -45,6 +45,8 @@ function getAttemptTone(state: ApplicationAttempt['state'] | null) {
 
 export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasVisibleApplications, selectedAttempt, selectedRecord }: ApplicationsDetailPanelProps) {
   const highlightedNextStep = selectedAttempt?.nextActionLabel ?? selectedRecord?.nextActionLabel ?? null
+  const attemptSummary = selectedAttempt?.summary?.trim() || null
+  const attemptDetail = selectedAttempt?.detail?.trim() || null
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
@@ -52,9 +54,9 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
         <div className="grid gap-1">
           <p className="label-mono-xs">Details</p>
           {selectedRecord ? (
-            <strong className="text-[0.95rem] text-(--text-headline)">{selectedRecord.company}</strong>
+            <strong className="text-(length:--text-body) text-(--text-headline)">{selectedRecord.company}</strong>
           ) : (
-            <strong className="text-[0.95rem] text-muted-foreground">Nothing selected</strong>
+            <strong className="text-(length:--text-body) text-muted-foreground">Nothing selected</strong>
           )}
         </div>
         <StatusBadge tone={selectedRecord ? getApplicationTone(selectedRecord.status) : 'muted'}>
@@ -62,18 +64,18 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
         </StatusBadge>
       </div>
       {selectedRecord ? (
-         <div className="grid min-h-0 flex-1 content-start gap-6 overflow-y-auto pr-1">
-            <div className="grid gap-2">
-              <h2 className="text-[1.7rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{selectedRecord.title}</h2>
-              <p className="text-(length:--text-field) text-foreground-muted">{selectedRecord.company}</p>
-            </div>
-            {highlightedNextStep ? (
-              <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-                <p className="font-display text-[10px] uppercase tracking-(--tracking-mono) text-primary">Next step</p>
-                <strong className="text-(length:--text-body) text-(--text-headline)">{highlightedNextStep}</strong>
-                {selectedAttempt?.detail ? <p className="text-(length:--text-small) leading-6 text-foreground-soft">{selectedAttempt.detail}</p> : null}
-              </section>
-            ) : null}
+          <div className="grid min-h-0 flex-1 content-start gap-6 overflow-y-auto pr-1">
+             <div className="grid gap-2">
+               <h2 className="text-(length:--text-section-title) font-semibold tracking-tight text-(--text-headline)">{selectedRecord.title}</h2>
+               <p className="text-(length:--text-field) text-foreground-muted">{selectedRecord.company}</p>
+             </div>
+             {highlightedNextStep ? (
+               <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+                 <h3 className="label-mono-xs text-primary">Next step</h3>
+                 <strong className="text-(length:--text-body) text-(--text-headline)">{highlightedNextStep}</strong>
+                 {attemptDetail ? <p className="text-(length:--text-small) leading-6 text-foreground-soft">{attemptDetail}</p> : null}
+               </section>
+             ) : null}
             <div className="grid gap-3 md:grid-cols-2">
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
                 <span className="card-heading-sm">Latest apply attempt</span>
@@ -111,23 +113,23 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
               </div>
             </div>
             {selectedAttempt ? (
-               <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-                 <p className="font-display text-[10px] uppercase tracking-(--tracking-mono) text-primary">Attempt details</p>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                   <strong>{selectedAttempt.summary}</strong>
-                  <StatusBadge tone={getAttemptTone(selectedAttempt.state)}>
-                   {getAttemptStateLabel(selectedAttempt.state)}
-                 </StatusBadge>
-               </div>
-               <p className="text-(length:--text-body) leading-7 text-foreground-soft">{selectedAttempt.detail}</p>
-               {selectedAttempt.nextActionLabel ? <p className="text-(length:--text-small) leading-6 text-foreground-soft">Next step: {selectedAttempt.nextActionLabel}</p> : null}
-             </section>
-           ) : (
-             <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-              <p className="font-display text-[10px] uppercase tracking-(--tracking-mono) text-primary">Attempt details</p>
-              <p className="text-(length:--text-body) leading-7 text-foreground-soft">No apply attempt details were saved for this application yet.</p>
-             </section>
-           )}
+                <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+                  <h3 className="label-mono-xs text-primary">Attempt details</h3>
+                 <div className="flex flex-wrap items-center justify-between gap-3">
+                    {attemptSummary ? <strong>{attemptSummary}</strong> : <strong>No summary available</strong>}
+                   <StatusBadge tone={getAttemptTone(selectedAttempt.state)}>
+                    {getAttemptStateLabel(selectedAttempt.state)}
+                  </StatusBadge>
+                </div>
+                {attemptDetail ? <p className="text-(length:--text-body) leading-7 text-foreground-soft">{attemptDetail}</p> : null}
+                {selectedAttempt.nextActionLabel ? <p className="text-(length:--text-small) leading-6 text-foreground-soft">Next step: {selectedAttempt.nextActionLabel}</p> : null}
+              </section>
+            ) : (
+              <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+               <h3 className="label-mono-xs text-primary">Attempt details</h3>
+               <p className="text-(length:--text-body) leading-7 text-foreground-soft">No apply attempt details were saved for this application yet.</p>
+              </section>
+            )}
            <div className="grid gap-2">
              <p className="label-mono-xs">Timeline</p>
            <div className="grid gap-0">
@@ -137,7 +139,7 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
                   <div>
                     <div className="label-mono-xs">{formatTimestamp(event.at)}</div>
                     <strong className={cn('mt-1 block text-sm font-medium', getEventTone(event) === 'positive' ? 'text-positive' : getEventTone(event) === 'active' ? 'text-primary' : getEventTone(event) === 'critical' ? 'text-destructive' : 'text-foreground')}>{event.title}</strong>
-                    <p className="mt-2 text-[0.84rem] leading-relaxed text-foreground-soft">{event.detail}</p>
+                    <p className="mt-2 text-(length:--text-description) leading-relaxed text-foreground-soft">{event.detail}</p>
                   </div>
                 </article>
               ))}
