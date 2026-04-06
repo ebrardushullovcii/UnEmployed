@@ -41,13 +41,13 @@ async function readInteractionPageStateToken(page: Page): Promise<string> {
             if (element.type === 'checkbox' || element.type === 'radio') {
               state = element.checked ? '[checked]' : '[unchecked]'
             } else {
-              state = `[value:${element.value.slice(0, 50)}]`
+              state = `[type:${element.type}]`
             }
           } else if (element instanceof HTMLTextAreaElement) {
-            state = `[value:${element.value.slice(0, 50)}]`
+            state = '[textarea]'
           } else if (element instanceof HTMLSelectElement) {
             const selectedOption = element.options[element.selectedIndex]
-            state = `[selected:${selectedOption?.text?.slice(0, 30) ?? selectedOption?.value?.slice(0, 30) ?? ''}]`
+            state = `[select:${element.selectedIndex}]`
           } else {
             const ariaChecked = element.getAttribute('aria-checked')
             const ariaSelected = element.getAttribute('aria-selected')
@@ -400,8 +400,9 @@ If the click fails, you'll get details about why so you can decide whether to re
           const href = await locator.getAttribute('href').catch(() => null)
 
           if (href) {
-            const previousUrl = state.currentUrl || page.url()
-            const absoluteUrl = new URL(href, previousUrl).toString()
+            const pageUrl = page.url()
+            const previousUrl = state.currentUrl || pageUrl
+            const absoluteUrl = new URL(href, pageUrl).toString()
             const urlValidation = isAllowedUrl(absoluteUrl, context.config.navigationPolicy)
 
             if (!urlValidation.valid) {
@@ -489,7 +490,7 @@ If the click fails, you'll get details about why so you can decide whether to re
           await locator.click({ timeout: CLICK_TIMEOUT_MS });
         } catch (clickError) {
           const canUseCheckboxLabelFallback =
-            role === "checkbox" && /intercepts pointer events/i.test(clickError instanceof Error ? clickError.message : String(clickError));
+            (role === "checkbox" || role === "radio") && /intercepts pointer events/i.test(clickError instanceof Error ? clickError.message : String(clickError));
 
           if (!canUseCheckboxLabelFallback || !(await clickCheckboxWithLabelFallback(locator).catch(() => false))) {
             throw clickError;
@@ -822,9 +823,10 @@ return { success: false, error: recovery.error ?? "Navigation went to disallowed
           const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
-            if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-            const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
-            return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered, errorType: "select_failed", repeatedFailureCount } };
+            const errorMsg = recovery.error ?? "Navigation went to disallowed URL."
+            state.currentUrl = recovery.recoveredUrl ?? previousUrl
+            const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg)
+            return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered, errorType: "select_failed", repeatedFailureCount } };
           }
           clearFailedInteractionAttemptsAfterNavigation(state);
           state.currentUrl = newUrl;
