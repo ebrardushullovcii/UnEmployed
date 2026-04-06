@@ -367,7 +367,7 @@ If the click fails, you'll get details about why so you can decide whether to re
       const interactionAttemptKey = buildInteractionAttemptKey("click", role, name, index);
       const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
 
-if (
+      if (
         priorAttempt &&
         priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
         shouldTreatAsRepeatedClickFailure(priorAttempt.lastError)
@@ -688,7 +688,7 @@ You get role, name, and index from get_interactive_elements().`,
       if (
         priorAttempt &&
         priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
-        shouldTreatAsRepeatedFillFailure(priorAttempt.lastError)
+        shouldTreatAsRepeatedSelectOptionFailure(priorAttempt.lastError)
       ) {
         return {
           success: false,
