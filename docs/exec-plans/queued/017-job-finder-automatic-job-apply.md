@@ -2,7 +2,7 @@
 
 Status: ready
 
-This plan is defined but not started. It remains queued after plan `007` hardens the `Resume Workspace` and plan `010` finishes the current measurement-first browser-efficiency slice. The first implementation slice is now intentionally staged rather than jumping straight from today's review-gated apply flow to queue-wide automatic submission.
+Plan `017` remains queued. Plan `007` completed the `Resume Workspace` hardening. Plan `010` completed the measurement-first browser-efficiency slice. The first implementation slice is now intentionally staged rather than jumping straight from the review-gated apply flow to queue-wide automatic submission.
 
 ## Goal
 
@@ -691,3 +691,18 @@ Additional completion rule:
 - `docs/CONTRACTS.md`
 - `docs/ARCHITECTURE.md`
 - `docs/TESTING.md`
+
+## Exec-Plan Lifecycle
+
+When work on this plan begins:
+- Move the exec plan file from `docs/exec-plans/queued/` to `docs/exec-plans/active/`
+
+When preparing for handoff, creating a commit/PR, or when the plan becomes stale:
+- Update `docs/STATUS.md` to reflect the current state
+- Update `docs/TRACKS.md` to move the track between `ready`, `in_progress`, `handoff`, or `done`
+- Update any relevant module docs in `docs/modules/`
+
+When the plan is complete:
+- Move the exec plan file from `docs/exec-plans/active/` to `docs/exec-plans/completed/`
+- Update `docs/STATUS.md` to reflect completion and next steps
+- Update `docs/TRACKS.md` to mark the track as `done` and note completion

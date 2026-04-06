@@ -119,8 +119,13 @@ function buildInteractionAttemptKey(
   role: string,
   name: string,
   index: number,
+  optionText?: string,
 ): string {
-  return `${kind}::${normalizeInteractionAttemptRole(kind, role)}::${normalizeInteractionAttemptName(name)}::${index}`;
+  const baseKey = `${kind}::${normalizeInteractionAttemptRole(kind, role)}::${normalizeInteractionAttemptName(name)}::${index}`;
+  if (kind === "select_option" && optionText) {
+    return `${baseKey}::${normalizeInteractionAttemptName(optionText)}`;
+  }
+  return baseKey;
 }
 
 function shouldTreatAsRepeatedClickFailure(errorMessage: string): boolean {
@@ -677,7 +682,7 @@ You get role, name, and index from get_interactive_elements().`,
       const { page, state } = context;
       const previousUrl = state.currentUrl;
       await syncFailedInteractionAttemptsWithPageState(page, state);
-      const interactionAttemptKey = buildInteractionAttemptKey("select_option", role, name, index);
+      const interactionAttemptKey = buildInteractionAttemptKey("select_option", role, name, index, optionText);
       const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
 
       if (
@@ -777,6 +782,7 @@ You get role, name, and index from get_interactive_elements().`,
             if (!urlValidation.valid) {
               const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
               if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
+              recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
               return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
             }
             clearFailedInteractionAttemptsAfterNavigation(state);
@@ -811,6 +817,7 @@ You get role, name, and index from get_interactive_elements().`,
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
             if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
+            recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
             return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
           }
           clearFailedInteractionAttemptsAfterNavigation(state);

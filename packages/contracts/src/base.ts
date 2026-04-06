@@ -127,7 +127,17 @@ export function normalizeWorkModeList(value: unknown): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.map((entry) => normalizeWorkModeValue(entry));
+    const results: unknown[] = [];
+    for (const entry of value) {
+      if (typeof entry === "string" && entry.trim()) {
+        for (const part of entry.split(/\s*,\s*/).filter(Boolean)) {
+          results.push(normalizeWorkModeValue(part));
+        }
+      } else {
+        results.push(normalizeWorkModeValue(entry));
+      }
+    }
+    return results;
   }
 
   if (typeof value === "string") {
