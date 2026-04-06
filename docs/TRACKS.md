@@ -33,11 +33,11 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `Plan 008 Automatic Job Apply`
 
 - status: `ready`
-- last updated: `2026-04-05`
+- last updated: `2026-04-06`
 - linked plan: `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
 - code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/browser-runtime`, `packages/browser-agent`, `apps/desktop`
-- current focus: queued follow-on slice that redefines the next apply direction toward autonomous single-job and queue submission with run-scoped multi-submit approval, live consent interrupts, generated profile-grounded answers, skip-with-artifacts recovery, and clear package ownership where browser-agent holds bounded workflow policy while runtime stays generic
-- next step: start after `007` hardens the resume-approval and apply-safety prerequisites enough that automatic submission can build on them instead of reopening them
+- current focus: queued follow-on slice now re-authored as a staged apply evolution: shared apply domains and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission with run-scoped multi-submit approval, live consent interrupts, generated profile-grounded answers, skip-with-artifacts recovery, and clear package ownership where browser-agent holds bounded workflow policy while runtime stays generic
+- next step: start after `007` hardens the resume-approval and apply-safety prerequisites enough that the first `008` slice can land shared answer or blocker or replay domains and a one-job apply-copilot path instead of jumping straight to queue-wide auto-submit
 - blockers: depends on `007` hardening first; current shipped behavior remains more conservative until `008` lands
 
 ### `Plan 009 Full App Copy Pass`

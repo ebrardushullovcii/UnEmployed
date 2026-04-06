@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Plan `007` implementation and hardening remain active. Plan `010` browser-efficiency work is now in progress as a focused measurement and idle-gap reduction slice across discovery and source-debug. Plan `008` remains the next queued follow-on implementation plan, with `009` completed as the current shipped wording baseline after stronger rewrite and later structural polish passes.
+Plan `007` implementation and hardening remain active. Plan `010` browser-efficiency work is now in progress as a focused measurement and idle-gap reduction slice across discovery and source-debug. Plan `008` remains the next queued follow-on implementation plan, but it has now been re-authored as a staged apply evolution: shared apply domains, one-job apply copilot, one-job auto-submit, then queue automation. Plan `009` completed as the current shipped wording baseline after stronger rewrite and later structural polish passes.
 
 ## Snapshot
 
@@ -12,7 +12,7 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - The deterministic catalog path now keeps seeded browser session primitives in `packages/browser-runtime` while `packages/browser-agent` owns the catalog workflow policy layered on top of those primitives.
 - Plans `003`, `004`, and `005` are no longer the active focus and now serve mainly as completed implementation background.
 - Plan `007` remains an active implementation plan; the `Resume Workspace` works in a bare-bones form and is being tightened into a more reliable usable slice.
-- Plan `008` now has a concrete exec plan and intentionally defines a more autonomous future apply direction, but current shipped apply behavior remains more conservative until that work lands.
+- Plan `008` now has a concrete staged exec plan that keeps true auto-submit as the end state, but intentionally starts with stronger apply data plus a one-job apply-copilot step before queue automation; current shipped apply behavior remains more conservative until that work lands.
 - Plan `010` is now active for a measurement-first pass that adds live wait-state visibility, retained timing summaries, a test-only performance snapshot, and initial browser-speed tightening across discovery and debugging.
 - The current `010` tightening pass now also budgets discovery across the remaining targets, removes serial model-backed fit scoring from discovery merge, narrows discovery-hot-path SQLite reads and writes, flushes queued search-results extraction earlier when the agent stalls, and stops cold discovery sources earlier after repeated zero-yield extraction passes.
 - The current `010` source-debug tightening pass now also reuses same-host learned route hints as transient later-phase starting URLs, prefers current-run hints over stale cleared guidance once new routes are learned, records the actual phase starting URL in evidence, and favors collection-first probe routing when no proven search route exists.
@@ -21,6 +21,7 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - Plan `009` completed a stronger shipped-surface product rewrite across Job Finder and the shared shell, including clearer top-nav labels (`Find jobs`, `Shortlisted`, `Applications`), removal of low-value internal fields, and capture-script alignment for the updated headings.
 - Later follow-on polish on top of that baseline added a checklist-style readiness panel in `Shortlisted`, action-oriented filters in `Applications`, a more consolidated two-column `Settings` page, and optional-detail sections in `Profile` so the main editing path stays more focused.
 - The latest hardening pass tightened `Shortlisted` truthfulness by separating resume/browser readiness from supported apply-path readiness, synced `Applications` filtered selection back to controller state, and fixed the resume-import harness heading selector for strict-mode Playwright runs.
+- Plan `008` now directly absorbs the comparative-review findings: richer answer and blocker domains, stronger provider and source-debug intelligence inputs, a one-job apply-copilot milestone before broad auto-submit, and the explicit rule that provider APIs may improve question modeling but are not a universal direct-submit path without employer credentials.
 - Older milestone detail lives in `docs/HISTORY.md`.
 
 ## Active Work
@@ -42,7 +43,7 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - Re-run LinkedIn source-debug on the new build to confirm that collection-first later-phase routing trims the remaining zero-yield phase cost and reduces the quiet gap after the earlier runtime drop.
 - Re-run LinkedIn source-debug on the new build to confirm that malformed route hints no longer seed bad starting URLs and repeated search/card evidence failures stop consuming phase budget.
 - Re-run LinkedIn source-debug on the new build to confirm that phase-driven closeout now lands far earlier than the old max-step timeout path and cuts whole minutes, not just seconds.
-- Once `007` settles, start `008` from `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`, with `009` completed as background.
+- Once `007` settles, start `008` from `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`, with `009` completed as background. Plan `008` now defines a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission.
 
 ## Key References
 
