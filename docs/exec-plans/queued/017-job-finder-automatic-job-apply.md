@@ -1,4 +1,4 @@
-# 008 Job Finder Automatic Job Apply
+# 017 Job Finder Automatic Job Apply
 
 Status: ready
 
@@ -32,7 +32,7 @@ Required implementation bar:
 
 ## Research Inputs
 
-- queued plans `011` through `015`
+- queued plans `011` through `018`
 - Greenhouse Job Board API: `https://developers.greenhouse.io/job-board.html`
 - Lever developer docs: `https://hire.lever.co/developer/documentation`
 
@@ -42,7 +42,7 @@ Required implementation bar:
    - The browser flow still needs a strong question-detection, answer-grounding, and blocker-artifact pass that can stop safely before final submit.
 
 2. The current profile is not rich enough to trust long-form screener automation on its own.
-   - Richer narrative, proof-bank, and answer-bank data from queued plans `012` and `015` must shape how freeform answers are grounded.
+   - Richer narrative, proof-bank, and answer-bank data from queued plans `011` and `012` must shape how freeform answers are grounded.
 
 3. Current source-debug guidance is too freeform to be the long-term control plane for broad apply automation.
    - Apply should consume typed provider, route, auth, question-surface, and apply-path hints when present, following the direction captured in queued plan `014`.
@@ -53,7 +53,7 @@ Required implementation bar:
    - That means provider-aware research can improve question modeling, prefill, route planning, and blocker classification, but the generic product path must still assume live-browser submit for arbitrary jobs.
 
 5. Resume quality remains a prerequisite for apply automation being a product win.
-   - `008` continues to depend on an approved non-stale tailored resume export from `007`, and the deeper resume-quality direction in queued plan `011` should improve the value of later automation without reopening the approval boundary.
+   - `017` continues to depend on an approved non-stale tailored resume export from `007`, and the deeper resume-quality direction in queued plan `013` should improve the value of later automation without reopening the approval boundary.
 
 Planning consequence:
 

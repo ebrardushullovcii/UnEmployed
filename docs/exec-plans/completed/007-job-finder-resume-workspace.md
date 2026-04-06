@@ -1,6 +1,6 @@
 # 007 Job Finder Resume Workspace
 
-Status: active
+Status: completed
 
 ## Goal
 

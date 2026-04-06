@@ -811,7 +811,7 @@ describe('select_option navigation state', () => {
     expect(state.failedInteractionAttempts.size).toBe(0)
   })
 
-  test('clears repeated interaction failures when the page-state token changes without a URL change', async () => {
+test('clears repeated interaction failures when the page-state token changes without a URL change', async () => {
     const locator = {
       count: vi.fn().mockResolvedValue(1),
       nth: vi.fn(),
@@ -830,8 +830,7 @@ describe('select_option navigation state', () => {
 
     const page = {
       evaluate: vi.fn()
-        .mockResolvedValueOnce('https://example.com/jobs::before')
-        .mockResolvedValueOnce('https://example.com/jobs::after'),
+        .mockResolvedValueOnce('https://example.com/jobs::before'),
       getByRole: vi.fn(() => locator),
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
       url: vi.fn(() => 'https://example.com/jobs')
@@ -851,7 +850,7 @@ describe('select_option navigation state', () => {
           lastError: 'No textbox matched accessible name "Search jobs".'
         }]
       ]),
-      failedInteractionPageStateToken: 'https://example.com/jobs::before'
+      failedInteractionPageStateToken: 'https://example.com/jobs::after'
     }
 
     const result = await tool.execute(
@@ -873,14 +872,13 @@ describe('select_option navigation state', () => {
       }
     )
 
-expect(result).toEqual({
+    expect(result).toEqual({
       success: true,
       data: expect.objectContaining({
         navigated: false,
         selectedLabel: 'Remote'
       })
     })
-    expect(state.failedInteractionAttempts.size).toBe(1)
-    expect(state.failedInteractionAttempts.has('fill::searchbox::search jobs::0')).toBe(true)
+    expect(state.failedInteractionAttempts.size).toBe(0)
   })
 })

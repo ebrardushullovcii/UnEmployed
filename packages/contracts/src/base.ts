@@ -130,8 +130,9 @@ export function normalizeWorkModeList(value: unknown): unknown {
     return value.map((entry) => normalizeWorkModeValue(entry));
   }
 
-  if (typeof value === "string") {
-    return value.trim() ? [normalizeWorkModeValue(value)] : [];
+if (typeof value === "string") {
+    if (!value.trim()) return [];
+    return value.split(/\s*,\s*/).filter(Boolean).map(normalizeWorkModeValue);
   }
 
   return value;

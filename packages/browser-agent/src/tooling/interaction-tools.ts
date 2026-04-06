@@ -182,11 +182,12 @@ async function clickCheckboxWithLabelFallback(locator: Locator): Promise<boolean
       : labelLocator.locator('input[type="checkbox"], input[type="radio"]').first();
 
     const inputCount = await inputLocator.count().catch(() => 0);
-    const initialChecked = inputCount > 0 ? await inputLocator.isChecked().catch(() => false) : false;
+    if (inputCount === 0) return false;
+    const initialChecked = await inputLocator.isChecked().catch(() => false);
     await labelLocator.scrollIntoViewIfNeeded().catch(() => {});
     await labelLocator.click({ timeout: CLICK_TIMEOUT_MS / 2 }).catch(() => {});
-    const checkedAfter = inputCount > 0 ? await inputLocator.isChecked().catch(() => initialChecked) : initialChecked;
-    return inputCount === 0 || checkedAfter !== initialChecked;
+    const checkedAfter = await inputLocator.isChecked().catch(() => initialChecked);
+    return checkedAfter !== initialChecked;
   };
 
   if (explicitLabel && await tryLabel(explicitLabel).catch(() => false)) {
@@ -679,7 +680,10 @@ You get role, name, and index from get_interactive_elements().`,
       try {
         const locator = await resolveRoleLocator(page, role, name, index);
         const elementHandle = await locator.elementHandle();
-        if (!elementHandle) return { success: false, error: "Dropdown element not found" };
+        if (!elementHandle) {
+          recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, "Dropdown element not found");
+          return { success: false, error: "Dropdown element not found" };
+        }
 
         const selectionResult = await elementHandle.evaluate((element, targetOptionText) => {
           const normalizedTarget = targetOptionText.trim().toLowerCase();
@@ -708,7 +712,9 @@ You get role, name, and index from get_interactive_elements().`,
           await locator.click().catch(() => locator.focus().catch(() => undefined));
           const typedIntoCombobox = await fillComboboxValue(locator, page, optionText);
           if (!typedIntoCombobox) {
-            return { success: false, error: "Combobox did not receive focus before typing", data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
+            const errorMsg = "Combobox did not receive focus before typing";
+            recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+            return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
           }
           await page.waitForTimeout(250);
 
@@ -721,9 +727,11 @@ You get role, name, and index from get_interactive_elements().`,
 
           const comboboxSelection = await readComboboxSelection(locator);
           if (!matchedOption && !comboboxSelectionMatchesOption(comboboxSelection, optionText)) {
+            const errorMsg = `Option "${optionText}" was not found`;
+            recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
             return {
               success: false,
-              error: `Option "${optionText}" was not found`,
+              error: errorMsg,
               data: {
                 role,
                 name: name.slice(0, 50),
@@ -762,7 +770,11 @@ You get role, name, and index from get_interactive_elements().`,
         }
 
         if (!selectionResult?.selected) {
-          return { success: false, error: selectionResult?.unsupportedTag ? `select_option supports native select elements and common combobox widgets; received ${selectionResult.unsupportedTag}` : `Option "${optionText}" was not found`, data: selectionResult };
+          const errorMsg = selectionResult?.unsupportedTag 
+            ? `select_option supports native select elements and common combobox widgets; received ${selectionResult.unsupportedTag}` 
+            : `Option "${optionText}" was not found`;
+          recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+          return { success: false, error: errorMsg, data: selectionResult };
         }
 
         if (submit) {

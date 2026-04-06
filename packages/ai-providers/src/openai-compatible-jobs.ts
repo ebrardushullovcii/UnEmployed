@@ -252,22 +252,22 @@ const toWorkModeArray = (value: unknown): string[] => {
     const preferredQualifications = toStringArray(
       raw.preferredQualifications ?? raw.preferredRequirements,
     );
-const rawDescription = toStr(raw.description);
+const rawDescription = trimToNull(toStr(raw.description));
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
-const summary =
+    const summary =
       input.pageType === "search_results"
         ? trimToNull(raw.summary)
         : (trimToNull(raw.summary) ??
           summarizeJobPosting({
             title: toStr(raw.title),
             company: toStr(raw.company),
-            description: rawDescription,
+            description: rawDescription ?? "",
             responsibilities,
             minimumQualifications,
             preferredQualifications,
           }));
     const description =
-      rawDescription ||
+      rawDescription ??
       (input.pageType === "search_results"
         ? (summary ?? `${toStr(raw.title)} opportunity at ${toStr(raw.company)}`)
         : summary ?? "");

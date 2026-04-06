@@ -1,6 +1,6 @@
 # 010 Job Finder Browser Efficiency And Speed
 
-Status: active
+Status: completed
 
 This plan is now active. The current implementation slice focuses on exposing named waiting states, reducing obvious silent-idle behavior, and making discovery and source-debug stage attribution easier to verify before broader runtime tuning continues.
 

@@ -27,11 +27,11 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 
 ## Current And Queued Plans
 
-- Resume workspace plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
-- Automatic job apply plan: `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
+- Resume workspace plan: `docs/exec-plans/completed/007-job-finder-resume-workspace.md`
+- Automatic job apply plan: `docs/exec-plans/queued/017-job-finder-automatic-job-apply.md`
 - Completed full-app copy pass plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
-- Browser efficiency and speed plan: `docs/exec-plans/active/010-job-finder-browser-efficiency-and-speed.md`
-- `008` intentionally defines the next queued apply direction as a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission. The current shipped apply flow remains more conservative until that plan lands.
+- Browser efficiency and speed plan: `docs/exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md`
+- `017` intentionally defines the queued apply direction as a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission. The current shipped apply flow remains more conservative until that plan lands.
 
 ## Completed Background Plans
 

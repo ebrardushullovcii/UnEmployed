@@ -1,4 +1,4 @@
-# 017 Browser Substrate Evaluation And Direction
+# 018 Browser Substrate Evaluation And Direction
 
 Status: ready
 
@@ -31,9 +31,9 @@ Recent review work raised a legitimate architecture question:
 The answer affects multiple existing plans at once:
 
 - `010` browser efficiency and speed
-- `013` deterministic discovery and provider research
+- `015` deterministic discovery and provider research
 - `014` structured source-debug artifacts
-- `008` automatic job apply
+- `017` automatic job apply
 
 Because the decision is cross-cutting, it should not be hidden inside only one of those plans.
 
