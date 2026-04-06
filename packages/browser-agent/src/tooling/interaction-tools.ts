@@ -25,8 +25,8 @@ async function readInteractionPageStateToken(page: Page): Promise<string> {
       const elements = Array.from(
         document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [role="button"], [role="link"], [role="textbox"], [role="checkbox"], [role="menuitem"], [role="option"], [role="tab"], [role="switch"], [role="slider"], [role="combobox"], [contenteditable="true"]'),
       )
-        .slice(0, 80)
         .filter((element) => !element.closest('[aria-hidden="true"], [hidden], template'))
+        .slice(0, 80)
         .map((element) => {
           const role = element.getAttribute('role')?.trim().toLowerCase() ?? element.tagName.toLowerCase()
           const name = [
@@ -36,7 +36,21 @@ async function readInteractionPageStateToken(page: Page): Promise<string> {
             element.textContent,
           ].find((value) => typeof value === 'string' && value.trim().length > 0) ?? ''
 
-          return `${role}:${name.replace(/\s+/g, ' ').trim()}`
+          let state = ''
+          if (element instanceof HTMLInputElement) {
+            if (element.type === 'checkbox' || element.type === 'radio') {
+              state = element.checked ? '[checked]' : '[unchecked]'
+            } else {
+              state = `[value:${element.value.slice(0, 50)}]`
+            }
+          } else if (element instanceof HTMLTextAreaElement) {
+            state = `[value:${element.value.slice(0, 50)}]`
+          } else if (element instanceof HTMLSelectElement) {
+            const selectedOption = element.options[element.selectedIndex]
+            state = `[selected:${selectedOption?.text?.slice(0, 30) ?? selectedOption?.value?.slice(0, 30) ?? ''}]`
+          }
+
+          return `${role}:${name.replace(/\s+/g, ' ').trim()}${state}`
         })
 
       return `${window.location.href}::${document.title}::${elements.join('|')}`;

@@ -70,6 +70,10 @@ function getApplySupportState(selectedJob: SavedJob | null): ApplySupportState {
     return 'incomplete'
   }
 
+  if (selectedJob.applyPath === 'unknown') {
+    return 'incomplete'
+  }
+
   return selectedJob.applyPath === 'easy_apply' && selectedJob.easyApplyEligible
     ? 'supported'
     : 'manual_follow_up'
@@ -260,7 +264,7 @@ export function ReviewQueueMissionPanel({
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
-        <p className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Apply readiness</p>
+        <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Apply readiness</h3>
       </div>
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
         <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">

@@ -256,9 +256,8 @@ const toWorkModeArray = (value: unknown): string[] => {
     );
 const rawDescription = toStr(raw.description);
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
-    const rawSource = toStr(raw.source);
     const summary =
-      rawSource === "search_results"
+      input.pageType === "search_results"
         ? (trimToNull(raw.summary) ?? "")
         : (trimToNull(raw.summary) ??
           summarizeJobPosting({
