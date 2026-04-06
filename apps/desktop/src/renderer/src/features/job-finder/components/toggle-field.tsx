@@ -7,6 +7,7 @@ interface ToggleFieldProps {
   checked: boolean
   className?: string
   description: string
+  disabled?: boolean
   hint?: string
   label: string
   onCheckedChange: (checked: boolean) => void
@@ -16,6 +17,7 @@ export function ToggleField({
   checked,
   className,
   description,
+  disabled,
   hint,
   label,
   onCheckedChange
@@ -27,6 +29,7 @@ export function ToggleField({
     <div
       className={cn(
         'surface-card-tint grid min-w-0 content-start gap-(--gap-field) h-full rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4',
+        disabled && 'opacity-50',
         className
       )}
     >
@@ -39,6 +42,7 @@ export function ToggleField({
         <Switch 
           id={switchId}
           checked={checked} 
+          disabled={disabled}
           onCheckedChange={onCheckedChange}
           aria-describedby={descriptionId}
         />

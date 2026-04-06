@@ -286,7 +286,7 @@ export function ReviewQueueMissionPanel({
                   <StatusBadge tone="positive">Ready to start</StatusBadge>
                 )}
               </div>
-              <ul className="grid gap-3" role="list">
+              <ul className="m-0 grid gap-3 list-none p-0" role="list">
                 {checklist.map((item) => {
                   const Icon = getChecklistIcon(item.state)
 
@@ -351,6 +351,11 @@ export function ReviewQueueMissionPanel({
               </Button>
             </div>
           </>
+        ) : selectedItem ? (
+          <EmptyState
+            title="Job not loaded"
+            description="The selected job could not be loaded. Try selecting another job or refreshing the page."
+          />
         ) : (
           <EmptyState
             title="Choose a job"

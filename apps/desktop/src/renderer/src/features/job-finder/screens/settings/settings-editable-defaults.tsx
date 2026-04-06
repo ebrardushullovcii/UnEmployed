@@ -85,10 +85,11 @@ export function SettingsEditableDefaults({
             <p className="text-(length:--text-description) leading-6 text-foreground-soft">These settings shape how the workspace looks and what each new tailored resume starts from.</p>
           </div>
 
-          <div className="grid gap-(--gap-content) md:grid-cols-2">
+<div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field>
               <FieldLabel htmlFor={appearanceId}>Appearance</FieldLabel>
               <FormSelect
+                disabled={busy}
                 onValueChange={(value) => updateSettingsForm((current) => ({
                   ...current,
                   appearanceTheme: isAppearanceThemeOption(value) ? value : current.appearanceTheme
@@ -102,6 +103,7 @@ export function SettingsEditableDefaults({
             <Field>
               <FieldLabel htmlFor={resumeTemplateId}>Resume template</FieldLabel>
               <FormSelect
+                disabled={busy}
                 onValueChange={(value) => updateSettingsForm((current) => ({
                   ...current,
                   resumeTemplateId: isResumeTemplateOption(value) ? value : current.resumeTemplateId
@@ -115,6 +117,7 @@ export function SettingsEditableDefaults({
             <Field className="md:col-span-2">
               <FieldLabel htmlFor={fontPresetId}>Resume font</FieldLabel>
               <FormSelect
+                disabled={busy}
                 onValueChange={(value) => updateSettingsForm((current) => ({
                   ...current,
                   fontPreset: isFontPresetOption(value) ? value : current.fontPreset
@@ -125,6 +128,25 @@ export function SettingsEditableDefaults({
                 value={settingsForm.fontPreset}
               />
             </Field>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleField
+              checked={settingsForm.keepSessionAlive}
+              description="Reuse your browser session between searches and application steps."
+              disabled={busy}
+              hint="Turn this off on a shared computer."
+              label="Keep browser signed in"
+              onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
+            />
+            <ToggleField
+              checked={settingsForm.discoveryOnly}
+              description="Keep new search results temporary until you shortlist them."
+              disabled={busy}
+              hint="Useful if you want a cleaner workspace with fewer saved jobs."
+              label="Only keep jobs I shortlist"
+              onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
+            />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">

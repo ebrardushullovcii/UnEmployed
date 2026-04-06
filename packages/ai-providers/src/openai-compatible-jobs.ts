@@ -1,4 +1,4 @@
-import { JobPostingSchema, type JobPosting } from "@unemployed/contracts";
+import { JobPostingSchema, normalizeWorkModeList, type JobPosting } from "@unemployed/contracts";
 import {
   buildGenericCanonicalUrl,
   buildGenericJobId,
@@ -173,22 +173,12 @@ export function normalizeExtractedJobs(input: {
     return normalized ? [normalized] : [];
   };
 
-  const toWorkModeArray = (value: unknown): string[] => {
-    return toStringArray(value)
-      .flatMap((entry) => entry.split(","))
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => supportedWorkModes.has(entry))
-      .map((entry) => {
-        if (entry === "in_office") {
-          return "onsite";
-        }
-
-        if (entry === "flexible") {
-          return "hybrid";
-        }
-
-        return entry;
-      });
+const toWorkModeArray = (value: unknown): string[] => {
+    const normalized = normalizeWorkModeList(value);
+    if (!Array.isArray(normalized)) {
+      return [];
+    }
+    return normalized.filter((entry) => supportedWorkModes.has(entry));
   };
 
   if (

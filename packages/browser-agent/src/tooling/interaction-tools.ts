@@ -577,18 +577,14 @@ If multiple elements have the same role and name, use the index to disambiguate 
           } else {
             state.failedInteractionAttempts?.delete(interactionAttemptKey);
           }
-        } else {
+} else {
           state.failedInteractionAttempts?.delete(interactionAttemptKey);
         }
 
         return { success: true, data: { role, name: name.slice(0, 30), index, submitted: submit } };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Fill failed";
-        const nextFailureCount = (priorAttempt?.count ?? 0) + 1;
-        state.failedInteractionAttempts?.set(interactionAttemptKey, {
-          count: nextFailureCount,
-          lastError: errorMessage,
-        });
+        const nextFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
 
         const currentUrl = page.url();
         if (currentUrl) {

@@ -3,17 +3,8 @@ import type { ApplicationAttempt, ApplicationRecord } from '@unemployed/contract
 import { LockedScreenLayout } from '../../components/locked-screen-layout'
 import { PageHeader } from '../../components/page-header'
 import { ApplicationsDetailPanel } from './applications-detail-panel'
+import { APPLICATION_FILTERS, type ApplicationsViewFilter } from './applications-filters'
 import { ApplicationsRecordsPanel } from './applications-records-panel'
-
-export type ApplicationsViewFilter = 'all' | 'needs_action' | 'in_progress' | 'submitted' | 'manual_only'
-
-const APPLICATION_FILTERS: readonly ApplicationsViewFilter[] = [
-  'all',
-  'needs_action',
-  'in_progress',
-  'submitted',
-  'manual_only'
-]
 
 function getLatestApplicationAttemptForRecord(
   record: ApplicationRecord,

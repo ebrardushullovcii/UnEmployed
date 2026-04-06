@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 interface ProfileOptionalSectionProps {
@@ -11,11 +11,15 @@ interface ProfileOptionalSectionProps {
 export function ProfileOptionalSection({ children, defaultOpen = false, description, title }: ProfileOptionalSectionProps) {
   const [open, setOpen] = useState(defaultOpen)
 
+  useEffect(() => {
+    setOpen(defaultOpen)
+  }, [defaultOpen])
+
   return (
     <details className="surface-card-tint group rounded-(--radius-panel) border border-(--surface-panel-border) p-4 [&_summary::-webkit-details-marker]:hidden" onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)} open={open}>
       <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
         <span className="grid min-w-0 gap-1">
-          <span className="text-[0.96rem] font-semibold text-(--text-headline)">{title}</span>
+          <span className="text-(length:--text-body) font-semibold text-(--text-headline)">{title}</span>
           <span className="text-(length:--text-description) leading-6 text-foreground-muted">{description}</span>
         </span>
 

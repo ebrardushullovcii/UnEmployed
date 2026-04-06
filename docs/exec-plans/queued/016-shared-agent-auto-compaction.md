@@ -26,13 +26,13 @@ Current evidence:
 
 What exists today:
 
-- message-count based compaction for the browser agent
+- message-count-based compaction for the browser agent
 - preservation of coherent assistant and tool-call exchanges
-- persisted compaction metadata for source-debug style runs
+- persisted compaction metadata for source-debug-style runs
 
 What is still missing:
 
-- token-budget based compaction instead of only message-count thresholds
+- token-budget-based compaction instead of only message-count thresholds
 - a shared compaction policy all agent workflows can consume
 - clear settings ownership for default thresholds and per-workflow overrides
 - orchestrator-level rules for when and how compaction summaries get handed from one long-running phase to the next

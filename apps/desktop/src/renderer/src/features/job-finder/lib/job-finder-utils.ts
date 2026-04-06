@@ -110,6 +110,21 @@ export function getAttemptLabel(value: ApplicationAttempt['state'] | Application
   }
 }
 
+export function getAttemptTone(value: ApplicationAttempt['state'] | ApplicationRecord['lastAttemptState'] | null): BadgeTone {
+  switch (value) {
+    case 'submitted':
+      return 'positive'
+    case 'failed':
+    case 'unsupported':
+      return 'critical'
+    case 'paused':
+    case 'in_progress':
+      return 'active'
+    default:
+      return 'muted'
+  }
+}
+
 export function getApplicationTone(status: ApplicationStatus): BadgeTone {
   switch (status) {
     case 'interview':

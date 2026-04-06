@@ -44,21 +44,26 @@ function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
     message === "signal is aborted without reason";
 
   if (error instanceof DOMException && error.name === "AbortError") {
-    return new Error(
+    return new DOMException(
       `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+      "AbortError",
     );
   }
 
   if (error instanceof Error && error.name === "AbortError") {
-    return new Error(
+    const abortError = new Error(
       `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
     );
+    abortError.name = "AbortError";
+    return abortError;
   }
 
   if (isAbortLikeMessage) {
-    return new Error(
+    const abortError = new Error(
       `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
     );
+    abortError.name = "AbortError";
+    return abortError;
   }
 
   return error;

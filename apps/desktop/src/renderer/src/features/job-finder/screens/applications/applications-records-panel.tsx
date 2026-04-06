@@ -12,23 +12,8 @@ import {
 import { cn } from '@renderer/lib/utils'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
-import { formatStatusLabel, getApplicationTone, getAttemptLabel } from '../../lib/job-finder-utils'
-import type { ApplicationsViewFilter } from './applications-screen'
-
-function getAttemptTone(value: ApplicationRecord['lastAttemptState']) {
-  switch (value) {
-    case 'submitted':
-      return 'positive' as const
-    case 'failed':
-    case 'unsupported':
-      return 'critical' as const
-    case 'paused':
-    case 'in_progress':
-      return 'active' as const
-    default:
-      return 'muted' as const
-  }
-}
+import { formatStatusLabel, getApplicationTone, getAttemptLabel, getAttemptTone } from '../../lib/job-finder-utils'
+import { APPLICATION_FILTER_LABELS, APPLICATION_FILTERS, type ApplicationsViewFilter } from './applications-filters'
 
 interface ApplicationsRecordsPanelProps {
   activeFilter: ApplicationsViewFilter
@@ -39,14 +24,6 @@ interface ApplicationsRecordsPanelProps {
   onSelectRecord: (recordId: string) => void
   selectedRecord: ApplicationRecord | null
 }
-
-const filterOptions: Array<{ label: string; value: ApplicationsViewFilter }> = [
-  { label: 'All', value: 'all' },
-  { label: 'Needs action', value: 'needs_action' },
-  { label: 'In progress', value: 'in_progress' },
-  { label: 'Submitted', value: 'submitted' },
-  { label: 'Manual only', value: 'manual_only' }
-]
 
 export function ApplicationsRecordsPanel({
   activeFilter,
@@ -68,19 +45,19 @@ export function ApplicationsRecordsPanel({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {filterOptions.map((filterOption) => (
+          {APPLICATION_FILTERS.map((filterOption) => (
             <Button
-              aria-pressed={activeFilter === filterOption.value}
+              aria-pressed={activeFilter === filterOption}
               className="rounded-full"
-              key={filterOption.value}
-              onClick={() => onFilterChange(filterOption.value)}
+              key={filterOption}
+              onClick={() => onFilterChange(filterOption)}
               size="sm"
               type="button"
-              variant={activeFilter === filterOption.value ? 'secondary' : 'ghost'}
+              variant={activeFilter === filterOption ? 'secondary' : 'ghost'}
             >
-              {filterOption.label}
-              <span className="rounded-full border border-current/15 px-1.5 py-0.5 text-[10px] leading-none">
-                {filterCounts[filterOption.value]}
+              {APPLICATION_FILTER_LABELS[filterOption]}
+              <span className="label-mono-xs rounded-full border border-current/15 px-1.5 py-0.5 leading-none">
+                {filterCounts[filterOption]}
               </span>
             </Button>
           ))}
@@ -98,10 +75,10 @@ export function ApplicationsRecordsPanel({
           <Table>
             <TableHeader>
               <TableRow className="border-(--surface-panel-border) hover:bg-transparent">
-                <TableHead className="px-4 text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Job</TableHead>
-                <TableHead className="px-4 text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Latest activity</TableHead>
-                <TableHead className="px-4 text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Stage</TableHead>
-                <TableHead className="px-4 text-[10px] uppercase tracking-(--tracking-mono) text-muted-foreground">Apply attempt</TableHead>
+                <TableHead className="label-mono-xs px-4 uppercase tracking-(--tracking-mono) text-muted-foreground">Job</TableHead>
+                <TableHead className="label-mono-xs px-4 uppercase tracking-(--tracking-mono) text-muted-foreground">Latest activity</TableHead>
+                <TableHead className="label-mono-xs px-4 uppercase tracking-(--tracking-mono) text-muted-foreground">Stage</TableHead>
+                <TableHead className="label-mono-xs px-4 uppercase tracking-(--tracking-mono) text-muted-foreground">Apply attempt</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
