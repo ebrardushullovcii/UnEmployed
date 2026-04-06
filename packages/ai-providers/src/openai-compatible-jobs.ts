@@ -1,4 +1,4 @@
-import { JobPostingSchema, normalizeWorkModeList, WorkModeListSchema, type JobPosting } from "@unemployed/contracts";
+import { JobPostingSchema, WorkModeListSchema, type JobPosting } from "@unemployed/contracts";
 import {
   buildGenericCanonicalUrl,
   buildGenericJobId,
@@ -174,8 +174,7 @@ export function normalizeExtractedJobs(input: {
   };
 
 const toWorkModeArray = (value: unknown): string[] => {
-    const normalized = normalizeWorkModeList(value);
-    const parsed = WorkModeListSchema.safeParse(normalized);
+    const parsed = WorkModeListSchema.safeParse(value);
     if (!parsed.success) {
       return [];
     }

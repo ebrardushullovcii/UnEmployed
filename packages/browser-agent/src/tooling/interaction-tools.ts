@@ -118,7 +118,7 @@ function shouldTreatAsRepeatedClickFailure(errorMessage: string): boolean {
   const normalized = errorMessage.toLowerCase();
   return (
     normalized.includes("no ") && normalized.includes(" matched accessible name")
-  ) || normalized.includes("intercepts pointer events") || normalized.includes("intercepts direct pointer clicks") || normalized.includes("disallowed url");
+  ) || normalized.includes("intercepts pointer events") || normalized.includes("intercepts direct pointer clicks") || normalized.includes("disallowed url") || normalized.includes("is not allowed") || normalized.includes("invalid url");
 }
 
 function shouldTreatAsRepeatedFillFailure(errorMessage: string): boolean {
@@ -178,7 +178,7 @@ async function clickCheckboxWithLabelFallback(locator: Locator): Promise<boolean
 
     const forAttr = await labelLocator.getAttribute('for').catch(() => null);
     const inputLocator = forAttr
-      ? labelLocator.page().locator(`#${CSS.escape(forAttr)}`)
+      ? labelLocator.page().locator(`[id="${forAttr.replace(/"/g, '\\"')}"]`)
       : labelLocator.locator('input[type="checkbox"], input[type="radio"]').first();
 
     const inputCount = await inputLocator.count().catch(() => 0);
