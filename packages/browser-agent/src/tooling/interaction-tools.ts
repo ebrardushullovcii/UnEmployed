@@ -706,8 +706,9 @@ You get role, name, and index from get_interactive_elements().`,
         const locator = await resolveRoleLocator(page, role, name, index);
         const elementHandle = await locator.elementHandle();
         if (!elementHandle) {
-          recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, "Dropdown element not found");
-          return { success: false, error: "Dropdown element not found" };
+          const errorMsg = "Dropdown element not found";
+          const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+          return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, errorType: "select_failed", repeatedFailureCount } };
         }
 
         const selectionResult = await elementHandle.evaluate((element, targetOptionText) => {
@@ -738,8 +739,8 @@ You get role, name, and index from get_interactive_elements().`,
           const typedIntoCombobox = await fillComboboxValue(locator, page, optionText);
           if (!typedIntoCombobox) {
             const errorMsg = "Combobox did not receive focus before typing";
-            recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
-            return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
+            const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+            return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), errorType: "select_failed", repeatedFailureCount } };
           }
           await page.waitForTimeout(250);
 
@@ -753,7 +754,7 @@ You get role, name, and index from get_interactive_elements().`,
           const comboboxSelection = await readComboboxSelection(locator);
           if (!matchedOption && !comboboxSelectionMatchesOption(comboboxSelection, optionText)) {
             const errorMsg = `Option "${optionText}" was not found`;
-            recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+            const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
             return {
               success: false,
               error: errorMsg,
@@ -764,6 +765,8 @@ You get role, name, and index from get_interactive_elements().`,
                 optionText: optionText.slice(0, 50),
                 selectedLabel: comboboxSelection.selectedLabel,
                 selectedValue: comboboxSelection.selectedValue,
+                errorType: "select_failed",
+                repeatedFailureCount,
               },
             };
           }
@@ -782,8 +785,8 @@ You get role, name, and index from get_interactive_elements().`,
             if (!urlValidation.valid) {
               const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
               if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-              recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
-              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
+              const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
+              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered, errorType: "select_failed", repeatedFailureCount } };
             }
             clearFailedInteractionAttemptsAfterNavigation(state);
             state.currentUrl = newUrl;
@@ -799,8 +802,8 @@ You get role, name, and index from get_interactive_elements().`,
           const errorMsg = selectionResult?.unsupportedTag 
             ? `select_option supports native select elements and common combobox widgets; received ${selectionResult.unsupportedTag}` 
             : `Option "${optionText}" was not found`;
-          recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
-          return { success: false, error: errorMsg, data: selectionResult };
+          const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+          return { success: false, error: errorMsg, data: { ...selectionResult, errorType: "select_failed", repeatedFailureCount } };
         }
 
         if (submit) {
@@ -817,8 +820,8 @@ You get role, name, and index from get_interactive_elements().`,
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
             if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-            recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
-            return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
+            const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
+            return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered, errorType: "select_failed", repeatedFailureCount } };
           }
           clearFailedInteractionAttemptsAfterNavigation(state);
           state.currentUrl = newUrl;
@@ -830,7 +833,7 @@ You get role, name, and index from get_interactive_elements().`,
         return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: selectionResult.selectedLabel ?? optionText, selectedValue: selectionResult.selectedValue ?? null } };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Select option failed";
-        recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
+        const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
 
         const currentUrl = page.url();
         if (currentUrl) {
@@ -843,7 +846,7 @@ You get role, name, and index from get_interactive_elements().`,
           }
         }
 
-        return { success: false, error: errorMessage, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
+        return { success: false, error: errorMessage, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), errorType: "select_failed", repeatedFailureCount } };
       }
     },
   },

@@ -696,13 +696,17 @@ Additional completion rule:
 
 When work on this plan begins:
 - Move the exec plan file from `docs/exec-plans/queued/` to `docs/exec-plans/active/`
+- Update the plan file's `Status:` header (e.g., change from `ready` to `in_progress`)
+- Update `docs/TRACKS.md` to change the track status from `ready` to `in_progress`
 
 When preparing for handoff, creating a commit/PR, or when the plan becomes stale:
 - Update `docs/STATUS.md` to reflect the current state
-- Update `docs/TRACKS.md` to move the track between `ready`, `in_progress`, `handoff`, or `done`
+- Update `docs/TRACKS.md` to move the track to `handoff` if work is incomplete
+- If the plan is no longer driving implementation, move it from `docs/exec-plans/active/` to `docs/exec-plans/completed/` and set its `Status:` to `completed`
 - Update any relevant module docs in `docs/modules/`
 
 When the plan is complete:
 - Move the exec plan file from `docs/exec-plans/active/` to `docs/exec-plans/completed/`
+- Update the plan file's `Status:` header to `completed`
 - Update `docs/STATUS.md` to reflect completion and next steps
 - Update `docs/TRACKS.md` to mark the track as `done` and note completion
