@@ -6,7 +6,7 @@ import {
   describeInvalidFieldCounts,
 } from "./deterministic";
 
-const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "in_office", "flexible"]);
+const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "flexible"]);
 const jobBoardHostFragments = [
   "linkedin.com",
   "indeed.com",

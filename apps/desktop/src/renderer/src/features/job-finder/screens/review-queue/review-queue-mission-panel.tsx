@@ -98,6 +98,7 @@ function getNextChecklistItem(checklist: readonly ApplyChecklistItem[]) {
 
 function getReadinessDescription(input: {
   selectedItem: ReviewQueueItem | null
+  selectedJob: SavedJob | null
   hasGenerationFailure: boolean
   needsGeneration: boolean
   isGenerating: boolean
@@ -108,6 +109,7 @@ function getReadinessDescription(input: {
 }): string {
   const {
     selectedItem,
+    selectedJob,
     hasGenerationFailure,
     needsGeneration,
     isGenerating,
@@ -119,6 +121,10 @@ function getReadinessDescription(input: {
 
   if (!selectedItem) {
     return 'Select a shortlisted job to see what needs attention before you apply.'
+  }
+
+  if (!selectedJob) {
+    return ''
   }
 
   if (hasGenerationFailure) {
@@ -183,7 +189,8 @@ export function ReviewQueueMissionPanel({
   const canApproveApply =
     browserSession.status === 'ready' &&
     hasApprovedResumeExport &&
-    hasReadyApprovedAsset
+    hasReadyApprovedAsset &&
+    applySupportState !== 'incomplete'
   const primaryActionLabel = isGenerating
     ? 'Preparing resume...'
     : hasGenerationFailure
@@ -252,6 +259,7 @@ export function ReviewQueueMissionPanel({
   const nextBlockedChecklistItem = getNextChecklistItem(checklist)
   const readinessDescription = getReadinessDescription({
     selectedItem,
+    selectedJob,
     hasGenerationFailure,
     needsGeneration,
     isGenerating,
@@ -267,16 +275,18 @@ export function ReviewQueueMissionPanel({
         <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Apply readiness</h3>
       </div>
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
-        <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-          <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Current state</span>
-            <StatusBadge tone={applyReadinessStatus.tone}>{applyReadinessStatus.label}</StatusBadge>
+        {readinessDescription ? (
+          <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+            <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+              <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Current state</span>
+              <StatusBadge tone={applyReadinessStatus.tone}>{applyReadinessStatus.label}</StatusBadge>
+            </div>
+            <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+              {readinessDescription}
+            </p>
+            {selectedItem && isGenerating ? <ProgressBar ariaLabel="Resume progress" percent={selectedItem?.progressPercent ?? 0} /> : null}
           </div>
-          <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            {readinessDescription}
-          </p>
-          {selectedItem && isGenerating ? <ProgressBar ariaLabel="Resume progress" percent={selectedItem?.progressPercent ?? 0} /> : null}
-        </div>
+        ) : null}
         {selectedItem && selectedJob ? (
           <>
             <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">

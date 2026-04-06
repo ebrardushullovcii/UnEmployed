@@ -764,7 +764,7 @@ You get role, name, and index from get_interactive_elements().`,
         return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: selectionResult.selectedLabel ?? optionText, selectedValue: selectionResult.selectedValue ?? null } };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Select option failed";
-        const interactionAttemptKey = `${role}:${name}:${index}`;
+        const interactionAttemptKey = buildInteractionAttemptKey("select_option", role, name, index);
         const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
         recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
 
