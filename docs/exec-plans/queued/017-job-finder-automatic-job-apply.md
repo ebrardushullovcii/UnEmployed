@@ -110,7 +110,7 @@ The implementing agent should start from the current seams instead of inventing 
 
 ## Product Direction
 
-Plan `008` now defines a staged apply evolution.
+Plan `017` defines a staged apply evolution.
 
 ### Stage 1: Shared apply data foundation
 

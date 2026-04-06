@@ -48,6 +48,15 @@ async function readInteractionPageStateToken(page: Page): Promise<string> {
           } else if (element instanceof HTMLSelectElement) {
             const selectedOption = element.options[element.selectedIndex]
             state = `[selected:${selectedOption?.text?.slice(0, 30) ?? selectedOption?.value?.slice(0, 30) ?? ''}]`
+          } else {
+            const ariaChecked = element.getAttribute('aria-checked')
+            const ariaSelected = element.getAttribute('aria-selected')
+            const ariaExpanded = element.getAttribute('aria-expanded')
+            const ariaDisabled = element.getAttribute('aria-disabled')
+            if (ariaChecked !== null) state += `[aria-checked:${ariaChecked}]`
+            if (ariaSelected !== null) state += `[aria-selected:${ariaSelected}]`
+            if (ariaExpanded !== null) state += `[aria-expanded:${ariaExpanded}]`
+            if (ariaDisabled !== null) state += `[aria-disabled:${ariaDisabled}]`
           }
 
           return `${role}:${name.replace(/\s+/g, ' ').trim()}${state}`
@@ -128,6 +137,17 @@ function shouldTreatAsRepeatedFillFailure(errorMessage: string): boolean {
     normalized.includes("timeout") ||
     normalized.includes("did not receive focus") ||
     normalized.includes("disallowed url")
+  );
+}
+
+function shouldTreatAsRepeatedSelectOptionFailure(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    shouldTreatAsRepeatedFillFailure(errorMessage) ||
+    normalized.includes("dropdown element not found") ||
+    normalized.includes("was not found") ||
+    normalized.includes("supports native select elements") ||
+    normalized.includes("unsupported")
   );
 }
 
@@ -342,7 +362,7 @@ If the click fails, you'll get details about why so you can decide whether to re
       const interactionAttemptKey = buildInteractionAttemptKey("click", role, name, index);
       const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
 
-      if (
+if (
         priorAttempt &&
         priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
         shouldTreatAsRepeatedClickFailure(priorAttempt.lastError)

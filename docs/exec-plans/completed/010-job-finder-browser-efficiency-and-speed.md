@@ -2,9 +2,9 @@
 
 Status: completed
 
-This plan is now active. The current implementation slice focuses on exposing named waiting states, reducing obvious silent-idle behavior, and making discovery and source-debug stage attribution easier to verify before broader runtime tuning continues.
+This plan has been completed. The implementation focused on exposing named waiting states, reducing obvious silent-idle behavior, and making discovery and source-debug stage attribution easier to verify.
 
-## Current Implementation Status
+## Final Implementation Summary
 
 - Discovery now emits clearer browser-startup, browser-ready, merge, and persistence progress so healthy runs no longer look like unexplained blank browser time quite as often.
 - Source-debug now streams typed live progress to the desktop renderer, including current phase, wait reason, elapsed time, and product-facing status text.
@@ -17,7 +17,7 @@ This plan is now active. The current implementation slice focuses on exposing na
 - The desktop test API now exposes a performance snapshot path for benchmark and QA flows so representative runs can be inspected without digging through raw repository state.
 - Enabling the desktop test API no longer swaps discovery onto the deterministic AI client, so benchmark and snapshot workflows can keep using a real tool-calling provider.
 - Discovery now budgets job count and step count across the remaining run instead of asking every source to chase the full run-level target, and it can skip later targets once the run already has enough jobs.
-- Discovery merge now uses the existing deterministic fit scorer instead of serial model-backed `assessJobFit` calls, which removes a large post-browser wait bucket and the related fallback churn from discovery runs.
+- Discovery merge now prefers the deterministic fit scorer for discovery-phase job matching while retaining model-backed `assessJobFit` as a fallback path, reducing post-browser wait time in discovery runs.
 - The SQLite file repository now uses table-specific reads and writes for discovery-hot-path state such as saved jobs and discovery state, avoiding repeated full-workspace rehydrates and rewrites during discovery persistence.
 - Discovery now flushes queued search-results extraction as soon as the agent falls into a no-op planning turn instead of spending more late steps thinking while reviewable pages are already queued.
 - Discovery now stops cold sources early after repeated zero-yield extraction passes and a stale step window, which should trim the long tail on sources that keep wandering after they stop producing new jobs.

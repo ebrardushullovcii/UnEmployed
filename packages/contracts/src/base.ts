@@ -126,11 +126,11 @@ export function normalizeWorkModeList(value: unknown): unknown {
     return [];
   }
 
-  if (Array.isArray(value)) {
+if (Array.isArray(value)) {
     return value.map((entry) => normalizeWorkModeValue(entry));
   }
 
-if (typeof value === "string") {
+  if (typeof value === "string") {
     if (!value.trim()) return [];
     return value.split(/\s*,\s*/).filter(Boolean).map(normalizeWorkModeValue);
   }

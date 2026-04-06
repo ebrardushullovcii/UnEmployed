@@ -91,7 +91,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - code areas: `packages/browser-agent`, `packages/job-finder`, `packages/contracts`, `apps/desktop`
 - current focus: queued shared infrastructure follow-on to extend the current browser-agent message-count compaction into a shared token-budget compaction policy that all long-running agents and orchestrators can reuse, with a configurable default threshold around `150_000` tokens and message-count fallback where token estimation is not available
 - next step: decide the shared settings shape and whether the first implementation should stay `Job Finder`-scoped or immediately become repo-shared infrastructure for all agentic flows
-- blockers: should land before or alongside the longest-running later `008` apply flows, but does not need to block earlier product or schema work
+- blockers: should land before or alongside the longest-running later `017` apply flows, but does not need to block earlier product or schema work
 
 ### `Plan 017 Automatic Job Apply`
 
