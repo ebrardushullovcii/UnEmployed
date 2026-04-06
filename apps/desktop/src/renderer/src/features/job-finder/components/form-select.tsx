@@ -8,6 +8,7 @@ import {
 } from '@renderer/components/ui/select'
 
 interface FormSelectProps {
+  disabled?: boolean
   onValueChange: (value: string) => void
   options: ReadonlyArray<{ label: string; value: string }>
   placeholder?: string
@@ -20,6 +21,7 @@ interface FormSelectProps {
 const EMPTY_VALUE = '__empty__'
 
 export function FormSelect({
+  disabled,
   onValueChange,
   options,
   placeholder,
@@ -32,7 +34,7 @@ export function FormSelect({
   const id = triggerId ?? fallbackId
 
   return (
-    <Select onValueChange={(nextValue) => onValueChange(nextValue === EMPTY_VALUE ? '' : nextValue)} value={value || EMPTY_VALUE}>
+    <Select disabled={disabled ?? false} onValueChange={(nextValue) => onValueChange(nextValue === EMPTY_VALUE ? '' : nextValue)} value={value || EMPTY_VALUE}>
       <SelectTrigger aria-describedby={triggerAriaDescribedBy} className={triggerClassName} id={id}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

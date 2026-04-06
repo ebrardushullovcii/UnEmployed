@@ -39,9 +39,9 @@ export function ReviewQueueScreen(props: {
       topClassName="pb-(--gap-section) pt-8"
       topContent={(
         <PageHeader
-          eyebrow="Review Queue"
-          title="Tailored asset review"
-          description="A supervised queue for generated resume variants before the first supported Easy Apply automation path begins."
+          eyebrow="Shortlisted"
+          title="Shortlisted jobs"
+          description="Use this queue to finish the next step for each shortlisted job, approve the PDF you want to use, and start the application when every requirement is ready."
         />
       )}
     >

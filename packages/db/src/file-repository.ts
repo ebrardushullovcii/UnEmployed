@@ -23,11 +23,17 @@ import {
 import { DatabaseSync } from "node:sqlite";
 
 import { secureDatabaseFile, runMigrations } from "./internal/migrations";
-import { readLegacySeed } from "./internal/legacy";
+import {
+  normalizeLegacyDiscoveryState,
+  normalizeLegacySourceDebugRunRecord,
+  readLegacySeed,
+} from "./internal/legacy";
 import {
   bootstrapState,
   cloneValue,
+  getSingletonValue,
   hasPersistedState,
+  listValues,
   listResumeDraftValues,
   readState,
   replaceCollection,
@@ -327,7 +333,12 @@ export async function createFileJobFinderRepository(
       return secureDatabaseFile(options.filePath);
     },
     getProfile() {
-      return Promise.resolve(cloneValue(readState(database, normalizedSeed).profile));
+      return Promise.resolve(
+        cloneValue(
+          getSingletonValue(database, "profile", CandidateProfileSchema) ??
+            normalizedSeed.profile,
+        ),
+      );
     },
     saveProfile(profile) {
       return persist((state) => {
@@ -336,7 +347,13 @@ export async function createFileJobFinderRepository(
     },
     getSearchPreferences() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).searchPreferences),
+        cloneValue(
+          getSingletonValue(
+            database,
+            "search_preferences",
+            JobSearchPreferencesSchema,
+          ) ?? normalizedSeed.searchPreferences,
+        ),
       );
     },
     saveSearchPreferences(searchPreferences) {
@@ -358,13 +375,17 @@ export async function createFileJobFinderRepository(
       });
     },
     listSavedJobs() {
-      return Promise.resolve(cloneValue(readState(database, normalizedSeed).savedJobs));
+      return Promise.resolve(
+        cloneValue(listValues(database, "saved_jobs", SavedJobSchema)),
+      );
     },
     replaceSavedJobs(savedJobs) {
       const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
-      return persist((state) => {
-        state.savedJobs = normalizedJobs;
+      runImmediateTransaction(database, () => {
+        replaceCollection(database, "saved_jobs", normalizedJobs);
       });
+
+      return secureDatabaseFile(options.filePath);
     },
     replaceSavedJobsAndClearResumeApproval({
       savedJobs,
@@ -403,7 +424,7 @@ export async function createFileJobFinderRepository(
     },
     listTailoredAssets() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).tailoredAssets),
+        cloneValue(listValues(database, "tailored_assets", TailoredAssetSchema)),
       );
     },
     upsertTailoredAsset(tailoredAsset) {
@@ -764,7 +785,9 @@ export async function createFileJobFinderRepository(
     },
     listApplicationRecords() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).applicationRecords),
+        cloneValue(
+          listValues(database, "application_records", ApplicationRecordSchema),
+        ),
       );
     },
     upsertApplicationRecord(applicationRecord) {
@@ -775,7 +798,9 @@ export async function createFileJobFinderRepository(
     },
     listApplicationAttempts() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).applicationAttempts),
+        cloneValue(
+          listValues(database, "application_attempts", ApplicationAttemptSchema),
+        ),
       );
     },
     upsertApplicationAttempt(applicationAttempt) {
@@ -786,7 +811,11 @@ export async function createFileJobFinderRepository(
     },
     listSourceDebugRuns() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).sourceDebugRuns),
+        cloneValue(
+          listValues(database, "source_debug_runs", {
+            parse: normalizeLegacySourceDebugRunRecord,
+          }),
+        ),
       );
     },
     upsertSourceDebugRun(run) {
@@ -795,7 +824,13 @@ export async function createFileJobFinderRepository(
     },
     listSourceDebugAttempts() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).sourceDebugAttempts),
+        cloneValue(
+          listValues(
+            database,
+            "source_debug_attempts",
+            SourceDebugWorkerAttemptSchema,
+          ),
+        ),
       );
     },
     upsertSourceDebugAttempt(attempt) {
@@ -806,7 +841,13 @@ export async function createFileJobFinderRepository(
     },
     listSourceInstructionArtifacts() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).sourceInstructionArtifacts),
+        cloneValue(
+          listValues(
+            database,
+            "source_instruction_artifacts",
+            SourceInstructionArtifactSchema,
+          ),
+        ),
       );
     },
     upsertSourceInstructionArtifact(artifact) {
@@ -831,7 +872,13 @@ export async function createFileJobFinderRepository(
     },
     listSourceDebugEvidenceRefs() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).sourceDebugEvidenceRefs),
+        cloneValue(
+          listValues(
+            database,
+            "source_debug_evidence_refs",
+            SourceDebugEvidenceRefSchema,
+          ),
+        ),
       );
     },
     upsertSourceDebugEvidenceRef(evidenceRef) {
@@ -844,7 +891,12 @@ export async function createFileJobFinderRepository(
       );
     },
     getSettings() {
-      return Promise.resolve(cloneValue(readState(database, normalizedSeed).settings));
+      return Promise.resolve(
+        cloneValue(
+          getSingletonValue(database, "settings", JobFinderSettingsSchema) ??
+            normalizedSeed.settings,
+        ),
+      );
     },
     saveSettings(settings) {
       return persist((state) => {
@@ -853,15 +905,23 @@ export async function createFileJobFinderRepository(
     },
     getDiscoveryState() {
       return Promise.resolve(
-        cloneValue(readState(database, normalizedSeed).discovery),
+        cloneValue(
+          getSingletonValue(database, "discovery_state", {
+            parse: normalizeLegacyDiscoveryState,
+          }) ?? normalizedSeed.discovery,
+        ),
       );
     },
     saveDiscoveryState(discoveryState) {
-      return persist((state) => {
-        state.discovery = JobFinderDiscoveryStateSchema.parse(
-          cloneValue(discoveryState),
-        );
+      const normalizedDiscoveryState = JobFinderDiscoveryStateSchema.parse(
+        cloneValue(discoveryState),
+      );
+
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, "discovery_state", normalizedDiscoveryState);
       });
+
+      return secureDatabaseFile(options.filePath);
     },
   };
 }

@@ -107,17 +107,44 @@ export const workModeValues = [
 export const WorkModeSchema = z.enum(workModeValues);
 export type WorkMode = z.infer<typeof WorkModeSchema>;
 
+function normalizeWorkModeValue(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "in_office" || normalized === "in office") {
+    return "onsite";
+  }
+
+  return normalized;
+}
+
 export function normalizeWorkModeList(value: unknown): unknown {
   if (value == null) {
     return [];
   }
 
   if (Array.isArray(value)) {
-    return value;
+    const results: unknown[] = [];
+    for (const entry of value) {
+      if (typeof entry === "string") {
+        if (entry.trim()) {
+          for (const part of entry.split(/\s*,\s*/).filter(Boolean)) {
+            results.push(normalizeWorkModeValue(part));
+          }
+        }
+      } else {
+        results.push(normalizeWorkModeValue(entry));
+      }
+    }
+    return results;
   }
 
   if (typeof value === "string") {
-    return value.trim() ? [value] : [];
+    if (!value.trim()) return [];
+    return value.split(/\s*,\s*/).filter(Boolean).map(normalizeWorkModeValue);
   }
 
   return value;
@@ -223,6 +250,24 @@ export const sourceDebugPhaseValues = [
 
 export const SourceDebugPhaseSchema = z.enum(sourceDebugPhaseValues);
 export type SourceDebugPhase = z.infer<typeof SourceDebugPhaseSchema>;
+
+export const browserRunWaitReasonValues = [
+  "starting_browser",
+  "attaching_browser",
+  "waiting_on_page",
+  "waiting_on_ai",
+  "retrying_ai",
+  "executing_tool",
+  "retrying_tool",
+  "extracting_jobs",
+  "merging_results",
+  "persisting_results",
+  "manual_prerequisite",
+  "finalizing",
+] as const;
+
+export const BrowserRunWaitReasonSchema = z.enum(browserRunWaitReasonValues);
+export type BrowserRunWaitReason = z.infer<typeof BrowserRunWaitReasonSchema>;
 
 export const sourceDebugAttemptOutcomeValues = [
   "succeeded",

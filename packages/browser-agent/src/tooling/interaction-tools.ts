@@ -1,5 +1,6 @@
 import { isAllowedUrl } from "../allowlist";
 import type { ToolDefinition } from "../types";
+import type { Locator, Page } from "playwright";
 import {
   buildComboboxOptionScopes,
   clickMatchingComboboxOption,
@@ -14,6 +15,215 @@ import {
   resolveRoleLocator,
   SelectOptionSchema,
 } from "./shared";
+
+const CLICK_TIMEOUT_MS = 5000;
+const REPEATED_FAILURE_BLOCK_THRESHOLD = 2;
+
+async function readInteractionPageStateToken(page: Page): Promise<string> {
+  try {
+    return await page.evaluate(() => {
+      const elements = Array.from(
+        document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [role="button"], [role="link"], [role="textbox"], [role="checkbox"], [role="menuitem"], [role="option"], [role="tab"], [role="switch"], [role="slider"], [role="combobox"], [contenteditable="true"]'),
+      )
+        .filter((element) => !element.closest('[aria-hidden="true"], [hidden], template'))
+        .slice(0, 80)
+        .map((element) => {
+          const role = element.getAttribute('role')?.trim().toLowerCase() ?? element.tagName.toLowerCase()
+          const name = [
+            element.getAttribute('aria-label'),
+            element.getAttribute('placeholder'),
+            element.getAttribute('title'),
+            element.textContent,
+          ].find((value) => typeof value === 'string' && value.trim().length > 0) ?? ''
+
+          let state = ''
+          if (element instanceof HTMLInputElement) {
+            if (element.type === 'checkbox' || element.type === 'radio') {
+              state = element.checked ? '[checked]' : '[unchecked]'
+            } else {
+              state = `[type:${element.type}]`
+            }
+          } else if (element instanceof HTMLTextAreaElement) {
+            state = '[textarea]'
+          } else if (element instanceof HTMLSelectElement) {
+            const selectedOption = element.options[element.selectedIndex]
+            state = `[select:${element.selectedIndex}]`
+          } else {
+            const ariaChecked = element.getAttribute('aria-checked')
+            const ariaSelected = element.getAttribute('aria-selected')
+            const ariaExpanded = element.getAttribute('aria-expanded')
+            const ariaDisabled = element.getAttribute('aria-disabled')
+            if (ariaChecked !== null) state += `[aria-checked:${ariaChecked}]`
+            if (ariaSelected !== null) state += `[aria-selected:${ariaSelected}]`
+            if (ariaExpanded !== null) state += `[aria-expanded:${ariaExpanded}]`
+            if (ariaDisabled !== null) state += `[aria-disabled:${ariaDisabled}]`
+          }
+
+          return `${role}:${name.replace(/\s+/g, ' ').trim()}${state}`
+        })
+
+      return `${window.location.href}::${document.title}::${elements.join('|')}`;
+    });
+  } catch {
+    return page.url();
+  }
+}
+
+async function syncFailedInteractionAttemptsWithPageState(
+  page: Page,
+  state: {
+    failedInteractionAttempts?: Map<string, { count: number; lastError: string }>;
+    failedInteractionPageStateToken?: string;
+  },
+): Promise<void> {
+  const nextToken = await readInteractionPageStateToken(page);
+
+  if (
+    state.failedInteractionAttempts &&
+    state.failedInteractionPageStateToken &&
+    state.failedInteractionPageStateToken !== nextToken
+  ) {
+    state.failedInteractionAttempts.clear();
+  }
+
+  state.failedInteractionPageStateToken = nextToken;
+}
+
+function clearFailedInteractionAttemptsAfterNavigation(state: {
+  failedInteractionAttempts?: Map<string, { count: number; lastError: string }>;
+  failedInteractionPageStateToken?: string;
+}) {
+  state.failedInteractionAttempts?.clear();
+  delete state.failedInteractionPageStateToken;
+}
+
+function normalizeInteractionAttemptRole(kind: "click" | "fill" | "select_option", role: string): string {
+  void kind;
+  return role.trim().toLowerCase();
+}
+
+function normalizeInteractionAttemptName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\bverified job\b/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildInteractionAttemptKey(
+  kind: "click" | "fill" | "select_option",
+  role: string,
+  name: string,
+  index: number,
+  optionText?: string,
+): string {
+  const baseKey = `${kind}::${normalizeInteractionAttemptRole(kind, role)}::${normalizeInteractionAttemptName(name)}::${index}`;
+  if (kind === "select_option" && optionText) {
+    const normalized = normalizeInteractionAttemptName(optionText);
+    if (normalized) {
+      return `${baseKey}::${normalized}`;
+    }
+  }
+  return baseKey;
+}
+
+function shouldTreatAsRepeatedClickFailure(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    normalized.includes("no ") && normalized.includes(" matched accessible name")
+  ) || normalized.includes("intercepts pointer events") || normalized.includes("intercepts direct pointer clicks") || normalized.includes("disallowed url") || normalized.includes("is not allowed") || normalized.includes("invalid url");
+}
+
+function shouldTreatAsRepeatedFillFailure(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    (normalized.includes("no ") && normalized.includes(" matched accessible name")) ||
+    normalized.includes("timeout") ||
+    normalized.includes("did not receive focus") ||
+    normalized.includes("disallowed url")
+  );
+}
+
+function shouldTreatAsRepeatedSelectOptionFailure(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    shouldTreatAsRepeatedFillFailure(errorMessage) ||
+    normalized.includes("dropdown element not found") ||
+    normalized.includes("was not found") ||
+    normalized.includes("supports native select elements") ||
+    normalized.includes("unsupported")
+  );
+}
+
+function summarizeClickFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/intercepts pointer events/i.test(message)) {
+    return "The matched control is present, but another visible element intercepts direct pointer clicks.";
+  }
+
+  if (/No .* matched accessible name/i.test(message)) {
+    return message;
+  }
+
+  return message;
+}
+
+function recordFailedInteractionAttempt(
+  state: { failedInteractionAttempts?: Map<string, { count: number; lastError: string }> },
+  interactionAttemptKey: string,
+  priorAttempt: { count: number; lastError: string } | undefined,
+  errorMessage: string,
+) {
+  const nextFailureCount = (priorAttempt?.count ?? 0) + 1;
+  state.failedInteractionAttempts?.set(interactionAttemptKey, {
+    count: nextFailureCount,
+    lastError: errorMessage,
+  });
+  return nextFailureCount;
+}
+
+async function clickCheckboxWithLabelFallback(locator: Locator): Promise<boolean> {
+  const inputId = await locator.getAttribute("id").catch(() => null);
+  const labelForSelector = inputId ? `label[for="${inputId.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]` : null;
+  const explicitLabel = labelForSelector ? locator.page().locator(labelForSelector).first() : null;
+  const wrappingLabel = locator.locator("xpath=ancestor::label[1]").first();
+
+  const tryLabel = async (labelLocator: Locator) => {
+    const labelCount = await labelLocator.count().catch(() => 0);
+    if (labelCount === 0) {
+      return false;
+    }
+
+    const visible = await labelLocator.isVisible().catch(() => false);
+    if (!visible) {
+      return false;
+    }
+
+    const forAttr = await labelLocator.getAttribute('for').catch(() => null);
+    const inputLocator = forAttr
+      ? labelLocator.page().locator(`[id="${forAttr.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"]`)
+      : labelLocator.locator('input[type="checkbox"], input[type="radio"]').first();
+
+    const inputCount = await inputLocator.count().catch(() => 0);
+    if (inputCount === 0) return false;
+    const initialChecked = await inputLocator.isChecked().catch(() => false);
+    await labelLocator.scrollIntoViewIfNeeded().catch(() => {});
+    await labelLocator.click({ timeout: CLICK_TIMEOUT_MS / 2 }).catch(() => {});
+    const checkedAfter = await inputLocator.isChecked().catch(() => initialChecked);
+    return checkedAfter !== initialChecked;
+  };
+
+  if (explicitLabel && await tryLabel(explicitLabel).catch(() => false)) {
+    return true;
+  }
+
+  return await tryLabel(wrappingLabel).catch(() => false);
+}
 
 function normalizeOptionText(value: string | null | undefined): string {
   return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
@@ -156,6 +366,26 @@ If the click fails, you'll get details about why so you can decide whether to re
       if (!parseResult.success) return { success: false, error: `Invalid click arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
       const { role, name, index, retryIfNotVisible } = parseResult.data;
       const { page, state } = context;
+      await syncFailedInteractionAttemptsWithPageState(page, state);
+      const interactionAttemptKey = buildInteractionAttemptKey("click", role, name, index);
+      const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
+
+      if (
+        priorAttempt &&
+        priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
+        shouldTreatAsRepeatedClickFailure(priorAttempt.lastError)
+      ) {
+        return {
+          success: false,
+          error: `Skipping repeated click attempt for ${role} "${name}" after ${priorAttempt.count} similar failures: ${priorAttempt.lastError}`,
+          data: {
+            role,
+            name: name.slice(0, 50),
+            index,
+            errorType: "repeated_click_blocked",
+          },
+        };
+      }
 
       try {
         const locator = await resolveRoleLocator(page, role, name, index);
@@ -164,9 +394,108 @@ If the click fails, you'll get details about why so you can decide whether to re
           await locator.scrollIntoViewIfNeeded().catch(() => {});
           await page.waitForTimeout(500);
         }
+        const visibleAfterScroll = await locator.isVisible().catch(() => false);
+
+        if (!visibleAfterScroll && role === 'link') {
+          const href = await locator.getAttribute('href').catch(() => null)
+
+          if (href) {
+            const pageUrl = page.url()
+            const previousUrl = state.currentUrl || pageUrl
+            const absoluteUrl = new URL(href, pageUrl).toString()
+            const urlValidation = isAllowedUrl(absoluteUrl, context.config.navigationPolicy)
+
+            if (!urlValidation.valid) {
+              const repeatedFailureCount = recordFailedInteractionAttempt(
+                state,
+                interactionAttemptKey,
+                priorAttempt,
+                urlValidation.error ?? 'Navigation went to disallowed URL.',
+              )
+
+              return {
+                success: false,
+                error: urlValidation.error ?? 'Navigation went to disallowed URL.',
+                data: {
+                  role,
+                  name: name.slice(0, 50),
+                  index,
+                  invalidUrl: absoluteUrl,
+                  recovered: false,
+                  navigationMethod: 'href_fallback',
+                  errorType: 'not_allowed_by_navigation_policy',
+                  repeatedFailureCount,
+                },
+              }
+            }
+
+            await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: CLICK_TIMEOUT_MS })
+            const newUrl = page.url()
+            const finalUrlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy)
+
+            if (!finalUrlValidation.valid) {
+              const recovery = await recoverFromOffAllowlist(
+                page,
+                newUrl,
+                previousUrl,
+                context.config.navigationPolicy,
+              )
+              const repeatedFailureCount = recordFailedInteractionAttempt(
+                state,
+                interactionAttemptKey,
+                priorAttempt,
+                recovery.error,
+              )
+              if (recovery.recovered && recovery.recoveredUrl) {
+                state.currentUrl = recovery.recoveredUrl
+              }
+
+              return {
+                success: false,
+                error: recovery.error,
+                data: {
+                  role,
+                  name: name.slice(0, 50),
+                  index,
+                  invalidUrl: newUrl,
+                  recovered: recovery.recovered,
+                  navigationMethod: 'href_fallback',
+                  errorType: 'click_failed',
+                  repeatedFailureCount,
+                },
+              }
+            }
+
+            clearFailedInteractionAttemptsAfterNavigation(state)
+            state.currentUrl = newUrl
+            state.visitedUrls.add(newUrl)
+
+            return {
+              success: true,
+              data: {
+                role,
+                name: name.slice(0, 50),
+                index,
+                text: await locator.textContent().catch(() => null),
+                navigated: true,
+                newUrl,
+                navigationMethod: 'href_fallback'
+              }
+            }
+          }
+        }
 
         const text = await locator.textContent().catch(() => null);
-        await locator.click({ timeout: 10000 });
+        try {
+          await locator.click({ timeout: CLICK_TIMEOUT_MS });
+        } catch (clickError) {
+          const canUseCheckboxLabelFallback =
+            (role === "checkbox" || role === "radio") && /intercepts pointer events/i.test(clickError instanceof Error ? clickError.message : String(clickError));
+
+          if (!canUseCheckboxLabelFallback || !(await clickCheckboxWithLabelFallback(locator).catch(() => false))) {
+            throw clickError;
+          }
+        }
         await page.waitForTimeout(1000);
 
         const newUrl = page.url();
@@ -176,15 +505,32 @@ If the click fails, you'll get details about why so you can decide whether to re
           const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy);
+            const repeatedFailureCount = recordFailedInteractionAttempt(
+              state,
+              interactionAttemptKey,
+              priorAttempt,
+              recovery.error,
+            );
             if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-            return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, invalidUrl: newUrl, recovered: recovery.recovered } };
+            return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, invalidUrl: newUrl, recovered: recovery.recovered, errorType: 'click_failed', repeatedFailureCount } };
           }
+          clearFailedInteractionAttemptsAfterNavigation(state);
           state.currentUrl = newUrl;
           state.visitedUrls.add(newUrl);
+        } else {
+          state.failedInteractionAttempts?.delete(interactionAttemptKey);
         }
 
         return { success: true, data: { role, name: name.slice(0, 50), index, text: text?.slice(0, 100), navigated, newUrl: navigated ? newUrl : undefined } };
       } catch (error) {
+        const summarizedError = summarizeClickFailure(error);
+        const nextFailureCount = recordFailedInteractionAttempt(
+          state,
+          interactionAttemptKey,
+          priorAttempt,
+          summarizedError,
+        );
+
         const currentUrl = page.url();
         if (currentUrl) {
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy);
@@ -196,7 +542,17 @@ If the click fails, you'll get details about why so you can decide whether to re
           }
         }
 
-        return { success: false, error: error instanceof Error ? error.message : "Click failed", data: { role, name: name.slice(0, 50), index, errorType: error instanceof Error && error.message.includes("timeout") ? "timeout" : "click_failed" } };
+        return {
+          success: false,
+          error: summarizedError,
+          data: {
+            role,
+            name: name.slice(0, 50),
+            index,
+            errorType: /timeout/i.test(summarizedError) ? "timeout" : "click_failed",
+            repeatedFailureCount: nextFailureCount,
+          },
+        };
       }
     },
   },
@@ -224,6 +580,26 @@ If multiple elements have the same role and name, use the index to disambiguate 
       if (!parseResult.success) return { success: false, error: `Invalid fill arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
       const { role, name, text, index, submit } = parseResult.data;
       const { page, state } = context;
+      await syncFailedInteractionAttemptsWithPageState(page, state);
+      const interactionAttemptKey = buildInteractionAttemptKey("fill", role, name, index);
+      const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
+
+      if (
+        priorAttempt &&
+        priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
+        shouldTreatAsRepeatedFillFailure(priorAttempt.lastError)
+      ) {
+        return {
+          success: false,
+          error: `Skipping repeated fill attempt for ${role} "${name}" after ${priorAttempt.count} similar failures: ${priorAttempt.lastError}`,
+          data: {
+            role,
+            name: name.slice(0, 30),
+            index,
+            errorType: "repeated_fill_blocked",
+          },
+        };
+      }
 
       try {
         const locator = await resolveRoleLocator(page, role, name, index);
@@ -236,16 +612,30 @@ If multiple elements have the same role and name, use the index to disambiguate 
             const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
             if (!urlValidation.valid) {
               const recovery = await recoverFromOffAllowlist(page, newUrl, state.currentUrl, context.config.navigationPolicy);
+              const repeatedFailureCount = recordFailedInteractionAttempt(
+                state,
+                interactionAttemptKey,
+                priorAttempt,
+                recovery.error,
+              );
               if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 30), index, invalidUrl: newUrl, recovered: recovery.recovered } };
+              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 30), index, invalidUrl: newUrl, recovered: recovery.recovered, errorType: 'fill_failed', repeatedFailureCount } };
             }
+            clearFailedInteractionAttemptsAfterNavigation(state);
             state.currentUrl = newUrl;
             state.visitedUrls.add(newUrl);
+          } else {
+            state.failedInteractionAttempts?.delete(interactionAttemptKey);
           }
+        } else {
+          state.failedInteractionAttempts?.delete(interactionAttemptKey);
         }
 
         return { success: true, data: { role, name: name.slice(0, 30), index, submitted: submit } };
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Fill failed";
+        const nextFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
+
         const currentUrl = page.url();
         if (currentUrl) {
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy);
@@ -257,7 +647,17 @@ If multiple elements have the same role and name, use the index to disambiguate 
           }
         }
 
-        return { success: false, error: error instanceof Error ? error.message : "Fill failed", data: { role, name: name.slice(0, 30), index } };
+        return {
+          success: false,
+          error: errorMessage,
+          data: {
+            role,
+            name: name.slice(0, 30),
+            index,
+            errorType: /timeout/i.test(errorMessage) ? "timeout" : "fill_failed",
+            repeatedFailureCount: nextFailureCount,
+          },
+        };
       }
     },
   },
@@ -285,11 +685,35 @@ You get role, name, and index from get_interactive_elements().`,
       const { role, name, optionText, index, submit } = parseResult.data;
       const { page, state } = context;
       const previousUrl = state.currentUrl;
+      await syncFailedInteractionAttemptsWithPageState(page, state);
+      const interactionAttemptKey = buildInteractionAttemptKey("select_option", role, name, index, optionText);
+      const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
+
+      if (
+        priorAttempt &&
+        priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
+        shouldTreatAsRepeatedSelectOptionFailure(priorAttempt.lastError)
+      ) {
+        return {
+          success: false,
+          error: `Skipping repeated select_option attempt for ${role} "${name}" after ${priorAttempt.count} similar failures: ${priorAttempt.lastError}`,
+          data: {
+            role,
+            name: name.slice(0, 50),
+            index,
+            errorType: "repeated_select_blocked",
+          },
+        };
+      }
 
       try {
         const locator = await resolveRoleLocator(page, role, name, index);
         const elementHandle = await locator.elementHandle();
-        if (!elementHandle) return { success: false, error: "Dropdown element not found" };
+        if (!elementHandle) {
+          const errorMsg = "Dropdown element not found";
+          const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+          return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, errorType: "select_failed", repeatedFailureCount } };
+        }
 
         const selectionResult = await elementHandle.evaluate((element, targetOptionText) => {
           const normalizedTarget = targetOptionText.trim().toLowerCase();
@@ -318,7 +742,9 @@ You get role, name, and index from get_interactive_elements().`,
           await locator.click().catch(() => locator.focus().catch(() => undefined));
           const typedIntoCombobox = await fillComboboxValue(locator, page, optionText);
           if (!typedIntoCombobox) {
-            return { success: false, error: "Combobox did not receive focus before typing", data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
+            const errorMsg = "Combobox did not receive focus before typing";
+            const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+            return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), errorType: "select_failed", repeatedFailureCount } };
           }
           await page.waitForTimeout(250);
 
@@ -331,9 +757,11 @@ You get role, name, and index from get_interactive_elements().`,
 
           const comboboxSelection = await readComboboxSelection(locator);
           if (!matchedOption && !comboboxSelectionMatchesOption(comboboxSelection, optionText)) {
+            const errorMsg = `Option "${optionText}" was not found`;
+            const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
             return {
               success: false,
-              error: `Option "${optionText}" was not found`,
+              error: errorMsg,
               data: {
                 role,
                 name: name.slice(0, 50),
@@ -341,6 +769,8 @@ You get role, name, and index from get_interactive_elements().`,
                 optionText: optionText.slice(0, 50),
                 selectedLabel: comboboxSelection.selectedLabel,
                 selectedValue: comboboxSelection.selectedValue,
+                errorType: "select_failed",
+                repeatedFailureCount,
               },
             };
           }
@@ -359,17 +789,25 @@ You get role, name, and index from get_interactive_elements().`,
             if (!urlValidation.valid) {
               const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
               if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-              return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
+              const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, recovery.error ?? "Navigation went to disallowed URL.");
+return { success: false, error: recovery.error ?? "Navigation went to disallowed URL.", data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered, errorType: "select_failed", repeatedFailureCount } };
             }
+            clearFailedInteractionAttemptsAfterNavigation(state);
             state.currentUrl = newUrl;
             state.visitedUrls.add(newUrl);
+          } else {
+            state.failedInteractionAttempts?.delete(interactionAttemptKey);
           }
 
           return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: comboboxSelection.selectedLabel ?? optionText, selectedValue: comboboxSelection.selectedValue ?? null } };
         }
 
         if (!selectionResult?.selected) {
-          return { success: false, error: selectionResult?.unsupportedTag ? `select_option supports native select elements and common combobox widgets; received ${selectionResult.unsupportedTag}` : `Option "${optionText}" was not found`, data: selectionResult };
+          const errorMsg = selectionResult?.unsupportedTag 
+            ? `select_option supports native select elements and common combobox widgets; received ${selectionResult.unsupportedTag}` 
+            : `Option "${optionText}" was not found`;
+          const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg);
+          return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), ...selectionResult, errorType: "select_failed", repeatedFailureCount } };
         }
 
         if (submit) {
@@ -385,15 +823,23 @@ You get role, name, and index from get_interactive_elements().`,
           const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
-            if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
-            return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
+            const errorMsg = recovery.error ?? "Navigation went to disallowed URL."
+            state.currentUrl = recovery.recoveredUrl ?? previousUrl
+            const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMsg)
+            return { success: false, error: errorMsg, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered, errorType: "select_failed", repeatedFailureCount } };
           }
+          clearFailedInteractionAttemptsAfterNavigation(state);
           state.currentUrl = newUrl;
           state.visitedUrls.add(newUrl);
+        } else {
+          state.failedInteractionAttempts?.delete(interactionAttemptKey);
         }
 
         return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: selectionResult.selectedLabel ?? optionText, selectedValue: selectionResult.selectedValue ?? null } };
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Select option failed";
+        const repeatedFailureCount = recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
+
         const currentUrl = page.url();
         if (currentUrl) {
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy);
@@ -405,7 +851,7 @@ You get role, name, and index from get_interactive_elements().`,
           }
         }
 
-        return { success: false, error: error instanceof Error ? error.message : "Select option failed", data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
+        return { success: false, error: errorMessage, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), errorType: "select_failed", repeatedFailureCount } };
       }
     },
   },

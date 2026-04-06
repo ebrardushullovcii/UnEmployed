@@ -7,7 +7,7 @@ import type {
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { FieldLabel } from '@renderer/components/ui/field'
-import { formatStatusLabel } from '../../lib/job-finder-utils'
+import { formatDuration, formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
 import type { SearchPreferencesEditorValues } from '../../lib/profile-editor'
 import { CheckboxField } from '../checkbox-field'
 import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
@@ -25,6 +25,23 @@ import {
 import { useProfileSourceDebugReview } from './use-profile-source-debug-review'
 
 type DiscoveryTargetValue = SearchPreferencesEditorValues['discoveryTargets'][number]
+
+function formatInstructionStatusSummary(target: DiscoveryTargetValue): string {
+  switch (target.instructionStatus) {
+    case 'validated':
+      return target.lastVerifiedAt
+        ? `Saved guidance ready - checked ${new Date(target.lastVerifiedAt).toLocaleString()}`
+        : 'Saved guidance ready'
+    case 'draft':
+      return 'Draft guidance saved'
+    case 'stale':
+      return target.staleReason ? `Guidance needs review - ${target.staleReason}` : 'Guidance needs review'
+    case 'unsupported':
+      return 'Not supported yet'
+    default:
+      return 'No saved guidance yet'
+  }
+}
 
 interface ProfileDiscoveryTargetRowProps {
   busy: boolean
@@ -45,7 +62,9 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   const labelId = `${baseId}-label`
   const startingUrlId = `${baseId}-starting-url`
   const instructionsId = `${baseId}-instructions`
-  const displayName = props.target.label.trim() || `Target ${props.index + 1}`
+  const targetLabel = props.target.label.trim()
+  const displayName = targetLabel || 'New source'
+  const accessibleLabel = targetLabel || `New source ${props.index + 1}`
   const learnedInstructionSections = useMemo(
     () => buildLearnedInstructionSections(props.instructionArtifact),
     [props.instructionArtifact]
@@ -72,7 +91,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     targetLastDebugRunId: props.target.lastDebugRunId
   })
   const latestDebugRunLabel = latestDebugRun
-    ? `${formatStatusLabel(latestDebugRun.state)}${latestDebugRun.completedAt ? ` • ${new Date(latestDebugRun.completedAt).toLocaleString()}` : ''}`
+    ? `${formatRunStateLabel(latestDebugRun.state)}${latestDebugRun.completedAt ? ` • ${new Date(latestDebugRun.completedAt).toLocaleString()}` : ''}`
     : null
   const [editingInstruction, setEditingInstruction] = useState<{
     field: LearnedInstructionField
@@ -198,19 +217,22 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   return (
     <article className="surface-card-tint grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
       <header className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Target {props.index + 1}</h3>
+        <div className="grid gap-1">
+          <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">{displayName}</h3>
+          <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Source {props.index + 1}</p>
+        </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            aria-label={`Debug source for ${displayName} (target ${props.index + 1})`}
+            aria-label={`Check this source for ${accessibleLabel}`}
             disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
             onClick={handleRunSourceDebug}
             type="button"
             variant="secondary"
           >
-            Debug source
+            Check source
           </Button>
           <Button
-            aria-label={`Move ${displayName} up`}
+            aria-label={`Move ${accessibleLabel} up`}
             disabled={props.index === 0}
             onClick={handleMoveTargetUp}
             type="button"
@@ -219,7 +241,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             Move up
           </Button>
           <Button
-            aria-label={`Move ${displayName} down`}
+            aria-label={`Move ${accessibleLabel} down`}
             disabled={props.index === props.discoveryTargets.length - 1}
             onClick={handleMoveTargetDown}
             type="button"
@@ -228,7 +250,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             Move down
           </Button>
           <Button
-            aria-label={`Remove ${displayName}`}
+            aria-label={`Remove ${accessibleLabel}`}
             onClick={handleRemoveTarget}
             type="button"
             variant="ghost"
@@ -239,18 +261,12 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
       </header>
 
       <div className="grid gap-(--gap-content) md:grid-cols-2">
-        <div className="grid h-full min-w-0 content-start gap-(--gap-field)">
-          <FieldLabel htmlFor={labelId}>Site label</FieldLabel>
-          <ProfileInput id={labelId} onChange={handleLabelChange} value={props.target.label} />
-        </div>
-        <div className="grid h-full min-w-0 content-start gap-(--gap-field)">
-          <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">Target handling</p>
-          <p className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-3 py-3 text-[0.92rem] leading-6 text-foreground-soft">
-            Resolved automatically from the starting URL and the learned source guidance for this target.
-          </p>
+        <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
+          <FieldLabel htmlFor={labelId}>Source name</FieldLabel>
+          <ProfileInput id={labelId} onChange={handleLabelChange} placeholder="LinkedIn or Stripe Careers" value={props.target.label} />
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={startingUrlId}>Starting URL</FieldLabel>
+          <FieldLabel htmlFor={startingUrlId}>Starting page URL</FieldLabel>
           <ProfileInput
             id={startingUrlId}
             onChange={handleStartingUrlChange}
@@ -259,33 +275,30 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           />
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={instructionsId}>Custom override instructions</FieldLabel>
+          <FieldLabel htmlFor={instructionsId}>Source notes</FieldLabel>
           <ProfileTextarea
             className="min-h-(--textarea-tall)"
             id={instructionsId}
             onChange={handleCustomInstructionsChange}
-            placeholder="Optional: add your own override notes. Learned source instructions are stored separately and used automatically."
+            placeholder="Optional: add notes like 'skip contract roles' or 'focus on remote jobs'."
             rows={4}
             value={props.target.customInstructions}
           />
-          <p className="text-[0.82rem] leading-6 text-foreground-soft">
-            This field is only for your manual overrides. Debug-source guidance is stored separately so it does not overwrite your notes.
-          </p>
         </div>
         {latestDebugRun ? (
           <div className="surface-card-tint grid h-full min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-                Last source-debug run
+                Last source check
               </p>
               <Button
-                aria-label={`Review the latest source-debug run for ${displayName} (target ${props.index + 1})`}
+                aria-label={`Review the latest source check for ${accessibleLabel}`}
                 disabled={props.busy}
                 onClick={handleReviewLatestRun}
                 type="button"
                 variant="ghost"
               >
-                Review run
+                Review check
               </Button>
             </div>
             <div aria-live="polite" className="grid gap-1" role="status">
@@ -293,6 +306,13 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
               {latestDebugRun.manualPrerequisiteSummary || latestDebugRun.finalSummary ? (
                 <p className="text-[0.82rem] leading-6 text-foreground-soft">
                   {latestDebugRun.manualPrerequisiteSummary ?? latestDebugRun.finalSummary}
+                </p>
+              ) : null}
+              {latestDebugRun.timing ? (
+                <p className="text-[0.78rem] leading-6 text-foreground-muted">
+                  {`Duration: ${formatDuration(latestDebugRun.timing.totalDurationMs)}`}
+                  {latestDebugRun.timing.longestGapMs > 10000 ? ` · Longest quiet gap: ${formatDuration(latestDebugRun.timing.longestGapMs)}` : ''}
+                  {latestDebugRun.timing.finalReviewMs != null ? ` · AI review: ${formatDuration(latestDebugRun.timing.finalReviewMs)}` : ''}
                 </p>
               ) : null}
             </div>
@@ -314,13 +334,11 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         <div className="grid gap-2 md:col-span-2">
           <CheckboxField
             checked={props.target.enabled}
-            label="Enabled for sequential discovery runs"
+            label="Search this source"
             onCheckedChange={handleToggleEnabled}
           />
           <p aria-live="polite" aria-atomic="true" className="text-[0.82rem] leading-6 text-foreground-soft" role="status">
-            Instruction status: <strong>{formatStatusLabel(props.target.instructionStatus)}</strong>
-            {props.target.lastVerifiedAt ? ` • Verified ${new Date(props.target.lastVerifiedAt).toLocaleString()}` : ''}
-            {props.target.staleReason ? ` • ${props.target.staleReason}` : ''}
+            <strong>{formatInstructionStatusSummary(props.target)}</strong>
           </p>
         </div>
       </div>

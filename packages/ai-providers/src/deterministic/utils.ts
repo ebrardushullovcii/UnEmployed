@@ -219,7 +219,7 @@ export function buildInvalidJobSample(candidate: {
   title: string;
   company: string;
   location: string;
-  summary: string;
+  summary: string | null;
   description: string;
 }): string {
   return JSON.stringify({
@@ -227,7 +227,7 @@ export function buildInvalidJobSample(candidate: {
     title: candidate.title,
     company: candidate.company,
     location: candidate.location,
-    summaryLength: candidate.summary.length,
+    summaryLength: candidate.summary?.length ?? 0,
     descriptionLength: candidate.description.length,
   });
 }

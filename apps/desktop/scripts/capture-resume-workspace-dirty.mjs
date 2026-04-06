@@ -49,16 +49,16 @@ async function clickAndDismissDialog(window, locator) {
 }
 
 function summaryField(window) {
-  return window.getByLabel('Section Text').first()
+  return window.getByLabel('Section text').first()
 }
 
 function assistantField(window) {
-  return window.getByLabel('Message')
+  return window.getByLabel('Request a resume edit')
 }
 
 async function loadDemo(window) {
   await window.waitForLoadState('domcontentloaded')
-  await window.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
+  await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
   await window.setViewportSize({ width, height })
 
   await window.evaluate(async () => {
@@ -74,9 +74,9 @@ async function loadDemo(window) {
 }
 
 async function openResumeWorkspace(window) {
-  await window.getByRole('button', { name: /^Review Queue/ }).click()
-  await window.getByRole('heading', { level: 1, name: 'Tailored asset review' }).waitFor({ timeout: 10000 })
-  await window.getByRole('button', { name: /Edit asset/i }).first().click()
+  await window.getByRole('button', { name: /^Shortlisted/ }).click()
+  await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
+  await window.getByRole('button', { name: /Open resume workspace/i }).first().click()
   await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
 }
 
@@ -163,13 +163,13 @@ async function captureResumeWorkspaceDirtyState() {
         const summaryText =
           workspace.draft.sections.find((section) => section.kind === 'summary')?.text ?? ''
         const lastMessage = messages.at(-1)
-        const sendButtonLabel = await window.getByRole('button', { name: /Send|Working/i }).textContent()
+        const sendButtonLabel = await window.getByRole('button', { name: /Send request|Updating/i }).textContent()
         return (
           summaryText === assistantSentinel &&
           messages.length > previousAssistantMessageCount &&
           lastMessage?.role === 'assistant' &&
           lastMessage.content.trim().length > 0 &&
-          sendButtonLabel?.includes('Send')
+          sendButtonLabel?.includes('Send request')
         )
       },
       'assistant messages after dirty save-before-send',
@@ -188,12 +188,12 @@ async function captureResumeWorkspaceDirtyState() {
       async () => (await getResumeWorkspace(window)).exports.length > 0,
       'resume export artifact',
     )
-    await window.getByRole('button', { name: 'Approve Resume' }).click()
+    await window.getByRole('button', { name: 'Approve current PDF' }).click()
     await waitForApprovedExport(window)
 
     const clearApprovalSentinel = 'Dirty clear approval sentinel after approval.'
     await summaryField(window).fill(clearApprovalSentinel)
-    await window.getByRole('button', { name: 'Clear Approval' }).click()
+    await window.getByRole('button', { name: 'Clear approval' }).click()
     await waitForCondition(
       async () => {
         const workspace = await getResumeWorkspace(window)
@@ -241,7 +241,7 @@ async function captureResumeWorkspaceDirtyState() {
     await summaryField(window).fill(backNavigationSentinel)
     const backDialogMessage = await clickAndDismissDialog(
       window,
-      window.getByRole('button', { name: /Back to Review Queue/i }),
+      window.getByRole('button', { name: /Back to Shortlisted/i }),
     )
     await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
     const backNavigationFieldValue = await summaryField(window).inputValue()

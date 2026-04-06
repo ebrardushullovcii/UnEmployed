@@ -10,6 +10,7 @@ import type {
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
+  SourceDebugProgressEvent,
   SourceDebugRunDetails,
   SourceInstructionStatus,
   WorkMode,
@@ -31,7 +32,10 @@ export interface JobFinderShellActions {
   runAgentDiscovery: (
     onActivity?: (event: DiscoveryActivityEvent) => void,
   ) => Promise<JobFinderWorkspaceSnapshot>;
-  runSourceDebug: (targetId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  runSourceDebug: (
+    targetId: string,
+    onProgress?: (event: SourceDebugProgressEvent) => void,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   saveSourceInstructionArtifact: (
     targetId: string,

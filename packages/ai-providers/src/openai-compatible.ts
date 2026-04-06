@@ -30,6 +30,45 @@ import {
   normalizeExtractedJobs,
 } from "./openai-compatible-jobs";
 
+const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
+const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
+const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
+const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
+const SEARCH_RESULTS_MAX_MODEL_JOBS = 4;
+
+function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
+  const message = error instanceof Error ? error.message.trim() : "";
+  const isAbortLikeMessage =
+    message === "This operation was aborted" ||
+    message === "The operation was aborted" ||
+    message === "signal is aborted without reason";
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return new DOMException(
+      `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+      "AbortError",
+    );
+  }
+
+  if (error instanceof Error && error.name === "AbortError") {
+    const abortError = new Error(
+      `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+    abortError.name = "AbortError";
+    return abortError;
+  }
+
+  if (isAbortLikeMessage) {
+    const abortError = new Error(
+      `Model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+    abortError.name = "AbortError";
+    return abortError;
+  }
+
+  return error;
+}
+
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions,
 ): AgentCapableJobFinderAiClient {
@@ -50,6 +89,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
   async function fetchModelJson(
     systemPrompt: string,
     userPayload: unknown,
+    options?: {
+      timeoutMs?: number;
+    },
   ): Promise<unknown> {
     if (!validatedOptions) {
       throw new Error(
@@ -58,7 +100,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
@@ -83,6 +126,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
       });
 
       return parseModelJsonResponse(response);
+    } catch (error) {
+      throw normalizeTimeoutLikeError(error, timeoutMs);
     } finally {
       clearTimeout(timeoutId);
     }
@@ -225,7 +270,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
     async extractJobsFromPage(input) {
       const maxJobs = Math.max(0, Math.floor(input.maxJobs));
       const effectiveMaxJobs =
-        input.pageType === "job_detail" ? Math.min(maxJobs, 1) : maxJobs;
+        input.pageType === "job_detail"
+          ? Math.min(maxJobs, 1)
+          : Math.min(maxJobs, SEARCH_RESULTS_MAX_MODEL_JOBS);
       if (effectiveMaxJobs === 0) {
         return [];
       }
@@ -242,10 +289,20 @@ export function createOpenAiCompatibleJobFinderAiClient(
         pageType: input.pageType,
         effectiveMaxJobs,
       });
+      const pageTextLimit =
+        input.pageType === "search_results"
+          ? SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT
+          : JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT;
+      const timeoutMs =
+        input.pageType === "search_results"
+          ? SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS
+          : DEFAULT_MODEL_TIMEOUT_MS;
 
       const payload = await fetchModelJson(systemPrompt, {
         pageUrl: input.pageUrl,
-        pageText: input.pageText.slice(0, 12000),
+        pageText: input.pageText.slice(0, pageTextLimit),
+      }, {
+        timeoutMs,
       });
 
       return normalizeExtractedJobs({
@@ -264,7 +321,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
       }
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60_000);
+      const timeoutMs = DEFAULT_MODEL_TIMEOUT_MS;
+      let localTimedOut = false;
+      const timeoutId = setTimeout(() => {
+        localTimedOut = true;
+        controller.abort();
+      }, timeoutMs);
 
       let onCallerAbort: (() => void) | null = null;
 
@@ -373,6 +435,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
         }
 
         return result;
+      } catch (error) {
+        if (localTimedOut) {
+          throw normalizeTimeoutLikeError(error, timeoutMs);
+        }
+
+        throw error;
       } finally {
         clearTimeout(timeoutId);
         if (signal && onCallerAbort) {

@@ -4,7 +4,9 @@ import {
   DiscoveryRunRecordSchema,
   DiscoveryTargetExecutionSchema,
   JobFinderDiscoveryStateSchema,
+  type AgentDiscoveryProgress,
   type DiscoveryActivityEvent,
+  type BrowserRunWaitReason,
   type DiscoveryRunRecord,
   type DiscoveryTargetExecution,
   type JobFinderDiscoveryState,
@@ -31,17 +33,31 @@ export function formatFoundSuffix(jobsFound: number): string {
 }
 
 export function summarizeProgressAction(
-  action: string | undefined,
+  progress: Pick<AgentDiscoveryProgress, "currentAction" | "message" | "waitReason">,
   siteLabel: string,
   jobsFound: number,
-  stepCount: number,
-): { message: string; stage: DiscoveryActivityEvent["stage"] } {
-  const normalizedAction = (action ?? "").toLowerCase();
+): {
+  message: string;
+  stage: DiscoveryActivityEvent["stage"];
+  waitReason: BrowserRunWaitReason | null;
+} {
+  const message = progress.message?.trim();
+  const waitReason = inferWaitReason(progress);
+  const normalizedAction = (progress.currentAction ?? "").toLowerCase();
+
+  if (message) {
+    return {
+      message,
+      stage: mapWaitReasonToStage(waitReason),
+      waitReason,
+    };
+  }
 
   if (!normalizedAction || normalizedAction === "thinking...") {
     return {
-      message: `Planning step ${stepCount}${formatFoundSuffix(jobsFound)}`,
+      message: `Reviewing the next step${formatFoundSuffix(jobsFound)}`,
       stage: "planning",
+      waitReason,
     };
   }
 
@@ -64,6 +80,7 @@ export function summarizeProgressAction(
       return {
         message: `Found ${addedCount} new job${addedCount === 1 ? "" : "s"} on this pass (${totalCount} total so far)`,
         stage: "extraction",
+        waitReason,
       };
     }
 
@@ -71,6 +88,7 @@ export function summarizeProgressAction(
       return {
         message: `No new jobs were kept from this pass (${attemptedCount} reviewed, ${totalCount} total so far)`,
         stage: "extraction",
+        waitReason,
       };
     }
   }
@@ -79,6 +97,7 @@ export function summarizeProgressAction(
     return {
       message: `Opening ${siteLabel}${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
@@ -86,6 +105,7 @@ export function summarizeProgressAction(
     return {
       message: `Gathering jobs from the current page${formatFoundSuffix(jobsFound)}`,
       stage: "extraction",
+      waitReason,
     };
   }
 
@@ -93,6 +113,7 @@ export function summarizeProgressAction(
     return {
       message: `Loading more results${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
@@ -100,6 +121,7 @@ export function summarizeProgressAction(
     return {
       message: `Returning to the previous results page${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
@@ -107,6 +129,7 @@ export function summarizeProgressAction(
     return {
       message: `Refining the search controls${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
@@ -114,23 +137,96 @@ export function summarizeProgressAction(
     return {
       message: `Opening a job detail or result card${formatFoundSuffix(jobsFound)}`,
       stage: "navigation",
+      waitReason,
     };
   }
 
   return {
     message: `Continuing discovery on the current page${formatFoundSuffix(jobsFound)}`,
     stage: "navigation",
+    waitReason,
   };
+}
+
+function inferWaitReason(
+  progress: Pick<AgentDiscoveryProgress, "currentAction" | "waitReason">,
+): BrowserRunWaitReason | null {
+  if (progress.waitReason) {
+    return progress.waitReason;
+  }
+
+  const normalizedAction = (progress.currentAction ?? "").toLowerCase();
+
+  if (!normalizedAction || normalizedAction === "thinking...") {
+    return "waiting_on_ai";
+  }
+
+  if (normalizedAction.includes("retrying_ai")) {
+    return "retrying_ai";
+  }
+
+  if (
+    normalizedAction.startsWith("retry:") ||
+    normalizedAction.includes("retrying_tool")
+  ) {
+    return "retrying_tool";
+  }
+
+  if (
+    normalizedAction.includes("extract_result") ||
+    normalizedAction.includes("extract_jobs")
+  ) {
+    return "extracting_jobs";
+  }
+
+  if (
+    normalizedAction.includes("navigate") ||
+    normalizedAction.includes("scroll_down") ||
+    normalizedAction.includes("go_back") ||
+    normalizedAction.includes("click") ||
+    normalizedAction.includes("fill")
+  ) {
+    return "executing_tool";
+  }
+
+  return null;
+}
+
+function mapWaitReasonToStage(
+  waitReason: BrowserRunWaitReason | null,
+): DiscoveryActivityEvent["stage"] {
+  switch (waitReason) {
+    case "waiting_on_ai":
+    case "retrying_ai":
+      return "planning";
+    case "extracting_jobs":
+      return "extraction";
+    case "merging_results":
+      return "scoring";
+    case "persisting_results":
+    case "finalizing":
+    case "manual_prerequisite":
+      return "persistence";
+    case "starting_browser":
+    case "attaching_browser":
+    case "waiting_on_page":
+    case "executing_tool":
+    case "retrying_tool":
+    case null:
+      return "navigation";
+    default:
+      return "navigation";
+  }
 }
 
 export function createDiscoveryEvent(
   input: Omit<
     DiscoveryActivityEvent,
-    "id" | "resolvedAdapterKind" | "terminalState"
+    "id" | "resolvedAdapterKind" | "terminalState" | "waitReason"
   > &
     Pick<
       Partial<DiscoveryActivityEvent>,
-      "resolvedAdapterKind" | "terminalState"
+      "resolvedAdapterKind" | "terminalState" | "waitReason"
     >,
 ): DiscoveryActivityEvent {
   return DiscoveryActivityEventSchema.parse({
@@ -149,6 +245,7 @@ export function appendDiscoveryEvent(
     previousEvent &&
     previousEvent.message === event.message &&
     previousEvent.stage === event.stage &&
+    previousEvent.waitReason === event.waitReason &&
     previousEvent.targetId === event.targetId &&
     previousEvent.url === event.url
   ) {

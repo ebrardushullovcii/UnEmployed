@@ -27,13 +27,13 @@ export function ResumeSectionEditor(props: {
           <h3 className="font-display text-base font-semibold text-(--text-headline)">
             {props.section.label}
           </h3>
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-            {props.section.kind} • {props.section.locked ? "Locked" : "Editable"}
-          </p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <StatusBadge tone={props.section.included ? "active" : "muted"}>
-            {props.section.included ? "Included" : "Excluded"}
+            {props.section.included ? "Shown" : "Hidden"}
+          </StatusBadge>
+          <StatusBadge tone={props.section.locked ? "muted" : "active"}>
+            {props.section.locked ? "Locked" : "Editable"}
           </StatusBadge>
           <Button
             className="h-9"
@@ -56,13 +56,13 @@ export function ResumeSectionEditor(props: {
                   origin: "user",
                   conflictReason: null,
                 },
-                `${props.section.included ? "Excluded" : "Included"} section`,
+                `${props.section.included ? "Hidden" : "Shown"} section`,
               )
             }
             type="button"
             variant="secondary"
           >
-            {props.section.included ? "Exclude" : "Include"}
+            {props.section.included ? "Hide section" : "Show section"}
           </Button>
           <Button
             className="h-9"
@@ -106,13 +106,13 @@ export function ResumeSectionEditor(props: {
             variant="secondary"
           >
             <RefreshCcw className="size-4" />
-            Regenerate
+            Rewrite section
           </Button>
         </div>
       </header>
 
       <Field>
-        <FieldLabel htmlFor={textId}>Section Text</FieldLabel>
+        <FieldLabel htmlFor={textId}>Section text</FieldLabel>
         <Textarea
           id={textId}
           disabled={props.disabled || props.section.locked}
@@ -129,21 +129,28 @@ export function ResumeSectionEditor(props: {
         />
       </Field>
 
+      {props.section.sourceRefs.length ? (
+        <div className="grid gap-2">
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+            Why this is here
+          </p>
+          <SourceRefsList sourceRefs={props.section.sourceRefs} />
+        </div>
+      ) : null}
+
       <div className="grid gap-3">
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-          Bullets
+          Bullet points
         </p>
         {props.section.bullets.length === 0 ? (
           <EmptyState
             title="No bullets yet"
-            description="Regenerate this section or add manual detail in the text area above."
+            description="Rewrite this section or add the main detail in the field above."
           />
         ) : (
           props.section.bullets.map((bullet, bulletIndex) => (
             <Field key={bullet.id}>
-              <FieldLabel htmlFor={`bullet_${bullet.id}`}>
-                {bullet.origin.replaceAll("_", " ")}
-              </FieldLabel>
+              <FieldLabel htmlFor={`bullet_${bullet.id}`}>Bullet text</FieldLabel>
               <div className="mb-2 flex flex-wrap gap-2">
                 <Button
                   className="h-8"
@@ -166,7 +173,7 @@ export function ResumeSectionEditor(props: {
                         origin: "user",
                         conflictReason: null,
                       },
-                      `${bullet.included ? "Excluded" : "Included"} bullet`,
+                      `${bullet.included ? "Hidden" : "Shown"} bullet`,
                     )
                   }
                   type="button"
@@ -305,32 +312,18 @@ export function ResumeSectionEditor(props: {
                   })
                 }
               />
-              <details className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-3">
-                <summary className="cursor-pointer text-sm font-medium text-foreground">
-                  Why this bullet exists
-                </summary>
-                <div className="mt-3">
-                  <SourceRefsList
-                    emptyLabel="This bullet does not have source refs yet."
-                    sourceRefs={bullet.sourceRefs}
-                  />
+              {bullet.sourceRefs.length ? (
+                <div className="mt-2 grid gap-2">
+                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                    Why this bullet is here
+                  </p>
+                  <SourceRefsList sourceRefs={bullet.sourceRefs} />
                 </div>
-              </details>
+              ) : null}
             </Field>
           ))
         )}
       </div>
-      <details className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-3">
-        <summary className="cursor-pointer text-sm font-medium text-foreground">
-          Section evidence
-        </summary>
-        <div className="mt-3">
-          <SourceRefsList
-            emptyLabel="This section does not have source refs yet."
-            sourceRefs={props.section.sourceRefs}
-          />
-        </div>
-      </details>
     </article>
   );
 }

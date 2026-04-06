@@ -5,12 +5,14 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderPerformanceSnapshot,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderSettings,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
+  SourceDebugProgressEvent,
   SourceDebugRunRecord,
   SourceDebugRunDetails,
   SaveJobFinderWorkspaceInput,
@@ -19,6 +21,7 @@ import type {
 } from "@unemployed/contracts";
 
 let activeAgentDiscoveryRequestId: string | null = null;
+let activeSourceDebugRequestId: string | null = null;
 
 const testApiEnabled =
   process.env.UNEMPLOYED_ENABLE_TEST_API === "1" ||
@@ -169,10 +172,46 @@ const desktopApi = {
 
       return promise;
     },
-    runSourceDebug: (targetId: string) =>
-      ipcRenderer.invoke("job-finder:run-source-debug", {
-        targetId,
-      }) as Promise<JobFinderWorkspaceSnapshot>,
+    runSourceDebug: (
+      targetId: string,
+      onProgress?: (event: SourceDebugProgressEvent) => void,
+    ) => {
+      if (activeSourceDebugRequestId) {
+        return Promise.reject(new Error("Source debug is already running."));
+      }
+
+      const requestId = `source_debug_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const progressChannel = `job-finder:source-debug-progress:${requestId}`;
+      activeSourceDebugRequestId = requestId;
+      const progressHandler = onProgress
+        ? (
+            _event: Electron.IpcRendererEvent,
+            event: SourceDebugProgressEvent,
+          ) => {
+            onProgress(event);
+          }
+        : null;
+
+      if (progressHandler) {
+        ipcRenderer.on(progressChannel, progressHandler);
+      }
+
+      const cleanup = () => {
+        if (progressHandler) {
+          ipcRenderer.off(progressChannel, progressHandler);
+        }
+        if (activeSourceDebugRequestId === requestId) {
+          activeSourceDebugRequestId = null;
+        }
+      };
+
+      return (ipcRenderer
+        .invoke("job-finder:run-source-debug", {
+          targetId,
+          requestId,
+        })
+        .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>);
+    },
     cancelSourceDebug: (runId: string) =>
       ipcRenderer.invoke("job-finder:cancel-source-debug", {
         runId,
@@ -292,6 +331,10 @@ const desktopApi = {
                 "job-finder:test-reset-workspace-state",
                 state,
               ) as Promise<JobFinderWorkspaceSnapshot>,
+            getPerformanceSnapshot: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-get-performance-snapshot",
+              ) as Promise<JobFinderPerformanceSnapshot>,
             importResumeFromPath: (sourcePath: string) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
                 sourcePath,

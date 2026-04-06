@@ -63,7 +63,7 @@ async function captureResumeWorkspace() {
 
     const window = await app.firstWindow()
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
+    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
     await window.setViewportSize({ width, height })
 
     await window.evaluate(async () => {
@@ -76,26 +76,25 @@ async function captureResumeWorkspace() {
     await window.reload()
     await window.waitForLoadState('domcontentloaded')
 
-    await window.getByRole('button', { name: /^Review Queue/ }).click()
-    await window.getByRole('heading', { level: 1, name: 'Tailored asset review' }).waitFor({ timeout: 10000 })
+    await window.getByRole('button', { name: /^Shortlisted/ }).click()
+    await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '01-review-queue.png') })
 
-    await window.getByText(/Employer site:/).waitFor({ timeout: 10000 })
+    await window.getByText(/Company site:/).waitFor({ timeout: 10000 })
 
-    await window.getByRole('button', { name: /Edit asset/i }).first().click()
+    await window.getByRole('button', { name: /Open resume workspace/i }).first().click()
     await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-resume-workspace-open.png') })
 
-    await window.getByText('Job Context').waitFor({ timeout: 10000 })
-    await window.getByText('Why this bullet exists').first().click()
+    await window.getByText('Saved research', { exact: true }).first().waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02b-resume-workspace-sources.png') })
 
-    const summaryField = window.getByLabel('Section Text').first()
+    const summaryField = window.getByLabel('Section text').first()
     await summaryField.fill('Senior systems designer with strong workflow automation, design-system, and operations-platform experience.')
-    await window.getByRole('button', { name: 'Save Draft' }).click()
+    await window.getByRole('button', { name: 'Save draft' }).click()
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-after-manual-edit.png') })
 
-    const assistantField = window.getByLabel('Message')
+    const assistantField = window.getByLabel('Request a resume edit')
     const previousMessageCount = (await getResumeAssistantMessages(window, 'job_ready')).length
     await assistantField.fill('Shorten the summary and tighten one experience bullet for ATS readability.')
     await window.getByRole('button', { name: 'Send' }).click()
@@ -103,13 +102,13 @@ async function captureResumeWorkspace() {
       async () => {
         const messages = await getResumeAssistantMessages(window, 'job_ready')
         const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant')
-        const sendButtonLabel = await window.getByRole('button', { name: /Send|Working/i }).textContent()
+        const sendButtonLabel = await window.getByRole('button', { name: /Send request|Updating/i }).textContent()
         return (
           messages.length > previousMessageCount &&
           lastAssistant?.role === 'assistant' &&
           lastAssistant.content.trim().length > 0 &&
-          lastAssistant.content !== 'Working on it...' &&
-          sendButtonLabel?.includes('Send')
+          lastAssistant.content !== 'Updating your draft...' &&
+          sendButtonLabel?.includes('Send request')
         )
       },
       'assistant reply in resume workspace demo',
@@ -123,18 +122,18 @@ async function captureResumeWorkspace() {
     )
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '05-after-export.png') })
 
-    await window.getByRole('button', { name: /Back to Review Queue/i }).click()
-    await window.getByRole('heading', { level: 1, name: 'Tailored asset review' }).waitFor({ timeout: 10000 })
-    const gatedApproveButton = window.getByRole('button', { name: 'Approve Easy Apply' })
+    await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
+    await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
+    const gatedApproveButton = window.getByRole('button', { name: 'Start application' })
     if (!(await gatedApproveButton.isDisabled())) {
-      throw new Error('Approve Easy Apply should stay disabled before resume approval.')
+      throw new Error('Start application should stay disabled before resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06-review-queue-gated.png') })
 
-    await window.getByRole('button', { name: /Edit asset/i }).first().click()
+    await window.getByRole('button', { name: /Open resume workspace/i }).first().click()
     await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
 
-    const approveButton = window.getByRole('button', { name: 'Approve Resume' })
+    const approveButton = window.getByRole('button', { name: 'Approve current PDF' })
     await approveButton.waitFor({ timeout: 10000 })
     await approveButton.click()
     await waitForCondition(
@@ -146,17 +145,17 @@ async function captureResumeWorkspace() {
     )
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '07-after-approval.png') })
 
-    await window.getByRole('button', { name: /Back to Review Queue/i }).click()
-    await window.getByRole('heading', { level: 1, name: 'Tailored asset review' }).waitFor({ timeout: 10000 })
-    const readyApproveButton = window.getByRole('button', { name: 'Approve Easy Apply' })
+    await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
+    await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
+    const readyApproveButton = window.getByRole('button', { name: 'Start application' })
     if (await readyApproveButton.isDisabled()) {
-      throw new Error('Approve Easy Apply should be enabled after resume approval.')
+      throw new Error('Start application should be enabled after resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '08-review-queue-approved.png') })
 
     await readyApproveButton.click()
     await window.getByRole('button', { name: /^Applications/ }).click()
-    await window.getByRole('heading', { level: 1, name: 'Application history' }).waitFor({ timeout: 10000 })
+    await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '09-applications-after-apply.png') })
 
     const workspace = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())

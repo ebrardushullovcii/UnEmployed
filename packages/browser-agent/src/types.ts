@@ -11,6 +11,10 @@ import type {
   ToolCall,
 } from "@unemployed/contracts";
 import type { Page } from "playwright";
+import type {
+  SearchResultCardCandidate,
+  StructuredDataJobCandidate,
+} from "./agent/job-extraction";
 
 // Re-export shared types from contracts
 export type { Tool, ToolCall };
@@ -47,6 +51,15 @@ export interface AgentExtractionContext {
   relevantUrlSubstrings?: string[];
 }
 
+export interface DeferredSearchExtraction {
+  key: string;
+  pageUrl: string;
+  pageText: string;
+  capturedAt: string;
+  structuredDataCandidates?: StructuredDataJobCandidate[];
+  cardCandidates?: SearchResultCardCandidate[];
+}
+
 export interface AgentCompactionConfig {
   maxTranscriptMessages: number;
   preserveRecentMessages: number;
@@ -70,6 +83,9 @@ export interface AgentState {
   conversation: AgentMessage[];
   reviewTranscript: string[];
   collectedJobs: JobPosting[];
+  deferredSearchExtractions: Map<string, DeferredSearchExtraction>;
+  failedInteractionAttempts?: Map<string, { count: number; lastError: string }>;
+  failedInteractionPageStateToken?: string;
   visitedUrls: Set<string>;
   stepCount: number;
   currentUrl: string;

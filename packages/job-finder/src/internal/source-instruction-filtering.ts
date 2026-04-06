@@ -29,6 +29,13 @@ export function splitCustomDiscoveryInstructions(value: string | null): string[]
 export function normalizeInstructionLine(value: string): string {
   return value
     .replace(
+      /([?&])(currentJobId|selectedJobId)=[^&#)\s]+(?=(?:[).,;!?\s]|$))/gi,
+      (_match, prefix: string) => (prefix === "?" ? "?" : ""),
+    )
+    .replace(/\?&/g, "?")
+    .replace(/&&+/g, "&")
+    .replace(/[?&](?=(?:[).,;!?\s]|$))/g, "")
+    .replace(
       /^(Reliable control|Filter note|Navigation note|Apply note|Validated behavior|Validated navigation|Verification):\s*/i,
       "",
     )
@@ -177,10 +184,9 @@ export function isLowSignalSourceInstruction(value: string): boolean {
     /\b\d+ or \d+ jobs? extracted\b/.test(normalized) ||
     /\b\d+ jobs? (?:extracted|found|sampled)\b/.test(normalized) ||
     normalized.includes("location encoding") ||
-    normalized.includes("%2c") ||
-    normalized.includes("%20") ||
     normalized.includes("geoid") ||
     normalized.includes("currentjobid") ||
+    normalized.includes("selectedjobid") ||
     normalized.includes("domcontentloaded") ||
     normalized.includes("jobs landing url") ||
     normalized.includes("jobs url pattern") ||

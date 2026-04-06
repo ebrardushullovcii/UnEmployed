@@ -37,6 +37,33 @@ import {
   buildSourceInstructionVersionInfo,
 } from "./workspace-helpers";
 
+function canonicalizeSourceDebugRouteHint(
+  candidateUrl: URL,
+): string {
+  const normalized = new URL(candidateUrl.toString());
+
+  normalized.searchParams.delete("currentJobId");
+  normalized.searchParams.delete("selectedJobId");
+
+  normalized.hash = "";
+  return normalized.toString();
+}
+
+function shouldReadRouteHintSection(
+  line: string,
+  phase: SourceDebugPhase,
+): boolean {
+  const trimmedLine = line.trim();
+
+  if (trimmedLine.startsWith("[Navigation]")) {
+    return true;
+  }
+
+  return trimmedLine.startsWith("[Search]") &&
+    phase !== "site_structure_mapping" &&
+    !phase.includes("auth");
+}
+
 export function mergeSessionStates(
     currentSessions: ReadonlyArray<JobFinderDiscoveryState["sessions"][number]>,
     nextSession: JobFinderDiscoveryState["sessions"][number],
@@ -261,6 +288,162 @@ export function composeSourceDebugInstructions(
     ]);
   }
 
+export function deriveSourceDebugStartingUrls(
+    target: JobDiscoveryTarget,
+    instructionArtifact: SourceInstructionArtifact | null,
+    phase: SourceDebugPhase,
+  ): string[] {
+    if (phase === "access_auth_probe") {
+      return [target.startingUrl];
+    }
+
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(target.startingUrl);
+    } catch {
+      return [target.startingUrl];
+    }
+    const routeHints = buildInstructionGuidance(instructionArtifact);
+    const collectionUrls: string[] = [];
+    const searchUrls: string[] = [];
+    const landingUrls: string[] = [];
+    const otherUrls: string[] = [];
+    for (const line of routeHints) {
+      if (!shouldReadRouteHintSection(line, phase)) {
+        continue;
+      }
+
+      const normalizedLine = normalizeText(line);
+      const absoluteUrlMatches = line.match(/https?:\/\/[^\s)\]>",]+/gi) ?? [];
+      // Matches same-host relative route hints like /jobs/search or /careers/open-roles?team=product,
+      // capturing the path in group 1 while allowing leading whitespace or an opening parenthesis.
+      const relativePathMatches =
+        line.match(/(?:^|[\s(])((?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)+(?:\/)?(?:\?[^\s)\]>",]+)?)/g) ?? [];
+
+      const candidateInputs = uniqueStrings([
+        ...absoluteUrlMatches,
+        ...relativePathMatches.map((match) => {
+          const trimmedMatch = match.trim();
+          return trimmedMatch.startsWith("/")
+            ? trimmedMatch
+            : trimmedMatch.slice(trimmedMatch.indexOf("/"));
+        }),
+      ])
+        .map((value) => value.replace(/[.,;:!?]+$/g, ""))
+        .filter(
+          (value) =>
+            !value.includes("*") &&
+            !value.includes("{") &&
+            !value.includes("}") &&
+            !value.includes("...") &&
+            !/\/:[A-Za-z0-9_-]+/.test(value) &&
+            !/[?&][^=]+=:[A-Za-z0-9_-]+/.test(value),
+        );
+      const parsedCandidates = candidateInputs.flatMap((value) => {
+        try {
+          const candidateUrl = new URL(value, targetUrl);
+
+          if (candidateUrl.hostname !== targetUrl.hostname) {
+            return [];
+          }
+
+          return [candidateUrl];
+        } catch {
+          return [];
+        }
+      });
+      const hasSingleCandidate = parsedCandidates.length === 1;
+      const lineHasCollectionSignal =
+        normalizedLine.includes("collection") ||
+        normalizedLine.includes("recommended") ||
+        normalizedLine.includes("recommendation") ||
+        normalizedLine.includes("show all");
+      const lineHasSearchSignal =
+        normalizedLine.includes("search") ||
+        normalizedLine.includes("results") ||
+        normalizedLine.includes("filter") ||
+        normalizedLine.includes("keyword") ||
+        normalizedLine.includes("location");
+      const lineHasLandingSignal =
+        normalizedLine.includes("homepage") ||
+        normalizedLine.includes("jobs page") ||
+        normalizedLine.includes("jobs route") ||
+        normalizedLine.includes("jobs hub") ||
+        normalizedLine.includes("job list") ||
+        normalizedLine.includes("careers");
+      const lineHasSearchDisproof =
+        isExplicitSearchProbeDisproof(line) ||
+        normalizedLine.includes("no visible search filter controls") ||
+        normalizedLine.includes("has no visible search filter controls") ||
+        normalizedLine.includes("no visible search filter ui") ||
+        normalizedLine.includes("no search filter ui");
+
+      for (const candidateUrl of parsedCandidates) {
+        const candidate = canonicalizeSourceDebugRouteHint(candidateUrl);
+        const normalizedCandidateUrl = new URL(candidate);
+        const normalizedPath = normalizeText(
+          `${normalizedCandidateUrl.pathname} ${normalizedCandidateUrl.search}`,
+        );
+        const candidateLooksCollection =
+          normalizedPath.includes("collection") ||
+          normalizedPath.includes("recommended");
+        const candidateLooksSearch =
+          normalizedPath.includes("search") ||
+          normalizedPath.includes("results");
+        const candidateLooksLanding =
+          normalizedPath.includes("jobs") || normalizedPath.includes("careers");
+
+        if (candidateLooksCollection || (hasSingleCandidate && lineHasCollectionSignal)) {
+          collectionUrls.push(candidate);
+          continue;
+        }
+
+        if (
+          !lineHasSearchDisproof &&
+          (candidateLooksSearch || (hasSingleCandidate && lineHasSearchSignal))
+        ) {
+          searchUrls.push(candidate);
+          continue;
+        }
+
+        if (candidateLooksLanding || (hasSingleCandidate && lineHasLandingSignal)) {
+          landingUrls.push(candidate);
+          continue;
+        }
+
+        otherUrls.push(candidate);
+      }
+    }
+
+    const preferredUrls =
+      phase === "search_filter_probe"
+        ? searchUrls.length > 0
+          ? [
+              ...searchUrls,
+              ...landingUrls,
+              target.startingUrl,
+              ...collectionUrls,
+              ...otherUrls,
+            ]
+          : collectionUrls.length > 0
+            ? [
+                ...collectionUrls,
+                ...landingUrls,
+                target.startingUrl,
+                ...otherUrls,
+              ]
+            : [...landingUrls, target.startingUrl, ...otherUrls]
+        : [
+            ...collectionUrls,
+            ...searchUrls,
+            ...landingUrls,
+            target.startingUrl,
+            ...otherUrls,
+          ];
+
+    return uniqueStrings(preferredUrls);
+  }
+
 export function classifySourceDebugAttemptOutcome(
     result: Awaited<
       ReturnType<NonNullable<BrowserSessionRuntime["runAgentDiscovery"]>>
@@ -388,6 +571,7 @@ export function buildSourceDebugPhaseSummary(
       nextRecommendedStrategies: attempt.nextRecommendedStrategies,
       avoidStrategyFingerprints: attempt.avoidStrategyFingerprints,
       producedAttemptIds: [attempt.id],
+      timing: attempt.timing,
     });
   }
 
@@ -412,15 +596,15 @@ export function getSourceDebugMaxSteps(phase: SourceDebugPhase): number {
       case "access_auth_probe":
         return 16;
       case "site_structure_mapping":
-        return 24;
+        return 18;
       case "search_filter_probe":
-        return 36;
+        return 22;
       case "job_detail_validation":
       case "apply_path_validation":
       case "replay_verification":
-        return 24;
+        return 18;
       default:
-        return 22;
+        return 18;
     }
   }
 

@@ -1,8 +1,37 @@
 # 009 Full App Production Copy Pass
 
-Status: ready
+Status: completed
+This plan is complete and now serves as implementation background for later polish or follow-on cleanup.
 
-This plan is queued follow-on work. Do not mark it active until the current higher-priority implementation slices settle.
+## Implemented Outcome
+
+The completed pass landed as a stronger second product rewrite, not just a lighter wording sweep.
+
+Key shipped results:
+
+- top navigation now uses clearer product labels: `Find jobs`, `Shortlisted`, and `Applications`
+- `Discovery` detail removed low-value jargon like `Discovery mode` and renamed `Provenance` to `Found on`
+- the shortlist and resume-editor flow now uses calmer, more product-facing language and hides default source-ref or evidence internals
+- `Profile` source setup now uses `Job sources`, `Check source`, saved guidance language, clearer source-status language, and a simplified source-review modal instead of heavier debug wording
+- `Applications` no longer shows internal reference IDs in the main table or detail panel
+- `Settings` removed the single-option `Resume format` field and `Template notes`, simplified remaining toggle language, removed the read-only AI provider stat, and reduced destructive reset framing
+- desktop capture scripts were updated to the new navigation labels and page headings
+
+Later polish landed on top of this baseline without reopening the whole plan:
+
+- `Shortlisted` now presents apply readiness as an explicit checklist (`Tailored resume ready`, `Approved PDF ready`, `Browser ready`) instead of making the user infer readiness from stacked status cards
+- later hardening added an `Apply path` cue so that checklist stays truthful when a saved job already appears manual-only instead of supported for Easy Apply automation
+- `Applications` now supports quick triage filters (`All`, `Needs action`, `In progress`, `Submitted`, `Manual only`) and surfaces the next step more prominently in the detail rail
+- `Settings` now uses a stronger two-column split: editable defaults in the main column, live browser or apply status plus destructive reset in a tighter side rail
+- `Profile` keeps more optional fields behind secondary disclosure sections so the main editing path stays focused on the fields that matter most for search, resumes, and applications
+
+## Validation Notes
+
+- `pnpm --filter @unemployed/desktop lint` passed
+- `pnpm --filter @unemployed/desktop typecheck` passed
+- `pnpm --filter @unemployed/desktop build` passed
+- `pnpm docs:check` passed
+- `pnpm --filter @unemployed/desktop ui:capture` passed
 
 ## Goal
 

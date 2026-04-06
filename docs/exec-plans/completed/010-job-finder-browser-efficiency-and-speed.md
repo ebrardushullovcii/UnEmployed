@@ -1,8 +1,30 @@
 # 010 Job Finder Browser Efficiency And Speed
 
-Status: ready
+Status: completed
 
-This plan is defined but not started. It remains queued follow-on work until the current higher-priority Job Finder slices settle enough that browser-heavy performance can be measured cleanly.
+This plan has been completed. The implementation focused on exposing named waiting states, reducing obvious silent-idle behavior, and making discovery and source-debug stage attribution easier to verify.
+
+## Final Implementation Summary
+
+- Discovery now emits clearer browser-startup, browser-ready, merge, and persistence progress so healthy runs no longer look like unexplained blank browser time quite as often.
+- Source-debug now streams typed live progress to the desktop renderer, including current phase, wait reason, elapsed time, and product-facing status text.
+- Browser-agent startup no longer pays a fixed `2s` post-navigation pause; it now uses a short bounded readiness wait instead.
+- Discovery now batches repeated search-results extraction, deduping re-checks of the same results route and flushing periodically so discovery can still stop early instead of drifting to max steps with `0` collected jobs.
+- Tool-driven navigation now caps `networkidle` waits and treats timed-out-but-usable pages as partial successes, while missing click targets fail fast and hidden matched links can fall back to direct `href` navigation instead of burning the full click timeout.
+- Search-results extraction now treats a grounded summary snippet as the description fallback when the model omits a full description, which improves LinkedIn extraction yield without inventing new content.
+- Discovery search-results extraction now caps each page-level AI batch size more aggressively, sends a lighter search-results extraction payload, and surfaces explicit timeout messages when the provider still misses the search-results budget.
+- Discovery and source-debug now retain bounded timing summaries on run records, target executions, attempts, and phase summaries so long quiet spans can be attributed after the run instead of guessed from browser motion alone.
+- The desktop test API now exposes a performance snapshot path for benchmark and QA flows so representative runs can be inspected without digging through raw repository state.
+- Enabling the desktop test API no longer swaps discovery onto the deterministic AI client, so benchmark and snapshot workflows can keep using a real tool-calling provider.
+- Discovery now budgets job count and step count across the remaining run instead of asking every source to chase the full run-level target, and it can skip later targets once the run already has enough jobs.
+- Discovery merge now prefers the deterministic fit scorer for discovery-phase job matching while retaining model-backed `assessJobFit` as a fallback path, reducing post-browser wait time in discovery runs.
+- The SQLite file repository now uses table-specific reads and writes for discovery-hot-path state such as saved jobs and discovery state, avoiding repeated full-workspace rehydrates and rewrites during discovery persistence.
+- Discovery now flushes queued search-results extraction as soon as the agent falls into a no-op planning turn instead of spending more late steps thinking while reviewable pages are already queued.
+- Discovery now stops cold sources early after repeated zero-yield extraction passes and a stale step window, which should trim the long tail on sources that keep wandering after they stop producing new jobs.
+- Source-debug now reuses same-host learned route hints as transient later-phase starting URLs, prefers current-run hints over stale cleared guidance once a fresh run learns new routes, records the actual phase starting URL in evidence, and can probe collection routes before the homepage when no reusable search route has been proven yet.
+- Source-debug now ignores malformed wildcard/template route hints (for example `/jobs/collections/*` and `...` URL patterns) when deriving phase starting URLs, and the browser agent now blocks repeated click/fill misses across common naming variants so evidence recording stops burning turns on the same failed control.
+- Phase-driven source-debug runs now force an early browser closeout once evidence has stalled after enough proof is already collected, instead of waiting until the end of the full step budget for a late `finish` call.
+- The next tightening pass should focus on representative benchmark capture and any remaining long waits in final review, persistence, or retry paths that the new retained timings expose.
 
 ## Goal
 

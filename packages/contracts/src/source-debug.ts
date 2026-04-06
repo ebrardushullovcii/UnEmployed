@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  BrowserRunWaitReasonSchema,
   IsoDateTimeSchema,
   NonEmptyStringSchema,
   SourceDebugAttemptOutcomeSchema,
@@ -89,6 +90,36 @@ export type SourceDebugEvidenceRef = z.infer<
   typeof SourceDebugEvidenceRefSchema
 >;
 
+export const SourceDebugWaitReasonDurationSchema = z.object({
+  waitReason: BrowserRunWaitReasonSchema,
+  durationMs: z.number().int().nonnegative().default(0),
+});
+export type SourceDebugWaitReasonDuration = z.infer<
+  typeof SourceDebugWaitReasonDurationSchema
+>;
+
+export const SourceDebugTimingSummarySchema = z.object({
+  totalDurationMs: z.number().int().nonnegative().default(0),
+  firstProgressMs: z.number().int().nonnegative().nullable().default(null),
+  longestGapMs: z.number().int().nonnegative().default(0),
+  eventCount: z.number().int().nonnegative().default(0),
+  waitReasonDurations: z.array(SourceDebugWaitReasonDurationSchema).default([]),
+});
+export type SourceDebugTimingSummary = z.infer<
+  typeof SourceDebugTimingSummarySchema
+>;
+
+export const SourceDebugRunTimingSummarySchema = SourceDebugTimingSummarySchema.extend(
+  {
+    browserSetupMs: z.number().int().nonnegative().nullable().default(null),
+    finalReviewMs: z.number().int().nonnegative().nullable().default(null),
+    finalizationMs: z.number().int().nonnegative().nullable().default(null),
+  },
+);
+export type SourceDebugRunTimingSummary = z.infer<
+  typeof SourceDebugRunTimingSummarySchema
+>;
+
 export const SourceDebugWorkerAttemptSchema = z.object({
   id: NonEmptyStringSchema,
   runId: NonEmptyStringSchema,
@@ -112,6 +143,7 @@ export const SourceDebugWorkerAttemptSchema = z.object({
   evidenceRefIds: z.array(NonEmptyStringSchema).default([]),
   phaseEvidence: SourceDebugPhaseEvidenceSchema.nullable().default(null),
   compactionState: SourceDebugCompactionStateSchema.nullable().default(null),
+  timing: SourceDebugTimingSummarySchema.nullable().default(null),
 });
 export type SourceDebugWorkerAttempt = z.infer<
   typeof SourceDebugWorkerAttemptSchema
@@ -128,6 +160,7 @@ export const SourceDebugPhaseSummarySchema = z.object({
   nextRecommendedStrategies: z.array(NonEmptyStringSchema).default([]),
   avoidStrategyFingerprints: z.array(NonEmptyStringSchema).default([]),
   producedAttemptIds: z.array(NonEmptyStringSchema).default([]),
+  timing: SourceDebugTimingSummarySchema.nullable().default(null),
 });
 export type SourceDebugPhaseSummary = z.infer<
   typeof SourceDebugPhaseSummarySchema
@@ -291,6 +324,7 @@ export const SourceDebugRunRecordSchema = z
     attemptIds: z.array(NonEmptyStringSchema).default([]),
     phaseSummaries: z.array(SourceDebugPhaseSummarySchema).default([]),
     instructionArtifactId: NonEmptyStringSchema.nullable().default(null),
+    timing: SourceDebugRunTimingSummarySchema.nullable().default(null),
   })
   .superRefine((value, ctx) => {
     const isTerminalState =
@@ -386,3 +420,20 @@ export const SourceDebugRunDetailsSchema = z.object({
   instructionArtifact: SourceInstructionArtifactSchema.nullable().default(null),
 });
 export type SourceDebugRunDetails = z.infer<typeof SourceDebugRunDetailsSchema>;
+
+export const SourceDebugProgressEventSchema = z.object({
+  runId: NonEmptyStringSchema,
+  targetId: NonEmptyStringSchema,
+  phase: SourceDebugPhaseSchema.nullable().default(null),
+  waitReason: BrowserRunWaitReasonSchema,
+  timestamp: IsoDateTimeSchema,
+  elapsedMs: z.number().int().nonnegative(),
+  lastActivityAt: IsoDateTimeSchema,
+  message: NonEmptyStringSchema,
+  currentUrl: UrlStringSchema.nullable().default(null),
+  stepCount: z.number().int().nonnegative().default(0),
+  jobsFound: z.number().int().nonnegative().default(0),
+});
+export type SourceDebugProgressEvent = z.infer<
+  typeof SourceDebugProgressEventSchema
+>;

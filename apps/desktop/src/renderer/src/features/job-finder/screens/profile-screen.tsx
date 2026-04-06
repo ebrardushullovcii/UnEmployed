@@ -107,8 +107,7 @@ export function ProfileScreen(props: {
     workModes,
     tailoringMode,
     minimumSalaryUsd,
-    targetSalaryUsd,
-    salaryCurrency
+    targetSalaryUsd
   ] = useWatch({
     control: preferencesForm.control,
     name: [
@@ -125,8 +124,7 @@ export function ProfileScreen(props: {
       'workModes',
       'tailoringMode',
       'minimumSalaryUsd',
-      'targetSalaryUsd',
-      'salaryCurrency'
+      'targetSalaryUsd'
     ]
   })
 
@@ -152,6 +150,7 @@ export function ProfileScreen(props: {
   const snapshotLocation = identityValues?.currentLocation || profile.currentLocation
   const snapshotYearsExperience = identityValues?.yearsExperience
   const parsedSnapshotYearsExperience = Number.parseInt(snapshotYearsExperience ?? '', 10)
+  const hasUnsavedChanges = profileForm.formState.isDirty || preferencesForm.formState.isDirty
 
   const overviewProfile = useMemo<CandidateProfile>(() => ({
     ...profile,
@@ -173,14 +172,11 @@ export function ProfileScreen(props: {
     const basics = countFilledFields([
       identityValues?.firstName,
       identityValues?.lastName,
-      identityValues?.middleName,
       identityValues?.preferredDisplayName,
       identityValues?.headline,
       identityValues?.yearsExperience,
       identityValues?.email,
-      identityValues?.secondaryEmail,
       identityValues?.phone,
-      identityValues?.timeZone,
       identityValues?.currentCity,
       identityValues?.currentRegion,
       identityValues?.currentCountry,
@@ -188,10 +184,8 @@ export function ProfileScreen(props: {
       identityValues?.linkedinUrl,
       identityValues?.portfolioUrl,
       identityValues?.githubUrl,
-      identityValues?.personalWebsiteUrl,
       summaryValues?.shortValueProposition,
       summaryValues?.fullSummary,
-      summaryValues?.careerThemes,
       summaryValues?.strengths,
       summaryValues?.leadershipSummary,
       summaryValues?.domainFocusSummary,
@@ -236,8 +230,7 @@ export function ProfileScreen(props: {
       workModes,
       tailoringMode,
       minimumSalaryUsd,
-      targetSalaryUsd,
-      salaryCurrency
+      targetSalaryUsd
     ])
 
     return {
@@ -263,7 +256,6 @@ export function ProfileScreen(props: {
     minimumSalaryUsd,
     profileSkillValues,
     projectValues,
-    salaryCurrency,
     seniorityLevels,
     skillGroupValues,
     summaryValues,
@@ -280,25 +272,25 @@ export function ProfileScreen(props: {
       {
         id: 'basics' as const,
         label: 'Basics',
-        description: 'Review the contact details, summary, and skills that resume analysis fills first.',
+        description: 'Review your contact info, summary, and skills in one place.',
         progress: sectionProgress.basics
       },
       {
         id: 'experience' as const,
         label: 'Experience',
-        description: 'Maintain each role separately so tailoring and form-fill stay grounded.',
+        description: 'Keep each role separate so resumes and forms stay accurate.',
         progress: sectionProgress.experience
       },
       {
         id: 'background' as const,
         label: 'Background',
-        description: 'Manage education, certifications, projects, public links, and languages.',
+        description: 'Manage education, certifications, projects, links, and languages.',
         progress: sectionProgress.background
       },
       {
         id: 'preferences' as const,
         label: 'Preferences',
-        description: 'Keep eligibility answers and job-targeting rules in a separate workspace.',
+        description: 'Set screening answers, job preferences, and source setup for future searches and applications.',
         progress: sectionProgress.preferences
       }
     ],
@@ -330,13 +322,13 @@ export function ProfileScreen(props: {
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
       topClassName="grid gap-(--gap-section) pb-(--gap-section) pt-8"
-      topContent={(
-        <>
-          <PageHeader
-            eyebrow="Profile"
-            title="Candidate setup"
-            description="Import your resume once, then review the structured profile it creates. Each tab below focuses on one part of the candidate record so the form feels lighter and easier to edit."
-          />
+        topContent={(
+          <>
+            <PageHeader
+              eyebrow="Profile"
+              title="Your profile"
+              description="Import your resume, lock in the essentials first, then fill in optional details only where they help your search and applications."
+            />
 
           <ProfileResumePanel
             busy={busy}
@@ -382,6 +374,7 @@ export function ProfileScreen(props: {
           </div>
 
           <ProfileSaveFooter
+            hasUnsavedChanges={hasUnsavedChanges}
             actionMessage={actionState.message}
             busy={busy}
             onSave={handleSaveAll}

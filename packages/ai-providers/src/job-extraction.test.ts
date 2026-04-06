@@ -20,6 +20,7 @@ describe('job extraction with openai-compatible client', () => {
                   canonicalUrl: 'https://jobs.example.com/frontend-engineer',
                   sourceJobId: 'job_123',
                   description: 'Build product experiences.',
+                  summary: 'Build product experiences.',
                   applyPath: 'easy_apply',
                   easyApplyEligible: true,
                   workMode: ['remote'],
@@ -72,6 +73,7 @@ describe('job extraction with openai-compatible client', () => {
                   canonicalUrl: 'https://jobs.example.com/frontend-engineer',
                   sourceJobId: 'job_456',
                   description: 'Build product experiences.',
+                  summary: 'Build product experiences.',
                   applyPath: 'external_redirect',
                   easyApplyEligible: false,
                   workMode: 'remote',
@@ -255,6 +257,142 @@ describe('job extraction with openai-compatible client', () => {
     } finally {
       restoreFetch()
       errorSpy.mockRestore()
+    }
+  })
+
+test('uses summary fallback for description on search-results pages when description is empty', async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              jobs: [
+                {
+                  title: 'Frontend Engineer',
+                  company: 'Acme',
+                  location: 'Remote',
+                  canonicalUrl: 'https://jobs.example.com/frontend-engineer',
+                  sourceJobId: 'job_summary_fallback',
+                  description: '',
+                  summary: 'Build product experiences from the search results snippet.',
+                  applyPath: 'external_redirect',
+                  easyApplyEligible: false,
+                  workMode: ['remote'],
+                  keySkills: ['React']
+                }
+              ]
+            })
+          }
+        }
+      ]
+    })
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: 'Frontend Engineer role at Acme with a visible summary snippet',
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 5
+      })
+
+      expect(jobs).toHaveLength(1)
+      expect(jobs[0]?.description).toBe('Build product experiences from the search results snippet.')
+      expect(jobs[0]?.summary).toBe('Build product experiences from the search results snippet.')
+    } finally {
+      restoreFetch()
+    }
+  })
+
+  test('uses lighter request limits for search-results extraction to reduce first-pass stalls', async () => {
+    const originalFetch = globalThis.fetch
+    let capturedBody: { messages?: Array<{ content: string }> } | null = null
+
+    globalThis.fetch = ((_, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content: string }> }
+
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ jobs: [] })
+              }
+            }
+          ]
+        }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+      )
+    }) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      await client.extractJobsFromPage({
+        pageText: 'x'.repeat(15000),
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 20
+      })
+
+      expect(capturedBody).not.toBeNull()
+      if (!capturedBody) {
+        throw new Error('Expected the extraction request body to be captured.')
+      }
+      // TypeScript needs explicit type annotation after null check due to control flow analysis
+      const requestBody: { messages?: Array<{ content: string }> } = capturedBody
+      const messages = requestBody.messages ?? []
+      expect(messages[0]?.content).toContain('Return at most 4 jobs.')
+      expect(messages[0]?.content).toContain('If only a short search-results snippet is visible')
+      const userPayload = JSON.parse(messages[1]?.content ?? '{}') as { pageText?: string }
+      expect(userPayload.pageText).toHaveLength(8000)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('reports search-results extraction timeouts clearly before falling back', async () => {
+    vi.useFakeTimers()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = ((_, init) => new Promise((_, reject) => {
+      const signal = init?.signal as AbortSignal | undefined
+
+      if (signal?.aborted) {
+        reject(new DOMException('This operation was aborted', 'AbortError'))
+        return
+      }
+
+      signal?.addEventListener('abort', () => {
+        reject(new DOMException('This operation was aborted', 'AbortError'))
+      }, { once: true })
+    })) as typeof fetch
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const extractionPromise = client.extractJobsFromPage({
+        pageText: 'Frontend Engineer role at Acme',
+        pageUrl: 'https://jobs.example.com/search',
+        pageType: 'search_results',
+        maxJobs: 5
+      })
+
+      await vi.advanceTimersByTimeAsync(35000)
+
+      await expect(extractionPromise).resolves.toEqual([])
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[AI Provider] extractJobsFromPage failed; falling back to deterministic client. Model request timed out after 35s'
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      errorSpy.mockRestore()
+      vi.useRealTimers()
     }
   })
 })

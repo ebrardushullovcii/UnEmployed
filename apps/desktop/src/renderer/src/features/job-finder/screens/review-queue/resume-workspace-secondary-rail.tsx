@@ -61,10 +61,10 @@ export function ResumeWorkspaceSecondaryRail(props: {
         </div>
         <div className="min-w-0">
           <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
-            Assistant Chat
+            Guided edits
           </h2>
           <p className="text-sm text-foreground-soft">
-            Ask for rewrites, tighter phrasing, and job-specific edits.
+            Ask for grounded edits using the job, your profile, and saved research.
           </p>
         </div>
       </header>
@@ -115,10 +115,10 @@ export function ResumeWorkspaceSecondaryRail(props: {
                   <MessageSquare className="size-4" />
                 </div>
                 <p className="font-display text-sm text-foreground">
-                  No messages yet
+                  No edit requests yet
                 </p>
                 <p className="text-sm leading-6 text-foreground-soft">
-                  Start a chat to refine this resume in natural language.
+                  Ask for a tighter summary, stronger bullets, or clearer job-specific wording.
                 </p>
               </div>
             </div>
@@ -128,21 +128,21 @@ export function ResumeWorkspaceSecondaryRail(props: {
         <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
           <div className="grid gap-3">
             <div className="grid min-w-0 gap-2">
-              <FieldLabel htmlFor={assistantId}>Message</FieldLabel>
+              <FieldLabel htmlFor={assistantId}>Request a resume edit</FieldLabel>
               <Textarea
                 className="min-w-0"
                 id={assistantId}
                 disabled={props.busy || props.assistantPending}
                 onChange={(event) => setAssistantInput(event.currentTarget.value)}
                 onKeyDown={handleComposerKeyDown}
-                placeholder="Ask for a rewrite, shorter summary, stronger bullets, or ATS cleanup..."
+                placeholder="Example: tighten the summary, strengthen one experience bullet, or rewrite a section for this job..."
                 rows={4}
                 value={assistantInput}
               />
             </div>
             <div className="flex items-center justify-between gap-3">
               <p className="text-(length:--text-tiny) text-muted-foreground">
-                Enter sends. Shift+Enter adds a new line.
+                Press Enter to send. Shift+Enter adds a new line.
               </p>
               <Button
                 className="min-w-28 px-4"
@@ -151,7 +151,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
                 type="button"
                 variant="primary"
               >
-                {props.assistantPending ? "Working..." : "Send"}
+                {props.assistantPending ? "Updating..." : "Send request"}
               </Button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import {
   createCatalogBrowserSessionRuntime,
   type BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
+import type { SourceDebugProgressEvent } from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
 import {
   createAgentAiClient,
@@ -168,6 +169,111 @@ describe("createJobFinderWorkspaceService", () => {
     expect(learnedLines.toLowerCase()).not.toContain(
       "discovery encountered an error",
     );
+  });
+
+  test("streams named progress states while source debug is running", async () => {
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_source_debug_progress",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_source_debug_progress",
+          title: "Senior Product Designer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: "$180k - $220k",
+          summary: "Validate progress streaming.",
+          description: "Validate progress streaming.",
+          keySkills: ["Figma", "React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      async runAgentDiscovery(source, options) {
+        options.onProgress?.({
+          currentUrl: options.startingUrls[0] ?? "https://www.linkedin.com/jobs/",
+          jobsFound: 0,
+          stepCount: 1,
+          currentAction: "thinking",
+          message: "Planning the next browser action.",
+          waitReason: "waiting_on_ai",
+          targetId: null,
+          adapterKind: source,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+    const streamedEvents: SourceDebugProgressEvent[] = [];
+
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+      undefined,
+      (event) => {
+        streamedEvents.push(event);
+      },
+    );
+
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
+    expect(streamedEvents.some((event) => event.waitReason === "starting_browser")).toBe(
+      true,
+    );
+    expect(streamedEvents.some((event) => event.waitReason === "waiting_on_ai")).toBe(
+      true,
+    );
+    expect(streamedEvents.some((event) => event.waitReason === "finalizing")).toBe(
+      true,
+    );
+    expect(
+      streamedEvents.some((event) =>
+        event.message.includes("Reviewing the collected evidence"),
+      ),
+    ).toBe(true);
+    const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
+
+    expect(latestRunId).toBeTruthy();
+
+    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+
+    expect(latestRun.run.timing?.browserSetupMs).not.toBeNull();
+    expect(latestRun.run.timing?.finalReviewMs).not.toBeNull();
+    expect(latestRun.run.timing?.finalizationMs).not.toBeNull();
+    expect(
+      latestRun.run.timing?.waitReasonDurations.some(
+        (entry) => entry.waitReason === "waiting_on_ai",
+      ),
+    ).toBe(true);
+    expect(latestRun.attempts.length).toBeGreaterThan(0);
+    expect(latestRun.run.phaseSummaries.length).toBeGreaterThan(0);
+    expect(
+      latestRun.attempts.every(
+        (attempt) => attempt.timing != null && attempt.timing.eventCount > 0,
+      ),
+    ).toBe(true);
+    expect(
+      latestRun.run.phaseSummaries.every(
+        (summary) => summary.timing !== null,
+      ),
+    ).toBe(true);
   });
 
   test("rejects starting a second source-debug run while one is already active", async () => {

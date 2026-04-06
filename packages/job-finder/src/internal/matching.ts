@@ -500,7 +500,6 @@ export function mergeDiscoveredJob(
 
 // Helper to merge discovered postings with existing jobs
 export async function mergeDiscoveredPostings(
-  aiClient: JobFinderAiClient,
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
   savedJobs: readonly SavedJob[],
@@ -559,8 +558,7 @@ export async function mergeDiscoveredPostings(
 
     validatedCount += 1;
 
-    const matchAssessment = await createMatchAssessmentAsync(
-      aiClient,
+    const matchAssessment = createMatchAssessment(
       profile,
       searchPreferences,
       posting,

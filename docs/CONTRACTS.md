@@ -37,6 +37,20 @@
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them
 
+## Discovery And Source-Debug Progress
+
+- `AgentDiscoveryProgress` is the shared browser-agent progress envelope for discovery-facing orchestration and may carry product-facing `message`, `waitReason`, `phase`, `elapsedMs`, and `lastActivityAt` fields in addition to the current URL, jobs found, and step count.
+- `DiscoveryActivityEvent` may now retain the normalized `waitReason` alongside its stage so saved discovery activity can distinguish browser movement from AI waiting, merge work, and persistence work after the fact.
+- `SourceDebugProgressEvent` is the typed live progress payload for `runSourceDebug`; desktop IPC may stream it while a run is active so renderer surfaces can explain browser startup, AI waiting, tool execution, persistence, manual prerequisites, and final review or finalization work in real time.
+- Progress wait states should reuse the shared `BrowserRunWaitReason` vocabulary instead of package-local ad hoc strings so discovery, source-debug, and renderer status surfaces stay aligned.
+
+## Retained Timing Summaries
+
+- Discovery run records retain bounded timing summaries on `summary.timing`, and each discovery target execution may also keep a target-local timing summary on `targetExecutions[].timing`.
+- Source-debug run records retain bounded timing summaries on `run.timing`, while `attempts[].timing` and `phaseSummaries[].timing` keep phase-level attribution available for later review.
+- Timing summaries are intentionally aggregate-only: total duration, time to first visible progress, longest silent gap, event count, and duration buckets grouped by stage or wait reason.
+- The desktop test API may expose a `JobFinderPerformanceSnapshot` for benchmark and QA flows, but product UI should keep using curated progress and run-history surfaces rather than raw diagnostic internals.
+
 ## Job Posting Fields
 
 - `postedAt`: nullable ISO datetime, defaults to `null`; only use for exact machine-readable posting timestamps.

@@ -206,6 +206,7 @@ describe("runAgentDiscovery compaction", () => {
       ],
       reviewTranscript: [],
       collectedJobs: [],
+      deferredSearchExtractions: new Map(),
       visitedUrls: new Set(["https://www.linkedin.com/jobs/search/"]),
       stepCount: 3,
       currentUrl: "https://www.linkedin.com/jobs/search/",

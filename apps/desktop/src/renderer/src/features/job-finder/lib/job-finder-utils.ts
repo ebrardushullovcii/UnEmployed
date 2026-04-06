@@ -1,9 +1,12 @@
 import type {
+  ApplicationAttempt,
   ApplicationEvent,
+  ApplicationRecord,
   ApplicationStatus,
   AssetStatus,
   BrowserSessionState,
-  CandidateProfile
+  CandidateProfile,
+  SourceDebugRunRecord
 } from '@unemployed/contracts'
 import type {
   BadgeTone,
@@ -52,18 +55,74 @@ export function formatStatusLabel(value: string): string {
 }
 
 export function formatResumeAnalysisSummary(profile: CandidateProfile): string | null {
-  const providerLabel = profile.baseResume.analysisProviderLabel
   const analyzedAt = profile.baseResume.lastAnalyzedAt
 
-  if (!providerLabel || !analyzedAt) {
+  if (!analyzedAt) {
     return null
   }
 
-  return `${providerLabel} parsed this resume on ${formatTimestamp(analyzedAt)}.`
+  return `Profile suggestions refreshed from your resume on ${formatTimestamp(analyzedAt)}.`
 }
 
 export function formatCountLabel(value: number, noun: string): string {
   return `${value} ${noun}${value === 1 ? '' : 's'}`
+}
+
+export function formatRunStateLabel(state: SourceDebugRunRecord['state']): string {
+  switch (state) {
+    case 'completed':
+      return 'Completed'
+    case 'paused_manual':
+      return 'Needs manual step'
+    case 'failed':
+      return 'Needs attention'
+    case 'cancelled':
+      return 'Cancelled'
+    case 'interrupted':
+      return 'Interrupted'
+    case 'running':
+      return 'Running'
+    default:
+      return 'Not started'
+  }
+}
+
+export function getAttemptLabel(value: ApplicationAttempt['state'] | ApplicationRecord['lastAttemptState']): string {
+  if (!value) {
+    return 'No apply attempt'
+  }
+
+  switch (value) {
+    case 'paused':
+      return 'Needs follow-up'
+    case 'unsupported':
+      return 'Manual apply only'
+    case 'failed':
+      return 'Attempt failed'
+    case 'submitted':
+      return 'Submitted'
+    case 'in_progress':
+      return 'In progress'
+    case 'not_started':
+      return 'Not started'
+    default:
+      return formatStatusLabel(value)
+  }
+}
+
+export function getAttemptTone(value: ApplicationAttempt['state'] | ApplicationRecord['lastAttemptState'] | null): BadgeTone {
+  switch (value) {
+    case 'submitted':
+      return 'positive'
+    case 'failed':
+    case 'unsupported':
+      return 'critical'
+    case 'paused':
+    case 'in_progress':
+      return 'active'
+    default:
+      return 'muted'
+  }
 }
 
 export function getApplicationTone(status: ApplicationStatus): BadgeTone {
@@ -192,6 +251,31 @@ export function uniqueList(values: readonly string[]): string[] {
 
 export function createProfileEntryId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return '—'
+  }
+
+  if (ms < 1000) {
+    return '<1s'
+  }
+
+  const totalSeconds = Math.round(ms / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`
+  }
+
+  return `${seconds}s`
 }
 
 export function parseRequiredNonNegativeInteger(value: string): number | null {

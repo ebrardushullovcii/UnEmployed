@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   AiProviderKindSchema,
   AppearanceThemeSchema,
+  BrowserRunWaitReasonSchema,
   BrowserDriverSchema,
   BrowserSessionStatusSchema,
   DocumentFontPresetSchema,
@@ -12,6 +13,7 @@ import {
   JobSourceSchema,
   NonEmptyStringSchema,
   ResumeTemplateIdSchema,
+  SourceDebugPhaseSchema,
 } from "./base";
 import {
   ApplicationAttemptSchema,
@@ -39,6 +41,7 @@ import {
 import {
   EditableSourceInstructionArtifactSchema,
   SourceDebugEvidenceRefSchema,
+  SourceDebugRunDetailsSchema,
   SourceDebugRunRecordSchema,
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
@@ -256,6 +259,15 @@ export type JobFinderWorkspaceSnapshot = z.infer<
   typeof JobFinderWorkspaceSnapshotSchema
 >;
 
+export const JobFinderPerformanceSnapshotSchema = z.object({
+  generatedAt: IsoDateTimeSchema,
+  latestDiscoveryRun: DiscoveryRunRecordSchema.nullable().default(null),
+  latestSourceDebugRun: SourceDebugRunDetailsSchema.nullable().default(null),
+});
+export type JobFinderPerformanceSnapshot = z.infer<
+  typeof JobFinderPerformanceSnapshotSchema
+>;
+
 export const SaveCandidateProfileInputSchema = CandidateProfileSchema;
 export type SaveCandidateProfileInput = z.infer<
   typeof SaveCandidateProfileInputSchema
@@ -300,6 +312,11 @@ export const AgentDiscoveryProgressSchema = z.object({
   jobsFound: z.number().int().nonnegative(),
   stepCount: z.number().int().nonnegative(),
   currentAction: z.string().optional(),
+  message: NonEmptyStringSchema.nullable().optional(),
+  waitReason: BrowserRunWaitReasonSchema.nullable().optional(),
+  phase: SourceDebugPhaseSchema.nullable().optional(),
+  elapsedMs: z.number().nonnegative().optional(),
+  lastActivityAt: IsoDateTimeSchema.nullable().optional(),
   targetId: NonEmptyStringSchema.nullable().default(null),
   adapterKind: JobSourceSchema.nullable().default(null),
 });

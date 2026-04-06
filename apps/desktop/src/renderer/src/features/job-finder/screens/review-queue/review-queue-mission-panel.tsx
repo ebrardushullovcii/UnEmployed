@@ -1,10 +1,16 @@
-import { Info, Pencil, Trash2, View } from 'lucide-react'
+import { CheckCircle2, CircleDashed, Pencil, TriangleAlert } from 'lucide-react'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button, ProgressBar } from '@renderer/components/ui'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
-import { formatStatusLabel, getAssetTone } from '../../lib/job-finder-utils'
+import {
+  getApplyReadinessStatus,
+  hasResumeGenerationFailure,
+  isResumeGenerationInProgress,
+  needsResumeGeneration,
+  type ApplySupportState
+} from './review-queue-status'
 
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
@@ -18,6 +24,144 @@ interface ReviewQueueMissionPanelProps {
   selectedJob: SavedJob | null
 }
 
+interface ApplyChecklistItem {
+  description: string
+  label: string
+  state: 'attention' | 'complete' | 'in_progress' | 'blocked'
+}
+
+function assertChecklistStateUnreachable(value: never): never {
+  void value
+  throw new Error('Unhandled checklist state.')
+}
+
+function getChecklistTone(state: ApplyChecklistItem['state']) {
+  switch (state) {
+    case 'complete':
+      return 'positive' as const
+    case 'attention':
+      return 'active' as const
+    case 'in_progress':
+      return 'active' as const
+    case 'blocked':
+      return 'critical' as const
+  }
+
+  return assertChecklistStateUnreachable(state)
+}
+
+function getChecklistIcon(state: ApplyChecklistItem['state']) {
+  switch (state) {
+    case 'complete':
+      return CheckCircle2
+    case 'in_progress':
+      return CircleDashed
+    case 'attention':
+      return TriangleAlert
+    case 'blocked':
+      return TriangleAlert
+  }
+
+  return assertChecklistStateUnreachable(state)
+}
+
+function getApplySupportState(selectedJob: SavedJob | null): ApplySupportState {
+  if (!selectedJob) {
+    return 'incomplete'
+  }
+
+  if (selectedJob.applyPath === 'unknown') {
+    return 'incomplete'
+  }
+
+  return selectedJob.applyPath === 'easy_apply' && selectedJob.easyApplyEligible
+    ? 'supported'
+    : 'manual_follow_up'
+}
+
+function getChecklistStateLabel(state: ApplyChecklistItem['state']) {
+  switch (state) {
+    case 'complete':
+      return 'Ready'
+    case 'in_progress':
+      return 'In progress'
+    case 'attention':
+      return 'Heads-up'
+    case 'blocked':
+      return 'Blocked'
+  }
+
+  return assertChecklistStateUnreachable(state)
+}
+
+function getNextChecklistItem(checklist: readonly ApplyChecklistItem[]) {
+  return checklist.find((item) => item.state !== 'complete') ?? null
+}
+
+function getReadinessDescription(input: {
+  selectedItem: ReviewQueueItem | null
+  selectedJob: SavedJob | null
+  hasGenerationFailure: boolean
+  needsGeneration: boolean
+  isGenerating: boolean
+  hasReadyApprovedAsset: boolean
+  resumeReviewStatus: ReviewQueueItem['resumeReview']['status'] | 'not_started'
+  applySupportState: ApplySupportState
+  browserActionMessage: string | null
+}): string {
+  const {
+    selectedItem,
+    selectedJob,
+    hasGenerationFailure,
+    needsGeneration,
+    isGenerating,
+    hasReadyApprovedAsset,
+    resumeReviewStatus,
+    applySupportState,
+    browserActionMessage
+  } = input
+
+  if (!selectedItem) {
+    return 'Select a shortlisted job to see what needs attention before you apply.'
+  }
+
+  if (!selectedJob) {
+    return ''
+  }
+
+  if (hasGenerationFailure) {
+    return 'The last tailored resume run failed. Try again or open the resume workspace before you continue.'
+  }
+
+  if (needsGeneration) {
+    return 'Create a tailored resume first.'
+  }
+
+  if (isGenerating) {
+    return 'Job Finder is still preparing the latest resume for this job.'
+  }
+
+  if (!hasReadyApprovedAsset) {
+    return resumeReviewStatus === 'stale'
+      ? 'The last approved PDF is out of date and needs a fresh approval.'
+      : 'Open the resume workspace to export a PDF and approve it before applying.'
+  }
+
+  if (applySupportState === 'incomplete') {
+    return 'The approved PDF is ready, but this selection is missing apply-path data. Refresh the job details before starting the application.'
+  }
+
+  if (browserActionMessage) {
+    return browserActionMessage
+  }
+
+  if (applySupportState === 'manual_follow_up') {
+    return 'The approved PDF is ready, but saved job data does not confirm a supported Easy Apply path. Starting can still stop with a manual-only next step.'
+  }
+
+  return 'The approved PDF is ready to use. Starting now can still pause if the live form asks for unsupported information.'
+}
+
 export function ReviewQueueMissionPanel({
   actionMessage,
   browserSession,
@@ -29,8 +173,10 @@ export function ReviewQueueMissionPanel({
   selectedItem,
   selectedJob
 }: ReviewQueueMissionPanelProps) {
-  const needsGeneration = selectedItem?.assetStatus === 'not_started' || selectedItem?.assetStatus === 'failed'
-  const isGenerating = selectedItem?.assetStatus === 'generating' || selectedItem?.assetStatus === 'queued'
+  const needsGeneration = needsResumeGeneration(selectedItem)
+  const hasGenerationFailure = hasResumeGenerationFailure(selectedItem)
+  const isGenerating = isResumeGenerationInProgress(selectedItem)
+  const applySupportState = getApplySupportState(selectedJob)
   const resumeReviewStatus = selectedItem?.resumeReview.status ?? 'not_started'
   const approvedResumeReview = selectedItem?.resumeReview.status === 'approved'
     ? selectedItem.resumeReview
@@ -45,99 +191,161 @@ export function ReviewQueueMissionPanel({
   const canApproveApply =
     browserSession.status === 'ready' &&
     hasApprovedResumeExport &&
-    hasReadyApprovedAsset
-  const tailoringStateLabel = selectedItem ? formatStatusLabel(selectedItem.assetStatus) : 'No asset'
-  const tailoringStateTone = selectedItem ? getAssetTone(selectedItem.assetStatus) : 'muted'
+    hasReadyApprovedAsset &&
+    applySupportState !== 'incomplete'
+  const primaryActionLabel = isGenerating
+    ? 'Preparing resume...'
+    : hasGenerationFailure
+      ? 'Try again'
+    : needsGeneration
+      ? 'Create tailored resume'
+      : 'Start application'
+  const browserActionMessage =
+    browserSession.status === 'ready'
+      ? null
+      : browserSession.status === 'login_required'
+        ? 'Sign in to the browser before you start the application.'
+      : browserSession.status === 'blocked'
+          ? 'Resolve the browser issue before you start the application.'
+          : 'Wait for the browser to finish starting before you start the application.'
+  const applyReadinessStatus = getApplyReadinessStatus({
+    applySupportState,
+    browserSession,
+    hasGenerationFailure,
+    hasReadyApprovedAsset,
+    isGenerating,
+    needsGeneration,
+    resumeReviewStatus,
+    selectedItem
+  })
+  const checklist: ApplyChecklistItem[] = [
+    {
+      label: 'Tailored resume ready',
+      state: hasGenerationFailure ? 'blocked' : isGenerating ? 'in_progress' : needsGeneration ? 'blocked' : 'complete',
+      description: hasGenerationFailure
+        ? 'The last resume run failed. Try again or open the workspace to fix it.'
+        : needsGeneration
+          ? 'Create the first tailored resume for this job.'
+          : isGenerating
+            ? 'Job Finder is still preparing the latest draft.'
+            : 'A tailored resume exists for this job.'
+    },
+    {
+      label: 'Approved PDF ready',
+      state: hasReadyApprovedAsset ? 'complete' : 'blocked',
+      description: hasReadyApprovedAsset
+        ? 'The current approved PDF will be used when you start the application.'
+        : resumeReviewStatus === 'approved'
+          ? 'The approved PDF could not be matched to the latest ready export. Reopen the workspace and approve again.'
+          : resumeReviewStatus === 'stale'
+            ? 'Your last approved PDF is out of date. Export and approve a fresh version.'
+            : 'Open the workspace to export a PDF and approve the version you want to use.'
+    },
+    {
+      label: 'Apply path',
+      state: applySupportState === 'incomplete' ? 'blocked' : applySupportState === 'manual_follow_up' ? 'attention' : 'complete',
+      description: applySupportState === 'incomplete'
+        ? 'This selection is missing saved apply-path data. Refresh the job details before you start the application.'
+        : applySupportState === 'manual_follow_up'
+        ? 'Saved job data does not confirm a supported Easy Apply path. Starting can still stop with a manual-only next step in Applications.'
+        : 'Saved job data still points to a supported Easy Apply path. Live questions can still pause automation before submission.'
+    },
+    {
+      label: 'Browser ready',
+      state: browserSession.status === 'ready' ? 'complete' : browserSession.status === 'unknown' ? 'in_progress' : 'blocked',
+      description: browserSession.status === 'ready'
+        ? 'The browser is ready for supported application steps.'
+        : browserActionMessage ?? 'Open or refresh the browser before continuing.'
+    }
+  ]
+  const nextBlockedChecklistItem = getNextChecklistItem(checklist)
+  const readinessDescription = getReadinessDescription({
+    selectedItem,
+    selectedJob,
+    hasGenerationFailure,
+    needsGeneration,
+    isGenerating,
+    hasReadyApprovedAsset,
+    resumeReviewStatus,
+    applySupportState,
+    browserActionMessage
+  })
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
-        <p className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Mission Details</p>
-        <Info className="size-4 text-muted-foreground" />
+        <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Apply readiness</h3>
       </div>
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
-        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+        {readinessDescription ? (
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Confidence Score</div>
-            <div className="font-display text-xl font-bold text-positive">{selectedItem?.matchScore ?? '--'}%</div>
+            <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+              <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Current state</span>
+              <StatusBadge tone={applyReadinessStatus.tone}>{applyReadinessStatus.label}</StatusBadge>
+            </div>
+            <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+              {readinessDescription}
+            </p>
+            {selectedItem && isGenerating ? <ProgressBar ariaLabel="Resume progress" percent={selectedItem?.progressPercent ?? 0} /> : null}
           </div>
-          <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-            <div className="mb-1 font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Session State</div>
-            <div className="font-display text-xl font-bold text-primary">{formatStatusLabel(browserSession.status)}</div>
-          </div>
-        </div>
-        <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-          <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Tailoring state</span>
-            <StatusBadge tone={tailoringStateTone}>{tailoringStateLabel}</StatusBadge>
-          </div>
-          <ProgressBar ariaLabel="Tailoring progress" percent={selectedItem?.progressPercent ?? 0} />
-        </div>
+        ) : null}
         {selectedItem && selectedJob ? (
           <>
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-              <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Template</span>
-                <strong className="mt-2 block font-display text-sm uppercase text-foreground">{selectedAsset?.templateName ?? 'Pending'}</strong>
-              </div>
-              <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Generation</span>
-                <strong className="mt-2 block font-display text-sm uppercase text-foreground">{selectedAsset ? formatStatusLabel(selectedAsset.generationMethod) : 'Pending'}</strong>
-              </div>
-            </div>
             <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Resume review</span>
-                <StatusBadge tone={resumeReviewStatus === 'stale' ? 'critical' : resumeReviewStatus === 'approved' ? 'positive' : 'active'}>
-                  {resumeReviewStatus.replaceAll('_', ' ')}
-                </StatusBadge>
+                <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Checklist</span>
+                {nextBlockedChecklistItem ? (
+                  <StatusBadge tone={getChecklistTone(nextBlockedChecklistItem.state)}>
+                    Next: {nextBlockedChecklistItem.label}
+                  </StatusBadge>
+                ) : (
+                  <StatusBadge tone="positive">Ready to start</StatusBadge>
+                )}
               </div>
-              <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                {resumeReviewStatus === 'approved'
-                  ? 'Resume approval is complete and the latest approved export can be used for apply.'
-                  : 'Open Resume Workspace to review the draft, export the PDF, and approve the resume before apply.'}
-              </p>
-              {resumeReviewStatus === 'stale' ? (
-                <p className="text-(length:--text-small) leading-6 text-(--warning-text)">
-                  The approved resume is stale. Re-open the workspace and re-approve before continuing.
-                </p>
-              ) : null}
+              <ul className="m-0 grid gap-3 list-none p-0" role="list">
+                {checklist.map((item) => {
+                  const Icon = getChecklistIcon(item.state)
+
+                  return (
+                    <li key={item.label} className="grid gap-2 rounded-(--radius-small) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) px-3 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Icon className="mt-0.5 size-4 shrink-0 text-current" />
+                          <strong className="text-(length:--text-small) text-(--text-headline)">{item.label}</strong>
+                        </div>
+                        <StatusBadge tone={getChecklistTone(item.state)}>
+                          {getChecklistStateLabel(item.state)}
+                        </StatusBadge>
+                      </div>
+                      <p className="text-(length:--text-small) leading-6 text-foreground-soft">{item.description}</p>
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
             <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+              <div className="grid gap-1">
+                <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Job summary</span>
+                <strong className="text-(length:--text-body) text-(--text-headline)">{selectedJob.title}</strong>
+              </div>
               <p className="text-(length:--text-body) leading-7 text-foreground-soft">{selectedJob.summary ?? selectedJob.description}</p>
               {selectedJob.employerWebsiteUrl ? (
                 <p className="min-w-0 break-words text-(length:--text-small) leading-6 text-foreground-soft">
-                  Employer site: {selectedJob.employerWebsiteUrl}
+                  Company site: {selectedJob.employerWebsiteUrl}
                 </p>
               ) : null}
-              {selectedAsset?.storagePath ? (
-                <div className="grid min-w-0 gap-1">
-                  <span className="font-mono text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Generated file</span>
-                  <p className="min-w-0 break-all font-mono text-(length:--text-small) text-foreground-soft">{selectedAsset.storagePath}</p>
-                </div>
-              ) : null}
             </div>
             <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-              <PreferenceList label="Role fit" values={selectedJob.matchAssessment.reasons} />
+              <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} />
             </div>
-            <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-              <h3 className="mb-4 block font-display text-(length:--text-field-label) font-bold uppercase tracking-(--tracking-caps) text-muted-foreground">Telemetry Stream</h3>
-              <div className="min-w-0 space-y-1 font-mono text-(length:--text-label) leading-relaxed text-foreground-soft">
-                {selectedAsset?.notes.length
-                  ? selectedAsset.notes.map((note, index) => (
-                    <div className="min-w-0 break-all" key={`telemetry_${index}`}>{note}</div>
-                  ))
-                  : <div>No telemetry recorded yet.</div>}
-              </div>
-            </div>
-            {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words font-mono text-(length:--text-small) uppercase tracking-(--tracking-normal) text-primary" role="status">{actionMessage}</p> : null}
+            {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words text-(length:--text-small) leading-6 text-primary" role="status">{actionMessage}</p> : null}
             <div className="grid min-w-0 gap-2.5">
               <Button
                 className="h-11 w-full"
                 variant="primary"
-                disabled={busy || isGenerating || (needsGeneration ? false : !canApproveApply)}
+                disabled={busy || isGenerating || (needsGeneration || hasGenerationFailure ? false : !canApproveApply)}
                 onClick={() => {
-                  if (needsGeneration) {
+                  if (needsGeneration || hasGenerationFailure) {
                     onGenerateResume(selectedItem.jobId)
                     return
                   }
@@ -146,24 +354,28 @@ export function ReviewQueueMissionPanel({
                 }}
                 type="button"
               >
-                 {needsGeneration ? 'Generate tailored resume' : 'Approve Easy Apply'}
-               </Button>
-              <div className="grid gap-2">
-                <Button
-                  className="h-11 w-full"
-                  onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
-                  type="button"
-                  variant="secondary"
-                ><Pencil aria-hidden="true" className="size-4" focusable="false" />Edit asset</Button>
-                <Button aria-label="View source unavailable yet" className="h-11 w-full" disabled title="View source coming soon" type="button" variant="secondary"><View aria-hidden="true" className="size-4" focusable="false" />View source</Button>
-              </div>
+                {primaryActionLabel}
+              </Button>
+              <Button
+                className="h-11 w-full"
+                onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                type="button"
+                variant="secondary"
+              >
+                <Pencil aria-hidden="true" className="size-4" focusable="false" />
+                Open resume workspace
+              </Button>
             </div>
-            <Button aria-label="Purge job application unavailable yet" className="h-11 w-full" disabled title="Purge job application not available yet" type="button" variant="destructive"><Trash2 aria-hidden="true" className="size-4" focusable="false" />Purge job application</Button>
           </>
+        ) : selectedItem ? (
+          <EmptyState
+            title="Job not loaded"
+            description="The selected job could not be loaded. Try selecting another job or refreshing the page."
+          />
         ) : (
           <EmptyState
-            title="Choose a queued item"
-            description="Select a job in the review queue to inspect asset readiness and pre-apply context."
+            title="Choose a job"
+            description="Select a shortlisted job to see what its resume needs next and when it is ready to apply."
           />
         )}
       </div>

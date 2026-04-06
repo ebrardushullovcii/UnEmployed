@@ -1,4 +1,4 @@
-import { JobPostingSchema, type JobPosting } from "@unemployed/contracts";
+import { JobPostingSchema, WorkModeListSchema, type JobPosting } from "@unemployed/contracts";
 import {
   buildGenericCanonicalUrl,
   buildGenericJobId,
@@ -6,7 +6,6 @@ import {
   describeInvalidFieldCounts,
 } from "./deterministic";
 
-const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "flexible"]);
 const jobBoardHostFragments = [
   "linkedin.com",
   "indeed.com",
@@ -124,10 +123,12 @@ export function buildJobsExtractionPrompt(input: {
         `You extract job listings from a careers or job-search page on ${input.pageHostLabel}.`,
         'Return JSON with a "jobs" array.',
         "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
-        "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills, responsibilities, minimumQualifications, preferredQualifications, seniority, employmentType, department, team, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
+        "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills when visible, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
         'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
         'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
         'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
+        "If only a short search-results snippet is visible, reuse that grounded snippet for description instead of leaving description empty.",
+        "Do not spend effort inventing detail-page-only fields that are not visible on the search page.",
         "If you cannot determine a stable canonicalUrl or a reliable job title for a listing, omit that listing from the output.",
         "Do not fabricate posted dates. Use null when exact posting time is unknown and preserve any visible relative string in postedAtText.",
         "Do not invent companies, locations, or URLs.",
@@ -171,11 +172,12 @@ export function normalizeExtractedJobs(input: {
     return normalized ? [normalized] : [];
   };
 
-  const toWorkModeArray = (value: unknown): string[] => {
-    return toStringArray(value)
-      .flatMap((entry) => entry.split(","))
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => supportedWorkModes.has(entry));
+const toWorkModeArray = (value: unknown): string[] => {
+    const parsed = WorkModeListSchema.safeParse(value);
+    if (!parsed.success) {
+      return [];
+    }
+    return parsed.data;
   };
 
   if (
@@ -250,8 +252,25 @@ export function normalizeExtractedJobs(input: {
     const preferredQualifications = toStringArray(
       raw.preferredQualifications ?? raw.preferredRequirements,
     );
-    const description = toStr(raw.description);
+const rawDescription = trimToNull(toStr(raw.description));
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
+    const summary =
+      input.pageType === "search_results"
+        ? trimToNull(raw.summary)
+        : (trimToNull(raw.summary) ??
+          summarizeJobPosting({
+            title: toStr(raw.title),
+            company: toStr(raw.company),
+            description: rawDescription ?? "",
+            responsibilities,
+            minimumQualifications,
+            preferredQualifications,
+          }));
+    const description =
+      rawDescription ??
+      (input.pageType === "search_results"
+        ? (summary ?? `${toStr(raw.title)} opportunity at ${toStr(raw.company)}`)
+        : summary ?? "");
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,
@@ -272,16 +291,7 @@ export function normalizeExtractedJobs(input: {
       postedAtText: trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative),
       discoveredAt: new Date().toISOString(),
       salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
-      summary:
-        trimToNull(raw.summary) ??
-        summarizeJobPosting({
-          title: toStr(raw.title),
-          company: toStr(raw.company),
-          description,
-          responsibilities,
-          minimumQualifications,
-          preferredQualifications,
-        }),
+      summary,
       description,
       keySkills: toStringArray(raw.keySkills),
       responsibilities,

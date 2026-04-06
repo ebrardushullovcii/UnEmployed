@@ -18,6 +18,7 @@ import { formatStatusLabel, joinListInput, parseListInput } from '../../lib/job-
 import { ProfileInput, ProfileTextarea, profileSelectTriggerClassName } from './profile-form-primitives'
 import { ProfileDiscoveryTargetRow } from './profile-discovery-target-row'
 import { ProfileListEditor } from './profile-list-editor'
+import { ProfileOptionalSection } from './profile-optional-section'
 import { ProfileSectionHeader } from './profile-section-header'
 
 const booleanSelectOptions = [
@@ -84,7 +85,7 @@ export function ProfilePreferencesTab({
   sourceInstructionArtifacts
 }: ProfilePreferencesTabProps) {
   const { control: preferenceControl, register: registerPreferences, setValue: setPreferenceValue, watch: watchPreferences } = preferencesForm
-  const { control: profileControl, register: registerProfile } = profileForm
+  const { control: profileControl, getValues: getProfileValues, register: registerProfile } = profileForm
   const authorizedWorkCountriesId = useId()
   const preferredRelocationRegionsId = useId()
   const requiresVisaSponsorshipId = useId()
@@ -139,7 +140,7 @@ export function ProfilePreferencesTab({
         <ProfileSectionHeader
           eyebrow="Preferences"
           title="Work eligibility"
-          description="Keep the screening-style answers separate from your resume facts so they are easy to review when a form asks for them."
+          description="Keep screening answers separate from resume facts so they are easy to review when an application asks for them."
         />
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
@@ -147,16 +148,25 @@ export function ProfilePreferencesTab({
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
               <FieldLabel htmlFor={authorizedWorkCountriesId}>Authorized work countries</FieldLabel>
-              <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" id={authorizedWorkCountriesId} rows={4} {...registerProfile('eligibility.authorizedWorkCountries')} />
+              <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" id={authorizedWorkCountriesId} placeholder="List countries where you can work without extra sponsorship" rows={4} {...registerProfile('eligibility.authorizedWorkCountries')} />
             </div>
             <BooleanSelectField control={profileControl} id={requiresVisaSponsorshipId} label="Requires visa sponsorship" name="eligibility.requiresVisaSponsorship" />
-            <BooleanSelectField control={profileControl} id={remoteEligibleId} label="Remote eligible" name="eligibility.remoteEligible" />
+            <BooleanSelectField control={profileControl} id={remoteEligibleId} label="Can work remotely" name="eligibility.remoteEligible" />
+          </div>
+        </article>
+
+        <ProfileOptionalSection
+          defaultOpen={Boolean(getProfileValues('eligibility.securityClearance'))}
+          description="Only keep the screening details here that actually come up in your target roles."
+          title="Extra screening details"
+        >
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
               <FieldLabel htmlFor={securityClearanceId}>Security clearance</FieldLabel>
               <ProfileInput id={securityClearanceId} {...registerProfile('eligibility.securityClearance')} />
             </div>
           </div>
-        </article>
+        </ProfileOptionalSection>
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Relocation and travel</h3>
@@ -164,7 +174,7 @@ export function ProfilePreferencesTab({
             <BooleanSelectField control={profileControl} id={willingToRelocateId} label="Willing to relocate" name="eligibility.willingToRelocate" />
             <BooleanSelectField control={profileControl} id={willingToTravelId} label="Willing to travel" name="eligibility.willingToTravel" />
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
-              <FieldLabel htmlFor={preferredRelocationRegionsId}>Preferred relocation regions</FieldLabel>
+              <FieldLabel htmlFor={preferredRelocationRegionsId}>Preferred relocation locations</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" id={preferredRelocationRegionsId} rows={4} {...registerProfile('eligibility.preferredRelocationRegions')} />
             </div>
           </div>
@@ -179,7 +189,7 @@ export function ProfilePreferencesTab({
             </div>
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
               <FieldLabel htmlFor={availableStartDateId}>Available start date</FieldLabel>
-              <ProfileInput id={availableStartDateId} placeholder="YYYY-MM-DD" {...registerProfile('eligibility.availableStartDate')} />
+              <ProfileInput id={availableStartDateId} placeholder="Leave blank if flexible" {...registerProfile('eligibility.availableStartDate')} />
             </div>
           </div>
         </article>
@@ -189,7 +199,7 @@ export function ProfilePreferencesTab({
         <ProfileSectionHeader
           eyebrow="Targeting"
           title="Job preferences"
-          description="Use this section for search rules and job targeting once the core profile looks right."
+          description="Use this section to specify the roles, locations, and companies to focus on."
         />
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
@@ -202,13 +212,13 @@ export function ProfilePreferencesTab({
               values={parseListInput(watchPreferences('targetRoles'))}
             />
             <ProfileListEditor
-              label="Job families"
+              label="Related role areas"
               onChange={(values) => setPreferenceValue('jobFamilies', joinListInput(values), listFieldOptions)}
-              placeholder="Add a job family"
+              placeholder="Add a related role area"
               values={parseListInput(watchPreferences('jobFamilies'))}
             />
             <ProfileListEditor
-              label="Seniority"
+              label="Seniority levels"
               onChange={(values) => setPreferenceValue('seniorityLevels', joinListInput(values), listFieldOptions)}
               placeholder="Add a seniority level"
               values={parseListInput(watchPreferences('seniorityLevels'))}
@@ -250,7 +260,7 @@ export function ProfilePreferencesTab({
               values={parseListInput(watchPreferences('targetIndustries'))}
             />
             <ProfileListEditor
-              label="Company stages / sizes"
+              label="Company stages or sizes"
               onChange={(values) => setPreferenceValue('targetCompanyStages', joinListInput(values), listFieldOptions)}
               placeholder="Add a company stage or size"
               values={parseListInput(watchPreferences('targetCompanyStages'))}
@@ -262,9 +272,9 @@ export function ProfilePreferencesTab({
               values={parseListInput(watchPreferences('companyWhitelist'))}
             />
             <ProfileListEditor
-              label="Blocked companies"
+              label="Companies to exclude"
               onChange={(values) => setPreferenceValue('companyBlacklist', joinListInput(values), listFieldOptions)}
-              placeholder="Add a blocked company"
+              placeholder="Add a company to exclude"
               values={parseListInput(watchPreferences('companyBlacklist'))}
             />
           </div>
@@ -304,15 +314,15 @@ export function ProfilePreferencesTab({
               name="tailoringMode"
               render={({ field }) => (
                 <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
-                  <FieldLabel htmlFor={tailoringModeId}>Tailoring mode</FieldLabel>
+                  <FieldLabel htmlFor={tailoringModeId}>Default resume tailoring style</FieldLabel>
                   <FormSelect
                     onValueChange={field.onChange}
                     options={[
-                      { label: 'Conservative', value: 'conservative' },
+                      { label: 'Light touch', value: 'conservative' },
                       { label: 'Balanced', value: 'balanced' },
-                      { label: 'Aggressive', value: 'aggressive' }
+                      { label: 'Strong rewrite', value: 'aggressive' }
                     ]}
-                    placeholder="Select mode"
+                    placeholder="Select a style"
                     triggerClassName={profileSelectTriggerClassName}
                     triggerId={tailoringModeId}
                     value={field.value}
@@ -322,32 +332,41 @@ export function ProfilePreferencesTab({
             />
 
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
-              <FieldLabel htmlFor={minimumSalaryId}>Minimum salary</FieldLabel>
+              <FieldLabel htmlFor={minimumSalaryId}>Minimum salary (USD)</FieldLabel>
               <ProfileInput id={minimumSalaryId} min="0" step="1" type="number" {...registerPreferences('minimumSalaryUsd')} />
             </div>
             <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
-              <FieldLabel htmlFor={targetSalaryId}>Target salary</FieldLabel>
+              <FieldLabel htmlFor={targetSalaryId}>Target salary (USD)</FieldLabel>
               <ProfileInput id={targetSalaryId} min="0" step="1" type="number" {...registerPreferences('targetSalaryUsd')} />
-            </div>
-            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
-              <FieldLabel htmlFor={salaryCurrencyId}>Salary currency</FieldLabel>
-              <ProfileInput id={salaryCurrencyId} {...registerPreferences('salaryCurrency')} />
             </div>
           </div>
         </article>
 
+        <ProfileOptionalSection
+          defaultOpen={Boolean(watchPreferences('salaryCurrency'))}
+          description="Leave this closed unless you are tracking compensation in something other than the default USD view."
+          title="International salary details"
+        >
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={salaryCurrencyId}>Salary currency</FieldLabel>
+              <ProfileInput id={salaryCurrencyId} placeholder="Defaults to USD" {...registerPreferences('salaryCurrency')} />
+            </div>
+          </div>
+        </ProfileOptionalSection>
+
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
-              <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Discovery targets</h3>
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">Configure the ordered entrypoints the discovery agent should run through. Each target is treated as a site-specific flow learned from its own starting URL and debug evidence.</p>
+              <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Job sources</h3>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">Add the job boards or company career pages to search. Each source can save reusable guidance after a quick source check.</p>
             </div>
-            <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add target</Button>
+            <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add source</Button>
           </div>
 
           <div className="grid gap-3">
             {discoveryTargets.length === 0 ? (
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">No discovery targets configured yet. Add the first site entrypoint you want the debugger to learn and reuse.</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">No job sources yet. Add the first source to search.</p>
             ) : null}
 
             {discoveryTargets.map((target, index) => {
@@ -357,20 +376,20 @@ export function ProfilePreferencesTab({
                 : null
 
               return (
-              <ProfileDiscoveryTargetRow
-                busy={busy}
-                discoveryTargets={discoveryTargets}
-                index={index}
-                instructionArtifact={instructionArtifact}
-                key={target.id}
-                onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-                onRunSourceDebug={onRunSourceDebug}
-                onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
-                onVerifySourceInstructions={onVerifySourceInstructions}
-                recentSourceDebugRuns={recentSourceDebugRuns}
-                target={target}
-                updateDiscoveryTargets={updateDiscoveryTargets}
-              />
+                <ProfileDiscoveryTargetRow
+                  busy={busy}
+                  discoveryTargets={discoveryTargets}
+                  index={index}
+                  instructionArtifact={instructionArtifact}
+                  key={target.id}
+                  onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+                  onRunSourceDebug={onRunSourceDebug}
+                  onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
+                  onVerifySourceInstructions={onVerifySourceInstructions}
+                  recentSourceDebugRuns={recentSourceDebugRuns}
+                  target={target}
+                  updateDiscoveryTargets={updateDiscoveryTargets}
+                />
               )
             })}
           </div>

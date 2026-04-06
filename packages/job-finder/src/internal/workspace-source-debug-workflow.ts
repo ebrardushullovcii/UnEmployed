@@ -1,12 +1,20 @@
 import {
+  type AgentDiscoveryProgress,
   SourceDebugCompactionStateSchema,
   SourceDebugEvidenceRefSchema,
+  SourceDebugProgressEventSchema,
   SourceDebugRunRecordSchema,
+  SourceDebugRunTimingSummarySchema,
+  SourceDebugTimingSummarySchema,
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
   SourceInstructionVerificationSchema,
+  browserRunWaitReasonValues,
   type JobDiscoveryTarget,
+  type SourceDebugProgressEvent,
   type SourceDebugPhase,
+  type SourceDebugRunRecord,
+  type SourceDebugRunTimingSummary,
   type SourceInstructionArtifact,
   type SourceDebugWorkerAttempt,
 } from "@unemployed/contracts";
@@ -34,12 +42,240 @@ import {
   buildSourceDebugPhaseSummary,
   classifySourceDebugAttemptOutcome,
   composeSourceDebugInstructions,
+  deriveSourceDebugStartingUrls,
   getSourceDebugMaxSteps,
   getSourceDebugTargetJobCount,
   resolveSourceDebugCompletion,
   synthesizeSourceInstructionArtifact,
 } from "./workspace-service-helpers";
+import {
+  calculateDurationMs,
+  computeTimelineSummary,
+  serializeOrderedDurationEntries,
+} from "./performance-timing";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
+
+const MAX_PROGRESS_EVENTS = 1000;
+
+function normalizeProgressUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
+  }
+}
+
+function buildSourceDebugProgressEmitter(input: {
+  runId: string;
+  targetId: string;
+  onProgress?: (event: SourceDebugProgressEvent) => void;
+}) {
+  const startedAtMs = Date.now();
+  let lastActivityAt = new Date().toISOString();
+
+  return (eventInput: {
+    phase?: SourceDebugPhase | null;
+    waitReason: SourceDebugProgressEvent["waitReason"];
+    message: string;
+    currentUrl?: string | null;
+    stepCount?: number;
+    jobsFound?: number;
+  }) => {
+    lastActivityAt = new Date().toISOString();
+    const event = SourceDebugProgressEventSchema.parse({
+      runId: input.runId,
+      targetId: input.targetId,
+      phase: eventInput.phase ?? null,
+      waitReason: eventInput.waitReason,
+      timestamp: lastActivityAt,
+      elapsedMs: Date.now() - startedAtMs,
+      lastActivityAt,
+      message: eventInput.message,
+      currentUrl: normalizeProgressUrl(eventInput.currentUrl),
+      stepCount: eventInput.stepCount ?? 0,
+      jobsFound: eventInput.jobsFound ?? 0,
+    });
+
+    input.onProgress?.(event);
+    return event;
+  };
+}
+
+function buildSourceDebugTimingSummary(
+  events: readonly SourceDebugProgressEvent[],
+  startedAt: string,
+  completedAt: string,
+) {
+  const startedAtMs = new Date(startedAt).getTime();
+  const completedAtMs = new Date(completedAt).getTime();
+  const hasEventWithinWindow = events.some((event) => {
+    const eventAtMs = new Date(event.timestamp).getTime();
+    return eventAtMs >= startedAtMs && eventAtMs <= completedAtMs;
+  });
+  const timelineStartedAt =
+    hasEventWithinWindow || events.length === 0 ? startedAt : events[0]!.timestamp;
+  const timelineCompletedAt =
+    hasEventWithinWindow || events.length === 0
+      ? completedAt
+      : events[events.length - 1]!.timestamp;
+  const waitReasonTimeline = computeTimelineSummary({
+    startedAt: timelineStartedAt,
+    completedAt: timelineCompletedAt,
+    events: events.map((event) => ({
+      timestamp: event.timestamp,
+      key: event.waitReason,
+    })),
+  });
+
+  return SourceDebugTimingSummarySchema.parse({
+    totalDurationMs: calculateDurationMs(startedAt, completedAt),
+    firstProgressMs:
+      events.length === 0
+        ? null
+        : hasEventWithinWindow
+          ? waitReasonTimeline.firstEventMs
+          : 0,
+    longestGapMs: waitReasonTimeline.longestGapMs,
+    eventCount: events.length,
+    waitReasonDurations: serializeOrderedDurationEntries(
+      waitReasonTimeline.durationsMsByKey,
+      browserRunWaitReasonValues,
+      (waitReason, durationMs) => ({
+        waitReason,
+        durationMs,
+      }),
+    ),
+  });
+}
+
+function buildSourceDebugRunTimingSummary(input: {
+  events: readonly SourceDebugProgressEvent[];
+  run: SourceDebugRunRecord;
+  completedAt: string;
+  browserSetupMs: number | null;
+  finalReviewMs: number | null;
+  finalizationMs: number | null;
+}): SourceDebugRunTimingSummary {
+  const baseTiming = buildSourceDebugTimingSummary(
+    input.events,
+    input.run.startedAt,
+    input.completedAt,
+  );
+
+  return SourceDebugRunTimingSummarySchema.parse({
+    ...baseTiming,
+    totalDurationMs: calculateDurationMs(input.run.startedAt, input.completedAt),
+    browserSetupMs: input.browserSetupMs,
+    finalReviewMs: input.finalReviewMs,
+    finalizationMs: input.finalizationMs,
+  });
+}
+
+function inferProgressWaitReason(
+  progress: Pick<AgentDiscoveryProgress, "currentAction" | "waitReason">,
+): SourceDebugProgressEvent["waitReason"] {
+  if (progress.waitReason) {
+    return progress.waitReason;
+  }
+
+  const normalizedAction = (progress.currentAction ?? "").toLowerCase();
+
+  if (!normalizedAction || normalizedAction === "thinking...") {
+    return "waiting_on_ai";
+  }
+
+  if (normalizedAction === "thinking" || normalizedAction.includes("retrying_ai")) {
+    return normalizedAction.includes("retrying_ai")
+      ? "retrying_ai"
+      : "waiting_on_ai";
+  }
+
+  if (
+    normalizedAction.startsWith("retry:") ||
+    normalizedAction.includes("retrying_tool")
+  ) {
+    return "retrying_tool";
+  }
+
+  if (
+    normalizedAction.startsWith("extract_result:") ||
+    normalizedAction.includes("extract_jobs")
+  ) {
+    return "extracting_jobs";
+  }
+
+  return "executing_tool";
+}
+
+function buildFallbackProgressMessage(
+  waitReason: SourceDebugProgressEvent["waitReason"],
+  phaseLabel: string,
+  jobsFound: number,
+  stepCount: number,
+): string {
+  switch (waitReason) {
+    case "waiting_on_ai":
+      return `${phaseLabel}: planning the next browser action (step ${stepCount}).`;
+    case "retrying_ai":
+      return `${phaseLabel}: retrying AI planning after a temporary model error.`;
+    case "waiting_on_page":
+      return `${phaseLabel}: waiting for the page to settle before continuing.`;
+    case "executing_tool":
+      return `${phaseLabel}: executing the next browser action.`;
+    case "retrying_tool":
+      return `${phaseLabel}: retrying the last browser action after a temporary page error.`;
+    case "extracting_jobs":
+      return `${phaseLabel}: extracting jobs from the current page (${jobsFound} found so far).`;
+    case "persisting_results":
+      return `${phaseLabel}: saving the findings from this phase.`;
+    case "manual_prerequisite":
+      return `${phaseLabel}: waiting on a manual browser prerequisite.`;
+    case "finalizing":
+      return "Finalizing the source-debug run.";
+    case "starting_browser":
+      return "Starting or attaching the browser profile for source debug.";
+    case "attaching_browser":
+      return "Preparing the browser tab for the next phase.";
+    case "merging_results":
+      return `${phaseLabel}: organizing the collected findings.`;
+    default:
+      return `${phaseLabel}: continuing source debug.`;
+  }
+}
+
+function summarizeAgentProgressForSourceDebug(
+  progress: AgentDiscoveryProgress,
+  phase: SourceDebugPhase,
+): {
+  waitReason: SourceDebugProgressEvent["waitReason"];
+  message: string;
+} {
+  const phaseLabel = formatStatusLabel(phase);
+  const waitReason = inferProgressWaitReason(progress);
+  const message =
+    progress.message?.trim() ||
+    buildFallbackProgressMessage(
+      waitReason,
+      phaseLabel,
+      progress.jobsFound,
+      progress.stepCount,
+    );
+
+  return {
+    waitReason,
+    message:
+      message.toLowerCase().startsWith(phaseLabel.toLowerCase()) ||
+      waitReason === "starting_browser" ||
+      waitReason === "attaching_browser" ||
+      waitReason === "finalizing"
+        ? message
+        : `${phaseLabel}: ${message}`,
+  };
+}
 
 export async function runSourceDebugWorkflow(
   ctx: WorkspaceServiceContext,
@@ -49,6 +285,7 @@ export async function runSourceDebugWorkflow(
     clearExistingInstructions?: boolean;
     reviewInstructionId?: string | null;
   },
+  onProgress?: (event: SourceDebugProgressEvent) => void,
 ) {
   if (ctx.activeSourceDebugAbortControllerRef.current) {
     throw new Error(
@@ -86,6 +323,11 @@ export async function runSourceDebugWorkflow(
   }
 
   const clearExistingInstructions = options?.clearExistingInstructions !== false;
+  const instructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
+  const preservedRouteHintArtifact = resolveActiveSourceInstructionArtifact(
+    target,
+    instructionArtifacts,
+  );
 
   if (clearExistingInstructions) {
     await ctx.repository.deleteSourceInstructionArtifactsForTarget(target.id);
@@ -109,7 +351,6 @@ export async function runSourceDebugWorkflow(
         staleReason: null,
       }
     : target;
-  const instructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
   const reviewInstructionArtifact = options?.reviewInstructionId
     ? (instructionArtifacts.find(
         (artifact) =>
@@ -127,6 +368,18 @@ export async function runSourceDebugWorkflow(
   const adapterKind = resolveAdapterKind(normalizedTarget);
   const adapter = discoveryAdapters[adapterKind];
   const runId = `source_debug_${normalizedTarget.id}_${Date.now()}`;
+  const progressEvents: SourceDebugProgressEvent[] = [];
+  const emitProgress = buildSourceDebugProgressEmitter({
+    runId,
+    targetId: normalizedTarget.id,
+    onProgress: (event) => {
+      if (progressEvents.length >= MAX_PROGRESS_EVENTS) {
+        progressEvents.shift();
+      }
+      progressEvents.push(event);
+      onProgress?.(event);
+    },
+  });
   ctx.activeSourceDebugExecutionIdRef.current = runId;
 
   let run = SourceDebugRunRecordSchema.parse({
@@ -168,10 +421,25 @@ export async function runSourceDebugWorkflow(
     reviewInstructionArtifact ??
     resolveActiveSourceInstructionArtifact(normalizedTarget, instructionArtifacts);
   let browserSessionOpened = false;
+  let browserSetupMs: number | null = null;
+  let finalReviewMs: number | null = null;
+  let finalizationMs: number | null = null;
 
   try {
+    const browserSetupStartedAtMs = Date.now();
+    emitProgress({
+      waitReason: "starting_browser",
+      message: `Starting or attaching the browser profile for ${normalizedTarget.label}.`,
+      currentUrl: normalizedTarget.startingUrl,
+    });
     await ctx.openRunBrowserSession(adapterKind);
     browserSessionOpened = true;
+    browserSetupMs = Date.now() - browserSetupStartedAtMs;
+    emitProgress({
+      waitReason: "attaching_browser",
+      message: `Browser ready for ${normalizedTarget.label}. Preparing the first debug phase.`,
+      currentUrl: normalizedTarget.startingUrl,
+    });
     await runSequentialArtifactOrchestrator<SourceDebugPhase, SourceDebugWorkerAttempt>({
       phases: SOURCE_DEBUG_PHASES,
       beforePhase: async (phase) => {
@@ -185,6 +453,12 @@ export async function runSourceDebugWorkflow(
           updatedAt: new Date().toISOString(),
         });
         await ctx.persistSourceDebugRun(run);
+        emitProgress({
+          phase,
+          waitReason: "waiting_on_ai",
+          message: `${formatStatusLabel(phase)} started. Waiting on AI to choose the next browser action.`,
+          currentUrl: normalizedTarget.startingUrl,
+        });
       },
       executePhase: async (phase, index) => {
         const phasePacket = buildSourceDebugPhasePacket(
@@ -199,7 +473,32 @@ export async function runSourceDebugWorkflow(
           phase === "replay_verification"
             ? (reviewInstructionArtifact ?? synthesizedInstruction)
             : null;
+        const phaseStartingUrlArtifact =
+          reviewInstructionArtifact ?? synthesizedInstruction;
         const nextPhase = SOURCE_DEBUG_PHASES[index + 1] ?? null;
+        const currentRouteHintStartingUrls = deriveSourceDebugStartingUrls(
+          normalizedTarget,
+          phaseStartingUrlArtifact,
+          phase,
+        );
+        const currentRunHasDistinctRouteHint = currentRouteHintStartingUrls.some(
+          (url) => url !== normalizedTarget.startingUrl,
+        );
+        const preservedRouteHintStartingUrls =
+          clearExistingInstructions && !currentRunHasDistinctRouteHint
+            ? deriveSourceDebugStartingUrls(
+                normalizedTarget,
+                preservedRouteHintArtifact,
+                phase,
+              )
+            : [];
+        const phaseStartingUrls = uniqueStrings(
+          currentRunHasDistinctRouteHint
+            ? [...currentRouteHintStartingUrls, ...preservedRouteHintStartingUrls]
+            : [...preservedRouteHintStartingUrls, ...currentRouteHintStartingUrls],
+        ).filter(Boolean);
+        const phasePrimaryStartingUrl =
+          phaseStartingUrls[0] ?? normalizedTarget.startingUrl;
         const debugResult = await ctx.browserRuntime.runAgentDiscovery?.(adapterKind, {
           userProfile: profile,
           searchPreferences: {
@@ -211,7 +510,7 @@ export async function runSourceDebugWorkflow(
           },
           targetJobCount: getSourceDebugTargetJobCount(phase),
           maxSteps: getSourceDebugMaxSteps(phase),
-          startingUrls: [normalizedTarget.startingUrl],
+          startingUrls: phaseStartingUrls,
           siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
           navigationHostnames: [targetUrl.hostname],
           siteInstructions: composeSourceDebugInstructions(
@@ -237,6 +536,17 @@ export async function runSourceDebugWorkflow(
           skipSessionValidation: true,
           aiClient: ctx.aiClient,
           signal: executionSignal,
+          onProgress: (progress) => {
+            const summary = summarizeAgentProgressForSourceDebug(progress, phase);
+            emitProgress({
+              phase,
+              waitReason: summary.waitReason,
+              message: summary.message,
+              currentUrl: progress.currentUrl,
+              stepCount: progress.stepCount,
+              jobsFound: progress.jobsFound,
+            });
+          },
         });
 
         if (!debugResult) {
@@ -248,6 +558,14 @@ export async function runSourceDebugWorkflow(
         const outcome = classifySourceDebugAttemptOutcome(debugResult, phase);
         const completion = resolveSourceDebugCompletion(debugResult);
         const attemptId = `source_debug_attempt_${phase}_${Date.now()}`;
+        emitProgress({
+          phase,
+          waitReason: "persisting_results",
+          message: `Saving the findings from ${formatStatusLabel(phase)}.`,
+          currentUrl: debugResult.jobs[0]?.canonicalUrl ?? normalizedTarget.startingUrl,
+          stepCount: debugResult.agentMetadata?.steps ?? 0,
+          jobsFound: debugResult.jobs.length,
+        });
         const evidenceRefs = [
           SourceDebugEvidenceRefSchema.parse({
             id: `${attemptId}_start`,
@@ -258,7 +576,7 @@ export async function runSourceDebugWorkflow(
             kind: "url",
             label: "Starting URL",
             capturedAt: new Date().toISOString(),
-            url: normalizedTarget.startingUrl,
+            url: phasePrimaryStartingUrl,
             storagePath: null,
             excerpt: debugResult.warning ?? null,
           }),
@@ -308,6 +626,11 @@ export async function runSourceDebugWorkflow(
           ...filterSourceDebugWarnings(debugFindings?.warnings ?? []),
           ...filterSourceDebugWarnings([debugResult.warning]),
         ]);
+        const phaseTiming = buildSourceDebugTimingSummary(
+          progressEvents.filter((event) => event.phase === phase),
+          debugResult.startedAt,
+          debugResult.completedAt,
+        );
 
         const artifact = SourceDebugWorkerAttemptSchema.parse({
           id: attemptId,
@@ -323,7 +646,7 @@ export async function runSourceDebugWorkflow(
           strategyFingerprint,
           confirmedFacts,
           attemptedActions: uniqueStrings([
-            `Started from ${normalizedTarget.startingUrl}.`,
+            `Started from ${phasePrimaryStartingUrl}.`,
             ...(phase === "apply_path_validation"
               ? [
                   "Inspected discovered jobs for apply entry points without submitting an application.",
@@ -390,6 +713,7 @@ export async function runSourceDebugWorkflow(
                 debugResult.agentMetadata.compactionState,
               )
             : null,
+          timing: phaseTiming,
         });
 
         finalReviewContextsByAttemptId.set(artifact.id, {
@@ -430,17 +754,33 @@ export async function runSourceDebugWorkflow(
           attempt.outcome === "blocked_auth" ||
           attempt.outcome === "blocked_manual_step"
         ) {
+          emitProgress({
+            phase,
+            waitReason: "manual_prerequisite",
+            message:
+              attempt.blockerSummary ??
+              `${formatStatusLabel(phase)} is paused until a manual browser step is completed.`,
+            currentUrl: normalizedTarget.startingUrl,
+          });
+          const pausedAt = new Date().toISOString();
           run = SourceDebugRunRecordSchema.parse({
             ...run,
             state: "paused_manual",
-            updatedAt: new Date().toISOString(),
-            completedAt: new Date().toISOString(),
+            updatedAt: pausedAt,
+            completedAt: pausedAt,
             manualPrerequisiteSummary: attempt.blockerSummary,
             finalSummary: attempt.resultSummary,
             attemptIds: [...run.attemptIds, attempt.id],
             phaseSummaries: [...run.phaseSummaries, phaseSummary],
+            timing: buildSourceDebugRunTimingSummary({
+              events: progressEvents,
+              run,
+              completedAt: pausedAt,
+              browserSetupMs,
+              finalReviewMs,
+              finalizationMs,
+            }),
           });
-          await ctx.repository.upsertSourceDebugRun(run);
           await ctx.persistSourceDebugRun(run);
           await ctx.saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
             ...currentTarget,
@@ -520,6 +860,14 @@ export async function runSourceDebugWorkflow(
       adapterKind,
       verification,
     );
+    emitProgress({
+      waitReason: "waiting_on_ai",
+      message:
+        "Reviewing the collected evidence and organizing the final source instructions.",
+      currentUrl: normalizedTarget.startingUrl,
+      jobsFound: attempts.filter((attempt) => attempt.outcome === "succeeded").length,
+    });
+    const finalReviewStartedAtMs = Date.now();
     const reviewOverride = await reviewSourceInstructionArtifactWithAi({
       aiClient: ctx.aiClient,
       target: normalizedTarget,
@@ -534,6 +882,7 @@ export async function runSourceDebugWorkflow(
       }),
       signal: executionSignal,
     });
+    finalReviewMs = Date.now() - finalReviewStartedAtMs;
     const finalizedInstruction = reviewOverride
       ? synthesizeSourceInstructionArtifact(
           normalizedTarget,
@@ -561,17 +910,14 @@ export async function runSourceDebugWorkflow(
           updatedAt: new Date().toISOString(),
         })
       : finalizedInstruction;
-    await ctx.repository.upsertSourceInstructionArtifact(instructionToPersist);
-    run = SourceDebugRunRecordSchema.parse({
-      ...run,
-      state: verification.outcome === "passed" ? "completed" : "failed",
-      updatedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      activePhase: null,
-      finalSummary: verification.proofSummary ?? "Source debug workflow completed.",
-      instructionArtifactId: instructionToPersist.id,
+    emitProgress({
+      waitReason: "finalizing",
+      message: "Saving the final source instructions and verification result.",
+      currentUrl: normalizedTarget.startingUrl,
+      jobsFound: attempts.filter((attempt) => attempt.outcome === "succeeded").length,
     });
-    await ctx.persistSourceDebugRun(run);
+    const finalizationStartedAtMs = Date.now();
+    await ctx.repository.upsertSourceInstructionArtifact(instructionToPersist);
     await ctx.saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
       ...currentTarget,
       instructionStatus: preserveExistingValidatedInstruction
@@ -592,17 +938,46 @@ export async function runSourceDebugWorkflow(
       lastVerifiedAt: verification.verifiedAt,
       staleReason: verification.outcome === "passed" ? null : verification.reason,
     }));
+    finalizationMs = Date.now() - finalizationStartedAtMs;
+    const completedAt = new Date().toISOString();
+    run = SourceDebugRunRecordSchema.parse({
+      ...run,
+      state: verification.outcome === "passed" ? "completed" : "failed",
+      updatedAt: completedAt,
+      completedAt,
+      activePhase: null,
+      finalSummary: verification.proofSummary ?? "Source debug workflow completed.",
+      instructionArtifactId: instructionToPersist.id,
+      timing: buildSourceDebugRunTimingSummary({
+        events: progressEvents,
+        run,
+        completedAt,
+        browserSetupMs,
+        finalReviewMs,
+        finalizationMs,
+      }),
+    });
+    await ctx.persistSourceDebugRun(run);
   } catch (error) {
     const interrupted = error instanceof DOMException && error.name === "AbortError";
+    const completedAt = new Date().toISOString();
     run = SourceDebugRunRecordSchema.parse({
       ...run,
       state: interrupted ? "cancelled" : "failed",
-      updatedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
+      updatedAt: completedAt,
+      completedAt,
       activePhase: null,
       finalSummary: interrupted
         ? "Source debug run was interrupted before completion."
         : `Source debug run failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      timing: buildSourceDebugRunTimingSummary({
+        events: progressEvents,
+        run,
+        completedAt,
+        browserSetupMs,
+        finalReviewMs,
+        finalizationMs,
+      }),
     });
     await ctx.persistSourceDebugRun(run);
     if (!interrupted) {

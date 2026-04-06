@@ -15,10 +15,6 @@ interface ProfileListEditorProps {
   values: readonly string[]
 }
 
-function formatCountLabel(count: number): string {
-  return `${count} ${count === 1 ? 'item' : 'items'}`
-}
-
 export function ProfileListEditor({
   className,
   displayMode = 'chips',
@@ -64,7 +60,7 @@ export function ProfileListEditor({
     >
       <div className="flex items-baseline justify-between gap-3">
         <FieldLabel className="text-(length:--text-tiny) font-medium tracking-(--tracking-label) text-foreground-muted" htmlFor={inputId}>{label}</FieldLabel>
-        <span className="text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">{formatCountLabel(values.length)}</span>
+        <span className="text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">{values.length}</span>
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_5rem] gap-3">

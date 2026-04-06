@@ -53,6 +53,14 @@
 - Ensure the Profile source-debug review modal traps focus while open, announces loading and error states clearly, and that inline learned-instruction edits only mutate the editable instruction fields.
 - Confirm that `Verify` replays the selected learned-instruction artifact, leaves the reviewed artifact intact, and promotes or drafts a successor artifact based on the new replay result.
 
+## Plan 010 Performance Snapshot
+
+- Enable the desktop test API with `UNEMPLOYED_ENABLE_TEST_API=1` when you need retained timing data during a local benchmark or QA run.
+- After running discovery or source-debug in the desktop app, inspect `await window.unemployed.jobFinder.test?.getPerformanceSnapshot()` from DevTools to fetch the latest retained timing snapshot.
+- Discovery timing currently lives on `latestDiscoveryRun.summary.timing` and `latestDiscoveryRun.targetExecutions[].timing`.
+- Source-debug timing currently lives on `latestSourceDebugRun.run.timing`, `latestSourceDebugRun.attempts[].timing`, and `latestSourceDebugRun.run.phaseSummaries[].timing`.
+- Use `totalDurationMs`, `firstActivityMs` or `firstProgressMs`, `longestGapMs`, and the grouped stage or wait-reason durations to explain long visible idle spans before making further runtime changes.
+
 ## Live Agent Config
 
 - `UNEMPLOYED_AI_API_KEY` enables the OpenAI-compatible provider path used for resume extraction and resume tailoring.
@@ -75,12 +83,13 @@
 - Resume-workspace changes should also ship with a dedicated capture flow that can open Review Queue, enter `/job-finder/review-queue/:jobId/resume`, trigger or verify resume generation, perform at least one manual edit, send at least one assistant request, export and approve the resume, and capture the resulting UI states.
 - Use `pnpm --filter @unemployed/desktop ui:resume-workspace` for the current scripted demo of the complete resume flow; it forces the deterministic catalog runtime, hydrates a reviewable demo workspace through the test-only preload bridge, and writes screenshots plus `workspace-after-demo.json` under `apps/desktop/test-artifacts/ui/resume-workspace/`.
 - The scripted resume-workspace harness should stay independent from live provider availability: if local AI credentials exist, the capture flow must still use the deterministic desktop test runtime so assistant and generation steps remain stable and repeatable.
-- The resume-workspace capture should now also verify richer grounding UX: employer-site targeting appears in Review Queue, the workspace shows structured job context, and at least one `Why this bullet exists` source-evidence panel is opened and captured.
+- The resume-workspace capture should now also verify richer grounding UX: company-site targeting appears in Review Queue and the workspace shows structured job context plus saved research coverage.
 - Use `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty` when dirty-state protections change; it proves save-before-action or confirm-before-leave behavior for refresh, assistant requests, clear approval, shell navigation, and back navigation, and writes JSON assertions under `apps/desktop/test-artifacts/ui/resume-workspace-dirty/`.
 - When apply-safety logic changes, pair the desktop capture flows with targeted service tests for stale approvals and missing-approved-file rejection because the happy-path demo still will not exercise every guarded failure state by itself.
 - The capture script builds the desktop app first, launches Electron through Playwright, waits for the seeded Job Finder workspace to load, clicks through the current MVP screens, and saves screenshots for visual review.
 - The resume-import capture defaults to `Resume.pdf` at the repo root; override with CLI flags like `--resume`, `--expected-name`, `--expected-headline`, `--expected-location`, `--expected-summary-contains`, and `--label`, or use the matching `UI_TEST_*` environment variables when validating other files.
-- The profile-baseline capture defaults to `apps/desktop/test-artifacts/ui/resume-pdf-polish-v4/workspace-after-reload.json`; override with `--snapshot` or `UI_PROFILE_BASELINE_SNAPSHOT` when another imported-profile snapshot should drive the screenshots.
+- The profile-baseline capture now requires an explicit snapshot path. The old default snapshot-path fallback was removed, so pass `--snapshot <path>` or set `UI_PROFILE_BASELINE_SNAPSHOT` to the workspace snapshot you want to use for screenshots.
+- Migration example: `pnpm --filter @unemployed/desktop exec node ./scripts/capture-profile-baseline.mjs --snapshot ./test-fixtures/job-finder/profile-baseline-workspace.json`.
 - The current default capture size is `1440x920`.
 - The current standard multi-size review pass covers `1728x1080`, `1440x920`, `1280x800`, and `1024x768`.
 - Override capture size with environment variables when needed, for example: `UI_CAPTURE_WIDTH=1280 UI_CAPTURE_HEIGHT=800 UI_CAPTURE_LABEL=1280x800 pnpm --filter @unemployed/desktop exec node ./scripts/capture-ui.mjs`.

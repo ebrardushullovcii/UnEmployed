@@ -14,6 +14,7 @@ import type {
   ResumeResearchArtifact,
   ResumeTemplateDefinition,
   SavedJob,
+  SourceDebugProgressEvent,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
 } from "@unemployed/contracts";
@@ -50,6 +51,7 @@ export interface JobFinderWorkspaceService {
   runSourceDebug(
     targetId: string,
     signal?: AbortSignal,
+    onProgress?: (event: SourceDebugProgressEvent) => void,
   ): Promise<JobFinderWorkspaceSnapshot>;
   cancelSourceDebug(runId: string): Promise<JobFinderWorkspaceSnapshot>;
   getSourceDebugRun(runId: string): Promise<SourceDebugRunRecord>;
@@ -69,6 +71,7 @@ export interface JobFinderWorkspaceService {
     targetId: string,
     instructionId: string,
     signal?: AbortSignal,
+    onProgress?: (event: SourceDebugProgressEvent) => void,
   ): Promise<JobFinderWorkspaceSnapshot>;
   queueJobForReview(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob(jobId: string): Promise<JobFinderWorkspaceSnapshot>;

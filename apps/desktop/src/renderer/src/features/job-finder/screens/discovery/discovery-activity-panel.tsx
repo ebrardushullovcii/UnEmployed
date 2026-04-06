@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { DiscoveryActivityEvent, DiscoveryRunRecord } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import { formatDuration } from '@renderer/features/job-finder/lib/job-finder-utils'
 import {
   buildLiveRunRecord,
   formatOutcomeLabel,
@@ -24,22 +25,40 @@ function formatRunLabel(value: string): string {
   })
 }
 
+function formatStageLabel(stage: DiscoveryActivityEvent['stage']): string {
+  switch (stage) {
+    case 'planning':
+      return 'Setup'
+    case 'target':
+      return 'Source'
+    case 'navigation':
+      return 'Navigation'
+    case 'extraction':
+      return 'Review jobs'
+    case 'scoring':
+      return 'Score jobs'
+    case 'persistence':
+      return 'Save jobs'
+    default:
+      return 'Run'
+  }
+}
+
 function ActivityEventCard(props: { event: DiscoveryActivityEvent; targetLabel: string | null }) {
   const { event, targetLabel } = props
 
   return (
     <article className="surface-card-tint grid gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[0.78rem] text-foreground-muted">
-        <span className="min-w-0 wrap-break-word">{targetLabel ?? event.stage}</span>
+        <span className="min-w-0 wrap-break-word">{targetLabel ?? formatStageLabel(event.stage)}</span>
         <span className="shrink-0">{formatTimestamp(event.timestamp)}</span>
       </div>
       <p className="text-[0.95rem] leading-6 text-(--text-headline)">{event.message}</p>
-      {event.url ? <p className="break-all text-[0.82rem] text-foreground-muted">{event.url}</p> : null}
       {event.jobsFound !== null || event.jobsPersisted !== null || event.jobsStaged !== null ? (
         <div className="flex flex-wrap gap-2 text-[0.76rem] text-foreground-muted">
           {event.jobsFound !== null ? <span>Found {event.jobsFound}</span> : null}
           {event.jobsPersisted !== null ? <span>Saved {event.jobsPersisted}</span> : null}
-          {event.jobsStaged !== null ? <span>Staged {event.jobsStaged}</span> : null}
+          {event.jobsStaged !== null ? <span>Held for review {event.jobsStaged}</span> : null}
         </div>
       ) : null}
     </article>
@@ -213,12 +232,12 @@ export function DiscoveryHistoryModal(props: {
       >
         <div className="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-(--surface-panel-border) px-5 py-4">
           <div className="grid gap-1">
-            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Full progress history</p>
-            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-(--text-headline)" id={dialogTitleId}>Every retained discovery event for the selected run</h2>
+            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Recent searches</p>
+            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-(--text-headline)" id={dialogTitleId}>Search history</h2>
             <p className="text-[0.9rem] leading-6 text-foreground-soft">
               {selectedRunIsLive
-                ? 'The current run stays visible here in real time, including live auto-scroll while new events arrive.'
-                : 'Use this view when you want the entire history instead of just the latest preview.'}
+                ? 'Follow the current search here while new activity arrives.'
+                : 'Review what happened during earlier searches without leaving this screen.'}
             </p>
           </div>
           <Button aria-label="Close" className="size-10" onClick={props.onClose} size="icon" type="button" variant="ghost">
@@ -228,11 +247,14 @@ export function DiscoveryHistoryModal(props: {
 
         <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <aside className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r">
-            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Runs</p>
+            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Searches</p>
             <div className="grid gap-2 pb-1">
               {runOptions.length > 0 ? runOptions.map((run) => {
                 const isSelected = run.id === selectedRun?.id
                 const isLive = liveRun?.id === run.id
+                const durationSummary = run.summary.durationMs > 0
+                  ? ` · ${formatDuration(run.summary.durationMs)}`
+                  : ''
 
                 return (
                   <button
@@ -256,11 +278,13 @@ export function DiscoveryHistoryModal(props: {
                       ) : null}
                     </div>
                     <span className="text-[0.8rem] text-foreground-muted">{formatRunLabel(run.startedAt)}</span>
-                    <span className="text-[0.8rem] text-foreground-muted">{run.summary.targetsCompleted}/{run.summary.targetsPlanned} targets · {run.summary.validJobsFound} found</span>
+                    <span className="text-[0.8rem] text-foreground-muted">
+                      {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${run.summary.validJobsFound} jobs found${durationSummary}`}
+                    </span>
                   </button>
                 )
               }) : (
-                <p className="text-[0.9rem] leading-6 text-foreground-soft">No retained runs yet.</p>
+                <p className="text-[0.9rem] leading-6 text-foreground-soft">No searches yet. Your recent runs will appear here.</p>
               )}
             </div>
           </aside>
@@ -281,20 +305,32 @@ export function DiscoveryHistoryModal(props: {
                   <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.validJobsFound}</p>
                 </div>
                 <div>
-                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Saved / staged</p>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Saved / held for review</p>
                   <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.jobsPersisted} / {selectedRun.summary.jobsStaged}</p>
                 </div>
+                {selectedRun.summary.durationMs > 0 ? (
+                  <div>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Duration</p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.durationMs)}</p>
+                  </div>
+                ) : null}
+                {selectedRun.summary.timing?.longestGapMs != null && selectedRun.summary.timing.longestGapMs > 10000 ? (
+                  <div>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Longest quiet gap</p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.timing.longestGapMs)}</p>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
               <p className="text-[0.78rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                {selectedRunIsLive ? 'Live event stream' : 'Retained event stream'}
+                {selectedRunIsLive ? 'Current search' : 'What happened'}
               </p>
               {selectedRunIsLive ? (
                 followLiveEvents ? (
                   <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-(--tracking-label) text-primary">
-                    Following latest events
+                    Live
                   </span>
                 ) : (
                   <Button onClick={resumeLiveFollow} size="sm" type="button" variant="secondary">
@@ -309,10 +345,10 @@ export function DiscoveryHistoryModal(props: {
                 <ActivityEventCard
                   event={event}
                   key={event.id}
-                  targetLabel={event.targetId ? (targetLabels.get(event.targetId) ?? 'Configured target') : null}
+                  targetLabel={event.targetId ? (targetLabels.get(event.targetId) ?? 'Configured source') : null}
                 />
               )) : (
-                <p className="text-[0.9rem] leading-6 text-foreground-soft">No activity events were retained for this run.</p>
+                <p className="text-[0.9rem] leading-6 text-foreground-soft">No activity was recorded for this run.</p>
               )}
               <div aria-hidden="true" ref={eventStreamEndRef} />
             </div>

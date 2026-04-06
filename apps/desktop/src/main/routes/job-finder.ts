@@ -18,12 +18,14 @@ import {
   JobFinderResumeWorkspaceSchema,
   JobFinderResumeSectionActionInputSchema,
   JobFinderJobActionInputSchema,
+  JobFinderPerformanceSnapshotSchema,
   JobFinderSaveSourceInstructionInputSchema,
   JobFinderSourceDebugActionInputSchema,
   JobFinderSourceDebugRunQuerySchema,
   JobFinderSourceInstructionActionInputSchema,
   JobFinderSettingsSchema,
   SaveJobFinderWorkspaceInputSchema,
+  SourceDebugProgressEventSchema,
   SourceDebugRunDetailsSchema,
   SourceDebugRunRecordSchema,
   JobFinderWorkspaceSnapshotSchema,
@@ -46,6 +48,19 @@ function parseAgentDiscoveryRequestId(payload: unknown): string {
   const requestId = (payload as { requestId?: unknown }).requestId;
   if (typeof requestId !== "string" || requestId.trim().length === 0) {
     throw new Error("Invalid agent discovery request id payload");
+  }
+
+  return requestId;
+}
+
+function parseOptionalRequestId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const requestId = (payload as { requestId?: unknown }).requestId;
+  if (typeof requestId !== "string" || requestId.trim().length === 0) {
+    return null;
   }
 
   return requestId;
@@ -215,6 +230,35 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle(
+    "job-finder:test-get-performance-snapshot",
+    async () => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const workspace = await jobFinderWorkspaceService.getWorkspaceSnapshot();
+      const latestDiscoveryRun =
+        workspace.activeDiscoveryRun ?? workspace.recentDiscoveryRuns[0] ?? null;
+      const latestSourceDebugSummary =
+        workspace.activeSourceDebugRun ?? workspace.recentSourceDebugRuns[0] ?? null;
+      const latestSourceDebugRun = latestSourceDebugSummary
+        ? await jobFinderWorkspaceService.getSourceDebugRunDetails(
+            latestSourceDebugSummary.id,
+          )
+        : null;
+
+      return JobFinderPerformanceSnapshotSchema.parse({
+        generatedAt: new Date().toISOString(),
+        latestDiscoveryRun,
+        latestSourceDebugRun,
+      });
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:test-import-resume-from-path",
     async (_event, payload: unknown) => {
       if (!isDesktopTestApiEnabled()) {
@@ -299,10 +343,22 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
 
   ipcMain.handle(
     "job-finder:run-source-debug",
-    async (_event, payload: unknown) => {
+    async (event, payload: unknown) => {
       const { targetId } = JobFinderSourceDebugActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.runSourceDebug(targetId);
+      const requestId = parseOptionalRequestId(payload);
+      const snapshot = await jobFinderWorkspaceService.runSourceDebug(
+        targetId,
+        undefined,
+        requestId
+          ? (progressEvent) => {
+              event.sender.send(
+                `job-finder:source-debug-progress:${requestId}`,
+                SourceDebugProgressEventSchema.parse(progressEvent),
+              );
+            }
+          : undefined,
+      );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },

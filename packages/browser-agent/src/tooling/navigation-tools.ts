@@ -8,15 +8,17 @@ import {
   ScrollToTopSchema,
 } from "./shared";
 
+const MAX_NETWORKIDLE_TIMEOUT = 7000;
+
 export const navigationTools: ToolDefinition[] = [
   {
     name: "navigate",
     description: `Navigate to a URL. Use this to go to job sites or specific pages.
     
-You control the timeout strategy:
-- For fast pages: use timeout 5000 (5 seconds)
-- For slow pages: use timeout 30000 (30 seconds)  
-- If a page times out, you can decide whether to retry, wait longer, or proceed anyway based on the partialLoad info returned.`,
+    You control the timeout strategy:
+    - For fast pages: use timeout 5000 (5 seconds)
+    - For slow pages: use timeout 30000 (30 seconds)  
+    - Prefer "domcontentloaded" on SPA job boards. "networkidle" can stall on background polling and is automatically capped.`,
     parameters: {
       type: "object",
       properties: {
@@ -43,6 +45,9 @@ You control the timeout strategy:
       const { url, timeout, waitFor } = parseResult.data;
       const { page, state } = context;
       const startTime = Date.now();
+      const previousUrl = state.currentUrl;
+      const effectiveTimeout =
+        waitFor === "networkidle" ? Math.min(timeout, MAX_NETWORKIDLE_TIMEOUT) : timeout;
 
       const urlValidation = isAllowedUrl(url, context.config.navigationPolicy);
       if (!urlValidation.valid) {
@@ -50,7 +55,7 @@ You control the timeout strategy:
       }
 
       try {
-        await page.goto(url, { waitUntil: waitFor, timeout });
+        await page.goto(url, { waitUntil: waitFor, timeout: effectiveTimeout });
 
         const finalUrl = page.url();
         const loadTime = Date.now() - startTime;
@@ -63,6 +68,9 @@ You control the timeout strategy:
           return { success: false, error: recovery.error, data: { requestedUrl: url, finalUrl, recovered: recovery.recovered } };
         }
 
+        if (finalUrl !== state.currentUrl) {
+          state.failedInteractionAttempts?.clear();
+        }
         state.currentUrl = finalUrl;
         state.visitedUrls.add(finalUrl);
 
@@ -96,8 +104,37 @@ You control the timeout strategy:
           isPartialLoad = Boolean(finalUrl && finalUrl !== "about:blank" && finalUrl !== url);
         }
 
-        if (finalUrl && isAllowedUrl(finalUrl, context.config.navigationPolicy).valid) {
+        const finalUrlAllowed =
+          Boolean(finalUrl) && isAllowedUrl(finalUrl, context.config.navigationPolicy).valid;
+        const changedToAllowedUrl = Boolean(finalUrl && finalUrlAllowed && finalUrl !== previousUrl);
+
+        const isTimeoutError = /timeout/i.test(errorMessage);
+
+        if (
+          waitFor === "networkidle" &&
+          isTimeoutError &&
+          finalUrl &&
+          finalUrlAllowed &&
+          changedToAllowedUrl &&
+          readyState !== "loading"
+        ) {
           state.currentUrl = finalUrl;
+          state.failedInteractionAttempts?.clear();
+          state.visitedUrls.add(finalUrl);
+
+          return {
+            success: true,
+            data: {
+              url: finalUrl,
+              title: await page.title().catch(() => ""),
+              loadTimeMs: Date.now() - startTime,
+              waitState: waitFor,
+              waitStateReached: false,
+              partialLoad: true,
+              readyState,
+              timeElapsed: Date.now() - startTime,
+            },
+          };
         }
 
         return {
@@ -211,6 +248,7 @@ Use this after viewing a job detail to return to search results.`,
             }
             return { success: false, error: recovery.error, data: { wentBack: false, previousUrl, invalidUrl: newUrl, recovered: recovery.recovered } };
           }
+          state.failedInteractionAttempts?.clear();
           state.currentUrl = newUrl;
         }
 

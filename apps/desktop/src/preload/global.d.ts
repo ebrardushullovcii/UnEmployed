@@ -4,12 +4,14 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderPerformanceSnapshot,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderSettings,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
+  SourceDebugProgressEvent,
   SourceDebugRunRecord,
   SourceDebugRunDetails,
   SaveJobFinderWorkspaceInput,
@@ -60,6 +62,7 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
         runSourceDebug: (
           targetId: string,
+          onProgress?: (event: SourceDebugProgressEvent) => void,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         cancelSourceDebug: (
           runId: string,
@@ -126,6 +129,7 @@ declare global {
           resetWorkspaceState: (
             state: JobFinderRepositoryState,
           ) => Promise<JobFinderWorkspaceSnapshot>;
+          getPerformanceSnapshot: () => Promise<JobFinderPerformanceSnapshot>;
           importResumeFromPath: (
             sourcePath: string,
           ) => Promise<JobFinderWorkspaceSnapshot>;

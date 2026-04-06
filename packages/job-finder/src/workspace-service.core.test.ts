@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
   createAgentAiClient,
   createAgentBrowserRuntime,
+  createAiClient,
   createBrowserRuntime,
   createDocumentManager,
   createSeed,
@@ -148,6 +149,11 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationAttempts).toHaveLength(0);
     expect(openSessionCalls).toBe(1);
     expect(closeSessionCalls).toBe(1);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.timing?.eventCount).toBeGreaterThan(0);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.timing?.firstActivityMs).not.toBeNull();
+    expect(
+      snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.timing?.eventCount,
+    ).toBeGreaterThan(0);
   });
 
   test("agent discovery abort keeps streamed activity and avoids persistence", async () => {
@@ -179,6 +185,303 @@ describe("createJobFinderWorkspaceService", () => {
     await expect(repository.listSavedJobs()).resolves.toHaveLength(0);
     expect(snapshot.applicationRecords).toHaveLength(0);
     expect(snapshot.applicationAttempts).toHaveLength(0);
+  });
+
+  test("agent discovery does not throw when the configured AI client lacks tool calling", async () => {
+    const discoveryResult = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
+      "target_site",
+      createSeed().searchPreferences,
+    );
+    const baseAgentRuntime = createAgentBrowserRuntime(discoveryResult.jobs);
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseAgentRuntime,
+      runAgentDiscovery(source, options) {
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Agent discovery test run",
+          warning: options.aiClient?.chatWithTools
+            ? null
+            : "AI client does not support tool calling. Cannot run agent discovery.",
+          jobs: [],
+          agentMetadata: null,
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createDiscoveryOnlySeed(),
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+
+    expect(snapshot.discoveryJobs).toHaveLength(0);
+    expect(snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.warning).toBe(
+      "AI client does not support tool calling. Cannot run agent discovery.",
+    );
+  });
+
+  test("agent discovery budgets remaining jobs across multiple targets", async () => {
+    const seed = createDiscoveryOnlySeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_one",
+        label: "Target One",
+        startingUrl: "https://example.com/jobs/one",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_two",
+        label: "Target Two",
+        startingUrl: "https://example.com/jobs/two",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_three",
+        label: "Target Three",
+        startingUrl: "https://example.com/jobs/three",
+      },
+    ];
+
+    const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      async runAgentDiscovery(source, options) {
+        capturedBudgets.push({
+          targetJobCount: options.targetJobCount,
+          maxSteps: options.maxSteps,
+        });
+
+        return {
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Budgeted discovery test run",
+          warning: null,
+          jobs: Array.from({ length: options.targetJobCount }, (_, index) => ({
+            source: "target_site" as const,
+            sourceJobId: `${options.startingUrls[0]}_${index}`,
+            discoveryMethod: "browser_agent" as const,
+            canonicalUrl: `https://example.com/job/${capturedBudgets.length}-${index}`,
+            title: `Frontend Engineer ${capturedBudgets.length}-${index}`,
+            company: "Acme",
+            location: "Remote",
+            workMode: ["remote"],
+            applyPath: "unknown" as const,
+            easyApplyEligible: false,
+            postedAt: null,
+            postedAtText: null,
+            discoveredAt: "2026-03-20T10:00:00.000Z",
+            salaryText: null,
+            summary: "Grounded summary",
+            description: "Grounded description",
+            keySkills: ["React"],
+            responsibilities: [],
+            minimumQualifications: [],
+            preferredQualifications: [],
+            seniority: null,
+            employmentType: null,
+            department: null,
+            team: null,
+            employerWebsiteUrl: null,
+            employerDomain: null,
+            benefits: [],
+          })),
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        };
+      },
+    };
+
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+
+    expect(capturedBudgets).toEqual([
+      { targetJobCount: 7, maxSteps: 42 },
+      { targetJobCount: 7, maxSteps: 42 },
+      { targetJobCount: 6, maxSteps: 36 },
+    ]);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(20);
+  });
+
+  test("agent discovery merge uses deterministic fit scoring without model fit calls", async () => {
+    const browserRuntime = createAgentBrowserRuntime([
+      {
+        source: "target_site",
+        sourceJobId: "job_alpha",
+        discoveryMethod: "browser_agent",
+        canonicalUrl: "https://example.com/jobs/alpha",
+        title: "Senior Product Designer",
+        company: "Signal Systems",
+        location: "Remote",
+        workMode: ["remote"],
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        postedAt: "2026-03-20T09:00:00.000Z",
+        postedAtText: null,
+        discoveredAt: "2026-03-20T10:04:00.000Z",
+        salaryText: "$180k - $220k",
+        summary: "Own the design system.",
+        description: "Own the design system and workflow platform.",
+        keySkills: ["Figma", "Design Systems"],
+        responsibilities: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
+        seniority: null,
+        employmentType: null,
+        department: null,
+        team: null,
+        employerWebsiteUrl: null,
+        employerDomain: null,
+        benefits: [],
+      },
+    ]);
+    let assessJobFitCalls = 0;
+    const aiClient = {
+      ...createAiClient(),
+      assessJobFit() {
+        assessJobFitCalls += 1;
+        return Promise.resolve({
+          score: 12,
+          reasons: ["Should not be used"],
+          gaps: [],
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createDiscoveryOnlySeed(),
+      browserRuntime,
+      aiClient,
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+
+    expect(assessJobFitCalls).toBe(0);
+    expect(snapshot.discoveryJobs[0]?.matchAssessment.score).toBeGreaterThan(12);
+  });
+
+  test("agent discovery skips remaining targets once the run already has enough jobs", async () => {
+    const seed = createDiscoveryOnlySeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_one",
+        label: "Target One",
+        startingUrl: "https://example.com/jobs/one",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_two",
+        label: "Target Two",
+        startingUrl: "https://example.com/jobs/two",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_three",
+        label: "Target Three",
+        startingUrl: "https://example.com/jobs/three",
+      },
+    ];
+
+    let runAgentDiscoveryCalls = 0;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      async runAgentDiscovery(source) {
+        runAgentDiscoveryCalls += 1;
+
+        return {
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Early-stop discovery test run",
+          warning: null,
+          jobs: Array.from({ length: 20 }, (_, index) => ({
+            source: "target_site" as const,
+            sourceJobId: `job_${index}`,
+            discoveryMethod: "browser_agent" as const,
+            canonicalUrl: `https://example.com/job/${index}`,
+            title: `Frontend Engineer ${index}`,
+            company: "Acme",
+            location: "Remote",
+            workMode: ["remote"],
+            applyPath: "unknown" as const,
+            easyApplyEligible: false,
+            postedAt: null,
+            postedAtText: null,
+            discoveredAt: "2026-03-20T10:00:00.000Z",
+            salaryText: null,
+            summary: "Grounded summary",
+            description: "Grounded description",
+            keySkills: ["React"],
+            responsibilities: [],
+            minimumQualifications: [],
+            preferredQualifications: [],
+            seniority: null,
+            employmentType: null,
+            department: null,
+            team: null,
+            employerWebsiteUrl: null,
+            employerDomain: null,
+            benefits: [],
+          })),
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        };
+      },
+    };
+
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+
+    expect(runAgentDiscoveryCalls).toBe(1);
+    expect(snapshot.recentDiscoveryRuns[0]?.targetExecutions.map((entry) => entry.state)).toEqual([
+      "completed",
+      "skipped",
+      "skipped",
+    ]);
   });
 
   test("generates a tailored resume and submits a supported Easy Apply attempt", async () => {

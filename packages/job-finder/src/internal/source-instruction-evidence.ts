@@ -567,9 +567,21 @@ export function isPositiveReusableSearchSignal(value: string): boolean {
     normalized.startsWith("start from ") ||
     normalized.startsWith("click ") ||
     normalized.startsWith("open ") ||
+    normalized.includes("reliably returns") ||
+    normalized.includes("returns job cards") ||
+    normalized.includes("returns job card") ||
+    normalized.includes("returns results") ||
+    normalized.includes("returns filter controls") ||
+    normalized.includes("with filter controls") ||
+    normalized.includes("primary result changing control") ||
+    normalized.includes("primary result-changing control") ||
+    normalized.includes("primary way to access") ||
     normalized.includes("proven control") ||
     normalized.includes("changes the result set") ||
     normalized.includes("change the result set") ||
+    normalized.includes("different job set") ||
+    normalized.includes("different job collection") ||
+    normalized.includes("different job collections") ||
     normalized.includes("opens reusable") ||
     normalized.includes("open reusable") ||
     normalized.includes("opens a reusable") ||
@@ -601,8 +613,7 @@ export function isUrlShortcutSourceInstruction(value: string): boolean {
     normalized.includes("query url") ||
     normalized.includes("jobs landing url") ||
     normalized.includes("jobs url pattern") ||
-    normalized.includes("direct url") ||
-    normalized.includes("/jobs/search")
+    normalized.includes("direct url")
   );
 }
 

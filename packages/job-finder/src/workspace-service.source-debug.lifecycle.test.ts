@@ -146,6 +146,7 @@ describe("createJobFinderWorkspaceService", () => {
           attemptIds: [],
           phaseSummaries: [],
           instructionArtifactId: null,
+          timing: null,
         },
         recentSourceDebugRuns: [],
       },
@@ -172,6 +173,7 @@ describe("createJobFinderWorkspaceService", () => {
           attemptIds: [],
           phaseSummaries: [],
           instructionArtifactId: null,
+          timing: null,
         },
       ],
     });
