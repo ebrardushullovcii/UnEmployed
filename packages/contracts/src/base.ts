@@ -126,7 +126,7 @@ export function normalizeWorkModeList(value: unknown): unknown {
     return [];
   }
 
-if (Array.isArray(value)) {
+  if (Array.isArray(value)) {
     return value.map((entry) => normalizeWorkModeValue(entry));
   }
 

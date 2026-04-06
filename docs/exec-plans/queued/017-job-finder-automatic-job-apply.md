@@ -136,14 +136,14 @@ This is still a future-direction plan, not a claim that the current shipped app 
 
 Plan `007` is still the prerequisite slice.
 
-`008` must reuse and preserve these `007` rules:
+`017` must reuse and preserve these `007` rules:
 
 - the per-job `Resume Workspace` remains the source of truth for resume approval
 - apply flows must use the approved non-stale tailored export, not the base resume
 - stale or missing approved exports remain hard-stop conditions
 - staged apply work may add copilot, run, approval, and queue orchestration, but it must not weaken resume approval, export validation, or staleness checks
 
-`008` should not reopen `007` scope by redesigning resume generation, templates, or approval semantics. It consumes those outcomes and layers apply intelligence and automation on top of them.
+`017` should not reopen `007` scope by redesigning resume generation, templates, or approval semantics. It consumes those outcomes and layers apply intelligence and automation on top of them.
 
 ### Relationship To `011`, `012`, And `015`
 
@@ -155,7 +155,7 @@ Queued plans `011`, `012`, and `015` capture assumptions this plan should absorb
 
 Implementation rule:
 
-- `008` should not wait for every adjacent plan to ship first, but it must adopt these data-model and product assumptions instead of cementing a thinner apply-only model that later plans would have to undo
+- `017` should not wait for every adjacent plan to ship first, but it must adopt these data-model and product assumptions instead of cementing a thinner apply-only model that later plans would have to undo
 
 ### Relationship To `013` And `014`
 
@@ -170,7 +170,7 @@ Queued plans `013` and `014` capture the provider-aware and structured-artifact 
 
 Plans `004` and `005` already generalized discovery around target sites and learned guidance.
 
-`008` should build on that work without reintroducing a rigid adapter-first submission model:
+`017` should build on that work without reintroducing a rigid adapter-first submission model:
 
 - use learned target guidance and prior attempt artifacts when they exist
 - do not require a predefined supported-source allowlist before the runtime can attempt a live apply flow

@@ -362,7 +362,7 @@ If the click fails, you'll get details about why so you can decide whether to re
       const interactionAttemptKey = buildInteractionAttemptKey("click", role, name, index);
       const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
 
-if (
+      if (
         priorAttempt &&
         priorAttempt.count >= REPEATED_FAILURE_BLOCK_THRESHOLD &&
         shouldTreatAsRepeatedClickFailure(priorAttempt.lastError)
@@ -823,7 +823,6 @@ You get role, name, and index from get_interactive_elements().`,
         return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: selectionResult.selectedLabel ?? optionText, selectedValue: selectionResult.selectedValue ?? null } };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Select option failed";
-        const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
         recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
 
         const currentUrl = page.url();
