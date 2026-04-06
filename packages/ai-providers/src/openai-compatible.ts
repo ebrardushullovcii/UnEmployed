@@ -317,7 +317,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
       const controller = new AbortController();
       const timeoutMs = DEFAULT_MODEL_TIMEOUT_MS;
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      let localTimedOut = false;
+      const timeoutId = setTimeout(() => {
+        localTimedOut = true;
+        controller.abort();
+      }, timeoutMs);
 
       let onCallerAbort: (() => void) | null = null;
 
@@ -427,7 +431,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
         return result;
       } catch (error) {
-        throw normalizeTimeoutLikeError(error, timeoutMs);
+        if (localTimedOut) {
+          throw normalizeTimeoutLikeError(error, timeoutMs);
+        }
+
+        throw error;
       } finally {
         clearTimeout(timeoutId);
         if (signal && onCallerAbort) {

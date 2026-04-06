@@ -389,11 +389,11 @@ async function readLocatorAccessibleName(locator: Locator): Promise<string | nul
       if (labels.length > 0) return labels.join(' ')
     }
 
-    const title = element.getAttribute('title')?.trim()
-    if (title) return title
-
     const placeholder = element.getAttribute('placeholder')?.trim()
     if (placeholder) return placeholder
+
+    const title = element.getAttribute('title')?.trim()
+    if (title) return title
 
     if (element instanceof HTMLInputElement) {
       const value = element.value.trim()

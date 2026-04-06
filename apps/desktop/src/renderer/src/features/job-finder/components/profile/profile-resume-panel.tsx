@@ -26,6 +26,38 @@ const extractionStatusToLabel: Record<ResumeExtractionStatus, string> = {
   not_started: 'Not imported'
 }
 
+function getResumePanelCopy(input: {
+  extractionStatus: ResumeExtractionStatus
+  hasImportedResume: boolean
+  resumeTextReadyToAnalyze: boolean
+}): { headline: string; description: string } {
+  const { extractionStatus, hasImportedResume, resumeTextReadyToAnalyze } = input
+
+  if (resumeTextReadyToAnalyze) {
+    return {
+      headline: 'Your saved resume can refresh this profile any time',
+      description: 'Use the saved resume text to refresh profile suggestions after each update, then review the details in the tabs below.'
+    }
+  }
+
+  if (hasImportedResume) {
+    return extractionStatus === 'failed'
+      ? {
+          headline: 'This resume needs another import before it can help your profile',
+          description: 'The last import did not produce usable text. Replace the file, then refresh your profile suggestions once the text is ready.'
+        }
+      : {
+          headline: 'This resume needs cleaner text before it can help your profile',
+          description: 'This file was imported, but Job Finder still needs cleaner text before it can refresh your profile suggestions.'
+        }
+  }
+
+  return {
+    headline: 'Import your resume to fill in your profile faster',
+    description: 'Job Finder uses the saved text from your resume to suggest profile details you can review and tighten.'
+  }
+}
+
 export function ProfileResumePanel({
   busy,
   onAnalyzeProfileFromResume,
@@ -37,24 +69,24 @@ export function ProfileResumePanel({
   const rawFileName = profile.baseResume.fileName.trim()
   const hasImportedResume = rawFileName.length > 0
   const resumeFileName = hasImportedResume ? rawFileName : 'No resume imported yet'
-  const panelHeadline = resumeTextReadyToAnalyze
-    ? 'Your saved resume can refresh this profile any time'
-    : hasImportedResume
-      ? profile.baseResume.extractionStatus === 'failed'
-        ? 'This resume needs another import before it can help your profile'
-        : 'This resume needs cleaner text before it can help your profile'
-      : 'Import your resume to fill in your profile faster'
-  const panelDescription = resumeTextReadyToAnalyze
-    ? 'Use the saved resume text to refresh profile suggestions after each update, then review the details in the tabs below.'
-    : hasImportedResume
-      ? profile.baseResume.extractionStatus === 'failed'
-        ? 'The last import did not produce usable text. Replace the file, then refresh your profile suggestions once the text is ready.'
-        : 'This file was imported, but Job Finder still needs cleaner text before it can refresh your profile suggestions.'
-      : 'Job Finder uses the saved text from your resume to suggest profile details you can review and tighten.'
+  const { headline: panelHeadline, description: panelDescription } = getResumePanelCopy({
+    extractionStatus: profile.baseResume.extractionStatus,
+    hasImportedResume,
+    resumeTextReadyToAnalyze
+  })
   const uploadedLabel = profile.baseResume.uploadedAt
     ? `Imported ${formatDateOnly(profile.baseResume.uploadedAt)}`
     : 'Import your resume to fill in this profile faster.'
-  const extractionStatusLabel = extractionStatusToLabel[profile.baseResume.extractionStatus] || 'Not imported'
+  const extractionStatusLabel = (() => {
+    const label = extractionStatusToLabel[profile.baseResume.extractionStatus]
+
+    if (label) {
+      return label
+    }
+
+    console.warn(`Unexpected resume extraction status: ${profile.baseResume.extractionStatus}`)
+    return 'Not imported'
+  })()
   const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Name not set yet'
   const headline = profile.headline.trim() || 'Headline not set yet'
   const location = profile.currentLocation.trim() || 'Location not set yet'

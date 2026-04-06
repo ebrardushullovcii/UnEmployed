@@ -46,6 +46,7 @@ const EARLY_FORCED_FINISH_STALE_STEP_WINDOW = 2
 interface ExtractionPassSummary {
   extractionPasses: number
   zeroYieldExtractionPasses: number
+  trailingZeroYieldExtractionPasses: number
   newJobsAdded: number
 }
 
@@ -53,6 +54,7 @@ function createEmptyExtractionPassSummary(): ExtractionPassSummary {
   return {
     extractionPasses: 0,
     zeroYieldExtractionPasses: 0,
+    trailingZeroYieldExtractionPasses: 0,
     newJobsAdded: 0
   }
 }
@@ -82,6 +84,7 @@ function summarizeExtractionPassResult(result: unknown): ExtractionPassSummary {
   return {
     extractionPasses: 1,
     zeroYieldExtractionPasses: newJobsAdded > 0 ? 0 : 1,
+    trailingZeroYieldExtractionPasses: newJobsAdded > 0 ? 0 : 1,
     newJobsAdded
   }
 }
@@ -264,6 +267,9 @@ async function flushDeferredSearchExtractions(input: {
     summary.newJobsAdded += totalAddedCount
     if (totalAddedCount === 0) {
       summary.zeroYieldExtractionPasses += 1
+      summary.trailingZeroYieldExtractionPasses += 1
+    } else {
+      summary.trailingZeroYieldExtractionPasses = 0
     }
 
     if (fastPathAddedCount > 0) {
@@ -498,7 +504,7 @@ export async function runAgentDiscovery(
     }
 
     if (summary.newJobsAdded > 0) {
-      consecutiveZeroYieldExtractionPasses = 0
+      consecutiveZeroYieldExtractionPasses = summary.trailingZeroYieldExtractionPasses
       lastJobGainStep = state.stepCount
       return
     }
@@ -529,6 +535,7 @@ export async function runAgentDiscovery(
     )
 
     return buildDiscoveryResult({
+      incomplete: true,
       phaseCompletionMode: null,
       phaseCompletionReason: null,
       phaseEvidence: null,

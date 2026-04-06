@@ -1305,7 +1305,7 @@ describe("runAgentDiscovery closeout behavior", () => {
 
     expect(result.jobs).toHaveLength(1);
     expect(result.steps).toBe(9);
-    expect(result.incomplete).toBeUndefined();
+    expect(result.incomplete).toBe(true);
     expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(4);
     expect(llmClient.chatWithTools).toHaveBeenCalledTimes(9);
   });

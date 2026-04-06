@@ -297,7 +297,12 @@ export function deriveSourceDebugStartingUrls(
       return [target.startingUrl];
     }
 
-    const targetUrl = new URL(target.startingUrl);
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(target.startingUrl);
+    } catch {
+      return [target.startingUrl];
+    }
     const routeHints = buildInstructionGuidance(instructionArtifact);
     const collectionUrls: string[] = [];
     const searchUrls: string[] = [];

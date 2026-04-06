@@ -52,6 +52,13 @@ export function SettingsEditableDefaults({
     appearanceThemeOptions.some((option) => option.value === value)
   const isResumeTemplateOption = (value: string): value is JobFinderSettings['resumeTemplateId'] =>
     availableResumeTemplates.some((template) => template.id === value)
+  const updateSettingsForm = (updater: (current: JobFinderSettings) => JobFinderSettings) => {
+    if (busy) {
+      return
+    }
+
+    setSettingsForm(updater)
+  }
   const selectedTemplate = availableResumeTemplates.find(
     (template) => template.id === settingsForm.resumeTemplateId
   )
@@ -74,7 +81,7 @@ export function SettingsEditableDefaults({
       <div className="grid gap-6">
         <section className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-5">
           <div className="grid gap-1">
-            <h2 className="text-[0.98rem] font-semibold text-(--text-headline)">Appearance and resume defaults</h2>
+            <h2 className="text-(length:--type-body-md) font-semibold text-(--text-headline)">Appearance and resume defaults</h2>
             <p className="text-(length:--text-description) leading-6 text-foreground-soft">These settings shape how the workspace looks and what each new tailored resume starts from.</p>
           </div>
 
@@ -82,7 +89,7 @@ export function SettingsEditableDefaults({
             <Field>
               <FieldLabel htmlFor={appearanceId}>Appearance</FieldLabel>
               <FormSelect
-                onValueChange={(value) => setSettingsForm((current) => ({
+                onValueChange={(value) => updateSettingsForm((current) => ({
                   ...current,
                   appearanceTheme: isAppearanceThemeOption(value) ? value : current.appearanceTheme
                 }))}
@@ -95,7 +102,7 @@ export function SettingsEditableDefaults({
             <Field>
               <FieldLabel htmlFor={resumeTemplateId}>Resume template</FieldLabel>
               <FormSelect
-                onValueChange={(value) => setSettingsForm((current) => ({
+                onValueChange={(value) => updateSettingsForm((current) => ({
                   ...current,
                   resumeTemplateId: isResumeTemplateOption(value) ? value : current.resumeTemplateId
                 }))}
@@ -108,7 +115,7 @@ export function SettingsEditableDefaults({
             <Field className="md:col-span-2">
               <FieldLabel htmlFor={fontPresetId}>Resume font</FieldLabel>
               <FormSelect
-                onValueChange={(value) => setSettingsForm((current) => ({
+                onValueChange={(value) => updateSettingsForm((current) => ({
                   ...current,
                   fontPreset: isFontPresetOption(value) ? value : current.fontPreset
                 }))}
@@ -122,7 +129,7 @@ export function SettingsEditableDefaults({
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-              <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Selected template</span>
+              <span className="label-mono-xs">Selected template</span>
               <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
                 {selectedTemplate?.label ?? 'Template not available'}
               </strong>
@@ -131,7 +138,7 @@ export function SettingsEditableDefaults({
               </p>
             </div>
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-              <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Selected font</span>
+              <span className="label-mono-xs">Selected font</span>
               <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
                 {selectedFontPreset?.label ?? 'Font not available'}
               </strong>
@@ -144,7 +151,7 @@ export function SettingsEditableDefaults({
 
         <section className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-5">
           <div className="grid gap-1">
-            <h2 className="text-[0.98rem] font-semibold text-(--text-headline)">Workspace behavior</h2>
+            <h2 className="text-(length:--type-body-md) font-semibold text-(--text-headline)">Workspace behavior</h2>
             <p className="text-(length:--text-description) leading-6 text-foreground-soft">Keep only the defaults you actually want Job Finder to reuse between searches and application steps.</p>
           </div>
 
@@ -154,14 +161,14 @@ export function SettingsEditableDefaults({
               description="Reuse your browser session between searches and application steps."
               hint="Turn this off on a shared computer."
               label="Keep browser signed in"
-              onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
+              onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
             />
             <ToggleField
               checked={settingsForm.discoveryOnly}
               description="Keep new search results temporary until you shortlist them."
               hint="Useful if you want a cleaner workspace with fewer saved jobs."
               label="Only keep jobs I shortlist"
-              onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
+              onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
             />
           </div>
         </section>

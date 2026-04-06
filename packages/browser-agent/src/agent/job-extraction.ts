@@ -446,6 +446,18 @@ function mergeJob(
   };
 }
 
+function isCompleteJob(job: ExtractedJobInput | undefined): job is ExtractedJobInput {
+  return Boolean(
+    job &&
+    job.canonicalUrl &&
+    job.sourceJobId &&
+    job.title &&
+    job.company &&
+    job.location &&
+    job.description,
+  )
+}
+
 function buildJobFromStructuredData(
   candidate: StructuredDataJobCandidate,
   pageUrl: string,
@@ -457,16 +469,12 @@ function buildJobFromStructuredData(
   const location = cleanLine(candidate.location) || inferLocation([], workMode);
   const description = cleanLine(candidate.description) || cleanLine(candidate.summary);
 
-  if (!canonicalUrl || !title || !company || !location || !description) {
-    return null;
-  }
-
   return {
-    sourceJobId: cleanLine(candidate.sourceJobId) || buildGenericJobId(canonicalUrl),
+    sourceJobId: cleanLine(candidate.sourceJobId) || buildGenericJobId(canonicalUrl || pageUrl),
     canonicalUrl,
     title,
     company,
-    location,
+    location: location || '',
     description,
     salaryText: trimToNull(candidate.salaryText),
     summary: trimToNull(candidate.summary) ?? description.slice(0, 280),
@@ -512,23 +520,19 @@ function buildJobFromCardCandidate(
     location,
   );
 
-  if (!canonicalUrl || !title || !company || !location) {
-    return null;
-  }
-
   const { summary, description } = buildSummaryAndDescription({
     lines,
-    title,
-    company,
-    location,
+    title: title || cleanLine(candidate.anchorText),
+    company: company || '',
+    location: location || '',
   });
 
   return {
-    sourceJobId: buildGenericJobId(canonicalUrl),
+    sourceJobId: buildGenericJobId(canonicalUrl || pageUrl),
     canonicalUrl,
     title,
-    company,
-    location,
+    company: company || '',
+    location: location || '',
     description,
     salaryText: findSalaryText(lines),
     summary,
@@ -583,5 +587,7 @@ export function buildStructuredCandidateJobs(input: {
     );
   }
 
-  return [...jobsByCanonicalUrl.values()].slice(0, Math.max(0, input.maxJobs));
+  return [...jobsByCanonicalUrl.values()]
+    .filter(isCompleteJob)
+    .slice(0, Math.max(0, input.maxJobs));
 }

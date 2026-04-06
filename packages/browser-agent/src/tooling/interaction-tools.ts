@@ -22,11 +22,24 @@ const REPEATED_FAILURE_BLOCK_THRESHOLD = 2;
 async function readInteractionPageStateToken(page: Page): Promise<string> {
   try {
     return await page.evaluate(() => {
-      const interactiveCount = document.querySelectorAll(
-        'a[href], button, input, select, textarea, [role], [contenteditable="true"]',
-      ).length;
-      const textLength = document.body?.innerText?.length ?? 0;
-      return `${window.location.href}::${document.title}::${interactiveCount}::${textLength}`;
+      const elements = Array.from(
+        document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [role], [contenteditable="true"]'),
+      )
+        .filter((element) => !element.closest('[aria-hidden="true"], [hidden], template'))
+        .map((element) => {
+          const role = element.getAttribute('role')?.trim().toLowerCase() ?? element.tagName.toLowerCase()
+          const name = [
+            element.getAttribute('aria-label'),
+            element.getAttribute('placeholder'),
+            element.getAttribute('title'),
+            element.textContent,
+          ].find((value) => typeof value === 'string' && value.trim().length > 0) ?? ''
+
+          return `${role}:${name.replace(/\s+/g, ' ').trim()}`
+        })
+        .slice(0, 80)
+
+      return `${window.location.href}::${document.title}::${elements.join('|')}`;
     });
   } catch {
     return page.url();
@@ -75,7 +88,6 @@ function normalizeInteractionAttemptName(name: string): string {
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .slice(0, 4)
     .join(" ");
 }
 

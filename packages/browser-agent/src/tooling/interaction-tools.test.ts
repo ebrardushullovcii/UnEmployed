@@ -619,7 +619,7 @@ describe('fill', () => {
       currentUrl: 'https://example.com/jobs',
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
-        ['fill::searchbox::search by title skill::0', {
+        ['fill::searchbox::search by title skill or com::0', {
           count: 2,
           lastError: 'No textbox matched accessible name "Search by title, skill, or company".'
         }]

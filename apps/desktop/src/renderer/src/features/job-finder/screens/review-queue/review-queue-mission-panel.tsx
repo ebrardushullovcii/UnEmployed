@@ -67,7 +67,7 @@ function getChecklistIcon(state: ApplyChecklistItem['state']) {
 
 function getApplySupportState(selectedJob: SavedJob | null): ApplySupportState {
   if (!selectedJob) {
-    return 'supported'
+    return 'incomplete'
   }
 
   return selectedJob.applyPath === 'easy_apply' && selectedJob.easyApplyEligible
@@ -105,6 +105,7 @@ function getReadinessDescription(input: {
   hasReadyApprovedAsset: boolean
   resumeReviewStatus: ReviewQueueItem['resumeReview']['status'] | 'not_started'
   applySupportState: ApplySupportState
+  browserActionMessage: string | null
 }): string {
   const {
     selectedItem,
@@ -113,7 +114,8 @@ function getReadinessDescription(input: {
     isGenerating,
     hasReadyApprovedAsset,
     resumeReviewStatus,
-    applySupportState
+    applySupportState,
+    browserActionMessage
   } = input
 
   if (!selectedItem) {
@@ -136,6 +138,14 @@ function getReadinessDescription(input: {
     return resumeReviewStatus === 'stale'
       ? 'The last approved PDF is out of date and needs a fresh approval.'
       : 'Open the resume workspace to export a PDF and approve it before applying.'
+  }
+
+  if (browserActionMessage) {
+    return browserActionMessage
+  }
+
+  if (applySupportState === 'incomplete') {
+    return 'The approved PDF is ready, but this selection is missing apply-path data. Refresh the job details before starting the application.'
   }
 
   if (applySupportState === 'manual_follow_up') {
@@ -225,8 +235,10 @@ export function ReviewQueueMissionPanel({
     },
     {
       label: 'Apply path',
-      state: applySupportState === 'manual_follow_up' ? 'attention' : 'complete',
-      description: applySupportState === 'manual_follow_up'
+      state: applySupportState === 'incomplete' ? 'blocked' : applySupportState === 'manual_follow_up' ? 'attention' : 'complete',
+      description: applySupportState === 'incomplete'
+        ? 'This selection is missing saved apply-path data. Refresh the job details before you start the application.'
+        : applySupportState === 'manual_follow_up'
         ? 'Saved job data does not confirm a supported Easy Apply path. Starting can still stop with a manual-only next step in Applications.'
         : 'Saved job data still points to a supported Easy Apply path. Live questions can still pause automation before submission.'
     },
@@ -246,7 +258,8 @@ export function ReviewQueueMissionPanel({
     isGenerating,
     hasReadyApprovedAsset,
     resumeReviewStatus,
-    applySupportState
+    applySupportState,
+    browserActionMessage
   })
 
   return (

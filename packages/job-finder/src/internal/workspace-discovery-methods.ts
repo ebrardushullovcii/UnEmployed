@@ -79,7 +79,7 @@ function buildDiscoveryTimingSummary(
   return DiscoveryTimingSummarySchema.parse({
     totalDurationMs: stageTimeline.totalDurationMs,
     firstActivityMs: stageTimeline.firstEventMs,
-    longestGapMs: Math.max(stageTimeline.longestGapMs, waitReasonTimeline.longestGapMs),
+    longestGapMs: stageTimeline.longestGapMs,
     eventCount: events.length,
     stageDurations: serializeOrderedDurationEntries(
       stageTimeline.durationsMsByKey,

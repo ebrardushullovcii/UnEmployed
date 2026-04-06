@@ -198,7 +198,7 @@ export function ProfilePreferencesTab({
         <ProfileSectionHeader
           eyebrow="Targeting"
           title="Job preferences"
-          description="Use this section for the roles, locations, and companies you want this search to focus on."
+          description="Use this section to specify the roles, locations, and companies to focus on."
         />
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
@@ -357,14 +357,14 @@ export function ProfilePreferencesTab({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
               <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Job sources</h3>
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">Add the job boards or company career pages you want this search to use. Each source can save reusable guidance after a quick source check.</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">Add the job boards or company career pages to use here. Each source can save reusable guidance after a quick source check.</p>
             </div>
             <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add source</Button>
           </div>
 
           <div className="grid gap-3">
             {discoveryTargets.length === 0 ? (
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">No job sources yet. Add the first source you want this search to use.</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">No job sources yet. Add the first source to use here.</p>
             ) : null}
 
             {discoveryTargets.map((target, index) => {

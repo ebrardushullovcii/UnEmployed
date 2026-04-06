@@ -48,6 +48,7 @@ export function computeTimelineSummary<TKey extends string>(input: {
   const completedAtMs = toEpochMs(input.completedAt);
   const hasFiniteWindow =
     Number.isFinite(startedAtMs) && Number.isFinite(completedAtMs);
+  const safeCompletedAtMs = hasFiniteWindow ? completedAtMs : startedAtMs;
   const normalizedEvents = input.events
     .map((event) => ({
       atMs: toEpochMs(event.timestamp),
@@ -65,7 +66,7 @@ export function computeTimelineSummary<TKey extends string>(input: {
 
   for (let index = 0; index < normalizedEvents.length; index += 1) {
     const currentEvent = normalizedEvents[index]!;
-    const nextAtMs = normalizedEvents[index + 1]?.atMs ?? completedAtMs;
+    const nextAtMs = normalizedEvents[index + 1]?.atMs ?? safeCompletedAtMs;
     const durationMs = calculateDurationMs(currentEvent.atMs, nextAtMs);
 
     durationsMsByKey.set(

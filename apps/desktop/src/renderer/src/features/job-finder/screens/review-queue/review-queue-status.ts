@@ -11,7 +11,7 @@ export interface ApplyReadinessStatus {
   tone: 'active' | 'critical' | 'muted' | 'positive'
 }
 
-export type ApplySupportState = 'manual_follow_up' | 'supported'
+export type ApplySupportState = 'incomplete' | 'manual_follow_up' | 'supported'
 
 export function getReviewQueueWorkflowStatus(
   item: ReviewQueueItem | null
@@ -128,6 +128,13 @@ export function getApplyReadinessStatus(params: {
   if (!hasReadyApprovedAsset) {
     return {
       label: resumeReviewStatus === 'stale' ? 'Out of date' : 'Needs approval',
+      tone: 'critical'
+    }
+  }
+
+  if (applySupportState === 'incomplete') {
+    return {
+      label: 'Job data missing',
       tone: 'critical'
     }
   }
