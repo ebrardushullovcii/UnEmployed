@@ -62,7 +62,7 @@ function formatInstructionActionLabel(artifact: SourceInstructionArtifact | null
   }
 
   return artifact.status === 'draft' || artifact.status === 'validated'
-    ? 'Approve navigation steps'
+    ? 'Check saved guidance'
     : null
 }
 
@@ -104,7 +104,7 @@ export function ProfileSourceDebugReviewModalContent({
         className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r"
         >
           <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted" id={recentRunsLabelId}>
-          Test history
+          Check history
           </p>
         <ul className="grid gap-2 pb-1">
           {recentRuns.map((run) => {
@@ -143,7 +143,7 @@ export function ProfileSourceDebugReviewModalContent({
             className="surface-card-tint rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4 text-[0.9rem] text-foreground-soft"
             role="status"
           >
-            Retrieving test results...
+            Loading source check details...
           </div>
         ) : errorMessage ? (
           <div
@@ -160,7 +160,7 @@ export function ProfileSourceDebugReviewModalContent({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="grid gap-1">
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Latest test
+                    Source check
                   </p>
                   <p className="text-[1rem] font-medium text-foreground">
                     {formatRunStateLabel(details.run.state)}
@@ -221,7 +221,7 @@ export function ProfileSourceDebugReviewModalContent({
           </>
         ) : (
           <div className="surface-card-tint rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-4 text-[0.9rem] text-foreground-soft">
-            No saved test details are available for this source yet.
+            No saved check details are available for this source yet.
           </div>
         )}
       </section>

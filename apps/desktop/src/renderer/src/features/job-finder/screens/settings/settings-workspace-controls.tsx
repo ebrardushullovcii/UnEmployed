@@ -7,17 +7,17 @@ interface SettingsWorkspaceControlsProps {
 
 export function SettingsWorkspaceControls({ busy, onResetWorkspace }: SettingsWorkspaceControlsProps) {
   return (
-    <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-6 py-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+    <section className="surface-panel-shell relative grid gap-5 rounded-(--radius-field) border border-(--surface-panel-border) px-6 py-6">
       <div className="grid gap-2.5">
-        <p className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Workspace reset</p>
-        <h2 className="font-display text-xl font-semibold text-(--text-headline)">Reset workspace</h2>
+        <p className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Start over</p>
+        <h2 className="font-display text-xl font-semibold text-(--text-headline)">Reset everything on this device</h2>
         <p className="text-sm leading-7 text-foreground-soft">
-          Resetting removes your profile, imported resume, saved jobs, generated resumes, and browser session data from this device.
+          This permanently removes your profile, imported resume, saved jobs, tailored resumes, and browser session data from this device.
         </p>
       </div>
-      <div className="grid justify-items-start gap-2.5 lg:justify-items-end">
-        <Button variant="secondary" disabled={busy} onClick={onResetWorkspace} type="button">
-          Reset workspace
+      <div className="grid justify-items-start gap-2.5">
+        <Button variant="destructive" disabled={busy} onClick={onResetWorkspace} type="button">
+          Reset everything
         </Button>
       </div>
     </section>

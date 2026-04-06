@@ -41,7 +41,7 @@ export function ReviewQueueScreen(props: {
         <PageHeader
           eyebrow="Shortlisted"
           title="Shortlisted jobs"
-          description="Review each shortlisted job, approve the PDF, and move ready jobs into Applied."
+          description="Use this queue to finish the next step for each shortlisted job, approve the PDF you want to use, and start the application when every requirement is ready."
         />
       )}
     >

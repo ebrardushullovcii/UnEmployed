@@ -38,16 +38,16 @@ export function ResumeWorkspaceHeader({
           </Button>
           <Button onClick={onRefresh} type="button" variant="secondary">
             <RefreshCcw className="size-4" />
-            Refresh
+            Reload workspace
           </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge tone={toDraftStatusTone(draft.status)}>
             {formatDraftStatusLabel(draft.status)}
           </StatusBadge>
-          <Badge variant="section">{validationIssueCount} {validationIssueCount === 1 ? 'issue' : 'issues'}</Badge>
+          <Badge variant="section">{validationIssueCount} {validationIssueCount === 1 ? 'check' : 'checks'}</Badge>
           <Badge variant="section">{researchCount} {researchCount === 1 ? 'source' : 'sources'}</Badge>
-          {hasUnsavedChanges ? <StatusBadge tone="active">Unsaved edits</StatusBadge> : null}
+          {hasUnsavedChanges ? <StatusBadge tone="active">Unsaved draft</StatusBadge> : null}
         </div>
       </div>
 
@@ -62,7 +62,7 @@ export function ResumeWorkspaceHeader({
             </p>
           </div>
           <p className="max-w-[72ch] text-(length:--type-body-md) leading-7 text-foreground-soft">
-            Edit the resume, export the PDF, and approve the final version before moving this job into Applied.
+            Save your draft, export a PDF, and approve the version you want Job Finder to use before starting the application.
           </p>
         </div>
 

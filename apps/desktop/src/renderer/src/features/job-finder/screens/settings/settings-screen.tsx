@@ -27,23 +27,27 @@ export function SettingsScreen(props: {
     <section className="grid gap-(--gap-section) pb-8">
       <PageHeader
         eyebrow="Settings"
-        title="Preferences"
-        description="Choose how Job Finder saves your work, prepares resumes, and handles review safeguards."
+        title="Settings"
+        description="Set the defaults Job Finder uses before it searches, builds resumes, and starts supported applications."
       />
 
-      <SettingsWorkspaceControls busy={busy} onResetWorkspace={onResetWorkspace} />
-      <SettingsRuntimeSummary
-        availableResumeTemplates={availableResumeTemplates}
-        browserSession={browserSession}
-        settings={settings}
-      />
-      <SettingsEditableDefaults
-        actionMessage={actionState.message}
-        availableResumeTemplates={availableResumeTemplates}
-        busy={busy}
-        onSaveSettings={onSaveSettings}
-        settings={settings}
-      />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,24rem)] xl:items-start">
+        <SettingsEditableDefaults
+          actionMessage={actionState.message}
+          availableResumeTemplates={availableResumeTemplates}
+          busy={busy}
+          onSaveSettings={onSaveSettings}
+          settings={settings}
+        />
+
+        <div className="grid gap-4">
+          <SettingsRuntimeSummary
+            browserSession={browserSession}
+            settings={settings}
+          />
+          <SettingsWorkspaceControls busy={busy} onResetWorkspace={onResetWorkspace} />
+        </div>
+      </div>
     </section>
   )
 }

@@ -48,16 +48,16 @@ function formatInstructionStatusSummary(target: DiscoveryTargetValue): string {
   switch (target.instructionStatus) {
     case 'validated':
       return target.lastVerifiedAt
-        ? `Ready — verified ${new Date(target.lastVerifiedAt).toLocaleString()}`
-        : 'Ready'
+        ? `Saved guidance ready - checked ${new Date(target.lastVerifiedAt).toLocaleString()}`
+        : 'Saved guidance ready'
     case 'draft':
-      return 'Draft steps pending'
+      return 'Draft guidance saved'
     case 'stale':
-      return target.staleReason ? `Needs review — ${target.staleReason}` : 'Needs review'
+      return target.staleReason ? `Guidance needs review - ${target.staleReason}` : 'Guidance needs review'
     case 'unsupported':
-      return 'Not supported'
+      return 'Not supported yet'
     default:
-      return 'Not started'
+      return 'No saved guidance yet'
   }
 }
 
@@ -239,13 +239,13 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            aria-label={`Test this source for ${displayName}`}
+            aria-label={`Check this source for ${displayName}`}
             disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
             onClick={handleRunSourceDebug}
             type="button"
             variant="secondary"
           >
-            Test source
+            Check source
           </Button>
           <Button
             aria-label={`Move ${displayName} up`}
@@ -279,10 +279,10 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
       <div className="grid gap-(--gap-content) md:grid-cols-2">
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
           <FieldLabel htmlFor={labelId}>Source name</FieldLabel>
-          <ProfileInput id={labelId} onChange={handleLabelChange} value={props.target.label} />
+          <ProfileInput id={labelId} onChange={handleLabelChange} placeholder="LinkedIn or Stripe Careers" value={props.target.label} />
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={startingUrlId}>Starting URL</FieldLabel>
+          <FieldLabel htmlFor={startingUrlId}>Starting page URL</FieldLabel>
           <ProfileInput
             id={startingUrlId}
             onChange={handleStartingUrlChange}
@@ -291,12 +291,12 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           />
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={instructionsId}>Search instructions</FieldLabel>
+          <FieldLabel htmlFor={instructionsId}>Source notes</FieldLabel>
           <ProfileTextarea
             className="min-h-(--textarea-tall)"
             id={instructionsId}
             onChange={handleCustomInstructionsChange}
-            placeholder="Optional: add hints like 'skip contract roles' or 'focus on remote jobs'."
+            placeholder="Optional: add notes like 'skip contract roles' or 'focus on remote jobs'."
             rows={4}
             value={props.target.customInstructions}
           />
@@ -305,16 +305,16 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <div className="surface-card-tint grid h-full min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-                Latest test
+                Last source check
               </p>
               <Button
-                aria-label={`View details for the latest test for ${displayName}`}
+                aria-label={`Review the latest source check for ${displayName}`}
                 disabled={props.busy}
                 onClick={handleReviewLatestRun}
                 type="button"
                 variant="ghost"
               >
-                Review test
+                Review check
               </Button>
             </div>
             <div aria-live="polite" className="grid gap-1" role="status">
@@ -343,11 +343,11 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         <div className="grid gap-2 md:col-span-2">
           <CheckboxField
             checked={props.target.enabled}
-            label="Include in search"
+            label="Search this source"
             onCheckedChange={handleToggleEnabled}
           />
           <p aria-live="polite" aria-atomic="true" className="text-[0.82rem] leading-6 text-foreground-soft" role="status">
-            Status: <strong>{formatInstructionStatusSummary(props.target)}</strong>
+            <strong>{formatInstructionStatusSummary(props.target)}</strong>
           </p>
         </div>
       </div>

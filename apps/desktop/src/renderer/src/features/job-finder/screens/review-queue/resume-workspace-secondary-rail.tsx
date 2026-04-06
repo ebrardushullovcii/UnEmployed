@@ -61,10 +61,10 @@ export function ResumeWorkspaceSecondaryRail(props: {
         </div>
         <div className="min-w-0">
           <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
-            Resume assistant
+            Guided edits
           </h2>
           <p className="text-sm text-foreground-soft">
-            Ask for sharper bullets, shorter summaries, and job-specific edits.
+            Ask for grounded edits using the job, your profile, and saved research.
           </p>
         </div>
       </header>
@@ -115,10 +115,10 @@ export function ResumeWorkspaceSecondaryRail(props: {
                   <MessageSquare className="size-4" />
                 </div>
                 <p className="font-display text-sm text-foreground">
-                  No assistant requests yet
+                  No edit requests yet
                 </p>
                 <p className="text-sm leading-6 text-foreground-soft">
-                  Ask the assistant to rewrite or tighten this resume in plain language.
+                  Ask for a tighter summary, stronger bullets, or clearer job-specific wording.
                 </p>
               </div>
             </div>
@@ -128,14 +128,14 @@ export function ResumeWorkspaceSecondaryRail(props: {
         <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
           <div className="grid gap-3">
             <div className="grid min-w-0 gap-2">
-              <FieldLabel htmlFor={assistantId}>Ask the assistant</FieldLabel>
+              <FieldLabel htmlFor={assistantId}>Request a resume edit</FieldLabel>
               <Textarea
                 className="min-w-0"
                 id={assistantId}
                 disabled={props.busy || props.assistantPending}
                 onChange={(event) => setAssistantInput(event.currentTarget.value)}
                 onKeyDown={handleComposerKeyDown}
-                placeholder="Ask for a rewrite, shorter summary, stronger bullets, or ATS-friendly wording..."
+                placeholder="Example: tighten the summary, strengthen one experience bullet, or rewrite a section for this job..."
                 rows={4}
                 value={assistantInput}
               />
@@ -151,7 +151,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
                 type="button"
                 variant="primary"
               >
-                {props.assistantPending ? "Working..." : "Send"}
+                {props.assistantPending ? "Updating..." : "Send request"}
               </Button>
             </div>
           </div>

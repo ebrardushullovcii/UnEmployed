@@ -58,7 +58,7 @@ export function formatResumeAnalysisSummary(profile: CandidateProfile): string |
     return null
   }
 
-  return `Resume analyzed on ${formatTimestamp(analyzedAt)}.`
+  return `Profile suggestions refreshed from your resume on ${formatTimestamp(analyzedAt)}.`
 }
 
 export function formatCountLabel(value: number, noun: string): string {

@@ -64,14 +64,14 @@ export function DiscoveryScreen(props: {
   const emptyStateContent =
     browserSession.status === 'ready'
       ? {
-          title: 'No jobs yet',
+          title: 'No matches from this search',
           description:
-            'Nothing matched this search yet. Adjust your roles, locations, work modes, or job sources in Profile, then run the search again.'
+            'Try broader roles, locations, or sources, then search again.'
         }
       : {
-          title: 'Search is waiting on your browser',
+          title: 'Search blocked by browser',
           description:
-            'Your search is ready, but new results will only appear after the browser is available.'
+            'Open the browser, sign in or fix the issue, then search again.'
         }
 
   return (
@@ -81,7 +81,7 @@ export function DiscoveryScreen(props: {
         topClassName="pb-(--gap-section) pt-8"
         topContent={(
           <PageHeader
-            eyebrow="Find Jobs"
+            eyebrow="Find jobs"
             title="Find jobs"
             description="Search your saved roles and job sources, then review the strongest matches."
           />
@@ -100,7 +100,7 @@ export function DiscoveryScreen(props: {
             />
             <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-6 xl:h-full xl:min-h-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Results</p>
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Job results</p>
                 <span className="inline-flex items-center rounded-(--radius-small) border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-(--tracking-heading) text-muted-foreground">0 jobs</span>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -110,7 +110,7 @@ export function DiscoveryScreen(props: {
               </div>
               <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto pr-1">
                 <EmptyState className="min-h-80" description={emptyStateContent.description} title={emptyStateContent.title} />
-                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">Update your search in Profile, make sure the browser is ready for any site that needs it, then run the search again from the left panel.</p>
+                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">Need better matches? Update roles, locations, or sources in Profile, then search again.</p>
               </div>
             </section>
           </div>

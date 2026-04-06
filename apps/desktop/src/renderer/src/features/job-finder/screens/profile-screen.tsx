@@ -152,6 +152,7 @@ export function ProfileScreen(props: {
   const snapshotLocation = identityValues?.currentLocation || profile.currentLocation
   const snapshotYearsExperience = identityValues?.yearsExperience
   const parsedSnapshotYearsExperience = Number.parseInt(snapshotYearsExperience ?? '', 10)
+  const hasUnsavedChanges = profileForm.formState.isDirty || preferencesForm.formState.isDirty
 
   const overviewProfile = useMemo<CandidateProfile>(() => ({
     ...profile,
@@ -173,14 +174,11 @@ export function ProfileScreen(props: {
     const basics = countFilledFields([
       identityValues?.firstName,
       identityValues?.lastName,
-      identityValues?.middleName,
       identityValues?.preferredDisplayName,
       identityValues?.headline,
       identityValues?.yearsExperience,
       identityValues?.email,
-      identityValues?.secondaryEmail,
       identityValues?.phone,
-      identityValues?.timeZone,
       identityValues?.currentCity,
       identityValues?.currentRegion,
       identityValues?.currentCountry,
@@ -188,10 +186,8 @@ export function ProfileScreen(props: {
       identityValues?.linkedinUrl,
       identityValues?.portfolioUrl,
       identityValues?.githubUrl,
-      identityValues?.personalWebsiteUrl,
       summaryValues?.shortValueProposition,
       summaryValues?.fullSummary,
-      summaryValues?.careerThemes,
       summaryValues?.strengths,
       summaryValues?.leadershipSummary,
       summaryValues?.domainFocusSummary,
@@ -236,8 +232,7 @@ export function ProfileScreen(props: {
       workModes,
       tailoringMode,
       minimumSalaryUsd,
-      targetSalaryUsd,
-      salaryCurrency
+      targetSalaryUsd
     ])
 
     return {
@@ -298,7 +293,7 @@ export function ProfileScreen(props: {
       {
         id: 'preferences' as const,
         label: 'Preferences',
-        description: 'Set job preferences and eligibility answers for future searches and applications.',
+        description: 'Set screening answers, job preferences, and source setup for future searches and applications.',
         progress: sectionProgress.preferences
       }
     ],
@@ -330,13 +325,13 @@ export function ProfileScreen(props: {
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
       topClassName="grid gap-(--gap-section) pb-(--gap-section) pt-8"
-      topContent={(
-        <>
-          <PageHeader
-            eyebrow="Profile"
-            title="Your profile"
-            description="Import your resume once, then review the details Job Finder uses for search, resume editing, and application prep."
-          />
+        topContent={(
+          <>
+            <PageHeader
+              eyebrow="Profile"
+              title="Your profile"
+              description="Import your resume, lock in the essentials first, then fill in optional details only where they help your search and applications."
+            />
 
           <ProfileResumePanel
             busy={busy}
@@ -382,6 +377,7 @@ export function ProfileScreen(props: {
           </div>
 
           <ProfileSaveFooter
+            hasUnsavedChanges={hasUnsavedChanges}
             actionMessage={actionState.message}
             busy={busy}
             onSave={handleSaveAll}

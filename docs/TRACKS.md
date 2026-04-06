@@ -23,11 +23,11 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `Plan 007 Resume Workspace`
 
 - status: `in_progress`
-- last updated: `2026-04-05`
+- last updated: `2026-04-06`
 - linked plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - code areas: `packages/job-finder`, `packages/contracts`, `packages/db`, `packages/knowledge-base`, `packages/browser-runtime`, `apps/desktop`
-- current focus: this is the only current active plan; the workspace flow mostly works in a bare-bones form and is being tightened into a stronger usable slice, including aligning review-queue apply gating with approved export and tailored-asset reality
-- next step: finish the remaining functionality and harden quality, assistant edits, export or approval paths, apply safety, desktop QA, and handoff clarity around browser-agent versus browser-runtime ownership
+- current focus: this is the only current active plan; the workspace flow mostly works in a bare-bones form and is being tightened into a stronger usable slice, including aligning review-queue apply gating with approved export reality, a clearer checklist-style readiness view in `Shortlisted`, truthful supported-versus-manual apply-path messaging, and stronger handoff clarity for apply safety
+- next step: finish the remaining functionality and harden quality, assistant edits, export or approval paths, apply safety, desktop QA, and handoff clarity around browser-agent versus browser-runtime ownership, especially any remaining follow-up on live apply-path support signals beyond saved-job metadata
 - blockers: none
 
 ### `Plan 008 Automatic Job Apply`
@@ -43,11 +43,11 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `Plan 009 Full App Copy Pass`
 
 - status: `done`
-- last updated: `2026-04-05`
+- last updated: `2026-04-06`
 - linked plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - code areas: `apps/desktop`, `docs`
-- current focus: completed full-app product-language and surface cleanup pass across shipped `Job Finder` and shared shell surfaces, including nav renames (`Find Jobs`, `Shortlisted`, `Applied`), removal of low-value internal fields, simplified source-setup copy, settings cleanup, and updated capture-script expectations
-- next step: reuse this completed copy baseline for later UX polish or any follow-on wording cleanup that lands alongside active implementation work
+- current focus: completed full-app product-language and surface cleanup pass across shipped `Job Finder` and shared shell surfaces, including nav renames (`Find jobs`, `Shortlisted`, `Applications`), removal of low-value internal fields, simplified source-setup copy, settings cleanup, and later structural polish like `Shortlisted` readiness checklists, `Applications` triage filters, and optional-detail grouping in `Profile`
+- next step: reuse this completed copy baseline for later UX polish or any follow-on wording cleanup that lands alongside active implementation work, especially remaining Discovery compression or deeper Applications recovery behavior
 - blockers: none
 
 ### `Plan 010 Browser Efficiency And Speed`
@@ -85,6 +85,6 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ## Ready Queue
 
-- Expand Applications with filters, retry controls, and attempt-centric recovery views.
+- Expand Applications with retry controls and attempt-centric recovery views beyond the shipped filters.
 - Add broader runtime tests for unsupported apply branches, live-browser extraction, and resume-import flows.
 - Improve cleanup and fallback extraction so difficult PDF and DOCX resumes yield cleaner structured text before the agent runs.

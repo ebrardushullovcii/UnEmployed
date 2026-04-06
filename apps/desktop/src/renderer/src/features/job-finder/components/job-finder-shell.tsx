@@ -83,9 +83,9 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
   const screenDefinitions = useMemo(
     () => [
       { id: 'profile', label: 'Profile', count: null, icon: UserRound },
-      { id: 'discovery', label: 'Find Jobs', count: workspace.discoveryJobs.length, icon: Compass },
+      { id: 'discovery', label: 'Find jobs', count: workspace.discoveryJobs.length, icon: Compass },
       { id: 'review-queue', label: 'Shortlisted', count: workspace.reviewQueue.length, icon: ClipboardCheck },
-      { id: 'applications', label: 'Applied', count: workspace.applicationRecords.length, icon: FileText },
+      { id: 'applications', label: 'Applications', count: workspace.applicationRecords.length, icon: FileText },
       { id: 'settings', label: 'Settings', count: null, icon: Settings }
     ],
     [workspace.applicationRecords.length, workspace.discoveryJobs.length, workspace.reviewQueue.length]
@@ -251,9 +251,9 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
 
             <div className="col-start-3 row-start-2 flex items-center justify-end gap-2" style={noDragRegionStyle}>
             {[
-              ['Jobs', workspace.discoveryJobs.length],
+              ['Find jobs', workspace.discoveryJobs.length],
               ['Shortlisted', workspace.reviewQueue.length],
-              ['Applied', workspace.applicationRecords.length]
+              ['Applications', workspace.applicationRecords.length]
             ].map(([label, value]) => (
               <div key={label} className="hidden h-12 min-w-[4.35rem] rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-2.5 xl:grid xl:content-center xl:text-center">
                 <div className="text-[0.58rem] uppercase leading-none tracking-(--tracking-caps) text-muted-foreground">{label}</div>
@@ -293,7 +293,7 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
 
         <footer className="border-t border-border/10 px-4 py-3 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground sm:px-6">
           <div className="mx-auto flex max-w-472 items-center justify-between gap-3">
-            <span>Job Finder</span>
+            <span>Last action</span>
             {actionMessage ? <span className="truncate text-foreground-soft">{actionMessage}</span> : null}
           </div>
         </footer>

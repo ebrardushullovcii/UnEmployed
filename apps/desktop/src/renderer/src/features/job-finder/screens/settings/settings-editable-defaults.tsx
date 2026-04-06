@@ -5,6 +5,19 @@ import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
 import { ToggleField } from '../../components/toggle-field'
 
+const fontPresetOptions = [
+  {
+    description: 'Clean, compact, and the safest default for high-volume applications.',
+    label: 'Clean sans',
+    value: 'inter_requisite'
+  },
+  {
+    description: 'A stronger display look that keeps more personality in the final PDF.',
+    label: 'Display sans',
+    value: 'space_grotesk_display'
+  }
+] as const
+
 interface SettingsEditableDefaultsProps {
   actionMessage: string | null
   availableResumeTemplates: readonly ResumeTemplateDefinition[]
@@ -21,73 +34,114 @@ export function SettingsEditableDefaults({
   settings
 }: SettingsEditableDefaultsProps) {
   const [settingsForm, setSettingsForm] = useState(settings)
+  const selectedTemplate = availableResumeTemplates.find(
+    (template) => template.id === settingsForm.resumeTemplateId
+  )
+  const selectedFontPreset = fontPresetOptions.find(
+    (fontPreset) => fontPreset.value === settingsForm.fontPreset
+  )
 
   useEffect(() => {
     setSettingsForm(settings)
   }, [settings])
 
   return (
-    <section className="surface-panel-shell relative rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8 grid content-start gap-8">
+    <section className="surface-panel-shell relative grid content-start gap-8 rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Your settings</p>
+        <div className="grid gap-2">
+          <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">Defaults</p>
+          <p className="text-sm leading-6 text-foreground-soft">Keep the editable defaults here. Live browser status and destructive controls stay in the side rail.</p>
+        </div>
       </div>
-      <div className="grid gap-(--gap-content) md:grid-cols-2">
-        <Field>
-          <FieldLabel>Appearance</FieldLabel>
-          <FormSelect
-            onValueChange={(value) => setSettingsForm((current) => ({ ...current, appearanceTheme: value as JobFinderSettings['appearanceTheme'] }))}
-            options={[
-              { label: 'System', value: 'system' },
-              { label: 'Light', value: 'light' },
-              { label: 'Dark', value: 'dark' }
-            ]}
-            placeholder="Select appearance"
-            value={settingsForm.appearanceTheme}
-          />
-        </Field>
-        <Field>
-          <FieldLabel>Resume template</FieldLabel>
-          <FormSelect
-            onValueChange={(value) => setSettingsForm((current) => ({ ...current, resumeTemplateId: value as JobFinderSettings['resumeTemplateId'] }))}
-            options={availableResumeTemplates.map((template) => ({ label: template.label, value: template.id }))}
-            placeholder="Select template"
-            value={settingsForm.resumeTemplateId}
-          />
-        </Field>
-        <Field>
-          <FieldLabel>Resume font</FieldLabel>
-          <FormSelect
-            onValueChange={(value) => setSettingsForm((current) => ({ ...current, fontPreset: value as JobFinderSettings['fontPreset'] }))}
-            options={[{ label: 'Clean sans', value: 'inter_requisite' }, { label: 'Display sans', value: 'space_grotesk_display' }]}
-            placeholder="Select font"
-            value={settingsForm.fontPreset}
-          />
-        </Field>
-        <ToggleField
-          checked={settingsForm.keepSessionAlive}
-          description="Stay signed in between searches and application steps. Turn this off if you share this computer."
-          label="Stay signed in across searches"
-          onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
-        />
-        <ToggleField
-          checked={settingsForm.humanReviewRequired}
-          description="Approve the resume PDF before Job Finder can submit an application."
-          label="Require approval before applying"
-          onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, humanReviewRequired: checked }))}
-        />
-        <ToggleField
-          checked={settingsForm.allowAutoSubmitOverride}
-          description="Let supported application flows submit for you once everything is ready."
-          label="Apply automatically when supported"
-          onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, allowAutoSubmitOverride: checked }))}
-        />
-        <ToggleField
-          checked={settingsForm.discoveryOnly}
-          description="New search results stay temporary until you shortlist or dismiss them."
-          label="Only save jobs after I shortlist them"
-          onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
-        />
+      <div className="grid gap-6">
+        <section className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-5">
+          <div className="grid gap-1">
+            <h2 className="text-[0.98rem] font-semibold text-(--text-headline)">Appearance and resume defaults</h2>
+            <p className="text-(length:--text-description) leading-6 text-foreground-soft">These settings shape how the workspace looks and what each new tailored resume starts from.</p>
+          </div>
+
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
+            <Field>
+              <FieldLabel>Appearance</FieldLabel>
+              <FormSelect
+                onValueChange={(value) => setSettingsForm((current) => ({ ...current, appearanceTheme: value as JobFinderSettings['appearanceTheme'] }))}
+                options={[
+                  { label: 'System', value: 'system' },
+                  { label: 'Light', value: 'light' },
+                  { label: 'Dark', value: 'dark' }
+                ]}
+                placeholder="Select appearance"
+                value={settingsForm.appearanceTheme}
+              />
+            </Field>
+            <Field>
+              <FieldLabel>Resume template</FieldLabel>
+              <FormSelect
+                onValueChange={(value) => setSettingsForm((current) => ({ ...current, resumeTemplateId: value as JobFinderSettings['resumeTemplateId'] }))}
+                options={availableResumeTemplates.map((template) => ({ label: template.label, value: template.id }))}
+                placeholder="Select template"
+                value={settingsForm.resumeTemplateId}
+              />
+            </Field>
+            <Field className="md:col-span-2">
+              <FieldLabel>Resume font</FieldLabel>
+              <FormSelect
+                onValueChange={(value) => setSettingsForm((current) => ({ ...current, fontPreset: value as JobFinderSettings['fontPreset'] }))}
+                options={fontPresetOptions.map((fontPreset) => ({ label: fontPreset.label, value: fontPreset.value }))}
+                placeholder="Select font"
+                value={settingsForm.fontPreset}
+              />
+            </Field>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+              <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Selected template</span>
+              <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
+                {selectedTemplate?.label ?? 'Template not available'}
+              </strong>
+              <p className="mt-2 text-(length:--text-description) leading-6 text-foreground-soft">
+                {selectedTemplate?.description ?? 'Choose the layout Job Finder should use for new resume exports.'}
+              </p>
+            </div>
+            <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+              <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Selected font</span>
+              <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
+                {selectedFontPreset?.label ?? 'Font not available'}
+              </strong>
+              <p className="mt-2 text-(length:--text-description) leading-6 text-foreground-soft">
+                {selectedFontPreset?.description ?? 'Choose the default font pairing for resume exports.'}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-5">
+          <div className="grid gap-1">
+            <h2 className="text-[0.98rem] font-semibold text-(--text-headline)">Workspace behavior</h2>
+            <p className="text-(length:--text-description) leading-6 text-foreground-soft">Keep only the defaults you actually want Job Finder to reuse between searches and application steps.</p>
+          </div>
+
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
+            <ToggleField
+              checked={settingsForm.keepSessionAlive}
+              description="Reuse your browser session between searches and application steps."
+              hint="Turn this off on a shared computer."
+              label="Keep browser signed in"
+              onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
+            />
+            <ToggleField
+              checked={settingsForm.discoveryOnly}
+              description="Keep new search results temporary until you shortlist them."
+              hint="Useful if you want a cleaner workspace with fewer saved jobs."
+              label="Only keep jobs I shortlist"
+              onCheckedChange={(checked) => setSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
+            />
+          </div>
+        </section>
+
       </div>
+
       <div className="mt-4 flex flex-wrap items-center justify-end gap-4 border-t border-border/10 pt-6">
         <Button variant="primary" disabled={busy} onClick={() => onSaveSettings(settingsForm)} type="button">
           Save settings

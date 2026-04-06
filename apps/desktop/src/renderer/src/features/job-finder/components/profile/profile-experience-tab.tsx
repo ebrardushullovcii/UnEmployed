@@ -28,7 +28,7 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
     const startDate = watch(`records.experiences.${index}.startDate`)?.trim()
     const endDate = watch(`records.experiences.${index}.endDate`)?.trim()
     const isCurrent = watch(`records.experiences.${index}.isCurrent`)
-    const primaryLine = [title, company].filter(Boolean).join(' - ') || `Role ${index + 1}`
+    const primaryLine = [title, company].filter(Boolean).join(' - ') || 'New role'
     const detailLine = [location, [startDate, isCurrent ? 'Present' : endDate].filter(Boolean).join(' to ')].filter(Boolean).join(' | ')
 
     return detailLine ? `${primaryLine}. ${detailLine}` : primaryLine
@@ -82,10 +82,10 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
                 key={entry.id}
                 defaultOpen={index === 0 || currentRole}
                 summary={buildRoleSummary(index)}
-                title={`Role ${index + 1}`}
+                title={watch(`records.experiences.${index}.title`)?.trim() || watch(`records.experiences.${index}.companyName`)?.trim() || `Role ${index + 1}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Role details</p>
                   <Button disabled={busy} onClick={() => experienceArray.remove(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
@@ -93,7 +93,7 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
 
                 <div className="grid gap-(--gap-content) md:grid-cols-2">
                   <Field><FieldLabel>Company</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyName`)} /></Field>
-                  <Field><FieldLabel>Company URL</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyUrl`)} /></Field>
+                  <Field><FieldLabel>Company URL (optional)</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyUrl`)} /></Field>
                   <Field><FieldLabel>Title</FieldLabel><ProfileInput {...register(`records.experiences.${index}.title`)} /></Field>
                   <Field><FieldLabel>Employment type</FieldLabel><ProfileInput {...register(`records.experiences.${index}.employmentType`)} /></Field>
                   <Field><FieldLabel>Location</FieldLabel><ProfileInput {...register(`records.experiences.${index}.location`)} /></Field>
@@ -131,10 +131,10 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
                   />
                   <Field><FieldLabel>Start date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.experiences.${index}.startDate`)} /></Field>
                   <Field><FieldLabel>End date</FieldLabel><ProfileInput disabled={currentRole} placeholder="YYYY-MM" {...register(`records.experiences.${index}.endDate`)} /></Field>
-                  <Field><FieldLabel>People-management scope</FieldLabel><ProfileInput {...register(`records.experiences.${index}.peopleManagementScope`)} /></Field>
-                  <Field><FieldLabel>Ownership / budget scope</FieldLabel><ProfileInput {...register(`records.experiences.${index}.ownershipScope`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Domain / industry tags</FieldLabel><ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register(`records.experiences.${index}.domainTags`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Role summary</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.experiences.${index}.summary`)} /></Field>
+                  <Field><FieldLabel>Team scope (optional)</FieldLabel><ProfileInput {...register(`records.experiences.${index}.peopleManagementScope`)} /></Field>
+                  <Field><FieldLabel>Ownership or budget scope (optional)</FieldLabel><ProfileInput {...register(`records.experiences.${index}.ownershipScope`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Industries or domains</FieldLabel><ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register(`records.experiences.${index}.domainTags`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Role overview</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.experiences.${index}.summary`)} /></Field>
                   <ProfileListEditor
                     className="md:col-span-2"
                     displayMode="rows"
@@ -158,7 +158,7 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
           })
         ) : (
           <EmptyState
-            description="Add each role with dedicated fields so tailoring and future form-fill flows do not depend on one large text box."
+            description="Add each role separately so resumes and applications stay accurate."
             title="No structured experience yet"
           />
         )}

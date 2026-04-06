@@ -139,31 +139,31 @@ export function buildSourceDebugOutcomeMessage(
 
   if (activeRunIsLatest) {
     return latestRun?.state === 'idle'
-      ? 'Testing this source now.'
-      : 'Still testing this source.'
+      ? 'Checking this source now.'
+      : 'Still checking this source.'
   }
 
   if (latestRun?.state === 'paused_manual') {
     return (
       latestRun.manualPrerequisiteSummary ??
       latestRun.finalSummary ??
-      'Testing paused until a manual step is completed.'
+      'Source check paused until a manual step is completed.'
     )
   }
 
   if (latestRun?.state === 'failed') {
     return (
       latestRun.finalSummary ??
-      'The source test finished without saving reusable navigation steps.'
+      'The source check finished without saving reusable guidance.'
     )
   }
 
   if (latestRun?.state === 'interrupted') {
-    return latestRun.finalSummary ?? 'The source test was interrupted before it could finish.'
+    return latestRun.finalSummary ?? 'The source check was interrupted before it could finish.'
   }
 
   if (latestRun?.state === 'cancelled') {
-    return latestRun.finalSummary ?? 'The source test was cancelled before it could finish.'
+    return latestRun.finalSummary ?? 'The source check was cancelled before it could finish.'
   }
 
   if (target?.instructionStatus === 'validated') {
@@ -171,7 +171,7 @@ export function buildSourceDebugOutcomeMessage(
   }
 
   if (target?.instructionStatus === 'draft') {
-    return 'The source test saved draft navigation steps. Review them before relying on this source.'
+    return 'The source check saved draft guidance. Review it before relying on this source.'
   }
 
   if (target?.instructionStatus === 'unsupported') {
@@ -180,7 +180,7 @@ export function buildSourceDebugOutcomeMessage(
 
   return (
     latestRun?.finalSummary ??
-    'The source test finished without saving reusable navigation steps.'
+    'The source check finished without saving reusable guidance.'
   )
 }
 
@@ -293,6 +293,7 @@ export function JobFinderApplicationsRoute() {
 
   return (
     <ApplicationsScreen
+      applicationAttempts={context.workspace.applicationAttempts}
       applicationRecords={context.workspace.applicationRecords}
       onSelectRecord={context.onSelectApplicationRecord}
       selectedAttempt={context.selectedApplicationAttempt}

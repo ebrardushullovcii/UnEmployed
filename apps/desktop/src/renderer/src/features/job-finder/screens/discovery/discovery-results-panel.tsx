@@ -15,11 +15,11 @@ interface DiscoveryResultsPanelProps {
 function getApplyPathLabel(applyPath: SavedJob['applyPath']): string {
   switch (applyPath) {
     case 'easy_apply':
-      return 'Apply here'
+      return 'Easy Apply'
     case 'external_redirect':
-      return 'External site'
+      return 'Apply on company site'
     default:
-      return 'Manual apply'
+      return 'Manual application'
   }
 }
 
@@ -38,7 +38,7 @@ export function DiscoveryResultsPanel({
   return (
       <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
         <header className="flex flex-wrap items-center justify-between gap-3 px-5 pb-2 pt-5">
-          <h2 className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Results</h2>
+          <h2 className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Job results</h2>
           <Badge variant="section">{jobCount} {jobCount === 1 ? 'job' : 'jobs'}</Badge>
         </header>
 
@@ -46,8 +46,8 @@ export function DiscoveryResultsPanel({
         <div className="px-5 pt-4">
           <EmptyState
             className="min-h-72"
-            description="Sign in or resolve the browser issue, then run the search again."
-            title="Browser needs attention"
+            description="Open the browser, sign in or fix the issue, then search again."
+            title="Search blocked by browser"
           />
         </div>
       ) : null}
@@ -56,8 +56,8 @@ export function DiscoveryResultsPanel({
         <div className="px-5 pt-4">
           <EmptyState
             className="min-h-72"
-            description="New results will appear here after the browser finishes starting."
-            title="Waiting for browser"
+            description="New results will appear here after browser-based sources are ready."
+            title="Browser is starting"
           />
         </div>
       ) : null}
@@ -65,7 +65,7 @@ export function DiscoveryResultsPanel({
       {sessionNeedsAttention && jobs.length > 0 ? (
         <div className="px-5 pt-4">
           <div aria-atomic="true" className="rounded-(--radius-panel) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--warning-text)" role="alert">
-            Your saved results are still here. Open the browser again when you're ready to run a fresh search.
+            You're viewing results from the last completed search. Open the browser when you're ready to run a new one.
           </div>
         </div>
       ) : null}
@@ -73,7 +73,7 @@ export function DiscoveryResultsPanel({
       {sessionWaitingOnRuntime && jobs.length > 0 ? (
         <div className="px-5 pt-4">
           <div aria-atomic="true" aria-live="polite" className="rounded-(--radius-panel) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--info-text)" role="status">
-            Saved results are still available while the browser finishes starting.
+            You're viewing results from the last completed search while the browser gets ready.
           </div>
         </div>
       ) : null}
@@ -82,8 +82,8 @@ export function DiscoveryResultsPanel({
         <div className="px-5 pt-4">
           <EmptyState
             className="min-h-72"
-            description="No jobs match this search yet. Try adjusting your roles, locations, or work modes."
-            title="No jobs yet"
+            description="Try broader roles, locations, or sources, then search again."
+            title="No matches from this search"
           />
         </div>
       ) : null}
@@ -120,9 +120,13 @@ export function DiscoveryResultsPanel({
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <StatusBadge tone={getApplicationTone(job.status)}>{formatStatusLabel(job.status)}</StatusBadge>
+                      {job.status === 'shortlisted' || job.status === 'submitted' ? (
+                        <StatusBadge tone={getApplicationTone(job.status)}>{formatStatusLabel(job.status)}</StatusBadge>
+                      ) : null}
                       <Badge variant="outline">{getApplyPathLabel(job.applyPath)}</Badge>
-                      <Badge variant="outline">Posted {formatOptionalDateOnly(job.postedAt, job.postedAtText)}</Badge>
+                      {job.salaryText ? <Badge variant="outline">{job.salaryText}</Badge> : null}
+                      {job.workMode.length > 0 ? <Badge variant="outline">{job.workMode.join(', ')}</Badge> : null}
+                      {job.postedAt || job.postedAtText ? <Badge variant="outline">Posted {formatOptionalDateOnly(job.postedAt, job.postedAtText)}</Badge> : null}
                     </div>
                   </button>
                 </li>

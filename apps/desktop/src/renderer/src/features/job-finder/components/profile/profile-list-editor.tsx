@@ -16,7 +16,7 @@ interface ProfileListEditorProps {
 }
 
 function formatCountLabel(count: number): string {
-  return `${count} ${count === 1 ? 'item' : 'items'}`
+  return `${count}`
 }
 
 export function ProfileListEditor({

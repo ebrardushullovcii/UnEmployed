@@ -12,7 +12,7 @@ interface ProfileRecordCardProps {
 
 export function ProfileRecordCard({ children, className, defaultOpen = false, summary, title }: ProfileRecordCardProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
-  const detailSummary = summary?.trim() || 'Expand to review and edit the full details.'
+  const detailSummary = summary?.trim() || 'Review and edit this entry.'
 
   useEffect(() => {
     setIsOpen(defaultOpen)
@@ -35,7 +35,7 @@ export function ProfileRecordCard({ children, className, defaultOpen = false, su
 
         <span className="inline-flex items-center gap-1 rounded-full border border-(--field-border) bg-(--field) px-2.5 py-1 text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted transition-transform group-open:[&_svg]:rotate-180">
           <ChevronDown className="size-3 transition-transform duration-200" />
-          <span>Details</span>
+          <span>{isOpen ? 'Collapse' : 'Expand'}</span>
         </span>
       </summary>
 

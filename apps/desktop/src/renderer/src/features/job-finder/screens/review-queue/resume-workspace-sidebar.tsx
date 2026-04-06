@@ -15,15 +15,15 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
     <aside className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-5 xl:h-full">
       <div className="flex items-center justify-between gap-3">
         <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
-          Resume
+          Job context
         </p>
         <StatusBadge tone={toDraftStatusTone(draft.status)}>
           {formatDraftStatusLabel(draft.status)}
         </StatusBadge>
       </div>
       <div className="grid gap-2 text-sm text-foreground-soft">
-        <p>Sources: {research.length}</p>
-        <p>Issues: {validation?.issues.length ?? 0}</p>
+        <p>Saved sources: {research.length}</p>
+        <p>Validation checks: {validation?.issues.length ?? 0}</p>
         {hasUnsavedChanges ? (
           <p className="text-(--warning-text)">
             Unsaved edits stay local until you save or run another action.
@@ -115,7 +115,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
 
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-            Sources
+            Saved research
           </p>
           {research.length ? (
             research.map((artifact) => (
@@ -128,10 +128,10 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
                   </strong>
                   <span className="break-all">{artifact.sourceUrl}</span>
                 </div>
-              ))
+            ))
           ) : (
             <p className="text-sm text-foreground-soft">
-              No sources saved yet.
+              No research saved yet.
             </p>
           )}
         </div>

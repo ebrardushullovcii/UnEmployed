@@ -9,6 +9,7 @@ import { Chip } from "@renderer/components/ui/chip";
 import { Button } from "@renderer/components/ui/button";
 import { StatusBadge } from "../../components/status-badge";
 import { getSessionTone } from "../../lib/job-finder-utils";
+import { Link } from 'react-router-dom'
 
 const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
   source: "target_site",
@@ -42,11 +43,11 @@ function getBrowserStatusLabel(status: BrowserSessionState["status"]): string {
     case "ready":
       return "Ready";
     case "login_required":
-      return "Sign-in needed";
+      return "Needs sign-in";
     case "blocked":
-      return "Needs attention";
+      return "Blocked";
     default:
-      return "Optional";
+      return "Starting";
   }
 }
 
@@ -86,9 +87,9 @@ export function DiscoveryFiltersPanel({
       },
       {
         label: "Sources",
-        values: searchPreferences.discovery.targets.map((target) => ({
+        values: searchPreferences.discovery.targets.filter((target) => target.enabled).map((target) => ({
           key: target.id,
-          label: `${target.label}${target.enabled ? "" : " (off)"}`,
+          label: target.label,
         })),
         empty: "No sources added yet.",
       },
@@ -132,7 +133,7 @@ export function DiscoveryFiltersPanel({
         className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted"
         id={searchControlsHeadingId}
       >
-        Search setup
+        Current search
       </h2>
 
       <div className="surface-card-tint flex min-h-106 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) xl:min-h-0">
@@ -158,8 +159,7 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--warning-text)"
                 >
-                  The browser needs sign-in or attention. You can still start
-                  the search, and we'll tell you exactly where it stops.
+                  Some sources need you to sign in before the next search can finish.
                 </div>
               ) : null}
               {isReady ? (
@@ -167,7 +167,7 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--success-border) bg-(--success-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--success-text)"
                 >
-                  Browser ready — you're signed in on sources that need it.
+                  You're signed in on sources that need the browser.
                 </div>
               ) : null}
               {!needsLogin && !isBlocked && !isReady ? (
@@ -175,12 +175,17 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
                 >
-                  You can open the browser to sign in or manually prepare a site
-                  before running this search.
+                  The browser is starting. You can review past results while it gets ready.
                 </div>
               ) : null}
             </div>
           ) : null}
+          <p className="text-(length:--text-description) leading-6 text-foreground-soft">
+            Review the search this run will use. Edit it in Profile when needed.
+          </p>
+          <Link className="text-(length:--text-small) font-medium text-primary underline-offset-4 hover:underline" to="/job-finder/profile">
+            Edit search in Profile
+          </Link>
         </div>
 
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-0 overflow-y-auto">
@@ -242,7 +247,7 @@ export function DiscoveryFiltersPanel({
               variant="secondary"
             >
               <Search className="size-4" />
-              {isReady ? "Refresh browser" : "Open browser"}
+              {isReady ? "Reopen browser" : "Open browser"}
             </Button>
           </div>
 
@@ -254,7 +259,7 @@ export function DiscoveryFiltersPanel({
             variant="ghost"
           >
             <History className="size-4" />
-            View recent searches
+            Search history
           </Button>
 
           {onRunAgentDiscovery ? (
@@ -266,7 +271,7 @@ export function DiscoveryFiltersPanel({
               type="button"
               variant="primary"
             >
-              Run search
+              Search jobs
             </Button>
           ) : null}
 

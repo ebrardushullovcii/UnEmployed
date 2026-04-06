@@ -71,7 +71,7 @@ async function captureResumeImport() {
     const window = await app.firstWindow()
 
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
     await window.setViewportSize({ width: 1440, height: 920 })
 
     const beforeImport = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
@@ -98,7 +98,7 @@ async function captureResumeImport() {
 
     await window.reload()
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
 
     const reloadedSnapshot = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
     failIfExpectationMisses(reloadedSnapshot)

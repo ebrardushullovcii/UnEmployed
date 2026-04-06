@@ -1,7 +1,22 @@
 import type { ResumeDraftSourceRef } from "@unemployed/contracts";
 
 function formatSourceKindLabel(value: string): string {
-  return value.replaceAll("_", " ");
+  switch (value) {
+    case 'resume':
+      return 'Imported resume'
+    case 'profile':
+      return 'Profile'
+    case 'job':
+      return 'Job details'
+    case 'research':
+      return 'Saved research'
+    case 'user':
+      return 'Your edit'
+    default:
+      return value
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (match) => match.toUpperCase())
+  }
 }
 
 export function SourceRefsList(props: {
@@ -11,7 +26,7 @@ export function SourceRefsList(props: {
   if (props.sourceRefs.length === 0) {
     return (
       <p className="text-sm text-foreground-soft">
-        {props.emptyLabel ?? "No source evidence attached yet."}
+        {props.emptyLabel ?? "No supporting evidence linked yet."}
       </p>
     );
   }
@@ -26,12 +41,7 @@ export function SourceRefsList(props: {
           <p className="mb-1 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             {formatSourceKindLabel(ref.sourceKind)}
           </p>
-          {ref.sourceId ? (
-            <p className="mb-1 font-mono text-(length:--text-tiny) uppercase tracking-(--tracking-normal) text-muted-foreground">
-              {ref.sourceId}
-            </p>
-          ) : null}
-          <p>{ref.snippet ?? "No snippet captured."}</p>
+          <p>{ref.snippet ?? "No excerpt saved."}</p>
         </li>
       ))}
     </ul>

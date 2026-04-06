@@ -437,7 +437,7 @@ export function useJobFinderPageController() {
           setResumeWorkspaceDirty(false);
           void navigate("/job-finder/applications");
         },
-        "Job moved to Applied.",
+        "Applications updated. Check the latest attempt and next step there.",
       );
     },
     onCheckBrowserSession: () =>
@@ -521,7 +521,7 @@ export function useJobFinderPageController() {
           setResumeAssistantMessages(nextWorkspace.assistantMessages);
           setResumeAssistantPending(false);
         },
-        "Resume reloaded.",
+        "Workspace reloaded.",
       ),
     onRegenerateResumeDraft: (jobId: string) =>
       void runResumeWorkspaceAction(
@@ -529,7 +529,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(jobId);
         },
-        "Resume regenerated.",
+        "Draft refreshed.",
       ),
     onRegenerateResumeSection: (jobId: string, sectionId: string) =>
       void runResumeWorkspaceAction(
@@ -537,7 +537,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(jobId);
         },
-        "Section regenerated.",
+        "Section refreshed.",
       ),
     onRunAgentDiscovery: () => {
       setLiveDiscoveryEvents([]);
@@ -565,13 +565,13 @@ export function useJobFinderPageController() {
       void runAction(
         () => actions.saveSourceInstructionArtifact(targetId, artifact),
         () => undefined,
-        "Navigation steps updated.",
+        "Saved guidance updated.",
       ),
     onVerifySourceInstructions: (targetId: string, instructionId: string) =>
       void runAction(
         () => actions.verifySourceInstructions(targetId, instructionId),
         () => undefined,
-        "Navigation steps verified.",
+        "Saved guidance checked.",
       ),
     onResetWorkspace: () => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -601,7 +601,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(draft.jobId);
         },
-        "Changes saved.",
+        "Draft saved.",
       ),
     onSaveResumeDraftAndThen: (
       draft: ResumeDraft,
@@ -647,10 +647,10 @@ export function useJobFinderPageController() {
     onExportResumePdf: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.exportResumePdf(jobId),
-        async () => {
-          await refreshResumeWorkspace(jobId);
-        },
-        "PDF exported.",
+          async () => {
+            await refreshResumeWorkspace(jobId);
+          },
+        "PDF exported for review.",
       ),
     onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
       void runAction(
@@ -664,7 +664,7 @@ export function useJobFinderPageController() {
         async () => {
           await refreshResumeWorkspace(jobId);
         },
-        "Approved PDF cleared.",
+        "Approved PDF removed.",
       ),
     onSaveSettings: (settings: JobFinderSettings) =>
       void runAction(() => actions.saveSettings(settings), () => undefined, null),
@@ -685,7 +685,7 @@ export function useJobFinderPageController() {
           id: `resume_message_assistant_pending_${jobId}_${requestToken}`,
           jobId,
           role: "assistant",
-          content: "Working on your resume...",
+          content: "Updating your draft...",
           patches: [],
           createdAt,
         };
@@ -698,7 +698,7 @@ export function useJobFinderPageController() {
         ]);
         setActionState({
           busy: true,
-          message: "Assistant is updating your resume...",
+          message: "Assistant is updating your draft...",
         });
 
         try {

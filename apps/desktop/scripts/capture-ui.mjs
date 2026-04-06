@@ -18,7 +18,7 @@ const screens = [
     heading: 'Your profile'
   },
   {
-    buttonName: /^Find Jobs\s+\d+$/,
+    buttonName: /^Find jobs\s+\d+$/,
     fileName: 'discovery.png',
     heading: 'Find jobs'
   },
@@ -28,14 +28,14 @@ const screens = [
     heading: 'Shortlisted jobs'
   },
   {
-    buttonName: /^Applied\s+\d+$/,
+    buttonName: /^Applications\s+\d+$/,
     fileName: 'applications.png',
-    heading: 'Your applications'
+    heading: 'Applications'
   },
   {
     buttonName: /^Settings$/,
     fileName: 'settings.png',
-    heading: 'Preferences'
+    heading: 'Settings'
   }
 ]
 
@@ -67,7 +67,7 @@ async function captureScreens() {
     const window = await app.firstWindow()
 
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
     await window.setViewportSize({ width, height })
 
     for (const screen of screens) {

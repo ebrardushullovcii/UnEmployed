@@ -173,18 +173,18 @@ export function isRenderableLearnedInstructionLine(line: string): boolean {
 
 export function describeLearnedInstructionUsage(artifact: SourceInstructionArtifact | null): string {
   if (!artifact) {
-    return 'Created from the latest source setup run.'
+    return 'Saved from the latest source check.'
   }
 
   if (artifact.status === 'validated') {
-    return 'These saved steps are used automatically for this source during job search and supported apply flows.'
+    return 'This saved guidance is used automatically for searches and supported apply flows on this source.'
   }
 
   if (artifact.status === 'draft') {
-    return 'These draft steps came from the latest source setup run and are used automatically for this source until you replace or verify them.'
+    return 'This draft guidance came from the latest source check and is already used automatically until you replace or re-check it.'
   }
 
-  return 'Created from the latest source setup run.'
+  return 'Saved from the latest source check.'
 }
 
 export function buildLearnedInstructionSections(

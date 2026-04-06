@@ -7,6 +7,7 @@ interface ToggleFieldProps {
   checked: boolean
   className?: string
   description: string
+  hint?: string
   label: string
   onCheckedChange: (checked: boolean) => void
 }
@@ -15,6 +16,7 @@ export function ToggleField({
   checked,
   className,
   description,
+  hint,
   label,
   onCheckedChange
 }: ToggleFieldProps) {
@@ -30,11 +32,9 @@ export function ToggleField({
     >
       <FieldLabel htmlFor={switchId}>{label}</FieldLabel>
       <div className="flex min-w-0 flex-1 items-start justify-between gap-4">
-        <span 
-          id={descriptionId}
-          className="min-w-0 text-(length:--text-small) leading-5 text-muted-foreground"
-        >
-          {description}
+        <span id={descriptionId} className="min-w-0 text-(length:--text-small) leading-5 text-muted-foreground">
+          <span className="block">{description}</span>
+          {hint ? <span className="mt-2 block text-(length:--text-tiny) leading-5 text-foreground-muted">{hint}</span> : null}
         </span>
         <Switch 
           id={switchId}

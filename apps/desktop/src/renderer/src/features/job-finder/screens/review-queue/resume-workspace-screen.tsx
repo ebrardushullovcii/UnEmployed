@@ -226,6 +226,7 @@ export function ResumeWorkspaceScreen(props: {
           availableExportIdToApprove={availableExportToApprove?.id ?? null}
           busy={props.busy}
           draft={draft}
+          hasUnsavedChanges={hasUnsavedChanges}
           jobId={props.jobId}
           onApplyPatch={props.onApplyPatch}
           onApproveResume={props.onApproveResume}
@@ -259,7 +260,7 @@ export function ResumeWorkspaceScreen(props: {
             onSendAssistantMessage={(content) =>
               runWithSavedDraftAsync(
                 () => props.onSendAssistantMessage(props.jobId, content),
-                "Saved your changes before sending them to the assistant.",
+                "Saved your draft before sending this request.",
               )
             }
           />
