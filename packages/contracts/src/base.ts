@@ -107,17 +107,31 @@ export const workModeValues = [
 export const WorkModeSchema = z.enum(workModeValues);
 export type WorkMode = z.infer<typeof WorkModeSchema>;
 
+function normalizeWorkModeValue(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === "in_office" || normalized === "in office") {
+    return "onsite";
+  }
+
+  return normalized;
+}
+
 export function normalizeWorkModeList(value: unknown): unknown {
   if (value == null) {
     return [];
   }
 
   if (Array.isArray(value)) {
-    return value;
+    return value.map((entry) => normalizeWorkModeValue(entry));
   }
 
   if (typeof value === "string") {
-    return value.trim() ? [value] : [];
+    return value.trim() ? [normalizeWorkModeValue(value)] : [];
   }
 
   return value;

@@ -70,6 +70,16 @@ Use one track per meaningful workstream, not per person or per chat.
 - next step: start by auditing the existing schema roots and repository state, extend those roots where possible, and only propose a new top-level domain when the existing saved-job, source-debug, or workspace state structures cannot own the new data cleanly
 - blockers: should stay queued until the active `007` and `010` slices settle enough that the broader schema expansion can land without churn
 
+### `Plan 016 Shared Agent Auto Compaction`
+
+- status: `ready`
+- last updated: `2026-04-06`
+- linked plan: `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
+- code areas: `packages/browser-agent`, `packages/job-finder`, `packages/contracts`, `apps/desktop`
+- current focus: queued small follow-on to extend the current browser-agent message-count compaction into a shared token-budget compaction policy that all long-running agents and orchestrators can reuse, with a configurable default threshold around `150_000` tokens and message-count fallback where token estimation is not available
+- next step: decide the shared settings shape and whether the first implementation should stay `Job Finder`-scoped or immediately become repo-shared infrastructure for all agentic flows
+- blockers: current compaction already exists in `browser-agent`, so this work should extend that path rather than replacing it with a second unrelated system
+
 ## Completed Background
 
 ### `Plan 005 Source Debug Agent`

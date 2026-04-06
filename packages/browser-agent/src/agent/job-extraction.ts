@@ -67,7 +67,7 @@ export interface SearchResultCardCandidate {
   lines: string[];
 }
 
-const WORK_MODE_VALUES = ["remote", "hybrid", "onsite", "flexible"] as const;
+const WORK_MODE_VALUES = ["remote", "hybrid", "onsite"] as const;
 const EASY_APPLY_PATTERN =
   /\b(easy apply|quick apply|one[- ]click apply|apply instantly|instant apply)\b/i;
 const APPLY_PATTERN = /\bapply\b/i;
@@ -181,6 +181,33 @@ function normalizeStringArray(
   return uniqueStrings((values ?? []).map((value) => cleanLine(value)));
 }
 
+function normalizeDetectedWorkMode(value: string): JobPosting["workMode"][number] | null {
+  const normalized = cleanLine(value).toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes("remote")) {
+    return "remote";
+  }
+
+  if (normalized.includes("hybrid") || normalized.includes("flexible")) {
+    return "hybrid";
+  }
+
+  if (
+    normalized.includes("in_office") ||
+    normalized.includes("in office") ||
+    normalized.includes("on-site") ||
+    normalized.includes("onsite")
+  ) {
+    return "onsite";
+  }
+
+  return null;
+}
+
 function normalizeWorkModes(
   values: readonly string[] | null | undefined,
   text?: string,
@@ -188,23 +215,18 @@ function normalizeWorkModes(
   const detected = new Set<JobPosting["workMode"][number]>();
 
   for (const value of values ?? []) {
-    const normalized = cleanLine(value).toLowerCase();
-    if (normalized.includes("remote")) detected.add("remote");
-    if (normalized.includes("hybrid")) detected.add("hybrid");
-    if (normalized.includes("on-site") || normalized.includes("onsite")) {
-      detected.add("onsite");
+    const normalizedWorkMode = normalizeDetectedWorkMode(value);
+    if (normalizedWorkMode) {
+      detected.add(normalizedWorkMode);
     }
-    if (normalized.includes("flexible")) detected.add("flexible");
   }
 
   const haystack = cleanLine(text).toLowerCase();
   if (haystack) {
-    if (haystack.includes("remote")) detected.add("remote");
-    if (haystack.includes("hybrid")) detected.add("hybrid");
-    if (haystack.includes("on-site") || haystack.includes("onsite")) {
-      detected.add("onsite");
+    const normalizedWorkMode = normalizeDetectedWorkMode(haystack);
+    if (normalizedWorkMode) {
+      detected.add(normalizedWorkMode);
     }
-    if (haystack.includes("flexible")) detected.add("flexible");
   }
 
   return WORK_MODE_VALUES.filter((value) => detected.has(value));
@@ -229,7 +251,7 @@ function stripCompanySuffix(value: string): string {
   return value.replace(/\s+[•·\-–—]\s+.*$/, "").trim();
 }
 
-function isLocationLike(value: string): boolean {
+function isLocationLike(value: string, options?: { allowSingleTokenGeneric?: boolean }): boolean {
   const normalized = cleanLine(value);
   if (!normalized || normalized.length > 80) {
     return false;
@@ -245,11 +267,16 @@ function isLocationLike(value: string): boolean {
 
   const tokens = normalized.split(/\s+/).filter(Boolean);
   const wordCount = tokens.length;
+  const allowSingleTokenGeneric = options?.allowSingleTokenGeneric ?? true;
   if (normalized.includes(",") && wordCount <= 8) {
     return true;
   }
 
   if (wordCount <= 3) {
+    if (!allowSingleTokenGeneric && wordCount === 1) {
+      return false;
+    }
+
     return tokens.every((token) => /^[A-Z][\p{L}\p{N}.'’-]*$/u.test(token)) &&
       !COMPANY_NOISE_PATTERN.test(normalized);
   }
@@ -317,6 +344,7 @@ function inferCompany(
 function inferLocation(
   lines: readonly string[],
   workMode: JobPosting["workMode"],
+  options?: { allowSingleTokenGeneric?: boolean },
 ): string | null {
   for (const line of lines) {
     if (LOCATION_HINT_PATTERN.test(cleanLine(line))) {
@@ -325,7 +353,7 @@ function inferLocation(
   }
 
   for (const line of lines) {
-    if (isLocationLike(line)) {
+    if (isLocationLike(line, options)) {
       return cleanLine(line);
     }
   }
@@ -387,6 +415,14 @@ function mergeJob(
     return candidate;
   }
 
+  const mergedApplyPath = current.applyPath === "easy_apply" || candidate.applyPath === "easy_apply"
+    ? "easy_apply"
+    : current.applyPath !== "unknown"
+      ? current.applyPath
+      : candidate.applyPath !== "unknown"
+        ? candidate.applyPath
+        : current.applyPath;
+
   return {
     ...current,
     ...candidate,
@@ -415,14 +451,12 @@ function mergeJob(
     postedAt: candidate.postedAt ?? current.postedAt ?? null,
     postedAtText: candidate.postedAtText ?? current.postedAtText ?? null,
     workMode: uniqueStrings([...(current.workMode ?? []), ...(candidate.workMode ?? [])])
-      .filter((value): value is JobPosting["workMode"][number] =>
-        WORK_MODE_VALUES.includes(value as JobPosting["workMode"][number]),
-      ),
+      .flatMap((value) => {
+        const normalizedWorkMode = normalizeDetectedWorkMode(value)
+        return normalizedWorkMode ? [normalizedWorkMode] : []
+      }),
     easyApplyEligible: current.easyApplyEligible || candidate.easyApplyEligible,
-    applyPath:
-      current.applyPath === "easy_apply" || candidate.applyPath === "easy_apply"
-        ? "easy_apply"
-        : current.applyPath,
+    applyPath: mergedApplyPath,
     keySkills: uniqueStrings([...(current.keySkills ?? []), ...(candidate.keySkills ?? [])]),
     responsibilities: uniqueStrings([
       ...(current.responsibilities ?? []),
@@ -481,7 +515,7 @@ function buildJobFromStructuredData(
     postedAt: toIsoDateTimeOrNull(candidate.postedAt),
     postedAtText: trimToNull(candidate.postedAtText),
     workMode,
-    applyPath: candidate.applyPath === "easy_apply" ? "easy_apply" : "unknown",
+    applyPath: candidate.applyPath ?? "unknown",
     easyApplyEligible: candidate.easyApplyEligible === true,
     keySkills: normalizeStringArray(candidate.keySkills),
     responsibilities: normalizeStringArray(candidate.responsibilities),
@@ -508,9 +542,13 @@ function buildJobFromCardCandidate(
     (line) => cleanLine(line).toLowerCase() !== title.toLowerCase(),
   );
   const workMode = normalizeWorkModes(metadataLines, metadataLines.join(" "));
-  const initialLocation = inferLocation(metadataLines, workMode);
-  const initialCompany = inferCompany(metadataLines, title, initialLocation);
-  const location = initialLocation ?? inferLocation(
+  const hardLocation = inferLocation(metadataLines, workMode, { allowSingleTokenGeneric: false });
+  const initialCompany = inferCompany(
+    metadataLines.filter((line) => cleanLine(line).toLowerCase() !== (hardLocation?.toLowerCase() ?? "")),
+    title,
+    hardLocation,
+  );
+  const location = hardLocation ?? inferLocation(
     metadataLines.filter((line) => cleanLine(line).toLowerCase() !== (initialCompany?.toLowerCase() ?? "")),
     workMode,
   );

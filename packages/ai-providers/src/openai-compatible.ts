@@ -537,13 +537,7 @@ export function createJobFinderAiClientFromEnvironment(
       try {
         return await primaryClient.extractJobsFromPage(input);
       } catch (error) {
-        const normalizedError = normalizeTimeoutLikeError(
-          error,
-          input.pageType === "search_results"
-            ? SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS
-            : DEFAULT_MODEL_TIMEOUT_MS,
-        );
-        logFallbackError("extractJobsFromPage", normalizedError);
+        logFallbackError("extractJobsFromPage", error);
         return fallbackClient.extractJobsFromPage(input);
       }
     },

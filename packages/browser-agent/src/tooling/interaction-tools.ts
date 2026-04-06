@@ -23,8 +23,9 @@ async function readInteractionPageStateToken(page: Page): Promise<string> {
   try {
     return await page.evaluate(() => {
       const elements = Array.from(
-        document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [role], [contenteditable="true"]'),
+        document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [role="button"], [role="link"], [role="textbox"], [role="checkbox"], [role="menuitem"], [role="option"], [role="tab"], [role="switch"], [role="slider"], [role="combobox"], [contenteditable="true"]'),
       )
+        .slice(0, 80)
         .filter((element) => !element.closest('[aria-hidden="true"], [hidden], template'))
         .map((element) => {
           const role = element.getAttribute('role')?.trim().toLowerCase() ?? element.tagName.toLowerCase()
@@ -37,7 +38,6 @@ async function readInteractionPageStateToken(page: Page): Promise<string> {
 
           return `${role}:${name.replace(/\s+/g, ' ').trim()}`
         })
-        .slice(0, 80)
 
       return `${window.location.href}::${document.title}::${elements.join('|')}`;
     });
@@ -639,6 +639,7 @@ You get role, name, and index from get_interactive_elements().`,
       const { role, name, optionText, index, submit } = parseResult.data;
       const { page, state } = context;
       const previousUrl = state.currentUrl;
+      await syncFailedInteractionAttemptsWithPageState(page, state);
 
       try {
         const locator = await resolveRoleLocator(page, role, name, index);
@@ -718,6 +719,8 @@ You get role, name, and index from get_interactive_elements().`,
             clearFailedInteractionAttemptsAfterNavigation(state);
             state.currentUrl = newUrl;
             state.visitedUrls.add(newUrl);
+          } else {
+            await syncFailedInteractionAttemptsWithPageState(page, state);
           }
 
           return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: comboboxSelection.selectedLabel ?? optionText, selectedValue: comboboxSelection.selectedValue ?? null } };
@@ -746,6 +749,8 @@ You get role, name, and index from get_interactive_elements().`,
           clearFailedInteractionAttemptsAfterNavigation(state);
           state.currentUrl = newUrl;
           state.visitedUrls.add(newUrl);
+        } else {
+          await syncFailedInteractionAttemptsWithPageState(page, state);
         }
 
         return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: selectionResult.selectedLabel ?? optionText, selectedValue: selectionResult.selectedValue ?? null } };

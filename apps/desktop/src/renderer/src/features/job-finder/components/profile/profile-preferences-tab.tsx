@@ -85,7 +85,7 @@ export function ProfilePreferencesTab({
   sourceInstructionArtifacts
 }: ProfilePreferencesTabProps) {
   const { control: preferenceControl, register: registerPreferences, setValue: setPreferenceValue, watch: watchPreferences } = preferencesForm
-  const { control: profileControl, register: registerProfile } = profileForm
+  const { control: profileControl, getValues: getProfileValues, register: registerProfile } = profileForm
   const authorizedWorkCountriesId = useId()
   const preferredRelocationRegionsId = useId()
   const requiresVisaSponsorshipId = useId()
@@ -156,6 +156,7 @@ export function ProfilePreferencesTab({
         </article>
 
         <ProfileOptionalSection
+          defaultOpen={Boolean(getProfileValues('eligibility.securityClearance'))}
           description="Only keep the screening details here that actually come up in your target roles."
           title="Extra screening details"
         >
@@ -342,6 +343,7 @@ export function ProfilePreferencesTab({
         </article>
 
         <ProfileOptionalSection
+          defaultOpen={Boolean(watchPreferences('salaryCurrency'))}
           description="Leave this closed unless you are tracking compensation in something other than the default USD view."
           title="International salary details"
         >
@@ -357,14 +359,14 @@ export function ProfilePreferencesTab({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
               <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Job sources</h3>
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">Add the job boards or company career pages to use here. Each source can save reusable guidance after a quick source check.</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">Add the job boards or company career pages to search. Each source can save reusable guidance after a quick source check.</p>
             </div>
             <Button onClick={addDiscoveryTarget} type="button" variant="secondary">Add source</Button>
           </div>
 
           <div className="grid gap-3">
             {discoveryTargets.length === 0 ? (
-              <p className="text-[0.9rem] leading-6 text-foreground-soft">No job sources yet. Add the first source to use here.</p>
+              <p className="text-[0.9rem] leading-6 text-foreground-soft">No job sources yet. Add the first source to search.</p>
             ) : null}
 
             {discoveryTargets.map((target, index) => {

@@ -6,7 +6,7 @@ import {
   describeInvalidFieldCounts,
 } from "./deterministic";
 
-const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "flexible"]);
+const supportedWorkModes = new Set(["remote", "hybrid", "onsite", "in_office", "flexible"]);
 const jobBoardHostFragments = [
   "linkedin.com",
   "indeed.com",
@@ -177,7 +177,18 @@ export function normalizeExtractedJobs(input: {
     return toStringArray(value)
       .flatMap((entry) => entry.split(","))
       .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => supportedWorkModes.has(entry));
+      .filter((entry) => supportedWorkModes.has(entry))
+      .map((entry) => {
+        if (entry === "in_office") {
+          return "onsite";
+        }
+
+        if (entry === "flexible") {
+          return "hybrid";
+        }
+
+        return entry;
+      });
   };
 
   if (

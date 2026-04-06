@@ -12,29 +12,8 @@ import {
 import { cn } from '@renderer/lib/utils'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
-import { formatStatusLabel, getApplicationTone } from '../../lib/job-finder-utils'
+import { formatStatusLabel, getApplicationTone, getAttemptLabel } from '../../lib/job-finder-utils'
 import type { ApplicationsViewFilter } from './applications-screen'
-
-function getAttemptLabel(value: ApplicationRecord['lastAttemptState']): string {
-  if (!value) {
-    return 'No apply attempt'
-  }
-
-  switch (value) {
-    case 'paused':
-      return 'Needs follow-up'
-    case 'unsupported':
-      return 'Manual apply only'
-    case 'failed':
-      return 'Attempt failed'
-    case 'submitted':
-      return 'Submitted'
-    case 'in_progress':
-      return 'In progress'
-    default:
-      return formatStatusLabel(value)
-  }
-}
 
 function getAttemptTone(value: ApplicationRecord['lastAttemptState']) {
   switch (value) {

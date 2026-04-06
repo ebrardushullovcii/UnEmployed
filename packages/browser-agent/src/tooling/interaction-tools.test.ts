@@ -804,4 +804,76 @@ describe('select_option navigation state', () => {
     })
     expect(state.failedInteractionAttempts.size).toBe(0)
   })
+
+  test('clears repeated interaction failures when the page-state token changes without a URL change', async () => {
+    const locator = {
+      count: vi.fn().mockResolvedValue(1),
+      nth: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(true),
+      elementHandle: vi.fn().mockResolvedValue({
+        evaluate: vi.fn().mockResolvedValue({
+          selected: true,
+          controlType: 'native_select',
+          selectedValue: 'remote',
+          selectedLabel: 'Remote'
+        })
+      }),
+      press: vi.fn().mockResolvedValue(undefined)
+    }
+    locator.nth.mockReturnValue(locator)
+
+    const page = {
+      evaluate: vi.fn()
+        .mockResolvedValueOnce('https://example.com/jobs::before')
+        .mockResolvedValueOnce('https://example.com/jobs::after'),
+      getByRole: vi.fn(() => locator),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn(() => 'https://example.com/jobs')
+    } as unknown as Page
+
+    const tool = interactionTools.find((candidate) => candidate.name === 'select_option')
+    if (!tool) {
+      throw new Error('select_option tool is not registered')
+    }
+
+    const state = {
+      currentUrl: 'https://example.com/jobs',
+      visitedUrls: new Set<string>(),
+      failedInteractionAttempts: new Map([
+        ['fill::searchbox::search jobs::0', {
+          count: 2,
+          lastError: 'No textbox matched accessible name "Search jobs".'
+        }]
+      ]),
+      failedInteractionPageStateToken: 'https://example.com/jobs::before'
+    }
+
+    const result = await tool.execute(
+      {
+        role: 'combobox',
+        name: 'Work mode',
+        optionText: 'Remote',
+        index: 0,
+        submit: false
+      },
+      {
+        page,
+        state: state as never,
+        config: {
+          navigationPolicy: {
+            allowedHostnames: ['example.com']
+          }
+        } as never
+      }
+    )
+
+    expect(result).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        navigated: false,
+        selectedLabel: 'Remote'
+      })
+    })
+    expect(state.failedInteractionAttempts.size).toBe(0)
+  })
 })

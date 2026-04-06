@@ -85,6 +85,7 @@ export interface AgentState {
   collectedJobs: JobPosting[];
   deferredSearchExtractions: Map<string, DeferredSearchExtraction>;
   failedInteractionAttempts?: Map<string, { count: number; lastError: string }>;
+  failedInteractionPageStateToken?: string;
   visitedUrls: Set<string>;
   stepCount: number;
   currentUrl: string;

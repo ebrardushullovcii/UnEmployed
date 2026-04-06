@@ -140,10 +140,17 @@ export function getApplyReadinessStatus(params: {
   }
 
   if (applySupportState === 'manual_follow_up') {
-    if (browserSession.status === 'blocked' || browserSession.status === 'login_required') {
+    if (browserSession.status === 'blocked') {
       return {
         label: 'Browser blocked',
         tone: 'critical'
+      }
+    }
+
+    if (browserSession.status === 'login_required') {
+      return {
+        label: 'Browser requires sign-in',
+        tone: 'active'
       }
     }
 
@@ -163,6 +170,13 @@ export function getApplyReadinessStatus(params: {
   if (browserSession.status === 'unknown') {
     return {
       label: 'Waiting for browser',
+      tone: 'active'
+    }
+  }
+
+  if (browserSession.status === 'login_required') {
+    return {
+      label: 'Browser requires sign-in',
       tone: 'active'
     }
   }

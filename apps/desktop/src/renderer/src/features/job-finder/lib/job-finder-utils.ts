@@ -1,5 +1,7 @@
 import type {
+  ApplicationAttempt,
   ApplicationEvent,
+  ApplicationRecord,
   ApplicationStatus,
   AssetStatus,
   BrowserSessionState,
@@ -82,6 +84,29 @@ export function formatRunStateLabel(state: SourceDebugRunRecord['state']): strin
       return 'Running'
     default:
       return 'Not started'
+  }
+}
+
+export function getAttemptLabel(value: ApplicationAttempt['state'] | ApplicationRecord['lastAttemptState']): string {
+  if (!value) {
+    return 'No apply attempt'
+  }
+
+  switch (value) {
+    case 'paused':
+      return 'Needs follow-up'
+    case 'unsupported':
+      return 'Manual apply only'
+    case 'failed':
+      return 'Attempt failed'
+    case 'submitted':
+      return 'Submitted'
+    case 'in_progress':
+      return 'In progress'
+    case 'not_started':
+      return 'Not started'
+    default:
+      return formatStatusLabel(value)
   }
 }
 

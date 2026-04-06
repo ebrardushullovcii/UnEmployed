@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Plan `007` implementation and hardening remain active. Plan `010` browser-efficiency work is now in progress as a focused measurement and idle-gap reduction slice across discovery and source-debug. Plan `008` remains the next queued follow-on implementation plan, but it has now been re-authored as a staged apply evolution: shared apply domains, one-job apply copilot, one-job auto-submit, then queue automation. Plan `015` is now the next queued shared-data follow-on after `008`, focused on expanding reusable narrative, answer, blocker, and enriched job context without forking the storage model. Plan `009` completed as the current shipped wording baseline after stronger rewrite and later structural polish passes.
+Plan `007` implementation and hardening remain active. Plan `010` browser-efficiency work is now in progress as a focused measurement and idle-gap reduction slice across discovery and source-debug. Plan `008` remains the next queued follow-on implementation plan, but it has now been re-authored as a staged apply evolution: shared apply domains, one-job apply copilot, one-job auto-submit, then queue automation. Plan `015` is now the next queued shared-data follow-on after `008`, focused on expanding reusable narrative, answer, blocker, and enriched job context without forking the storage model. Plan `016` is now queued as the small shared follow-on for token-budget auto compaction across long-running agents and orchestrators. Plan `009` completed as the current shipped wording baseline after stronger rewrite and later structural polish passes.
 
 ## Snapshot
 
@@ -22,6 +22,7 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - Later follow-on polish on top of that baseline added a checklist-style readiness panel in `Shortlisted`, action-oriented filters in `Applications`, a more consolidated two-column `Settings` page, and optional-detail sections in `Profile` so the main editing path stays more focused.
 - The latest hardening pass tightened `Shortlisted` truthfulness by separating resume/browser readiness from supported apply-path readiness, synced `Applications` filtered selection back to controller state, and fixed the resume-import harness heading selector for strict-mode Playwright runs.
 - Plan `008` now directly absorbs the comparative-review findings: richer answer and blocker domains, stronger provider and source-debug intelligence inputs, a one-job apply-copilot milestone before broad auto-submit, and the explicit rule that provider APIs may improve question modeling but are not a universal direct-submit path without employer credentials.
+- The repo already has partial browser-agent transcript compaction, but queued plan `016` now captures the follow-on need for shared token-budget auto compaction that all long-running agents and orchestrators can reuse, with a configurable default around `150_000` tokens.
 - Older milestone detail lives in `docs/HISTORY.md`.
 
 ## Active Work
@@ -52,5 +53,6 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - `docs/exec-plans/active/010-job-finder-browser-efficiency-and-speed.md`
 - `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
 - `docs/exec-plans/queued/015-job-finder-shared-data-expansion.md`
+- `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
 - `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - `docs/HISTORY.md`

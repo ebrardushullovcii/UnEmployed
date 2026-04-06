@@ -20,7 +20,7 @@ const fontPresetOptions: ReadonlyArray<{
     label: 'Display sans',
     value: 'space_grotesk_display'
   }
-] as const
+]
 
 interface SettingsEditableDefaultsProps {
   actionMessage: string | null

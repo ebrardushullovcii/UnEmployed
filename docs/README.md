@@ -46,6 +46,8 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Next queued Job Finder automatic apply plan: [exec-plans/queued/008-job-finder-automatic-job-apply.md](exec-plans/queued/008-job-finder-automatic-job-apply.md)
 - Completed full-app copy pass: [exec-plans/completed/009-full-app-production-copy-pass.md](exec-plans/completed/009-full-app-production-copy-pass.md)
 - Active browser efficiency and speed plan: [exec-plans/active/010-job-finder-browser-efficiency-and-speed.md](exec-plans/active/010-job-finder-browser-efficiency-and-speed.md)
+- Queued shared data expansion plan: [exec-plans/queued/015-job-finder-shared-data-expansion.md](exec-plans/queued/015-job-finder-shared-data-expansion.md)
+- Queued shared agent auto compaction plan: [exec-plans/queued/016-shared-agent-auto-compaction.md](exec-plans/queued/016-shared-agent-auto-compaction.md)
 
 ## Design References
 

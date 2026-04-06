@@ -1,6 +1,6 @@
 import type { ApplicationAttempt, ApplicationRecord } from '@unemployed/contracts'
 import { cn } from '@renderer/lib/utils'
-import { formatTimestamp, formatStatusLabel, getApplicationTone, getEventTone } from '@renderer/features/job-finder/lib/job-finder-utils'
+import { formatTimestamp, formatStatusLabel, getApplicationTone, getAttemptLabel, getEventTone } from '@renderer/features/job-finder/lib/job-finder-utils'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
 import type { ApplicationsViewFilter } from './applications-screen'
@@ -11,21 +11,6 @@ interface ApplicationsDetailPanelProps {
   hasVisibleApplications: boolean
   selectedAttempt: ApplicationAttempt | null
   selectedRecord: ApplicationRecord | null
-}
-
-function getAttemptStateLabel(state: ApplicationAttempt['state']): string {
-  switch (state) {
-    case 'paused':
-      return 'Waiting for action'
-    case 'unsupported':
-      return 'Could not apply automatically'
-    case 'in_progress':
-      return 'In progress'
-    case 'not_started':
-      return 'Not started'
-    default:
-      return formatStatusLabel(state)
-  }
 }
 
 function getAttemptTone(state: ApplicationAttempt['state'] | null) {
@@ -82,9 +67,9 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
                 <div className="mt-2">
                   <StatusBadge tone={getAttemptTone(selectedAttempt?.state ?? selectedRecord.lastAttemptState)}>
                     {selectedAttempt
-                      ? getAttemptStateLabel(selectedAttempt.state)
+                      ? getAttemptLabel(selectedAttempt.state)
                       : selectedRecord.lastAttemptState
-                        ? getAttemptStateLabel(selectedRecord.lastAttemptState)
+                        ? getAttemptLabel(selectedRecord.lastAttemptState)
                         : 'No apply attempt'}
                   </StatusBadge>
                 </div>
@@ -118,8 +103,8 @@ export function ApplicationsDetailPanel({ activeFilter, hasAnyApplications, hasV
                  <div className="flex flex-wrap items-center justify-between gap-3">
                     {attemptSummary ? <strong>{attemptSummary}</strong> : <strong>No summary available</strong>}
                    <StatusBadge tone={getAttemptTone(selectedAttempt.state)}>
-                    {getAttemptStateLabel(selectedAttempt.state)}
-                  </StatusBadge>
+                     {getAttemptLabel(selectedAttempt.state)}
+                    </StatusBadge>
                 </div>
                 {attemptDetail ? <p className="text-(length:--text-body) leading-7 text-foreground-soft">{attemptDetail}</p> : null}
                 {selectedAttempt.nextActionLabel ? <p className="text-(length:--text-small) leading-6 text-foreground-soft">Next step: {selectedAttempt.nextActionLabel}</p> : null}

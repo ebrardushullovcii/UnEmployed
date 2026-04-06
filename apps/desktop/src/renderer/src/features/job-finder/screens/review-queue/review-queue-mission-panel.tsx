@@ -89,12 +89,7 @@ function getChecklistStateLabel(state: ApplyChecklistItem['state']) {
 }
 
 function getNextChecklistItem(checklist: readonly ApplyChecklistItem[]) {
-  return (
-    checklist.find((item) => item.state === 'blocked') ??
-    checklist.find((item) => item.state === 'in_progress') ??
-    checklist.find((item) => item.state === 'attention') ??
-    null
-  )
+  return checklist.find((item) => item.state !== 'complete') ?? null
 }
 
 function getReadinessDescription(input: {
@@ -291,12 +286,12 @@ export function ReviewQueueMissionPanel({
                   <StatusBadge tone="positive">Ready to start</StatusBadge>
                 )}
               </div>
-              <div className="grid gap-3">
+              <ul className="grid gap-3" role="list">
                 {checklist.map((item) => {
                   const Icon = getChecklistIcon(item.state)
 
                   return (
-                    <div key={item.label} className="grid gap-2 rounded-(--radius-small) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) px-3 py-3">
+                    <li key={item.label} className="grid gap-2 rounded-(--radius-small) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) px-3 py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-2">
                           <Icon className="mt-0.5 size-4 shrink-0 text-current" />
@@ -307,10 +302,10 @@ export function ReviewQueueMissionPanel({
                         </StatusBadge>
                       </div>
                       <p className="text-(length:--text-small) leading-6 text-foreground-soft">{item.description}</p>
-                    </div>
+                    </li>
                   )
                 })}
-              </div>
+              </ul>
             </div>
             <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="grid gap-1">
