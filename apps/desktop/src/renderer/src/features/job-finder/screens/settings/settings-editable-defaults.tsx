@@ -85,7 +85,7 @@ export function SettingsEditableDefaults({
             <p className="text-(length:--text-description) leading-6 text-foreground-soft">These settings shape how the workspace looks and what each new tailored resume starts from.</p>
           </div>
 
-<div className="grid gap-(--gap-content) md:grid-cols-2">
+          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field>
               <FieldLabel htmlFor={appearanceId}>Appearance</FieldLabel>
               <FormSelect
@@ -131,25 +131,6 @@ export function SettingsEditableDefaults({
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
-            <ToggleField
-              checked={settingsForm.keepSessionAlive}
-              description="Reuse your browser session between searches and application steps."
-              disabled={busy}
-              hint="Turn this off on a shared computer."
-              label="Keep browser signed in"
-              onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
-            />
-            <ToggleField
-              checked={settingsForm.discoveryOnly}
-              description="Keep new search results temporary until you shortlist them."
-              disabled={busy}
-              hint="Useful if you want a cleaner workspace with fewer saved jobs."
-              label="Only keep jobs I shortlist"
-              onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
-            />
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
               <span className="label-mono-xs">Selected template</span>
               <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
@@ -181,6 +162,7 @@ export function SettingsEditableDefaults({
             <ToggleField
               checked={settingsForm.keepSessionAlive}
               description="Reuse your browser session between searches and application steps."
+              disabled={busy}
               hint="Turn this off on a shared computer."
               label="Keep browser signed in"
               onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
@@ -188,6 +170,7 @@ export function SettingsEditableDefaults({
             <ToggleField
               checked={settingsForm.discoveryOnly}
               description="Keep new search results temporary until you shortlist them."
+              disabled={busy}
               hint="Useful if you want a cleaner workspace with fewer saved jobs."
               label="Only keep jobs I shortlist"
               onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}

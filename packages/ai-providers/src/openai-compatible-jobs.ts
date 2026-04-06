@@ -1,4 +1,4 @@
-import { JobPostingSchema, normalizeWorkModeList, type JobPosting } from "@unemployed/contracts";
+import { JobPostingSchema, normalizeWorkModeList, WorkModeListSchema, type JobPosting } from "@unemployed/contracts";
 import {
   buildGenericCanonicalUrl,
   buildGenericJobId,
@@ -175,10 +175,11 @@ export function normalizeExtractedJobs(input: {
 
 const toWorkModeArray = (value: unknown): string[] => {
     const normalized = normalizeWorkModeList(value);
-    if (!Array.isArray(normalized)) {
+    const parsed = WorkModeListSchema.safeParse(normalized);
+    if (!parsed.success) {
       return [];
     }
-    return normalized.filter((entry) => supportedWorkModes.has(entry));
+    return parsed.data.filter((entry) => supportedWorkModes.has(entry));
   };
 
   if (
@@ -253,18 +254,21 @@ const toWorkModeArray = (value: unknown): string[] => {
     const preferredQualifications = toStringArray(
       raw.preferredQualifications ?? raw.preferredRequirements,
     );
-    const rawDescription = toStr(raw.description);
+const rawDescription = toStr(raw.description);
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
+    const rawSource = toStr(raw.source);
     const summary =
-      trimToNull(raw.summary) ??
-      summarizeJobPosting({
-        title: toStr(raw.title),
-        company: toStr(raw.company),
-        description: rawDescription,
-        responsibilities,
-        minimumQualifications,
-        preferredQualifications,
-      });
+      rawSource === "search_results"
+        ? (trimToNull(raw.summary) ?? "")
+        : (trimToNull(raw.summary) ??
+          summarizeJobPosting({
+            title: toStr(raw.title),
+            company: toStr(raw.company),
+            description: rawDescription,
+            responsibilities,
+            minimumQualifications,
+            preferredQualifications,
+          }));
     const description =
       rawDescription ||
       (input.pageType === "search_results" ? "" : summary ?? "");

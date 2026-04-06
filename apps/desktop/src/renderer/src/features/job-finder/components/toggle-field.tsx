@@ -37,7 +37,7 @@ export function ToggleField({
       <div className="flex min-w-0 flex-1 items-start justify-between gap-4">
         <span id={descriptionId} className="min-w-0 text-(length:--text-small) leading-5 text-muted-foreground">
           <span className="block">{description}</span>
-          {hint ? <span className="mt-2 block text-(length:--text-tiny) leading-5 text-foreground-muted">{hint}</span> : null}
+          {hint ? <span className="mt-2 block text-(length:--text-tiny) leading-5 text-muted-foreground">{hint}</span> : null}
         </span>
         <Switch 
           id={switchId}

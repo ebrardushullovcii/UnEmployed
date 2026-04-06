@@ -377,59 +377,57 @@ If the click fails, you'll get details about why so you can decide whether to re
               }
             }
 
-            if (urlValidation.valid) {
-              await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: CLICK_TIMEOUT_MS })
-              const newUrl = page.url()
-              const finalUrlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy)
+            await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: CLICK_TIMEOUT_MS })
+            const newUrl = page.url()
+            const finalUrlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy)
 
-              if (!finalUrlValidation.valid) {
-                const recovery = await recoverFromOffAllowlist(
-                  page,
-                  newUrl,
-                  previousUrl,
-                  context.config.navigationPolicy,
-                )
-                const repeatedFailureCount = recordFailedInteractionAttempt(
-                  state,
-                  interactionAttemptKey,
-                  priorAttempt,
-                  recovery.error,
-                )
-                if (recovery.recovered && recovery.recoveredUrl) {
-                  state.currentUrl = recovery.recoveredUrl
-                }
-
-                return {
-                  success: false,
-                  error: recovery.error,
-                  data: {
-                    role,
-                    name: name.slice(0, 50),
-                    index,
-                    invalidUrl: newUrl,
-                    recovered: recovery.recovered,
-                    navigationMethod: 'href_fallback',
-                    errorType: 'click_failed',
-                    repeatedFailureCount,
-                  },
-                }
+            if (!finalUrlValidation.valid) {
+              const recovery = await recoverFromOffAllowlist(
+                page,
+                newUrl,
+                previousUrl,
+                context.config.navigationPolicy,
+              )
+              const repeatedFailureCount = recordFailedInteractionAttempt(
+                state,
+                interactionAttemptKey,
+                priorAttempt,
+                recovery.error,
+              )
+              if (recovery.recovered && recovery.recoveredUrl) {
+                state.currentUrl = recovery.recoveredUrl
               }
 
-              clearFailedInteractionAttemptsAfterNavigation(state)
-              state.currentUrl = newUrl
-              state.visitedUrls.add(newUrl)
-
               return {
-                success: true,
+                success: false,
+                error: recovery.error,
                 data: {
                   role,
                   name: name.slice(0, 50),
                   index,
-                  text: await locator.textContent().catch(() => null),
-                  navigated: true,
-                  newUrl,
-                  navigationMethod: 'href_fallback'
-                }
+                  invalidUrl: newUrl,
+                  recovered: recovery.recovered,
+                  navigationMethod: 'href_fallback',
+                  errorType: 'click_failed',
+                  repeatedFailureCount,
+                },
+              }
+            }
+
+            clearFailedInteractionAttemptsAfterNavigation(state)
+            state.currentUrl = newUrl
+            state.visitedUrls.add(newUrl)
+
+            return {
+              success: true,
+              data: {
+                role,
+                name: name.slice(0, 50),
+                index,
+                text: await locator.textContent().catch(() => null),
+                navigated: true,
+                newUrl,
+                navigationMethod: 'href_fallback'
               }
             }
           }
@@ -577,7 +575,7 @@ If multiple elements have the same role and name, use the index to disambiguate 
           } else {
             state.failedInteractionAttempts?.delete(interactionAttemptKey);
           }
-} else {
+        } else {
           state.failedInteractionAttempts?.delete(interactionAttemptKey);
         }
 
@@ -739,7 +737,7 @@ You get role, name, and index from get_interactive_elements().`,
           const urlValidation = isAllowedUrl(newUrl, context.config.navigationPolicy);
           if (!urlValidation.valid) {
             const recovery = await recoverFromOffAllowlist(page, newUrl, previousUrl, context.config.navigationPolicy);
-              if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
+            if (recovery.recovered && recovery.recoveredUrl) state.currentUrl = recovery.recoveredUrl;
             return { success: false, error: recovery.error, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), invalidUrl: newUrl, recovered: recovery.recovered } };
           }
           clearFailedInteractionAttemptsAfterNavigation(state);
@@ -751,6 +749,11 @@ You get role, name, and index from get_interactive_elements().`,
 
         return { success: true, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50), submitted: submit, navigated, newUrl: navigated ? newUrl : undefined, selectedLabel: selectionResult.selectedLabel ?? optionText, selectedValue: selectionResult.selectedValue ?? null } };
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Select option failed";
+        const interactionAttemptKey = `${role}:${name}:${index}`;
+        const priorAttempt = state.failedInteractionAttempts?.get(interactionAttemptKey);
+        recordFailedInteractionAttempt(state, interactionAttemptKey, priorAttempt, errorMessage);
+
         const currentUrl = page.url();
         if (currentUrl) {
           const urlCheck = isAllowedUrl(currentUrl, context.config.navigationPolicy);
@@ -762,7 +765,7 @@ You get role, name, and index from get_interactive_elements().`,
           }
         }
 
-        return { success: false, error: error instanceof Error ? error.message : "Select option failed", data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
+        return { success: false, error: errorMessage, data: { role, name: name.slice(0, 50), index, optionText: optionText.slice(0, 50) } };
       }
     },
   },

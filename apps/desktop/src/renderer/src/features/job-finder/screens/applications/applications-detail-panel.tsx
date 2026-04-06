@@ -13,7 +13,7 @@ import {
 } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
-import type { ApplicationsViewFilter } from "./applications-filters";
+import { APPLICATION_FILTER_LABELS, type ApplicationsViewFilter } from "./applications-filters";
 
 interface ApplicationsDetailPanelProps {
   activeFilter: ApplicationsViewFilter;
@@ -231,7 +231,7 @@ export function ApplicationsDetailPanel({
                 ? "Applications appear here after you start one from Shortlisted."
                 : hasVisibleApplications
                   ? "Select an application to review its stage, latest apply attempt, and timeline."
-                  : `Try another filter if you want to review applications outside the ${activeFilter.replaceAll("_", " ")} view.`
+                  : `Try another filter if you want to review applications outside the ${APPLICATION_FILTER_LABELS[activeFilter]} view.`
             }
           />
         </div>

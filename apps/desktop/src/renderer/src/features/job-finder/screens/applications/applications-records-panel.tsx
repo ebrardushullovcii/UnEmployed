@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import type { ApplicationRecord } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
@@ -35,6 +36,7 @@ export function ApplicationsRecordsPanel({
   selectedRecord
 }: ApplicationsRecordsPanelProps) {
   const recordCount = applicationRecords.length
+  const filterGroupId = useId()
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
@@ -44,7 +46,8 @@ export function ApplicationsRecordsPanel({
           <Badge variant="section">{recordCount} {recordCount === 1 ? 'application' : 'applications'}</Badge>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div aria-labelledby={filterGroupId} className="flex flex-wrap gap-2" role="group">
+          <span className="sr-only" id={filterGroupId}>Application filters</span>
           {APPLICATION_FILTERS.map((filterOption) => (
             <Button
               aria-pressed={activeFilter === filterOption}

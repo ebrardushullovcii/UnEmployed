@@ -135,12 +135,12 @@ function getReadinessDescription(input: {
       : 'Open the resume workspace to export a PDF and approve it before applying.'
   }
 
-  if (browserActionMessage) {
-    return browserActionMessage
-  }
-
   if (applySupportState === 'incomplete') {
     return 'The approved PDF is ready, but this selection is missing apply-path data. Refresh the job details before starting the application.'
+  }
+
+  if (browserActionMessage) {
+    return browserActionMessage
   }
 
   if (applySupportState === 'manual_follow_up') {
