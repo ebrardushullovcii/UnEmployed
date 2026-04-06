@@ -42,7 +42,7 @@ The current tailored-resume path proves the first end-to-end slice, but it is st
 - `packages/ai-providers/src/index.ts` exposes a flat `TailoredResumeDraft`.
 - `packages/job-finder/src/index.ts` turns that draft straight into a ready `TailoredAsset` inside `generateResume(jobId)`.
 - `apps/desktop/src/main/adapters/job-finder-document-manager.ts` renders three fixed templates and writes `html` only.
-- `apps/desktop/src/renderer/src/features/job-finder/screens/review-queue/review-queue-mission-panel.tsx` already shows disabled `Edit asset` and `View source` controls that point toward the next missing surface.
+- `apps/desktop/src/renderer/src/features/job-finder/screens/review-queue/review-queue-mission-panel.tsx` now exposes an `Open resume workspace` action, but the broader workspace reliability and QA hardening in this plan still remain active.
 
 That implementation is enough for a proof of value, but it is not yet the product the user actually needs:
 
@@ -711,7 +711,7 @@ Rely on grounded auto-apply plus revision-backed recovery by default; include `d
 
 ### Entry Points
 
-- `Review Queue`: enable `Edit asset` and open the dedicated workspace for the selected reviewable job
+- `Review Queue`: expose `Open resume workspace` for the selected reviewable job
 - selected job detail surfaces can later add a direct `Open Resume Workspace` action
 - while the workspace route is open, `Review Queue` remains the active navigation context in the shell
 
@@ -955,6 +955,13 @@ Recommended summary behavior:
 - show coarse generation readiness through the existing asset-summary surfaces
 - add separate resume-review cues for `needs review`, `approved`, or `stale`
 - keep final apply approval blocked until both the resume review and the apply review are satisfied
+
+Current shipped polish on top of this guidance now goes one step further in the desktop UI:
+
+- the `Shortlisted` mission panel frames these gates as an explicit readiness checklist instead of relying only on separate status cards
+- the checklist currently covers `Tailored resume ready`, `Approved PDF ready`, and `Browser ready`
+- later hardening also adds an explicit `Apply path` cue so the panel does not imply supported Easy Apply automation when saved-job metadata already says the listing is manual-only
+- the primary action still advances only the next truthful step and must not imply broader automatic apply behavior than the current runtime actually supports
 
 ### Current IPC And Service Migration
 
@@ -1252,7 +1259,7 @@ pnpm lint
 - wire the editor to the `save-resume-draft` IPC for persistence on edit
 - wire the preview to re-render on draft changes
 - wire validation warnings to the left rail
-- add an `Open Resume Workspace` action in the Review Queue mission panel (replacing the disabled `Edit asset` control)
+- keep the `Open resume workspace` action in the Review Queue mission panel as the canonical entry into the dedicated editor
 - use local workspace action state for save, regenerate, export, and assistant flows instead of relying only on the top-level page busy message
 - start with explicit move-up and move-down reorder controls; only add drag-and-drop if implementation QA proves it necessary
 - use `@renderer/` path aliases and follow the desktop `AGENTS.md` frontend patterns (semantic HTML, `useId()`, shared tokens, no `any`)

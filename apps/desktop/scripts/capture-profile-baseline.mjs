@@ -205,31 +205,31 @@ const topLevelScreens = [
   {
     buttonName: /^Profile$/,
     slug: 'profile',
-    heading: 'Candidate setup',
+    heading: 'Your profile',
     beforeCapture: async (page) => {
       await clickNavigationControl(page, 'Basics')
-      await ensureLocatorText(page, 'Resume Source')
+      await ensureLocatorText(page, 'Imported details')
     }
   },
   {
-    buttonName: /^Discovery\s+\d+$/,
+    buttonName: /^Find jobs\s+\d+$/,
     slug: 'discovery',
-    heading: 'Adapter-driven discovery'
+    heading: 'Find jobs'
   },
   {
-    buttonName: /^Review Queue\s+\d+$/,
+    buttonName: /^Shortlisted\s+\d+$/,
     slug: 'review-queue',
-    heading: 'Tailored asset review'
+    heading: 'Shortlisted jobs'
   },
   {
     buttonName: /^Applications\s+\d+$/,
     slug: 'applications',
-    heading: 'Application history'
+    heading: 'Applications'
   },
   {
     buttonName: /^Settings$/,
     slug: 'settings',
-    heading: 'MVP defaults'
+    heading: 'Settings'
   }
 ]
 
@@ -300,7 +300,7 @@ async function captureProfileBaseline() {
     const page = await app.firstWindow()
 
     await page.waitForLoadState('domcontentloaded')
-    await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 15000 })
+    await page.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
     await page.setViewportSize({ width, height })
 
     await page.evaluate(async ({ profile, searchPreferences, settings }) => {
@@ -320,14 +320,14 @@ async function captureProfileBaseline() {
     await page.waitForLoadState('domcontentloaded')
 
     await clickNavigationControl(page, /^Profile$/)
-    await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 10000 })
+    await page.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 10000 })
     await clickNavigationControl(page, 'Basics')
-    await ensureLocatorText(page, 'Resume Source')
+    await ensureLocatorText(page, 'Imported details')
     await ensureLocatorText(page, snapshot.profile.fullName)
 
     for (const screen of topLevelScreens) {
       await clickNavigationControl(page, screen.buttonName)
-      await page.getByRole('heading', { name: screen.heading }).waitFor({ timeout: 10000 })
+      await page.getByRole('heading', { level: 1, name: screen.heading }).waitFor({ timeout: 10000 })
 
       if (screen.beforeCapture) {
         await screen.beforeCapture(page)
@@ -356,7 +356,7 @@ async function captureProfileBaseline() {
     }
 
     await clickNavigationControl(page, /^Profile$/)
-    await page.getByRole('heading', { name: 'Candidate setup' }).waitFor({ timeout: 10000 })
+    await page.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 10000 })
 
     for (const profileTab of profileTabs) {
       await clickNavigationControl(page, profileTab.label)

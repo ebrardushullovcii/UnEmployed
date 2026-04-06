@@ -7,25 +7,29 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 ## Current Product Shape
 
 - Candidate profile import and normalization
-- Generic browser discovery across configured targets
-- Source-debug instruction learning for unfamiliar targets
+- Generic browser discovery across configured job sources
+- Source-setup learning for unfamiliar job sources
 - Dedicated per-job resume workspace with grounded edits and approval gating
-- Review-gated supported apply flow with tracked attempts and safe-stop behavior
-- Applications tracking with attempt history and recovery context
+- Review-gated supported apply flow with checklist-style readiness and safe-stop behavior
+- Applications tracking with filtered triage views, latest-attempt detail, timeline context, and recovery cues
 
 ## Current Implementation
 
 - Job Finder persists local state in SQLite and exposes typed contracts for profile data, saved jobs, resume workflows, application records, and discovery state.
-- Desktop surfaces for `Profile`, `Discovery`, `Review Queue`, `Applications`, and `Settings` are live.
+- Desktop surfaces for `Profile`, `Find jobs`, `Shortlisted`, `Applications`, and `Settings` are live.
+- `Shortlisted` now frames apply readiness as explicit resume, approval, and browser checks instead of relying only on stacked status cards.
+- `Applications` now supports filtered triage views so the user can focus on needs-action, in-progress, submitted, and manual-only records.
+- `Profile` keeps more optional fields behind secondary disclosure sections so the main editing path stays focused on the details that drive search, resumes, and applications.
+- `Settings` now concentrates editable defaults in the main column and keeps live status plus destructive reset controls in a smaller side rail.
 - Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback.
-- Discovery supports generic configured targets, retained run history, activity timelines, and reusable source-debug instruction artifacts.
+- Discovery supports generic configured job sources, retained run history, activity timelines, and reusable source-setup navigation artifacts.
 - The `Resume Workspace` under `/job-finder/review-queue/:jobId/resume` supports structured drafting, assistant patching, `pdf` export, approval, and apply-time safety checks.
 
 ## Current And Queued Plans
 
 - Resume workspace plan: `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - Automatic job apply plan: `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
-- Full-app copy pass plan: `docs/exec-plans/queued/009-full-app-production-copy-pass.md`
+- Completed full-app copy pass plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - Browser efficiency and speed plan: `docs/exec-plans/queued/010-job-finder-browser-efficiency-and-speed.md`
 - `008` intentionally defines the next queued direction toward autonomous single-job and queue submission, but the current shipped apply flow remains more conservative until that plan lands.
 

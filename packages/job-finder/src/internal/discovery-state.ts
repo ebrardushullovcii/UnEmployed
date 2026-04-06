@@ -56,7 +56,7 @@ export function summarizeProgressAction(
 
   if (!normalizedAction || normalizedAction === "thinking...") {
     return {
-      message: `Planning step ${stepCount}${formatFoundSuffix(jobsFound)}`,
+      message: `Reviewing the next step${formatFoundSuffix(jobsFound)}`,
       stage: "planning",
       waitReason,
     };

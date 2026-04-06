@@ -11,6 +11,7 @@ interface ResumeWorkspaceEditorPanelProps {
   availableExportIdToApprove: string | null
   busy: boolean
   draft: ResumeDraft
+  hasUnsavedChanges: boolean
   jobId: string
   onApplyPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void
   onApproveResume: (jobId: string, exportId: string) => void
@@ -27,38 +28,45 @@ interface ResumeWorkspaceEditorPanelProps {
 
 export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProps) {
   const exportIdToApprove = props.availableExportIdToApprove
+  const helperMessage = props.hasUnsavedChanges
+    ? 'Unsaved edits will be saved before you export, approve, reload, or send a request to the assistant.'
+    : props.approvedExportId
+      ? 'This draft already has an approved PDF. Clear approval if you want a fresh version used for applications.'
+      : exportIdToApprove
+        ? 'The latest PDF matches this draft and is ready to approve.'
+        : 'Save your draft, then export a PDF to review it before applying.'
 
   return (
     <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-(--surface-panel-border) p-4">
         <Button
           disabled={props.busy}
+          onClick={() => props.onSaveDraft(props.draft)}
+          type="button"
+          variant="primary"
+        >
+          Save draft
+        </Button>
+        <Button
+          disabled={props.busy}
           onClick={() =>
             props.runWithSavedDraft(
               () => props.onRegenerateDraft(props.jobId),
-              'Resume draft saved before regenerate.',
+              'Saved your draft before refreshing the resume.',
             )
           }
           type="button"
           variant="secondary"
         >
           <RefreshCcw className="size-4" />
-          Regenerate Draft
-        </Button>
-        <Button
-          disabled={props.busy}
-          onClick={() => props.onSaveDraft(props.draft)}
-          type="button"
-          variant="primary"
-        >
-          Save Draft
+          Refresh draft
         </Button>
         <Button
           disabled={props.busy}
           onClick={() =>
             props.runWithSavedDraft(
               () => props.onExportPdf(props.jobId),
-              'Resume draft saved before export.',
+              'Saved your draft before exporting the PDF.',
             )
           }
           type="button"
@@ -73,13 +81,13 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
             onClick={() =>
               props.runWithSavedDraftAsync(
                 () => props.onClearResumeApproval(props.jobId),
-                'Resume draft saved before clearing approval.',
+                'Saved your draft before clearing approval.',
               )
             }
             type="button"
             variant="destructive"
           >
-            Clear Approval
+            Clear approval
           </Button>
         ) : null}
         {!props.approvedExportId && exportIdToApprove ? (
@@ -88,15 +96,19 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
             onClick={() =>
               props.runWithSavedDraft(
                 () => props.onApproveResume(props.jobId, exportIdToApprove),
-                'Resume draft saved before approval.',
+                'Saved your draft before approving the PDF.',
               )
             }
             type="button"
             variant="primary"
           >
-            Approve Resume
+            Approve current PDF
           </Button>
         ) : null}
+      </div>
+
+      <div className="border-b border-(--surface-panel-border) px-4 py-3">
+        <p className="text-(length:--text-small) leading-6 text-foreground-soft">{helperMessage}</p>
       </div>
 
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto p-4 pr-3">
@@ -113,13 +125,13 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
                     props.withDraftPatch(patch),
                     revisionReason,
                   ),
-                'Resume draft saved before applying the change.',
+                'Saved your draft before applying this update.',
               )
             }
             onRegenerate={() =>
               props.runWithSavedDraft(
                 () => props.onRegenerateSection(props.jobId, section.id),
-                'Resume draft saved before section regenerate.',
+                'Saved your draft before refreshing this section.',
               )
             }
           />
@@ -128,7 +140,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
 
       <div className="border-t border-(--surface-panel-border) px-4 py-3">
         {props.actionMessage ? (
-          <p className="font-mono text-(length:--text-tiny) uppercase tracking-(--tracking-normal) text-primary">
+          <p className="text-(length:--text-small) leading-6 text-primary">
             {props.actionMessage}
           </p>
         ) : <div className="h-action-message" />}

@@ -52,14 +52,13 @@ export function formatStatusLabel(value: string): string {
 }
 
 export function formatResumeAnalysisSummary(profile: CandidateProfile): string | null {
-  const providerLabel = profile.baseResume.analysisProviderLabel
   const analyzedAt = profile.baseResume.lastAnalyzedAt
 
-  if (!providerLabel || !analyzedAt) {
+  if (!analyzedAt) {
     return null
   }
 
-  return `${providerLabel} parsed this resume on ${formatTimestamp(analyzedAt)}.`
+  return `Profile suggestions refreshed from your resume on ${formatTimestamp(analyzedAt)}.`
 }
 
 export function formatCountLabel(value: number, noun: string): string {

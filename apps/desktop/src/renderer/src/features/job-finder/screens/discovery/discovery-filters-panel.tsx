@@ -9,14 +9,15 @@ import { Chip } from "@renderer/components/ui/chip";
 import { Button } from "@renderer/components/ui/button";
 import { StatusBadge } from "../../components/status-badge";
 import { getSessionTone } from "../../lib/job-finder-utils";
+import { Link } from 'react-router-dom'
 
 const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
   source: "target_site",
   status: "unknown",
   driver: "chrome_profile_agent",
-  label: "Browser profile available on demand",
+  label: "Browser optional",
   detail:
-    "Discovery can run across targets without prevalidating a special session first. Open the dedicated Chrome profile when you want to warm up a site or sign in before the next run.",
+    "You can run this search without opening the browser first. Open it when you want to sign in or prepare a site before the next run.",
   lastCheckedAt: new Date(0).toISOString(),
 };
 
@@ -36,6 +37,19 @@ type SectionValue =
       key: string;
       label: string;
     };
+
+function getBrowserStatusLabel(status: BrowserSessionState["status"]): string {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "login_required":
+      return "Needs sign-in";
+    case "blocked":
+      return "Blocked";
+    default:
+      return "Starting";
+  }
+}
 
 export function DiscoveryFiltersPanel({
   actionMessage,
@@ -59,25 +73,25 @@ export function DiscoveryFiltersPanel({
       {
         label: "Roles",
         values: searchPreferences.targetRoles,
-        empty: "No role targets configured yet.",
+        empty: "No roles added yet.",
       },
       {
         label: "Locations",
         values: searchPreferences.locations,
-        empty: "No preferred locations configured yet.",
+        empty: "No locations added yet.",
       },
       {
         label: "Work modes",
         values: searchPreferences.workModes,
-        empty: "No work modes configured yet.",
+        empty: "No work modes added yet.",
       },
       {
-        label: "Discovery targets",
-        values: searchPreferences.discovery.targets.map((target) => ({
+        label: "Sources",
+        values: searchPreferences.discovery.targets.filter((target) => target.enabled).map((target) => ({
           key: target.id,
-          label: `${target.label}${target.enabled ? "" : " (disabled)"}`,
+          label: target.label,
         })),
-        empty: "No discovery targets configured yet.",
+        empty: "No sources added yet.",
       },
     ],
     [searchPreferences],
@@ -119,20 +133,20 @@ export function DiscoveryFiltersPanel({
         className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted"
         id={searchControlsHeadingId}
       >
-        Search controls
+        Current search
       </h2>
 
       <div className="surface-card-tint flex min-h-106 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) xl:min-h-0">
-        <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
-          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-            <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
-              {displaySessionSnapshot.label}
-            </StatusBadge>
-            <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
-              {isChromeAgent ? "Browser profile" : "Target-ready"}
-            </span>
-          </div>
-          {sessionDetail ? (
+          <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+              <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
+                {getBrowserStatusLabel(displaySessionSnapshot.status)}
+              </StatusBadge>
+              <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
+                {isChromeAgent ? "Browser" : "Search"}
+              </span>
+            </div>
+            {sessionDetail ? (
             <p className="max-w-full wrap-break-word text-(length:--text-field) leading-7 text-foreground-soft">
               {sessionDetail}
             </p>
@@ -145,9 +159,7 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--warning-text)"
                 >
-                  The browser profile needs login or recovery. Discovery can
-                  still be started, but the run will record any auth blocker
-                  instead of guessing past it.
+                  Some sources need you to sign in before the next search can finish.
                 </div>
               ) : null}
               {isReady ? (
@@ -155,9 +167,7 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--success-border) bg-(--success-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--success-text)"
                 >
-                  The browser profile is available and can be reused for sites
-                  that benefit from an authenticated or warmed-up browser
-                  context.
+                  You're signed in on sources that need the browser.
                 </div>
               ) : null}
               {!needsLogin && !isBlocked && !isReady ? (
@@ -165,13 +175,17 @@ export function DiscoveryFiltersPanel({
                   role="status"
                   className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
                 >
-                  Open the browser profile when you want to prewarm a site,
-                  confirm auth, or keep a real session ready before the next
-                  discovery run.
+                  The browser is starting. You can review past results while it gets ready.
                 </div>
               ) : null}
             </div>
           ) : null}
+          <p className="text-(length:--text-description) leading-6 text-foreground-soft">
+            Review the search this run will use. Edit it in Profile when needed.
+          </p>
+          <Link className="text-(length:--text-small) font-medium text-primary underline-offset-4 hover:underline" to="/job-finder/profile">
+            Edit search in Profile
+          </Link>
         </div>
 
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-0 overflow-y-auto">
@@ -233,7 +247,7 @@ export function DiscoveryFiltersPanel({
               variant="secondary"
             >
               <Search className="size-4" />
-              {isReady ? "Refresh browser profile" : "Open browser profile"}
+              {isReady ? "Reopen browser" : "Open browser"}
             </Button>
           </div>
 
@@ -245,7 +259,7 @@ export function DiscoveryFiltersPanel({
             variant="ghost"
           >
             <History className="size-4" />
-            View progress and full history
+            Search history
           </Button>
 
           {onRunAgentDiscovery ? (
@@ -257,7 +271,7 @@ export function DiscoveryFiltersPanel({
               type="button"
               variant="primary"
             >
-              Run discovery across targets
+              Search jobs
             </Button>
           ) : null}
 

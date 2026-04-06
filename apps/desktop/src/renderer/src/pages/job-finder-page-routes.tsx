@@ -139,48 +139,48 @@ export function buildSourceDebugOutcomeMessage(
 
   if (activeRunIsLatest) {
     return latestRun?.state === 'idle'
-      ? 'Source debug is starting for this target.'
-      : 'Source debug is running for this target.'
+      ? 'Checking this source now.'
+      : 'Still checking this source.'
   }
 
   if (latestRun?.state === 'paused_manual') {
     return (
       latestRun.manualPrerequisiteSummary ??
       latestRun.finalSummary ??
-      'Source debug paused until a manual step is completed.'
+      'Source check paused until a manual step is completed.'
     )
   }
 
   if (latestRun?.state === 'failed') {
     return (
       latestRun.finalSummary ??
-      'Source debug finished without producing reusable instructions.'
+      'The source check finished without saving reusable guidance.'
     )
   }
 
   if (latestRun?.state === 'interrupted') {
-    return latestRun.finalSummary ?? 'Source debug was interrupted before it could finish.'
+    return latestRun.finalSummary ?? 'The source check was interrupted before it could finish.'
   }
 
   if (latestRun?.state === 'cancelled') {
-    return latestRun.finalSummary ?? 'Source debug was cancelled before it could finish.'
+    return latestRun.finalSummary ?? 'The source check was cancelled before it could finish.'
   }
 
   if (target?.instructionStatus === 'validated') {
-    return 'Source debug completed and validated learned instructions.'
+    return 'This source is ready to use.'
   }
 
   if (target?.instructionStatus === 'draft') {
-    return 'Source debug completed with a draft source profile. It needs stronger findings before validation.'
+    return 'The source check saved draft guidance. Review it before relying on this source.'
   }
 
   if (target?.instructionStatus === 'unsupported') {
-    return 'Source debug completed, but this source remains unsupported.'
+    return 'This source is not supported yet.'
   }
 
   return (
     latestRun?.finalSummary ??
-    'Source debug finished without producing reusable instructions.'
+    'The source check finished without saving reusable guidance.'
   )
 }
 
@@ -293,6 +293,7 @@ export function JobFinderApplicationsRoute() {
 
   return (
     <ApplicationsScreen
+      applicationAttempts={context.workspace.applicationAttempts}
       applicationRecords={context.workspace.applicationRecords}
       onSelectRecord={context.onSelectApplicationRecord}
       selectedAttempt={context.selectedApplicationAttempt}
@@ -307,7 +308,6 @@ export function JobFinderSettingsRoute() {
   return (
     <SettingsScreen
       actionState={context.actionState}
-      agentProvider={context.workspace.agentProvider}
       availableResumeTemplates={context.workspace.availableResumeTemplates}
       browserSession={context.workspace.browserSession}
       busy={context.busy}

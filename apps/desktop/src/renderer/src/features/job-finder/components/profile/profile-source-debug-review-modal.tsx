@@ -59,7 +59,7 @@ export function ProfileSourceDebugReviewModal(props: {
         <div className="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-(--surface-panel-border) px-5 py-4">
           <div className="grid gap-1">
             <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-              Source-debug review
+              Source guidance
             </p>
             <h2
               className="text-[1.2rem] font-semibold tracking-[-0.02em] text-(--text-headline)"
@@ -68,9 +68,8 @@ export function ProfileSourceDebugReviewModal(props: {
               {props.targetLabel}
             </h2>
             <p className="text-[0.9rem] leading-6 text-foreground-soft">
-              Inspect the latest retained phase outcomes, evidence, and
-              learned-instruction status before trusting this target in
-              discovery.
+              Review what the latest source check found before relying on this
+              source in search.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -80,7 +79,7 @@ export function ProfileSourceDebugReviewModal(props: {
               type="button"
               variant="secondary"
             >
-              Rerun debug
+              Check again
             </Button>
             <Button
               aria-label="Close"

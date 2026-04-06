@@ -97,10 +97,10 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                     watch(`records.education.${index}.endDate`)
                   ])
                 ])}
-                title={`Education ${index + 1}`}
+                title={watch(`records.education.${index}.degree`)?.trim() || watch(`records.education.${index}.schoolName`)?.trim() || `Education ${index + 1}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Education details</p>
                   <Button disabled={busy} onClick={() => educationArray.remove(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
@@ -112,13 +112,13 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   <Field><FieldLabel>Location</FieldLabel><ProfileInput {...register(`records.education.${index}.location`)} /></Field>
                   <Field><FieldLabel>Start date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.education.${index}.startDate`)} /></Field>
                   <Field><FieldLabel>End date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.education.${index}.endDate`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Notes</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.education.${index}.summary`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Highlights</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.education.${index}.summary`)} /></Field>
                 </div>
               </ProfileRecordCard>
             ))
           ) : (
             <EmptyState
-              description="Add schools and qualifications here instead of hiding them inside one long summary."
+              description="Add schools and qualifications here so they are easy to review later."
               title="No education records yet"
             />
           )}
@@ -131,10 +131,10 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 watch(`records.certifications.${index}.name`),
                 watch(`records.certifications.${index}.issuer`)
               ])}
-              title={`Certification ${index + 1}`}
+              title={watch(`records.certifications.${index}.name`)?.trim() || `Certification ${index + 1}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Certification details</p>
                 <Button disabled={busy} onClick={() => certificationArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
@@ -155,7 +155,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
         <ProfileSectionHeader
           eyebrow="Supporting detail"
           title="Projects, links, and languages"
-          description="These records back up the profile with proof, public links, and communication details without making the page feel like one long form."
+          description="Use these records to add proof, public links, and language details without turning the page into one long form."
           action={
             <div className="flex flex-wrap items-stretch gap-2.5">
               <Button
@@ -227,10 +227,10 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 watch(`projects.${index}.role`),
                 watch(`projects.${index}.projectType`)
               ])}
-              title={`Project ${index + 1}`}
+              title={watch(`projects.${index}.name`)?.trim() || `Project ${index + 1}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Project details</p>
                 <Button disabled={busy} onClick={() => projectArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
@@ -240,11 +240,11 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   <Field><FieldLabel>Project type</FieldLabel><ProfileInput {...register(`projects.${index}.projectType`)} /></Field>
                   <Field><FieldLabel>Role</FieldLabel><ProfileInput {...register(`projects.${index}.role`)} /></Field>
                   <Field><FieldLabel>Project URL</FieldLabel><ProfileInput {...register(`projects.${index}.projectUrl`)} /></Field>
-                  <Field><FieldLabel>Repository URL</FieldLabel><ProfileInput {...register(`projects.${index}.repositoryUrl`)} /></Field>
-                  <Field><FieldLabel>Case-study URL</FieldLabel><ProfileInput {...register(`projects.${index}.caseStudyUrl`)} /></Field>
+                  <Field><FieldLabel>Repository URL (optional)</FieldLabel><ProfileInput {...register(`projects.${index}.repositoryUrl`)} /></Field>
+                  <Field><FieldLabel>Case study URL (optional)</FieldLabel><ProfileInput {...register(`projects.${index}.caseStudyUrl`)} /></Field>
                   <Field className="md:col-span-2"><FieldLabel>Skills used</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.skills`)} /></Field>
                   <Field className="md:col-span-2"><FieldLabel>Summary</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.summary`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Outcome / impact</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.outcome`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Impact</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.outcome`)} /></Field>
                 </div>
             </ProfileRecordCard>
           ))}
@@ -257,10 +257,10 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 watch(`links.${index}.label`),
                 watch(`links.${index}.kind`) ? formatStatusLabel(watch(`links.${index}.kind`)) : null
               ])}
-              title={`Link ${index + 1}`}
+              title={watch(`links.${index}.label`)?.trim() || `Link ${index + 1}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Link details</p>
                 <Button disabled={busy} onClick={() => linkArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
@@ -272,17 +272,17 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   name={`links.${index}.kind`}
                   render={({ field }) => (
                     <Field>
-                      <FieldLabel>Kind</FieldLabel>
+                      <FieldLabel>Type</FieldLabel>
                       <FormSelect
                         onValueChange={field.onChange}
                         options={[
-                          { label: 'Select kind', value: '' },
+                          { label: 'Select type', value: '' },
                           ...candidateLinkKindValues.map((kind) => ({
                             label: formatStatusLabel(kind),
                             value: kind
                           }))
                         ]}
-                        placeholder="Select kind"
+                        placeholder="Select type"
                         triggerClassName={profileSelectTriggerClassName}
                         value={field.value}
                       />
@@ -302,10 +302,10 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 watch(`languages.${index}.language`),
                 watch(`languages.${index}.proficiency`)
               ])}
-              title={`Language ${index + 1}`}
+              title={watch(`languages.${index}.language`)?.trim() || `Language ${index + 1}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Expanded details</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Language details</p>
                 <Button disabled={busy} onClick={() => languageArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
@@ -317,18 +317,18 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   control={control}
                   name={`languages.${index}.interviewPreference`}
                   render={({ field }) => (
-                    <CheckboxField checked={field.value} label="Preferred interview language" onCheckedChange={field.onChange} />
+                    <CheckboxField checked={field.value} label="Can interview in this language" onCheckedChange={field.onChange} />
                   )}
                 />
-                <Field className="md:col-span-2"><FieldLabel>Notes</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`languages.${index}.notes`)} /></Field>
+                <Field className="md:col-span-2"><FieldLabel>Context (optional)</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`languages.${index}.notes`)} /></Field>
               </div>
             </ProfileRecordCard>
           ))}
 
           {projectArray.fields.length === 0 && linkArray.fields.length === 0 && languageArray.fields.length === 0 ? (
             <EmptyState
-              description="Add projects, links, and spoken languages as first-class records instead of burying them in general notes."
-              title="No supporting evidence yet"
+              description="Add projects, links, and languages here when they help support applications."
+              title="Nothing added here yet"
             />
           ) : null}
         </div>

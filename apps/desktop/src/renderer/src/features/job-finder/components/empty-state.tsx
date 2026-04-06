@@ -15,7 +15,6 @@ export function EmptyState({ className, description, title }: EmptyStateProps) {
       )}
     >
       <div className="grid max-w-136 gap-3">
-        <span className="text-[0.62rem] uppercase tracking-(--tracking-caps) text-muted-foreground">Awaiting state</span>
         <h2 className="font-display text-[1.48rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{title}</h2>
         <p className="text-[0.96rem] leading-7 text-foreground-soft">{description}</p>
       </div>

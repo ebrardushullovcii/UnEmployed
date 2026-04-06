@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Plan `007` implementation and hardening remain active. Plan `010` browser-efficiency work is now in progress as a focused measurement and idle-gap reduction slice across discovery and source-debug. Plan `008` remains the next queued follow-on implementation plan, with `009` still queued behind it.
+Plan `007` implementation and hardening remain active. Plan `010` browser-efficiency work is now in progress as a focused measurement and idle-gap reduction slice across discovery and source-debug. Plan `008` remains the next queued follow-on implementation plan, with `009` completed as the current shipped wording baseline after stronger rewrite and later structural polish passes.
 
 ## Snapshot
 
@@ -18,6 +18,9 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - The current `010` source-debug tightening pass now also reuses same-host learned route hints as transient later-phase starting URLs, prefers current-run hints over stale cleared guidance once new routes are learned, records the actual phase starting URL in evidence, and favors collection-first probe routing when no proven search route exists.
 - The current `010` source-debug tightening pass now also ignores malformed wildcard/template route hints when deriving phase starting URLs and blocks repeated evidence-recording click/fill misses across common name variants so source-debug phases stop burning turns on the same failed interaction.
 - The current `010` source-debug tightening pass now also forces early closeout for phase-driven browser runs once evidence has stalled after enough proof is already collected, so phases do not spend nearly their full step budget waiting for a late `finish` call.
+- Plan `009` completed a stronger shipped-surface product rewrite across Job Finder and the shared shell, including clearer top-nav labels (`Find jobs`, `Shortlisted`, `Applications`), removal of low-value internal fields, and capture-script alignment for the updated headings.
+- Later follow-on polish on top of that baseline added a checklist-style readiness panel in `Shortlisted`, action-oriented filters in `Applications`, a more consolidated two-column `Settings` page, and optional-detail sections in `Profile` so the main editing path stays more focused.
+- The latest hardening pass tightened `Shortlisted` truthfulness by separating resume/browser readiness from supported apply-path readiness, synced `Applications` filtered selection back to controller state, and fixed the resume-import harness heading selector for strict-mode Playwright runs.
 - Older milestone detail lives in `docs/HISTORY.md`.
 
 ## Active Work
@@ -28,6 +31,7 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - Keep browser-agent ownership clear: prompts, transcript compaction, tool policy, and deterministic catalog workflow policy belong there, while runtime stays generic.
 - Measure and reduce browser-heavy silent idle time under plan `010`, with named waiting states for discovery and source-debug plus the first low-risk runtime tightening wins.
 - Keep the queued `008` automatic-apply follow-on defined and ready, but do not start it until `007` settles.
+- Treat the completed `009` pass as the current wording and product-language baseline for later UX polish and QA, including the newer structural cleanups layered on top of it.
 
 ## Immediate Next Steps
 
@@ -38,7 +42,7 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - Re-run LinkedIn source-debug on the new build to confirm that collection-first later-phase routing trims the remaining zero-yield phase cost and reduces the quiet gap after the earlier runtime drop.
 - Re-run LinkedIn source-debug on the new build to confirm that malformed route hints no longer seed bad starting URLs and repeated search/card evidence failures stop consuming phase budget.
 - Re-run LinkedIn source-debug on the new build to confirm that phase-driven closeout now lands far earlier than the old max-step timeout path and cuts whole minutes, not just seconds.
-- Once `007` settles, start `008` from `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`, with `009` queued after it.
+- Once `007` settles, start `008` from `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`, with `009` completed as background.
 
 ## Key References
 
@@ -46,5 +50,5 @@ Plan `007` implementation and hardening remain active. Plan `010` browser-effici
 - `docs/exec-plans/active/007-job-finder-resume-workspace.md`
 - `docs/exec-plans/active/010-job-finder-browser-efficiency-and-speed.md`
 - `docs/exec-plans/queued/008-job-finder-automatic-job-apply.md`
-- `docs/exec-plans/queued/009-full-app-production-copy-pass.md`
+- `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - `docs/HISTORY.md`

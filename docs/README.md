@@ -44,7 +44,7 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed source-debug background: [exec-plans/completed/005-job-source-debug-agent.md](exec-plans/completed/005-job-source-debug-agent.md)
 - Primary active Job Finder resume plan: [exec-plans/active/007-job-finder-resume-workspace.md](exec-plans/active/007-job-finder-resume-workspace.md)
 - Next queued Job Finder automatic apply plan: [exec-plans/queued/008-job-finder-automatic-job-apply.md](exec-plans/queued/008-job-finder-automatic-job-apply.md)
-- Queued full-app copy pass: [exec-plans/queued/009-full-app-production-copy-pass.md](exec-plans/queued/009-full-app-production-copy-pass.md)
+- Completed full-app copy pass: [exec-plans/completed/009-full-app-production-copy-pass.md](exec-plans/completed/009-full-app-production-copy-pass.md)
 - Active browser efficiency and speed plan: [exec-plans/active/010-job-finder-browser-efficiency-and-speed.md](exec-plans/active/010-job-finder-browser-efficiency-and-speed.md)
 
 ## Design References

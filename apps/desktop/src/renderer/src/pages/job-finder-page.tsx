@@ -29,22 +29,22 @@ export function JobFinderPage() {
     if (workspaceState.status === "loading") {
       return (
         <WorkspaceStateScreen
-          kicker="UnEmployed"
-          message="Loading the Job Finder workspace and typed desktop context."
-          title="Booting Job Finder workspace"
+          kicker="Job Finder"
+          message="Opening your saved workspace."
+          title="Loading Job Finder"
         />
       );
     }
 
     return (
       <WorkspaceStateScreen
-        kicker="Workspace Error"
+        kicker="Workspace error"
         message={
           workspaceState.status === "error"
             ? workspaceState.message
-            : "Job Finder failed to load"
+            : "Job Finder couldn't load."
         }
-        title="Job Finder failed to load"
+        title="Couldn't open Job Finder"
         tone="error"
       />
     );
