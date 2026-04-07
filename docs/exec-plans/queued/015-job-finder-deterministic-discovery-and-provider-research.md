@@ -20,6 +20,7 @@ The user explicitly wants discovery to:
 
 - use the initial site URL mainly to confirm the correct site, not necessarily as the only starting point
 - let debugging decide whether the best collection method is an API, search page, careers page, or another stable route
+- let the agent freely search the web for information about a job source — whether public APIs exist, existing navigation guides, ATS provider identification, or any other source-specific knowledge — using bounded web search and web fetch tools available at any point in the workflow, not just in a dedicated phase
 - keep per-user instructions, but structure them better
 - do less work for clearly unwanted jobs by filtering on title first
 - keep stronger durable tracking of seen and handled jobs
@@ -30,7 +31,7 @@ The user explicitly wants discovery to:
 The active `010` work is already reducing visible waiting and obvious waste, but the next big gains likely require a deeper product-level shift:
 
 - too much discovery still starts from generic browser exploration
-- provider research is not yet a first-class stage
+- provider research is not yet a first-class capability — the agent has no way to search the web for API docs, ATS identifiers, or navigation guides and must rely entirely on in-browser observation
 - title rejection often happens too late
 - seen-job tracking and source-level ledgers are not yet strong enough
 - freeform user notes are helpful but not strong enough as structured workflow inputs
@@ -85,7 +86,7 @@ Potential methods:
 
 - bounded inspection of page structure and script hints on the target site
 - bounded same-host route inspection
-- bounded web lookup for known public provider docs or board patterns
+- bounded web lookup for known public provider docs or board patterns — this should be implemented as agent-accessible `web_search` and `web_fetch` tools that let the agent search DuckDuckGo (or similar free search) for things like "[site] job board API", "[ATS name] public documentation", or "how to navigate [site] careers" and then fetch and read the relevant pages; these tools should be available at any stage, not locked behind a single phase
 
 ### Stage 1: Cheap collection first
 
@@ -167,7 +168,7 @@ Freeform notes may remain, but they should not be the only durable control surfa
 
 - full parallel multi-target discovery as the required first solution
 - secret or auth-gated provider APIs
-- broad internet crawling detached from configured targets
+- broad internet crawling detached from configured targets — bounded agent-initiated web search and fetch for source research is in scope (rate-limited, small query count per run, only fetching pages relevant to understanding the target source), but open-ended scraping unrelated to configured targets is not
 - weakening result quality just to reduce timing numbers
 
 ## Workstreams
@@ -177,6 +178,7 @@ Freeform notes may remain, but they should not be the only durable control surfa
 - define how discovery classifies a provider or ATS
 - define how the debug flow stores provider findings
 - define how the collection method gets selected from those findings
+- implement bounded web search (`web_search`) and web fetch (`web_fetch`) as agent tools so the agent can look up provider documentation, public API references, and navigation guides at any point — these are not a separate pipeline stage but a capability the agent calls on when it needs source-specific knowledge; the tool results should feed directly into provider classification and collection method selection
 
 ### 2. Cheap-First Discovery Pipeline
 
