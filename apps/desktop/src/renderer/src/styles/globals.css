@@ -50,6 +50,9 @@
   --workspace-state-card-max-width: 34rem;
   --workspace-state-card-radius: var(--radius-panel);
 
+  --job-finder-side-width: 15.5rem;
+  --job-finder-side-width-sm: 18.5rem;
+
   background: var(--background);
   color: var(--foreground);
 }
@@ -451,4 +454,14 @@ strong {
 ::selection {
   background: var(--selection-background);
   color: var(--foreground);
+}
+
+.job-finder-shell-grid {
+  grid-template-columns: var(--job-finder-side-width) minmax(0, 1fr) auto;
+}
+
+@media (min-width: 640px) {
+  .job-finder-shell-grid {
+    grid-template-columns: var(--job-finder-side-width-sm) minmax(0, 1fr) auto;
+  }
 }
