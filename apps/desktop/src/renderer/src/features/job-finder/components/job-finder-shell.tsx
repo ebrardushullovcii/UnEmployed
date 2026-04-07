@@ -157,7 +157,7 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
         className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm"
         style={dragRegionStyle}
       >
-        <div className="grid grid-cols-[15.5rem_minmax(0,1fr)_auto] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:grid-cols-[18.5rem_minmax(0,1fr)_auto] sm:pl-3 sm:pr-0">
+        <div className="job-finder-shell-grid grid grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:pl-3 sm:pr-0">
           <div className="row-span-2 flex min-w-0 items-center pl-2 sm:pl-3" style={dragRegionStyle}>
             <div className="flex min-w-0 flex-col">
               <span className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2.7rem]">UNEMPLOYED</span>
