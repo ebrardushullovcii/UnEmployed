@@ -20,6 +20,7 @@ The user explicitly wants the debugger to:
 
 - look more deeply into the job provider
 - decide whether APIs or better search pages exist
+- be able to freely search the web for information about a job source — for example, whether public APIs exist, whether there are existing guides on how to navigate the site, or what ATS provider the site uses — using bounded web search (e.g. DuckDuckGo) and web fetch tools available to the agent at any phase
 - treat the initial job-site URL as proof of the right site, not as the only true start point
 - keep per-user instructions, but structure them better
 
@@ -51,8 +52,8 @@ The learned artifact layer should be widened so it can retain structured facts s
 
 - provider or ATS classification
 - provider confidence score
-- public API availability and endpoint pattern when safe and public
-- board token, slug, or provider identifier when known
+- public API availability and endpoint pattern when safe and public — the agent should be able to discover these by searching the web for provider documentation or API references and then fetching and reading those pages
+- board token, slug, or provider identifier when known — may be discovered through web research as well
 
 ### Collection strategy
 
@@ -100,7 +101,7 @@ Freeform notes may still exist for operator context, but the runtime should not 
 ### Out Of Scope
 
 - full autonomous apply implementation itself
-- unbounded provider research across the wider web
+- unbounded or uncontrolled web crawling — the agent may do bounded web searches (rate-limited, small query count per run) and fetch specific URLs for research, but must not do open-ended scraping or crawl pages unrelated to the target source
 - hidden raw transcript retention
 - site-specific logic leakage into generic runtime primitives
 
@@ -115,6 +116,8 @@ Freeform notes may still exist for operator context, but the runtime should not 
 ### 2. Source-Debug Research And Extraction
 
 - let debug collect provider evidence, public API hints, and better route candidates
+- the agent should have access to bounded web search and web fetch tools during any source-debug phase so it can look up whether the target site has a public API, what ATS provider it uses, whether navigation guides exist, or any other source-specific information that would help it produce better artifacts — this is not a separate phase, it is a capability the agent can call on whenever it would be useful
+- search results and fetched content should be treated as research evidence and feed into the structured artifact fields (provider classification, API availability, collection method) rather than staying buried in freeform notes
 - ensure bounded research and evidence capture remain visible and reviewable
 
 ### 3. Consumer Integration
