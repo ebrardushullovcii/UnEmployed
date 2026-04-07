@@ -157,7 +157,7 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
         className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm"
         style={dragRegionStyle}
       >
-        <div className="grid grid-cols-[15.5rem_minmax(0,1fr)_auto] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:grid-cols-[18.5rem_minmax(0,1fr)_auto] sm:pl-3 sm:pr-0">
+        <div className="grid grid-cols-[15.5rem_1fr_15.5rem] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:grid-cols-[18.5rem_1fr_18.5rem] sm:pl-3 sm:pr-0">
           <div className="row-span-2 flex min-w-0 items-center pl-2 sm:pl-3" style={dragRegionStyle}>
             <div className="flex min-w-0 flex-col">
               <span className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2.7rem]">UNEMPLOYED</span>
@@ -246,36 +246,25 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
                   ) : null}
                 </button>
               ))}
+              <span aria-hidden="true" className="mx-1 h-4 w-px bg-border/50" />
+              <button
+                aria-current={activeScreen === 'settings' ? 'page' : undefined}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium transition-colors xl:px-4 xl:text-(length:--text-small)',
+                  activeScreen === 'settings'
+                    ? 'bg-secondary text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+                onClick={() => handleScreenChange('settings')}
+                type="button"
+              >
+                <Settings2 className="size-4" />
+                <span>Settings</span>
+              </button>
             </div>
           </nav>
 
-            <div className="col-start-3 row-start-2 flex items-center justify-end gap-2" style={noDragRegionStyle}>
-            {[
-              ['Find jobs', workspace.discoveryJobs.length],
-              ['Shortlisted', workspace.reviewQueue.length],
-              ['Applications', workspace.applicationRecords.length]
-            ].map(([label, value]) => (
-              <div key={label} className="hidden h-12 min-w-[4.35rem] rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-2.5 xl:grid xl:content-center xl:text-center">
-                <div className="text-[0.58rem] uppercase leading-none tracking-(--tracking-caps) text-muted-foreground">{label}</div>
-                <div className="mt-1 text-[1.05rem] font-semibold leading-none text-(--text-headline)">{value}</div>
-              </div>
-            ))}
-            <Button
-              className={cn(
-                'mr-2 h-11 rounded-(--radius-button) px-4 text-[0.72rem] tracking-(--tracking-caps) xl:h-12',
-                activeScreen === 'settings'
-                  ? 'border-primary/35 bg-primary/15 text-(--text-headline)'
-                  : 'border-(--surface-panel-border) bg-(--surface-panel) text-(--text-headline) hover:bg-(--surface-panel-raised)'
-              )}
-              onClick={() => handleScreenChange('settings')}
-              size="default"
-              type="button"
-              variant="secondary"
-            >
-              <Settings2 className="size-4" />
-              Settings
-            </Button>
-          </div>
+          <div className="col-start-3 row-start-2 hidden lg:block" aria-hidden="true" />
         </div>
       </header>
 
