@@ -198,6 +198,8 @@ export function JobFinderProfileRoute() {
       onSaveAll={context.onSaveAll}
       onSaveSourceInstructionArtifact={context.onSaveSourceInstructionArtifact}
       onVerifySourceInstructions={context.onVerifySourceInstructions}
+      latestResumeImportReviewCandidates={context.workspace.latestResumeImportReviewCandidates}
+      latestResumeImportRun={context.workspace.latestResumeImportRun}
       profile={context.workspace.profile}
       recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       searchPreferences={context.workspace.searchPreferences}

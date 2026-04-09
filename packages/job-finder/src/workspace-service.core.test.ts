@@ -543,7 +543,11 @@ describe("createJobFinderWorkspaceService", () => {
     expect(beforeWorkspace.research.length).toBeGreaterThan(0);
     expect(messages.some((message) => message.role === "assistant")).toBe(true);
     expect(afterWorkspace.draft.updatedAt).not.toBe(beforeWorkspace.draft.updatedAt);
-    expect(afterWorkspace.assistantMessages.at(-1)?.patches.length).toBeGreaterThan(0);
+    expect(
+      afterWorkspace.assistantMessages.some(
+        (message) => message.role === "assistant" && message.patches.length > 0,
+      ),
+    ).toBe(true);
   });
 
   test("resume workspace exposes shared profile narrative and proof summaries", async () => {

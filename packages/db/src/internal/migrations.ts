@@ -40,7 +40,70 @@ export function runMigrations(database: DatabaseSync): void {
     .get() as { version?: number } | undefined;
   const currentVersion = Number(versionRow?.version ?? 0);
 
-  if (currentVersion >= 3) {
+  if (currentVersion >= 4) {
+    // If the DB claims to be current but the resume_import tables are missing
+    // (possible if a previous migration run failed partway), create them now.
+    const resumeImportTableExists = Boolean(
+      database
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+        )
+        .get("resume_import_runs"),
+    );
+
+    if (!resumeImportTableExists) {
+      // Only create the resume-import-related tables and indexes here so we
+      // repair partially-migrated DBs without re-running older migrations.
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        database.exec(`
+          CREATE TABLE IF NOT EXISTS resume_import_runs (
+            id TEXT PRIMARY KEY,
+            source_resume_id TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            value TEXT NOT NULL
+          );
+
+          CREATE INDEX IF NOT EXISTS resume_import_runs_source_resume_id_idx
+            ON resume_import_runs(source_resume_id, started_at DESC);
+
+          CREATE TABLE IF NOT EXISTS resume_import_document_bundles (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            source_resume_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            value TEXT NOT NULL
+          );
+
+          CREATE INDEX IF NOT EXISTS resume_import_document_bundles_run_id_idx
+            ON resume_import_document_bundles(run_id, created_at DESC);
+
+          CREATE INDEX IF NOT EXISTS resume_import_document_bundles_source_resume_id_idx
+            ON resume_import_document_bundles(source_resume_id, created_at DESC);
+
+          CREATE TABLE IF NOT EXISTS resume_import_field_candidates (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            resolution TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            value TEXT NOT NULL
+          );
+
+          CREATE INDEX IF NOT EXISTS resume_import_field_candidates_run_id_idx
+            ON resume_import_field_candidates(run_id, created_at DESC);
+
+          CREATE INDEX IF NOT EXISTS resume_import_field_candidates_resolution_idx
+            ON resume_import_field_candidates(resolution, created_at DESC);
+        `);
+
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    }
+
     return;
   }
 
@@ -180,6 +243,53 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(3, "job_finder_resume_workspace");
+    }
+
+    if (currentVersion < 4) {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS resume_import_runs (
+          id TEXT PRIMARY KEY,
+          source_resume_id TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          status TEXT NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_import_runs_source_resume_id_idx
+          ON resume_import_runs(source_resume_id, started_at DESC);
+
+        CREATE TABLE IF NOT EXISTS resume_import_document_bundles (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          source_resume_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_import_document_bundles_run_id_idx
+          ON resume_import_document_bundles(run_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS resume_import_document_bundles_source_resume_id_idx
+          ON resume_import_document_bundles(source_resume_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS resume_import_field_candidates (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          resolution TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS resume_import_field_candidates_run_id_idx
+          ON resume_import_field_candidates(run_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS resume_import_field_candidates_resolution_idx
+          ON resume_import_field_candidates(resolution, created_at DESC);
+      `);
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(4, "job_finder_resume_import_runs");
     }
 
     database.exec("COMMIT");

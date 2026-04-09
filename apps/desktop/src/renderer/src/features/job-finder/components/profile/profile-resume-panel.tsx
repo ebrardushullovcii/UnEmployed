@@ -1,12 +1,20 @@
-import type { AssetStatus, CandidateProfile, ResumeExtractionStatus } from '@unemployed/contracts'
+import type {
+  AssetStatus,
+  CandidateProfile,
+  ResumeExtractionStatus,
+  ResumeImportFieldCandidateSummary,
+  ResumeImportRun
+} from '@unemployed/contracts'
 import { Sparkles, Upload } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
-import { formatDateOnly, formatResumeAnalysisSummary, getAssetTone } from '@renderer/features/job-finder/lib/job-finder-utils'
+import { formatDateOnly, formatResumeAnalysisSummary, formatStatusLabel, getAssetTone } from '@renderer/features/job-finder/lib/job-finder-utils'
 import { PreferenceList } from '../preference-list'
 import { StatusBadge } from '../status-badge'
 
 interface ProfileResumePanelProps {
   busy: boolean
+  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  latestResumeImportRun: ResumeImportRun | null
   onAnalyzeProfileFromResume: () => void
   onImportResume: () => void
   profile: CandidateProfile
@@ -60,6 +68,8 @@ function getResumePanelCopy(input: {
 
 export function ProfileResumePanel({
   busy,
+  latestResumeImportReviewCandidates,
+  latestResumeImportRun,
   onAnalyzeProfileFromResume,
   onImportResume,
   profile
@@ -78,6 +88,10 @@ export function ProfileResumePanel({
     ? `Imported ${formatDateOnly(profile.baseResume.uploadedAt)}`
     : 'Import your resume to fill in this profile faster.'
   const extractionStatusLabel = (() => {
+    if (latestResumeImportRun) {
+      return formatStatusLabel(latestResumeImportRun.status)
+    }
+
     const label = extractionStatusToLabel[profile.baseResume.extractionStatus]
 
     if (label) {
@@ -91,6 +105,9 @@ export function ProfileResumePanel({
   const headline = profile.headline.trim() || 'Headline not set yet'
   const location = profile.currentLocation.trim() || 'Location not set yet'
   const experienceLabel = profile.yearsExperience === 1 ? '1 year' : `${profile.yearsExperience} years`
+  const latestRunSummary = latestResumeImportRun
+    ? `${latestResumeImportRun.candidateCounts.autoApplied} auto-applied, ${latestResumeImportRun.candidateCounts.needsReview} waiting for review.`
+    : null
 
   return (
     <section className="relative overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-[linear-gradient(135deg,var(--surface-panel-border-warm),var(--surface-overlay-subtle)_38%,var(--surface-overlay-soft))] p-5 sm:p-6">
@@ -121,6 +138,10 @@ export function ProfileResumePanel({
                 <span className="text-(length:--text-description) leading-6 text-foreground-muted">
                   {resumeAnalysisSummary}
                 </span>
+              ) : latestRunSummary ? (
+                <span className="text-(length:--text-description) leading-6 text-foreground-muted">
+                  {latestRunSummary}
+                </span>
               ) : (
                 <span className="text-(length:--text-description) leading-6 text-foreground-muted">
                   Refresh your profile suggestions any time you want to pull in changes from the saved resume text.
@@ -146,10 +167,18 @@ export function ProfileResumePanel({
             </div>
           </article>
 
-          {profile.baseResume.analysisWarnings.length > 0 ? (
+          {profile.baseResume.analysisWarnings.length > 0 || latestResumeImportReviewCandidates.length > 0 ? (
             <article className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border-warm) bg-(--surface-overlay-strong) p-4">
               <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Review before saving</p>
-              <PreferenceList label="Check these details before saving" values={profile.baseResume.analysisWarnings} />
+              {profile.baseResume.analysisWarnings.length > 0 ? (
+                <PreferenceList label="Check these details before saving" values={profile.baseResume.analysisWarnings} />
+              ) : null}
+              {latestResumeImportReviewCandidates.length > 0 ? (
+                <PreferenceList
+                  label="Imported suggestions waiting for confirmation"
+                  values={latestResumeImportReviewCandidates.map((candidate) => candidate.label)}
+                />
+              ) : null}
             </article>
           ) : null}
         </div>

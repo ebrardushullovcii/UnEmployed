@@ -34,7 +34,7 @@
 - Debug-agent findings and source-instruction drafts must be schema-validated and replay-verified before they become reusable target instructions
 - The newest bound draft source instructions for a target are injected into live discovery/apply runs for that same target by default; validated artifacts apply when no newer draft is bound
 - Source-debug artifacts should stay structured and curated: persist attempt artifacts, evidence refs, phase summaries, completion metadata, and instruction artifacts instead of raw worker transcripts
-- Resume-text extraction outputs must be normalized through schemas before they overwrite stored candidate details
+- Resume import now persists typed import runs, canonical document bundles, and field candidates; only accepted candidates may update canonical profile or search-preference roots
 - Tailored assets and apply attempt checkpoints should be validated before persistence
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them

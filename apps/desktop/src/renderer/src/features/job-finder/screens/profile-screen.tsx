@@ -4,6 +4,8 @@ import type {
   CandidateProfile,
   EditableSourceInstructionArtifact,
   JobSearchPreferences,
+  ResumeImportFieldCandidateSummary,
+  ResumeImportRun,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
   SourceInstructionArtifact
@@ -40,6 +42,8 @@ export function ProfileScreen(props: {
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
+  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  latestResumeImportRun: ResumeImportRun | null
   profile: CandidateProfile
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   searchPreferences: JobSearchPreferences
@@ -55,6 +59,8 @@ export function ProfileScreen(props: {
     onSaveSourceInstructionArtifact,
     onSaveAll,
     onVerifySourceInstructions,
+    latestResumeImportReviewCandidates,
+    latestResumeImportRun,
     profile,
     recentSourceDebugRuns,
     searchPreferences,
@@ -362,6 +368,8 @@ export function ProfileScreen(props: {
 
           <ProfileResumePanel
             busy={busy}
+            latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
+            latestResumeImportRun={latestResumeImportRun}
             onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
             onImportResume={onImportResume}
             profile={overviewProfile}

@@ -29,6 +29,7 @@ import {
   buildJobsExtractionPrompt,
   normalizeExtractedJobs,
 } from "./openai-compatible-jobs";
+import { extractOpenAiCompatibleResumeImportStage } from "./openai-compatible-resume-import";
 
 const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
 const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
@@ -198,6 +199,17 @@ export function createOpenAiCompatibleJobFinderAiClient(
         ),
         analysisProviderKind: "openai_compatible",
         analysisProviderLabel: status.label,
+      });
+    },
+    async extractResumeImportStage(input) {
+      return extractOpenAiCompatibleResumeImportStage({
+        stageInput: input,
+        status,
+        fetchModelJson,
+        timeoutMs:
+          validatedOptions?.resumeExtractionTimeoutMs ??
+          validatedOptions?.requestTimeoutMs ??
+          DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
       });
     },
     async createResumeDraft(input) {
@@ -508,6 +520,31 @@ export function createJobFinderAiClientFromEnvironment(
             ...fallback.notes,
             "Fell back to the deterministic resume parser after the model call failed.",
             `Primary AI extraction failed: ${summarizeError(error)}`,
+          ]),
+        };
+      }
+    },
+    async extractResumeImportStage(input) {
+      try {
+        const [primary, fallback] = await Promise.all([
+          primaryClient.extractResumeImportStage(input),
+          fallbackClient.extractResumeImportStage(input),
+        ]);
+
+        return {
+          ...primary,
+          candidates: [...primary.candidates, ...fallback.candidates],
+          notes: uniqueStrings([...primary.notes, ...fallback.notes]),
+        };
+      } catch (error) {
+        logFallbackError("extractResumeImportStage", error);
+        const fallback = await fallbackClient.extractResumeImportStage(input);
+        return {
+          ...fallback,
+          notes: uniqueStrings([
+            ...fallback.notes,
+            "Fell back to the deterministic staged resume importer after the model call failed.",
+            `Primary AI import stage failed: ${summarizeError(error)}`,
           ]),
         };
       }

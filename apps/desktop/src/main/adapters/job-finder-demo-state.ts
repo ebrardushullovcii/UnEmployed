@@ -316,6 +316,9 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
     sourceDebugEvidenceRefs: [],
+    resumeImportRuns: [],
+    resumeImportDocumentBundles: [],
+    resumeImportFieldCandidates: [],
     settings: {
       ...emptyState.settings,
       resumeTemplateId: "classic_ats",

@@ -1,5 +1,6 @@
 import { AgentProviderStatusSchema } from "@unemployed/contracts";
 import type { JobFinderAiClient } from "../shared";
+import { buildDeterministicResumeImportStageExtraction } from "./resume-import";
 import { buildDeterministicResumeProfileExtraction } from "./resume-parser";
 import {
   buildDeterministicResumeAssistantReply,
@@ -31,6 +32,11 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
     extractProfileFromResume(input) {
       return Promise.resolve(
         buildDeterministicResumeProfileExtraction(input, "deterministic", status.label),
+      );
+    },
+    extractResumeImportStage(input) {
+      return Promise.resolve(
+        buildDeterministicResumeImportStageExtraction(input, status.label),
       );
     },
     createResumeDraft(input) {

@@ -1,6 +1,7 @@
 import {
   type AgentProviderStatus,
   NonEmptyStringSchema,
+  type ResumeDocumentBundle,
   ResumeDraftPatchSchema,
   WorkModeListSchema,
   candidateLinkKindValues,
@@ -13,6 +14,10 @@ import {
   type ToolCall,
 } from "@unemployed/contracts";
 import { z } from "zod";
+import type {
+  ExtractResumeImportStageInput,
+  ResumeImportStageExtractionResult,
+} from "./resume-import";
 
 const NullableStringSchema = NonEmptyStringSchema.nullable().default(null);
 const ResumeExtractionWorkModeSchema = z.preprocess((value) => {
@@ -232,6 +237,11 @@ export interface ExtractJobsFromPageInput {
   maxJobs: number;
 }
 
+export interface ExtractResumeImportStageTransportInput
+  extends ExtractResumeImportStageInput {
+  documentBundle: ResumeDocumentBundle;
+}
+
 export type AgentMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: string }
@@ -243,6 +253,9 @@ export interface JobFinderAiClient {
   extractProfileFromResume(
     input: ExtractProfileFromResumeInput,
   ): Promise<ResumeProfileExtraction>;
+  extractResumeImportStage(
+    input: ExtractResumeImportStageTransportInput,
+  ): Promise<ResumeImportStageExtractionResult>;
   createResumeDraft(input: CreateResumeDraftInput): Promise<TailoredResumeDraft>;
   reviseResumeDraft(input: ReviseResumeDraftInput): Promise<ResumeAssistantReply>;
   tailorResume(input: TailorResumeInput): Promise<TailoredResumeDraft>;

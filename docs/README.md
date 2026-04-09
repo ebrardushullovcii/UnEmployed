@@ -52,6 +52,7 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed full-app copy pass: [exec-plans/completed/009-full-app-production-copy-pass.md](exec-plans/completed/009-full-app-production-copy-pass.md)
 - Completed browser efficiency and speed: [exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md](exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md)
 - Queued browser substrate evaluation and direction plan: [exec-plans/queued/017-browser-substrate-evaluation-and-direction.md](exec-plans/queued/017-browser-substrate-evaluation-and-direction.md)
+- Completed resume import and extraction reliability plan: [exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md](exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md)
 
 ## Design References
 

@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { ResumeDocumentBundleSchema, type ResumeDocumentBlock, type ResumeDocumentBundle } from '@unemployed/contracts'
+import { extractDocxTextWithTextutil, extractPdfDocumentBundleWithMacOs } from './resume-document-macos'
 
 const require = createRequire(import.meta.url)
 
@@ -248,6 +250,85 @@ function normalizeExtractedText(value: string): string | null {
   return normalized || null
 }
 
+function classifyBlockKind(text: string): ResumeDocumentBlock['kind'] {
+  if (/@|linkedin\.com|github\.com/i.test(text)) {
+    return 'contact'
+  }
+
+  if (text === text.toUpperCase() && text.length <= 48) {
+    return 'heading'
+  }
+
+  if (/^(?:[-*•])/u.test(text)) {
+    return 'list_item'
+  }
+
+  return 'paragraph'
+}
+
+function classifySectionHint(text: string): ResumeDocumentBlock['sectionHint'] {
+  const normalized = text.toLowerCase()
+
+  if (/(experience|employment)/.test(normalized)) return 'experience'
+  if (/(education|university|degree)/.test(normalized)) return 'education'
+  if (/(certification|certificate)/.test(normalized)) return 'certifications'
+  if (/(skills|react|typescript|javascript|figma|python)/.test(normalized)) return 'skills'
+  if (/(project|portfolio)/.test(normalized)) return 'projects'
+  if (/(language|english|german|albanian)/.test(normalized)) return 'languages'
+  if (/@|linkedin\.com|github\.com|phone|email/.test(normalized)) return 'contact'
+  if (text.length >= 48) return 'summary'
+  if (text.length <= 80) return 'identity'
+  return 'other'
+}
+
+function buildBundleFromText(input: {
+  bundleId: string
+  runId: string
+  sourceResumeId: string
+  sourceFileKind: ResumeDocumentBundle['sourceFileKind']
+  parserKind: ResumeDocumentBundle['primaryParserKind']
+  text: string | null
+  warnings?: string[]
+}): ResumeDocumentBundle {
+  const fullText = normalizeExtractedText(input.text ?? '')
+  const paragraphs = (fullText ?? '')
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+  return ResumeDocumentBundleSchema.parse({
+    id: input.bundleId,
+    runId: input.runId,
+    sourceResumeId: input.sourceResumeId,
+    sourceFileKind: input.sourceFileKind,
+    primaryParserKind: input.parserKind,
+    parserKinds: [input.parserKind],
+    createdAt: new Date().toISOString(),
+    warnings: input.warnings ?? [],
+    pages: [
+      {
+        pageNumber: 1,
+        text: fullText,
+        charCount: fullText?.length ?? 0,
+        parserKinds: [input.parserKind],
+        usedOcr: false
+      }
+    ],
+    blocks: paragraphs.map((entry, index) => ({
+      id: `block_${index + 1}`,
+      pageNumber: 1,
+      readingOrder: index,
+      text: entry,
+      kind: index === 0 ? 'heading' : classifyBlockKind(entry),
+      sectionHint: index === 0 ? 'identity' : classifySectionHint(entry),
+      bbox: null,
+      sourceParserKinds: [input.parserKind],
+      sourceConfidence: 1
+    })),
+    fullText
+  })
+}
+
 async function extractPlainText(filePath: string): Promise<string | null> {
   return normalizeExtractedText(await readFile(filePath, 'utf8'))
 }
@@ -337,6 +418,78 @@ async function extractPdfText(filePath: string): Promise<string | null> {
   return normalizeExtractedText(pageTexts.join('\n\n'))
 }
 
+async function extractPdfDocumentBundleWithPdfJs(filePath: string, input: {
+  bundleId: string
+  runId: string
+  sourceResumeId: string
+}): Promise<ResumeDocumentBundle> {
+  ensurePdfJsRuntimePolyfills()
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  configurePdfJsWorker(pdfjs)
+  const rawBytes = await readFile(filePath)
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(rawBytes),
+    useWorkerFetch: false,
+    isEvalSupported: false
+  })
+  const document = await loadingTask.promise
+  const pages: ResumeDocumentBundle['pages'] = []
+  const blocks: ResumeDocumentBundle['blocks'] = []
+  const pageTexts: string[] = []
+
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber)
+      const textContent = await page.getTextContent()
+      const textItems = textContent.items.filter(isPdfTextItem)
+      const lines = groupTextItemsIntoLines(textItems).filter((line) => line.trim())
+      const pageText = normalizeExtractedText(lines.join('\n'))
+
+      pages.push({
+        pageNumber,
+        text: pageText,
+        charCount: pageText?.length ?? 0,
+        parserKinds: ['pdfjs_text'],
+        usedOcr: false
+      })
+
+      if (pageText) {
+        pageTexts.push(pageText)
+      }
+
+      lines.forEach((line, index) => {
+        blocks.push({
+          id: `page_${pageNumber}_block_${index + 1}`,
+          pageNumber,
+          readingOrder: index,
+          text: line,
+          kind: classifyBlockKind(line),
+          sectionHint: classifySectionHint(line),
+          bbox: null,
+          sourceParserKinds: ['pdfjs_text'],
+          sourceConfidence: 0.72
+        })
+      })
+    }
+  } finally {
+    await document.destroy()
+  }
+
+  return ResumeDocumentBundleSchema.parse({
+    id: input.bundleId,
+    runId: input.runId,
+    sourceResumeId: input.sourceResumeId,
+    sourceFileKind: 'pdf',
+    primaryParserKind: 'pdfjs_text',
+    parserKinds: ['pdfjs_text'],
+    createdAt: new Date().toISOString(),
+    warnings: [],
+    pages,
+    blocks,
+    fullText: normalizeExtractedText(pageTexts.join('\n\n'))
+  })
+}
+
 export async function getPdfPageCount(filePath: string): Promise<number> {
   ensurePdfJsRuntimePolyfills()
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
@@ -362,35 +515,93 @@ async function extractDocxText(filePath: string): Promise<string | null> {
   return normalizeExtractedText(result.value)
 }
 
-export async function extractResumeText(filePath: string): Promise<{
+export async function extractResumeDocument(filePath: string, input: {
+  bundleId: string
+  runId: string
+  sourceResumeId: string
+}): Promise<{
+  bundle: ResumeDocumentBundle
   textContent: string | null
   warnings: string[]
 }> {
   const extension = path.extname(filePath).toLowerCase()
 
   if (['.txt', '.md', '.markdown'].includes(extension)) {
+    const parserKind = extension === '.txt' ? 'plain_text' : 'plain_text'
+    const sourceFileKind = extension === '.txt' ? 'plain_text' : 'markdown'
+    const textContent = await extractPlainText(filePath)
+    const bundle = buildBundleFromText({
+      ...input,
+      sourceFileKind,
+      parserKind,
+      text: textContent
+    })
+
     return {
-      textContent: await extractPlainText(filePath),
-      warnings: []
+      bundle,
+      textContent: bundle.fullText,
+      warnings: bundle.warnings
     }
   }
 
   if (extension === '.pdf') {
+    const bundle = process.platform === 'darwin'
+      ? await extractPdfDocumentBundleWithMacOs(filePath, input)
+      : await extractPdfDocumentBundleWithPdfJs(filePath, input)
+
     return {
-      textContent: await extractPdfText(filePath),
-      warnings: []
+      bundle,
+      textContent: bundle.fullText,
+      warnings: bundle.warnings
     }
   }
 
   if (extension === '.docx') {
+    const textContent = process.platform === 'darwin'
+      ? await extractDocxTextWithTextutil(filePath).catch(() => extractDocxText(filePath))
+      : await extractDocxText(filePath)
+    const parserKind = process.platform === 'darwin' ? 'textutil_docx' : 'mammoth'
+    const bundle = buildBundleFromText({
+      ...input,
+      sourceFileKind: 'docx',
+      parserKind,
+      text: textContent
+    })
+
     return {
-      textContent: await extractDocxText(filePath),
-      warnings: []
+      bundle,
+      textContent: bundle.fullText,
+      warnings: bundle.warnings
     }
   }
 
-  return {
-    textContent: null,
+  const bundle = buildBundleFromText({
+    ...input,
+    sourceFileKind: 'unknown',
+    parserKind: 'plain_text',
+    text: null,
     warnings: ['This file type is stored locally, but automatic text extraction is not available yet.']
+  })
+
+  return {
+    bundle,
+    textContent: null,
+    warnings: bundle.warnings
+  }
+}
+
+export async function extractResumeText(filePath: string): Promise<{
+  textContent: string | null
+  warnings: string[]
+}> {
+  const extracted = await extractResumeDocument(filePath, {
+    bundleId: `bundle_${Date.now()}`,
+    runId: `run_${Date.now()}`,
+    sourceResumeId: `resume_${Date.now()}`
+  })
+
+  return {
+    textContent: extracted.textContent,
+    warnings: extracted.warnings
   }
 }

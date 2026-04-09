@@ -419,6 +419,9 @@ export function createSeed(): JobFinderRepositorySeed {
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
     sourceDebugEvidenceRefs: [],
+    resumeImportRuns: [],
+    resumeImportDocumentBundles: [],
+    resumeImportFieldCandidates: [],
     settings: {
       resumeFormat: "pdf",
       resumeTemplateId: "classic_ats",
@@ -491,4 +494,3 @@ export function createResumeExtraction(
     ...overrides,
   };
 }
-

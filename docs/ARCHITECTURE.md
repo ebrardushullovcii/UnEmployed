@@ -28,7 +28,7 @@
 ## Cross-Package Flows
 
 - Desktop flow: renderer -> typed preload APIs -> Electron main -> package services.
-- Resume and profile flow: `apps/desktop` handles local file ingress and desktop rendering concerns, `packages/job-finder` owns orchestration, `packages/ai-providers` normalizes model outputs, and `packages/db` persists the resulting state.
+- Resume and profile flow: `apps/desktop` handles local file ingress plus parser routing into canonical resume document bundles, `packages/job-finder` owns staged import orchestration and safe canonical application, `packages/ai-providers` normalizes staged model outputs, and `packages/db` persists both canonical profile state and durable import-run artifacts.
 - Discovery and apply flow: `packages/job-finder` owns orchestration and adapter selection, `packages/browser-agent` owns bounded agent tasks, prompts, transcript compaction, tool policy, structured outputs, and deterministic catalog workflow orchestration such as filtering, eligibility gates, checkpoint shaping, and resume-usage rules, and `packages/browser-runtime` owns browser session lifecycle and generic automation primitives.
 - Source-debug flow: `packages/job-finder` owns phase orchestration, artifact synthesis, and replay verification; `packages/browser-agent` keeps worker transcripts ephemeral, owns prompt and tool policy, and returns structured schema-validated attempt data; `packages/db` retains durable run and artifact records while workspace snapshots keep only lightweight UI summaries.
 - Renderer and Electron surfaces should consume `packages/browser-agent` only through typed higher-level package APIs or runtime seams; they should not depend on browser-agent internals directly.

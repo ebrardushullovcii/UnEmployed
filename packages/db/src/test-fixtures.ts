@@ -149,6 +149,9 @@ export function createSeed(): JobFinderRepositorySeed {
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
     sourceDebugEvidenceRefs: [],
+    resumeImportRuns: [],
+    resumeImportDocumentBundles: [],
+    resumeImportFieldCandidates: [],
     settings: {
       resumeFormat: "html" as const,
       resumeTemplateId: "classic_ats" as const,

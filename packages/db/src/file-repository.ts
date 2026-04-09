@@ -6,10 +6,13 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ResumeDocumentBundleSchema,
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
   ResumeExportArtifactSchema,
+  ResumeImportFieldCandidateSchema,
+  ResumeImportRunSchema,
   ResumeResearchArtifactSchema,
   ResumeValidationResultSchema,
   SavedJobSchema,
@@ -152,6 +155,27 @@ const INDEXED_COLLECTION_CONFIGS = {
       ];
     },
   },
+  resume_import_runs: {
+    columnNames: ["source_resume_id", "started_at", "status"],
+    getColumns: (value: unknown) => {
+      const run = ResumeImportRunSchema.parse(cloneValue(value));
+      return [run.sourceResumeId, run.startedAt, run.status];
+    },
+  },
+  resume_import_document_bundles: {
+    columnNames: ["run_id", "source_resume_id", "created_at"],
+    getColumns: (value: unknown) => {
+      const bundle = ResumeDocumentBundleSchema.parse(cloneValue(value));
+      return [bundle.runId, bundle.sourceResumeId, bundle.createdAt];
+    },
+  },
+  resume_import_field_candidates: {
+    columnNames: ["run_id", "resolution", "created_at"],
+    getColumns: (value: unknown) => {
+      const candidate = ResumeImportFieldCandidateSchema.parse(cloneValue(value));
+      return [candidate.runId, candidate.resolution, candidate.createdAt];
+    },
+  },
   resume_research_artifacts: {
     columnNames: ["job_id", "fetched_at"],
     getColumns: (value: unknown) => {
@@ -217,6 +241,30 @@ export async function createFileJobFinderRepository(
       );
       replaceIndexedCollection(
         database,
+        "resume_import_runs",
+        state.resumeImportRuns,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.resume_import_runs,
+        },
+      );
+      replaceIndexedCollection(
+        database,
+        "resume_import_document_bundles",
+        state.resumeImportDocumentBundles,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.resume_import_document_bundles,
+        },
+      );
+      replaceIndexedCollection(
+        database,
+        "resume_import_field_candidates",
+        state.resumeImportFieldCandidates,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.resume_import_field_candidates,
+        },
+      );
+      replaceIndexedCollection(
+        database,
         "resume_research_artifacts",
         state.resumeResearchArtifacts,
         {
@@ -272,6 +320,9 @@ export async function createFileJobFinderRepository(
       | "resume_drafts"
       | "resume_draft_revisions"
       | "resume_export_artifacts"
+      | "resume_import_runs"
+      | "resume_import_document_bundles"
+      | "resume_import_field_candidates"
       | "resume_research_artifacts"
       | "resume_validation_results"
       | "resume_assistant_messages"
@@ -296,6 +347,9 @@ export async function createFileJobFinderRepository(
       | "resume_drafts"
       | "resume_draft_revisions"
       | "resume_export_artifacts"
+      | "resume_import_runs"
+      | "resume_import_document_bundles"
+      | "resume_import_field_candidates"
       | "resume_research_artifacts"
       | "resume_validation_results"
       | "resume_assistant_messages"
@@ -547,6 +601,157 @@ export async function createFileJobFinderRepository(
         cloneValue(artifact),
       );
       return upsertPersistedValue("resume_research_artifacts", normalizedArtifact);
+    },
+    listResumeImportRuns(options) {
+      const whereParts: string[] = [];
+      const params: Array<string | number> = [];
+
+      if (options?.sourceResumeId) {
+        whereParts.push("source_resume_id = ?");
+        params.push(options.sourceResumeId);
+      }
+
+      if (options?.statuses && options.statuses.length > 0) {
+        const placeholders = options.statuses.map(() => "?").join(", ");
+        whereParts.push(`status IN (${placeholders})`);
+        params.push(...options.statuses);
+      }
+
+      const limitSql =
+        typeof options?.limit === "number" && options.limit >= 0
+          ? ` LIMIT ${Math.floor(options.limit)}`
+          : "";
+
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(
+            database,
+            "resume_import_runs",
+            ResumeImportRunSchema,
+            {
+              ...(whereParts.length > 0
+                ? { whereSql: whereParts.join(" AND "), params }
+                : {}),
+              orderBySql: `started_at DESC, id ASC${limitSql}`,
+            },
+          ),
+        ),
+      );
+    },
+    async getLatestResumeImportRun(sourceResumeId) {
+      const runs = listResumeDraftValues(
+        database,
+        "resume_import_runs",
+        ResumeImportRunSchema,
+        {
+          ...(sourceResumeId
+            ? { whereSql: "source_resume_id = ?", params: [sourceResumeId] }
+            : {}),
+          orderBySql: "started_at DESC, id ASC",
+        },
+      );
+      return runs[0] ?? null;
+    },
+    listResumeImportDocumentBundles(options) {
+      const whereParts: string[] = [];
+      const params: Array<string> = [];
+
+      if (options?.runId) {
+        whereParts.push("run_id = ?");
+        params.push(options.runId);
+      }
+
+      if (options?.sourceResumeId) {
+        whereParts.push("source_resume_id = ?");
+        params.push(options.sourceResumeId);
+      }
+
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(
+            database,
+            "resume_import_document_bundles",
+            ResumeDocumentBundleSchema,
+            {
+              ...(whereParts.length > 0
+                ? { whereSql: whereParts.join(" AND "), params }
+                : {}),
+              orderBySql: "created_at DESC, id ASC",
+            },
+          ),
+        ),
+      );
+    },
+    listResumeImportFieldCandidates(options) {
+      const whereParts: string[] = [];
+      const params: Array<string> = [];
+
+      if (options?.runId) {
+        whereParts.push("run_id = ?");
+        params.push(options.runId);
+      }
+
+      if (options?.resolution) {
+        whereParts.push("resolution = ?");
+        params.push(options.resolution);
+      }
+
+      return Promise.resolve(
+        cloneValue(
+          listResumeDraftValues(
+            database,
+            "resume_import_field_candidates",
+            ResumeImportFieldCandidateSchema,
+            {
+              ...(whereParts.length > 0
+                ? { whereSql: whereParts.join(" AND "), params }
+                : {}),
+              orderBySql: "created_at DESC, id ASC",
+            },
+          ),
+        ),
+      );
+    },
+    replaceResumeImportRunArtifacts({ run, documentBundles, fieldCandidates }) {
+      const normalizedRun = ResumeImportRunSchema.parse(cloneValue(run));
+      const normalizedBundles = ResumeDocumentBundleSchema.array().parse(
+        cloneValue([...documentBundles]),
+      );
+      const normalizedCandidates = ResumeImportFieldCandidateSchema.array().parse(
+        cloneValue([...fieldCandidates]),
+      );
+
+      for (const bundle of normalizedBundles) {
+        if (bundle.runId !== normalizedRun.id) {
+          throw new Error("Resume document bundle does not belong to the provided import run.");
+        }
+      }
+
+      for (const candidate of normalizedCandidates) {
+        if (candidate.runId !== normalizedRun.id) {
+          throw new Error("Resume import candidate does not belong to the provided import run.");
+        }
+      }
+
+      runImmediateTransaction(database, () => {
+        writePersistedValue("resume_import_runs", normalizedRun);
+        database
+          .prepare("DELETE FROM resume_import_document_bundles WHERE run_id = ?")
+          .run(normalizedRun.id);
+        database
+          .prepare("DELETE FROM resume_import_field_candidates WHERE run_id = ?")
+          .run(normalizedRun.id);
+
+        for (const bundle of normalizedBundles) {
+          writePersistedValue("resume_import_document_bundles", bundle);
+        }
+
+        for (const candidate of normalizedCandidates) {
+          writePersistedValue("resume_import_field_candidates", candidate);
+        }
+      });
+
+      return secureDatabaseFile(options.filePath);
     },
     listResumeValidationResults(draftId) {
       return Promise.resolve(

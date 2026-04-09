@@ -123,4 +123,29 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.projects).toEqual(seed.profile.projects);
     expect(snapshot.profile.spokenLanguages).toEqual(seed.profile.spokenLanguages);
   });
+
+  test("retains the latest import run summary and unresolved candidate previews", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        profile: {
+          ...createSeed().profile,
+          baseResume: {
+            ...createSeed().profile.baseResume,
+            extractionStatus: "not_started",
+            lastAnalyzedAt: null,
+            textContent:
+              "Alex Vanguard\nFrontend Engineer\nBerlin, Germany\nalex@example.com\nBuilds resilient workflows for product teams.",
+          },
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.analyzeProfileFromResume();
+
+    expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
+    expect(snapshot.latestResumeImportRun?.candidateCounts.autoApplied).toBeGreaterThan(0);
+    expect(snapshot.latestResumeImportReviewCandidates.length).toBeGreaterThan(0);
+    expect(snapshot.latestResumeImportReviewCandidates[0]?.label).toBeTruthy();
+  });
 });

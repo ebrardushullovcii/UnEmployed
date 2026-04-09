@@ -46,6 +46,12 @@ import {
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
 } from "./source-debug";
+import {
+  ResumeDocumentBundleSchema,
+  ResumeImportFieldCandidateSchema,
+  ResumeImportFieldCandidateSummarySchema,
+  ResumeImportRunSchema,
+} from "./resume-import";
 
 export const JobFinderJobActionInputSchema = z.object({
   jobId: NonEmptyStringSchema,
@@ -203,6 +209,11 @@ export const JobFinderRepositoryStateSchema = z.object({
     .array(SourceInstructionArtifactSchema)
     .default([]),
   sourceDebugEvidenceRefs: z.array(SourceDebugEvidenceRefSchema).default([]),
+  resumeImportRuns: z.array(ResumeImportRunSchema).default([]),
+  resumeImportDocumentBundles: z.array(ResumeDocumentBundleSchema).default([]),
+  resumeImportFieldCandidates: z
+    .array(ResumeImportFieldCandidateSchema)
+    .default([]),
   settings: JobFinderSettingsSchema,
   discovery: JobFinderDiscoveryStateSchema.default({}),
 });
@@ -279,6 +290,10 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
   sourceInstructionArtifacts: z
     .array(SourceInstructionArtifactSchema)
+    .default([]),
+  latestResumeImportRun: ResumeImportRunSchema.nullable().default(null),
+  latestResumeImportReviewCandidates: z
+    .array(ResumeImportFieldCandidateSummarySchema)
     .default([]),
   selectedApplicationRecordId: NonEmptyStringSchema.nullable(),
   settings: JobFinderSettingsSchema,

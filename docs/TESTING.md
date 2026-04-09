@@ -75,6 +75,7 @@
 - The desktop test API should keep scripted UI harnesses on deterministic AI paths even when local `.env` files enable the live OpenAI-compatible provider for regular manual runs.
 - Resume-workspace export now opens the native Save dialog during regular desktop use; keep the desktop test API path deterministic and dialog-free so `ui:resume-workspace` and related harnesses can still export without OS-level picker automation.
 - Resume-import QA should cover at least one plain-text input path plus one extracted-document path (`pdf` or `docx`) when the ingestion layer changes.
+- Current committed deterministic resume-import fixture: `apps/desktop/test-fixtures/job-finder/resume-import-sample.txt`.
 
 ## Desktop UI Capture Workflow
 
@@ -90,6 +91,7 @@
 - When apply-safety logic changes, pair the desktop capture flows with targeted service tests for stale approvals and missing-approved-file rejection because the happy-path demo still will not exercise every guarded failure state by itself.
 - The capture script builds the desktop app first, launches Electron through Playwright, waits for the seeded Job Finder workspace to load, clicks through the current MVP screens, and saves screenshots for visual review.
 - The resume-import capture defaults to `Resume.pdf` at the repo root; override with CLI flags like `--resume`, `--expected-name`, `--expected-headline`, `--expected-location`, `--expected-summary-contains`, and `--label`, or use the matching `UI_TEST_*` environment variables when validating other files.
+- Recommended deterministic import check for the new `018` pipeline: `pnpm --filter @unemployed/desktop ui:resume-import -- --resume ./test-fixtures/job-finder/resume-import-sample.txt --expected-name "Jamie Rivers" --expected-headline "Staff Frontend Engineer" --expected-location "Berlin, Germany" --expected-summary-contains "12 years of experience" --label resume-import-fixture`.
 - The profile-baseline capture now requires an explicit snapshot path. The old default snapshot-path fallback was removed, so pass `--snapshot <path>` or set `UI_PROFILE_BASELINE_SNAPSHOT` to the workspace snapshot you want to use for screenshots.
 - Migration example: `pnpm --filter @unemployed/desktop exec node ./scripts/capture-profile-baseline.mjs --snapshot ./test-fixtures/job-finder/profile-baseline-workspace.json`.
 - Current committed baseline fixture for shared-profile QA: `apps/desktop/test-fixtures/job-finder/profile-baseline-workspace.json`.
