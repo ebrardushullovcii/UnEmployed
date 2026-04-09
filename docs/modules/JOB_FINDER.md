@@ -28,10 +28,17 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 ## Current And Queued Plans
 
 - Resume workspace plan: `docs/exec-plans/completed/007-job-finder-resume-workspace.md`
-- Automatic job apply plan: `docs/exec-plans/queued/017-job-finder-automatic-job-apply.md`
 - Completed full-app copy pass plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - Browser efficiency and speed plan: `docs/exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md`
-- `017` intentionally defines the queued apply direction as a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission. The current shipped apply flow remains more conservative until that plan lands.
+- Shared data expansion plan: `docs/exec-plans/queued/011-job-finder-shared-data-expansion.md`
+- Guided setup and profile copilot plan: `docs/exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md`
+- Source intelligence and faster discovery plan: `docs/exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md`
+- Resume output and template quality plan: `docs/exec-plans/queued/014-job-finder-resume-output-and-template-quality.md`
+- Automatic job apply plan: `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`
+- Shared agent auto compaction plan: `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
+- Browser substrate evaluation and direction plan: `docs/exec-plans/queued/017-browser-substrate-evaluation-and-direction.md`
+- The recommended forward path is now `011` -> `012` -> `013` -> `014` -> `015`, with `016` auto compaction and `017` browser-substrate direction treated as deferred cross-cutting follow-ons rather than the main product queue.
+- `015` intentionally defines the queued apply direction as a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission. The current shipped apply flow remains more conservative until that plan lands.
 
 ## Completed Background Plans
 

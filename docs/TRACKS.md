@@ -22,96 +22,92 @@ Use one track per meaningful workstream, not per person or per chat.
 
 
 
-### Recommended Queue Order
+### Recommended Execution Bundles
 
-- `011 Shared Data Expansion` -> first foundation pass; multiple later plans depend on richer shared candidate, job, and blocker domains
-- `012 Guided Setup And Profile Copilot` -> collects and edits the richer data from `011` instead of leaving it theoretical
-- `013 Resume Output And Template Quality` -> best done after `011` and `012` so richer proof-bank and targeting data can improve exports directly
-- `014 Structured Source-Debug Artifacts` -> should settle the typed site-intelligence shape before discovery and apply deepen further
-- `015 Deterministic Discovery And Provider Research` -> follows `014` so provider-aware discovery consumes the same structured artifact model instead of inventing a parallel one
-- `016 Shared Agent Auto Compaction` -> shared infrastructure enabler that should land before the longest-running agent-heavy apply paths
-- `017 Automatic Job Apply` -> final major queued product sequence after the stronger data, setup, source-debug, and compaction prerequisites exist
-- `018 Browser Substrate Evaluation And Direction` -> cross-cutting decision note that informs runtime choices in parallel, but is not the first implementation queue item by itself
+- `011 Shared Data Expansion` -> first foundation pass so later setup, discovery, resume, and apply work stop inventing parallel memory
+- `012 Guided Setup And Profile Copilot` -> turns the new `011` roots into a real first-run experience and captures the discovery/apply details the app is currently missing
+- `013 Source Intelligence And Faster Discovery` -> merged source-debug plus discovery workstream; typed source intelligence first, then provider-aware per-target and run-all discovery, richer job persistence, seen/applied dedupe, and browser closeout improvements
+- `014 Resume Content Correctness And Output Quality` -> after stronger profile and job inputs exist; focus first on usable content, editability, and ATS-safe output, not template variety
+- `015 Automatic Job Apply` -> final major product workstream after the stronger data, setup, discovery, and resume foundations exist
+- `016 Shared Agent Auto Compaction` -> keep ready, but only pull it forward when long-running discovery or apply agents start failing or degrading because of context growth
+- `017 Browser Substrate Evaluation And Direction` -> keep as a later benchmark-driven direction note, not as a main product queue item by itself
 
 ### `Plan 011 Job Finder Shared Data Expansion`
 
 - status: `ready`
-- last updated: `2026-04-06`
+- last updated: `2026-04-09`
 - linked plan: `docs/exec-plans/queued/011-job-finder-shared-data-expansion.md`
+- plan maturity: `execution_ready`
 - code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `apps/desktop`, `docs`
-- current focus: queued first foundation pass for shared narrative, proof-bank, answer-bank, richer job or employer context, and blocker or replay data that later discovery, resume, and apply flows can all reuse
-- next step: audit the existing schema roots and repository state, extend those roots where possible, and only propose a new top-level domain when the existing saved-job, source-debug, or workspace state structures cannot own the new data cleanly
+- current focus: queued first foundation pass now grounded in the current `CandidateProfile`, `SavedJob`, `ApplicationAttempt`, and source-debug evidence roots so later discovery, resume, and apply work reuse durable shared data instead of inventing parallel stores, including reusable screener defaults such as compensation, availability, relocation, sponsorship, and short career-transition explanations
+- next step: start with the field-to-consumer audit in the plan, extend `CandidateProfile` for narrative and proof and answer defaults, extend `SavedJob` for richer job context, extend `ApplicationAttempt` for question and blocker and replay memory, and only introduce a new collection if JSON-shape expansion inside those roots proves insufficient
 - blockers: none
 
 ### `Plan 012 Guided Setup And Profile Copilot`
 
 - status: `ready`
-- last updated: `2026-04-06`
+- last updated: `2026-04-09`
 - linked plan: `docs/exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md`
+- plan maturity: `execution_ready`
 - code areas: `apps/desktop`, `packages/job-finder`, `packages/contracts`, `packages/db`, `packages/ai-providers`
-- current focus: queued second foundation pass to turn broad first-run profile editing into a guided setup plus side chat that can recommend and apply typed profile edits, using the richer data captured by plan `011`
-- next step: define the first-run route shape, low-confidence review behavior, and typed patch contract for profile-copilot edits on top of the shared data expansion from `011`
+- current focus: queued second foundation pass to turn broad first-run profile editing into a concrete guided setup route with resumable setup state, low-confidence review items, readiness checks, discovery/apply-relevant prompts, and a bounded side copilot that applies typed profile patch groups on top of the richer `011` data roots
+- next step: start Milestone 1 after the `011` contract roots are clear enough to avoid temporary setup-only storage, then land setup-state contracts, migration defaults, and the `/job-finder/profile/setup` route before widening the side-copilot behavior; the early capture steps should explicitly cover compensation expectations, work authorization, sponsorship, relocation or travel, availability, and short career-transition explanations instead of leaving them to later screeners
 - blockers: best started after the initial `011` schema direction is clear enough that setup and chat edits target durable fields instead of temporary shapes
 
-### `Plan 013 Resume Output And Template Quality`
+### `Plan 013 Job Finder Source Intelligence And Faster Discovery`
 
 - status: `ready`
-- last updated: `2026-04-06`
-- linked plan: `docs/exec-plans/queued/013-job-finder-resume-output-and-template-quality.md`
-- code areas: `packages/job-finder`, `packages/contracts`, `apps/desktop`, `packages/ai-providers`
-- current focus: queued resume-quality follow-on to widen the draft and export model, improve proof selection and keyword targeting, and ship a stronger ATS-safe default output without replacing the current workspace model
-- next step: turn the starting note into a deeper implementation plan once the richer proof-bank and targeting data from `011` and `012` are clear enough to inform section ranking and export quality validation
-- blockers: best after `011` and `012`, even though isolated template work could begin earlier if needed
-
-### `Plan 014 Job Finder Structured Source-Debug Artifacts`
-
-- status: `ready`
-- last updated: `2026-04-06`
-- linked plan: `docs/exec-plans/queued/014-job-finder-structured-source-debug-artifacts.md`
-- code areas: `packages/job-finder`, `packages/browser-agent`, `packages/contracts`, `packages/db`, `apps/desktop`
-- current focus: queued source-debug follow-on to replace mostly freeform guidance arrays with typed provider, route, collection-method, and apply-intelligence artifacts that discovery and apply can consume directly
-- next step: define the artifact shape and override layering clearly enough that discovery and apply do not create a second overlapping site-intelligence model
-- blockers: none
-
-### `Plan 015 Job Finder Deterministic Discovery And Provider Research`
-
-- status: `ready`
-- last updated: `2026-04-06`
-- linked plan: `docs/exec-plans/queued/015-job-finder-deterministic-discovery-and-provider-research.md`
+- last updated: `2026-04-09`
+- linked plan: `docs/exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md`
+- plan maturity: `execution_ready`
 - code areas: `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `packages/contracts`, `packages/db`, `apps/desktop`
-- current focus: queued discovery redesign to prefer provider-aware collection, API or structured-route fast paths, title-first triage, durable seen-job tracking, and structured user overrides so the system does less expensive browser work on weak candidates
-- next step: start after `014` defines the shared structured site-intelligence shape, then use the completed `010` timing baseline to choose the first discovery slices with the highest speed payoff
-- blockers: best after `014` so discovery does not duplicate provider and route intelligence in a second model
+- current focus: merged source-debug plus discovery workstream that turns freeform learned guidance into typed source intelligence, then immediately consumes it for provider-aware collection, one-target and run-all execution, title-first triage, durable seen/applied dedupe, richer job persistence, and browser closeout clarity
+- next step: start with the typed source-intelligence schema and override model, then land one-target discovery and provider-aware method selection before broad run-all tuning
+- blockers: best after `011` and `012` so discovery can consume stronger shared data and targeting inputs
+
+### `Plan 014 Resume Content Correctness And Output Quality`
+
+- status: `ready`
+- last updated: `2026-04-09`
+- linked plan: `docs/exec-plans/queued/014-job-finder-resume-output-and-template-quality.md`
+- plan maturity: `execution_ready`
+- code areas: `packages/job-finder`, `packages/contracts`, `apps/desktop`, `packages/ai-providers`
+- current focus: queued resume-quality pass is now execution-ready around the real shipped seams: widen the thin provider-to-draft bridge, add deterministic sanitation for duplicate and job-description-bleed content, make assistant patch application reliable, and ship one strong ATS-safe default renderer before any extra template work
+- next step: start Milestone 1 by freezing the current weak output samples and adding duplicate, thin-output, and job-description-bleed fixtures, then widen the draft and render model in contracts and `job-finder` before rebuilding the default desktop export path
+- blockers: best after `011` and `012`, but the first usable-output slice should land before serious `015` automation depends on resume quality
+
+### `Plan 015 Automatic Job Apply`
+
+- status: `ready`
+- last updated: `2026-04-09`
+- linked plan: `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`
+- plan maturity: `execution_ready`
+- code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/browser-runtime`, `packages/browser-agent`, `apps/desktop`
+- current focus: queued staged apply evolution: shared apply domains and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission with run-scoped multi-submit approval, live consent interrupts, generated profile-grounded answers, skip-with-artifacts recovery, and clear package ownership where browser-agent holds bounded workflow policy while runtime stays generic
+- next step: start only after the stronger shared data from `011`, richer guided setup from `012`, merged source-intelligence and discovery work from `013`, and a usable resume path from `014` are in place enough that the first `015` slice lands on durable foundations instead of inventing one-off apply-only state
+- blockers: depends on `011`, `012`, `013`, and a good enough `014` first slice for the strongest result; current shipped behavior remains more conservative until `015` lands
 
 ### `Plan 016 Shared Agent Auto Compaction`
 
 - status: `ready`
-- last updated: `2026-04-06`
+- last updated: `2026-04-09`
 - linked plan: `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
+- plan maturity: `execution_ready`
 - code areas: `packages/browser-agent`, `packages/job-finder`, `packages/contracts`, `apps/desktop`
-- current focus: queued shared infrastructure follow-on to extend the current browser-agent message-count compaction into a shared token-budget compaction policy that all long-running agents and orchestrators can reuse, with a configurable default threshold around `150_000` tokens and message-count fallback where token estimation is not available
-- next step: decide the shared settings shape and whether the first implementation should stay `Job Finder`-scoped or immediately become repo-shared infrastructure for all agentic flows
-- blockers: should land before or alongside the longest-running later `017` apply flows, but does not need to block earlier product or schema work
+- current focus: execution-ready shared infrastructure pass to replace browser-agent-local message-count compaction with a shared token-budget-first policy, cover browser-agent live turns plus source-debug worker and final-review handoff payloads, and leave behind a reusable seam for future `015` apply workers without turning this into a generic chat-history feature
+- next step: start with the shared contracts and browser-agent token-estimation seam, then wire the shared policy through runtime discovery options, source-debug worker overrides, and source-debug final-review summary-first handoff, while leaving the current deterministic apply path untouched
+- blockers: none, but it does not need to displace the higher-value product work in `013`, `014`, or `015`; pull it forward only when long-running discovery, source-debug, or apply agents become the next concrete blocker
 
-### `Plan 017 Automatic Job Apply`
-
-- status: `ready`
-- last updated: `2026-04-06`
-- linked plan: `docs/exec-plans/queued/017-job-finder-automatic-job-apply.md`
-- code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/browser-runtime`, `packages/browser-agent`, `apps/desktop`
-- current focus: queued final major product sequence now re-authored as a staged apply evolution: shared apply domains and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission with run-scoped multi-submit approval, live consent interrupts, generated profile-grounded answers, skip-with-artifacts recovery, and clear package ownership where browser-agent holds bounded workflow policy while runtime stays generic
-- next step: start only after the stronger shared data from `011`, richer guided setup from `012`, structured source-debug intelligence from `014`, and preferably shared compaction from `016` are in place enough that the first `017` slice lands on durable foundations instead of inventing one-off apply-only state
-- blockers: depends on `011`, `012`, and `014` at minimum for the strongest result; `016` should land before or during the longest-running later apply flows; current shipped behavior remains more conservative until `017` lands
-
-### `Plan 018 Browser Substrate Evaluation And Direction`
+### `Plan 017 Browser Substrate Evaluation And Direction`
 
 - status: `ready`
-- last updated: `2026-04-06`
-- linked plan: `docs/exec-plans/queued/018-browser-substrate-evaluation-and-direction.md`
+- last updated: `2026-04-09`
+- linked plan: `docs/exec-plans/queued/017-browser-substrate-evaluation-and-direction.md`
+- plan maturity: `execution_ready`
 - code areas: `packages/browser-runtime`, `packages/browser-agent`, `packages/job-finder`, `apps/desktop`, `docs`
-- current focus: queued small cross-cutting direction note capturing the current conclusion that `agent-browser` is the leading browser-substrate candidate when speed and quality dominate the decision, while `UnEmployed` should keep its own orchestration, source-debug model, and approval logic and continue deeper benchmarking later before choosing a larger runtime move
-- next step: use the completed `010` performance work plus later discovery and source-debug and apply benchmarks to decide whether the next serious runtime move is `keep Playwright`, `add agent-browser as an alternate backend`, or `migrate the default substrate`
-- blockers: should remain a direction note until stronger representative benchmarking exists across discovery, source-debug, and apply flows
+- current focus: execution-ready research and benchmark plan for deciding the later browser-substrate direction across representative discovery, source-debug, and apply workloads while keeping `UnEmployed` orchestration, typed state, approval logic, and evidence quality as hard constraints
+- next step: wait until representative post-`013` and post-`015` flows exist, then run the benchmark matrix against the Playwright baseline and serious `agent-browser` candidate paths before choosing between keep, alternate backend, migrate, borrow ideas, or defer
+- blockers: should remain sequenced after the main product-loop rebuild because the benchmark evidence is only meaningful once stronger representative discovery and apply flows exist
 
 ### `Plan 009 Full App Copy Pass`
 
