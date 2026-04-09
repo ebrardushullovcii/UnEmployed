@@ -1,8 +1,8 @@
-# 017 Job Finder Automatic Job Apply
+# 015 Job Finder Automatic Job Apply
 
 Status: ready
 
-Plan `017` remains queued. Plan `007` completed the `Resume Workspace` hardening. Plan `010` completed the measurement-first browser-efficiency slice. The first implementation slice is now intentionally staged rather than jumping straight from the review-gated apply flow to queue-wide automatic submission.
+Plan `015` remains queued. Plan `007` completed the `Resume Workspace` hardening. Plan `010` completed the measurement-first browser-efficiency slice. The first implementation slice is now intentionally staged rather than jumping straight from the review-gated apply flow to queue-wide automatic submission.
 
 ## Goal
 
@@ -32,7 +32,7 @@ Required implementation bar:
 
 ## Research Inputs
 
-- queued plans `011` through `018`
+- queued plans `011` through `017`
 - Greenhouse Job Board API: `https://developers.greenhouse.io/job-board.html`
 - Lever developer docs: `https://hire.lever.co/developer/documentation`
 
@@ -45,7 +45,7 @@ Required implementation bar:
    - Richer narrative, proof-bank, and answer-bank data from queued plans `011` and `012` must shape how freeform answers are grounded.
 
 3. Current source-debug guidance is too freeform to be the long-term control plane for broad apply automation.
-   - Apply should consume typed provider, route, auth, question-surface, and apply-path hints when present, following the direction captured in queued plan `014`.
+   - Apply should consume typed provider, route, auth, question-surface, and apply-path hints when present, following the direction captured in queued plan `013`.
 
 4. Provider APIs are useful as public intelligence surfaces, not as a universal candidate-side direct-submit path.
    - Greenhouse exposes public job and question surfaces, but application `POST` requires an employer API key.
@@ -53,7 +53,7 @@ Required implementation bar:
    - That means provider-aware research can improve question modeling, prefill, route planning, and blocker classification, but the generic product path must still assume live-browser submit for arbitrary jobs.
 
 5. Resume quality remains a prerequisite for apply automation being a product win.
-   - `017` continues to depend on an approved non-stale tailored resume export from `007`, and the deeper resume-quality direction in queued plan `013` should improve the value of later automation without reopening the approval boundary.
+   - `015` continues to depend on an approved non-stale tailored resume export from `007`, and the deeper resume-quality direction in queued plan `014` should improve the value of later automation without reopening the approval boundary.
 
 Planning consequence:
 
@@ -110,7 +110,7 @@ The implementing agent should start from the current seams instead of inventing 
 
 ## Product Direction
 
-Plan `017` defines a staged apply evolution.
+Plan `015` defines a staged apply evolution.
 
 ### Stage 1: Shared apply data foundation
 
@@ -136,30 +136,30 @@ This is still a future-direction plan, not a claim that the current shipped app 
 
 Plan `007` is still the prerequisite slice.
 
-`017` must reuse and preserve these `007` rules:
+`015` must reuse and preserve these `007` rules:
 
 - the per-job `Resume Workspace` remains the source of truth for resume approval
 - apply flows must use the approved non-stale tailored export, not the base resume
 - stale or missing approved exports remain hard-stop conditions
 - staged apply work may add copilot, run, approval, and queue orchestration, but it must not weaken resume approval, export validation, or staleness checks
 
-`017` should not reopen `007` scope by redesigning resume generation, templates, or approval semantics. It consumes those outcomes and layers apply intelligence and automation on top of them.
+`015` should not reopen `007` scope by redesigning resume generation, templates, or approval semantics. It consumes those outcomes and layers apply intelligence and automation on top of them.
 
-### Relationship To `011`, `012`, And `015`
+### Relationship To `011`, `012`, And `014`
 
-Queued plans `011`, `012`, and `015` capture assumptions this plan should absorb rather than fight later:
+Queued plans `011`, `012`, and `014` capture assumptions this plan should absorb rather than fight later:
 
-- `011` improves the underlying quality of the approved resume artifact
+- `011` creates the shared candidate, job, answer, blocker, and replay roots that apply should reuse instead of inventing apply-only storage
 - `012` expands guided setup and profile capture so later screener automation has stronger candidate memory
-- `015` makes answers, blocker artifacts, consent state, replay checkpoints, and richer candidate memory first-class domains
+- `014` improves the quality and usability of the approved tailored resume artifact that apply depends on
 
 Implementation rule:
 
-- `017` should not wait for every adjacent plan to ship first, but it must adopt these data-model and product assumptions instead of cementing a thinner apply-only model that later plans would have to undo
+- `015` should not wait for every adjacent plan to ship first, but it must adopt these data-model and product assumptions instead of cementing a thinner apply-only model that later plans would have to undo
 
-### Relationship To `013` And `014`
+### Relationship To `013`
 
-Queued plans `013` and `014` capture the provider-aware and structured-artifact direction that apply should consume:
+Plan `013` captures the provider-aware and typed source-intelligence direction that apply should consume:
 
 - use typed provider, route, auth, question-surface, and apply-path hints when present
 - allow public or auth-safe provider question surfaces to improve question modeling and blocker classification where helpful
@@ -170,7 +170,7 @@ Queued plans `013` and `014` capture the provider-aware and structured-artifact 
 
 Plans `004` and `005` already generalized discovery around target sites and learned guidance.
 
-`017` should build on that work without reintroducing a rigid adapter-first submission model:
+`015` should build on that work without reintroducing a rigid adapter-first submission model:
 
 - use learned target guidance and prior attempt artifacts when they exist
 - do not require a predefined supported-source allowlist before the runtime can attempt a live apply flow

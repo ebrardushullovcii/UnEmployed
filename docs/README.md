@@ -45,14 +45,13 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed Job Finder resume workspace: [exec-plans/completed/007-job-finder-resume-workspace.md](exec-plans/completed/007-job-finder-resume-workspace.md)
 - Queued shared data expansion plan: [exec-plans/queued/011-job-finder-shared-data-expansion.md](exec-plans/queued/011-job-finder-shared-data-expansion.md)
 - Queued guided setup and profile copilot plan: [exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md](exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md)
-- Queued resume output and template quality plan: [exec-plans/queued/013-job-finder-resume-output-and-template-quality.md](exec-plans/queued/013-job-finder-resume-output-and-template-quality.md)
-- Queued structured source-debug artifacts plan: [exec-plans/queued/014-job-finder-structured-source-debug-artifacts.md](exec-plans/queued/014-job-finder-structured-source-debug-artifacts.md)
-- Queued deterministic discovery and provider research plan: [exec-plans/queued/015-job-finder-deterministic-discovery-and-provider-research.md](exec-plans/queued/015-job-finder-deterministic-discovery-and-provider-research.md)
+- Queued source intelligence and faster discovery plan: [exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md](exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md)
+- Queued resume output and template quality plan: [exec-plans/queued/014-job-finder-resume-output-and-template-quality.md](exec-plans/queued/014-job-finder-resume-output-and-template-quality.md)
+- Queued automatic job apply plan: [exec-plans/queued/015-job-finder-automatic-job-apply.md](exec-plans/queued/015-job-finder-automatic-job-apply.md)
 - Queued shared agent auto compaction plan: [exec-plans/queued/016-shared-agent-auto-compaction.md](exec-plans/queued/016-shared-agent-auto-compaction.md)
-- Queued automatic job apply plan: [exec-plans/queued/017-job-finder-automatic-job-apply.md](exec-plans/queued/017-job-finder-automatic-job-apply.md)
 - Completed full-app copy pass: [exec-plans/completed/009-full-app-production-copy-pass.md](exec-plans/completed/009-full-app-production-copy-pass.md)
 - Completed browser efficiency and speed: [exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md](exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md)
-- Queued browser substrate evaluation and direction plan: [exec-plans/queued/018-browser-substrate-evaluation-and-direction.md](exec-plans/queued/018-browser-substrate-evaluation-and-direction.md)
+- Queued browser substrate evaluation and direction plan: [exec-plans/queued/017-browser-substrate-evaluation-and-direction.md](exec-plans/queued/017-browser-substrate-evaluation-and-direction.md)
 
 ## Design References
 
