@@ -4,6 +4,8 @@ import type {
   CandidateProfile,
   EditableSourceInstructionArtifact,
   JobSearchPreferences,
+  ResumeImportFieldCandidateSummary,
+  ResumeImportRun,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
   SourceInstructionArtifact
@@ -40,6 +42,8 @@ export function ProfileScreen(props: {
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
+  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  latestResumeImportRun: ResumeImportRun | null
   profile: CandidateProfile
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   searchPreferences: JobSearchPreferences
@@ -55,6 +59,8 @@ export function ProfileScreen(props: {
     onSaveSourceInstructionArtifact,
     onSaveAll,
     onVerifySourceInstructions,
+    latestResumeImportReviewCandidates,
+    latestResumeImportRun,
     profile,
     recentSourceDebugRuns,
     searchPreferences,
@@ -77,20 +83,26 @@ export function ProfileScreen(props: {
   const projectArray = useFieldArray({ control: profileForm.control, name: 'projects' })
   const linkArray = useFieldArray({ control: profileForm.control, name: 'links' })
   const languageArray = useFieldArray({ control: profileForm.control, name: 'languages' })
-  const [identityValues, summaryValues, skillGroupValues, profileSkillValues, eligibilityValues, experienceValues, educationValues, certificationValues, projectValues, linkValues, languageValues] = useWatch({
+  const proofBankArray = useFieldArray({ control: profileForm.control, name: 'proofBank' })
+  const customAnswerArray = useFieldArray({ control: profileForm.control, name: 'answerBank.customAnswers' })
+  const [identityValues, summaryValues, narrativeValues, skillGroupValues, profileSkillValues, eligibilityValues, applicationIdentityValues, answerBankValues, experienceValues, educationValues, certificationValues, projectValues, linkValues, languageValues, proofBankValues] = useWatch({
     control: profileForm.control,
     name: [
       'identity',
       'summary',
+      'narrative',
       'skillGroups',
       'profileSkills',
       'eligibility',
+      'applicationIdentity',
+      'answerBank',
       'records.experiences',
       'records.education',
       'records.certifications',
       'projects',
       'links',
-      'languages'
+      'languages',
+      'proofBank'
     ]
   })
   const [
@@ -186,6 +198,10 @@ export function ProfileScreen(props: {
       identityValues?.githubUrl,
       summaryValues?.shortValueProposition,
       summaryValues?.fullSummary,
+      narrativeValues?.professionalStory,
+      narrativeValues?.nextChapterSummary,
+      narrativeValues?.careerTransitionSummary,
+      narrativeValues?.differentiators,
       summaryValues?.strengths,
       summaryValues?.leadershipSummary,
       summaryValues?.domainFocusSummary,
@@ -204,34 +220,50 @@ export function ProfileScreen(props: {
       countFilledRecordFields(certificationValues ?? [], ['id']),
       countFilledRecordFields(projectValues ?? [], ['id']),
       countFilledRecordFields(linkValues ?? [], ['id']),
-      countFilledRecordFields(languageValues ?? [], ['id', 'interviewPreference'])
+      countFilledRecordFields(languageValues ?? [], ['id', 'interviewPreference']),
+      countFilledRecordFields(proofBankValues ?? [], ['id'])
     )
 
-    const preferences = countFilledFields([
-      eligibilityValues?.authorizedWorkCountries,
-      eligibilityValues?.requiresVisaSponsorship,
-      eligibilityValues?.remoteEligible,
-      eligibilityValues?.securityClearance,
-      eligibilityValues?.willingToRelocate,
-      eligibilityValues?.willingToTravel,
-      eligibilityValues?.preferredRelocationRegions,
-      eligibilityValues?.noticePeriodDays,
-      eligibilityValues?.availableStartDate,
-      targetRoles,
-      jobFamilies,
-      seniorityLevels,
-      employmentTypes,
-      locations,
-      excludedLocations,
-      targetIndustries,
-      targetCompanyStages,
-      companyWhitelist,
-      companyBlacklist,
-      workModes,
-      tailoringMode,
-      minimumSalaryUsd,
-      targetSalaryUsd
-    ])
+    const preferences = combineSectionProgress(
+      countFilledFields([
+        eligibilityValues?.authorizedWorkCountries,
+        eligibilityValues?.requiresVisaSponsorship,
+        eligibilityValues?.remoteEligible,
+        eligibilityValues?.securityClearance,
+        eligibilityValues?.willingToRelocate,
+        eligibilityValues?.willingToTravel,
+        eligibilityValues?.preferredRelocationRegions,
+        eligibilityValues?.noticePeriodDays,
+        eligibilityValues?.availableStartDate,
+        applicationIdentityValues?.preferredEmail,
+        applicationIdentityValues?.preferredPhone,
+        applicationIdentityValues?.preferredLinkIds,
+        answerBankValues?.workAuthorization,
+        answerBankValues?.visaSponsorship,
+        answerBankValues?.relocation,
+        answerBankValues?.travel,
+        answerBankValues?.noticePeriod,
+        answerBankValues?.availability,
+        answerBankValues?.salaryExpectations,
+        answerBankValues?.selfIntroduction,
+        answerBankValues?.careerTransition,
+        targetRoles,
+        jobFamilies,
+        seniorityLevels,
+        employmentTypes,
+        locations,
+        excludedLocations,
+        targetIndustries,
+        targetCompanyStages,
+        companyWhitelist,
+        companyBlacklist,
+        workModes,
+        tailoringMode,
+        minimumSalaryUsd,
+        targetSalaryUsd
+      ]),
+      countFilledRecordFields(answerBankValues?.customAnswers ?? [], ['id'])
+    )
 
     return {
       basics,
@@ -243,6 +275,8 @@ export function ProfileScreen(props: {
     certificationValues,
     companyBlacklist,
     companyWhitelist,
+    applicationIdentityValues,
+    answerBankValues,
     educationValues,
     eligibilityValues,
     employmentTypes,
@@ -254,7 +288,9 @@ export function ProfileScreen(props: {
     linkValues,
     locations,
     minimumSalaryUsd,
+    narrativeValues,
     profileSkillValues,
+    proofBankValues,
     projectValues,
     seniorityLevels,
     skillGroupValues,
@@ -332,6 +368,8 @@ export function ProfileScreen(props: {
 
           <ProfileResumePanel
             busy={busy}
+            latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
+            latestResumeImportRun={latestResumeImportRun}
             onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
             onImportResume={onImportResume}
             profile={overviewProfile}
@@ -357,7 +395,9 @@ export function ProfileScreen(props: {
                   educationArray,
                   languageArray,
                   linkArray,
-                  projectArray
+                  projectArray,
+                  proofBankArray,
+                  customAnswerArray
                 }}
                 busy={busy}
                 experienceArray={experienceArray}

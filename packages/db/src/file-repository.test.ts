@@ -91,6 +91,7 @@ describe("createFileJobFinderRepository", () => {
           sourceJobId: "target_job_1",
           discoveryMethod: "catalog_seed",
           canonicalUrl: "https://jobs.example.com/roles/target_job_1",
+          applicationUrl: "https://jobs.example.com/roles/target_job_1/apply",
           title: "Lead Designer",
           company: "Signal Systems",
           location: "Remote",
@@ -100,7 +101,18 @@ describe("createFileJobFinderRepository", () => {
           postedAt: "2026-03-20T10:00:00.000Z",
           postedAtText: null,
           discoveredAt: "2026-03-20T10:01:00.000Z",
+          firstSeenAt: "2026-03-20T10:01:00.000Z",
+          lastSeenAt: "2026-03-20T10:01:00.000Z",
+          lastVerifiedActiveAt: "2026-03-20T10:01:00.000Z",
           salaryText: "$180k",
+          normalizedCompensation: {
+            currency: "USD",
+            interval: "year",
+            minAmount: 180000,
+            maxAmount: 180000,
+            minAnnualUsd: 180000,
+            maxAnnualUsd: 180000,
+          },
           summary: "Lead product design.",
           description: "Lead product design for operational software.",
           keySkills: ["Figma"],
@@ -113,6 +125,15 @@ describe("createFileJobFinderRepository", () => {
           team: null,
           employerWebsiteUrl: null,
           employerDomain: null,
+          atsProvider: null,
+          screeningHints: {
+            sponsorshipText: null,
+            requiresSecurityClearance: null,
+            relocationText: null,
+            travelText: null,
+            remoteGeographies: [],
+          },
+          keywordSignals: [],
           benefits: [],
           status: "ready_for_review",
           matchAssessment: {
@@ -134,6 +155,15 @@ describe("createFileJobFinderRepository", () => {
         updatedAt: "2026-03-20T10:05:00.000Z",
         completedAt: "2026-03-20T10:05:00.000Z",
         outcome: "submitted",
+        questions: [],
+        blocker: null,
+        consentDecisions: [],
+        replay: {
+          sourceInstructionArtifactId: null,
+          sourceDebugEvidenceRefIds: [],
+          lastUrl: "https://jobs.example.com/roles/job_1/apply",
+          checkpointUrls: ["https://jobs.example.com/roles/job_1/apply"],
+        },
         nextActionLabel: "Monitor inbox",
         checkpoints: [],
       });
@@ -331,6 +361,7 @@ describe("createFileJobFinderRepository", () => {
         sourceJobId: "target_job_ready",
         discoveryMethod: "catalog_seed",
         canonicalUrl: "https://jobs.example.com/roles/target_job_ready",
+        applicationUrl: "https://jobs.example.com/roles/target_job_ready/apply",
         title: "Lead Designer",
         company: "Signal Systems",
         location: "Remote",
@@ -340,7 +371,18 @@ describe("createFileJobFinderRepository", () => {
         postedAt: "2026-03-20T10:00:00.000Z",
         postedAtText: null,
         discoveredAt: "2026-03-20T10:01:00.000Z",
+        firstSeenAt: "2026-03-20T10:01:00.000Z",
+        lastSeenAt: "2026-03-20T10:01:00.000Z",
+        lastVerifiedActiveAt: "2026-03-20T10:01:00.000Z",
         salaryText: "$180k",
+        normalizedCompensation: {
+          currency: "USD",
+          interval: "year",
+          minAmount: 180000,
+          maxAmount: 180000,
+          minAnnualUsd: 180000,
+          maxAnnualUsd: 180000,
+        },
         summary: "Lead product design.",
         description: "Lead product design for operational software.",
         keySkills: ["Figma"],
@@ -353,6 +395,15 @@ describe("createFileJobFinderRepository", () => {
         team: null,
         employerWebsiteUrl: null,
         employerDomain: null,
+        atsProvider: null,
+        screeningHints: {
+          sponsorshipText: null,
+          requiresSecurityClearance: null,
+          relocationText: null,
+          travelText: null,
+          remoteGeographies: [],
+        },
+        keywordSignals: [],
         benefits: [],
         status: "ready_for_review",
         matchAssessment: {
@@ -445,13 +496,8 @@ describe("createFileJobFinderRepository", () => {
       const exports = await repository.listResumeExportArtifacts({ jobId: "job_ready" });
       const assets = await repository.listTailoredAssets();
 
-      expect(refreshedJobs).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: "job_ready",
-            description: expect.stringMatching(/Updated\./),
-          }),
-        ]),
+      expect(refreshedJobs.find((job) => job.id === "job_ready")?.description).toMatch(
+        /Updated\./,
       );
       expect(refreshedDraft?.status).toBe("stale");
       expect(refreshedDraft?.approvedExportId).toBeNull();
@@ -459,6 +505,135 @@ describe("createFileJobFinderRepository", () => {
         false,
       );
       expect(assets.find((asset) => asset.jobId === "job_ready")?.storagePath).toBeNull();
+    } finally {
+      if (repository) {
+        await repository.close();
+      }
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("persists resume import runs, bundles, and candidates together", async () => {
+    const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "unemployed-db-import-runs-"));
+    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
+    let repository: FileRepository | null = null;
+
+    try {
+      repository = await createFileJobFinderRepository({
+        filePath,
+        seed: createSeed(),
+      });
+
+      await repository.replaceResumeImportRunArtifacts({
+        run: {
+          id: "resume_import_run_1",
+          sourceResumeId: "resume_1",
+          sourceResumeFileName: "resume.pdf",
+          trigger: "import",
+          status: "review_ready",
+          startedAt: "2026-04-10T10:00:00.000Z",
+          completedAt: "2026-04-10T10:00:03.000Z",
+          primaryParserKind: "pdfjs_text",
+          parserKinds: ["pdfjs_text"],
+          analysisProviderKind: "deterministic",
+          analysisProviderLabel: "Built-in deterministic agent fallback",
+          warnings: ["1 imported suggestion still needs review before the app should rely on it everywhere."],
+          errorMessage: null,
+          candidateCounts: {
+            total: 2,
+            autoApplied: 1,
+            needsReview: 1,
+            rejected: 0,
+          },
+        },
+        documentBundles: [
+          {
+            id: "resume_bundle_1",
+            runId: "resume_import_run_1",
+            sourceResumeId: "resume_1",
+            sourceFileKind: "pdf",
+            primaryParserKind: "pdfjs_text",
+            parserKinds: ["pdfjs_text"],
+            createdAt: "2026-04-10T10:00:01.000Z",
+            languageHints: [],
+            warnings: [],
+            pages: [
+              {
+                pageNumber: 1,
+                text: "Alex Vanguard",
+                charCount: 13,
+                parserKinds: ["pdfjs_text"],
+                usedOcr: false,
+              },
+            ],
+            blocks: [
+              {
+                id: "block_1",
+                pageNumber: 1,
+                readingOrder: 0,
+                text: "Alex Vanguard",
+                kind: "heading",
+                sectionHint: "identity",
+                bbox: null,
+                sourceParserKinds: ["pdfjs_text"],
+                sourceConfidence: 1,
+              },
+            ],
+            fullText: "Alex Vanguard",
+          },
+        ],
+        fieldCandidates: [
+          {
+            id: "candidate_1",
+            runId: "resume_import_run_1",
+            target: { section: "identity", key: "fullName", recordId: null },
+            label: "Full name",
+            sourceKind: "parser_literal",
+            value: "Alex Vanguard",
+            normalizedValue: "Alex Vanguard",
+            valuePreview: "Alex Vanguard",
+            evidenceText: "Alex Vanguard",
+            sourceBlockIds: ["block_1"],
+            confidence: 0.99,
+            notes: [],
+            alternatives: [],
+            resolution: "auto_applied",
+            createdAt: "2026-04-10T10:00:02.000Z",
+            resolvedAt: "2026-04-10T10:00:03.000Z",
+          },
+          {
+            id: "candidate_2",
+            runId: "resume_import_run_1",
+            target: { section: "narrative", key: "professionalStory", recordId: null },
+            label: "Professional story",
+            sourceKind: "model_shared_memory",
+            value: "Builds resilient workflows.",
+            normalizedValue: null,
+            valuePreview: "Builds resilient workflows.",
+            evidenceText: "Builds resilient workflows.",
+            sourceBlockIds: ["block_1"],
+            confidence: 0.44,
+            notes: [],
+            alternatives: [],
+            resolution: "needs_review",
+            createdAt: "2026-04-10T10:00:02.000Z",
+            resolvedAt: null,
+          },
+        ],
+      });
+
+      await expect(repository.getLatestResumeImportRun("resume_1")).resolves.toEqual(
+        expect.objectContaining({ id: "resume_import_run_1" }),
+      );
+      await expect(
+        repository.listResumeImportDocumentBundles({ runId: "resume_import_run_1" }),
+      ).resolves.toEqual([expect.objectContaining({ id: "resume_bundle_1" })]);
+      await expect(
+        repository.listResumeImportFieldCandidates({
+          runId: "resume_import_run_1",
+          resolution: "needs_review",
+        }),
+      ).resolves.toEqual([expect.objectContaining({ id: "candidate_2" })]);
     } finally {
       if (repository) {
         await repository.close();

@@ -1,5 +1,9 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
-import type { DiscoveryActivityEvent } from "@unemployed/contracts";
+import {
+  JobPostingSchema,
+  SavedJobSchema,
+  type DiscoveryActivityEvent,
+} from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
 import {
   createAgentAiClient,
@@ -252,47 +256,49 @@ describe("createJobFinderWorkspaceService", () => {
     const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> = [];
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
-      async runAgentDiscovery(source, options) {
+      runAgentDiscovery(source, options) {
         capturedBudgets.push({
           targetJobCount: options.targetJobCount,
           maxSteps: options.maxSteps,
         });
 
-        return {
+        return Promise.resolve({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Budgeted discovery test run",
           warning: null,
-          jobs: Array.from({ length: options.targetJobCount }, (_, index) => ({
-            source: "target_site" as const,
-            sourceJobId: `${options.startingUrls[0]}_${index}`,
-            discoveryMethod: "browser_agent" as const,
-            canonicalUrl: `https://example.com/job/${capturedBudgets.length}-${index}`,
-            title: `Frontend Engineer ${capturedBudgets.length}-${index}`,
-            company: "Acme",
-            location: "Remote",
-            workMode: ["remote"],
-            applyPath: "unknown" as const,
-            easyApplyEligible: false,
-            postedAt: null,
-            postedAtText: null,
-            discoveredAt: "2026-03-20T10:00:00.000Z",
-            salaryText: null,
-            summary: "Grounded summary",
-            description: "Grounded description",
-            keySkills: ["React"],
-            responsibilities: [],
-            minimumQualifications: [],
-            preferredQualifications: [],
-            seniority: null,
-            employmentType: null,
-            department: null,
-            team: null,
-            employerWebsiteUrl: null,
-            employerDomain: null,
-            benefits: [],
-          })),
+          jobs: Array.from({ length: options.targetJobCount }, (_, index) =>
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: `${options.startingUrls[0]}_${index}`,
+              discoveryMethod: "browser_agent",
+              canonicalUrl: `https://example.com/job/${capturedBudgets.length}-${index}`,
+              title: `Frontend Engineer ${capturedBudgets.length}-${index}`,
+              company: "Acme",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              postedAt: null,
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              salaryText: null,
+              summary: "Grounded summary",
+              description: "Grounded description",
+              keySkills: ["React"],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            }),
+          ),
           agentMetadata: {
             steps: 2,
             incomplete: false,
@@ -304,7 +310,7 @@ describe("createJobFinderWorkspaceService", () => {
             phaseEvidence: null,
             debugFindings: null,
           },
-        };
+        });
       },
     };
 
@@ -412,44 +418,46 @@ describe("createJobFinderWorkspaceService", () => {
     let runAgentDiscoveryCalls = 0;
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
-      async runAgentDiscovery(source) {
+      runAgentDiscovery(source) {
         runAgentDiscoveryCalls += 1;
 
-        return {
+        return Promise.resolve({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Early-stop discovery test run",
           warning: null,
-          jobs: Array.from({ length: 20 }, (_, index) => ({
-            source: "target_site" as const,
-            sourceJobId: `job_${index}`,
-            discoveryMethod: "browser_agent" as const,
-            canonicalUrl: `https://example.com/job/${index}`,
-            title: `Frontend Engineer ${index}`,
-            company: "Acme",
-            location: "Remote",
-            workMode: ["remote"],
-            applyPath: "unknown" as const,
-            easyApplyEligible: false,
-            postedAt: null,
-            postedAtText: null,
-            discoveredAt: "2026-03-20T10:00:00.000Z",
-            salaryText: null,
-            summary: "Grounded summary",
-            description: "Grounded description",
-            keySkills: ["React"],
-            responsibilities: [],
-            minimumQualifications: [],
-            preferredQualifications: [],
-            seniority: null,
-            employmentType: null,
-            department: null,
-            team: null,
-            employerWebsiteUrl: null,
-            employerDomain: null,
-            benefits: [],
-          })),
+          jobs: Array.from({ length: 20 }, (_, index) =>
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: `job_${index}`,
+              discoveryMethod: "browser_agent",
+              canonicalUrl: `https://example.com/job/${index}`,
+              title: `Frontend Engineer ${index}`,
+              company: "Acme",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              postedAt: null,
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              salaryText: null,
+              summary: "Grounded summary",
+              description: "Grounded description",
+              keySkills: ["React"],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            }),
+          ),
           agentMetadata: {
             steps: 2,
             incomplete: false,
@@ -461,7 +469,7 @@ describe("createJobFinderWorkspaceService", () => {
             phaseEvidence: null,
             debugFindings: null,
           },
-        };
+        });
       },
     };
 
@@ -506,6 +514,11 @@ describe("createJobFinderWorkspaceService", () => {
       snapshot.applicationRecords.some((record) => record.jobId === "job_ready"),
     ).toBe(true);
     expect(snapshot.applicationAttempts[0]?.state).toBe("submitted");
+    expect(snapshot.applicationAttempts[0]?.questions[0]?.kind).toBe("resume");
+    expect(snapshot.applicationAttempts[0]?.consentDecisions.length).toBeGreaterThan(0);
+    expect(snapshot.applicationAttempts[0]?.replay.lastUrl).toContain("/apply");
+    expect(snapshot.applicationRecords[0]?.questionSummary.total).toBe(1);
+    expect(snapshot.applicationRecords[0]?.replaySummary.lastUrl).toContain("/apply");
     expect(tailoredAsset?.storagePath).toBe("/tmp/generated-resume.pdf");
     expect(tailoredAsset?.notes).toEqual(
       expect.arrayContaining([
@@ -530,7 +543,22 @@ describe("createJobFinderWorkspaceService", () => {
     expect(beforeWorkspace.research.length).toBeGreaterThan(0);
     expect(messages.some((message) => message.role === "assistant")).toBe(true);
     expect(afterWorkspace.draft.updatedAt).not.toBe(beforeWorkspace.draft.updatedAt);
-    expect(afterWorkspace.assistantMessages.at(-1)?.patches.length).toBeGreaterThan(0);
+    expect(
+      afterWorkspace.assistantMessages.some(
+        (message) => message.role === "assistant" && message.patches.length > 0,
+      ),
+    ).toBe(true);
+  });
+
+  test("resume workspace exposes shared profile narrative and proof summaries", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+
+    expect(workspace.sharedProfile.narrativeSummary).toMatch(/design systems/i);
+    expect(workspace.sharedProfile.selfIntroduction).toMatch(/systems-focused product designer/i);
+    expect(workspace.sharedProfile.highlightedProofs[0]?.title).toBe("Design-system rollout");
   });
 
   test("rejects resume approval when exported validation still has blocking errors", async () => {
@@ -618,7 +646,7 @@ describe("createJobFinderWorkspaceService", () => {
 
   test("pauses unsupported Easy Apply branches instead of submitting blindly", async () => {
     const seed = createSeed();
-    seed.savedJobs.push({
+    seed.savedJobs.push(SavedJobSchema.parse({
       source: "target_site",
       sourceJobId: "linkedin_pause_case",
       discoveryMethod: "catalog_seed",
@@ -655,7 +683,7 @@ describe("createJobFinderWorkspaceService", () => {
         gaps: [],
       },
       provenance: [],
-    });
+    }));
     seed.tailoredAssets.push({
       id: "asset_pause_case",
       jobId: "job_pause_case",
@@ -711,6 +739,11 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationAttempts.some((attempt) => attempt.state === "paused")).toBe(
       true,
     );
+    expect(snapshot.applicationAttempts.find((attempt) => attempt.state === "paused")?.blocker?.code).toBe(
+      "requires_manual_review",
+    );
+    expect(snapshot.applicationAttempts.find((attempt) => attempt.state === "paused")?.questions.length).toBeGreaterThan(0);
+    expect(applicationRecord?.latestBlocker?.code).toBe("requires_manual_review");
   });
 
   test("stales approved resume drafts when profile changes affect resume inputs", async () => {
@@ -778,16 +811,16 @@ describe("createJobFinderWorkspaceService", () => {
           warning: null,
           agentMetadata: null,
           jobs: [
-            {
-              source: "target_site" as const,
+            JobPostingSchema.parse({
+              source: "target_site",
               sourceJobId: "linkedin_signal_ready",
-              discoveryMethod: "catalog_seed" as const,
+              discoveryMethod: "catalog_seed",
               canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
               title: "Senior Product Designer",
               company: "Signal Systems",
               location: "Remote",
               workMode: ["remote"],
-              applyPath: "easy_apply" as const,
+              applyPath: "easy_apply",
               easyApplyEligible: true,
               postedAt: "2026-03-20T09:00:00.000Z",
               postedAtText: null,
@@ -809,7 +842,7 @@ describe("createJobFinderWorkspaceService", () => {
               employerWebsiteUrl: "https://signalsystems.example.com",
               employerDomain: "signalsystems.example.com",
               benefits: ["Remote-first collaboration"],
-            },
+            }),
           ],
         });
       },

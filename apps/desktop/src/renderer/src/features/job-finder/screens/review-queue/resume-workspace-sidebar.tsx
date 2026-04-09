@@ -9,7 +9,7 @@ interface ResumeWorkspaceSidebarProps {
 }
 
 export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: ResumeWorkspaceSidebarProps) {
-  const { job, research, validation } = workspace
+  const { job, research, sharedProfile, validation } = workspace
   const researchCount = research.length
   const validationCount = validation?.issues.length ?? 0
 
@@ -76,6 +76,28 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
                 {job.salaryText}
               </p>
             ) : null}
+            {job.normalizedCompensation.minAnnualUsd !== null || job.normalizedCompensation.maxAnnualUsd !== null ? (
+              <p>
+                <strong className="text-foreground">Normalized comp:</strong>{' '}
+                {[job.normalizedCompensation.minAnnualUsd, job.normalizedCompensation.maxAnnualUsd]
+                  .filter((value): value is number => value !== null)
+                  .map((value) => `USD ${value.toLocaleString()}`)
+                  .join(' – ')}
+                {job.normalizedCompensation.interval ? ` / ${job.normalizedCompensation.interval}` : ''}
+              </p>
+            ) : null}
+            {job.applicationUrl ? (
+              <p className="break-words">
+                <strong className="text-foreground">Apply URL:</strong>{' '}
+                {job.applicationUrl}
+              </p>
+            ) : null}
+            {job.atsProvider ? (
+              <p>
+                <strong className="text-foreground">ATS or provider:</strong>{' '}
+                {job.atsProvider}
+              </p>
+            ) : null}
             {job.employerWebsiteUrl ? (
               <p className="break-words">
                 <strong className="text-foreground">Employer site:</strong>{' '}
@@ -113,6 +135,55 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
               ))}
             </div>
           ) : null}
+          {job.keywordSignals.length ? (
+            <div className="grid gap-1 text-sm text-foreground-soft">
+              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                Targeting cues
+              </p>
+              {job.keywordSignals.slice(0, 6).map((signal) => (
+                <p key={signal.id}>• {signal.label}</p>
+              ))}
+            </div>
+          ) : null}
+          {job.screeningHints.sponsorshipText || job.screeningHints.relocationText || job.screeningHints.travelText || job.screeningHints.remoteGeographies.length ? (
+            <div className="grid gap-1 text-sm text-foreground-soft">
+              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                Screening hints
+              </p>
+              {job.screeningHints.sponsorshipText ? <p>• {job.screeningHints.sponsorshipText}</p> : null}
+              {job.screeningHints.relocationText ? <p>• {job.screeningHints.relocationText}</p> : null}
+              {job.screeningHints.travelText ? <p>• {job.screeningHints.travelText}</p> : null}
+              {job.screeningHints.remoteGeographies.map((value) => <p key={value}>• Remote geography: {value}</p>)}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+            Shared profile inputs
+          </p>
+          {sharedProfile.narrativeSummary ? (
+            <p className="text-sm leading-6 text-foreground-soft">{sharedProfile.narrativeSummary}</p>
+          ) : null}
+          {sharedProfile.nextChapterSummary ? (
+            <p className="text-sm leading-6 text-foreground-soft">Next chapter: {sharedProfile.nextChapterSummary}</p>
+          ) : null}
+          {sharedProfile.selfIntroduction ? (
+            <p className="text-sm leading-6 text-foreground-soft">Intro: {sharedProfile.selfIntroduction}</p>
+          ) : null}
+          {sharedProfile.highlightedProofs.length ? (
+            <div className="grid gap-2 text-sm text-foreground-soft">
+              {sharedProfile.highlightedProofs.map((proof) => (
+                <div key={proof.id} className="grid gap-1">
+                  <strong className="text-foreground">{proof.title}</strong>
+                  <p>{proof.claim}</p>
+                  {proof.heroMetric ? <p>Metric: {proof.heroMetric}</p> : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-foreground-soft">No reusable proof has been saved yet.</p>
+          )}
         </div>
 
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">

@@ -113,6 +113,30 @@ export function parseLocationParts(location: string | null | undefined): {
   currentRegion: string | null;
   currentCountry: string | null;
 } {
+  const knownCountryLikeParts = new Set([
+    "kosovo",
+    "albania",
+    "germany",
+    "france",
+    "italy",
+    "spain",
+    "portugal",
+    "netherlands",
+    "belgium",
+    "switzerland",
+    "austria",
+    "uk",
+    "united kingdom",
+    "england",
+    "usa",
+    "united states",
+    "canada",
+    "australia",
+    "japan",
+    "india",
+    "singapore",
+  ]);
+
   if (!location) {
     return {
       currentCity: null,
@@ -143,6 +167,16 @@ export function parseLocationParts(location: string | null | undefined): {
   }
 
   if (parts.length === 2) {
+    const normalizedSecondPart = parts[1]?.toLowerCase() ?? "";
+
+    if (knownCountryLikeParts.has(normalizedSecondPart)) {
+      return {
+        currentCity: parts[0] ?? null,
+        currentRegion: null,
+        currentCountry: parts[1] ?? null,
+      };
+    }
+
     return {
       currentCity: parts[0] ?? null,
       currentRegion: parts[1] ?? null,
@@ -193,7 +227,7 @@ export function mergeExperienceRecords(
       title: entry.title,
       employmentType: entry.employmentType,
       location: entry.location,
-      workMode: entry.workMode ? [entry.workMode] : [],
+      workMode: entry.workMode,
       startDate: entry.startDate,
       endDate: entry.endDate,
       isCurrent: entry.isCurrent,
@@ -553,4 +587,3 @@ export function mergeResumeExtractionIntoWorkspace(
     }),
   };
 }
-

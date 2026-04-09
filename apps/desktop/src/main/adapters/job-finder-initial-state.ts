@@ -89,6 +89,9 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
     sourceDebugEvidenceRefs: [],
+    resumeImportRuns: [],
+    resumeImportDocumentBundles: [],
+    resumeImportFieldCandidates: [],
     settings: JobFinderSettingsSchema.parse({
       resumeTemplateId: 'classic_ats',
       resumeFormat: 'pdf',

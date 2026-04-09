@@ -365,8 +365,7 @@ export function applyPatchToResumeDraft(input: {
           updatedAt,
         );
       default: {
-        const unsupportedOperation: never = patch.operation;
-        throw new Error(`Unsupported resume patch operation '${unsupportedOperation}'.`);
+        throw new Error("Unsupported resume patch operation.");
       }
     }
   });

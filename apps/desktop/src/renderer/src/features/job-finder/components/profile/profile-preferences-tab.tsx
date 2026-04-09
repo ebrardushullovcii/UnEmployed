@@ -1,16 +1,18 @@
 import { useId } from 'react'
 import {
+  candidateAnswerKindValues,
   workModeValues,
   type EditableSourceInstructionArtifact,
   type SourceDebugRunDetails,
   type SourceDebugRunRecord,
   type SourceInstructionArtifact
 } from '@unemployed/contracts'
-import type { Control, UseFormReturn } from 'react-hook-form'
+import type { Control, UseFieldArrayReturn, UseFormReturn } from 'react-hook-form'
 import { Controller } from 'react-hook-form'
 import { Button } from '@renderer/components/ui/button'
 import { FieldLabel } from '@renderer/components/ui/field'
 import { CheckboxField } from '../checkbox-field'
+import { EmptyState } from '../empty-state'
 import { FormSelect } from '../form-select'
 import type { BooleanSelectValue } from '../../lib/job-finder-types'
 import type { ProfileEditorValues, SearchPreferencesEditorValues } from '../../lib/profile-editor'
@@ -19,6 +21,7 @@ import { ProfileInput, ProfileTextarea, profileSelectTriggerClassName } from './
 import { ProfileDiscoveryTargetRow } from './profile-discovery-target-row'
 import { ProfileListEditor } from './profile-list-editor'
 import { ProfileOptionalSection } from './profile-optional-section'
+import { ProfileRecordCard } from './profile-record-card'
 import { ProfileSectionHeader } from './profile-section-header'
 
 const booleanSelectOptions = [
@@ -63,6 +66,7 @@ function BooleanSelectField(props: {
 
 interface ProfilePreferencesTabProps {
   busy: boolean
+  customAnswerArray: UseFieldArrayReturn<ProfileEditorValues, 'answerBank.customAnswers', 'id'>
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
@@ -75,6 +79,7 @@ interface ProfilePreferencesTabProps {
 
 export function ProfilePreferencesTab({
   busy,
+  customAnswerArray,
   onGetSourceDebugRunDetails,
   onRunSourceDebug,
   onSaveSourceInstructionArtifact,
@@ -85,7 +90,7 @@ export function ProfilePreferencesTab({
   sourceInstructionArtifacts
 }: ProfilePreferencesTabProps) {
   const { control: preferenceControl, register: registerPreferences, setValue: setPreferenceValue, watch: watchPreferences } = preferencesForm
-  const { control: profileControl, getValues: getProfileValues, register: registerProfile } = profileForm
+  const { control: profileControl, getValues: getProfileValues, register: registerProfile, watch: watchProfile } = profileForm
   const authorizedWorkCountriesId = useId()
   const preferredRelocationRegionsId = useId()
   const requiresVisaSponsorshipId = useId()
@@ -95,6 +100,18 @@ export function ProfilePreferencesTab({
   const willingToTravelId = useId()
   const noticePeriodId = useId()
   const availableStartDateId = useId()
+  const preferredApplicationEmailId = useId()
+  const preferredApplicationPhoneId = useId()
+  const preferredApplicationLinksId = useId()
+  const workAuthorizationAnswerId = useId()
+  const visaSponsorshipAnswerId = useId()
+  const relocationAnswerId = useId()
+  const travelAnswerId = useId()
+  const noticePeriodAnswerId = useId()
+  const availabilityAnswerId = useId()
+  const salaryExpectationAnswerId = useId()
+  const selfIntroductionAnswerId = useId()
+  const careerTransitionAnswerId = useId()
   const tailoringModeId = useId()
   const minimumSalaryId = useId()
   const targetSalaryId = useId()
@@ -193,6 +210,159 @@ export function ProfilePreferencesTab({
             </div>
           </div>
         </article>
+
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
+          <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Application defaults</h3>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={preferredApplicationEmailId}>Preferred application email</FieldLabel>
+              <ProfileInput id={preferredApplicationEmailId} placeholder="Leave blank to reuse your main email" {...registerProfile('applicationIdentity.preferredEmail')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={preferredApplicationPhoneId}>Preferred application phone</FieldLabel>
+              <ProfileInput id={preferredApplicationPhoneId} placeholder="Leave blank to reuse your main phone" {...registerProfile('applicationIdentity.preferredPhone')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2">
+              <FieldLabel htmlFor={preferredApplicationLinksId}>Preferred public link IDs</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={preferredApplicationLinksId} rows={4} placeholder="Add saved link IDs to prefer during applications" {...registerProfile('applicationIdentity.preferredLinkIds')} />
+            </div>
+          </div>
+        </article>
+
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
+          <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Reusable screener answers</h3>
+          <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={workAuthorizationAnswerId}>Work authorization answer</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={workAuthorizationAnswerId} rows={4} {...registerProfile('answerBank.workAuthorization')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={visaSponsorshipAnswerId}>Visa sponsorship answer</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={visaSponsorshipAnswerId} rows={4} {...registerProfile('answerBank.visaSponsorship')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={relocationAnswerId}>Relocation answer</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={relocationAnswerId} rows={4} {...registerProfile('answerBank.relocation')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={travelAnswerId}>Travel answer</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={travelAnswerId} rows={4} {...registerProfile('answerBank.travel')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={noticePeriodAnswerId}>Notice period answer</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={noticePeriodAnswerId} rows={4} {...registerProfile('answerBank.noticePeriod')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={availabilityAnswerId}>Availability answer</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={availabilityAnswerId} rows={4} {...registerProfile('answerBank.availability')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={salaryExpectationAnswerId}>Salary expectations answer</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={salaryExpectationAnswerId} rows={4} {...registerProfile('answerBank.salaryExpectations')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+              <FieldLabel htmlFor={selfIntroductionAnswerId}>Short self-introduction</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={selfIntroductionAnswerId} rows={4} {...registerProfile('answerBank.selfIntroduction')} />
+            </div>
+            <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2">
+              <FieldLabel htmlFor={careerTransitionAnswerId}>Career transition explanation</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={careerTransitionAnswerId} rows={4} {...registerProfile('answerBank.careerTransition')} />
+            </div>
+          </div>
+        </article>
+
+        <ProfileOptionalSection
+          defaultOpen={customAnswerArray.fields.length > 0}
+          description="Save a few custom answers here when recurring applications ask the same question in slightly different words."
+          title="Custom answer library"
+        >
+          <div className="grid gap-4">
+            <div className="flex justify-end">
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  customAnswerArray.append({
+                    id: `answer_${crypto.randomUUID().slice(0, 8)}`,
+                    label: '',
+                    question: '',
+                    answer: '',
+                    kind: 'other',
+                    roleFamilies: '',
+                    proofEntryIds: ''
+                  })
+                }
+                type="button"
+                variant="secondary"
+              >
+                Add custom answer
+              </Button>
+            </div>
+
+            {customAnswerArray.fields.length > 0 ? (
+              customAnswerArray.fields.map((entry, index) => (
+                <ProfileRecordCard
+                  key={entry.id}
+                  defaultOpen={index === 0}
+                  summary={watchProfile(`answerBank.customAnswers.${index}.label`) || watchProfile(`answerBank.customAnswers.${index}.question`) || ''}
+                  title={watchProfile(`answerBank.customAnswers.${index}.label`)?.trim() || `Custom answer ${index + 1}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Answer details</p>
+                    <Button disabled={busy} onClick={() => customAnswerArray.remove(index)} size="compact" type="button" variant="ghost">
+                      Remove
+                    </Button>
+                  </div>
+                  <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
+                    <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+                      <FieldLabel>Label</FieldLabel>
+                      <ProfileInput {...registerProfile(`answerBank.customAnswers.${index}.label`)} />
+                    </div>
+                    <Controller
+                      control={profileControl}
+                      name={`answerBank.customAnswers.${index}.kind`}
+                      render={({ field }) => (
+                        <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+                          <FieldLabel>Kind</FieldLabel>
+                          <FormSelect
+                            onValueChange={field.onChange}
+                            options={candidateAnswerKindValues.map((kind) => ({
+                              label: formatStatusLabel(kind),
+                              value: kind
+                            }))}
+                            placeholder="Select kind"
+                            triggerClassName={profileSelectTriggerClassName}
+                            value={field.value}
+                          />
+                        </div>
+                      )}
+                    />
+                    <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2">
+                      <FieldLabel>Question</FieldLabel>
+                      <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...registerProfile(`answerBank.customAnswers.${index}.question`)} />
+                    </div>
+                    <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2">
+                      <FieldLabel>Answer</FieldLabel>
+                      <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...registerProfile(`answerBank.customAnswers.${index}.answer`)} />
+                    </div>
+                    <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+                      <FieldLabel>Relevant role families</FieldLabel>
+                      <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...registerProfile(`answerBank.customAnswers.${index}.roleFamilies`)} />
+                    </div>
+                    <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+                      <FieldLabel>Supporting proof IDs</FieldLabel>
+                      <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...registerProfile(`answerBank.customAnswers.${index}.proofEntryIds`)} />
+                    </div>
+                  </div>
+                </ProfileRecordCard>
+              ))
+            ) : (
+              <EmptyState
+                description="No reusable custom answers yet. Add one when you notice the same screener wording repeating across applications."
+                title="No custom answers saved"
+              />
+            )}
+          </div>
+        </ProfileOptionalSection>
       </section>
 
       <section className="grid content-start gap-(--gap-card)">

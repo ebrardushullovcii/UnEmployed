@@ -166,6 +166,27 @@ export type LanguageFormEntry = {
   notes: string;
 };
 
+export type ProofBankEntryFormEntry = {
+  id: string;
+  title: string;
+  claim: string;
+  heroMetric: string;
+  supportingContext: string;
+  roleFamilies: string;
+  projectIds: string;
+  linkIds: string;
+};
+
+export type ReusableAnswerFormEntry = {
+  id: string;
+  label: string;
+  question: string;
+  answer: string;
+  kind: string;
+  roleFamilies: string;
+  proofEntryIds: string;
+};
+
 export type DiscoveryTargetEditorValue = {
   id: string;
   label: string;

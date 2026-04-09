@@ -5,10 +5,13 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ResumeDocumentBundleSchema,
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
   ResumeExportArtifactSchema,
+  ResumeImportFieldCandidateSchema,
+  ResumeImportRunSchema,
   ResumeResearchArtifactSchema,
   ResumeValidationResultSchema,
   SavedJobSchema,
@@ -38,6 +41,9 @@ export const stateTableNames = {
   resume_draft_revisions: "resume_draft_revisions",
   resume_drafts: "resume_drafts",
   resume_export_artifacts: "resume_export_artifacts",
+  resume_import_document_bundles: "resume_import_document_bundles",
+  resume_import_field_candidates: "resume_import_field_candidates",
+  resume_import_runs: "resume_import_runs",
   resume_research_artifacts: "resume_research_artifacts",
   resume_validation_results: "resume_validation_results",
   singleton_state: "singleton_state",
@@ -270,6 +276,42 @@ export function writeState(
     );
     replaceIndexedCollection(
       database,
+      "resume_import_runs",
+      state.resumeImportRuns,
+      {
+        columnNames: ["source_resume_id", "started_at", "status"],
+        getColumns: (value) => {
+          const run = ResumeImportRunSchema.parse(value);
+          return [run.sourceResumeId, run.startedAt, run.status];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
+      "resume_import_document_bundles",
+      state.resumeImportDocumentBundles,
+      {
+        columnNames: ["run_id", "source_resume_id", "created_at"],
+        getColumns: (value) => {
+          const bundle = ResumeDocumentBundleSchema.parse(value);
+          return [bundle.runId, bundle.sourceResumeId, bundle.createdAt];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
+      "resume_import_field_candidates",
+      state.resumeImportFieldCandidates,
+      {
+        columnNames: ["run_id", "resolution", "created_at"],
+        getColumns: (value) => {
+          const candidate = ResumeImportFieldCandidateSchema.parse(value);
+          return [candidate.runId, candidate.resolution, candidate.createdAt];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
       "resume_research_artifacts",
       state.resumeResearchArtifacts,
       {
@@ -402,6 +444,30 @@ export function readState(
       ResumeExportArtifactSchema,
       {
         orderBySql: "exported_at DESC, id ASC",
+      },
+    ),
+    resumeImportRuns: listResumeDraftValues(
+      database,
+      "resume_import_runs",
+      ResumeImportRunSchema,
+      {
+        orderBySql: "started_at DESC, id ASC",
+      },
+    ),
+    resumeImportDocumentBundles: listResumeDraftValues(
+      database,
+      "resume_import_document_bundles",
+      ResumeDocumentBundleSchema,
+      {
+        orderBySql: "created_at DESC, id ASC",
+      },
+    ),
+    resumeImportFieldCandidates: listResumeDraftValues(
+      database,
+      "resume_import_field_candidates",
+      ResumeImportFieldCandidateSchema,
+      {
+        orderBySql: "created_at DESC, id ASC",
       },
     ),
     resumeResearchArtifacts: listResumeDraftValues(

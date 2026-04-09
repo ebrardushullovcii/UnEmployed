@@ -2,7 +2,10 @@ import {
   createCatalogBrowserSessionRuntime,
   type BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
-import type { SourceDebugProgressEvent } from "@unemployed/contracts";
+import {
+  JobPostingSchema,
+  type SourceDebugProgressEvent,
+} from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
 import {
   createAgentAiClient,
@@ -354,7 +357,7 @@ describe("createJobFinderWorkspaceService", () => {
         },
       ],
       catalog: [
-        {
+        JobPostingSchema.parse({
           source: "target_site",
           sourceJobId: "linkedin_noise_case",
           discoveryMethod: "catalog_seed",
@@ -382,7 +385,7 @@ describe("createJobFinderWorkspaceService", () => {
           employerWebsiteUrl: null,
           employerDomain: null,
           benefits: [],
-        },
+        }),
       ],
     });
     const browserRuntime: BrowserSessionRuntime = {
@@ -395,7 +398,7 @@ describe("createJobFinderWorkspaceService", () => {
           querySummary: "Agent discovery test run",
           warning: "Agent discovery stopped after 12 steps. Found 0 jobs.",
           jobs: [
-            {
+            JobPostingSchema.parse({
               source: "target_site",
               sourceJobId: "linkedin_noise_case",
               discoveryMethod: "catalog_seed",
@@ -424,7 +427,7 @@ describe("createJobFinderWorkspaceService", () => {
               employerWebsiteUrl: null,
               employerDomain: null,
               benefits: [],
-            },
+            }),
           ],
           agentMetadata: {
             steps: 12,

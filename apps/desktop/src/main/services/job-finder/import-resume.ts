@@ -1,7 +1,7 @@
 import { copyFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { JobFinderWorkspaceSnapshotSchema } from '@unemployed/contracts'
-import { extractResumeText } from '../../adapters/resume-document'
+import { extractResumeDocument } from '../../adapters/resume-document'
 import { getJobFinderWorkspaceService } from './workspace-service'
 import { getJobFinderDocumentsDirectory } from './paths'
 
@@ -11,23 +11,27 @@ export async function importResumeFromSourcePath(sourcePath: string) {
 
   await mkdir(targetDirectory, { recursive: true })
 
-  const extractedResume = await extractResumeText(sourcePath)
   const timestamp = Date.now()
+  const uploadedAt = new Date(timestamp).toISOString()
   const fileName = path.basename(sourcePath)
+  const resumeId = `resume_${timestamp}`
   const targetPath = path.join(targetDirectory, `${timestamp}_${fileName}`)
-  const workspace = await jobFinderWorkspaceService.getWorkspaceSnapshot()
 
   await copyFile(sourcePath, targetPath)
+  const extractedResume = await extractResumeDocument(targetPath, {
+    bundleId: `resume_bundle_${timestamp}`,
+    runId: `resume_import_seed_${timestamp}`,
+    sourceResumeId: resumeId
+  })
 
-  const savedSnapshot = await jobFinderWorkspaceService.saveProfile({
-    ...workspace.profile,
+  const snapshot = await jobFinderWorkspaceService.runResumeImport({
     baseResume: {
-      id: `resume_${timestamp}`,
+      id: resumeId,
       fileName,
-      uploadedAt: new Date(timestamp).toISOString(),
+      uploadedAt,
       storagePath: targetPath,
       textContent: extractedResume.textContent,
-      textUpdatedAt: extractedResume.textContent ? new Date(timestamp).toISOString() : null,
+      textUpdatedAt: extractedResume.textContent ? uploadedAt : null,
       extractionStatus: extractedResume.textContent ? 'not_started' : 'needs_text',
       lastAnalyzedAt: null,
       analysisProviderKind: null,
@@ -38,13 +42,10 @@ export async function importResumeFromSourcePath(sourcePath: string) {
           : extractedResume.textContent
             ? []
             : ['Paste plain-text resume content below if you want the agent to extract profile details from this file.']
-    }
+    },
+    documentBundle: extractedResume.bundle,
+    importWarnings: extractedResume.warnings
   })
 
-  if (!extractedResume.textContent) {
-    return JobFinderWorkspaceSnapshotSchema.parse(savedSnapshot)
-  }
-
-  const analyzedSnapshot = await jobFinderWorkspaceService.analyzeProfileFromResume()
-  return JobFinderWorkspaceSnapshotSchema.parse(analyzedSnapshot)
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
 }

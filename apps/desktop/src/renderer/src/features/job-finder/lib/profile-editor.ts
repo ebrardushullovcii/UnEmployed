@@ -1,4 +1,5 @@
 import {
+  candidateAnswerKindValues,
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
   SourceInstructionStatusSchema,
@@ -15,7 +16,9 @@ import type {
   ExperienceFormEntry,
   LanguageFormEntry,
   LinkFormEntry,
-  ProjectFormEntry
+  ProjectFormEntry,
+  ProofBankEntryFormEntry,
+  ReusableAnswerFormEntry
 } from './job-finder-types'
 import {
   booleanToSelect,
@@ -69,12 +72,37 @@ export interface ProfileEditorValues {
   }
   languages: LanguageFormEntry[]
   links: LinkFormEntry[]
+  narrative: {
+    careerTransitionSummary: string
+    differentiators: string
+    motivationThemes: string
+    nextChapterSummary: string
+    professionalStory: string
+  }
   profileSkills: string
+  proofBank: ProofBankEntryFormEntry[]
   projects: ProjectFormEntry[]
   records: {
     certifications: CertificationFormEntry[]
     education: EducationFormEntry[]
     experiences: ExperienceFormEntry[]
+  }
+  applicationIdentity: {
+    preferredEmail: string
+    preferredLinkIds: string
+    preferredPhone: string
+  }
+  answerBank: {
+    availability: string
+    careerTransition: string
+    customAnswers: ReusableAnswerFormEntry[]
+    noticePeriod: string
+    relocation: string
+    salaryExpectations: string
+    selfIntroduction: string
+    travel: string
+    visaSponsorship: string
+    workAuthorization: string
   }
   skillGroups: {
     coreSkills: string
@@ -155,6 +183,31 @@ function isValidSourceInstructionStatus(value: string): boolean {
   return SourceInstructionStatusSchema.safeParse(value).success
 }
 
+function toProofBankFormEntries(profile: CandidateProfile): ProofBankEntryFormEntry[] {
+  return profile.proofBank.map((entry) => ({
+    id: entry.id,
+    title: entry.title,
+    claim: entry.claim,
+    heroMetric: entry.heroMetric ?? '',
+    supportingContext: entry.supportingContext ?? '',
+    roleFamilies: joinListInput(entry.roleFamilies),
+    projectIds: joinListInput(entry.projectIds),
+    linkIds: joinListInput(entry.linkIds)
+  }))
+}
+
+function toReusableAnswerFormEntries(profile: CandidateProfile): ReusableAnswerFormEntry[] {
+  return profile.answerBank.customAnswers.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    question: entry.question,
+    answer: entry.answer,
+    kind: entry.kind,
+    roleFamilies: joinListInput(entry.roleFamilies),
+    proofEntryIds: joinListInput(entry.proofEntryIds)
+  }))
+}
+
 export function createProfileEditorValues(profile: CandidateProfile): ProfileEditorValues {
   return {
     identity: {
@@ -190,9 +243,34 @@ export function createProfileEditorValues(profile: CandidateProfile): ProfileEdi
       willingToRelocate: booleanToSelect(profile.workEligibility.willingToRelocate),
       willingToTravel: booleanToSelect(profile.workEligibility.willingToTravel)
     },
+    applicationIdentity: {
+      preferredEmail: profile.applicationIdentity.preferredEmail ?? '',
+      preferredLinkIds: joinListInput(profile.applicationIdentity.preferredLinkIds),
+      preferredPhone: profile.applicationIdentity.preferredPhone ?? ''
+    },
+    answerBank: {
+      availability: profile.answerBank.availability ?? '',
+      careerTransition: profile.answerBank.careerTransition ?? '',
+      customAnswers: toReusableAnswerFormEntries(profile),
+      noticePeriod: profile.answerBank.noticePeriod ?? '',
+      relocation: profile.answerBank.relocation ?? '',
+      salaryExpectations: profile.answerBank.salaryExpectations ?? '',
+      selfIntroduction: profile.answerBank.selfIntroduction ?? '',
+      travel: profile.answerBank.travel ?? '',
+      visaSponsorship: profile.answerBank.visaSponsorship ?? '',
+      workAuthorization: profile.answerBank.workAuthorization ?? ''
+    },
     languages: toLanguageFormEntries(profile),
     links: toLinkFormEntries(profile),
+    narrative: {
+      careerTransitionSummary: profile.narrative.careerTransitionSummary ?? '',
+      differentiators: joinListInput(profile.narrative.differentiators),
+      motivationThemes: joinListInput(profile.narrative.motivationThemes),
+      nextChapterSummary: profile.narrative.nextChapterSummary ?? '',
+      professionalStory: profile.narrative.professionalStory ?? ''
+    },
     profileSkills: joinListInput(profile.skills),
+    proofBank: toProofBankFormEntries(profile),
     projects: toProjectFormEntries(profile),
     records: {
       certifications: toCertificationFormEntries(profile),
@@ -315,6 +393,35 @@ export function buildProfilePayload(
       availableStartDate: values.eligibility.availableStartDate.trim() || null,
       securityClearance: values.eligibility.securityClearance.trim() || null
     },
+    applicationIdentity: {
+      preferredEmail: values.applicationIdentity.preferredEmail.trim() || null,
+      preferredPhone: values.applicationIdentity.preferredPhone.trim() || null,
+      preferredLinkIds: parseListInput(values.applicationIdentity.preferredLinkIds)
+    },
+    answerBank: {
+      workAuthorization: values.answerBank.workAuthorization.trim() || null,
+      visaSponsorship: values.answerBank.visaSponsorship.trim() || null,
+      relocation: values.answerBank.relocation.trim() || null,
+      travel: values.answerBank.travel.trim() || null,
+      noticePeriod: values.answerBank.noticePeriod.trim() || null,
+      availability: values.answerBank.availability.trim() || null,
+      salaryExpectations: values.answerBank.salaryExpectations.trim() || null,
+      selfIntroduction: values.answerBank.selfIntroduction.trim() || null,
+      careerTransition: values.answerBank.careerTransition.trim() || null,
+      customAnswers: values.answerBank.customAnswers
+        .filter((entry) => entry.question.trim() && entry.answer.trim())
+        .map((entry) => ({
+          id: entry.id,
+          kind: candidateAnswerKindValues.includes(entry.kind as (typeof candidateAnswerKindValues)[number])
+            ? (entry.kind as (typeof candidateAnswerKindValues)[number])
+            : 'other',
+          label: entry.label.trim() || entry.question.trim(),
+          question: entry.question.trim(),
+          answer: entry.answer.trim(),
+          roleFamilies: parseListInput(entry.roleFamilies),
+          proofEntryIds: parseListInput(entry.proofEntryIds)
+        }))
+    },
     professionalSummary: {
       shortValueProposition: values.summary.shortValueProposition.trim() || null,
       fullSummary: values.summary.fullSummary.trim() || null,
@@ -323,6 +430,25 @@ export function buildProfilePayload(
       domainFocusSummary: values.summary.domainFocusSummary.trim() || null,
       strengths: parseListInput(values.summary.strengths)
     },
+    narrative: {
+      professionalStory: values.narrative.professionalStory.trim() || null,
+      nextChapterSummary: values.narrative.nextChapterSummary.trim() || null,
+      careerTransitionSummary: values.narrative.careerTransitionSummary.trim() || null,
+      differentiators: parseListInput(values.narrative.differentiators),
+      motivationThemes: parseListInput(values.narrative.motivationThemes)
+    },
+    proofBank: values.proofBank
+      .filter((entry) => entry.title.trim() && entry.claim.trim())
+      .map((entry) => ({
+        id: entry.id,
+        title: entry.title.trim(),
+        claim: entry.claim.trim(),
+        heroMetric: entry.heroMetric.trim() || null,
+        supportingContext: entry.supportingContext.trim() || null,
+        roleFamilies: parseListInput(entry.roleFamilies),
+        projectIds: parseListInput(entry.projectIds),
+        linkIds: parseListInput(entry.linkIds)
+      })),
     skillGroups: {
       coreSkills: parseListInput(values.skillGroups.coreSkills),
       tools: parseListInput(values.skillGroups.tools),

@@ -43,7 +43,7 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed generic-discovery background: [exec-plans/completed/004-job-finder-generic-discovery.md](exec-plans/completed/004-job-finder-generic-discovery.md)
 - Completed source-debug background: [exec-plans/completed/005-job-source-debug-agent.md](exec-plans/completed/005-job-source-debug-agent.md)
 - Completed Job Finder resume workspace: [exec-plans/completed/007-job-finder-resume-workspace.md](exec-plans/completed/007-job-finder-resume-workspace.md)
-- Queued shared data expansion plan: [exec-plans/queued/011-job-finder-shared-data-expansion.md](exec-plans/queued/011-job-finder-shared-data-expansion.md)
+- Completed shared data expansion plan: [exec-plans/completed/011-job-finder-shared-data-expansion.md](exec-plans/completed/011-job-finder-shared-data-expansion.md)
 - Queued guided setup and profile copilot plan: [exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md](exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md)
 - Queued source intelligence and faster discovery plan: [exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md](exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md)
 - Queued resume output and template quality plan: [exec-plans/queued/014-job-finder-resume-output-and-template-quality.md](exec-plans/queued/014-job-finder-resume-output-and-template-quality.md)
@@ -52,6 +52,7 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed full-app copy pass: [exec-plans/completed/009-full-app-production-copy-pass.md](exec-plans/completed/009-full-app-production-copy-pass.md)
 - Completed browser efficiency and speed: [exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md](exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md)
 - Queued browser substrate evaluation and direction plan: [exec-plans/queued/017-browser-substrate-evaluation-and-direction.md](exec-plans/queued/017-browser-substrate-evaluation-and-direction.md)
+- Completed resume import and extraction reliability plan: [exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md](exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md)
 
 ## Design References
 

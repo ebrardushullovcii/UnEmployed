@@ -277,9 +277,179 @@ export function createExtractionAiClient(
     "Tests use the deterministic fallback agent.",
   );
 
+  function buildStageCandidates(stage: Parameters<JobFinderAiClient["extractResumeImportStage"]>[0]["stage"]) {
+    if (stage === "identity_summary") {
+      return [
+        extraction.fullName
+          ? {
+              target: { section: "identity" as const, key: "fullName", recordId: null },
+              label: "Full name",
+              value: extraction.fullName,
+              normalizedValue: extraction.fullName,
+              valuePreview: extraction.fullName,
+              evidenceText: extraction.fullName,
+              sourceBlockIds: [],
+              confidence: 0.95,
+              notes: [],
+              alternatives: [],
+            }
+          : null,
+        extraction.headline
+          ? {
+              target: { section: "identity" as const, key: "headline", recordId: null },
+              label: "Headline",
+              value: extraction.headline,
+              normalizedValue: extraction.headline,
+              valuePreview: extraction.headline,
+              evidenceText: extraction.headline,
+              sourceBlockIds: [],
+              confidence: 0.9,
+              notes: [],
+              alternatives: [],
+            }
+          : null,
+        extraction.summary
+          ? {
+              target: { section: "identity" as const, key: "summary", recordId: null },
+              label: "Summary",
+              value: extraction.summary,
+              normalizedValue: extraction.summary,
+              valuePreview: extraction.summary,
+              evidenceText: extraction.summary,
+              sourceBlockIds: [],
+              confidence: 0.84,
+              notes: [],
+              alternatives: [],
+            }
+          : null,
+        extraction.currentLocation
+          ? {
+              target: { section: "location" as const, key: "currentLocation", recordId: null },
+              label: "Current location",
+              value: extraction.currentLocation,
+              normalizedValue: extraction.currentLocation,
+              valuePreview: extraction.currentLocation,
+              evidenceText: extraction.currentLocation,
+              sourceBlockIds: [],
+              confidence: 0.99,
+              notes: [],
+              alternatives: [],
+            }
+          : null,
+        extraction.email
+          ? {
+              target: { section: "contact" as const, key: "email", recordId: null },
+              label: "Email",
+              value: extraction.email,
+              normalizedValue: extraction.email,
+              valuePreview: extraction.email,
+              evidenceText: extraction.email,
+              sourceBlockIds: [],
+              confidence: 0.96,
+              notes: [],
+              alternatives: [],
+            }
+          : null,
+        extraction.phone
+          ? {
+              target: { section: "contact" as const, key: "phone", recordId: null },
+              label: "Phone",
+              value: extraction.phone,
+              normalizedValue: extraction.phone,
+              valuePreview: extraction.phone,
+              evidenceText: extraction.phone,
+              sourceBlockIds: [],
+              confidence: 0.94,
+              notes: [],
+              alternatives: [],
+            }
+          : null,
+        extraction.salaryCurrency
+          ? {
+              target: { section: "search_preferences" as const, key: "salaryCurrency", recordId: null },
+              label: "Salary currency",
+              value: extraction.salaryCurrency,
+              normalizedValue: extraction.salaryCurrency,
+              valuePreview: extraction.salaryCurrency,
+              evidenceText: extraction.salaryCurrency,
+              sourceBlockIds: [],
+              confidence: 0.95,
+              notes: [],
+              alternatives: [],
+            }
+          : null,
+      ].filter(Boolean)
+    }
+
+    if (stage === "experience") {
+      return extraction.experiences.map((entry, index) => ({
+        target: { section: "experience" as const, key: "record", recordId: `experience_${index + 1}` },
+        label: entry.title ?? `Experience ${index + 1}`,
+        value: entry,
+        normalizedValue: entry,
+        valuePreview: entry.title ?? entry.companyName ?? null,
+        evidenceText: entry.summary,
+        sourceBlockIds: [],
+        confidence: 0.85,
+        notes: [],
+        alternatives: [],
+      }))
+    }
+
+    if (stage === "background") {
+      return [
+        ...extraction.links.map((entry, index) => ({
+          target: { section: "link" as const, key: "record", recordId: `link_${index + 1}` },
+          label: entry.label ?? `Link ${index + 1}`,
+          value: entry,
+          normalizedValue: entry,
+          valuePreview: entry.url,
+          evidenceText: entry.url,
+          sourceBlockIds: [],
+          confidence: 0.9,
+          notes: [],
+          alternatives: [],
+        })),
+        ...extraction.projects.map((entry, index) => ({
+          target: { section: "project" as const, key: "record", recordId: `project_${index + 1}` },
+          label: entry.name ?? `Project ${index + 1}`,
+          value: entry,
+          normalizedValue: entry,
+          valuePreview: entry.name,
+          evidenceText: entry.summary,
+          sourceBlockIds: [],
+          confidence: 0.8,
+          notes: [],
+          alternatives: [],
+        })),
+        ...extraction.spokenLanguages.map((entry, index) => ({
+          target: { section: "language" as const, key: "record", recordId: `language_${index + 1}` },
+          label: entry.language ?? `Language ${index + 1}`,
+          value: entry,
+          normalizedValue: entry,
+          valuePreview: entry.language,
+          evidenceText: entry.language,
+          sourceBlockIds: [],
+          confidence: 0.88,
+          notes: [],
+          alternatives: [],
+        })),
+      ]
+    }
+
+    return []
+  }
+
   return {
     ...fallbackClient,
     extractProfileFromResume: () => Promise.resolve(extraction),
+    extractResumeImportStage: async (input) => ({
+      stage: input.stage,
+      analysisProviderKind: extraction.analysisProviderKind,
+      analysisProviderLabel: extraction.analysisProviderLabel,
+      candidates: buildStageCandidates(input.stage),
+      notes: extraction.notes,
+    }),
   };
 }
 
@@ -334,4 +504,3 @@ export function createResearchAdapter(
     },
   };
 }
-

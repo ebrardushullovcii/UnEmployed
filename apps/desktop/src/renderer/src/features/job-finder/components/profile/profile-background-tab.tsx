@@ -14,10 +14,12 @@ import { ProfileSectionHeader } from './profile-section-header'
 
 interface ProfileBackgroundTabProps {
   backgroundArrays: {
+    customAnswerArray: UseFieldArrayReturn<ProfileEditorValues, 'answerBank.customAnswers', 'id'>
     certificationArray: UseFieldArrayReturn<ProfileEditorValues, 'records.certifications', 'id'>
     educationArray: UseFieldArrayReturn<ProfileEditorValues, 'records.education', 'id'>
     languageArray: UseFieldArrayReturn<ProfileEditorValues, 'languages', 'id'>
     linkArray: UseFieldArrayReturn<ProfileEditorValues, 'links', 'id'>
+    proofBankArray: UseFieldArrayReturn<ProfileEditorValues, 'proofBank', 'id'>
     projectArray: UseFieldArrayReturn<ProfileEditorValues, 'projects', 'id'>
   }
   busy: boolean
@@ -25,7 +27,7 @@ interface ProfileBackgroundTabProps {
 }
 
 export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: ProfileBackgroundTabProps) {
-  const { certificationArray, educationArray, languageArray, linkArray, projectArray } = backgroundArrays
+  const { certificationArray, educationArray, languageArray, linkArray, proofBankArray, projectArray } = backgroundArrays
   const { control, register, watch } = profileForm
 
   function joinParts(parts: Array<string | null | undefined>) {
@@ -331,6 +333,73 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
               title="Nothing added here yet"
             />
           ) : null}
+        </div>
+      </section>
+
+      <section className="grid content-start gap-(--gap-card)">
+        <ProfileSectionHeader
+          eyebrow="Proof bank"
+          title="Reusable proof and case studies"
+          description="Capture the strongest claims, metrics, and supporting links once so resumes and future applications can reuse them safely."
+          action={(
+            <Button
+              disabled={busy}
+              onClick={() =>
+                proofBankArray.append({
+                  id: `proof_${crypto.randomUUID().slice(0, 8)}`,
+                  title: '',
+                  claim: '',
+                  heroMetric: '',
+                  supportingContext: '',
+                  roleFamilies: '',
+                  projectIds: '',
+                  linkIds: ''
+                })
+              }
+              type="button"
+              variant="secondary"
+              className="h-11 px-4"
+            >
+              Add proof
+            </Button>
+          )}
+        />
+
+        <div className="grid gap-4">
+          {proofBankArray.fields.length > 0 ? (
+            proofBankArray.fields.map((entry, index) => (
+              <ProfileRecordCard
+                key={entry.id}
+                defaultOpen={index === 0}
+                summary={joinParts([
+                  watch(`proofBank.${index}.title`),
+                  watch(`proofBank.${index}.heroMetric`)
+                ])}
+                title={watch(`proofBank.${index}.title`)?.trim() || `Proof ${index + 1}`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Proof details</p>
+                  <Button disabled={busy} onClick={() => proofBankArray.remove(index)} size="compact" type="button" variant="ghost">
+                    Remove
+                  </Button>
+                </div>
+                <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
+                  <Field><FieldLabel>Title</FieldLabel><ProfileInput placeholder="Example: Led cross-functional redesign" {...register(`proofBank.${index}.title`)} /></Field>
+                  <Field><FieldLabel>Hero metric</FieldLabel><ProfileInput placeholder="Example: Increased activation by 18%" {...register(`proofBank.${index}.heroMetric`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Claim</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`proofBank.${index}.claim`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Supporting context</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`proofBank.${index}.supportingContext`)} /></Field>
+                  <Field><FieldLabel>Relevant role families</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`proofBank.${index}.roleFamilies`)} /></Field>
+                  <Field><FieldLabel>Related project IDs</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`proofBank.${index}.projectIds`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel>Related public link IDs</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`proofBank.${index}.linkIds`)} /></Field>
+                </div>
+              </ProfileRecordCard>
+            ))
+          ) : (
+            <EmptyState
+              description="Add reusable proof points here when you want resumes and apply help to reuse verified wins instead of rewording the same story each time."
+              title="No proof saved yet"
+            />
+          )}
         </div>
       </section>
     </div>

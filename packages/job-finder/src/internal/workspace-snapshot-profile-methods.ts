@@ -1,7 +1,8 @@
-import { CandidateProfileSchema, JobFinderDiscoveryStateSchema, JobFinderSettingsSchema, JobFinderWorkspaceSnapshotSchema, JobSearchPreferencesSchema, SourceDebugRunRecordSchema, type CandidateProfile, type JobFinderSettings, type JobFinderWorkspaceSnapshot, type JobSearchPreferences } from "@unemployed/contracts";
+import { CandidateProfileSchema, JobFinderDiscoveryStateSchema, JobFinderSettingsSchema, JobFinderWorkspaceSnapshotSchema, JobSearchPreferencesSchema, ResumeDocumentBundleSchema, ResumeSourceDocumentSchema, SourceDebugRunRecordSchema, type CandidateProfile, type JobFinderSettings, type JobFinderWorkspaceSnapshot, type JobSearchPreferences, type ResumeDocumentBundle, type ResumeImportFieldCandidate } from "@unemployed/contracts";
 import type { JobFinderRepositorySeed } from "@unemployed/db";
 import { buildApplicationRecords, buildDiscoveryJobs, buildReviewQueue } from "./matching";
-import { mergeResumeExtractionIntoWorkspace, normalizeProfileBeforeSave } from "./profile-merge";
+import { normalizeProfileBeforeSave } from "./profile-merge";
+import { runResumeImportWorkflow } from "./resume-import-workflow";
 import { hasResumeAffectingProfileChange, hasResumeAffectingSettingsChange } from "./resume-workspace-staleness";
 import { createBrowserSessionSnapshot } from "./workspace-service-helpers";
 import { getPreferredSessionAdapter, normalizeSearchPreferences } from "./workspace-helpers";
@@ -19,10 +20,70 @@ export function createWorkspaceSnapshotProfileMethods(
   | "checkBrowserSession"
   | "saveProfile"
   | "saveProfileAndSearchPreferences"
+  | "runResumeImport"
   | "analyzeProfileFromResume"
   | "saveSearchPreferences"
   | "saveSettings"
 > {
+  function summarizeReviewCandidates(
+    candidates: readonly ResumeImportFieldCandidate[],
+  ) {
+    return candidates.slice(0, 8).map((candidate) => ({
+      id: candidate.id,
+      target: candidate.target,
+      label: candidate.label,
+      valuePreview: candidate.valuePreview,
+      evidenceText: candidate.evidenceText,
+      confidence: candidate.confidence,
+      resolution: candidate.resolution,
+      notes: candidate.notes,
+    }));
+  }
+
+  function buildBundleFromStoredResume(profile: CandidateProfile): ResumeDocumentBundle {
+    const createdAt = profile.baseResume.textUpdatedAt ?? new Date().toISOString();
+    const text = profile.baseResume.textContent?.trim() ?? null;
+    const blocks = text
+      ? text
+          .split(/\r?\n/)
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .map((entry, index) => ({
+            id: `resume_block_${index + 1}`,
+            pageNumber: 1,
+            readingOrder: index,
+            text: entry,
+            kind: index === 0 ? "heading" : "paragraph",
+            sectionHint: index === 0 ? "identity" : "other",
+            bbox: null,
+            sourceParserKinds: ["plain_text"],
+            sourceConfidence: 1,
+          }))
+      : [];
+
+    return ResumeDocumentBundleSchema.parse({
+      id: `resume_bundle_${profile.baseResume.id}`,
+      runId: `resume_import_refresh_${Date.now()}`,
+      sourceResumeId: profile.baseResume.id,
+      sourceFileKind: "plain_text",
+      primaryParserKind: "plain_text",
+      parserKinds: ["plain_text"],
+      createdAt,
+      warnings: [],
+      pages: [
+        {
+          pageNumber: 1,
+          text,
+          charCount: text?.length ?? 0,
+          parserKinds: ["plain_text"],
+          usedOcr: false,
+        },
+      ],
+      blocks,
+      fullText: text,
+    });
+  }
+
   async function getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot> {
     if (!ctx.activeSourceDebugExecutionIdRef.current) {
       const discoveryState = await ctx.repository.getDiscoveryState();
@@ -67,6 +128,7 @@ export function createWorkspaceSnapshotProfileMethods(
       applicationRecords,
       applicationAttempts,
       sourceInstructionArtifacts,
+      latestResumeImportRun,
       settings,
       discovery,
     ] = await Promise.all([
@@ -80,9 +142,18 @@ export function createWorkspaceSnapshotProfileMethods(
       ctx.repository.listApplicationRecords(),
       ctx.repository.listApplicationAttempts(),
       ctx.repository.listSourceInstructionArtifacts(),
+      ctx.repository.getLatestResumeImportRun(),
       ctx.repository.getSettings(),
       ctx.repository.getDiscoveryState(),
     ]);
+    const latestResumeImportReviewCandidates = latestResumeImportRun
+      ? summarizeReviewCandidates(
+          await ctx.repository.listResumeImportFieldCandidates({
+            runId: latestResumeImportRun.id,
+            resolution: "needs_review",
+          }),
+        )
+      : [];
 
     const normalizedSearchPreferences =
       normalizeSearchPreferences(searchPreferences);
@@ -135,6 +206,8 @@ export function createWorkspaceSnapshotProfileMethods(
       applicationRecords: orderedApplicationRecords,
       applicationAttempts,
       sourceInstructionArtifacts,
+      latestResumeImportRun,
+      latestResumeImportReviewCandidates,
       selectedApplicationRecordId: orderedApplicationRecords[0]?.id ?? null,
       settings,
     });
@@ -207,6 +280,31 @@ export function createWorkspaceSnapshotProfileMethods(
 
       return getWorkspaceSnapshot();
     },
+    async runResumeImport(input) {
+      const baseResume = ResumeSourceDocumentSchema.parse(input.baseResume);
+      const documentBundle = ResumeDocumentBundleSchema.parse(input.documentBundle);
+      const searchPreferences = await ctx.repository.getSearchPreferences();
+      const currentProfile = await ctx.repository.getProfile();
+      const nextProfile = normalizeProfileBeforeSave(currentProfile, {
+        ...currentProfile,
+        baseResume,
+      });
+      const workflowResult = await runResumeImportWorkflow(ctx, {
+        profile: nextProfile,
+        searchPreferences,
+        documentBundle,
+        trigger: "import",
+        ...(input.importWarnings ? { importWarnings: input.importWarnings } : {}),
+      });
+
+      if (hasResumeAffectingProfileChange(currentProfile, workflowResult.profile)) {
+        await ctx.staleApprovedResumeDrafts(
+          "Profile details changed after approval and the resume needs a fresh review.",
+        );
+      }
+
+      return getWorkspaceSnapshot();
+    },
     async analyzeProfileFromResume() {
       const [profile, searchPreferences] = await Promise.all([
         ctx.repository.getProfile(),
@@ -233,21 +331,16 @@ export function createWorkspaceSnapshotProfileMethods(
         );
       }
 
-      const extraction = await ctx.aiClient.extractProfileFromResume({
-        existingProfile: profile,
-        existingSearchPreferences: searchPreferences,
-        resumeText: profile.baseResume.textContent,
-      });
-      const merged = mergeResumeExtractionIntoWorkspace(
+      const latestBundle =
+        (await ctx.repository.listResumeImportDocumentBundles({
+          sourceResumeId: profile.baseResume.id,
+        }))[0] ?? buildBundleFromStoredResume(profile);
+      await runResumeImportWorkflow(ctx, {
         profile,
         searchPreferences,
-        extraction,
-      );
-
-      await ctx.repository.saveProfileAndSearchPreferences(
-        merged.profile,
-        merged.searchPreferences,
-      );
+        documentBundle: latestBundle,
+        trigger: "refresh",
+      });
 
       return getWorkspaceSnapshot();
     },

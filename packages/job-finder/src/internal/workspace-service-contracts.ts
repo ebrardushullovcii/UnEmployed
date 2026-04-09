@@ -4,6 +4,8 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  ResumeDocumentBundle,
+  ResumeSourceDocument,
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
@@ -36,6 +38,11 @@ export interface JobFinderWorkspaceService {
     profile: CandidateProfile,
     searchPreferences: JobSearchPreferences,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  runResumeImport(input: {
+    baseResume: ResumeSourceDocument;
+    documentBundle: ResumeDocumentBundle;
+    importWarnings?: readonly string[];
+  }): Promise<JobFinderWorkspaceSnapshot>;
   analyzeProfileFromResume(): Promise<JobFinderWorkspaceSnapshot>;
   saveSearchPreferences(
     searchPreferences: JobSearchPreferences,

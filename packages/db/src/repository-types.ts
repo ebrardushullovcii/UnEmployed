@@ -7,9 +7,14 @@ import type {
   JobFinderSettings,
   JobSearchPreferences,
   ResumeAssistantMessage,
+  ResumeDocumentBundle,
   ResumeDraft,
   ResumeDraftRevision,
   ResumeExportArtifact,
+  ResumeImportCandidateResolution,
+  ResumeImportFieldCandidate,
+  ResumeImportRun,
+  ResumeImportRunStatus,
   ResumeResearchArtifact,
   ResumeValidationResult,
   SavedJob,
@@ -59,6 +64,25 @@ export interface JobFinderRepository {
     jobId?: string,
   ): Promise<readonly ResumeResearchArtifact[]>;
   upsertResumeResearchArtifact(artifact: ResumeResearchArtifact): Promise<void>;
+  listResumeImportRuns(options?: {
+    sourceResumeId?: string;
+    statuses?: readonly ResumeImportRunStatus[];
+    limit?: number;
+  }): Promise<readonly ResumeImportRun[]>;
+  getLatestResumeImportRun(sourceResumeId?: string): Promise<ResumeImportRun | null>;
+  listResumeImportDocumentBundles(options?: {
+    runId?: string;
+    sourceResumeId?: string;
+  }): Promise<readonly ResumeDocumentBundle[]>;
+  listResumeImportFieldCandidates(options?: {
+    runId?: string;
+    resolution?: ResumeImportCandidateResolution;
+  }): Promise<readonly ResumeImportFieldCandidate[]>;
+  replaceResumeImportRunArtifacts(input: {
+    run: ResumeImportRun;
+    documentBundles: readonly ResumeDocumentBundle[];
+    fieldCandidates: readonly ResumeImportFieldCandidate[];
+  }): Promise<void>;
   listResumeValidationResults(
     draftId?: string,
   ): Promise<readonly ResumeValidationResult[]>;

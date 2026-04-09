@@ -25,7 +25,8 @@ Use one track per meaningful workstream, not per person or per chat.
 ### Recommended Execution Bundles
 
 - `011 Shared Data Expansion` -> first foundation pass so later setup, discovery, resume, and apply work stop inventing parallel memory
-- `012 Guided Setup And Profile Copilot` -> turns the new `011` roots into a real first-run experience and captures the discovery/apply details the app is currently missing
+- `018 Resume Import And Extraction Reliability` -> completed missing `011` part 2; now turns raw resume import into a local document-understanding pipeline with parser routing, evidence-backed field candidates, and reviewable canonical merges
+- `012 Guided Setup And Profile Copilot` -> turns the new `011` roots plus `018` extraction candidates into a real first-run experience and captures the discovery/apply details the app is currently missing
 - `013 Source Intelligence And Faster Discovery` -> merged source-debug plus discovery workstream; typed source intelligence first, then provider-aware per-target and run-all discovery, richer job persistence, seen/applied dedupe, and browser closeout improvements
 - `014 Resume Content Correctness And Output Quality` -> after stronger profile and job inputs exist; focus first on usable content, editability, and ATS-safe output, not template variety
 - `015 Automatic Job Apply` -> final major product workstream after the stronger data, setup, discovery, and resume foundations exist
@@ -34,13 +35,24 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `Plan 011 Job Finder Shared Data Expansion`
 
-- status: `ready`
+- status: `done`
 - last updated: `2026-04-09`
-- linked plan: `docs/exec-plans/queued/011-job-finder-shared-data-expansion.md`
-- plan maturity: `execution_ready`
+- linked plan: `docs/exec-plans/completed/011-job-finder-shared-data-expansion.md`
+- plan maturity: `completed`
 - code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `apps/desktop`, `docs`
-- current focus: queued first foundation pass now grounded in the current `CandidateProfile`, `SavedJob`, `ApplicationAttempt`, and source-debug evidence roots so later discovery, resume, and apply work reuse durable shared data instead of inventing parallel stores, including reusable screener defaults such as compensation, availability, relocation, sponsorship, and short career-transition explanations
-- next step: start with the field-to-consumer audit in the plan, extend `CandidateProfile` for narrative and proof and answer defaults, extend `SavedJob` for richer job context, extend `ApplicationAttempt` for question and blocker and replay memory, and only introduce a new collection if JSON-shape expansion inside those roots proves insufficient
+- current focus: completed shared-data baseline across `CandidateProfile`, `SavedJob`, `ApplicationAttempt`, and source-debug links so later setup, discovery, resume, and apply work reuse durable shared roots for narrative, proof, reusable answers, enriched job context, blocker summaries, consent history, and replay memory instead of inventing parallel stores
+- next step: reuse the completed `011` roots while starting `012` guided setup and profile copilot so the richer fields become easier to collect and maintain in normal product flows
+- blockers: none
+
+### `Plan 018 Resume Import And Extraction Reliability`
+
+- status: `done`
+- last updated: `2026-04-10`
+- linked plan: `docs/exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md`
+- plan maturity: `completed`
+- code areas: `apps/desktop`, `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/ai-providers`, `docs`
+- current focus: completed missing `011` part 2 with persisted import runs, canonical document bundles, field candidates, staged model extraction, safe auto-apply rules, workspace-visible unresolved review candidates, and stronger desktop parser routing including macOS-native PDF and DOCX paths
+- next step: build `012` guided setup and profile copilot directly on top of the retained `018` run and candidate substrate instead of inventing a second temporary review model
 - blockers: none
 
 ### `Plan 012 Guided Setup And Profile Copilot`
@@ -50,9 +62,9 @@ Use one track per meaningful workstream, not per person or per chat.
 - linked plan: `docs/exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md`
 - plan maturity: `execution_ready`
 - code areas: `apps/desktop`, `packages/job-finder`, `packages/contracts`, `packages/db`, `packages/ai-providers`
-- current focus: queued second foundation pass to turn broad first-run profile editing into a concrete guided setup route with resumable setup state, low-confidence review items, readiness checks, discovery/apply-relevant prompts, and a bounded side copilot that applies typed profile patch groups on top of the richer `011` data roots
-- next step: start Milestone 1 after the `011` contract roots are clear enough to avoid temporary setup-only storage, then land setup-state contracts, migration defaults, and the `/job-finder/profile/setup` route before widening the side-copilot behavior; the early capture steps should explicitly cover compensation expectations, work authorization, sponsorship, relocation or travel, availability, and short career-transition explanations instead of leaving them to later screeners
-- blockers: best started after the initial `011` schema direction is clear enough that setup and chat edits target durable fields instead of temporary shapes
+- current focus: queued second foundation pass to turn broad first-run profile editing into a concrete guided setup route with resumable setup state, low-confidence review items, readiness checks, discovery/apply-relevant prompts, and a bounded side copilot that applies typed profile patch groups on top of the richer `011` data roots and the extraction-candidate substrate from `018`
+- next step: start Milestone 1 after the `011` contract roots and `018` extraction-run direction are clear enough to avoid temporary setup-only storage, then land setup-state contracts, migration defaults, and the `/job-finder/profile/setup` route before widening the side-copilot behavior; the early capture steps should explicitly cover compensation expectations, work authorization, sponsorship, relocation or travel, availability, and short career-transition explanations instead of leaving them to later screeners
+- blockers: best started after the initial `011` schema direction is clear enough that setup and chat edits target durable fields instead of temporary shapes, and materially stronger once `018` leaves behind real candidate-evidence artifacts instead of only warnings
 
 ### `Plan 013 Job Finder Source Intelligence And Faster Discovery`
 
@@ -162,4 +174,4 @@ Use one track per meaningful workstream, not per person or per chat.
 
 - Expand Applications with retry controls and attempt-centric recovery views beyond the shipped filters.
 - Add broader runtime tests for unsupported apply branches, live-browser extraction, and resume-import flows.
-- Improve cleanup and fallback extraction so difficult PDF and DOCX resumes yield cleaner structured text before the agent runs.
+- Build `012` guided setup review flows on top of the completed `018` import-run substrate so unresolved import candidates become actionable first-run questions.

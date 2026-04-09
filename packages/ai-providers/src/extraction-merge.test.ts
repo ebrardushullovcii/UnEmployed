@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { completeResumeExtraction } from './index'
+import { ResumeProfileExtractionSchema } from './shared'
 import { createExtraction } from './test-fixtures'
 
 describe('resume extraction merge', () => {
@@ -12,7 +13,7 @@ describe('resume extraction merge', () => {
           title: 'Software Engineer',
           employmentType: null,
           location: null,
-          workMode: null,
+          workMode: [],
           startDate: '2024',
           endDate: null,
           isCurrent: false,
@@ -29,7 +30,7 @@ describe('resume extraction merge', () => {
           title: 'Designer',
           employmentType: null,
           location: 'Remote',
-          workMode: 'remote',
+          workMode: ['remote'],
           startDate: '2022',
           endDate: '2023',
           isCurrent: false,
@@ -70,7 +71,7 @@ describe('resume extraction merge', () => {
           title: 'Engineer',
           employmentType: 'full_time',
           location: 'Remote',
-          workMode: 'remote',
+          workMode: ['remote'],
           startDate: '2024',
           endDate: null,
           isCurrent: true,
@@ -87,7 +88,7 @@ describe('resume extraction merge', () => {
           title: 'Operations Lead',
           employmentType: null,
           location: 'Berlin',
-          workMode: 'hybrid',
+          workMode: ['hybrid'],
           startDate: '2021',
           endDate: '2022',
           isCurrent: false,
@@ -195,7 +196,7 @@ describe('resume extraction merge', () => {
           title: null,
           employmentType: null,
           location: 'Remote',
-          workMode: null,
+          workMode: [],
           startDate: null,
           endDate: null,
           isCurrent: false,
@@ -216,7 +217,7 @@ describe('resume extraction merge', () => {
           title: 'Senior Engineer',
           employmentType: null,
           location: 'Remote',
-          workMode: null,
+          workMode: [],
           startDate: '2023',
           endDate: null,
           isCurrent: true,
@@ -265,5 +266,50 @@ describe('resume extraction merge', () => {
       expect.objectContaining({ label: 'Portfolio', url: null, kind: null }),
       expect.objectContaining({ label: 'GitHub', url: 'https://github.com/alex-vanguard', kind: 'github' })
     ])
+  })
+
+  test('normalizes single and array workMode values into arrays during extraction parsing', () => {
+    const parsed = ResumeProfileExtractionSchema.parse({
+      ...createExtraction(),
+      experiences: [
+        {
+          companyName: 'Acme',
+          companyUrl: null,
+          title: 'Engineer',
+          employmentType: null,
+          location: 'Remote',
+          workMode: 'remote',
+          startDate: '2024',
+          endDate: null,
+          isCurrent: true,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        },
+        {
+          companyName: 'Beta',
+          companyUrl: null,
+          title: 'Designer',
+          employmentType: null,
+          location: 'Hybrid',
+          workMode: ['hybrid'],
+          startDate: '2022',
+          endDate: '2023',
+          isCurrent: false,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        }
+      ]
+    })
+
+    expect(parsed.experiences[0]?.workMode).toEqual(['remote'])
+    expect(parsed.experiences[1]?.workMode).toEqual(['hybrid'])
   })
 })

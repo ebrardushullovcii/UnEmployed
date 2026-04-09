@@ -161,19 +161,25 @@ describe("createFileJobFinderRepository legacy restoration", () => {
     const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
     const legacyPath = path.join(tempDirectory, "job-finder-state.json");
     let repository: FileRepository | null = null;
+    const seed = createSeed();
+    const legacyTarget = seed.searchPreferences.discovery?.targets?.[0];
+
+    if (!legacyTarget) {
+      throw new Error("Expected a seeded discovery target for legacy-restoration tests.");
+    }
 
     try {
       await writeFile(
         legacyPath,
         JSON.stringify({
-          ...createSeed(),
+          ...seed,
           searchPreferences: {
-            ...createSeed().searchPreferences,
+            ...seed.searchPreferences,
             discovery: {
-              ...createSeed().searchPreferences.discovery,
+              ...seed.searchPreferences.discovery,
               targets: [
                 {
-                  ...createSeed().searchPreferences.discovery.targets[0],
+                  ...legacyTarget,
                   adapterKind: "linkedin",
                 },
               ],

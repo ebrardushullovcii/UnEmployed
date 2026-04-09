@@ -6,10 +6,13 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ResumeDocumentBundleSchema,
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
   ResumeExportArtifactSchema,
+  ResumeImportFieldCandidateSchema,
+  ResumeImportRunSchema,
   ResumeResearchArtifactSchema,
   ResumeValidationResultSchema,
   SavedJobSchema,
@@ -117,6 +120,18 @@ function sortResearch<TValue extends { id?: string; fetchedAt: string }>(
   );
 }
 
+function sortImportRuns<TValue extends { id?: string; startedAt: string }>(
+  values: readonly TValue[],
+): TValue[] {
+  return [...values].sort((left, right) => {
+    const difference =
+      new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime();
+    return difference !== 0
+      ? difference
+      : String(left.id ?? "").localeCompare(String(right.id ?? ""));
+  });
+}
+
 function sortMessages<TValue extends { id?: string; createdAt: string }>(
   values: readonly TValue[],
 ): TValue[] {
@@ -180,6 +195,9 @@ export function createInMemoryJobFinderRepository(
       state.resumeDrafts = normalizedSeed.resumeDrafts;
       state.resumeDraftRevisions = normalizedSeed.resumeDraftRevisions;
       state.resumeExportArtifacts = normalizedSeed.resumeExportArtifacts;
+      state.resumeImportRuns = normalizedSeed.resumeImportRuns;
+      state.resumeImportDocumentBundles = normalizedSeed.resumeImportDocumentBundles;
+      state.resumeImportFieldCandidates = normalizedSeed.resumeImportFieldCandidates;
       state.resumeResearchArtifacts = normalizedSeed.resumeResearchArtifacts;
       state.resumeValidationResults = normalizedSeed.resumeValidationResults;
       state.resumeAssistantMessages = normalizedSeed.resumeAssistantMessages;
@@ -334,6 +352,103 @@ export function createInMemoryJobFinderRepository(
         state.resumeResearchArtifacts,
         normalizedArtifact,
       );
+      return Promise.resolve();
+    },
+    listResumeImportRuns(options) {
+      let values = state.resumeImportRuns;
+
+      if (options?.sourceResumeId) {
+        values = values.filter(
+          (entry) => entry.sourceResumeId === options.sourceResumeId,
+        );
+      }
+
+      if (options?.statuses && options.statuses.length > 0) {
+        const allowedStatuses = new Set(options.statuses);
+        values = values.filter((entry) => allowedStatuses.has(entry.status));
+      }
+
+      const sortedValues = sortImportRuns(cloneValue(values));
+      return Promise.resolve(
+        typeof options?.limit === "number"
+          ? sortedValues.slice(0, Math.max(0, options.limit))
+          : sortedValues,
+      );
+    },
+    async getLatestResumeImportRun(sourceResumeId) {
+      const values = await this.listResumeImportRuns({
+        ...(sourceResumeId ? { sourceResumeId } : {}),
+        limit: 1,
+      });
+      return values[0] ?? null;
+    },
+    listResumeImportDocumentBundles(options) {
+      const values = state.resumeImportDocumentBundles.filter((entry) => {
+        if (options?.runId && entry.runId !== options.runId) {
+          return false;
+        }
+
+        if (
+          options?.sourceResumeId &&
+          entry.sourceResumeId !== options.sourceResumeId
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+
+      return Promise.resolve(sortNewestFirst(cloneValue(values)));
+    },
+    listResumeImportFieldCandidates(options) {
+      const values = state.resumeImportFieldCandidates.filter((entry) => {
+        if (options?.runId && entry.runId !== options.runId) {
+          return false;
+        }
+
+        if (options?.resolution && entry.resolution !== options.resolution) {
+          return false;
+        }
+
+        return true;
+      });
+
+      return Promise.resolve(sortNewestFirst(cloneValue(values)));
+    },
+    replaceResumeImportRunArtifacts({ run, documentBundles, fieldCandidates }) {
+      const normalizedRun = ResumeImportRunSchema.parse(cloneValue(run));
+      const normalizedBundles = ResumeDocumentBundleSchema.array().parse(
+        cloneValue([...documentBundles]),
+      );
+      const normalizedCandidates = ResumeImportFieldCandidateSchema.array().parse(
+        cloneValue([...fieldCandidates]),
+      );
+
+      for (const bundle of normalizedBundles) {
+        if (bundle.runId !== normalizedRun.id) {
+          throw new Error("Resume document bundle does not belong to the provided import run.");
+        }
+      }
+
+      for (const candidate of normalizedCandidates) {
+        if (candidate.runId !== normalizedRun.id) {
+          throw new Error("Resume import candidate does not belong to the provided import run.");
+        }
+      }
+
+      state.resumeImportRuns = upsertById(state.resumeImportRuns, normalizedRun);
+      state.resumeImportDocumentBundles = [
+        ...state.resumeImportDocumentBundles.filter(
+          (bundle) => bundle.runId !== normalizedRun.id,
+        ),
+        ...normalizedBundles,
+      ];
+      state.resumeImportFieldCandidates = [
+        ...state.resumeImportFieldCandidates.filter(
+          (candidate) => candidate.runId !== normalizedRun.id,
+        ),
+        ...normalizedCandidates,
+      ];
       return Promise.resolve();
     },
     listResumeValidationResults(draftId) {
