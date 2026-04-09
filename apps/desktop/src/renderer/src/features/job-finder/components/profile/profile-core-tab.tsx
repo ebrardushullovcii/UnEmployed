@@ -93,6 +93,10 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
               <ProfileTextarea className="min-h-(--textarea-default) max-h-(--textarea-default)" rows={5} {...register('summary.fullSummary')} />
             </Field>
             <Field>
+              <FieldLabel>Professional story</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-default) max-h-(--textarea-default)" rows={5} {...register('narrative.professionalStory')} />
+            </Field>
+            <Field>
               <FieldLabel>Strengths</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.strengths')} />
             </Field>
@@ -109,12 +113,28 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
               <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.careerThemes')} />
             </Field>
             <Field>
+              <FieldLabel>Next chapter</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('narrative.nextChapterSummary')} />
+            </Field>
+            <Field>
               <FieldLabel>Leadership experience</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('summary.leadershipSummary')} />
+            </Field>
+            <Field>
+              <FieldLabel>Career transition context</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('narrative.careerTransitionSummary')} />
             </Field>
             <Field className="md:col-span-2">
               <FieldLabel>Industry focus</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('summary.domainFocusSummary')} />
+            </Field>
+            <Field>
+              <FieldLabel>Differentiators</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('narrative.differentiators')} />
+            </Field>
+            <Field>
+              <FieldLabel>Motivation themes</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('narrative.motivationThemes')} />
             </Field>
           </div>
         </ProfileOptionalSection>

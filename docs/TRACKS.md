@@ -34,13 +34,13 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `Plan 011 Job Finder Shared Data Expansion`
 
-- status: `ready`
+- status: `done`
 - last updated: `2026-04-09`
-- linked plan: `docs/exec-plans/queued/011-job-finder-shared-data-expansion.md`
-- plan maturity: `execution_ready`
+- linked plan: `docs/exec-plans/completed/011-job-finder-shared-data-expansion.md`
+- plan maturity: `completed`
 - code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `apps/desktop`, `docs`
-- current focus: queued first foundation pass now grounded in the current `CandidateProfile`, `SavedJob`, `ApplicationAttempt`, and source-debug evidence roots so later discovery, resume, and apply work reuse durable shared data instead of inventing parallel stores, including reusable screener defaults such as compensation, availability, relocation, sponsorship, and short career-transition explanations
-- next step: start with the field-to-consumer audit in the plan, extend `CandidateProfile` for narrative and proof and answer defaults, extend `SavedJob` for richer job context, extend `ApplicationAttempt` for question and blocker and replay memory, and only introduce a new collection if JSON-shape expansion inside those roots proves insufficient
+- current focus: completed shared-data baseline across `CandidateProfile`, `SavedJob`, `ApplicationAttempt`, and source-debug links so later setup, discovery, resume, and apply work reuse durable shared roots for narrative, proof, reusable answers, enriched job context, blocker summaries, consent history, and replay memory instead of inventing parallel stores
+- next step: reuse the completed `011` roots while starting `012` guided setup and profile copilot so the richer fields become easier to collect and maintain in normal product flows
 - blockers: none
 
 ### `Plan 012 Guided Setup And Profile Copilot`

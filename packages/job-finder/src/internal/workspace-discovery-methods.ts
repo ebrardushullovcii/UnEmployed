@@ -240,7 +240,7 @@ export function createWorkspaceDiscoveryMethods(
       const mergeSeedJobs = settings.discoveryOnly
         ? mergeSavedJobs(savedJobs, discoveryState.pendingDiscoveryJobs)
         : savedJobs;
-      const mergeResult = await mergeDiscoveredPostings(
+      const mergeResult = mergeDiscoveredPostings(
         profile,
         enrichedPreferences,
         mergeSeedJobs,
@@ -595,7 +595,7 @@ export function createWorkspaceDiscoveryMethods(
           const mergeSeedJobs = settings.discoveryOnly
             ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
             : workingSavedJobs;
-          const mergeResult = await mergeDiscoveredPostings(
+          const mergeResult = mergeDiscoveredPostings(
             profile,
             enrichedPreferences,
             mergeSeedJobs,

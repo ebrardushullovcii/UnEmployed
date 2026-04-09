@@ -90,12 +90,14 @@
 - The resume-import capture defaults to `Resume.pdf` at the repo root; override with CLI flags like `--resume`, `--expected-name`, `--expected-headline`, `--expected-location`, `--expected-summary-contains`, and `--label`, or use the matching `UI_TEST_*` environment variables when validating other files.
 - The profile-baseline capture now requires an explicit snapshot path. The old default snapshot-path fallback was removed, so pass `--snapshot <path>` or set `UI_PROFILE_BASELINE_SNAPSHOT` to the workspace snapshot you want to use for screenshots.
 - Migration example: `pnpm --filter @unemployed/desktop exec node ./scripts/capture-profile-baseline.mjs --snapshot ./test-fixtures/job-finder/profile-baseline-workspace.json`.
+- Current committed baseline fixture for shared-profile QA: `apps/desktop/test-fixtures/job-finder/profile-baseline-workspace.json`.
 - The current default capture size is `1440x920`.
 - The current standard multi-size review pass covers `1728x1080`, `1440x920`, `1280x800`, and `1024x768`.
 - Override capture size with environment variables when needed, for example: `UI_CAPTURE_WIDTH=1280 UI_CAPTURE_HEIGHT=800 UI_CAPTURE_LABEL=1280x800 pnpm --filter @unemployed/desktop exec node ./scripts/capture-ui.mjs`.
 - Captures are written to `apps/desktop/test-artifacts/ui/<label>/`.
 - The script uses a temporary user-data directory on each run so screenshots start from a clean seeded state instead of inheriting an old local workspace.
 - Capture artifacts are validation output only and should not be committed.
+- Current `011` shared-data validation artifacts land under `apps/desktop/test-artifacts/ui/profile-visual-baseline-<date>/` and `apps/desktop/test-artifacts/ui/resume-workspace/` when the standard profile-baseline and resume-workspace harnesses run successfully.
 
 ## Testing Model
 

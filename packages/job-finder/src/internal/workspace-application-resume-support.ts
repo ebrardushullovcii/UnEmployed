@@ -1,6 +1,7 @@
 import {
   JobFinderResumeWorkspaceSchema,
   type JobFinderResumeWorkspace,
+  type CandidateProfile,
   type ResumeDraft,
   type SavedJob,
   type TailoredAsset,
@@ -12,6 +13,35 @@ import {
   validateResumeDraft,
 } from "./resume-workspace-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
+
+function buildResumeWorkspaceSharedProfile(profile: CandidateProfile) {
+  const linksById = new Map(
+    profile.links.map((link) => [link.id, link.label ?? link.url ?? link.id]),
+  );
+
+  return {
+    narrativeSummary:
+      profile.narrative.professionalStory ??
+      profile.professionalSummary.fullSummary ??
+      profile.summary ??
+      null,
+    nextChapterSummary:
+      profile.narrative.nextChapterSummary ??
+      profile.narrative.careerTransitionSummary ??
+      null,
+    selfIntroduction: profile.answerBank.selfIntroduction,
+    highlightedProofs: profile.proofBank.slice(0, 4).map((proof) => ({
+      id: proof.id,
+      title: proof.title,
+      claim: proof.claim,
+      heroMetric: proof.heroMetric,
+      roleFamilies: proof.roleFamilies,
+      supportingLinks: proof.linkIds
+        .map((linkId) => linksById.get(linkId) ?? null)
+        .filter((value): value is string => value !== null),
+    })),
+  };
+}
 
 export interface LoadedResumeWorkspaceState {
   profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
@@ -154,7 +184,7 @@ export async function buildResumeWorkspace(
   ctx: WorkspaceServiceContext,
   jobId: string,
 ): Promise<JobFinderResumeWorkspace> {
-  const { job, draft, tailoredAsset } = await ensureResumeDraft(ctx, jobId);
+  const { job, draft, profile, tailoredAsset } = await ensureResumeDraft(ctx, jobId);
   const [validations, exports, research, assistantMessages] = await Promise.all([
     ctx.repository.listResumeValidationResults(draft.id),
     ctx.repository.listResumeExportArtifacts({ jobId }),
@@ -174,5 +204,6 @@ export async function buildResumeWorkspace(
     research,
     assistantMessages,
     tailoredAsset,
+    sharedProfile: buildResumeWorkspaceSharedProfile(profile),
   });
 }

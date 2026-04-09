@@ -18,6 +18,15 @@ export function createSubmittedAttempt(): ApplicationAttempt {
     updatedAt: "2026-03-20T10:03:00.000Z",
     completedAt: "2026-03-20T10:03:00.000Z",
     outcome: "submitted" as const,
+    questions: [],
+    blocker: null,
+    consentDecisions: [],
+    replay: {
+      sourceInstructionArtifactId: null,
+      sourceDebugEvidenceRefIds: [],
+      lastUrl: "https://jobs.example.com/roles/target_job_1/apply",
+      checkpointUrls: ["https://jobs.example.com/roles/target_job_1/apply"],
+    },
     nextActionLabel: "Monitor inbox",
     checkpoints: [
       {

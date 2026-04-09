@@ -567,6 +567,26 @@ export function createBrowserAgentRuntime(
         detail: `The current runtime does not submit applications automatically for '${input.job.title}'. Use the learned target guidance to continue manually.`,
         submittedAt: null,
         outcome: null,
+        questions: [],
+        blocker: {
+          code: "unsupported_apply_path",
+          summary: "The generic runtime does not support automated application submission.",
+          detail:
+            "Use the learned target guidance to continue this application manually.",
+          questionIds: [],
+          sourceDebugEvidenceRefIds: [],
+          url: input.job.applicationUrl ?? input.job.canonicalUrl,
+        },
+        consentDecisions: [],
+        replay: {
+          sourceInstructionArtifactId: null,
+          sourceDebugEvidenceRefIds: [],
+          lastUrl: input.job.applicationUrl ?? input.job.canonicalUrl,
+          checkpointUrls:
+            input.job.applicationUrl ?? input.job.canonicalUrl
+              ? [input.job.applicationUrl ?? input.job.canonicalUrl]
+              : [],
+        },
         nextActionLabel: "Open the listing manually",
         checkpoints: [
           {

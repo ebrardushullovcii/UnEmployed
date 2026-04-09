@@ -89,6 +89,31 @@ export function createProfile(): CandidateProfile {
     linkedinUrl: null,
     githubUrl: null,
     personalWebsiteUrl: null,
+    narrative: {
+      professionalStory: null,
+      nextChapterSummary: null,
+      careerTransitionSummary: null,
+      differentiators: [],
+      motivationThemes: []
+    },
+    proofBank: [],
+    answerBank: {
+      workAuthorization: null,
+      visaSponsorship: null,
+      relocation: null,
+      travel: null,
+      noticePeriod: null,
+      availability: null,
+      salaryExpectations: null,
+      selfIntroduction: null,
+      careerTransition: null,
+      customAnswers: []
+    },
+    applicationIdentity: {
+      preferredEmail: null,
+      preferredPhone: null,
+      preferredLinkIds: []
+    },
     baseResume: {
       id: 'resume_1',
       fileName: 'resume.txt',
@@ -199,6 +224,7 @@ export function createJobPosting(): JobPosting {
     sourceJobId: 'job_1',
     discoveryMethod: 'browser_agent',
     canonicalUrl: 'https://jobs.example.com/1',
+    applicationUrl: null,
     title: 'Frontend Engineer',
     company: 'Acme',
     location: 'Remote',
@@ -208,7 +234,18 @@ export function createJobPosting(): JobPosting {
     postedAt: '2026-03-20T10:00:00.000Z',
     postedAtText: null,
     discoveredAt: '2026-03-20T10:00:00.000Z',
+    firstSeenAt: '2026-03-20T10:00:00.000Z',
+    lastSeenAt: '2026-03-20T10:00:00.000Z',
+    lastVerifiedActiveAt: '2026-03-20T10:00:00.000Z',
     salaryText: null,
+    normalizedCompensation: {
+      currency: null,
+      interval: null,
+      minAmount: null,
+      maxAmount: null,
+      minAnnualUsd: null,
+      maxAnnualUsd: null,
+    },
     summary: 'Build product interfaces',
     description: 'Build product interfaces',
     keySkills: ['React'],
@@ -221,6 +258,15 @@ export function createJobPosting(): JobPosting {
     team: null,
     employerWebsiteUrl: null,
     employerDomain: null,
+    atsProvider: null,
+    screeningHints: {
+      sponsorshipText: null,
+      requiresSecurityClearance: null,
+      relocationText: null,
+      travelText: null,
+      remoteGeographies: []
+    },
+    keywordSignals: [],
     benefits: []
   }
 }

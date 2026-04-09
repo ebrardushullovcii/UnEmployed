@@ -91,6 +91,7 @@ describe("createFileJobFinderRepository", () => {
           sourceJobId: "target_job_1",
           discoveryMethod: "catalog_seed",
           canonicalUrl: "https://jobs.example.com/roles/target_job_1",
+          applicationUrl: "https://jobs.example.com/roles/target_job_1/apply",
           title: "Lead Designer",
           company: "Signal Systems",
           location: "Remote",
@@ -100,7 +101,18 @@ describe("createFileJobFinderRepository", () => {
           postedAt: "2026-03-20T10:00:00.000Z",
           postedAtText: null,
           discoveredAt: "2026-03-20T10:01:00.000Z",
+          firstSeenAt: "2026-03-20T10:01:00.000Z",
+          lastSeenAt: "2026-03-20T10:01:00.000Z",
+          lastVerifiedActiveAt: "2026-03-20T10:01:00.000Z",
           salaryText: "$180k",
+          normalizedCompensation: {
+            currency: "USD",
+            interval: "year",
+            minAmount: 180000,
+            maxAmount: 180000,
+            minAnnualUsd: 180000,
+            maxAnnualUsd: 180000,
+          },
           summary: "Lead product design.",
           description: "Lead product design for operational software.",
           keySkills: ["Figma"],
@@ -113,6 +125,15 @@ describe("createFileJobFinderRepository", () => {
           team: null,
           employerWebsiteUrl: null,
           employerDomain: null,
+          atsProvider: null,
+          screeningHints: {
+            sponsorshipText: null,
+            requiresSecurityClearance: null,
+            relocationText: null,
+            travelText: null,
+            remoteGeographies: [],
+          },
+          keywordSignals: [],
           benefits: [],
           status: "ready_for_review",
           matchAssessment: {
@@ -134,6 +155,15 @@ describe("createFileJobFinderRepository", () => {
         updatedAt: "2026-03-20T10:05:00.000Z",
         completedAt: "2026-03-20T10:05:00.000Z",
         outcome: "submitted",
+        questions: [],
+        blocker: null,
+        consentDecisions: [],
+        replay: {
+          sourceInstructionArtifactId: null,
+          sourceDebugEvidenceRefIds: [],
+          lastUrl: "https://jobs.example.com/roles/job_1/apply",
+          checkpointUrls: ["https://jobs.example.com/roles/job_1/apply"],
+        },
         nextActionLabel: "Monitor inbox",
         checkpoints: [],
       });
@@ -331,6 +361,7 @@ describe("createFileJobFinderRepository", () => {
         sourceJobId: "target_job_ready",
         discoveryMethod: "catalog_seed",
         canonicalUrl: "https://jobs.example.com/roles/target_job_ready",
+        applicationUrl: "https://jobs.example.com/roles/target_job_ready/apply",
         title: "Lead Designer",
         company: "Signal Systems",
         location: "Remote",
@@ -340,7 +371,18 @@ describe("createFileJobFinderRepository", () => {
         postedAt: "2026-03-20T10:00:00.000Z",
         postedAtText: null,
         discoveredAt: "2026-03-20T10:01:00.000Z",
+        firstSeenAt: "2026-03-20T10:01:00.000Z",
+        lastSeenAt: "2026-03-20T10:01:00.000Z",
+        lastVerifiedActiveAt: "2026-03-20T10:01:00.000Z",
         salaryText: "$180k",
+        normalizedCompensation: {
+          currency: "USD",
+          interval: "year",
+          minAmount: 180000,
+          maxAmount: 180000,
+          minAnnualUsd: 180000,
+          maxAnnualUsd: 180000,
+        },
         summary: "Lead product design.",
         description: "Lead product design for operational software.",
         keySkills: ["Figma"],
@@ -353,6 +395,15 @@ describe("createFileJobFinderRepository", () => {
         team: null,
         employerWebsiteUrl: null,
         employerDomain: null,
+        atsProvider: null,
+        screeningHints: {
+          sponsorshipText: null,
+          requiresSecurityClearance: null,
+          relocationText: null,
+          travelText: null,
+          remoteGeographies: [],
+        },
+        keywordSignals: [],
         benefits: [],
         status: "ready_for_review",
         matchAssessment: {
@@ -445,13 +496,8 @@ describe("createFileJobFinderRepository", () => {
       const exports = await repository.listResumeExportArtifacts({ jobId: "job_ready" });
       const assets = await repository.listTailoredAssets();
 
-      expect(refreshedJobs).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: "job_ready",
-            description: expect.stringMatching(/Updated\./),
-          }),
-        ]),
+      expect(refreshedJobs.find((job) => job.id === "job_ready")?.description).toMatch(
+        /Updated\./,
       );
       expect(refreshedDraft?.status).toBe("stale");
       expect(refreshedDraft?.approvedExportId).toBeNull();

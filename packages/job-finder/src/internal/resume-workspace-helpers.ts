@@ -538,10 +538,16 @@ export function collectResumeWorkspaceEvidence(input: {
     input.profile.professionalSummary.shortValueProposition ?? "",
     input.profile.professionalSummary.fullSummary ?? "",
     input.profile.summary ?? "",
+    input.profile.narrative.professionalStory ?? "",
+    input.profile.narrative.nextChapterSummary ?? "",
+    input.profile.narrative.careerTransitionSummary ?? "",
+    ...input.profile.narrative.differentiators,
     ...input.profile.experiences
       .map((experience) => experience.summary ?? "")
       .filter(Boolean),
   ]).slice(0, 4);
+
+  const highlightedProofs = input.profile.proofBank.slice(0, 6);
 
   if (input.profile.baseResume.textContent) {
     index.addDocument(input.profile.baseResume.id, input.profile.baseResume.textContent, {
@@ -570,6 +576,93 @@ export function collectResumeWorkspaceEvidence(input: {
         sourceId: experience.id,
       });
     }
+  });
+
+  if (
+    input.profile.narrative.professionalStory ||
+    input.profile.narrative.nextChapterSummary ||
+    input.profile.narrative.careerTransitionSummary ||
+    input.profile.narrative.differentiators.length > 0
+  ) {
+    index.addDocument(
+      "profile_narrative",
+      [
+        input.profile.narrative.professionalStory,
+        input.profile.narrative.nextChapterSummary,
+        input.profile.narrative.careerTransitionSummary,
+        ...input.profile.narrative.differentiators,
+        ...input.profile.narrative.motivationThemes,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      {
+        tags: ["profile"],
+        title: "Candidate Narrative",
+        section: "narrative",
+        sourceId: "profile_narrative",
+      },
+    );
+  }
+
+  highlightedProofs.forEach((proof) => {
+    index.addDocument(
+      proof.id,
+      [
+        proof.title,
+        proof.claim,
+        proof.heroMetric,
+        proof.supportingContext,
+        ...proof.roleFamilies,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      {
+        tags: ["profile"],
+        title: proof.title,
+        section: "proof",
+        sourceId: proof.id,
+      },
+    );
+  });
+
+  input.profile.projects.forEach((project) => {
+    const text = [
+      project.name,
+      project.summary,
+      project.role,
+      project.outcome,
+      ...project.skills,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    if (text.trim()) {
+      index.addDocument(project.id, text, {
+        tags: ["profile"],
+        title: project.name,
+        section: "project",
+        sourceId: project.id,
+      });
+    }
+  });
+
+  input.profile.links.forEach((link) => {
+    if (!link.label && !link.url) {
+      return;
+    }
+
+    index.addDocument(
+      link.id,
+      [link.label, link.url, link.kind]
+        .filter(Boolean)
+        .join(" "),
+      {
+        tags: ["profile"],
+        title: link.label ?? link.url ?? "Profile link",
+        section: "link",
+        sourceId: link.id,
+      },
+    );
   });
 
   const skillText = uniqueStrings([
@@ -617,11 +710,12 @@ export function collectResumeWorkspaceEvidence(input: {
   return {
     summary: index.search(`${input.job.title} ${input.job.company} summary`, { limit: 3 }).map((entry: { text: string }) => entry.text),
     candidateSummary: candidateSummaryEvidence,
-    experience: index.search(`${input.job.title} ${buildPriorityJobTerms(input.job).join(" ")} achievements`, { limit: 4, tags: ["profile", "resume"] }).map((entry: { text: string }) => entry.text),
+    experience: index.search(`${input.job.title} ${buildPriorityJobTerms(input.job).join(" ")} achievements`, { limit: 6, tags: ["profile", "resume"] }).map((entry: { text: string }) => entry.text),
     skills: index.search(`${buildPriorityJobTerms(input.job).join(" ")} ${input.job.title} skills`, { limit: 6, tags: ["profile", "job"] }).map((entry: { text: string }) => entry.text),
     keywords: uniqueStrings([
       ...buildPriorityJobTerms(input.job),
       ...input.research.flatMap((artifact) => artifact.domainVocabulary),
+      ...highlightedProofs.flatMap((proof) => proof.roleFamilies),
     ]).slice(0, 8),
   };
 }

@@ -42,6 +42,7 @@ export type ResumeDraftSectionKind = z.infer<
 export const resumeDraftSourceKindValues = [
   "resume",
   "profile",
+  "proof",
   "job",
   "research",
   "user",

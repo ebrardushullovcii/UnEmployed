@@ -20,6 +20,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - `Shortlisted` now frames apply readiness as explicit resume, approval, and browser checks instead of relying only on stacked status cards.
 - `Applications` now supports filtered triage views so the user can focus on needs-action, in-progress, submitted, and manual-only records.
 - `Profile` keeps more optional fields behind secondary disclosure sections so the main editing path stays focused on the details that drive search, resumes, and applications.
+- Shared data now keeps richer candidate narrative, proof-bank entries, reusable screener answers, application identity defaults, enriched saved-job metadata, and structured apply-memory summaries on durable roots that later workflows can reuse directly.
 - `Settings` now concentrates editable defaults in the main column and keeps live status plus destructive reset controls in a smaller side rail.
 - Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback.
 - Discovery supports generic configured job sources, retained run history, activity timelines, and reusable source-setup navigation artifacts.
@@ -30,14 +31,14 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Resume workspace plan: `docs/exec-plans/completed/007-job-finder-resume-workspace.md`
 - Completed full-app copy pass plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - Browser efficiency and speed plan: `docs/exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md`
-- Shared data expansion plan: `docs/exec-plans/queued/011-job-finder-shared-data-expansion.md`
+- Completed shared data expansion plan: `docs/exec-plans/completed/011-job-finder-shared-data-expansion.md`
 - Guided setup and profile copilot plan: `docs/exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md`
 - Source intelligence and faster discovery plan: `docs/exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md`
 - Resume output and template quality plan: `docs/exec-plans/queued/014-job-finder-resume-output-and-template-quality.md`
 - Automatic job apply plan: `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`
 - Shared agent auto compaction plan: `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
 - Browser substrate evaluation and direction plan: `docs/exec-plans/queued/017-browser-substrate-evaluation-and-direction.md`
-- The recommended forward path is now `011` -> `012` -> `013` -> `014` -> `015`, with `016` auto compaction and `017` browser-substrate direction treated as deferred cross-cutting follow-ons rather than the main product queue.
+- The recommended forward path now treats completed `011` as the shared-data baseline, then continues with `012` -> `013` -> `014` -> `015`, with `016` auto compaction and `017` browser-substrate direction treated as deferred cross-cutting follow-ons rather than the main product queue.
 - `015` intentionally defines the queued apply direction as a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission. The current shipped apply flow remains more conservative until that plan lands.
 
 ## Completed Background Plans

@@ -16,10 +16,12 @@ import type { ProfileSection } from '../../lib/profile-screen-progress'
 interface ProfileActiveSectionContentProps {
   activeSection: ProfileSection
   backgroundArrays: {
+    customAnswerArray: UseFieldArrayReturn<ProfileEditorValues, 'answerBank.customAnswers', 'id'>
     certificationArray: UseFieldArrayReturn<ProfileEditorValues, 'records.certifications', 'id'>
     educationArray: UseFieldArrayReturn<ProfileEditorValues, 'records.education', 'id'>
     languageArray: UseFieldArrayReturn<ProfileEditorValues, 'languages', 'id'>
     linkArray: UseFieldArrayReturn<ProfileEditorValues, 'links', 'id'>
+    proofBankArray: UseFieldArrayReturn<ProfileEditorValues, 'proofBank', 'id'>
     projectArray: UseFieldArrayReturn<ProfileEditorValues, 'projects', 'id'>
   }
   busy: boolean
@@ -61,6 +63,7 @@ export function ProfileActiveSectionContent({
         onVerifySourceInstructions={onVerifySourceInstructions}
         preferencesForm={preferencesForm}
         profileForm={profileForm}
+        customAnswerArray={backgroundArrays.customAnswerArray}
         recentSourceDebugRuns={recentSourceDebugRuns}
         sourceInstructionArtifacts={sourceInstructionArtifacts}
       />

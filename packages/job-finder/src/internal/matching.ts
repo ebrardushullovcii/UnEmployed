@@ -6,9 +6,11 @@ import {
   type ApplicationStatus,
   type AssetStatus,
   type CandidateProfile,
+  type JobKeywordSignal,
   type JobSearchPreferences,
   type JobPosting,
   type MatchAssessment,
+  type NormalizedCompensation,
   type ResumeDraft,
   type ResumeExportArtifact,
   type ReviewQueueItem,
@@ -16,7 +18,7 @@ import {
   type SavedJobDiscoveryProvenance,
   type TailoredAsset,
 } from "@unemployed/contracts";
-import { normalizeText, tokenize } from "./shared";
+import { normalizeText, tokenize, uniqueStrings } from "./shared";
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -45,6 +47,13 @@ const annualCompensationMultipliers: Record<string, number> = {
 const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi;
 const secondaryCompensationBeforePattern = /\b(bonus|commission|sign[- ]?on|equity|ote)\b/i;
 const secondaryCompensationAfterPattern = /^(?:[:-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
+
+const remoteGeographyHints = [
+  { pattern: /\b(united states|u\.s\.|u\.s|us only|usa only)\b/i, label: "United States" },
+  { pattern: /\b(united kingdom|uk only|u\.k\.)\b/i, label: "United Kingdom" },
+  { pattern: /\b(european union|europe|eu only)\b/i, label: "Europe" },
+  { pattern: /\b(canada|canadian)\b/i, label: "Canada" },
+] as const;
 
 function readPeriodUnit(salaryText: string, startIndex: number): string | null {
   const followingText = salaryText.slice(startIndex).trimStart().toLowerCase();
@@ -213,6 +222,326 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
   }
 
   return Math.min(...parsed);
+}
+
+function detectCurrencyCode(salaryText: string | null): string | null {
+  if (!salaryText) {
+    return null;
+  }
+
+  const normalized = salaryText.toLowerCase();
+
+  if (normalized.includes("usd") || salaryText.includes("$")) {
+    return "USD";
+  }
+
+  if (normalized.includes("eur") || salaryText.includes("€")) {
+    return "EUR";
+  }
+
+  if (normalized.includes("gbp") || salaryText.includes("£")) {
+    return "GBP";
+  }
+
+  return null;
+}
+
+function detectCompensationInterval(
+  salaryText: string | null,
+): NormalizedCompensation["interval"] {
+  if (!salaryText) {
+    return null;
+  }
+
+  const normalized = salaryText.toLowerCase();
+
+  if (/\b(hour|hr|hrs)\b|\//.test(normalized) && /\/(?:\s*)(hour|hr|hrs)\b/.test(normalized)) {
+    return "hour";
+  }
+
+  if (/\b(day|days)\b|\/(?:\s*)(day|days)\b/.test(normalized)) {
+    return "day";
+  }
+
+  if (/\b(week|weeks|wk)\b|\/(?:\s*)(week|weeks|wk)\b/.test(normalized)) {
+    return "week";
+  }
+
+  if (/\b(month|months|mo)\b|\/(?:\s*)(month|months|mo)\b/.test(normalized)) {
+    return "month";
+  }
+
+  return "year";
+}
+
+function parseNormalizedCompensation(
+  salaryText: string | null,
+): NormalizedCompensation {
+  if (!salaryText) {
+    return {
+      currency: null,
+      interval: null,
+      minAmount: null,
+      maxAmount: null,
+      minAnnualUsd: null,
+      maxAnnualUsd: null,
+    };
+  }
+
+  const matches = [...salaryText.matchAll(salaryNumberPattern)];
+  const parsedValues = matches
+    .map((match, index) => {
+      const baseValue = parseFloat((match[1] ?? "").replaceAll(",", ""));
+      const rawSuffix = (match[2] ?? "").toLowerCase();
+      const currentIndex = match.index ?? 0;
+      const nextMatch = matches[index + 1];
+      const nextIndex = nextMatch?.index ?? -1;
+      const betweenText = nextMatch
+        ? salaryText.slice(currentIndex + match[0].length, nextIndex)
+        : "";
+      const suffix =
+        !rawSuffix && nextMatch?.[2] && isCompactRangeSeparator(betweenText)
+          ? nextMatch[2].toLowerCase()
+          : rawSuffix;
+      const precedingText = salaryText
+        .slice(Math.max(0, currentIndex - 24), currentIndex)
+        .toLowerCase();
+      const followingText = salaryText
+        .slice(currentIndex + match[0].length)
+        .trimStart()
+        .toLowerCase();
+
+      if (!Number.isFinite(baseValue) || baseValue <= 0 || followingText.startsWith("%")) {
+        return null;
+      }
+
+      const trailingContext = followingText.slice(0, 24);
+      const leadingContext = precedingText.trim().split(/\s+/).at(-1) ?? "";
+
+      if (
+        secondaryCompensationBeforePattern.test(leadingContext) ||
+        secondaryCompensationAfterPattern.test(trailingContext)
+      ) {
+        return null;
+      }
+
+      if (!suffix && baseValue < 1000) {
+        return null;
+      }
+
+      return suffix === "k"
+        ? baseValue * 1000
+        : suffix === "m"
+          ? baseValue * 1_000_000
+          : baseValue;
+    })
+    .filter((value): value is number => value !== null)
+    .sort((left, right) => left - right);
+
+  const minAmount = parsedValues[0] ?? null;
+  const maxAmount = parsedValues.at(-1) ?? minAmount;
+  const interval = detectCompensationInterval(salaryText);
+  const multiplier = interval ? (annualCompensationMultipliers[interval] ?? 1) : null;
+
+  return {
+    currency: detectCurrencyCode(salaryText),
+    interval,
+    minAmount,
+    maxAmount,
+    minAnnualUsd:
+      multiplier && minAmount !== null ? Math.round(minAmount * multiplier) : null,
+    maxAnnualUsd:
+      multiplier && maxAmount !== null ? Math.round(maxAmount * multiplier) : null,
+  };
+}
+
+function detectAtsProvider(posting: JobPosting): string | null {
+  const urlCandidates = [
+    posting.applicationUrl,
+    posting.canonicalUrl,
+    posting.employerWebsiteUrl,
+  ].filter((value): value is string => Boolean(value));
+
+  for (const value of urlCandidates) {
+    const normalized = value.toLowerCase();
+
+    if (normalized.includes("greenhouse.io")) {
+      return "Greenhouse";
+    }
+    if (normalized.includes("lever.co")) {
+      return "Lever";
+    }
+    if (normalized.includes("myworkdayjobs.com") || normalized.includes("workday")) {
+      return "Workday";
+    }
+    if (normalized.includes("ashbyhq.com") || normalized.includes("ashby")) {
+      return "Ashby";
+    }
+    if (normalized.includes("icims.com")) {
+      return "iCIMS";
+    }
+  }
+
+  return null;
+}
+
+function buildKeywordSignals(posting: JobPosting): JobKeywordSignal[] {
+  const buckets: Array<{ values: readonly string[]; kind: JobKeywordSignal["kind"]; weight: number }> = [
+    { values: posting.keySkills, kind: "skill", weight: 5 },
+    { values: posting.responsibilities, kind: "responsibility", weight: 3 },
+    { values: posting.minimumQualifications, kind: "qualification", weight: 4 },
+    { values: posting.preferredQualifications, kind: "qualification", weight: 2 },
+    { values: posting.benefits, kind: "benefit", weight: 1 },
+  ];
+  const seen = new Set<string>();
+
+  return buckets.flatMap(({ values, kind, weight }) =>
+    values.flatMap((value, index) => {
+      const label = value.trim();
+
+      if (!label) {
+        return [];
+      }
+
+      const key = `${kind}:${normalizeText(label)}`;
+      if (seen.has(key)) {
+        return [];
+      }
+
+      seen.add(key);
+      return [
+        {
+          id: `job_keyword_${kind}_${index}_${normalizeText(label).replaceAll(" ", "_")}`,
+          label,
+          kind,
+          weight,
+        },
+      ];
+    }),
+  );
+}
+
+function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
+  const normalizedText = normalizeText(
+    [
+      posting.location,
+      posting.summary,
+      posting.description,
+      ...posting.minimumQualifications,
+      ...posting.preferredQualifications,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return {
+    sponsorshipText:
+      normalizedText.includes("visa sponsorship") ||
+      normalizedText.includes("work authorization")
+        ? "Work authorization or sponsorship details are mentioned in the listing."
+        : null,
+    requiresSecurityClearance:
+      normalizedText.includes("security clearance") ||
+      normalizedText.includes("active clearance")
+        ? true
+        : null,
+    relocationText: normalizedText.includes("relocation") || normalizedText.includes("relocate")
+      ? "Relocation support or requirements are mentioned in the listing."
+      : null,
+    travelText: normalizedText.includes("travel")
+      ? "Travel expectations are mentioned in the listing."
+      : null,
+    remoteGeographies: uniqueStrings(
+      remoteGeographyHints.flatMap((entry) =>
+        entry.pattern.test(
+          [posting.location, posting.description, posting.summary]
+            .filter(Boolean)
+            .join(" "),
+        )
+          ? [entry.label]
+          : [],
+      ),
+    ),
+  };
+}
+
+function mergeKeywordSignals(
+  existingSignals: readonly JobKeywordSignal[],
+  nextSignals: readonly JobKeywordSignal[],
+): JobKeywordSignal[] {
+  const byKey = new Map<string, JobKeywordSignal>();
+
+  for (const signal of [...existingSignals, ...nextSignals]) {
+    byKey.set(`${signal.kind}:${normalizeText(signal.label)}`, signal);
+  }
+
+  return [...byKey.values()];
+}
+
+function enrichDiscoveredPosting(
+  posting: JobPosting,
+  existingJob: SavedJob | undefined,
+): JobPosting {
+  const normalizedCompensation = parseNormalizedCompensation(posting.salaryText);
+  const screeningHints = buildScreeningHints(posting);
+  const existingCompensation = existingJob?.normalizedCompensation;
+  const postingKeywordSignals = posting.keywordSignals ?? [];
+
+  return {
+    ...posting,
+    applicationUrl:
+      posting.applicationUrl ??
+      existingJob?.applicationUrl ??
+      (posting.applyPath === "external_redirect" ? posting.employerWebsiteUrl : null),
+    firstSeenAt: existingJob?.firstSeenAt ?? posting.firstSeenAt ?? posting.discoveredAt,
+    lastSeenAt: posting.lastSeenAt ?? posting.discoveredAt,
+    lastVerifiedActiveAt:
+      posting.lastVerifiedActiveAt ?? posting.discoveredAt,
+    normalizedCompensation:
+      existingCompensation &&
+      (existingCompensation.minAmount !== null ||
+        existingCompensation.maxAmount !== null)
+        ? {
+            ...existingCompensation,
+            ...normalizedCompensation,
+            currency:
+              normalizedCompensation.currency ?? existingCompensation.currency,
+            interval:
+              normalizedCompensation.interval ?? existingCompensation.interval,
+            minAmount:
+              normalizedCompensation.minAmount ?? existingCompensation.minAmount,
+            maxAmount:
+              normalizedCompensation.maxAmount ?? existingCompensation.maxAmount,
+            minAnnualUsd:
+              normalizedCompensation.minAnnualUsd ?? existingCompensation.minAnnualUsd,
+            maxAnnualUsd:
+              normalizedCompensation.maxAnnualUsd ?? existingCompensation.maxAnnualUsd,
+          }
+        : normalizedCompensation,
+    atsProvider: posting.atsProvider ?? existingJob?.atsProvider ?? detectAtsProvider(posting),
+    screeningHints: {
+      sponsorshipText:
+        screeningHints.sponsorshipText ?? existingJob?.screeningHints.sponsorshipText ?? null,
+      requiresSecurityClearance:
+        screeningHints.requiresSecurityClearance ??
+        existingJob?.screeningHints.requiresSecurityClearance ??
+        null,
+      relocationText:
+        screeningHints.relocationText ?? existingJob?.screeningHints.relocationText ?? null,
+      travelText:
+        screeningHints.travelText ?? existingJob?.screeningHints.travelText ?? null,
+      remoteGeographies: uniqueStrings([
+        ...(existingJob?.screeningHints.remoteGeographies ?? []),
+        ...screeningHints.remoteGeographies,
+      ]),
+    },
+    keywordSignals: mergeKeywordSignals(
+      existingJob?.keywordSignals ?? [],
+      postingKeywordSignals.length > 0
+        ? postingKeywordSignals
+        : buildKeywordSignals(posting),
+    ),
+  };
 }
 
 export function matchesAnyPhrase(
@@ -490,8 +819,10 @@ export function mergeDiscoveredJob(
   posting: JobPosting,
   existingJob: SavedJob | undefined,
 ): SavedJob {
+  const enrichedPosting = enrichDiscoveredPosting(posting, existingJob);
+
   return SavedJobSchema.parse({
-    ...posting,
+    ...enrichedPosting,
     id: existingJob?.id ?? toSavedJobId(posting),
     status: preserveJobStatus(existingJob),
     matchAssessment,
@@ -499,14 +830,14 @@ export function mergeDiscoveredJob(
 }
 
 // Helper to merge discovered postings with existing jobs
-export async function mergeDiscoveredPostings(
+export function mergeDiscoveredPostings(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
   savedJobs: readonly SavedJob[],
   discoveredPostings: readonly JobPosting[],
   provenanceBuilder: (posting: JobPosting) => SavedJobDiscoveryProvenance,
   signal?: AbortSignal,
-): Promise<MergeDiscoveryResult> {
+): MergeDiscoveryResult {
   // Check if already aborted
   if (signal?.aborted) {
     throw new DOMException("Aborted", "AbortError");

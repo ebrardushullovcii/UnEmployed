@@ -13,6 +13,21 @@ interface DiscoveryDetailPanelProps {
   selectedJob: SavedJob | null
 }
 
+function formatNormalizedCompensation(job: SavedJob): string | null {
+  const compensation = job.normalizedCompensation
+
+  if (compensation.minAmount === null && compensation.maxAmount === null) {
+    return null
+  }
+
+  const currency = compensation.currency ?? 'USD'
+  const interval = compensation.interval ? ` / ${compensation.interval}` : ''
+  const min = compensation.minAmount !== null ? `${currency} ${compensation.minAmount.toLocaleString()}` : null
+  const max = compensation.maxAmount !== null ? `${currency} ${compensation.maxAmount.toLocaleString()}` : null
+
+  return [min, max].filter(Boolean).join(' – ') + interval
+}
+
 export function DiscoveryDetailPanel({
   busy,
   discoveryTargets,
@@ -64,6 +79,21 @@ export function DiscoveryDetailPanel({
                 <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
                   <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Salary</span>
                   <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">{selectedJob.salaryText}</strong>
+                  {formatNormalizedCompensation(selectedJob) ? (
+                    <p className="mt-2 text-(length:--text-small) text-foreground-soft">Normalized: {formatNormalizedCompensation(selectedJob)}</p>
+                  ) : null}
+                </div>
+              ) : null}
+              {selectedJob.atsProvider ? (
+                <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">ATS or provider</span>
+                  <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">{selectedJob.atsProvider}</strong>
+                </div>
+              ) : null}
+              {selectedJob.applicationUrl ? (
+                <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
+                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Application route</span>
+                  <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">{selectedJob.applicationUrl}</strong>
                 </div>
               ) : null}
             </div>
@@ -72,8 +102,44 @@ export function DiscoveryDetailPanel({
 
             <PreferenceList compact label="Found on" values={selectedJob.provenance.map((entry) => discoveryTargetLabels.get(entry.targetId) ?? 'Saved source')} />
             {selectedJob.keySkills.length > 0 ? <PreferenceList compact label="Skills mentioned" values={selectedJob.keySkills} /> : null}
+            {selectedJob.keywordSignals.length > 0 ? <PreferenceList compact label="Targeting cues" values={selectedJob.keywordSignals.map((signal) => signal.label)} /> : null}
             {selectedJob.matchAssessment.reasons.length > 0 ? <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} /> : null}
             {selectedJob.matchAssessment.gaps.length > 0 ? <PreferenceList label="Potential gaps" values={selectedJob.matchAssessment.gaps} /> : null}
+            {selectedJob.screeningHints.remoteGeographies.length > 0 ? <PreferenceList compact label="Remote geography hints" values={selectedJob.screeningHints.remoteGeographies} /> : null}
+            {selectedJob.screeningHints.sponsorshipText ? (
+              <div className="grid gap-2">
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Screening hint</p>
+                <p className="text-(length:--text-small) leading-6 text-foreground-soft">{selectedJob.screeningHints.sponsorshipText}</p>
+              </div>
+            ) : null}
+            {selectedJob.screeningHints.relocationText ? (
+              <div className="grid gap-2">
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Relocation</p>
+                <p className="text-(length:--text-small) leading-6 text-foreground-soft">{selectedJob.screeningHints.relocationText}</p>
+              </div>
+            ) : null}
+            {selectedJob.screeningHints.travelText ? (
+              <div className="grid gap-2">
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Travel</p>
+                <p className="text-(length:--text-small) leading-6 text-foreground-soft">{selectedJob.screeningHints.travelText}</p>
+              </div>
+            ) : null}
+            {(selectedJob.firstSeenAt || selectedJob.lastSeenAt || selectedJob.lastVerifiedActiveAt) ? (
+              <div className="grid gap-2 md:grid-cols-3">
+                <div>
+                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">First seen</p>
+                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">{formatOptionalDateOnly(selectedJob.firstSeenAt, 'Unknown')}</p>
+                </div>
+                <div>
+                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Last seen</p>
+                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">{formatOptionalDateOnly(selectedJob.lastSeenAt, 'Unknown')}</p>
+                </div>
+                <div>
+                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Last verified active</p>
+                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">{formatOptionalDateOnly(selectedJob.lastVerifiedActiveAt, 'Unknown')}</p>
+                </div>
+              </div>
+            ) : null}
             {selectedJob.employerWebsiteUrl ? (
               <div className="grid gap-2">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Company site</p>

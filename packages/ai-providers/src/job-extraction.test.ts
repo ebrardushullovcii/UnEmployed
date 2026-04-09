@@ -310,7 +310,8 @@ test('uses summary fallback for description on search-results pages when descrip
     let capturedBody: { messages?: Array<{ content: string }> } | null = null
 
     globalThis.fetch = ((_, init) => {
-      capturedBody = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content: string }> }
+      const requestBody = typeof init?.body === 'string' ? init.body : '{}'
+      capturedBody = JSON.parse(requestBody) as { messages?: Array<{ content: string }> }
 
       return Promise.resolve(
         new Response(JSON.stringify({

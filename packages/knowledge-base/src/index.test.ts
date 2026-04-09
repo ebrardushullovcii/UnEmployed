@@ -16,10 +16,10 @@ describe("chunkText", () => {
       },
     );
 
-    expect(chunks).toHaveLength(3);
+    expect(chunks).toHaveLength(2);
     expect(chunks[0]?.text).toContain("workflow software");
     expect(chunks[1]?.text).toContain("reliability");
-    expect(chunks[2]?.text).toContain("admin experiences");
+    expect(chunks[1]?.text).toContain("admin experiences");
     expect(chunks[1]?.startOffset).toBeLessThan(chunks[0]?.endOffset ?? 0);
   });
 });

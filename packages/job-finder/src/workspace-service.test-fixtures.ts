@@ -50,6 +50,54 @@ export function createSeed(): JobFinderRepositorySeed {
       linkedinUrl: "https://www.linkedin.com/in/alex-vanguard",
       githubUrl: null,
       personalWebsiteUrl: null,
+      narrative: {
+        professionalStory:
+          "Design systems and workflow tooling leader who helps product teams ship clearer, more resilient operating systems.",
+        nextChapterSummary:
+          "Targeting remote senior product design roles with strong systems, platform, and workflow ownership.",
+        careerTransitionSummary:
+          "Leaning further into workflow platform and systems roles because that is where recent impact has been strongest.",
+        differentiators: [
+          "Connects product strategy with design-system execution",
+          "Turns workflow pain into reusable system patterns",
+        ],
+        motivationThemes: ["workflow automation", "design systems"],
+      },
+      proofBank: [
+        {
+          id: "proof_1",
+          title: "Design-system rollout",
+          claim:
+            "Led design-system rollout across core product surfaces used by design and operations teams.",
+          heroMetric: "Adoption reached 80% of core product surfaces within two quarters.",
+          supportingContext:
+            "Worked across product, engineering, and operations to standardize component and content patterns.",
+          roleFamilies: ["product design", "design systems", "platform"],
+          projectIds: [],
+          linkIds: ["link_1"],
+        },
+      ],
+      answerBank: {
+        workAuthorization:
+          "Authorized to work in the United Kingdom and open to remote roles across Europe.",
+        visaSponsorship: "Do not currently require visa sponsorship for UK-based roles.",
+        relocation: "Open to relocation for the right platform or systems role.",
+        travel: "Open to occasional travel for workshops and planning meetings.",
+        noticePeriod: "Available after a 30-day notice period.",
+        availability: "Available to interview now and start within 30 days.",
+        salaryExpectations:
+          "Targeting senior remote roles in the 180k-220k USD range depending on scope and package.",
+        selfIntroduction:
+          "I am a systems-focused product designer with 10 years of experience building workflow tools, design systems, and operations platforms.",
+        careerTransition:
+          "I am moving deeper into workflow platform roles because that is where my strongest measurable impact has been.",
+        customAnswers: [],
+      },
+      applicationIdentity: {
+        preferredEmail: "alex@example.com",
+        preferredPhone: "+44 7700 900123",
+        preferredLinkIds: ["link_1"],
+      },
       baseResume: {
         id: "resume_1",
         fileName: "alex-vanguard.pdf",
@@ -189,6 +237,8 @@ export function createSeed(): JobFinderRepositorySeed {
         discoveryMethod: "catalog_seed",
         canonicalUrl:
           "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+        applicationUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
         title: "Senior Product Designer",
         company: "Signal Systems",
         location: "Remote",
@@ -198,7 +248,18 @@ export function createSeed(): JobFinderRepositorySeed {
         postedAt: "2026-03-20T09:00:00.000Z",
         postedAtText: null,
         discoveredAt: "2026-03-20T09:05:00.000Z",
+        firstSeenAt: "2026-03-20T09:05:00.000Z",
+        lastSeenAt: "2026-03-20T09:05:00.000Z",
+        lastVerifiedActiveAt: "2026-03-20T09:05:00.000Z",
         salaryText: "$180k - $220k",
+        normalizedCompensation: {
+          currency: "USD",
+          interval: "year",
+          minAmount: 180000,
+          maxAmount: 220000,
+          minAnnualUsd: 180000,
+          maxAnnualUsd: 220000,
+        },
         summary: "Own the design system.",
         description: "Own the design system and workflow platform.",
         keySkills: ["Figma", "Design Systems"],
@@ -211,6 +272,28 @@ export function createSeed(): JobFinderRepositorySeed {
         team: "Design Systems",
         employerWebsiteUrl: "https://signalsystems.example.com",
         employerDomain: "signalsystems.example.com",
+        atsProvider: null,
+        screeningHints: {
+          sponsorshipText: null,
+          requiresSecurityClearance: null,
+          relocationText: null,
+          travelText: null,
+          remoteGeographies: ["Europe"],
+        },
+        keywordSignals: [
+          {
+            id: "job_ready_design_systems",
+            label: "Design Systems",
+            kind: "skill",
+            weight: 5,
+          },
+          {
+            id: "job_ready_workflow_platform",
+            label: "Workflow platform",
+            kind: "domain",
+            weight: 4,
+          },
+        ],
         benefits: ["Remote-first collaboration"],
         status: "ready_for_review",
         matchAssessment: {
@@ -227,6 +310,7 @@ export function createSeed(): JobFinderRepositorySeed {
         discoveryMethod: "catalog_seed",
         canonicalUrl:
           "https://www.linkedin.com/jobs/view/linkedin_northwind_generating",
+        applicationUrl: null,
         title: "Principal UX Engineer",
         company: "Northwind Labs",
         location: "Hybrid, London",
@@ -236,7 +320,18 @@ export function createSeed(): JobFinderRepositorySeed {
         postedAt: "2026-03-20T08:00:00.000Z",
         postedAtText: null,
         discoveredAt: "2026-03-20T08:05:00.000Z",
+        firstSeenAt: "2026-03-20T08:05:00.000Z",
+        lastSeenAt: "2026-03-20T08:05:00.000Z",
+        lastVerifiedActiveAt: "2026-03-20T08:05:00.000Z",
         salaryText: "$175k - $205k",
+        normalizedCompensation: {
+          currency: "USD",
+          interval: "year",
+          minAmount: 175000,
+          maxAmount: 205000,
+          minAnnualUsd: 175000,
+          maxAnnualUsd: 205000,
+        },
         summary: "Lead cross-functional UI platform work.",
         description:
           "Lead cross-functional UI platform work with portfolio review required.",
@@ -250,6 +345,22 @@ export function createSeed(): JobFinderRepositorySeed {
         team: "UI Platform",
         employerWebsiteUrl: "https://northwind.example.com",
         employerDomain: "northwind.example.com",
+        atsProvider: null,
+        screeningHints: {
+          sponsorshipText: null,
+          requiresSecurityClearance: null,
+          relocationText: null,
+          travelText: null,
+          remoteGeographies: [],
+        },
+        keywordSignals: [
+          {
+            id: "job_generating_react",
+            label: "React",
+            kind: "skill",
+            weight: 5,
+          },
+        ],
         benefits: ["Hybrid London team"],
         status: "drafting",
         matchAssessment: {

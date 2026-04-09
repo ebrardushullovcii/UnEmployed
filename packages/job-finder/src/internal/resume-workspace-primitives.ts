@@ -120,9 +120,11 @@ export function buildJobContextText(job: SavedJob): string {
     job.title,
     job.company,
     job.location,
+    job.applicationUrl,
     job.summary,
     job.description,
     ...job.keySkills,
+    ...job.keywordSignals.map((signal) => signal.label),
     ...job.responsibilities,
     ...job.minimumQualifications,
     ...job.preferredQualifications,
@@ -131,6 +133,11 @@ export function buildJobContextText(job: SavedJob): string {
     job.department,
     job.team,
     job.salaryText,
+    job.screeningHints.sponsorshipText,
+    job.screeningHints.relocationText,
+    job.screeningHints.travelText,
+    ...job.screeningHints.remoteGeographies,
+    job.atsProvider,
     ...job.benefits,
   ]
     .filter(Boolean)
@@ -140,13 +147,16 @@ export function buildJobContextText(job: SavedJob): string {
 export function buildPriorityJobTerms(job: SavedJob): string[] {
   return uniqueStrings([
     ...job.keySkills,
+    ...job.keywordSignals.map((signal) => signal.label),
     ...job.responsibilities,
     ...job.minimumQualifications,
     ...job.preferredQualifications,
     ...job.benefits,
+    ...job.screeningHints.remoteGeographies,
     ...(job.seniority ? [job.seniority] : []),
     ...(job.employmentType ? [job.employmentType] : []),
     ...(job.department ? [job.department] : []),
     ...(job.team ? [job.team] : []),
+    ...(job.atsProvider ? [job.atsProvider] : []),
   ]);
 }

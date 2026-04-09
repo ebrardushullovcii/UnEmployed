@@ -83,9 +83,12 @@ export function createCatalogBrowserSessionRuntime(
       sessions.set(source, closedState)
       return Promise.resolve(closedState)
     },
-    runDiscovery: catalogSessionAgent.runDiscovery,
-    executeEasyApply: catalogSessionAgent.executeEasyApply,
-    runAgentDiscovery: catalogSessionAgent.runAgentDiscovery,
+    runDiscovery: (source, searchPreferences) =>
+      catalogSessionAgent.runDiscovery(source, searchPreferences),
+    executeEasyApply: (source, input) =>
+      catalogSessionAgent.executeEasyApply(source, input),
+    runAgentDiscovery: (source, options) =>
+      catalogSessionAgent.runAgentDiscovery(source, options),
   }
 }
 
