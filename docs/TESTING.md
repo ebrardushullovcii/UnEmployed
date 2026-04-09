@@ -66,6 +66,8 @@
 - `UNEMPLOYED_AI_API_KEY` enables the OpenAI-compatible provider path used for resume extraction and resume tailoring.
 - The desktop app now auto-loads root or `apps/desktop` `.env` / `.env.local` files before creating the AI client, so local FelidaeAI credentials do not need to be exported manually every time.
 - `UNEMPLOYED_AI_BASE_URL` and `UNEMPLOYED_AI_MODEL` are optional overrides; the current defaults target the FelidaeAI OpenAI-compatible endpoint shared by the user.
+- `UNEMPLOYED_AI_TIMEOUT_MS` sets the general model request timeout in milliseconds.
+- `UNEMPLOYED_AI_RESUME_TIMEOUT_MS` overrides the timeout for resume extraction specifically; raise it when resume uploads fall back after a provider timeout.
 - `UNEMPLOYED_BROWSER_AGENT=0` switches Job Finder back from the dedicated Chrome-profile browser agent to the deterministic catalog adapter; when unset, desktop builds now use the browser agent by default. The legacy `UNEMPLOYED_LINKEDIN_BROWSER_AGENT` name is still accepted as a fallback when the newer variable is unset.
 - `UNEMPLOYED_CHROME_PATH` optionally points the agent to a specific local Chrome install.
 - `UNEMPLOYED_CHROME_DEBUG_PORT` optionally overrides the dedicated Chrome remote-debugging port; default is `9333`.

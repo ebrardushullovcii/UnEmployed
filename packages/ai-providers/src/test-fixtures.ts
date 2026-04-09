@@ -13,6 +13,8 @@ export function createEnvironment(
     UNEMPLOYED_AI_API_KEY: 'test-key',
     UNEMPLOYED_AI_BASE_URL: 'https://example.com/v1',
     UNEMPLOYED_AI_MODEL: 'test-model',
+    UNEMPLOYED_AI_TIMEOUT_MS: undefined,
+    UNEMPLOYED_AI_RESUME_TIMEOUT_MS: undefined,
     ...overrides
   }
 }

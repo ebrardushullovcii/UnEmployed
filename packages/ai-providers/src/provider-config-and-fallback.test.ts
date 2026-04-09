@@ -100,6 +100,32 @@ describe('ai provider config and fallback behavior', () => {
     }
   })
 
+  test('uses the configured resume extraction timeout when normalizing abort-like provider failures', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const restoreFetch = mockRejectedFetch(new DOMException('This operation was aborted', 'AbortError'))
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment({
+        UNEMPLOYED_AI_RESUME_TIMEOUT_MS: '90000'
+      }))
+
+      const result = await client.extractProfileFromResume({
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: 'Alex Vanguard\nLondon, UK\nReact engineer'
+      })
+
+      expect(result.analysisProviderKind).toBe('deterministic')
+      expect(result.notes).toContain('Primary AI extraction failed: Model request timed out after 90s')
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[AI Provider] extractProfileFromResume failed; falling back to deterministic client. Model request timed out after 90s'
+      )
+    } finally {
+      restoreFetch()
+      errorSpy.mockRestore()
+    }
+  })
+
   test('falls back from tailoring with logged error details and merged notes', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const restoreFetch = mockRejectedFetch(new Error('upstream tailoring failure'))

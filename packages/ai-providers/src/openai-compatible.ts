@@ -31,6 +31,7 @@ import {
 } from "./openai-compatible-jobs";
 
 const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
+const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
 const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
 const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
@@ -159,6 +160,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Do not repeat exact duplicates across skills, grouped skills, links, languages, projects, or experience item arrays.",
           "Populate skillGroups with coreSkills, tools, languagesAndFrameworks, softSkills, and highlightedSkills instead of dumping everything into skills.",
           "Populate experiences, education, certifications, links, projects, and spokenLanguages as structured arrays with one record per item whenever the resume contains enough evidence.",
+          "For each experience, return workMode as an array such as ['remote'], ['hybrid'], or ['onsite']; do not return a nested object.",
           "Use professionalSummary for narrative rollups such as shortValueProposition, fullSummary, careerThemes, and strengths.",
           "Return notes only when the extraction is uncertain, incomplete, or needs user review; otherwise return an empty array.",
         ].join(" "),
@@ -166,6 +168,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
           existingProfile: input.existingProfile,
           existingSearchPreferences: input.existingSearchPreferences,
           resumeText: input.resumeText,
+        },
+        {
+          timeoutMs:
+            validatedOptions?.resumeExtractionTimeoutMs ??
+            validatedOptions?.requestTimeoutMs ??
+            DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
         },
       );
       const normalizedPayload =
@@ -455,6 +463,14 @@ export function createJobFinderAiClientFromEnvironment(
   env: StringMap = process.env,
 ): JobFinderAiClient {
   const apiKey = env.UNEMPLOYED_AI_API_KEY;
+  const parsedRequestTimeoutMs = Number.parseInt(
+    env.UNEMPLOYED_AI_TIMEOUT_MS ?? "",
+    10,
+  );
+  const parsedResumeExtractionTimeoutMs = Number.parseInt(
+    env.UNEMPLOYED_AI_RESUME_TIMEOUT_MS ?? "",
+    10,
+  );
 
   if (!apiKey) {
     return createDeterministicJobFinderAiClient();
@@ -465,6 +481,12 @@ export function createJobFinderAiClientFromEnvironment(
     baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? "https://ai.automatedpros.link/v1",
     model: env.UNEMPLOYED_AI_MODEL ?? "FelidaeAI-Pro-2.5",
     label: "AI resume agent",
+    requestTimeoutMs: Number.isFinite(parsedRequestTimeoutMs)
+      ? parsedRequestTimeoutMs
+      : undefined,
+    resumeExtractionTimeoutMs: Number.isFinite(parsedResumeExtractionTimeoutMs)
+      ? parsedResumeExtractionTimeoutMs
+      : undefined,
   });
   const fallbackClient = createDeterministicJobFinderAiClient(
     "The configured model is enabled, and deterministic fallbacks protect the app when a model call fails.",

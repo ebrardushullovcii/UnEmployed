@@ -2,6 +2,7 @@ import {
   type AgentProviderStatus,
   NonEmptyStringSchema,
   ResumeDraftPatchSchema,
+  WorkModeListSchema,
   candidateLinkKindValues,
   type CandidateProfile,
   type JobFinderSettings,
@@ -10,11 +11,21 @@ import {
   type ResumeDraft,
   type Tool,
   type ToolCall,
-  workModeValues,
 } from "@unemployed/contracts";
 import { z } from "zod";
 
 const NullableStringSchema = NonEmptyStringSchema.nullable().default(null);
+const ResumeExtractionWorkModeSchema = z.preprocess((value) => {
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  return [];
+}, WorkModeListSchema);
 
 const ResumeExtractionProfessionalSummarySchema = z.object({
   shortValueProposition: NullableStringSchema,
@@ -39,7 +50,7 @@ const ResumeExtractionExperienceSchema = z.object({
   title: NullableStringSchema,
   employmentType: NullableStringSchema,
   location: NullableStringSchema,
-  workMode: z.enum(workModeValues).nullable().default(null),
+  workMode: ResumeExtractionWorkModeSchema,
   startDate: NullableStringSchema,
   endDate: NullableStringSchema,
   isCurrent: z.boolean().default(false),
@@ -157,6 +168,8 @@ export const OpenAiCompatibleJobFinderAiClientOptionsSchema = z.object({
   baseUrl: z.string().trim().url(),
   model: NonEmptyStringSchema,
   label: NonEmptyStringSchema.optional(),
+  requestTimeoutMs: z.number().int().min(1_000).optional(),
+  resumeExtractionTimeoutMs: z.number().int().min(1_000).optional(),
 });
 
 export interface ExtractProfileFromResumeInput {

@@ -55,6 +55,8 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - `UNEMPLOYED_AI_API_KEY`: enables the OpenAI-compatible provider path
 - `UNEMPLOYED_AI_BASE_URL`: optional override for the provider base URL; defaults to `https://ai.automatedpros.link/v1`
 - `UNEMPLOYED_AI_MODEL`: optional override for the provider model; defaults to `FelidaeAI-Pro-2.5`
+- `UNEMPLOYED_AI_TIMEOUT_MS`: optional default timeout in milliseconds for general model-backed Job Finder requests
+- `UNEMPLOYED_AI_RESUME_TIMEOUT_MS`: optional override in milliseconds for resume extraction specifically; use this when a slower provider/model times out during resume upload
 - `UNEMPLOYED_BROWSER_AGENT=0`: explicitly disables the dedicated Chrome-profile browser agent and falls back to the deterministic catalog runtime.
 - When `UNEMPLOYED_BROWSER_AGENT` is unset, the runtime falls back to the legacy `UNEMPLOYED_LINKEDIN_BROWSER_AGENT` flag via the nullish-coalescing `??` fallback in the implementation.
 - Desktop builds opt into the browser agent by default, so leaving both variables unset, or setting the active flag to `=1`, keeps the browser agent enabled unless you explicitly force the fallback path.

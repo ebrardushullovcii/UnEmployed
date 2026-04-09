@@ -193,7 +193,7 @@ export function mergeExperienceRecords(
       title: entry.title,
       employmentType: entry.employmentType,
       location: entry.location,
-      workMode: entry.workMode ? [entry.workMode] : [],
+      workMode: entry.workMode,
       startDate: entry.startDate,
       endDate: entry.endDate,
       isCurrent: entry.isCurrent,
