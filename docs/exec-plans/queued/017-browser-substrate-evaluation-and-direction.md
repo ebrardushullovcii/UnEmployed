@@ -8,13 +8,15 @@ Its job is to produce decision-grade evidence for the next browser-substrate mov
 
 ## Goal
 
-Decide the best browser substrate direction for `Job Finder` across representative `discovery`, `source-debug`, and `apply` workloads while preserving the existing `UnEmployed` product model:
+Decide the best browser substrate direction for `Job Finder` across representative `discovery`, `source-debug`, and `apply` workloads while preserving the `UnEmployed` target-state product model:
 
-- app-owned orchestration in `packages/job-finder`
-- bounded browser workflow policy in `packages/browser-agent`
-- generic browser lifecycle and automation primitives in `packages/browser-runtime`
-- typed contracts and persisted state in `packages/contracts` and `packages/db`
+- target-state package boundary: app-owned orchestration in `packages/job-finder`
+- target-state package boundary: bounded browser workflow policy in `packages/browser-agent`
+- target-state package boundary: generic browser lifecycle and automation primitives in `packages/browser-runtime`
+- target-state package boundary: typed contracts and persisted state in `packages/contracts` and `packages/db`
 - explicit approval logic, consent interrupts, and replayable evidence for risky actions
+
+These bullets describe the intended target boundary, not a claim that the current code already enforces it everywhere. Current implementation exception: `packages/browser-runtime/src/catalog-browser-session-runtime.ts` still imports `createCatalogSessionAgent` from `@unemployed/browser-agent`.
 
 The output of this plan is a decision with evidence, not code shipped under a new runtime.
 
@@ -31,12 +33,12 @@ The open question is no longer whether alternative browser stacks exist. The ope
 
 ## Hard Constraints
 
-Every candidate must be evaluated under these non-negotiable constraints:
+Every candidate must be evaluated against these target-state constraints, not against every current implementation detail. The current code still has one known divergence from this target boundary: `packages/browser-runtime/src/catalog-browser-session-runtime.ts` imports `createCatalogSessionAgent` from `@unemployed/browser-agent`.
 
-1. `packages/job-finder` keeps orchestration ownership.
-2. `packages/browser-agent` keeps bounded workflow policy, prompts, tool policy, and structured outputs.
-3. `packages/browser-runtime` stays generic and must not absorb product-specific discovery or apply strategy.
-4. Typed state, schema validation, and durable run artifacts remain first-class.
+1. Target state: `packages/job-finder` keeps orchestration ownership.
+2. Target state: `packages/browser-agent` keeps bounded workflow policy, prompts, tool policy, and structured outputs.
+3. Target state: `packages/browser-runtime` stays generic and must not absorb product-specific discovery or apply strategy.
+4. Target state: typed state, schema validation, and durable run artifacts remain first-class.
 5. Source-debug keeps its phased evidence, replay, and learned-intelligence model even if runtime plumbing changes underneath it.
 6. Apply flows keep explicit submit approval, consent interrupts, blocker capture, and auditable run records.
 7. Windows desktop session reuse, authenticated browser reuse, and local Chrome profile realities matter more than cloud-only or web-only assumptions.

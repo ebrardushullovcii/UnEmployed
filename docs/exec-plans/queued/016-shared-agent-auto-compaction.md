@@ -74,6 +74,7 @@ This plan is now execution-ready. It is a reusable enabler for long-running agen
 - `summary`
 - `confirmedFacts`
 - `blockerNotes`
+- `avoidStrategyFingerprints`, preserved directly or mapped into an equivalent repeated-attempt avoidance signal
 - `preservedContext`
 - any sticky workflow state the next turn still depends on
 

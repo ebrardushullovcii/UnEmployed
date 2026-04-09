@@ -278,6 +278,7 @@ Implementation work for this plan should be validated with at least:
 
 - `pnpm --filter @unemployed/contracts test`
 - `pnpm --filter @unemployed/job-finder test`
+- `pnpm --filter @unemployed/browser-agent test`
 - `pnpm --filter @unemployed/browser-runtime typecheck`
 - `pnpm --filter @unemployed/desktop build`
 - `pnpm docs:check`

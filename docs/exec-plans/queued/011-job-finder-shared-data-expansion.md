@@ -434,7 +434,7 @@ Implementation rule:
 
 - make resume, discovery, and apply read the new data
 - update snapshot shaping so renderer surfaces get lightweight summaries
-- update docs and seeded demo paths so later agents can verify the slice end to end
+- update docs and seeded demo paths so later agents can verify the slice end-to-end
 
 ## Milestones
 

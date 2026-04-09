@@ -214,7 +214,7 @@ Implementation work:
 
 Exit criteria:
 
-- the deterministic QA path proves correctness, assistant editability, export quality, and approval safety end to end
+- the deterministic QA path proves correctness, assistant editability, export quality, and approval safety end-to-end
 - later agents can rerun the documented flow and compare outputs without reconstructing hidden chat context
 
 ## Workstreams By Package
