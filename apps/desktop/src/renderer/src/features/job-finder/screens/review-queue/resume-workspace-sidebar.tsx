@@ -8,10 +8,31 @@ interface ResumeWorkspaceSidebarProps {
   workspace: JobFinderResumeWorkspace
 }
 
+function formatNormalizedCompensation(workspace: JobFinderResumeWorkspace): string | null {
+  const compensation = workspace.job.normalizedCompensation
+  const currencyPrefix = compensation.currency ? `${compensation.currency} ` : ''
+  const interval = compensation.interval ? ` / ${compensation.interval}` : ''
+  const minAmount = compensation.minAmount !== null ? `${currencyPrefix}${compensation.minAmount.toLocaleString()}` : null
+  const maxAmount = compensation.maxAmount !== null ? `${currencyPrefix}${compensation.maxAmount.toLocaleString()}` : null
+  const directRange = [minAmount, maxAmount].filter(Boolean).join(' – ')
+
+  if (directRange) {
+    return `${directRange}${interval}`
+  }
+
+  const annualizedRange = [compensation.minAnnualUsd, compensation.maxAnnualUsd]
+    .filter((value): value is number => value !== null)
+    .map((value) => `USD ${value.toLocaleString()}`)
+    .join(' – ')
+
+  return annualizedRange ? `${annualizedRange} annualized` : null
+}
+
 export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: ResumeWorkspaceSidebarProps) {
   const { job, research, sharedProfile, validation } = workspace
   const researchCount = research.length
   const validationCount = validation?.issues.length ?? 0
+  const normalizedCompensation = formatNormalizedCompensation(workspace)
 
   return (
     <aside className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-5 xl:h-full">
@@ -76,14 +97,10 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
                 {job.salaryText}
               </p>
             ) : null}
-            {job.normalizedCompensation.minAnnualUsd !== null || job.normalizedCompensation.maxAnnualUsd !== null ? (
+            {normalizedCompensation ? (
               <p>
                 <strong className="text-foreground">Normalized comp:</strong>{' '}
-                {[job.normalizedCompensation.minAnnualUsd, job.normalizedCompensation.maxAnnualUsd]
-                  .filter((value): value is number => value !== null)
-                  .map((value) => `USD ${value.toLocaleString()}`)
-                  .join(' – ')}
-                {job.normalizedCompensation.interval ? ` / ${job.normalizedCompensation.interval}` : ''}
+                {normalizedCompensation}
               </p>
             ) : null}
             {job.applicationUrl ? (

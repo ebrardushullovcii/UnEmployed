@@ -13,32 +13,38 @@ export function promoteGroundedSharedMemoryCandidates(
   const summaryValues = new Set(
     candidates
       .filter(
-        (candidate) =>
+        (
+          candidate,
+        ): candidate is ResumeImportFieldCandidate & { value: string } =>
           candidate.target.section === "identity" &&
           candidate.target.key === "summary" &&
           typeof candidate.value === "string",
       )
-      .map((candidate) => normalizeText(String(candidate.value))),
+      .map((candidate) => normalizeText(candidate.value)),
   );
   const emailValues = new Set(
     candidates
       .filter(
-        (candidate) =>
+        (
+          candidate,
+        ): candidate is ResumeImportFieldCandidate & { value: string } =>
           candidate.target.section === "contact" &&
           candidate.target.key === "email" &&
           typeof candidate.value === "string",
       )
-      .map((candidate) => normalizeText(String(candidate.value))),
+      .map((candidate) => normalizeText(candidate.value)),
   );
   const phoneValues = new Set(
     candidates
       .filter(
-        (candidate) =>
+        (
+          candidate,
+        ): candidate is ResumeImportFieldCandidate & { value: string } =>
           candidate.target.section === "contact" &&
           candidate.target.key === "phone" &&
           typeof candidate.value === "string",
       )
-      .map((candidate) => normalizeText(String(candidate.value))),
+      .map((candidate) => normalizeText(candidate.value)),
   );
   const groundedExperiences = candidates.filter(
     (candidate) =>

@@ -43,6 +43,13 @@ export interface JobFinderRepository {
     profile: CandidateProfile,
     searchPreferences: JobSearchPreferences,
   ): Promise<void>;
+  commitProfileCopilotState(input: {
+    profile: CandidateProfile;
+    searchPreferences: JobSearchPreferences;
+    profileSetupState: ProfileSetupState;
+    messages?: readonly ProfileCopilotMessage[];
+    revisions?: readonly ProfileRevision[];
+  }): Promise<void>;
   listSavedJobs(): Promise<readonly SavedJob[]>;
   replaceSavedJobs(savedJobs: readonly SavedJob[]): Promise<void>;
   replaceSavedJobsAndClearResumeApproval(input: {
@@ -85,6 +92,13 @@ export interface JobFinderRepository {
     resolutions?: readonly ResumeImportCandidateResolution[];
   }): Promise<readonly ResumeImportFieldCandidate[]>;
   replaceResumeImportRunArtifacts(input: {
+    run: ResumeImportRun;
+    documentBundles: readonly ResumeDocumentBundle[];
+    fieldCandidates: readonly ResumeImportFieldCandidate[];
+  }): Promise<void>;
+  finalizeResumeImportRun(input: {
+    profile: CandidateProfile;
+    searchPreferences: JobSearchPreferences;
     run: ResumeImportRun;
     documentBundles: readonly ResumeDocumentBundle[];
     fieldCandidates: readonly ResumeImportFieldCandidate[];

@@ -132,6 +132,37 @@ function normalizeAssistantPatchGroups(input: {
   };
 }
 
+function getStoredPatchGroupApplyMode(
+  patchGroup: ProfileCopilotPatchGroup,
+): ProfileCopilotPatchGroup["applyMode"] {
+  return patchGroup.applyMode === "applied" ? "needs_review" : patchGroup.applyMode;
+}
+
+function setPatchGroupApplyMode(
+  patchGroup: ProfileCopilotPatchGroup,
+  applyMode: ProfileCopilotPatchGroup["applyMode"],
+): ProfileCopilotPatchGroup {
+  return {
+    ...patchGroup,
+    applyMode,
+  };
+}
+
+function replacePatchGroupInMessage(input: {
+  message: ProfileCopilotMessage;
+  patchGroupId: string;
+  applyMode: ProfileCopilotPatchGroup["applyMode"];
+}): ProfileCopilotMessage {
+  return {
+    ...input.message,
+    patchGroups: input.message.patchGroups.map((group) =>
+      group.id === input.patchGroupId
+        ? setPatchGroupApplyMode(group, input.applyMode)
+        : group,
+    ),
+  };
+}
+
 function formatCopilotFactLabel(value: string): string {
   return value
     .replaceAll("_", " ")
@@ -321,7 +352,9 @@ export function createWorkspaceProfileCopilotMethods(input: {
       role: "assistant",
       content: normalizedAssistantReply.content,
       context,
-      patchGroups: normalizedAssistantReply.patchGroups,
+      patchGroups: normalizedAssistantReply.patchGroups.map((patchGroup) =>
+        setPatchGroupApplyMode(patchGroup, getStoredPatchGroupApplyMode(patchGroup)),
+      ),
       createdAt: new Date().toISOString(),
     };
 
@@ -617,28 +650,34 @@ export function createWorkspaceProfileCopilotMethods(input: {
       );
     }
 
-    if (sourceMessage) {
-      await ctx.repository.upsertProfileCopilotMessage({
-        ...sourceMessage,
-        patchGroups: sourceMessage.patchGroups.map((group) =>
-          group.id === patchGroupId
-            ? { ...group, applyMode: "applied" }
-            : group,
-        ),
-      });
-    }
-
-    await ctx.repository.upsertProfileRevision(revision);
-    await ctx.repository.saveProfileAndSearchPreferences(nextProfile, nextSearchPreferences);
     const refreshedLatestResumeImportReviewCandidates = latestResumeImportCandidates.filter(
       (candidate) => candidate.resolution === "needs_review" || candidate.resolution === "abstained",
     );
-    await deriveAndPersistProfileSetupState(ctx, {
+    const derivedProfileSetupState = await deriveAndPersistProfileSetupState(ctx, {
       persistedState: nextProfileSetupState,
       profile: nextProfile,
       searchPreferences: nextSearchPreferences,
       latestResumeImportRunId: currentSetupContext.latestResumeImportRun?.id ?? null,
       latestResumeImportReviewCandidates: refreshedLatestResumeImportReviewCandidates,
+      persist: false,
+    });
+
+    await ctx.repository.commitProfileCopilotState({
+      profile: nextProfile,
+      searchPreferences: nextSearchPreferences,
+      profileSetupState: derivedProfileSetupState,
+      ...(sourceMessage
+        ? {
+            messages: [
+              replacePatchGroupInMessage({
+                message: sourceMessage,
+                patchGroupId,
+                applyMode: "applied",
+              }),
+            ],
+          }
+        : {}),
+      revisions: [revision],
     });
   }
 
@@ -685,17 +724,17 @@ export function createWorkspaceProfileCopilotMethods(input: {
       restoredFromRevisionId: targetRevision.id,
     });
 
-    await ctx.repository.upsertProfileRevision(undoRevision);
     if (hasResumeAffectingProfileChange(currentSetupContext.profile, targetRevision.snapshotProfile)) {
       await ctx.staleApprovedResumeDrafts(
         "Profile details changed after approval and the resume needs a fresh review.",
       );
     }
-    await ctx.repository.saveProfileAndSearchPreferences(
-      targetRevision.snapshotProfile,
-      normalizeSearchPreferences(targetRevision.snapshotSearchPreferences),
-    );
-    await ctx.repository.saveProfileSetupState(targetRevision.snapshotProfileSetupState);
+    await ctx.repository.commitProfileCopilotState({
+      profile: targetRevision.snapshotProfile,
+      searchPreferences: normalizeSearchPreferences(targetRevision.snapshotSearchPreferences),
+      profileSetupState: targetRevision.snapshotProfileSetupState,
+      revisions: [undoRevision],
+    });
 
     return getWorkspaceSnapshot();
   }

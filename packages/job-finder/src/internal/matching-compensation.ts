@@ -189,6 +189,10 @@ export function parseNormalizedCompensation(
         !rawSuffix && nextMatch?.[2] && isCompactRangeSeparator(betweenText)
           ? nextMatch[2].toLowerCase()
           : rawSuffix;
+      const periodUnit = readPeriodUnit(salaryText, currentIndex + match[0].length, knownCompensationPeriods)
+        ?? (nextMatch && isCompactRangeSeparator(betweenText)
+          ? readPeriodUnit(salaryText, (nextMatch.index ?? 0) + nextMatch[0].length, knownCompensationPeriods)
+          : null);
       const precedingText = salaryText
         .slice(Math.max(0, currentIndex - 24), currentIndex)
         .toLowerCase();
@@ -211,7 +215,7 @@ export function parseNormalizedCompensation(
         return null;
       }
 
-      if (!suffix && baseValue < 1000) {
+      if (!suffix && !periodUnit && baseValue < 1000) {
         return null;
       }
 

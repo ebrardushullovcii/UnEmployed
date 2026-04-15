@@ -91,6 +91,7 @@ describe('profile resume panel utils', () => {
       getVisibleYearsExperience({
         profileYearsExperience: 0,
         reviewCandidates: experienceCandidates,
+        today: new Date(Date.UTC(2026, 3, 15)),
       }),
     ).toBe(4)
   })

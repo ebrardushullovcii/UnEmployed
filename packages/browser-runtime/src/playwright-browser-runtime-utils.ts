@@ -21,7 +21,7 @@ export function uniqueByKey<TValue>(
   });
 }
 
-export function validateJobPostings(values: readonly JobPosting[], context: string) {
+export function validateJobPostings(values: unknown, context: string): JobPosting[] {
   if (!Array.isArray(values)) {
     console.warn(
       `[BrowserRuntime] Expected an array of job postings from ${context}, received ${typeof values}.`,
@@ -64,8 +64,11 @@ export function buildChromeExecutableCandidates(explicitPath?: string): string[]
     candidates.push(
       `${programFiles}\\Google\\Chrome\\Application\\chrome.exe`,
       `${programFilesX86}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env.LOCALAPPDATA ?? ""}\\Google\\Chrome\\Application\\chrome.exe`,
     );
+
+    if (process.env.LOCALAPPDATA) {
+      candidates.push(`${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`);
+    }
   } else if (process.platform === "darwin") {
     candidates.push(
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",

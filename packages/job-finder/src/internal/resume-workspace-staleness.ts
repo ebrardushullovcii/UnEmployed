@@ -30,7 +30,6 @@ function toProfileResumeStalenessSignature(profile: CandidateProfile) {
     narrative: profile.narrative,
     proofBank: profile.proofBank,
     answerBank: profile.answerBank,
-    applicationIdentity: profile.applicationIdentity,
     skillGroups: profile.skillGroups,
     targetRoles: profile.targetRoles,
     locations: profile.locations,

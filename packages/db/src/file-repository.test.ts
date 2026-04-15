@@ -239,6 +239,90 @@ describe('createFileJobFinderRepository', () => {
     }
   })
 
+  test('atomically commits profile copilot state across sqlite reloads', async () => {
+    const temp = await createTempRepository('unemployed-db-profile-copilot-atomic-')
+    let firstRepository: FileRepository | null = null
+    let secondRepository: FileRepository | null = null
+    const seed = createSeed()
+
+    try {
+      firstRepository = await createFileJobFinderRepository({
+        filePath: temp.filePath,
+        seed,
+      })
+
+      await firstRepository.commitProfileCopilotState({
+        profile: {
+          ...seed.profile,
+          headline: 'Principal Product Designer',
+        },
+        searchPreferences: {
+          ...seed.searchPreferences,
+          targetSalaryUsd: 220000,
+        },
+        profileSetupState: {
+          ...seed.profileSetupState,
+          status: 'in_progress',
+          currentStep: 'essentials',
+          completedAt: null,
+        },
+        messages: [
+          {
+            id: 'profile_message_atomic',
+            role: 'assistant',
+            content: 'Applied a safe profile update.',
+            context: { surface: 'setup', step: 'essentials' },
+            patchGroups: [],
+            createdAt: '2026-04-15T10:00:00.000Z',
+          },
+        ],
+        revisions: [
+          {
+            id: 'profile_revision_atomic',
+            createdAt: '2026-04-15T10:00:01.000Z',
+            reason: 'Atomic assistant patch.',
+            trigger: 'assistant_patch',
+            messageId: 'profile_message_atomic',
+            patchGroupId: null,
+            restoredFromRevisionId: null,
+            snapshotProfile: seed.profile,
+            snapshotSearchPreferences: seed.searchPreferences,
+            snapshotProfileSetupState: seed.profileSetupState,
+          },
+        ],
+      })
+
+      await firstRepository.close()
+      firstRepository = null
+
+      secondRepository = await temp.createRepository()
+
+      await expect(secondRepository.getProfile()).resolves.toEqual(
+        expect.objectContaining({ headline: 'Principal Product Designer' }),
+      )
+      await expect(secondRepository.getSearchPreferences()).resolves.toEqual(
+        expect.objectContaining({ targetSalaryUsd: 220000 }),
+      )
+      await expect(secondRepository.getProfileSetupState()).resolves.toEqual(
+        expect.objectContaining({ status: 'in_progress', currentStep: 'essentials' }),
+      )
+      await expect(secondRepository.listProfileCopilotMessages()).resolves.toEqual([
+        expect.objectContaining({ id: 'profile_message_atomic' }),
+      ])
+      await expect(secondRepository.listProfileRevisions()).resolves.toEqual([
+        expect.objectContaining({ id: 'profile_revision_atomic' }),
+      ])
+    } finally {
+      if (secondRepository) {
+        await secondRepository.close()
+      }
+      if (firstRepository) {
+        await firstRepository.close()
+      }
+      await temp.cleanup()
+    }
+  })
+
   test('persists source-debug artifacts outside the singleton discovery state blob', async () => {
     const temp = await createTempRepository('unemployed-db-source-debug-')
     let firstRepository: FileRepository | null = null
@@ -521,6 +605,120 @@ describe('createFileJobFinderRepository', () => {
     } finally {
       if (repository) {
         await repository.close()
+      }
+      await temp.cleanup()
+    }
+  })
+
+  test('atomically finalizes resume import state across sqlite reloads', async () => {
+    const temp = await createTempRepository('unemployed-db-import-finalize-')
+    let firstRepository: FileRepository | null = null
+    let secondRepository: FileRepository | null = null
+    const seed = createSeed()
+
+    try {
+      firstRepository = await createFileJobFinderRepository({
+        filePath: temp.filePath,
+        seed,
+      })
+
+      await firstRepository.finalizeResumeImportRun({
+        profile: {
+          ...seed.profile,
+          fullName: 'Taylor Rivera',
+        },
+        searchPreferences: {
+          ...seed.searchPreferences,
+          targetRoles: ['Staff Product Designer'],
+        },
+        run: {
+          id: 'resume_import_run_atomic',
+          sourceResumeId: seed.profile.baseResume.id,
+          sourceResumeFileName: seed.profile.baseResume.fileName,
+          trigger: 'import',
+          status: 'applied',
+          startedAt: '2026-04-15T10:10:00.000Z',
+          completedAt: '2026-04-15T10:10:10.000Z',
+          primaryParserKind: 'plain_text',
+          parserKinds: ['plain_text'],
+          analysisProviderKind: null,
+          analysisProviderLabel: null,
+          warnings: [],
+          errorMessage: null,
+          candidateCounts: {
+            total: 1,
+            autoApplied: 1,
+            needsReview: 0,
+            rejected: 0,
+            abstained: 0,
+          },
+        },
+        documentBundles: [
+          {
+            id: 'resume_bundle_atomic',
+            runId: 'resume_import_run_atomic',
+            sourceResumeId: seed.profile.baseResume.id,
+            sourceFileKind: 'plain_text',
+            primaryParserKind: 'plain_text',
+            parserKinds: ['plain_text'],
+            createdAt: '2026-04-15T10:10:00.000Z',
+            languageHints: [],
+            warnings: [],
+            pages: [],
+            blocks: [],
+            fullText: 'Taylor Rivera',
+          },
+        ],
+        fieldCandidates: [
+          {
+            id: 'resume_candidate_atomic',
+            runId: 'resume_import_run_atomic',
+            target: { section: 'identity', key: 'fullName', recordId: null },
+            sourceKind: 'parser_literal',
+            resolution: 'auto_applied',
+            label: 'Full name',
+            value: 'Taylor Rivera',
+            normalizedValue: 'Taylor Rivera',
+            valuePreview: 'Taylor Rivera',
+            sourceBlockIds: [],
+            evidenceText: 'Taylor Rivera',
+            confidence: 0.99,
+            confidenceBreakdown: null,
+            notes: [],
+            alternatives: [],
+            createdAt: '2026-04-15T10:10:05.000Z',
+            resolvedAt: '2026-04-15T10:10:10.000Z',
+            resolutionReason: 'grounded_literal_match',
+          },
+        ],
+      })
+
+      await firstRepository.close()
+      firstRepository = null
+
+      secondRepository = await temp.createRepository()
+
+      await expect(secondRepository.getProfile()).resolves.toEqual(
+        expect.objectContaining({ fullName: 'Taylor Rivera' }),
+      )
+      await expect(secondRepository.getSearchPreferences()).resolves.toEqual(
+        expect.objectContaining({ targetRoles: ['Staff Product Designer'] }),
+      )
+      await expect(secondRepository.getLatestResumeImportRun(seed.profile.baseResume.id)).resolves.toEqual(
+        expect.objectContaining({ id: 'resume_import_run_atomic', status: 'applied' }),
+      )
+      await expect(
+        secondRepository.listResumeImportDocumentBundles({ runId: 'resume_import_run_atomic' }),
+      ).resolves.toEqual([expect.objectContaining({ id: 'resume_bundle_atomic' })])
+      await expect(
+        secondRepository.listResumeImportFieldCandidates({ runId: 'resume_import_run_atomic' }),
+      ).resolves.toEqual([expect.objectContaining({ id: 'resume_candidate_atomic' })])
+    } finally {
+      if (secondRepository) {
+        await secondRepository.close()
+      }
+      if (firstRepository) {
+        await firstRepository.close()
       }
       await temp.cleanup()
     }

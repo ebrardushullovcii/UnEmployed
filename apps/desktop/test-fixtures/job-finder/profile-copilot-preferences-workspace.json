@@ -1,17 +1,17 @@
 {
   "profile": {
-    "id": "candidate_1",
-    "firstName": "Ebrar",
-    "lastName": "Dushullovci",
-    "fullName": "Ebrar Dushullovci",
+    "id": "candidate_test_1",
+    "firstName": "Jamie",
+    "lastName": "Rivers",
+    "fullName": "Jamie Rivers",
     "headline": "Senior Full-Stack Software Engineer",
     "summary": "A passionate software developer with 6+ years of full-stack experience building impactful solutions.",
-    "currentLocation": "Prishtina, Kosovo",
+    "currentLocation": "Berlin, Germany",
     "yearsExperience": 6,
-    "email": "ebrar.dushullovci@gmail.com",
-    "phone": "+383 44283970",
+    "email": "jamie.rivers@example.com",
+    "phone": "+49 555 0000000",
     "portfolioUrl": null,
-    "linkedinUrl": "https://www.linkedin.com/in/ebrar-dushullovci-5b98b4206",
+    "linkedinUrl": "https://www.linkedin.com/in/jamie-rivers-test",
     "narrative": {
       "professionalStory": null,
       "nextChapterSummary": null,
@@ -42,7 +42,7 @@
       "fileName": "CV.pdf",
       "uploadedAt": "2026-04-14T15:55:00.000Z",
       "storagePath": "/tmp/CV.pdf",
-      "textContent": "Ebrar Dushullovci\nSenior Full-Stack Software Engineer\nPrishtina, Kosovo",
+      "textContent": "Jamie Rivers\nSenior Full-Stack Software Engineer\nBerlin, Germany",
       "textUpdatedAt": "2026-04-14T15:55:00.000Z",
       "extractionStatus": "ready",
       "lastAnalyzedAt": "2026-04-14T15:55:00.000Z",
@@ -78,17 +78,17 @@
       "Senior Full-Stack Software Engineer"
     ],
     "locations": [
-      "Prishtina, Kosovo"
+      "Berlin, Germany"
     ],
     "skills": [],
     "experiences": [
       {
         "id": "experience_1",
-        "companyName": "AUTOMATEDPROS",
+        "companyName": "Northstar Labs",
         "companyUrl": null,
         "title": "Senior Full-Stack Software Engineer",
         "employmentType": null,
-        "location": "Prishtina, Kosovo",
+        "location": "Berlin, Germany",
         "workMode": [
           "remote"
         ],
@@ -116,7 +116,7 @@
     ],
     "jobFamilies": [],
     "locations": [
-      "Prishtina, Kosovo"
+      "Berlin, Germany"
     ],
     "excludedLocations": [],
     "workModes": [],

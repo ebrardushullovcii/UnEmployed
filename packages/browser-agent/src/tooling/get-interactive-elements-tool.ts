@@ -29,6 +29,7 @@ Note: If multiple elements have the same role and name, use the index (0-based) 
           if (type === "search") return "searchbox";
           if (type === "checkbox") return "checkbox";
           if (type === "radio") return "radio";
+          if (type === "range") return "slider";
           if (["button", "submit", "reset"].includes(type)) return "button";
           return "textbox";
         };
@@ -99,7 +100,14 @@ Note: If multiple elements have the same role and name, use the index (0-based) 
             'a[href], button, input, select, textarea, [role], [contenteditable="true"]',
           ),
         )
-          .filter((element) => !element.closest('[aria-hidden="true"], [hidden], template'))
+          .filter(
+            (element) =>
+              !element.closest('[aria-hidden="true"], [hidden], [inert], template') &&
+              !element.closest('[aria-disabled="true"], [disabled]') &&
+              !element.hasAttribute("inert") &&
+              !element.hasAttribute("disabled") &&
+              element.getAttribute("aria-disabled") !== "true",
+          )
           .filter(isVisible)
           .map((element) => ({ role: resolveRole(element), name: readElementName(element) }))
           .filter((element) => element.role && element.name);

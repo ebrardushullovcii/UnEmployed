@@ -10,6 +10,7 @@ import {
 } from "@unemployed/contracts";
 
 const DEFAULT_PARSER_TIMEOUT_MS = 45_000;
+const MAX_SIDECAR_OUTPUT_BYTES = 512_000;
 const SIDECAR_BINARY_NAME = process.platform === "win32"
   ? "resume_parser_sidecar.exe"
   : "resume_parser_sidecar";
@@ -325,6 +326,13 @@ function isMissingCommandError(error: unknown): boolean {
   return code === "ENOENT";
 }
 
+function appendSidecarOutput(current: string, chunk: Buffer | string): string {
+  const next = current + chunk.toString();
+  return next.length > MAX_SIDECAR_OUTPUT_BYTES
+    ? next.slice(next.length - MAX_SIDECAR_OUTPUT_BYTES)
+    : next;
+}
+
 async function invokeSidecarCandidate(input: {
   candidate: SidecarCommandCandidate;
   request: ResumeParserWorkerRequest;
@@ -367,11 +375,11 @@ async function invokeSidecarCandidate(input: {
     });
 
     child.stdout.on("data", (chunk: Buffer | string) => {
-      stdout += chunk.toString();
+      stdout = appendSidecarOutput(stdout, chunk);
     });
 
     child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
+      stderr = appendSidecarOutput(stderr, chunk);
     });
 
     child.once("close", (code) => {

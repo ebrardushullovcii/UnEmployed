@@ -26,6 +26,8 @@ export function useProfileScreenForms(input: {
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const latestProfileRef = useRef(input.profile)
   const latestSearchPreferencesRef = useRef(input.searchPreferences)
+  const currentProfileBaseline = latestProfileRef.current
+  const currentSearchPreferencesBaseline = latestSearchPreferencesRef.current
 
   const profileForm = useForm<ProfileEditorValues>({
     defaultValues: createProfileEditorValues(input.profile, input.latestResumeImportReviewCandidates),
@@ -85,32 +87,35 @@ export function useProfileScreenForms(input: {
 
   const currentProfileValues = profileForm.watch()
   const currentPreferenceValues = preferencesForm.watch()
-  const draftProfileResult = useMemo(
-    () => buildProfilePayload(latestProfileRef.current, currentProfileValues),
-    [currentProfileValues],
+  const draftProfileResult = buildProfilePayload(
+    currentProfileBaseline,
+    currentProfileValues,
   )
-  const draftSearchPreferencesResult = useMemo(
-    () => buildSearchPreferencesPayload(latestSearchPreferencesRef.current, currentPreferenceValues),
-    [currentPreferenceValues],
+  const draftSearchPreferencesResult = buildSearchPreferencesPayload(
+    currentSearchPreferencesBaseline,
+    currentPreferenceValues,
   )
 
   useEffect(() => {
+    latestProfileRef.current = input.profile
     profileForm.reset(createProfileEditorValues(input.profile, input.latestResumeImportReviewCandidates))
     setValidationMessage(null)
-    latestProfileRef.current = input.profile
   }, [input.latestResumeImportReviewCandidates, input.profile, profileForm])
 
   useEffect(() => {
+    latestSearchPreferencesRef.current = input.searchPreferences
     preferencesForm.reset(createSearchPreferencesEditorValues(input.searchPreferences))
     setValidationMessage(null)
-    latestSearchPreferencesRef.current = input.searchPreferences
   }, [input.searchPreferences, preferencesForm])
 
   const hasUnsavedChanges =
     profileForm.formState.isDirty ||
     preferencesForm.formState.isDirty ||
-    hasProfileDraftChanges(input.profile, draftProfileResult.payload) ||
-    hasSearchPreferencesDraftChanges(input.searchPreferences, draftSearchPreferencesResult.payload)
+    hasProfileDraftChanges(currentProfileBaseline, draftProfileResult.payload) ||
+    hasSearchPreferencesDraftChanges(
+      currentSearchPreferencesBaseline,
+      draftSearchPreferencesResult.payload,
+    )
   const hasUserDraftChanges =
     profileForm.formState.isDirty || preferencesForm.formState.isDirty
   const backgroundArrays: ProfileBackgroundArrays = {
@@ -139,9 +144,9 @@ export function useProfileScreenForms(input: {
     linkValues,
     locations,
     minimumSalaryUsd,
-    narrativeValues,
-    profile: input.profile,
-    profileSkillValues,
+     narrativeValues,
+      profile: currentProfileBaseline,
+      profileSkillValues,
     proofBankValues,
     projectValues,
     seniorityLevels,
@@ -165,7 +170,7 @@ export function useProfileScreenForms(input: {
     excludedLocations,
     experienceValues,
     identityValues,
-    input.profile,
+    currentProfileBaseline,
     jobFamilies,
     languageValues,
     linkValues,

@@ -496,8 +496,8 @@ Delivered without introducing a new top-level store or SQLite table. The complet
 ### Evidence paths used during completion
 
 - Profile baseline fixture: `apps/desktop/test-fixtures/job-finder/profile-baseline-workspace.json`
-- Profile UI capture output: `apps/desktop/test-artifacts/ui/profile-visual-baseline-2026-04-09/`
-- Resume workspace demo output: `apps/desktop/test-artifacts/ui/resume-workspace/`
+- Profile UI capture command: `pnpm --filter @unemployed/desktop ui:profile-baseline`
+- Resume workspace demo command: `pnpm --filter @unemployed/desktop ui:resume-workspace`
 
 ## Open Questions To Defer Unless They Block Delivery
 

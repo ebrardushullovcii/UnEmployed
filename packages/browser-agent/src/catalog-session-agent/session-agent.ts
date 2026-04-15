@@ -19,7 +19,6 @@ import {
   filterCatalogAgentDiscoveryJobs,
   filterCatalogDiscoveryJobs,
 } from './discovery'
-import { normalizeText } from './shared'
 
 export interface CatalogSessionRuntimePrimitives {
   getSessionState(source: JobSource): BrowserSessionState
@@ -27,10 +26,7 @@ export interface CatalogSessionRuntimePrimitives {
 }
 
 export interface CatalogSessionAgentDiscoveryOptions {
-  searchPreferences: {
-    targetRoles: string[]
-    locations: string[]
-  }
+  searchPreferences: Pick<JobSearchPreferences, 'targetRoles' | 'locations'>
   targetJobCount: number
   startingUrls: string[]
   siteLabel: string
@@ -52,6 +48,26 @@ function buildSessionBlockedResult(session: BrowserSessionState): Error {
   return new Error(`Browser session is not ready for automation.${detail}`)
 }
 
+function getStartingUrl(options: CatalogSessionAgentDiscoveryOptions): string {
+  const startingUrl = options.startingUrls[0]?.trim()
+
+  if (!startingUrl) {
+    throw new Error(
+      `Catalog session agent requires at least one starting URL for ${options.siteLabel}.`,
+    )
+  }
+
+  return startingUrl
+}
+
+function requireStartingUrl(options: CatalogSessionAgentDiscoveryOptions): Promise<string> {
+  try {
+    return Promise.resolve(getStartingUrl(options))
+  } catch (error) {
+    return Promise.reject(error)
+  }
+}
+
 export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimitives) {
   return {
     runDiscovery(
@@ -61,7 +77,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
       const session = primitives.getSessionState(source)
 
       if (session.status !== 'ready') {
-        throw buildSessionBlockedResult(session)
+        return Promise.reject(buildSessionBlockedResult(session))
       }
 
       const startedAt = new Date().toISOString()
@@ -92,7 +108,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
       const session = primitives.getSessionState(source)
 
       if (session.status !== 'ready') {
-        throw buildSessionBlockedResult(session)
+        return Promise.reject(buildSessionBlockedResult(session))
       }
 
       const now = new Date().toISOString()
@@ -175,12 +191,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
         )
       }
 
-      const normalizedDescription = normalizeText(job.description)
-      const requiresHumanPause =
-        normalizedDescription.includes('portfolio') ||
-        normalizedDescription.includes('work authorization') ||
-        normalizedDescription.includes('visa sponsorship') ||
-        normalizedDescription.includes('salary expectation')
+      const requiresHumanPause = questions.length > 0
 
       if (requiresHumanPause) {
         return Promise.resolve(
@@ -334,35 +345,35 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
       const session = primitives.getSessionState(source)
 
       if (!options.skipSessionValidation && session.status !== 'ready') {
-        throw buildSessionBlockedResult(session)
+        return Promise.reject(buildSessionBlockedResult(session))
       }
 
-      options.onProgress?.({
-        currentUrl: options.startingUrls[0] ?? 'about:blank',
-        jobsFound: 0,
-        stepCount: 1,
-        currentAction: 'navigate',
-        targetId: null,
-        adapterKind: source,
-      })
+      return requireStartingUrl(options).then((startingUrl) => {
+        options.onProgress?.({
+          currentUrl: startingUrl,
+          jobsFound: 0,
+          stepCount: 1,
+          currentAction: 'navigate',
+          targetId: null,
+          adapterKind: source,
+        })
 
-      const startedAt = new Date().toISOString()
-      const filteredJobs = filterCatalogAgentDiscoveryJobs(
-        primitives.listCatalogJobs(source),
-        options,
-      )
+        const startedAt = new Date().toISOString()
+        const filteredJobs = filterCatalogAgentDiscoveryJobs(
+          primitives.listCatalogJobs(source),
+          options,
+        )
 
-      options.onProgress?.({
-        currentUrl: options.startingUrls[0] ?? 'about:blank',
-        jobsFound: filteredJobs.length,
-        stepCount: 2,
-        currentAction: 'extract_jobs',
-        targetId: null,
-        adapterKind: source,
-      })
+        options.onProgress?.({
+          currentUrl: startingUrl,
+          jobsFound: filteredJobs.length,
+          stepCount: 2,
+          currentAction: 'extract_jobs',
+          targetId: null,
+          adapterKind: source,
+        })
 
-      return Promise.resolve(
-        DiscoveryRunResultSchema.parse({
+        return DiscoveryRunResultSchema.parse({
           source,
           startedAt,
           completedAt: new Date().toISOString(),
@@ -383,8 +394,8 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             phaseEvidence: null,
             debugFindings: null,
           },
-        }),
-      )
+        })
+      })
     },
   }
 }

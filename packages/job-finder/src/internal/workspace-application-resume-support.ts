@@ -22,6 +22,7 @@ function buildResumeWorkspaceSharedProfile(profile: CandidateProfile) {
   return {
     narrativeSummary:
       profile.narrative.professionalStory ??
+      profile.narrative.nextChapterSummary ??
       profile.professionalSummary.fullSummary ??
       profile.summary ??
       null,

@@ -77,6 +77,7 @@ export async function deriveAndPersistProfileSetupState(
     persistedState: ProfileSetupState;
     latestResumeImportRunId?: string | null;
     latestResumeImportReviewCandidates?: readonly ResumeImportFieldCandidate[];
+    persist?: boolean;
   },
 ): Promise<ProfileSetupState> {
   const now = new Date().toISOString();
@@ -118,7 +119,10 @@ export async function deriveAndPersistProfileSetupState(
     now,
   });
 
-  if (JSON.stringify(derivedState) !== JSON.stringify(storedState)) {
+  if (
+    input.persist !== false &&
+    JSON.stringify(derivedState) !== JSON.stringify(storedState)
+  ) {
     await ctx.repository.saveProfileSetupState(derivedState);
   }
 

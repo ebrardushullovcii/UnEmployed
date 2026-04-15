@@ -1,4 +1,6 @@
 import {
+  CandidateProfileSchema,
+  JobSearchPreferencesSchema,
   ProfileCopilotMessageSchema,
   ProfileRevisionSchema,
   ResumeAssistantMessageSchema,
@@ -14,7 +16,7 @@ import {
 } from '@unemployed/contracts'
 
 import { secureDatabaseFile } from './internal/migrations'
-import { cloneValue, listCollectionValues, listValues } from './internal/state'
+import { cloneValue, listCollectionValues, listValues, saveSingletonValue } from './internal/state'
 import type { JobFinderRepository } from './repository-types'
 import {
   resolveApprovedExportId,
@@ -41,6 +43,7 @@ type FileRepositoryResumeMethods = Pick<
   | 'listResumeImportDocumentBundles'
   | 'listResumeImportFieldCandidates'
   | 'replaceResumeImportRunArtifacts'
+  | 'finalizeResumeImportRun'
   | 'listResumeValidationResults'
   | 'upsertResumeValidationResult'
   | 'listResumeAssistantMessages'
@@ -244,15 +247,19 @@ export function createFileRepositoryResumeMethods(
         params.push(options.runId)
       }
 
-      if (options?.resolution) {
-        whereParts.push('resolution = ?')
-        params.push(options.resolution)
-      }
+      const normalizedResolutions = options?.resolution
+        ? [options.resolution]
+        : options?.resolutions?.length
+          ? [...options.resolutions]
+          : []
 
-      if (options?.resolutions && options.resolutions.length > 0) {
-        const placeholders = options.resolutions.map(() => '?').join(', ')
+      if (normalizedResolutions.length === 1) {
+        whereParts.push('resolution = ?')
+        params.push(normalizedResolutions[0]!)
+      } else if (normalizedResolutions.length > 1) {
+        const placeholders = normalizedResolutions.map(() => '?').join(', ')
         whereParts.push(`resolution IN (${placeholders})`)
-        params.push(...options.resolutions)
+        params.push(...normalizedResolutions)
       }
 
       return Promise.resolve(
@@ -291,6 +298,55 @@ export function createFileRepositoryResumeMethods(
       }
 
       runImmediateTransaction(database, () => {
+        writePersistedValue('resume_import_runs', normalizedRun)
+        database.prepare('DELETE FROM resume_import_document_bundles WHERE run_id = ?').run(normalizedRun.id)
+        database.prepare('DELETE FROM resume_import_field_candidates WHERE run_id = ?').run(normalizedRun.id)
+
+        for (const bundle of normalizedBundles) {
+          writePersistedValue('resume_import_document_bundles', bundle)
+        }
+
+        for (const candidate of normalizedCandidates) {
+          writePersistedValue('resume_import_field_candidates', candidate)
+        }
+      })
+
+      return secureDatabaseFile(filePath)
+    },
+    finalizeResumeImportRun({
+      profile,
+      searchPreferences,
+      run,
+      documentBundles,
+      fieldCandidates,
+    }) {
+      const normalizedProfile = CandidateProfileSchema.parse(cloneValue(profile))
+      const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(
+        cloneValue(searchPreferences),
+      )
+      const normalizedRun = ResumeImportRunSchema.parse(cloneValue(run))
+      const normalizedBundles = ResumeDocumentBundleSchema.array().parse(
+        cloneValue([...documentBundles]),
+      )
+      const normalizedCandidates = ResumeImportFieldCandidateSchema.array().parse(
+        cloneValue([...fieldCandidates]),
+      )
+
+      for (const bundle of normalizedBundles) {
+        if (bundle.runId !== normalizedRun.id) {
+          throw new Error('Resume document bundle does not belong to the provided import run.')
+        }
+      }
+
+      for (const candidate of normalizedCandidates) {
+        if (candidate.runId !== normalizedRun.id) {
+          throw new Error('Resume import candidate does not belong to the provided import run.')
+        }
+      }
+
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, 'profile', normalizedProfile)
+        saveSingletonValue(database, 'search_preferences', normalizedSearchPreferences)
         writePersistedValue('resume_import_runs', normalizedRun)
         database.prepare('DELETE FROM resume_import_document_bundles WHERE run_id = ?').run(normalizedRun.id)
         database.prepare('DELETE FROM resume_import_field_candidates WHERE run_id = ?').run(normalizedRun.id)
@@ -479,9 +535,11 @@ export function createFileRepositoryResumeMethods(
       return secureDatabaseFile(filePath)
     },
     approveResumeExport({ draft, exportArtifact, validation, tailoredAsset }) {
+      const approvedAt = draft.approvedAt ?? new Date().toISOString()
       const normalizedDraft = ResumeDraftSchema.parse(
         cloneValue({
           ...draft,
+          approvedAt,
           approvedExportId: exportArtifact.id,
         }),
       )
@@ -509,6 +567,10 @@ export function createFileRepositoryResumeMethods(
 
       if (normalizedValidation && normalizedValidation.draftId !== normalizedDraft.id) {
         throw new Error('Resume validation result does not belong to the provided draft.')
+      }
+
+      if (!normalizedArtifact.isApproved) {
+        throw new Error('Approved export artifacts must be persisted with isApproved=true.')
       }
 
       runImmediateTransaction(database, () => {

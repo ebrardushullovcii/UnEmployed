@@ -303,7 +303,15 @@ export const ResumeImportTargetSchema = z.object({
 });
 export type ResumeImportTarget = z.infer<typeof ResumeImportTargetSchema>;
 
-export const ResumeImportJsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
+export type ResumeImportJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ResumeImportJsonValue[]
+  | { [key: string]: ResumeImportJsonValue };
+
+export const ResumeImportJsonValueSchema: z.ZodType<ResumeImportJsonValue> = z.lazy(() =>
   z.union([
     z.string(),
     z.number(),

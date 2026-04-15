@@ -20,7 +20,6 @@ import type { JobFinderScreen } from '../lib/job-finder-types'
 import { formatStatusLabel, getDefaultProfileRoute } from '../lib/job-finder-utils'
 
 interface JobFinderShellProps {
-  actionMessage: string | null
   children: ReactNode
   onNavigate?: (path: string) => void
   platform: 'darwin' | 'linux' | 'win32'
@@ -61,7 +60,7 @@ function getActiveScreen(pathname: string): JobFinderScreen {
   return 'profile'
 }
 
-export function JobFinderShell({ actionMessage, children, onNavigate, platform, workspace }: JobFinderShellProps) {
+export function JobFinderShell({ children, onNavigate, platform, workspace }: JobFinderShellProps) {
   const isMac = platform === 'darwin'
   const location = useLocation()
   const navigate = useNavigate()
@@ -78,8 +77,6 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
     () => LOCKED_LAYOUT_SCREENS.includes(activeScreen),
     [activeScreen]
   )
-  void actionMessage
-
   const screenDefinitions = useMemo(
     () => [
       { id: 'profile', label: 'Profile', count: null, icon: UserRound },

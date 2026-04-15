@@ -20,10 +20,10 @@ function formatNormalizedCompensation(job: SavedJob): string | null {
     return null
   }
 
-  const currency = compensation.currency ?? 'USD'
+  const currencyPrefix = compensation.currency ? `${compensation.currency} ` : ''
   const interval = compensation.interval ? ` / ${compensation.interval}` : ''
-  const min = compensation.minAmount !== null ? `${currency} ${compensation.minAmount.toLocaleString()}` : null
-  const max = compensation.maxAmount !== null ? `${currency} ${compensation.maxAmount.toLocaleString()}` : null
+  const min = compensation.minAmount !== null ? `${currencyPrefix}${compensation.minAmount.toLocaleString()}` : null
+  const max = compensation.maxAmount !== null ? `${currencyPrefix}${compensation.maxAmount.toLocaleString()}` : null
 
   return [min, max].filter(Boolean).join(' – ') + interval
 }
@@ -36,6 +36,7 @@ export function DiscoveryDetailPanel({
   selectedJob
 }: DiscoveryDetailPanelProps) {
   const discoveryTargetLabels = new Map(discoveryTargets.map((target) => [target.id, target.label]))
+  const normalizedCompensation = selectedJob ? formatNormalizedCompensation(selectedJob) : null
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
@@ -75,12 +76,14 @@ export function DiscoveryDetailPanel({
                 <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Apply</span>
                 <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">{selectedJob.applyPath === 'easy_apply' ? 'Easy Apply' : selectedJob.applyPath === 'external_redirect' ? 'Apply on company site' : 'Manual application'}</strong>
               </div>
-              {selectedJob.salaryText ? (
+              {selectedJob.salaryText || normalizedCompensation ? (
                 <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
                   <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Salary</span>
-                  <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">{selectedJob.salaryText}</strong>
-                  {formatNormalizedCompensation(selectedJob) ? (
-                    <p className="mt-2 text-(length:--text-small) text-foreground-soft">Normalized: {formatNormalizedCompensation(selectedJob)}</p>
+                  <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
+                    {selectedJob.salaryText ?? 'Provided through structured compensation metadata'}
+                  </strong>
+                  {normalizedCompensation ? (
+                    <p className="mt-2 text-(length:--text-small) text-foreground-soft">Normalized: {normalizedCompensation}</p>
                   ) : null}
                 </div>
               ) : null}
@@ -122,6 +125,12 @@ export function DiscoveryDetailPanel({
               <div className="grid gap-2">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Travel</p>
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">{selectedJob.screeningHints.travelText}</p>
+              </div>
+            ) : null}
+            {selectedJob.screeningHints.requiresSecurityClearance === true ? (
+              <div className="grid gap-2">
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Security clearance</p>
+                <p className="text-(length:--text-small) leading-6 text-foreground-soft">This listing mentions an active or required security clearance.</p>
               </div>
             ) : null}
             {(selectedJob.firstSeenAt || selectedJob.lastSeenAt || selectedJob.lastVerifiedActiveAt) ? (

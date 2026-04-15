@@ -118,6 +118,44 @@ export function createInMemoryJobFinderRepository(
       );
       return Promise.resolve();
     },
+    commitProfileCopilotState({
+      profile,
+      searchPreferences,
+      profileSetupState,
+      messages,
+      revisions,
+    }) {
+      state.profile = CandidateProfileSchema.parse(cloneValue(profile));
+      state.searchPreferences = JobSearchPreferencesSchema.parse(
+        cloneValue(searchPreferences),
+      );
+      state.profileSetupState = ProfileSetupStateSchema.parse(
+        cloneValue(profileSetupState),
+      );
+
+      if (messages) {
+        const normalizedMessages = ProfileCopilotMessageSchema.array().parse(
+          cloneValue(messages),
+        );
+        for (const message of normalizedMessages) {
+          state.profileCopilotMessages = upsertById(
+            state.profileCopilotMessages,
+            message,
+          );
+        }
+      }
+
+      if (revisions) {
+        const normalizedRevisions = ProfileRevisionSchema.array().parse(
+          cloneValue(revisions),
+        );
+        for (const revision of normalizedRevisions) {
+          state.profileRevisions = upsertById(state.profileRevisions, revision);
+        }
+      }
+
+      return Promise.resolve();
+    },
     listSavedJobs() {
       return Promise.resolve(cloneValue(state.savedJobs));
     },
@@ -339,6 +377,51 @@ export function createInMemoryJobFinderRepository(
       state.resumeImportFieldCandidates = nextArtifacts.candidates;
       return Promise.resolve();
     },
+    finalizeResumeImportRun({
+      profile,
+      searchPreferences,
+      run,
+      documentBundles,
+      fieldCandidates,
+    }) {
+      const normalizedProfile = CandidateProfileSchema.parse(cloneValue(profile));
+      const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(
+        cloneValue(searchPreferences),
+      );
+      const normalizedRun = ResumeImportRunSchema.parse(cloneValue(run));
+      const normalizedBundles = ResumeDocumentBundleSchema.array().parse(
+        cloneValue([...documentBundles]),
+      );
+      const normalizedCandidates = ResumeImportFieldCandidateSchema.array().parse(
+        cloneValue([...fieldCandidates]),
+      );
+
+      for (const bundle of normalizedBundles) {
+        if (bundle.runId !== normalizedRun.id) {
+          throw new Error("Resume document bundle does not belong to the provided import run.");
+        }
+      }
+
+      for (const candidate of normalizedCandidates) {
+        if (candidate.runId !== normalizedRun.id) {
+          throw new Error("Resume import candidate does not belong to the provided import run.");
+        }
+      }
+
+      state.profile = normalizedProfile;
+      state.searchPreferences = normalizedSearchPreferences;
+      state.resumeImportRuns = upsertById(state.resumeImportRuns, normalizedRun);
+      const nextArtifacts = replaceArtifactsForRun(
+        state.resumeImportDocumentBundles,
+        state.resumeImportFieldCandidates,
+        normalizedRun.id,
+        normalizedBundles,
+        normalizedCandidates,
+      );
+      state.resumeImportDocumentBundles = nextArtifacts.bundles;
+      state.resumeImportFieldCandidates = nextArtifacts.candidates;
+      return Promise.resolve();
+    },
     listResumeValidationResults(draftId) {
       const values = draftId
         ? state.resumeValidationResults.filter((entry) => entry.draftId === draftId)
@@ -514,9 +597,11 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     approveResumeExport({ draft, exportArtifact, validation, tailoredAsset }) {
+      const approvedAt = draft.approvedAt ?? new Date().toISOString();
       const normalizedDraft = ResumeDraftSchema.parse(
         cloneValue({
           ...draft,
+          approvedAt,
           approvedExportId: exportArtifact.id,
         }),
       );

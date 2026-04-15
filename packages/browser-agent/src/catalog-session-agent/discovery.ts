@@ -49,6 +49,10 @@ export function filterCatalogAgentDiscoveryJobs(
 ): JobPosting[] {
   return jobs
     .filter((job) => {
+      if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
+        return false
+      }
+
       const matchesRole = matchesAnyPhrase(job.title, options.searchPreferences.targetRoles)
       const matchesLocation = matchesAnyPhrase(job.location, options.searchPreferences.locations)
       return matchesRole && matchesLocation

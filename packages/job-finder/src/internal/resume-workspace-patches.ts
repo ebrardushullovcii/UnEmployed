@@ -56,6 +56,10 @@ function createInsertedBulletId(
   return createUniqueId(`${section.id}_bullet`);
 }
 
+function assertNeverResumePatchOperation(operation: never): never {
+  throw new Error(`Unsupported resume patch operation: ${String(operation)}`)
+}
+
 export function applyPatchToResumeDraft(input: {
   draft: ResumeDraft;
   patch: ResumeDraftPatch;
@@ -82,7 +86,6 @@ export function applyPatchToResumeDraft(input: {
       : null;
 
     assertAssistantMayEdit(patch, section, targetBullet);
-
     switch (patch.operation) {
       case "replace_section_text":
         if ((section.text ?? null) === (patch.newText ?? null)) {
@@ -365,7 +368,7 @@ export function applyPatchToResumeDraft(input: {
           updatedAt,
         );
       default: {
-        throw new Error("Unsupported resume patch operation.");
+        return assertNeverResumePatchOperation(patch.operation)
       }
     }
   });

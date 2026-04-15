@@ -44,6 +44,18 @@ const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
 const SEARCH_RESULTS_MAX_MODEL_JOBS = 4;
 
+function parseConfiguredTimeoutMs(
+  value: string | undefined,
+): number | undefined {
+  const parsedValue = Number.parseInt(value ?? "", 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1_000) {
+    return undefined;
+  }
+
+  return parsedValue;
+}
+
 function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
   const message = error instanceof Error ? error.message.trim() : "";
   const isAbortLikeMessage =
@@ -108,7 +120,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
     }
 
     const controller = new AbortController();
-    const timeoutMs = options?.timeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
+    const timeoutMs =
+      options?.timeoutMs ??
+      validatedOptions.requestTimeoutMs ??
+      DEFAULT_MODEL_TIMEOUT_MS;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -374,7 +389,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
       }
 
       const controller = new AbortController();
-      const timeoutMs = DEFAULT_MODEL_TIMEOUT_MS;
+      const timeoutMs =
+        validatedOptions.requestTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
       let localTimedOut = false;
       const timeoutId = setTimeout(() => {
         localTimedOut = true;
@@ -508,13 +524,11 @@ export function createJobFinderAiClientFromEnvironment(
   env: StringMap = process.env,
 ): JobFinderAiClient {
   const apiKey = env.UNEMPLOYED_AI_API_KEY;
-  const parsedRequestTimeoutMs = Number.parseInt(
-    env.UNEMPLOYED_AI_TIMEOUT_MS ?? "",
-    10,
+  const parsedRequestTimeoutMs = parseConfiguredTimeoutMs(
+    env.UNEMPLOYED_AI_TIMEOUT_MS,
   );
-  const parsedResumeExtractionTimeoutMs = Number.parseInt(
-    env.UNEMPLOYED_AI_RESUME_TIMEOUT_MS ?? "",
-    10,
+  const parsedResumeExtractionTimeoutMs = parseConfiguredTimeoutMs(
+    env.UNEMPLOYED_AI_RESUME_TIMEOUT_MS,
   );
 
   if (!apiKey) {
@@ -526,12 +540,8 @@ export function createJobFinderAiClientFromEnvironment(
     baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? "https://ai.automatedpros.link/v1",
     model: env.UNEMPLOYED_AI_MODEL ?? "FelidaeAI-Pro-2.5",
     label: "AI resume agent",
-    requestTimeoutMs: Number.isFinite(parsedRequestTimeoutMs)
-      ? parsedRequestTimeoutMs
-      : undefined,
-    resumeExtractionTimeoutMs: Number.isFinite(parsedResumeExtractionTimeoutMs)
-      ? parsedResumeExtractionTimeoutMs
-      : undefined,
+    requestTimeoutMs: parsedRequestTimeoutMs,
+    resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
   });
   const fallbackClient = createDeterministicJobFinderAiClient(
     "The configured model is enabled, and deterministic fallbacks protect the app when a model call fails.",
@@ -558,11 +568,11 @@ export function createJobFinderAiClientFromEnvironment(
       }
     },
     async extractResumeImportStage(input) {
+      const fallbackPromise = fallbackClient.extractResumeImportStage(input);
+
       try {
-        const [primary, fallback] = await Promise.all([
-          primaryClient.extractResumeImportStage(input),
-          fallbackClient.extractResumeImportStage(input),
-        ]);
+        const primary = await primaryClient.extractResumeImportStage(input);
+        const fallback = await fallbackPromise;
 
         return {
           ...primary,
@@ -577,7 +587,7 @@ export function createJobFinderAiClientFromEnvironment(
         };
       } catch (error) {
         logFallbackError("extractResumeImportStage", error);
-        const fallback = await fallbackClient.extractResumeImportStage(input);
+        const fallback = await fallbackPromise;
         return {
           ...fallback,
           notes: uniqueStrings([

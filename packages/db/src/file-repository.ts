@@ -6,6 +6,8 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ProfileCopilotMessageSchema,
+  ProfileRevisionSchema,
   ProfileSetupStateSchema,
   ResumeDraftSchema,
   SavedJobSchema,
@@ -125,6 +127,43 @@ export async function createFileJobFinderRepository(
         state.profile = normalizedProfile
         state.searchPreferences = normalizedSearchPreferences
       })
+    },
+    commitProfileCopilotState({
+      profile,
+      searchPreferences,
+      profileSetupState,
+      messages,
+      revisions,
+    }) {
+      const normalizedProfile = CandidateProfileSchema.parse(cloneValue(profile))
+      const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(
+        cloneValue(searchPreferences),
+      )
+      const normalizedProfileSetupState = ProfileSetupStateSchema.parse(
+        cloneValue(profileSetupState),
+      )
+      const normalizedMessages = ProfileCopilotMessageSchema.array().parse(
+        cloneValue(messages ?? []),
+      )
+      const normalizedRevisions = ProfileRevisionSchema.array().parse(
+        cloneValue(revisions ?? []),
+      )
+
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, 'profile', normalizedProfile)
+        saveSingletonValue(database, 'search_preferences', normalizedSearchPreferences)
+        saveSingletonValue(database, 'profile_setup_state', normalizedProfileSetupState)
+
+        for (const message of normalizedMessages) {
+          context.writePersistedValue('profile_copilot_messages', message)
+        }
+
+        for (const revision of normalizedRevisions) {
+          context.writePersistedValue('profile_revisions', revision)
+        }
+      })
+
+      return secureDatabaseFile(options.filePath)
     },
     listSavedJobs() {
       return Promise.resolve(cloneValue(listValues(database, 'saved_jobs', SavedJobSchema)))

@@ -33,6 +33,7 @@ type BuildJobFinderPageContextArgs = {
   navigate: (path: string, options?: { replace?: boolean; state?: unknown }) => void
   profileCopilotBusy: boolean
   profileCopilotPendingContextKey: string | null
+  profileCopilotRequestTokenRef: MutableRefObject<number>
   profileSetupState: ProfileSetupState | null
   refreshResumeWorkspace: (
     jobId: string,
@@ -87,6 +88,7 @@ export function buildJobFinderPageContext(
     navigate,
     profileCopilotBusy,
     profileCopilotPendingContextKey,
+    profileCopilotRequestTokenRef,
     profileSetupState,
     refreshResumeWorkspace,
     resumeAssistantRequestTokenRef,
@@ -128,6 +130,7 @@ export function buildJobFinderPageContext(
     locationPathname,
     navigate,
     profileSetupState,
+    profileCopilotRequestTokenRef,
     refreshResumeWorkspace,
     resumeAssistantRequestTokenRef,
     runAction,
@@ -185,9 +188,7 @@ export function buildJobFinderPageContext(
         'Workspace reset. Your profile, resume, jobs, and browser session were cleared on this device.',
       )
     },
-    onResumeWorkspaceDirtyChange: (dirty: boolean) => {
-      setResumeWorkspaceDirty(dirty)
-    },
+    onResumeWorkspaceDirtyChange: setResumeWorkspaceDirty,
     onSelectApplicationRecord: setSelectedApplicationRecordId,
     onSelectDiscoveryJob: setSelectedDiscoveryJobId,
     onSelectReviewItem: setSelectedReviewJobId,

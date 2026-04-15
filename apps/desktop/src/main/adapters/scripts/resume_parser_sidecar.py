@@ -682,7 +682,9 @@ def extract_document(
 
 
 def build_response(request: Dict[str, Any]) -> Dict[str, Any]:
-    file_path = request["filePath"]
+    file_path = request.get("filePath")
+    if not isinstance(file_path, str) or not file_path.strip():
+        raise ValueError("Resume parser sidecar request must include a non-empty filePath.")
     file_kind = request.get("fileKind") or detect_file_kind(file_path)
     (
         page_texts,

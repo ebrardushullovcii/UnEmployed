@@ -2,9 +2,9 @@ Jamie Rivers
 Staff Frontend Engineer
 Berlin, Germany
 jamie@example.com
-+49 555 1234
-https://jamie.dev
-https://www.linkedin.com/in/jamie-rivers
++49 555 0000000
+https://jamie.example.test
+https://www.linkedin.com/in/jamie-rivers-test
 
 Summary
 Staff frontend engineer with 12 years of experience building React, TypeScript, and design system foundations for product teams.

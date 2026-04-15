@@ -309,7 +309,7 @@ These were inferred from the user report and must be explicitly checked:
   - `pnpm typecheck`
   - `pnpm test`
   - `pnpm structure:check`
-- comprehensive release-quality QA pass ran full `pnpm verify` (agents:check, docs:check, structure:check, lint, typecheck, test) with all 61 test files and 343 tests passing
+- comprehensive release-quality QA pass ran full `pnpm verify` (agents:check, docs:check, structure:check, lint, typecheck, test) with all 63 test files and 351 tests passing
 - continued perfection-level QA pass:
   - removed developer-facing "Plan 012" badge from `profile-setup-screen-sections.tsx`
   - simplified four developer-speak descriptions across setup sections and screen into plain user language (e.g. "synced with the same saved profile data the full editor uses" → "in sync with your full profile")
@@ -318,7 +318,7 @@ These were inferred from the user report and must be explicitly checked:
   - renamed internal `listResumeDraftValues` → `listCollectionValues` across 29 references in 3 files to match its actual general-purpose behavior
   - refactored module-level `sidecarAvailabilityLogged` mutable `let` into a resettable `sidecarAvailability` object with exported `_resetSidecarAvailabilityLogged()` for test isolation
   - completed the half-done `profile-setup-screen-helpers.ts` file split: removed duplicated `getReviewItemScrollTargetId` plus dangling inference function references from helpers (437→315 lines), verified `profile-setup-review-scroll-targets.ts` (303 lines) is the single canonical source, and updated the import in `profile-setup-screen-actions.ts` to point to the new module
-  - `pnpm verify` passes clean: 61 test files, 343 tests, zero failures, all lint/typecheck/structure/agents/docs green
+  - `pnpm verify` passes clean: 63 test files, 351 tests, zero failures, all lint/typecheck/structure/agents/docs green
 - PR #19 review findings triaged and fixed:
   - **P1 fixed**: `isProofPointValue` type guard in `resume-import-apply.ts` now validates actual property presence instead of unconditionally returning `true`
   - **P2 fixed**: Swift `classifySectionHint` aligned with TS logic — removed the overly broad `text == text.uppercased() || text.count <= 80` clause that incorrectly classified all short or uppercase text as `"identity"`, replaced with the same length-based `summary` (≥64) then regex-based `identity` (≤80, name-like pattern) logic the TS version uses
@@ -333,7 +333,7 @@ These were inferred from the user report and must be explicitly checked:
 - all screenshots validated with actual PASS/FAIL verdicts written into `apps/desktop/test-artifacts/ui/VISUAL-QA-TRACKER.md`
 - 3 total issues found during the full QA pass, and all 3 are now fixed: issue #1 (raw export ID in NEXT STEP card), issue #2 (pipe-delimited camelCase suggested values in `06b-background-edit-jump.png`), and issue #3 (grammar bug)
 - final cleanup round re-ran `pnpm verify`, desktop build, dark + light shell captures, guided setup, profile baseline, Preferences copilot, resume workspace, dirty-state, and scripted TXT/PDF resume-import captures; release QA returned Go-with-risk limited to cross-platform sidecar packaging proof
-- `pnpm verify` passes clean: 61 test files, 343 tests, zero failures
+- `pnpm verify` passes clean: 63 test files, 351 tests, zero failures
 
 ### 19. Structure follow-up after final QA
 

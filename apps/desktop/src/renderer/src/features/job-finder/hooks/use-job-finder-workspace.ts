@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CandidateProfile,
+  DiscoveryActivityEvent,
+  EditableSourceInstructionArtifact,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
+  ProfileCopilotContext,
   ProfileSetupState,
   ResumeDraft,
   ResumeDraftPatch,
+  SourceDebugProgressEvent,
 } from "@unemployed/contracts";
 import type { JobFinderShellActions } from "../lib/job-finder-types";
 
@@ -111,17 +115,25 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() => window.unemployed.jobFinder.getWorkspace()),
       resetWorkspace: () =>
         runWorkspaceAction(() => window.unemployed.jobFinder.resetWorkspace()),
-      runAgentDiscovery: (onProgress) =>
+      runAgentDiscovery: (
+        onProgress?: (event: DiscoveryActivityEvent) => void,
+      ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.runAgentDiscovery(onProgress),
         ),
-      runSourceDebug: (targetId: string, onProgress) =>
+      runSourceDebug: (
+        targetId: string,
+        onProgress?: (event: SourceDebugProgressEvent) => void,
+      ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.runSourceDebug(targetId, onProgress),
         ),
       getSourceDebugRunDetails: (runId: string) =>
         window.unemployed.jobFinder.getSourceDebugRunDetails(runId),
-      saveSourceInstructionArtifact: (targetId, artifact) =>
+      saveSourceInstructionArtifact: (
+        targetId: string,
+        artifact: EditableSourceInstructionArtifact,
+      ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.saveSourceInstructionArtifact(
             targetId,
@@ -178,7 +190,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
             action,
           ),
         ),
-      sendProfileCopilotMessage: (content, context) =>
+      sendProfileCopilotMessage: (
+        content: string,
+        context?: ProfileCopilotContext,
+      ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.sendProfileCopilotMessage(content, context),
         ),

@@ -136,6 +136,26 @@ function isLikelyLocationValue(value: string): boolean {
   );
 }
 
+function isLinkedInUrl(url: string): boolean {
+  return /(?:https?:\/\/)?(?:www\.)?linkedin\.com\//i.test(url);
+}
+
+function isGithubUrl(url: string): boolean {
+  return /(?:https?:\/\/)?(?:www\.)?github\.com\//i.test(url);
+}
+
+function isPortfolioUrl(url: string): boolean {
+  return /(?:https?:\/\/)?(?:www\.)?(?:behance\.net|dribbble\.com)\//i.test(url);
+}
+
+function isPersonalWebsiteUrl(url: string): boolean {
+  if (!/^https?:\/\//i.test(url)) {
+    return false;
+  }
+
+  return !isLinkedInUrl(url) && !isGithubUrl(url) && !isPortfolioUrl(url);
+}
+
 export function extractLiteralCandidates(
   runId: string,
   documentBundle: ResumeDocumentBundle,
@@ -243,22 +263,22 @@ export function extractLiteralCandidates(
   const urlTargets: Array<{
     key: ResumeImportFieldCandidateDraft["target"]["key"];
     label: string;
-    pattern: RegExp;
+    matches: (url: string) => boolean;
   }> = [
-    { key: "linkedinUrl", label: "LinkedIn URL", pattern: /linkedin\.com/i },
-    { key: "githubUrl", label: "GitHub URL", pattern: /github\.com/i },
-    { key: "portfolioUrl", label: "Portfolio URL", pattern: /(portfolio|projects|behance|dribbble)/i },
+    { key: "linkedinUrl", label: "LinkedIn URL", matches: isLinkedInUrl },
+    { key: "githubUrl", label: "GitHub URL", matches: isGithubUrl },
+    { key: "portfolioUrl", label: "Portfolio URL", matches: isPortfolioUrl },
     {
       key: "personalWebsiteUrl",
       label: "Personal website",
-      pattern: /^(?!.*(?:linkedin\.com|github\.com)).+$/i,
+      matches: isPersonalWebsiteUrl,
     },
   ];
   const usedUrls = new Set<string>();
 
   for (const target of urlTargets) {
     const url = urlMatches.find(
-      (entry) => !usedUrls.has(entry) && target.pattern.test(entry),
+      (entry) => !usedUrls.has(entry) && target.matches(entry),
     );
     if (!url) {
       continue;

@@ -111,6 +111,9 @@ function buildKeywordSignals(posting: JobPosting): JobKeywordSignal[] {
 }
 
 function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
+  const remoteHintSource = [posting.location, posting.summary, posting.description]
+    .filter(Boolean)
+    .join(" ")
   const normalizedText = normalizeText(
     [
       posting.location,
@@ -118,10 +121,14 @@ function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
       posting.description,
       ...posting.minimumQualifications,
       ...posting.preferredQualifications,
-    ]
-      .filter(Boolean)
-      .join(" "),
+      ]
+        .filter(Boolean)
+        .join(" "),
   );
+  const supportsRemoteGeographyHints =
+    posting.workMode.includes("remote") ||
+    posting.workMode.includes("flexible") ||
+    /\bremote\b/i.test(remoteHintSource)
 
   return {
     sponsorshipText:
@@ -140,17 +147,13 @@ function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
     travelText: normalizedText.includes("travel")
       ? "Travel expectations are mentioned in the listing."
       : null,
-    remoteGeographies: uniqueStrings(
-      remoteGeographyHints.flatMap((entry) =>
-        entry.pattern.test(
-          [posting.location, posting.description, posting.summary]
-            .filter(Boolean)
-            .join(" "),
+    remoteGeographies: supportsRemoteGeographyHints
+      ? uniqueStrings(
+          remoteGeographyHints.flatMap((entry) =>
+            entry.pattern.test(remoteHintSource) ? [entry.label] : [],
+          ),
         )
-          ? [entry.label]
-          : [],
-      ),
-    ),
+      : [],
   };
 }
 

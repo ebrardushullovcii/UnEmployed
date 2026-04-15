@@ -31,10 +31,6 @@ function candidateOverallConfidence(candidate: ResumeImportFieldCandidate): numb
   return candidate.confidenceBreakdown?.overall ?? candidate.confidence;
 }
 
-function hasExistingAutoAppliedWinner(group: readonly ResumeImportFieldCandidate[]): boolean {
-  return group.some((candidate) => candidate.resolution === "auto_applied");
-}
-
 function recommendationForCandidate(
   candidate: ResumeImportFieldCandidate,
 ): NonNullable<ResumeImportFieldCandidate["confidenceBreakdown"]>["recommendation"] {
@@ -609,22 +605,31 @@ export function reconcileCandidates(
     }
 
     if (isRecordTarget(first) || isListTarget(first)) {
+      let hasAutoAppliedCollectionCandidate = false;
+
       for (const candidate of sorted) {
         const recommendation = recommendationForCandidate(candidate);
         const shouldAutoApplyCollectionCandidate =
           isRecordTarget(candidate)
-            ? !hasExistingAutoAppliedWinner(sorted) && shouldMergeRecordCandidate(candidate)
-            : !hasExistingAutoAppliedWinner(sorted) && shouldMergeListCandidate(candidate);
+            ? !hasAutoAppliedCollectionCandidate && shouldMergeRecordCandidate(candidate)
+            : !hasAutoAppliedCollectionCandidate && shouldMergeListCandidate(candidate);
+        const resolution =
+          recommendation === "abstain"
+            ? "abstained"
+            : shouldAutoApplyCollectionCandidate
+              ? "auto_applied"
+              : "needs_review";
+
+        if (resolution === "auto_applied") {
+          hasAutoAppliedCollectionCandidate = true;
+        }
+
         resolved.push(
           applyCandidateResolution(
             profile,
             searchPreferences,
             candidate,
-            recommendation === "abstain"
-              ? "abstained"
-              : shouldAutoApplyCollectionCandidate
-                ? "auto_applied"
-                : "needs_review",
+            resolution,
           ),
         );
       }

@@ -304,6 +304,68 @@ describe("createInMemoryJobFinderRepository", () => {
     await expect(repository.listProfileRevisions()).resolves.toEqual([]);
   });
 
+  test("commits profile copilot state atomically", async () => {
+    const seed = createSeed();
+    const repository = createInMemoryJobFinderRepository(seed);
+
+    await repository.commitProfileCopilotState({
+      profile: {
+        ...seed.profile,
+        headline: "Principal Product Designer",
+      },
+      searchPreferences: {
+        ...seed.searchPreferences,
+        targetSalaryUsd: 220000,
+      },
+      profileSetupState: {
+        ...seed.profileSetupState,
+        status: "in_progress",
+        currentStep: "essentials",
+        completedAt: null,
+      },
+      messages: [
+        {
+          id: "profile_message_atomic",
+          role: "assistant",
+          content: "Applied a safe profile update.",
+          context: { surface: "setup", step: "essentials" },
+          patchGroups: [],
+          createdAt: "2026-04-15T10:00:00.000Z",
+        },
+      ],
+      revisions: [
+        {
+          id: "profile_revision_atomic",
+          createdAt: "2026-04-15T10:00:01.000Z",
+          reason: "Atomic assistant patch.",
+          trigger: "assistant_patch",
+          messageId: "profile_message_atomic",
+          patchGroupId: null,
+          restoredFromRevisionId: null,
+          snapshotProfile: seed.profile,
+          snapshotSearchPreferences: seed.searchPreferences,
+          snapshotProfileSetupState: seed.profileSetupState,
+        },
+      ],
+    });
+
+    await expect(repository.getProfile()).resolves.toEqual(
+      expect.objectContaining({ headline: "Principal Product Designer" }),
+    );
+    await expect(repository.getSearchPreferences()).resolves.toEqual(
+      expect.objectContaining({ targetSalaryUsd: 220000 }),
+    );
+    await expect(repository.getProfileSetupState()).resolves.toEqual(
+      expect.objectContaining({ status: "in_progress", currentStep: "essentials" }),
+    );
+    await expect(repository.listProfileCopilotMessages()).resolves.toEqual([
+      expect.objectContaining({ id: "profile_message_atomic" }),
+    ]);
+    await expect(repository.listProfileRevisions()).resolves.toEqual([
+      expect.objectContaining({ id: "profile_revision_atomic" }),
+    ]);
+  });
+
   test("applies aggregate resume approval updates atomically", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
 
@@ -446,6 +508,98 @@ describe("createInMemoryJobFinderRepository", () => {
     expect(exports.find((entry) => entry.id === "resume_export_old")?.isApproved).toBe(
       false,
     );
+  });
+
+  test("finalizes resume import state atomically", async () => {
+    const seed = createSeed();
+    const repository = createInMemoryJobFinderRepository(seed);
+
+    await repository.finalizeResumeImportRun({
+      profile: {
+        ...seed.profile,
+        fullName: "Taylor Rivera",
+      },
+      searchPreferences: {
+        ...seed.searchPreferences,
+        targetRoles: ["Staff Product Designer"],
+      },
+      run: {
+        id: "resume_import_run_atomic",
+        sourceResumeId: seed.profile.baseResume.id,
+        sourceResumeFileName: seed.profile.baseResume.fileName,
+        trigger: "import",
+        status: "applied",
+        startedAt: "2026-04-15T10:10:00.000Z",
+        completedAt: "2026-04-15T10:10:10.000Z",
+        primaryParserKind: "plain_text",
+        parserKinds: ["plain_text"],
+        analysisProviderKind: null,
+        analysisProviderLabel: null,
+        warnings: [],
+        errorMessage: null,
+        candidateCounts: {
+          total: 1,
+          autoApplied: 1,
+          needsReview: 0,
+          rejected: 0,
+          abstained: 0,
+        },
+      },
+      documentBundles: [
+        {
+          id: "resume_bundle_atomic",
+          runId: "resume_import_run_atomic",
+          sourceResumeId: seed.profile.baseResume.id,
+          sourceFileKind: "plain_text",
+          primaryParserKind: "plain_text",
+          parserKinds: ["plain_text"],
+          createdAt: "2026-04-15T10:10:00.000Z",
+          languageHints: [],
+          warnings: [],
+          pages: [],
+          blocks: [],
+          fullText: "Taylor Rivera",
+        },
+      ],
+      fieldCandidates: [
+        {
+          id: "resume_candidate_atomic",
+          runId: "resume_import_run_atomic",
+          target: { section: "identity", key: "fullName", recordId: null },
+          sourceKind: "parser_literal",
+          resolution: "auto_applied",
+          label: "Full name",
+          value: "Taylor Rivera",
+          normalizedValue: "Taylor Rivera",
+          valuePreview: "Taylor Rivera",
+          sourceBlockIds: [],
+          evidenceText: "Taylor Rivera",
+          confidence: 0.99,
+          confidenceBreakdown: null,
+          notes: [],
+          alternatives: [],
+          createdAt: "2026-04-15T10:10:05.000Z",
+          resolvedAt: "2026-04-15T10:10:10.000Z",
+          resolutionReason: "grounded_literal_match",
+        },
+      ],
+    });
+
+    await expect(repository.getProfile()).resolves.toEqual(
+      expect.objectContaining({ fullName: "Taylor Rivera" }),
+    );
+    await expect(repository.getSearchPreferences()).resolves.toEqual(
+      expect.objectContaining({ targetRoles: ["Staff Product Designer"] }),
+    );
+    await expect(repository.getLatestResumeImportRun(seed.profile.baseResume.id)).resolves.toEqual(
+      expect.objectContaining({ id: "resume_import_run_atomic", status: "applied" }),
+    );
+    await expect(
+      repository.listResumeImportDocumentBundles({ runId: "resume_import_run_atomic" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "resume_bundle_atomic" })]);
+    await expect(
+      repository.listResumeImportFieldCandidates({ runId: "resume_import_run_atomic" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "resume_candidate_atomic" })]);
   });
 
   test("atomically replaces saved jobs while clearing resume approval", async () => {

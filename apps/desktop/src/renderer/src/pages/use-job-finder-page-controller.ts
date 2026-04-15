@@ -16,7 +16,6 @@ import {
 import {
   getActiveResumeWorkspaceJobId,
   getLatestApplicationAttempt,
-  isProfileSetupPath,
   useResettableSelection,
 } from './use-job-finder-page-controller-helpers'
 
@@ -42,6 +41,7 @@ export function useJobFinderPageController() {
   const [profileCopilotPendingContextKey, setProfileCopilotPendingContextKey] =
     useState<string | null>(null)
   const [profileCopilotBusy, setProfileCopilotBusy] = useState(false)
+  const profileCopilotRequestTokenRef = useRef(0)
   const [resumeWorkspaceDirty, setResumeWorkspaceDirty] = useState(false)
   const sourceDebugRunIdRef = useRef(0)
   const activeResumeWorkspaceJobId = getActiveResumeWorkspaceJobId(
@@ -202,25 +202,6 @@ export function useJobFinderPageController() {
   ])
 
   useEffect(() => {
-    if (!workspace) {
-      return
-    }
-
-    const setupStatus = workspace.profileSetupState.status
-    const onSetupRoute = isProfileSetupPath(location.pathname)
-    const onProfileRoot = location.pathname === '/job-finder/profile'
-
-    if (setupStatus === 'not_started' && onProfileRoot) {
-      void navigate('/job-finder/profile/setup', { replace: true })
-      return
-    }
-
-    if (setupStatus === 'completed' && onSetupRoute) {
-      void navigate('/job-finder/profile', { replace: true })
-    }
-  }, [location.pathname, navigate, workspace])
-
-  useEffect(() => {
     if (
       !activeResumeWorkspaceJobId ||
       !workspace?.reviewQueue ||
@@ -350,9 +331,9 @@ export function useJobFinderPageController() {
       actions,
       activeRouteResumeAssistantMessages,
       activeRouteResumeAssistantPending,
-      activeRouteResumeWorkspace,
-      canImportResume,
-      confirmLeaveDirtyResumeWorkspace,
+     activeRouteResumeWorkspace,
+     canImportResume,
+     confirmLeaveDirtyResumeWorkspace,
       importResumeGuardMessage,
       isCurrentResumeAssistantRequest,
       isCurrentResumeWorkspaceJob,
@@ -363,6 +344,7 @@ export function useJobFinderPageController() {
       },
       profileCopilotBusy,
       profileCopilotPendingContextKey,
+      profileCopilotRequestTokenRef,
       profileSetupState,
       refreshResumeWorkspace,
       resumeAssistantRequestTokenRef,
@@ -400,12 +382,14 @@ export function useJobFinderPageController() {
     isCurrentResumeWorkspaceJob,
     liveDiscoveryEvents,
     location.pathname,
-    navigate,
-    optimisticProfileCopilotMessages,
-    profileCopilotBusy,
-    profileSetupState,
-    profileCopilotPendingContextKey,
-    refreshResumeWorkspace,
+     navigate,
+     optimisticProfileCopilotMessages,
+     canImportResume,
+     profileCopilotBusy,
+     profileSetupState,
+     profileCopilotPendingContextKey,
+     importResumeGuardMessage,
+     refreshResumeWorkspace,
     selectedApplicationAttempt,
     selectedApplicationRecord,
     selectedDiscoveryJob,

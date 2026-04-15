@@ -55,9 +55,15 @@ func cleanLine(_ value: String) -> String {
     value
         .replacingOccurrences(of: "\u{0}", with: " ")
         .replacingOccurrences(of: "\r\n", with: "\n")
-        .replacingOccurrences(of: "\n", with: " ")
         .replacingOccurrences(of: "\t", with: " ")
         .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func normalizePageText(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "\u{0}", with: " ")
+        .replacingOccurrences(of: "\r\n", with: "\n")
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
@@ -192,7 +198,7 @@ for pageIndex in 0..<document.pageCount {
         continue
     }
 
-    let nativeText = cleanLine(page.string ?? "")
+    let nativeText = normalizePageText(page.string ?? "")
     let useOcr = nativeText.count < 40
     let pageParserKind = useOcr ? "macos_vision_ocr" : "macos_pdfkit_text"
     parserKinds.insert(pageParserKind)
@@ -210,8 +216,8 @@ for pageIndex in 0..<document.pageCount {
     }
 
     let pageText = lines.map { $0.text }.joined(separator: "\n")
-    let cleanedPageText = cleanLine(pageText.replacingOccurrences(of: "\n", with: " "))
-    if !cleanedPageText.isEmpty {
+    let trimmedPageText = pageText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedPageText.isEmpty {
         pageTexts.append(pageText)
     }
 
@@ -261,5 +267,10 @@ let output = BundleOutput(
 
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.sortedKeys]
-let data = try encoder.encode(output)
-FileHandle.standardOutput.write(data)
+do {
+    let data = try encoder.encode(output)
+    FileHandle.standardOutput.write(data)
+} catch {
+    fputs("Failed to encode parser output: \(error.localizedDescription)\n", stderr)
+    exit(1)
+}

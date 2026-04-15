@@ -54,7 +54,6 @@ export function JobFinderPage() {
   return (
     <ThemeProvider preference={appearanceTheme || 'system'}>
       <JobFinderShell
-        actionMessage={context.actionState.message}
         onNavigate={navigateFromShell}
         platform={platform}
         workspace={workspace}

@@ -111,10 +111,9 @@ function parseMonthStart(value: string): Date | null {
   return null
 }
 
-function parseMonthEnd(value: string, isCurrent: boolean): Date | null {
+function parseMonthEnd(value: string, isCurrent: boolean, today = new Date()): Date | null {
   if (isCurrent || /^(present|current)$/i.test(value.trim())) {
-    const now = new Date()
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
   }
 
   return parseMonthStart(value)
@@ -122,6 +121,7 @@ function parseMonthEnd(value: string, isCurrent: boolean): Date | null {
 
 function getEstimatedYearsExperienceFromRecords(
   candidates: readonly ResumeImportFieldCandidateSummary[],
+  today = new Date(),
 ): number | null {
   const monthRanges = candidates.flatMap((candidate) => {
     if (candidate.target.section !== 'experience' || candidate.target.key !== 'record') {
@@ -136,7 +136,7 @@ function getEstimatedYearsExperienceFromRecords(
     const endDate = typeof candidate.value.endDate === 'string' ? candidate.value.endDate : ''
     const isCurrent = candidate.value.isCurrent === true
     const start = parseMonthStart(startDate)
-    const end = parseMonthEnd(endDate, isCurrent)
+    const end = parseMonthEnd(endDate, isCurrent, today)
 
     if (!start || !end || end < start) {
       return []
@@ -176,9 +176,13 @@ function getEstimatedYearsExperienceFromRecords(
 export function getVisibleYearsExperience(input: {
   profileYearsExperience: number
   reviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  today?: Date
 }): number {
   const pendingYearsExperience = getPendingYearsExperience(input.reviewCandidates)
-  const estimatedYearsExperience = getEstimatedYearsExperienceFromRecords(input.reviewCandidates)
+  const estimatedYearsExperience = getEstimatedYearsExperienceFromRecords(
+    input.reviewCandidates,
+    input.today,
+  )
 
   return input.profileYearsExperience > 0
     ? input.profileYearsExperience

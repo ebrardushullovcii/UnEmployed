@@ -42,7 +42,10 @@ async function main() {
   try {
     const window = await app.firstWindow()
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await Promise.any([
+      window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 }),
+      window.getByRole('heading', { level: 1, name: 'Guided setup' }).waitFor({ timeout: 15000 }),
+    ])
 
     const report = await window.evaluate(
       async ({ benchmarkVersion, canaryOnly, useConfiguredAi }) => {

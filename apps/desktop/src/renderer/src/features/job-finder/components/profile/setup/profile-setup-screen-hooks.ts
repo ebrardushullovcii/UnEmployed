@@ -28,6 +28,8 @@ export function useProfileSetupForms(input: {
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const latestProfileRef = useRef(input.profile)
   const latestSearchPreferencesRef = useRef(input.searchPreferences)
+  const currentProfileBaseline = latestProfileRef.current
+  const currentSearchPreferencesBaseline = latestSearchPreferencesRef.current
   const profileForm = useForm<ProfileEditorValues>({
     defaultValues: createProfileEditorValues(input.profile, input.latestResumeImportReviewCandidates),
   })
@@ -55,44 +57,54 @@ export function useProfileSetupForms(input: {
 
   const currentProfileValues = profileForm.watch()
   const currentPreferenceValues = preferencesForm.watch()
-  const draftProfileResult = useMemo(
-    () => buildProfilePayload(latestProfileRef.current, currentProfileValues),
-    [currentProfileValues],
+  const draftProfileResult = buildProfilePayload(
+    currentProfileBaseline,
+    currentProfileValues,
   )
-  const draftPreferencesResult = useMemo(
-    () => buildSearchPreferencesPayload(latestSearchPreferencesRef.current, currentPreferenceValues),
-    [currentPreferenceValues],
+  const draftPreferencesResult = buildSearchPreferencesPayload(
+    currentSearchPreferencesBaseline,
+    currentPreferenceValues,
   )
-  const draftProfile = draftProfileResult.payload ?? input.profile
-  const draftSearchPreferences = draftPreferencesResult.payload ?? input.searchPreferences
+  const draftProfile = draftProfileResult.payload ?? currentProfileBaseline
+  const draftSearchPreferences =
+    draftPreferencesResult.payload ?? currentSearchPreferencesBaseline
   const hasUnsavedChanges =
     profileForm.formState.isDirty ||
     preferencesForm.formState.isDirty ||
-    hasProfileDraftChanges(input.profile, draftProfileResult.payload) ||
-    hasSearchPreferencesDraftChanges(input.searchPreferences, draftPreferencesResult.payload)
+    hasProfileDraftChanges(currentProfileBaseline, draftProfileResult.payload) ||
+    hasSearchPreferencesDraftChanges(
+      currentSearchPreferencesBaseline,
+      draftPreferencesResult.payload,
+    )
   const hasUserDraftChanges =
     profileForm.formState.isDirty || preferencesForm.formState.isDirty
   const draftAwareReviewItems = useMemo(
     () => buildDraftAwareSetupReviewItems({
-      currentProfile: input.profile,
-      currentSearchPreferences: input.searchPreferences,
+      currentProfile: currentProfileBaseline,
+      currentSearchPreferences: currentSearchPreferencesBaseline,
       draftProfile,
       draftSearchPreferences,
       reviewItems: input.profileSetupState.reviewItems,
     }),
-    [draftProfile, draftSearchPreferences, input.profile, input.profileSetupState.reviewItems, input.searchPreferences],
+    [
+      currentProfileBaseline,
+      currentSearchPreferencesBaseline,
+      draftProfile,
+      draftSearchPreferences,
+      input.profileSetupState.reviewItems,
+    ],
   )
 
   useEffect(() => {
+    latestProfileRef.current = input.profile
     profileForm.reset(createProfileEditorValues(input.profile, input.latestResumeImportReviewCandidates))
     setValidationMessage(null)
-    latestProfileRef.current = input.profile
   }, [input.latestResumeImportReviewCandidates, input.profile, profileForm])
 
   useEffect(() => {
+    latestSearchPreferencesRef.current = input.searchPreferences
     preferencesForm.reset(createSearchPreferencesEditorValues(input.searchPreferences))
     setValidationMessage(null)
-    latestSearchPreferencesRef.current = input.searchPreferences
   }, [input.searchPreferences, preferencesForm])
 
   return {

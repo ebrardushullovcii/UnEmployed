@@ -22,7 +22,7 @@ import {
   promoteGroundedSharedMemoryCandidates,
   reconcileCandidates,
 } from "./resume-import-reconciliation";
-import { uniqueStrings } from "./shared";
+import { createUniqueId, uniqueStrings } from "./shared";
 
 type ResumeImportTrigger = ResumeImportRun["trigger"];
 
@@ -42,9 +42,10 @@ export async function runResumeImportWorkflow(
   candidates: ResumeImportFieldCandidate[];
 }> {
   const now = new Date().toISOString();
-  const runId = `resume_import_run_${Date.now()}`;
+  const runId = createUniqueId("resume_import_run");
   const bundle = ResumeDocumentBundleSchema.parse({
     ...input.documentBundle,
+    id: createUniqueId("resume_bundle"),
     runId,
     sourceResumeId: input.profile.baseResume.id,
   });
@@ -171,11 +172,9 @@ export async function runResumeImportWorkflow(
       candidateCounts,
     });
 
-    await ctx.repository.saveProfileAndSearchPreferences(
-      merged.profile,
-      merged.searchPreferences,
-    );
-    await ctx.repository.replaceResumeImportRunArtifacts({
+    await ctx.repository.finalizeResumeImportRun({
+      profile: merged.profile,
+      searchPreferences: merged.searchPreferences,
       run,
       documentBundles: [bundle],
       fieldCandidates: reconciledCandidates,

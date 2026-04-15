@@ -10,11 +10,13 @@ import {
 
 import { deriveAndPersistProfileSetupState, summarizeReviewCandidates } from "./profile-workspace-state";
 import { countResumeImportCandidates } from "./resume-import-workflow";
+import { createUniqueId } from "./shared";
 import { normalizeSearchPreferences } from "./workspace-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
 function buildBundleFromStoredResume(profile: CandidateProfile): ResumeDocumentBundle {
   const createdAt = profile.baseResume.textUpdatedAt ?? new Date().toISOString();
+  const runId = createUniqueId("resume_import_refresh");
   const text = profile.baseResume.textContent?.trim() ?? null;
   const blocks = text
     ? text
@@ -35,8 +37,8 @@ function buildBundleFromStoredResume(profile: CandidateProfile): ResumeDocumentB
     : [];
 
   return ResumeDocumentBundleSchema.parse({
-    id: `resume_bundle_${profile.baseResume.id}`,
-    runId: `resume_import_refresh_${Date.now()}`,
+    id: createUniqueId("resume_bundle"),
+    runId,
     sourceResumeId: profile.baseResume.id,
     sourceFileKind: "plain_text",
     primaryParserKind: "plain_text",

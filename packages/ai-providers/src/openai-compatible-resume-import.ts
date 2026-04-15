@@ -2,6 +2,7 @@ import {
   ResumeImportTargetSectionSchema,
   type AgentProviderStatus,
   type ResumeImportFieldCandidateDraft,
+  type ResumeImportJsonValue,
 } from "@unemployed/contracts";
 import {
   ResumeImportStageExtractionResultSchema,
@@ -47,12 +48,12 @@ function normalizeConfidence(value: unknown): number | undefined {
   return undefined;
 }
 
-function normalizeAlternatives(value: unknown): unknown[] {
+function normalizeAlternatives(value: unknown): ResumeImportJsonValue[] {
   if (Array.isArray(value)) {
-    return value;
+    return value as ResumeImportJsonValue[];
   }
 
-  return value === null || value === undefined ? [] : [value];
+  return value === null || value === undefined ? [] : [value as ResumeImportJsonValue];
 }
 
 function normalizeTarget(value: unknown): ResumeImportFieldCandidateDraft["target"] | undefined {
@@ -131,8 +132,8 @@ function normalizeCandidate(
   return {
     target,
     label,
-    value: record.value ?? null,
-    normalizedValue: record.normalizedValue ?? null,
+    value: (record.value ?? null) as ResumeImportJsonValue,
+    normalizedValue: (record.normalizedValue ?? null) as ResumeImportJsonValue,
     valuePreview: typeof record.valuePreview === "string" ? record.valuePreview : null,
     evidenceText: typeof record.evidenceText === "string" ? record.evidenceText : null,
     sourceBlockIds: toStringArray(record.sourceBlockIds),

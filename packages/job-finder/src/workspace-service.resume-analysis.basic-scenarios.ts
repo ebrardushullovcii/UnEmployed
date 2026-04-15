@@ -184,6 +184,40 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.latestResumeImportReviewCandidates[0]?.label).toBeTruthy();
   });
 
+  test("refresh imports keep earlier document bundles instead of overwriting them by id", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          baseResume: {
+            ...seed.profile.baseResume,
+            extractionStatus: "not_started",
+            lastAnalyzedAt: null,
+            textContent:
+              "Jamie Rivers\nStaff Frontend Engineer\nBerlin, Germany\njamie@example.com",
+          },
+        },
+      },
+    });
+
+    await workspaceService.analyzeProfileFromResume();
+    await workspaceService.analyzeProfileFromResume();
+
+    const runs = await repository.listResumeImportRuns({
+      sourceResumeId: seed.profile.baseResume.id,
+    });
+    const bundles = await repository.listResumeImportDocumentBundles({
+      sourceResumeId: seed.profile.baseResume.id,
+    });
+
+    expect(runs).toHaveLength(2);
+    expect(bundles).toHaveLength(2);
+    expect(new Set(bundles.map((bundle) => bundle.id)).size).toBe(2);
+    expect(new Set(bundles.map((bundle) => bundle.runId)).size).toBe(2);
+  });
+
   test("maps unresolved import candidates into persisted profile setup review items", async () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {

@@ -73,9 +73,27 @@ function requireAtLeastOneField<TSchema extends z.ZodRawShape>(
   schema: z.ZodObject<TSchema>,
   message: string,
 ) {
-  return schema.refine((value) => Object.keys(value).length > 0, {
-    message,
-  });
+  return schema.refine(
+    (value) =>
+      Object.entries(value).some(([, fieldValue]) => {
+        if (fieldValue === undefined || fieldValue === null) {
+          return false;
+        }
+
+        if (typeof fieldValue === "string") {
+          return fieldValue.trim().length > 0;
+        }
+
+        if (Array.isArray(fieldValue)) {
+          return fieldValue.length > 0;
+        }
+
+        return true;
+      }),
+    {
+      message,
+    },
+  );
 }
 
 export const ProfileIdentityPatchFieldsSchema = requireAtLeastOneField(

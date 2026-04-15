@@ -582,7 +582,8 @@ export function collectResumeWorkspaceEvidence(input: {
     input.profile.narrative.professionalStory ||
     input.profile.narrative.nextChapterSummary ||
     input.profile.narrative.careerTransitionSummary ||
-    input.profile.narrative.differentiators.length > 0
+    input.profile.narrative.differentiators.length > 0 ||
+    input.profile.narrative.motivationThemes.length > 0
   ) {
     index.addDocument(
       "profile_narrative",

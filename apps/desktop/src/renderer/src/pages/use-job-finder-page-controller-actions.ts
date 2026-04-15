@@ -32,6 +32,7 @@ type BaseActionArgs = {
   locationPathname: string
   navigate: (path: string, options?: { replace?: boolean; state?: unknown }) => void
   profileSetupState: ProfileSetupState | null
+  profileCopilotRequestTokenRef: MutableRefObject<number>
   refreshResumeWorkspace: (
     jobId: string,
     options?: {
@@ -163,6 +164,7 @@ export function createPrimaryPageActions(
     locationPathname,
     navigate,
     profileSetupState,
+    profileCopilotRequestTokenRef,
     refreshResumeWorkspace,
     resumeAssistantRequestTokenRef,
     runAction,
@@ -180,7 +182,6 @@ export function createPrimaryPageActions(
     sourceDebugRunIdRef,
     workspace,
   } = args
-
   return {
     onAnalyzeProfileFromResume: () => {
       if (!canImportResume) {
@@ -562,6 +563,7 @@ export function createPrimaryPageActions(
       context?: ProfileCopilotContext,
     ) =>
       void (async () => {
+        const requestToken = ++profileCopilotRequestTokenRef.current
         const effectiveContext = context ?? { surface: 'general' as const }
         const contextKey = getProfileCopilotContextKey(effectiveContext)
         const createdAt = new Date().toISOString()
@@ -583,6 +585,11 @@ export function createPrimaryPageActions(
 
         try {
           await actions.sendProfileCopilotMessage(content, effectiveContext)
+
+          if (requestToken !== profileCopilotRequestTokenRef.current) {
+            return
+          }
+
           setOptimisticProfileCopilotMessages([])
           setProfileCopilotBusy(false)
           setProfileCopilotPendingContextKey(null)
@@ -591,6 +598,10 @@ export function createPrimaryPageActions(
             message: 'Profile Copilot replied.',
           }))
         } catch (error) {
+          if (requestToken !== profileCopilotRequestTokenRef.current) {
+            return
+          }
+
           const message =
             error instanceof Error
               ? error.message

@@ -47,36 +47,11 @@ export function syncApprovedResumeExportsForJob(
   jobId: string,
   approvedExportId: string | null = null,
 ): void {
-  const currentArtifacts = listCollectionValues(
-    database,
-    'resume_export_artifacts',
-    ResumeExportArtifactSchema,
-    {
-      whereSql: 'job_id = ?',
-      params: [jobId],
-      orderBySql: 'exported_at DESC, id ASC',
-    },
-  )
-
-  for (const artifact of currentArtifacts) {
-    const shouldBeApproved = approvedExportId !== null && artifact.id === approvedExportId
-
-    if (artifact.isApproved === shouldBeApproved) {
-      continue
-    }
-
-    upsertIndexedCollectionValue(
-      database,
-      'resume_export_artifacts',
-      {
-        ...artifact,
-        isApproved: shouldBeApproved,
-      } as { id: string },
-      {
-        ...INDEXED_COLLECTION_CONFIGS.resume_export_artifacts,
-      },
+  database
+    .prepare(
+      'UPDATE resume_export_artifacts SET is_approved = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE job_id = ?',
     )
-  }
+    .run(approvedExportId, jobId)
 }
 
 export function resolveApprovedExportId(

@@ -47,7 +47,7 @@ function humanizePrimitive(value: boolean | number): string {
   return String(value);
 }
 
-export function summarizeValue(value: ResumeImportFieldCandidate["value"]): string | null {
+export function summarizeValue(value: unknown): string | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
