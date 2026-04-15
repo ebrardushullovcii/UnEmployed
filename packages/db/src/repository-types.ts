@@ -6,6 +6,9 @@ import type {
   JobFinderRepositoryState,
   JobFinderSettings,
   JobSearchPreferences,
+  ProfileCopilotMessage,
+  ProfileRevision,
+  ProfileSetupState,
   ResumeAssistantMessage,
   ResumeDocumentBundle,
   ResumeDraft,
@@ -34,6 +37,8 @@ export interface JobFinderRepository {
   saveProfile(profile: CandidateProfile): Promise<void>;
   getSearchPreferences(): Promise<JobSearchPreferences>;
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<void>;
+  getProfileSetupState(): Promise<ProfileSetupState>;
+  saveProfileSetupState(profileSetupState: ProfileSetupState): Promise<void>;
   saveProfileAndSearchPreferences(
     profile: CandidateProfile,
     searchPreferences: JobSearchPreferences,
@@ -77,6 +82,7 @@ export interface JobFinderRepository {
   listResumeImportFieldCandidates(options?: {
     runId?: string;
     resolution?: ResumeImportCandidateResolution;
+    resolutions?: readonly ResumeImportCandidateResolution[];
   }): Promise<readonly ResumeImportFieldCandidate[]>;
   replaceResumeImportRunArtifacts(input: {
     run: ResumeImportRun;
@@ -95,6 +101,12 @@ export interface JobFinderRepository {
   upsertResumeAssistantMessage(
     message: ResumeAssistantMessage,
   ): Promise<void>;
+  listProfileCopilotMessages(): Promise<readonly ProfileCopilotMessage[]>;
+  upsertProfileCopilotMessage(
+    message: ProfileCopilotMessage,
+  ): Promise<void>;
+  listProfileRevisions(): Promise<readonly ProfileRevision[]>;
+  upsertProfileRevision(revision: ProfileRevision): Promise<void>;
   saveResumeDraftWithValidation(input: {
     draft: ResumeDraft;
     validation: ResumeValidationResult;
@@ -152,6 +164,7 @@ export interface FileJobFinderRepositoryOptions {
 export type StateTableKey =
   | "profile"
   | "search_preferences"
+  | "profile_setup_state"
   | "settings"
   | "discovery_state";
 

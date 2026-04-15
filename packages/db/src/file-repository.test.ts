@@ -1,326 +1,363 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { describe, expect, test } from "vitest";
-import { createFileJobFinderRepository } from "./index";
-import { createSeed } from "./test-fixtures";
+import { rm } from 'node:fs/promises'
+import { DatabaseSync } from 'node:sqlite'
+import { describe, expect, test } from 'vitest'
 
-type FileRepository = Awaited<ReturnType<typeof createFileJobFinderRepository>>;
+import { createFileJobFinderRepository } from './index'
+import { createSeed } from './test-fixtures'
+import {
+  createResumeImportArtifactsFixture,
+  createSavedJob,
+  createTempRepository,
+  type FileRepository,
+} from './file-repository.test-support'
 
-describe("createFileJobFinderRepository", () => {
-  test("deletes only source instruction artifacts for the requested target in file storage", async () => {
-    const tempDirectory = await mkdtemp(
-      path.join(os.tmpdir(), "unemployed-db-artifacts-"),
-    );
-    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
-    let repository: FileRepository | null = null;
+describe('createFileJobFinderRepository', () => {
+  test('deletes only source instruction artifacts for the requested target in file storage', async () => {
+    const temp = await createTempRepository('unemployed-db-artifacts-')
+    let repository: FileRepository | null = null
 
     try {
-      repository = await createFileJobFinderRepository({
-        filePath,
-        seed: createSeed(),
-      });
+      repository = await temp.createRepository()
 
       const baseArtifact = {
-        status: "draft" as const,
-        createdAt: "2026-03-20T10:01:00.000Z",
-        updatedAt: "2026-03-20T10:02:00.000Z",
+        status: 'draft' as const,
+        createdAt: '2026-03-20T10:01:00.000Z',
+        updatedAt: '2026-03-20T10:02:00.000Z',
         acceptedAt: null,
-        basedOnRunId: "source_debug_run_1",
-        basedOnAttemptIds: ["source_debug_attempt_1"],
+        basedOnRunId: 'source_debug_run_1',
+        basedOnAttemptIds: ['source_debug_attempt_1'],
         notes: null,
-        navigationGuidance: ["Start from the jobs route."],
-        searchGuidance: ["Use the visible search box."],
+        navigationGuidance: ['Start from the jobs route.'],
+        searchGuidance: ['Use the visible search box.'],
         detailGuidance: [],
         applyGuidance: [],
         warnings: [],
         versionInfo: {
-          promptProfileVersion: "source-debug-v1",
-          toolsetVersion: "browser-tools-v1",
-          adapterVersion: "target_site",
-          appSchemaVersion: "job-finder-source-debug-v1",
+          promptProfileVersion: 'source-debug-v1',
+          toolsetVersion: 'browser-tools-v1',
+          adapterVersion: 'target_site',
+          appSchemaVersion: 'job-finder-source-debug-v1',
         },
         verification: null,
-      };
+      }
 
       await repository.upsertSourceInstructionArtifact({
         ...baseArtifact,
-        id: "source_instruction_primary",
-        targetId: "target_primary",
-      });
+        id: 'source_instruction_primary',
+        targetId: 'target_primary',
+      })
       await repository.upsertSourceInstructionArtifact({
         ...baseArtifact,
-        id: "source_instruction_secondary",
-        targetId: "target_secondary",
-      });
+        id: 'source_instruction_secondary',
+        targetId: 'target_secondary',
+      })
 
-      await repository.deleteSourceInstructionArtifactsForTarget(
-        "target_primary",
-      );
+      await repository.deleteSourceInstructionArtifactsForTarget('target_primary')
 
       await expect(repository.listSourceInstructionArtifacts()).resolves.toEqual([
         expect.objectContaining({
-          id: "source_instruction_secondary",
-          targetId: "target_secondary",
+          id: 'source_instruction_secondary',
+          targetId: 'target_secondary',
         }),
-      ]);
+      ])
     } finally {
       if (repository) {
-        await repository.close();
+        await repository.close()
       }
-      await rm(tempDirectory, { recursive: true, force: true });
+      await temp.cleanup()
     }
-  });
+  })
 
-  test("persists repository state to a local sqlite file", async () => {
-    const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "unemployed-db-"));
-    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
-    let firstRepository: FileRepository | null = null;
-    let secondRepository: FileRepository | null = null;
+  test('persists repository state to a local sqlite file', async () => {
+    const temp = await createTempRepository('unemployed-db-')
+    let firstRepository: FileRepository | null = null
+    let secondRepository: FileRepository | null = null
 
     try {
-      firstRepository = await createFileJobFinderRepository({
-        filePath,
-        seed: createSeed(),
-      });
+      firstRepository = await temp.createRepository()
 
-      await firstRepository.replaceSavedJobs([
-        {
-          id: "job_1",
-          source: "target_site",
-          sourceJobId: "target_job_1",
-          discoveryMethod: "catalog_seed",
-          canonicalUrl: "https://jobs.example.com/roles/target_job_1",
-          applicationUrl: "https://jobs.example.com/roles/target_job_1/apply",
-          title: "Lead Designer",
-          company: "Signal Systems",
-          location: "Remote",
-          workMode: ["remote"],
-          applyPath: "easy_apply",
-          easyApplyEligible: true,
-          postedAt: "2026-03-20T10:00:00.000Z",
-          postedAtText: null,
-          discoveredAt: "2026-03-20T10:01:00.000Z",
-          firstSeenAt: "2026-03-20T10:01:00.000Z",
-          lastSeenAt: "2026-03-20T10:01:00.000Z",
-          lastVerifiedActiveAt: "2026-03-20T10:01:00.000Z",
-          salaryText: "$180k",
-          normalizedCompensation: {
-            currency: "USD",
-            interval: "year",
-            minAmount: 180000,
-            maxAmount: 180000,
-            minAnnualUsd: 180000,
-            maxAnnualUsd: 180000,
-          },
-          summary: "Lead product design.",
-          description: "Lead product design for operational software.",
-          keySkills: ["Figma"],
-          responsibilities: [],
-          minimumQualifications: [],
-          preferredQualifications: [],
-          seniority: null,
-          employmentType: null,
-          department: null,
-          team: null,
-          employerWebsiteUrl: null,
-          employerDomain: null,
-          atsProvider: null,
-          screeningHints: {
-            sponsorshipText: null,
-            requiresSecurityClearance: null,
-            relocationText: null,
-            travelText: null,
-            remoteGeographies: [],
-          },
-          keywordSignals: [],
-          benefits: [],
-          status: "ready_for_review",
-          matchAssessment: {
-            score: 94,
-            reasons: ["Strong overlap"],
-            gaps: [],
-          },
-          provenance: [],
-        },
-      ]);
+      await firstRepository.replaceSavedJobs([createSavedJob()])
 
       await firstRepository.upsertApplicationAttempt({
-        id: "attempt_1",
-        jobId: "job_1",
-        state: "submitted",
-        summary: "Easy Apply submitted",
-        detail: "Submitted successfully.",
-        startedAt: "2026-03-20T10:04:00.000Z",
-        updatedAt: "2026-03-20T10:05:00.000Z",
-        completedAt: "2026-03-20T10:05:00.000Z",
-        outcome: "submitted",
+        id: 'attempt_1',
+        jobId: 'job_1',
+        state: 'submitted',
+        summary: 'Easy Apply submitted',
+        detail: 'Submitted successfully.',
+        startedAt: '2026-03-20T10:04:00.000Z',
+        updatedAt: '2026-03-20T10:05:00.000Z',
+        completedAt: '2026-03-20T10:05:00.000Z',
+        outcome: 'submitted',
         questions: [],
         blocker: null,
         consentDecisions: [],
         replay: {
           sourceInstructionArtifactId: null,
           sourceDebugEvidenceRefIds: [],
-          lastUrl: "https://jobs.example.com/roles/job_1/apply",
-          checkpointUrls: ["https://jobs.example.com/roles/job_1/apply"],
+          lastUrl: 'https://jobs.example.com/roles/job_1/apply',
+          checkpointUrls: ['https://jobs.example.com/roles/job_1/apply'],
         },
-        nextActionLabel: "Monitor inbox",
+        nextActionLabel: 'Monitor inbox',
         checkpoints: [],
-      });
+      })
 
-      await firstRepository.close();
-      firstRepository = null;
+      await firstRepository.close()
+      firstRepository = null
 
-      secondRepository = await createFileJobFinderRepository({
-        filePath,
-        seed: createSeed(),
-      });
-      const savedJobs = await secondRepository.listSavedJobs();
-      const attempts = await secondRepository.listApplicationAttempts();
+      secondRepository = await temp.createRepository()
+      const savedJobs = await secondRepository.listSavedJobs()
+      const attempts = await secondRepository.listApplicationAttempts()
 
-      expect(savedJobs).toHaveLength(1);
-      expect(savedJobs[0]?.canonicalUrl).toContain("target_job_1");
-      expect(attempts).toHaveLength(1);
-      expect(attempts[0]?.summary).toBe("Easy Apply submitted");
+      expect(savedJobs).toHaveLength(1)
+      expect(savedJobs[0]?.canonicalUrl).toContain('target_job_1')
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]?.summary).toBe('Easy Apply submitted')
     } finally {
       if (secondRepository) {
-        await secondRepository.close();
+        await secondRepository.close()
       }
       if (firstRepository) {
-        await firstRepository.close();
+        await firstRepository.close()
       }
-      await rm(tempDirectory, { recursive: true, force: true });
+      await temp.cleanup()
     }
-  });
+  })
 
-  test("persists source-debug artifacts outside the singleton discovery state blob", async () => {
-    const tempDirectory = await mkdtemp(
-      path.join(os.tmpdir(), "unemployed-db-source-debug-"),
-    );
-    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
-    let firstRepository: FileRepository | null = null;
-    let secondRepository: FileRepository | null = null;
+  test('persists profile setup state across sqlite reloads', async () => {
+    const temp = await createTempRepository('unemployed-db-setup-')
+    let firstRepository: FileRepository | null = null
+    let secondRepository: FileRepository | null = null
+
+    try {
+      firstRepository = await temp.createRepository()
+
+      await firstRepository.saveProfileSetupState({
+        status: 'in_progress',
+        currentStep: 'background',
+        completedAt: null,
+        reviewItems: [],
+        lastResumedAt: '2026-04-11T10:10:00.000Z',
+      })
+
+      await firstRepository.close()
+      firstRepository = null
+
+      secondRepository = await temp.createRepository()
+
+      await expect(secondRepository.getProfileSetupState()).resolves.toEqual(
+        expect.objectContaining({
+          status: 'in_progress',
+          currentStep: 'background',
+          lastResumedAt: '2026-04-11T10:10:00.000Z',
+        }),
+      )
+    } finally {
+      if (secondRepository) {
+        await secondRepository.close()
+      }
+      if (firstRepository) {
+        await firstRepository.close()
+      }
+      await temp.cleanup()
+    }
+  })
+
+  test('persists profile copilot messages and revisions across sqlite reloads', async () => {
+    const temp = await createTempRepository('unemployed-db-profile-copilot-')
+    let firstRepository: FileRepository | null = null
+    let secondRepository: FileRepository | null = null
+    const seed = createSeed()
 
     try {
       firstRepository = await createFileJobFinderRepository({
-        filePath,
-        seed: createSeed(),
-      });
+        filePath: temp.filePath,
+        seed,
+      })
+
+      await firstRepository.upsertProfileCopilotMessage({
+        id: 'profile_message_1',
+        role: 'assistant',
+        content: 'I can improve your profile headline.',
+        context: { surface: 'setup', step: 'essentials' },
+        patchGroups: [
+          {
+            id: 'profile_patch_group_1',
+            summary: 'Refine the profile headline',
+            applyMode: 'needs_review',
+            operations: [
+              {
+                operation: 'replace_identity_fields',
+                value: {
+                  headline: 'Principal Product Designer',
+                },
+              },
+            ],
+            createdAt: '2026-04-11T10:00:30.000Z',
+          },
+        ],
+        createdAt: '2026-04-11T10:00:00.000Z',
+      })
+      await firstRepository.upsertProfileRevision({
+        id: 'profile_revision_1',
+        createdAt: '2026-04-11T10:01:00.000Z',
+        reason: 'Applied assistant profile refinement.',
+        trigger: 'assistant_patch',
+        messageId: 'profile_message_1',
+        patchGroupId: 'profile_patch_group_1',
+        restoredFromRevisionId: null,
+        snapshotProfile: seed.profile,
+        snapshotSearchPreferences: seed.searchPreferences,
+        snapshotProfileSetupState: seed.profileSetupState,
+      })
+
+      await firstRepository.close()
+      firstRepository = null
+
+      secondRepository = await temp.createRepository()
+
+      await expect(secondRepository.listProfileCopilotMessages()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'profile_message_1',
+          patchGroups: [expect.objectContaining({ id: 'profile_patch_group_1' })],
+        }),
+      ])
+      await expect(secondRepository.listProfileRevisions()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'profile_revision_1',
+          patchGroupId: 'profile_patch_group_1',
+          messageId: 'profile_message_1',
+        }),
+      ])
+    } finally {
+      if (secondRepository) {
+        await secondRepository.close()
+      }
+      if (firstRepository) {
+        await firstRepository.close()
+      }
+      await temp.cleanup()
+    }
+  })
+
+  test('persists source-debug artifacts outside the singleton discovery state blob', async () => {
+    const temp = await createTempRepository('unemployed-db-source-debug-')
+    let firstRepository: FileRepository | null = null
+    let secondRepository: FileRepository | null = null
+
+    try {
+      firstRepository = await temp.createRepository()
 
       await firstRepository.upsertSourceDebugRun({
-        id: "source_debug_run_1",
-        targetId: "target_primary",
-        state: "completed",
-        startedAt: "2026-03-20T10:00:00.000Z",
-        updatedAt: "2026-03-20T10:02:00.000Z",
-        completedAt: "2026-03-20T10:02:00.000Z",
+        id: 'source_debug_run_1',
+        targetId: 'target_primary',
+        state: 'completed',
+        startedAt: '2026-03-20T10:00:00.000Z',
+        updatedAt: '2026-03-20T10:02:00.000Z',
+        completedAt: '2026-03-20T10:02:00.000Z',
         activePhase: null,
         phases: [
-          "access_auth_probe",
-          "site_structure_mapping",
-          "search_filter_probe",
-          "job_detail_validation",
-          "apply_path_validation",
-          "replay_verification",
+          'access_auth_probe',
+          'site_structure_mapping',
+          'search_filter_probe',
+          'job_detail_validation',
+          'apply_path_validation',
+          'replay_verification',
         ],
-        targetLabel: "Primary target",
-        targetUrl: "https://jobs.example.com/search",
-        targetHostname: "jobs.example.com",
+        targetLabel: 'Primary target',
+        targetUrl: 'https://jobs.example.com/search',
+        targetHostname: 'jobs.example.com',
         manualPrerequisiteSummary: null,
-        finalSummary: "Replay verification reached jobs again.",
-        attemptIds: ["source_debug_attempt_1"],
+        finalSummary: 'Replay verification reached jobs again.',
+        attemptIds: ['source_debug_attempt_1'],
         phaseSummaries: [],
         timing: null,
-        instructionArtifactId: "source_instruction_1",
-      });
+        instructionArtifactId: 'source_instruction_1',
+      })
       await firstRepository.upsertSourceDebugAttempt({
-        id: "source_debug_attempt_1",
-        runId: "source_debug_run_1",
-        targetId: "target_primary",
-        phase: "job_detail_validation",
-        startedAt: "2026-03-20T10:01:00.000Z",
-        completedAt: "2026-03-20T10:01:30.000Z",
-        outcome: "succeeded",
-        completionMode: "structured_finish",
+        id: 'source_debug_attempt_1',
+        runId: 'source_debug_run_1',
+        targetId: 'target_primary',
+        phase: 'job_detail_validation',
+        startedAt: '2026-03-20T10:01:00.000Z',
+        completedAt: '2026-03-20T10:01:30.000Z',
+        outcome: 'succeeded',
+        completionMode: 'structured_finish',
         completionReason: null,
-        strategyLabel: "Job Detail Validation",
+        strategyLabel: 'Job Detail Validation',
         strategyFingerprint:
-          "job_detail_validation:target_site:job detail validation",
+          'job_detail_validation:target_site:job detail validation',
         confirmedFacts: [
-          "Observed canonical job detail URL https://jobs.example.com/roles/1.",
+          'Observed canonical job detail URL https://jobs.example.com/roles/1.',
         ],
-        attemptedActions: ["Opened the first job detail page."],
+        attemptedActions: ['Opened the first job detail page.'],
         blockerSummary: null,
-        resultSummary: "Validated job detail routes.",
+        resultSummary: 'Validated job detail routes.',
         confidenceScore: 88,
-        nextRecommendedStrategies: ["Replay Verification"],
+        nextRecommendedStrategies: ['Replay Verification'],
         avoidStrategyFingerprints: [
-          "job_detail_validation:target_site:job detail validation",
+          'job_detail_validation:target_site:job detail validation',
         ],
-        evidenceRefIds: ["source_debug_evidence_1"],
+        evidenceRefIds: ['source_debug_evidence_1'],
         phaseEvidence: null,
         compactionState: null,
         timing: null,
-      });
+      })
       await firstRepository.upsertSourceInstructionArtifact({
-        id: "source_instruction_1",
-        targetId: "target_primary",
-        status: "validated",
-        createdAt: "2026-03-20T10:01:00.000Z",
-        updatedAt: "2026-03-20T10:02:00.000Z",
-        acceptedAt: "2026-03-20T10:02:00.000Z",
-        basedOnRunId: "source_debug_run_1",
-        basedOnAttemptIds: ["source_debug_attempt_1"],
-        notes: "Validated target-site source guidance.",
-        navigationGuidance: ["Start from https://jobs.example.com/search."],
-        searchGuidance: ["Use the jobs search route."],
-        detailGuidance: ["Prefer stable detail URLs."],
+        id: 'source_instruction_1',
+        targetId: 'target_primary',
+        status: 'validated',
+        createdAt: '2026-03-20T10:01:00.000Z',
+        updatedAt: '2026-03-20T10:02:00.000Z',
+        acceptedAt: '2026-03-20T10:02:00.000Z',
+        basedOnRunId: 'source_debug_run_1',
+        basedOnAttemptIds: ['source_debug_attempt_1'],
+        notes: 'Validated target-site source guidance.',
+        navigationGuidance: ['Start from https://jobs.example.com/search.'],
+        searchGuidance: ['Use the jobs search route.'],
+        detailGuidance: ['Prefer stable detail URLs.'],
         applyGuidance: [
-          "Prefer the inline apply entry when it appears on the detail page.",
+          'Prefer the inline apply entry when it appears on the detail page.',
         ],
         warnings: [],
         versionInfo: {
-          promptProfileVersion: "source-debug-v1",
-          toolsetVersion: "browser-tools-v1",
-          adapterVersion: "target_site",
-          appSchemaVersion: "job-finder-source-debug-v1",
+          promptProfileVersion: 'source-debug-v1',
+          toolsetVersion: 'browser-tools-v1',
+          adapterVersion: 'target_site',
+          appSchemaVersion: 'job-finder-source-debug-v1',
         },
         verification: {
-          id: "source_instruction_verification_1",
-          replayRunId: "source_debug_run_1",
-          verifiedAt: "2026-03-20T10:02:00.000Z",
-          outcome: "passed",
-          proofSummary: "Replay verification reached jobs again.",
+          id: 'source_instruction_verification_1',
+          replayRunId: 'source_debug_run_1',
+          verifiedAt: '2026-03-20T10:02:00.000Z',
+          outcome: 'passed',
+          proofSummary: 'Replay verification reached jobs again.',
           reason: null,
           versionInfo: {
-            promptProfileVersion: "source-debug-v1",
-            toolsetVersion: "browser-tools-v1",
-            adapterVersion: "target_site",
-            appSchemaVersion: "job-finder-source-debug-v1",
+            promptProfileVersion: 'source-debug-v1',
+            toolsetVersion: 'browser-tools-v1',
+            adapterVersion: 'target_site',
+            appSchemaVersion: 'job-finder-source-debug-v1',
           },
         },
-      });
+      })
       await firstRepository.upsertSourceDebugEvidenceRef({
-        id: "source_debug_evidence_1",
-        runId: "source_debug_run_1",
-        attemptId: "source_debug_attempt_1",
-        targetId: "target_primary",
-        phase: "job_detail_validation",
-        kind: "url",
-        label: "Validated job detail",
-        capturedAt: "2026-03-20T10:01:15.000Z",
-        url: "https://jobs.example.com/roles/1",
+        id: 'source_debug_evidence_1',
+        runId: 'source_debug_run_1',
+        attemptId: 'source_debug_attempt_1',
+        targetId: 'target_primary',
+        phase: 'job_detail_validation',
+        kind: 'url',
+        label: 'Validated job detail',
+        capturedAt: '2026-03-20T10:01:15.000Z',
+        url: 'https://jobs.example.com/roles/1',
         storagePath: null,
-        excerpt: "Stable target-site job detail URL.",
-      });
+        excerpt: 'Stable target-site job detail URL.',
+      })
 
-      await firstRepository.close();
-      firstRepository = null;
+      await firstRepository.close()
+      firstRepository = null
 
-      secondRepository = await createFileJobFinderRepository({
-        filePath,
-        seed: createSeed(),
-      });
+      secondRepository = await temp.createRepository()
       const [runs, attempts, artifacts, evidenceRefs, discoveryState] =
         await Promise.all([
           secondRepository.listSourceDebugRuns(),
@@ -328,317 +365,218 @@ describe("createFileJobFinderRepository", () => {
           secondRepository.listSourceInstructionArtifacts(),
           secondRepository.listSourceDebugEvidenceRefs(),
           secondRepository.getDiscoveryState(),
-        ]);
+        ])
 
-      expect(runs).toHaveLength(1);
-      expect(attempts).toHaveLength(1);
-      expect(artifacts).toHaveLength(1);
-      expect(evidenceRefs).toHaveLength(1);
-      expect(discoveryState.activeSourceDebugRun).toBeNull();
-      expect(discoveryState.recentSourceDebugRuns).toEqual([]);
+      expect(runs).toHaveLength(1)
+      expect(attempts).toHaveLength(1)
+      expect(artifacts).toHaveLength(1)
+      expect(evidenceRefs).toHaveLength(1)
+      expect(discoveryState.activeSourceDebugRun).toBeNull()
+      expect(discoveryState.recentSourceDebugRuns).toEqual([])
     } finally {
       if (secondRepository) {
-        await secondRepository.close();
+        await secondRepository.close()
       }
       if (firstRepository) {
-        await firstRepository.close();
+        await firstRepository.close()
       }
-      await rm(tempDirectory, { recursive: true, force: true });
+      await temp.cleanup()
     }
-  });
+  })
 
-  test("atomically persists saved-job updates with resume approval invalidation", async () => {
-    const tempDirectory = await mkdtemp(
-      path.join(os.tmpdir(), "unemployed-db-resume-stale-"),
-    );
-    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
-    let repository: FileRepository | null = null;
-    const seed = createSeed();
+  test('atomically persists saved-job updates with resume approval invalidation', async () => {
+    const temp = await createTempRepository('unemployed-db-resume-stale-')
+    let repository: FileRepository | null = null
+    const seed = createSeed()
     seed.savedJobs = [
-      {
-        id: "job_ready",
-        source: "target_site",
-        sourceJobId: "target_job_ready",
-        discoveryMethod: "catalog_seed",
-        canonicalUrl: "https://jobs.example.com/roles/target_job_ready",
-        applicationUrl: "https://jobs.example.com/roles/target_job_ready/apply",
-        title: "Lead Designer",
-        company: "Signal Systems",
-        location: "Remote",
-        workMode: ["remote"],
-        applyPath: "easy_apply",
-        easyApplyEligible: true,
-        postedAt: "2026-03-20T10:00:00.000Z",
-        postedAtText: null,
-        discoveredAt: "2026-03-20T10:01:00.000Z",
-        firstSeenAt: "2026-03-20T10:01:00.000Z",
-        lastSeenAt: "2026-03-20T10:01:00.000Z",
-        lastVerifiedActiveAt: "2026-03-20T10:01:00.000Z",
-        salaryText: "$180k",
-        normalizedCompensation: {
-          currency: "USD",
-          interval: "year",
-          minAmount: 180000,
-          maxAmount: 180000,
-          minAnnualUsd: 180000,
-          maxAnnualUsd: 180000,
-        },
-        summary: "Lead product design.",
-        description: "Lead product design for operational software.",
-        keySkills: ["Figma"],
-        responsibilities: [],
-        minimumQualifications: [],
-        preferredQualifications: [],
-        seniority: null,
-        employmentType: null,
-        department: null,
-        team: null,
-        employerWebsiteUrl: null,
-        employerDomain: null,
-        atsProvider: null,
-        screeningHints: {
-          sponsorshipText: null,
-          requiresSecurityClearance: null,
-          relocationText: null,
-          travelText: null,
-          remoteGeographies: [],
-        },
-        keywordSignals: [],
-        benefits: [],
-        status: "ready_for_review",
-        matchAssessment: {
-          score: 94,
-          reasons: ["Strong overlap"],
-          gaps: [],
-        },
-        provenance: [],
-      },
-    ];
+      createSavedJob({
+        id: 'job_ready',
+        sourceJobId: 'target_job_ready',
+        canonicalUrl: 'https://jobs.example.com/roles/target_job_ready',
+        applicationUrl: 'https://jobs.example.com/roles/target_job_ready/apply',
+      }),
+    ]
 
     try {
       repository = await createFileJobFinderRepository({
-        filePath,
+        filePath: temp.filePath,
         seed,
-      });
+      })
 
       await repository.upsertResumeDraft({
-        id: "resume_draft_1",
-        jobId: "job_ready",
-        status: "approved",
-        templateId: "classic_ats",
+        id: 'resume_draft_1',
+        jobId: 'job_ready',
+        status: 'approved',
+        templateId: 'classic_ats',
         sections: [],
         targetPageCount: 2,
-        generationMethod: "ai",
-        approvedAt: "2026-03-20T10:07:00.000Z",
-        approvedExportId: "resume_export_old",
+        generationMethod: 'ai',
+        approvedAt: '2026-03-20T10:07:00.000Z',
+        approvedExportId: 'resume_export_old',
         staleReason: null,
-        createdAt: "2026-03-20T10:00:00.000Z",
-        updatedAt: "2026-03-20T10:07:00.000Z",
-      });
+        createdAt: '2026-03-20T10:00:00.000Z',
+        updatedAt: '2026-03-20T10:07:00.000Z',
+      })
       await repository.upsertResumeExportArtifact({
-        id: "resume_export_old",
-        draftId: "resume_draft_1",
-        jobId: "job_ready",
-        format: "pdf",
-        filePath: "/tmp/old.pdf",
+        id: 'resume_export_old',
+        draftId: 'resume_draft_1',
+        jobId: 'job_ready',
+        format: 'pdf',
+        filePath: '/tmp/old.pdf',
         pageCount: 2,
-        templateId: "classic_ats",
-        exportedAt: "2026-03-20T10:06:00.000Z",
+        templateId: 'classic_ats',
+        exportedAt: '2026-03-20T10:06:00.000Z',
         isApproved: false,
-      });
+      })
 
-      const savedJobs = await repository.listSavedJobs();
+      const savedJobs = await repository.listSavedJobs()
       const nextJobs = savedJobs.map((job) =>
-        job.id === "job_ready"
+        job.id === 'job_ready'
           ? { ...job, description: `${job.description} Updated.` }
           : job,
-      );
+      )
 
       await repository.replaceSavedJobsAndClearResumeApproval({
         savedJobs: nextJobs,
         draft: {
-          id: "resume_draft_1",
-          jobId: "job_ready",
-          status: "stale",
-          templateId: "classic_ats",
+          id: 'resume_draft_1',
+          jobId: 'job_ready',
+          status: 'stale',
+          templateId: 'classic_ats',
           sections: [],
           targetPageCount: 2,
-          generationMethod: "ai",
+          generationMethod: 'ai',
           approvedAt: null,
           approvedExportId: null,
-          staleReason: "Saved job details changed after approval and the resume needs a fresh review.",
-          createdAt: "2026-03-20T10:00:00.000Z",
-          updatedAt: "2026-03-20T10:08:00.000Z",
+          staleReason: 'Saved job details changed after approval and the resume needs a fresh review.',
+          createdAt: '2026-03-20T10:00:00.000Z',
+          updatedAt: '2026-03-20T10:08:00.000Z',
         },
         staleReason:
-          "Saved job details changed after approval and the resume needs a fresh review.",
+          'Saved job details changed after approval and the resume needs a fresh review.',
         tailoredAsset: {
-          id: "asset_ready",
-          jobId: "job_ready",
-          kind: "resume",
-          status: "ready",
-          label: "Tailored Resume",
-          version: "v2",
-          templateName: "Classic ATS",
+          id: 'asset_ready',
+          jobId: 'job_ready',
+          kind: 'resume',
+          status: 'ready',
+          label: 'Tailored Resume',
+          version: 'v2',
+          templateName: 'Classic ATS',
           compatibilityScore: 97,
           progressPercent: 100,
-          updatedAt: "2026-03-20T10:08:00.000Z",
+          updatedAt: '2026-03-20T10:08:00.000Z',
           storagePath: null,
-          contentText: "Resume text",
+          contentText: 'Resume text',
           previewSections: [],
-          generationMethod: "deterministic",
+          generationMethod: 'deterministic',
           notes: [],
         },
-      });
+      })
 
-      const refreshedJobs = await repository.listSavedJobs();
-      const refreshedDraft = await repository.getResumeDraftByJobId("job_ready");
-      const exports = await repository.listResumeExportArtifacts({ jobId: "job_ready" });
-      const assets = await repository.listTailoredAssets();
+      const refreshedJobs = await repository.listSavedJobs()
+      const refreshedDraft = await repository.getResumeDraftByJobId('job_ready')
+      const exports = await repository.listResumeExportArtifacts({ jobId: 'job_ready' })
+      const assets = await repository.listTailoredAssets()
 
-      expect(refreshedJobs.find((job) => job.id === "job_ready")?.description).toMatch(
+      expect(refreshedJobs.find((job) => job.id === 'job_ready')?.description).toMatch(
         /Updated\./,
-      );
-      expect(refreshedDraft?.status).toBe("stale");
-      expect(refreshedDraft?.approvedExportId).toBeNull();
-      expect(exports.find((entry) => entry.id === "resume_export_old")?.isApproved).toBe(
+      )
+      expect(refreshedDraft?.status).toBe('stale')
+      expect(refreshedDraft?.approvedExportId).toBeNull()
+      expect(exports.find((entry) => entry.id === 'resume_export_old')?.isApproved).toBe(
         false,
-      );
-      expect(assets.find((asset) => asset.jobId === "job_ready")?.storagePath).toBeNull();
+      )
+      expect(assets.find((asset) => asset.jobId === 'job_ready')?.storagePath).toBeNull()
     } finally {
       if (repository) {
-        await repository.close();
+        await repository.close()
       }
-      await rm(tempDirectory, { recursive: true, force: true });
+      await temp.cleanup()
     }
-  });
+  })
 
-  test("persists resume import runs, bundles, and candidates together", async () => {
-    const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "unemployed-db-import-runs-"));
-    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
-    let repository: FileRepository | null = null;
+  test('persists resume import runs, bundles, and candidates together', async () => {
+    const temp = await createTempRepository('unemployed-db-import-runs-')
+    let repository: FileRepository | null = null
 
     try {
-      repository = await createFileJobFinderRepository({
-        filePath,
-        seed: createSeed(),
-      });
+      repository = await temp.createRepository()
 
-      await repository.replaceResumeImportRunArtifacts({
-        run: {
-          id: "resume_import_run_1",
-          sourceResumeId: "resume_1",
-          sourceResumeFileName: "resume.pdf",
-          trigger: "import",
-          status: "review_ready",
-          startedAt: "2026-04-10T10:00:00.000Z",
-          completedAt: "2026-04-10T10:00:03.000Z",
-          primaryParserKind: "pdfjs_text",
-          parserKinds: ["pdfjs_text"],
-          analysisProviderKind: "deterministic",
-          analysisProviderLabel: "Built-in deterministic agent fallback",
-          warnings: ["1 imported suggestion still needs review before the app should rely on it everywhere."],
-          errorMessage: null,
-          candidateCounts: {
-            total: 2,
-            autoApplied: 1,
-            needsReview: 1,
-            rejected: 0,
-          },
-        },
-        documentBundles: [
-          {
-            id: "resume_bundle_1",
-            runId: "resume_import_run_1",
-            sourceResumeId: "resume_1",
-            sourceFileKind: "pdf",
-            primaryParserKind: "pdfjs_text",
-            parserKinds: ["pdfjs_text"],
-            createdAt: "2026-04-10T10:00:01.000Z",
-            languageHints: [],
-            warnings: [],
-            pages: [
-              {
-                pageNumber: 1,
-                text: "Alex Vanguard",
-                charCount: 13,
-                parserKinds: ["pdfjs_text"],
-                usedOcr: false,
-              },
-            ],
-            blocks: [
-              {
-                id: "block_1",
-                pageNumber: 1,
-                readingOrder: 0,
-                text: "Alex Vanguard",
-                kind: "heading",
-                sectionHint: "identity",
-                bbox: null,
-                sourceParserKinds: ["pdfjs_text"],
-                sourceConfidence: 1,
-              },
-            ],
-            fullText: "Alex Vanguard",
-          },
-        ],
-        fieldCandidates: [
-          {
-            id: "candidate_1",
-            runId: "resume_import_run_1",
-            target: { section: "identity", key: "fullName", recordId: null },
-            label: "Full name",
-            sourceKind: "parser_literal",
-            value: "Alex Vanguard",
-            normalizedValue: "Alex Vanguard",
-            valuePreview: "Alex Vanguard",
-            evidenceText: "Alex Vanguard",
-            sourceBlockIds: ["block_1"],
-            confidence: 0.99,
-            notes: [],
-            alternatives: [],
-            resolution: "auto_applied",
-            createdAt: "2026-04-10T10:00:02.000Z",
-            resolvedAt: "2026-04-10T10:00:03.000Z",
-          },
-          {
-            id: "candidate_2",
-            runId: "resume_import_run_1",
-            target: { section: "narrative", key: "professionalStory", recordId: null },
-            label: "Professional story",
-            sourceKind: "model_shared_memory",
-            value: "Builds resilient workflows.",
-            normalizedValue: null,
-            valuePreview: "Builds resilient workflows.",
-            evidenceText: "Builds resilient workflows.",
-            sourceBlockIds: ["block_1"],
-            confidence: 0.44,
-            notes: [],
-            alternatives: [],
-            resolution: "needs_review",
-            createdAt: "2026-04-10T10:00:02.000Z",
-            resolvedAt: null,
-          },
-        ],
-      });
+      await repository.replaceResumeImportRunArtifacts(
+        createResumeImportArtifactsFixture(),
+      )
 
-      await expect(repository.getLatestResumeImportRun("resume_1")).resolves.toEqual(
-        expect.objectContaining({ id: "resume_import_run_1" }),
-      );
+      await expect(repository.getLatestResumeImportRun('resume_1')).resolves.toEqual(
+        expect.objectContaining({ id: 'resume_import_run_1' }),
+      )
       await expect(
-        repository.listResumeImportDocumentBundles({ runId: "resume_import_run_1" }),
-      ).resolves.toEqual([expect.objectContaining({ id: "resume_bundle_1" })]);
+        repository.listResumeImportDocumentBundles({ runId: 'resume_import_run_1' }),
+      ).resolves.toEqual([expect.objectContaining({ id: 'resume_bundle_1' })])
       await expect(
         repository.listResumeImportFieldCandidates({
-          runId: "resume_import_run_1",
-          resolution: "needs_review",
+          runId: 'resume_import_run_1',
+          resolution: 'needs_review',
         }),
-      ).resolves.toEqual([expect.objectContaining({ id: "candidate_2" })]);
+      ).resolves.toEqual([expect.objectContaining({ id: 'candidate_2' })])
     } finally {
       if (repository) {
-        await repository.close();
+        await repository.close()
       }
-      await rm(tempDirectory, { recursive: true, force: true });
+      await temp.cleanup()
     }
-  });
-});
+  })
+
+  test('repairs profile copilot tables for existing version-4 sqlite files', async () => {
+    const temp = await createTempRepository('unemployed-db-profile-copilot-migration-')
+    let repository: FileRepository | null = null
+    let initialRepository: FileRepository | null = null
+
+    try {
+      initialRepository = await temp.createRepository()
+      await initialRepository.close()
+      initialRepository = null
+
+      const database = new DatabaseSync(temp.filePath)
+      try {
+        database.exec(`
+          DROP TABLE IF EXISTS profile_copilot_messages;
+          DROP TABLE IF EXISTS profile_revisions;
+        `)
+        database
+          .prepare('DELETE FROM schema_migrations WHERE version = ?')
+          .run(5)
+      } finally {
+        database.close()
+      }
+
+      repository = await temp.createRepository()
+
+      await repository.upsertProfileCopilotMessage({
+        id: 'profile_message_migrated',
+        role: 'assistant',
+        content: 'Migration added copilot support.',
+        context: { surface: 'general' },
+        patchGroups: [],
+        createdAt: '2026-04-11T11:00:00.000Z',
+      })
+
+      await expect(repository.listProfileCopilotMessages()).resolves.toEqual([
+        expect.objectContaining({ id: 'profile_message_migrated' }),
+      ])
+    } finally {
+      if (repository) {
+        await repository.close()
+      }
+      if (initialRepository) {
+        await initialRepository.close()
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      await rm(temp.tempDirectory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      })
+    }
+  }, 15000)
+})

@@ -72,6 +72,50 @@ describe("createInMemoryJobFinderRepository", () => {
     expect(resetAttempts).toHaveLength(0);
   });
 
+  test("stores and resets profile setup state", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+
+    await repository.saveProfileSetupState({
+      status: "in_progress",
+      currentStep: "targeting",
+      completedAt: null,
+      reviewItems: [
+        {
+          id: "review_1",
+          step: "essentials",
+          target: { domain: "identity", key: "headline", recordId: null },
+          label: "Headline",
+          reason: "Headline still needs a quick confirmation.",
+          severity: "recommended",
+          status: "pending",
+          proposedValue: "Senior Product Designer",
+          sourceSnippet: "Senior Product Designer",
+          sourceCandidateId: null,
+          sourceRunId: null,
+          createdAt: "2026-04-11T10:00:00.000Z",
+          resolvedAt: null,
+        },
+      ],
+      lastResumedAt: "2026-04-11T10:05:00.000Z",
+    });
+
+    await expect(repository.getProfileSetupState()).resolves.toEqual(
+      expect.objectContaining({
+        status: "in_progress",
+        currentStep: "targeting",
+      }),
+    );
+
+    await repository.reset(createSeed());
+
+    await expect(repository.getProfileSetupState()).resolves.toEqual(
+      expect.objectContaining({
+        status: "completed",
+        currentStep: "ready_check",
+      }),
+    );
+  });
+
   test("stores resume workspace collections with the expected ordering", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
 
@@ -171,6 +215,93 @@ describe("createInMemoryJobFinderRepository", () => {
     await expect(repository.listResumeAssistantMessages("job_1")).resolves.toEqual([
       expect.objectContaining({ id: "assistant_message_1" }),
     ]);
+  });
+
+  test("stores profile copilot messages and revisions with the expected ordering", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const seed = createSeed();
+
+    await repository.upsertProfileCopilotMessage({
+      id: "profile_message_older",
+      role: "assistant",
+      content: "I found a few profile improvements.",
+      context: { surface: "general" },
+      patchGroups: [],
+      createdAt: "2026-04-11T10:05:00.000Z",
+    });
+    await repository.upsertProfileCopilotMessage({
+      id: "profile_message_newer",
+      role: "assistant",
+      content: "I can tighten your headline for product roles.",
+      context: { surface: "setup", step: "essentials" },
+      patchGroups: [
+        {
+          id: "profile_patch_group_1",
+          summary: "Refine your headline",
+          applyMode: "needs_review",
+          operations: [
+            {
+              operation: "replace_identity_fields",
+              value: {
+                headline: "Principal Product Designer",
+              },
+            },
+          ],
+          createdAt: "2026-04-11T10:06:00.000Z",
+        },
+      ],
+      createdAt: "2026-04-11T10:06:00.000Z",
+    });
+
+    await repository.upsertProfileRevision({
+      id: "profile_revision_older",
+      createdAt: "2026-04-11T10:06:30.000Z",
+      reason: "Applied a safe headline refinement.",
+      trigger: "assistant_patch",
+      messageId: "profile_message_newer",
+      patchGroupId: "profile_patch_group_1",
+      restoredFromRevisionId: null,
+      snapshotProfile: seed.profile,
+      snapshotSearchPreferences: seed.searchPreferences,
+      snapshotProfileSetupState: seed.profileSetupState,
+    });
+    await repository.upsertProfileRevision({
+      id: "profile_revision_newer",
+      createdAt: "2026-04-11T10:07:00.000Z",
+      reason: "Undid the last assistant suggestion.",
+      trigger: "undo",
+      messageId: null,
+      patchGroupId: "profile_patch_group_1",
+      restoredFromRevisionId: "profile_revision_older",
+      snapshotProfile: {
+        ...seed.profile,
+        headline: "Principal Product Designer",
+      },
+      snapshotSearchPreferences: seed.searchPreferences,
+      snapshotProfileSetupState: {
+        ...seed.profileSetupState,
+        status: "in_progress",
+        currentStep: "essentials",
+        completedAt: null,
+      },
+    });
+
+    await expect(repository.listProfileCopilotMessages()).resolves.toEqual([
+      expect.objectContaining({ id: "profile_message_older" }),
+      expect.objectContaining({
+        id: "profile_message_newer",
+        patchGroups: [expect.objectContaining({ id: "profile_patch_group_1" })],
+      }),
+    ]);
+    await expect(repository.listProfileRevisions()).resolves.toEqual([
+      expect.objectContaining({ id: "profile_revision_newer" }),
+      expect.objectContaining({ id: "profile_revision_older" }),
+    ]);
+
+    await repository.reset(createSeed());
+
+    await expect(repository.listProfileCopilotMessages()).resolves.toEqual([]);
+    await expect(repository.listProfileRevisions()).resolves.toEqual([]);
   });
 
   test("applies aggregate resume approval updates atomically", async () => {

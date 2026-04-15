@@ -4,10 +4,14 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  ProfileCopilotContext,
+  ResumeImportBenchmarkReport,
+  ResumeImportBenchmarkRequest,
   JobFinderPerformanceSnapshot,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderSettings,
+  ProfileSetupState,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -54,6 +58,26 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
         saveSettings: (
           settings: JobFinderSettings,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        saveProfileSetupState: (
+          profileSetupState: ProfileSetupState,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        applyProfileSetupReviewAction: (
+          reviewItemId: string,
+          action: "confirm" | "dismiss" | "clear_value",
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        sendProfileCopilotMessage: (
+          content: string,
+          context?: ProfileCopilotContext,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        applyProfileCopilotPatchGroup: (
+          patchGroupId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        rejectProfileCopilotPatchGroup: (
+          patchGroupId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        undoProfileRevision: (
+          revisionId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         importResume: () => Promise<JobFinderWorkspaceSnapshot>;
         runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>;
@@ -125,11 +149,16 @@ declare global {
         generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         test?: {
+          getSystemThemeOverride: () => 'dark' | 'light' | null;
+          setSystemThemeOverride: (theme: 'dark' | 'light' | null) => Promise<{ ok: true }>;
           loadResumeWorkspaceDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           resetWorkspaceState: (
             state: JobFinderRepositoryState,
           ) => Promise<JobFinderWorkspaceSnapshot>;
           getPerformanceSnapshot: () => Promise<JobFinderPerformanceSnapshot>;
+          runResumeImportBenchmark: (
+            input?: Partial<ResumeImportBenchmarkRequest>,
+          ) => Promise<ResumeImportBenchmarkReport>;
           importResumeFromPath: (
             sourcePath: string,
           ) => Promise<JobFinderWorkspaceSnapshot>;

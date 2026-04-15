@@ -3,7 +3,9 @@ import type { AppearanceTheme } from '@unemployed/contracts'
 import {
   applyAppearancePreference,
   DARK_QUERY,
+  getSystemPrefersDark,
   resolveAppearanceTheme,
+  SYSTEM_THEME_CHANGE_EVENT,
   STORAGE_KEY,
   type ResolvedTheme
 } from '@renderer/lib/theme'
@@ -13,32 +15,28 @@ interface ThemeProviderProps {
   preference: AppearanceTheme
 }
 
-function getSystemPrefersDark() {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return true
-  }
-
-  return window.matchMedia(DARK_QUERY).matches
-}
-
 export function ThemeProvider({ children, preference }: ThemeProviderProps) {
   const [systemPrefersDark, setSystemPrefersDark] = useState(getSystemPrefersDark)
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    if (typeof window === 'undefined') {
       return undefined
     }
 
-    const mediaQuery = window.matchMedia(DARK_QUERY)
-    const onChange = (event: MediaQueryListEvent) => {
-      setSystemPrefersDark(event.matches)
+    const mediaQuery = typeof window.matchMedia === 'function'
+      ? window.matchMedia(DARK_QUERY)
+      : null
+    const syncSystemPreference = () => {
+      setSystemPrefersDark(getSystemPrefersDark())
     }
 
-    setSystemPrefersDark(mediaQuery.matches)
-    mediaQuery.addEventListener('change', onChange)
+    syncSystemPreference()
+    mediaQuery?.addEventListener('change', syncSystemPreference)
+    window.addEventListener(SYSTEM_THEME_CHANGE_EVENT, syncSystemPreference)
 
     return () => {
-      mediaQuery.removeEventListener('change', onChange)
+      mediaQuery?.removeEventListener('change', syncSystemPreference)
+      window.removeEventListener(SYSTEM_THEME_CHANGE_EVENT, syncSystemPreference)
     }
   }, [])
 

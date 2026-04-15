@@ -128,6 +128,34 @@ describe("contracts workspace snapshot schema", () => {
         companyBlacklist: [],
         companyWhitelist: [],
       },
+      profileSetupState: {
+        status: "completed",
+        currentStep: "ready_check",
+        completedAt: "2026-03-20T10:03:00.000Z",
+        reviewItems: [],
+        lastResumedAt: null,
+      },
+      profileCopilotMessages: [
+        {
+          id: "profile_message_1",
+          role: "assistant",
+          content: "I suggested a tighter headline and proof point.",
+          context: { surface: "profile", section: "basics" },
+          patchGroups: [],
+          createdAt: "2026-03-20T10:03:30.000Z",
+        },
+      ],
+      profileRevisions: [
+        {
+          id: "profile_revision_1",
+          createdAt: "2026-03-20T10:03:45.000Z",
+          reason: "Assistant request: tighten headline",
+          trigger: "assistant_patch",
+          messageId: "profile_message_1",
+          patchGroupId: "profile_patch_group_1",
+          restoredFromRevisionId: null,
+        },
+      ],
       browserSession: {
         source: "target_site",
         status: "ready",

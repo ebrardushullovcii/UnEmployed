@@ -130,11 +130,15 @@ async function captureResumeWorkspaceDirtyState() {
         ...process.env,
         UNEMPLOYED_BROWSER_AGENT: '0',
         UNEMPLOYED_ENABLE_TEST_API: '1',
+        UNEMPLOYED_TEST_SYSTEM_THEME: process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark',
         UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
       },
     })
 
     const window = await app.firstWindow()
+    await window.evaluate(async (theme) => {
+      await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
+    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     const results = {}
 
     await loadDemo(window)

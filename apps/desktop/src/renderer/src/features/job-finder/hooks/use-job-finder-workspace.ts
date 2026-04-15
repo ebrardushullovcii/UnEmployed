@@ -4,6 +4,7 @@ import type {
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
+  ProfileSetupState,
   ResumeDraft,
   ResumeDraftPatch,
 } from "@unemployed/contracts";
@@ -162,6 +163,36 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       saveSettings: (settings: JobFinderSettings) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.saveSettings(settings),
+        ),
+      saveProfileSetupState: (profileSetupState: ProfileSetupState) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.saveProfileSetupState(profileSetupState),
+        ),
+      applyProfileSetupReviewAction: (
+        reviewItemId: string,
+        action: "confirm" | "dismiss" | "clear_value",
+      ) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.applyProfileSetupReviewAction(
+            reviewItemId,
+            action,
+          ),
+        ),
+      sendProfileCopilotMessage: (content, context) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.sendProfileCopilotMessage(content, context),
+        ),
+      applyProfileCopilotPatchGroup: (patchGroupId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.applyProfileCopilotPatchGroup(patchGroupId),
+        ),
+      rejectProfileCopilotPatchGroup: (patchGroupId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.rejectProfileCopilotPatchGroup(patchGroupId),
+        ),
+      undoProfileRevision: (revisionId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.undoProfileRevision(revisionId),
         ),
     }),
     [runWorkspaceAction],

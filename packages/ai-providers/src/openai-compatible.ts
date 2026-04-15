@@ -1,4 +1,10 @@
-import { AgentProviderStatusSchema, ResumeDraftPatchSchema, type ToolCall } from "@unemployed/contracts";
+import {
+  AgentProviderStatusSchema,
+  ProfileCopilotReplySchema,
+  ResumeDraftPatchSchema,
+  type ProfileCopilotReply,
+  type ToolCall,
+} from "@unemployed/contracts";
 import {
   JobFitAssessmentSchema,
   OpenAiCompatibleJobFinderAiClientOptionsSchema,
@@ -254,6 +260,33 @@ export function createOpenAiCompatibleJobFinderAiClient(
           typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
             ? normalizedPayload.content
             : "I could not turn that request into a safe grounded edit, so no changes were applied.",
+      });
+    },
+    async reviseCandidateProfile(input) {
+      const payload = await fetchModelJson(
+        [
+          "You are a profile editing assistant.",
+          "Return JSON only with content and typed patchGroups.",
+          "Patch groups must use the provided bounded profile copilot operations only.",
+          "Answer grounded factual questions directly when the request is asking what is already in the profile, even if no edit is needed.",
+          "If no safe edit is needed, return patchGroups as an empty array and keep the content helpful, specific, and grounded in the provided profile facts.",
+          "Do not invent candidate experience, credentials, dates, or metrics.",
+          "Prefer no-op guidance over unsafe edits.",
+          "If a change is broad, destructive, or ambiguous, mark the patch group applyMode as needs_review.",
+        ].join(" "),
+        input,
+      );
+      const normalizedPayload =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+
+      return ProfileCopilotReplySchema.parse({
+        ...normalizedPayload,
+        content:
+          typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
+            ? normalizedPayload.content
+            : "I could not turn that request into a safe structured profile change, so no profile edits were proposed.",
       });
     },
     async tailorResume(input) {
@@ -533,7 +566,13 @@ export function createJobFinderAiClientFromEnvironment(
 
         return {
           ...primary,
-          candidates: [...primary.candidates, ...fallback.candidates],
+          candidates: [
+            ...primary.candidates,
+            ...fallback.candidates.map((candidate) => ({
+              ...candidate,
+              notes: [...candidate.notes, "deterministic_stage_fallback"],
+            })),
+          ],
           notes: uniqueStrings([...primary.notes, ...fallback.notes]),
         };
       } catch (error) {
@@ -571,6 +610,41 @@ export function createJobFinderAiClientFromEnvironment(
       } catch (error) {
         logFallbackError("reviseResumeDraft", error);
         return fallbackClient.reviseResumeDraft(input);
+      }
+    },
+    async reviseCandidateProfile(input) {
+      function shouldUseDeterministicProfileReply(
+        primaryReply: ProfileCopilotReply,
+        fallbackReply: ProfileCopilotReply,
+      ): boolean {
+        if (fallbackReply.patchGroups.length > primaryReply.patchGroups.length) {
+          return true;
+        }
+
+        if (primaryReply.patchGroups.length > 0) {
+          return false;
+        }
+
+        return /could not turn|guidance only|no profile edits were proposed/i.test(
+          primaryReply.content,
+        ) && fallbackReply.content.trim() !== primaryReply.content.trim();
+      }
+
+      try {
+        const primaryReply = await primaryClient.reviseCandidateProfile(input);
+
+        if (primaryReply.patchGroups.length === 0) {
+          const fallbackReply = await fallbackClient.reviseCandidateProfile(input);
+
+          if (shouldUseDeterministicProfileReply(primaryReply, fallbackReply)) {
+            return fallbackReply;
+          }
+        }
+
+        return primaryReply;
+      } catch (error) {
+        logFallbackError("reviseCandidateProfile", error);
+        return fallbackClient.reviseCandidateProfile(input);
       }
     },
     async tailorResume(input) {

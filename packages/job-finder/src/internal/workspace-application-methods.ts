@@ -1,25 +1,26 @@
 import {
-  ApplicationAttemptBlockerSchema,
   ApplicationAttemptConsentDecisionSchema,
   ApplicationAttemptQuestionSchema,
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   ResumeAssistantMessageSchema,
-  type ApplyExecutionResult,
-  type ApplicationAttempt,
-  type ApplicationAttemptBlocker,
-  type ApplicationAttemptConsentDecision,
-  type ApplicationAttemptQuestion,
   type ResumeDraft,
   ResumeDraftPatchSchema,
   ResumeDraftSchema,
   SavedJobSchema,
-  type SourceDebugWorkerAttempt,
-  type SourceInstructionArtifact,
   TailoredAssetSchema,
   type ResumeDraftPatch,
 } from "@unemployed/contracts";
 import { mergeSavedJobs } from "./workspace-service-helpers";
+import {
+  buildConsentSummary,
+  buildEvidenceRefIdsFromInstruction,
+  buildLatestBlockerSummary,
+  buildQuestionSummary,
+  buildReplaySummary,
+  mergeAttemptBlocker,
+  mergeAttemptReplay,
+} from "./workspace-application-attempt-support";
 import { buildInstructionGuidance, mergeEvents, nextAssetVersion, nextJobStatusFromAttempt, resolveActiveSourceInstructionArtifact, toApplicationEvents } from "./workspace-helpers";
 import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 import {
@@ -42,139 +43,6 @@ import {
 } from "./workspace-application-resume-support";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
-
-function buildQuestionSummary(
-  questions: readonly ApplicationAttemptQuestion[],
-) {
-  const required = questions.filter((question) => question.isRequired).length;
-  const answered = questions.filter(
-    (question) =>
-      question.status === "answered" || question.status === "submitted",
-  ).length;
-  const unansweredRequired = questions.filter(
-    (question) =>
-      question.isRequired &&
-      question.status !== "answered" &&
-      question.status !== "submitted",
-  ).length;
-
-  return {
-    total: questions.length,
-    required,
-    answered,
-    unansweredRequired,
-  };
-}
-
-function buildConsentSummary(
-  consentDecisions: readonly ApplicationAttemptConsentDecision[],
-) {
-  const pendingCount = consentDecisions.filter(
-    (decision) => decision.status === "requested",
-  ).length;
-
-  if (pendingCount > 0) {
-    return {
-      status: "requested" as const,
-      pendingCount,
-    };
-  }
-
-  if (consentDecisions.some((decision) => decision.status === "declined")) {
-    return {
-      status: "declined" as const,
-      pendingCount: 0,
-    };
-  }
-
-  if (consentDecisions.some((decision) => decision.status === "approved")) {
-    return {
-      status: "approved" as const,
-      pendingCount: 0,
-    };
-  }
-
-  return {
-    status: "none" as const,
-    pendingCount: 0,
-  };
-}
-
-function buildReplaySummary(replay: ApplicationAttempt["replay"]) {
-  return {
-    lastUrl: replay.lastUrl,
-    checkpointCount: replay.checkpointUrls.length,
-    evidenceCount: replay.sourceDebugEvidenceRefIds.length,
-    sourceInstructionArtifactId: replay.sourceInstructionArtifactId,
-  };
-}
-
-function buildEvidenceRefIdsFromInstruction(input: {
-  activeInstruction: SourceInstructionArtifact | null;
-  sourceDebugAttempts: readonly SourceDebugWorkerAttempt[];
-}): string[] {
-  if (!input.activeInstruction) {
-    return [];
-  }
-
-  const attemptIds = new Set(input.activeInstruction.basedOnAttemptIds);
-
-  return uniqueStrings(
-    input.sourceDebugAttempts.flatMap((attempt) =>
-      attemptIds.has(attempt.id) ? attempt.evidenceRefIds : [],
-    ),
-  );
-}
-
-function mergeAttemptBlocker(input: {
-  blocker: ApplyExecutionResult["blocker"];
-  sourceDebugEvidenceRefIds: readonly string[];
-  defaultUrl: string | null;
-}): ApplicationAttemptBlocker | null {
-  if (!input.blocker) {
-    return null;
-  }
-
-  return ApplicationAttemptBlockerSchema.parse({
-    ...input.blocker,
-    sourceDebugEvidenceRefIds: uniqueStrings([
-      ...input.sourceDebugEvidenceRefIds,
-      ...input.blocker.sourceDebugEvidenceRefIds,
-    ]),
-    url: input.blocker.url ?? input.defaultUrl,
-  });
-}
-
-function mergeAttemptReplay(input: {
-  replay: ApplyExecutionResult["replay"];
-  activeInstruction: SourceInstructionArtifact | null;
-  sourceDebugEvidenceRefIds: readonly string[];
-  fallbackUrl: string | null;
-}) {
-  return {
-    sourceInstructionArtifactId:
-      input.replay.sourceInstructionArtifactId ?? input.activeInstruction?.id ?? null,
-    sourceDebugEvidenceRefIds: uniqueStrings([
-      ...input.sourceDebugEvidenceRefIds,
-      ...input.replay.sourceDebugEvidenceRefIds,
-    ]),
-    lastUrl: input.replay.lastUrl ?? input.fallbackUrl,
-    checkpointUrls: uniqueStrings(input.replay.checkpointUrls),
-  };
-}
-
-function buildLatestBlockerSummary(
-  blocker: ApplicationAttemptBlocker | null,
-): { code: ApplicationAttemptBlocker["code"]; summary: string } | null {
-  if (!blocker) {
-    return null;
-  }
-
-  return {
-    code: blocker.code,
-    summary: blocker.summary,
-  };
-}
 
 export function createWorkspaceApplicationMethods(
   ctx: WorkspaceServiceContext,

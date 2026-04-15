@@ -1,12 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { constants } from "node:fs";
-import { access, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import type { Browser, BrowserContext, Page } from "playwright";
 import {
   ApplyExecutionResultSchema,
   BrowserSessionStateSchema,
   DiscoveryRunResultSchema,
-  JobPostingSchema,
   type ApplyExecutionResult,
   type BrowserSessionState,
   type DiscoveryRunResult,
@@ -24,6 +22,12 @@ import type {
   BrowserSessionRuntime,
   ExecuteEasyApplyInput,
  } from "./runtime-types";
+import {
+  buildChromeExecutableCandidates,
+  buildQuerySummary,
+  pathExists,
+  validateJobPostings,
+} from "./playwright-browser-runtime-utils";
 
 export interface JobPageExtractionInput {
   pageText: string;
@@ -46,88 +50,6 @@ export interface BrowserAgentRuntimeOptions {
   aiClient?: JobFinderAiClient;
 }
 
-function uniqueByKey<TValue>(
-  values: readonly TValue[],
-  getKey: (value: TValue) => string,
-): TValue[] {
-  const seen = new Set<string>();
-
-  return values.flatMap((value) => {
-    const key = getKey(value);
-
-    if (!key || seen.has(key)) {
-      return [];
-    }
-
-    seen.add(key);
-    return [value];
-  });
-}
-
-function validateJobPostings(values: readonly JobPosting[], context: string) {
-  if (!Array.isArray(values)) {
-    console.warn(
-      `[BrowserRuntime] Expected an array of job postings from ${context}, received ${typeof values}.`,
-    );
-    return [];
-  }
-
-  return values.flatMap((value) => {
-    const parsed = JobPostingSchema.safeParse(value);
-
-    if (!parsed.success) {
-      console.warn(
-        `[BrowserRuntime] Skipping invalid job posting from ${context}:`,
-        parsed.error.flatten(),
-      );
-      return [];
-    }
-
-    return [parsed.data];
-  });
-}
-
-async function pathExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function buildChromeExecutableCandidates(explicitPath?: string): string[] {
-  const candidates = explicitPath ? [explicitPath] : [];
-
-  if (process.platform === "win32") {
-    const programFiles = process.env.PROGRAMFILES ?? "C:\\Program Files";
-    const programFilesX86 =
-      process.env["PROGRAMFILES(X86)"] ?? "C:\\Program Files (x86)";
-
-    candidates.push(
-      `${programFiles}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${programFilesX86}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env.LOCALAPPDATA ?? ""}\\Google\\Chrome\\Application\\chrome.exe`,
-    );
-  } else if (process.platform === "darwin") {
-    candidates.push(
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-    );
-  } else {
-    candidates.push(
-      "/usr/bin/google-chrome-stable",
-      "/usr/bin/google-chrome",
-      "/usr/bin/chromium-browser",
-      "/usr/bin/chromium",
-    );
-  }
-
-  return uniqueByKey(
-    candidates.map((candidate) => candidate.trim()).filter(Boolean),
-    (candidate) => candidate.toLowerCase(),
-  );
-}
 
 async function resolveChromeExecutable(explicitPath?: string): Promise<string> {
   for (const candidate of buildChromeExecutableCandidates(explicitPath)) {
@@ -243,17 +165,6 @@ async function waitForDebuggerEndpoint(
 
 async function getPrimaryPage(context: BrowserContext): Promise<Page> {
   return context.pages()[0] ?? context.newPage();
-}
-
-function buildQuerySummary(
-  targetRoles: readonly string[],
-  locations: readonly string[],
-  siteLabel?: string,
-): string {
-  const roles = targetRoles.join(", ") || "all roles";
-  const preferredLocations = locations.join(", ") || "all locations";
-  const target = siteLabel?.trim() || "configured target";
-  return `${roles} | ${preferredLocations} | ${target}`;
 }
 
 export function createBrowserAgentRuntime(

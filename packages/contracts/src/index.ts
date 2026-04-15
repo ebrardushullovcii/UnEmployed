@@ -1,5 +1,7 @@
 export * from "./base";
 export * from "./profile";
+export * from "./profile-copilot";
+export * from "./profile-setup";
 export * from "./resume-import";
 export * from "./resume";
 export * from "./source-debug";

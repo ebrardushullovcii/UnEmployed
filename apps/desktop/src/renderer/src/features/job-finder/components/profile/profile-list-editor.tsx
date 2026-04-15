@@ -9,6 +9,7 @@ interface ProfileListEditorProps {
   className?: string
   displayMode?: 'chips' | 'rows'
   emptyMessage?: string
+  inputId?: string
   label: string
   onChange: (values: string[]) => void
   placeholder: string
@@ -19,12 +20,14 @@ export function ProfileListEditor({
   className,
   displayMode = 'chips',
   emptyMessage = 'No items added yet.',
+  inputId,
   label,
   onChange,
   placeholder,
   values
 }: ProfileListEditorProps) {
-  const inputId = useId()
+  const generatedInputId = useId()
+  const resolvedInputId = inputId ?? generatedInputId
   const [draft, setDraft] = useState('')
 
   const updateValues = (nextValues: readonly string[]) => {
@@ -59,14 +62,14 @@ export function ProfileListEditor({
       )}
     >
       <div className="flex items-baseline justify-between gap-3">
-        <FieldLabel className="text-(length:--text-tiny) font-medium tracking-(--tracking-label) text-foreground-muted" htmlFor={inputId}>{label}</FieldLabel>
+        <FieldLabel className="text-(length:--text-tiny) font-medium tracking-(--tracking-label) text-foreground-muted" htmlFor={resolvedInputId}>{label}</FieldLabel>
         <span className="text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">{values.length}</span>
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_5rem] gap-3">
         <Input
           className={profileInputClassName}
-          id={inputId}
+          id={resolvedInputId}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {

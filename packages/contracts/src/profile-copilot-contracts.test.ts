@@ -1,0 +1,249 @@
+import { describe, expect, test } from "vitest";
+
+import {
+  ProfileCopilotMessageSchema,
+  ProfileCopilotPatchGroupSchema,
+  ProfileCopilotReplySchema,
+  ProfileRevisionSchema,
+} from "./index";
+
+describe("contracts profile copilot schemas", () => {
+  test("parses assistant messages with typed patch groups", () => {
+    const message = ProfileCopilotMessageSchema.parse({
+      id: "profile_message_1",
+      role: "assistant",
+      content: "I tightened your positioning and suggested a stronger target role list.",
+      context: {
+        surface: "setup",
+        step: "essentials",
+      },
+      patchGroups: [
+        {
+          id: "profile_patch_group_1",
+          summary: "Refine headline and summary",
+          applyMode: "needs_review",
+          operations: [
+            {
+              operation: "replace_identity_fields",
+              value: {
+                headline: "Senior Product Designer",
+                summary: "Designs operational systems that help teams move faster.",
+              },
+            },
+            {
+              operation: "resolve_review_items",
+              reviewItemIds: ["review_1"],
+              resolutionStatus: "edited",
+            },
+          ],
+          createdAt: "2026-04-12T10:00:00.000Z",
+        },
+      ],
+      createdAt: "2026-04-12T10:00:00.000Z",
+    });
+
+    expect(message.context.surface).toBe("setup");
+    expect(message.patchGroups[0]?.operations).toHaveLength(2);
+  });
+
+  test("parses patch groups for structured record upserts", () => {
+    const patchGroup = ProfileCopilotPatchGroupSchema.parse({
+      id: "profile_patch_group_2",
+      summary: "Add one reusable proof point",
+      applyMode: "needs_review",
+      operations: [
+        {
+          operation: "upsert_proof_point",
+          record: {
+            id: null,
+            title: "Improved activation",
+            claim: "Raised product activation by 18% after redesigning onboarding.",
+            heroMetric: "+18% activation",
+            supportingContext: null,
+            roleFamilies: ["product_design"],
+            projectIds: [],
+            linkIds: [],
+          },
+        },
+      ],
+      createdAt: "2026-04-12T10:05:00.000Z",
+    });
+
+    expect(patchGroup.operations[0]?.operation).toBe("upsert_proof_point");
+  });
+
+  test("still parses review-required record patch groups", () => {
+    const patchGroup = ProfileCopilotPatchGroupSchema.parse({
+      id: "profile_patch_group_unsafe",
+      summary: "Remove one experience record",
+      applyMode: "needs_review",
+      operations: [
+        {
+          operation: "remove_experience_record",
+          recordId: "experience_1",
+        },
+      ],
+      createdAt: "2026-04-12T10:05:00.000Z",
+    });
+
+    expect(patchGroup.applyMode).toBe("needs_review");
+  });
+
+  test("parses newly supported top-level profile list field patch groups", () => {
+    const patchGroup = ProfileCopilotPatchGroupSchema.parse({
+      id: "profile_patch_group_lists",
+      summary: "Update skills",
+      applyMode: "applied",
+      operations: [
+        {
+          operation: "replace_profile_list_fields",
+          value: {
+            skills: ["React", "TypeScript", "Electron"],
+          },
+        },
+      ],
+      createdAt: "2026-04-15T11:00:00.000Z",
+    });
+
+    expect(patchGroup.operations[0]).toEqual({
+      operation: "replace_profile_list_fields",
+      value: { skills: ["React", "TypeScript", "Electron"] },
+    });
+  });
+
+  test("parses newly supported approval-mode preference updates", () => {
+    const patchGroup = ProfileCopilotPatchGroupSchema.parse({
+      id: "profile_patch_group_approval_mode",
+      summary: "Update approval mode",
+      applyMode: "needs_review",
+      operations: [
+        {
+          operation: "replace_search_preferences_fields",
+          value: {
+            approvalMode: "full_auto",
+          },
+        },
+      ],
+      createdAt: "2026-04-15T11:00:00.000Z",
+    });
+
+    expect(patchGroup.operations[0]).toEqual({
+      operation: "replace_search_preferences_fields",
+      value: { approvalMode: "full_auto" },
+    });
+  });
+
+  test("parses provider replies and revision snapshots", () => {
+    const reply = ProfileCopilotReplySchema.parse({
+      content: "I found one safe wording improvement and one proof-point suggestion.",
+      patchGroups: [
+        {
+          id: "profile_patch_group_3",
+          summary: "Clarify professional story",
+          applyMode: "applied",
+          operations: [
+            {
+              operation: "replace_narrative_fields",
+              value: {
+                professionalStory:
+                  "I design workflow systems that remove friction for both users and operators.",
+              },
+            },
+          ],
+          createdAt: "2026-04-12T10:06:00.000Z",
+        },
+      ],
+    });
+
+    const revision = ProfileRevisionSchema.parse({
+      id: "profile_revision_1",
+      createdAt: "2026-04-12T10:06:00.000Z",
+      reason: "Assistant request: improve my setup story",
+      trigger: "assistant_patch",
+      messageId: "profile_message_2",
+      patchGroupId: "profile_patch_group_3",
+      restoredFromRevisionId: null,
+      snapshotProfile: {
+        id: "candidate_1",
+        firstName: "Alex",
+        lastName: "Vanguard",
+        middleName: null,
+        fullName: "Alex Vanguard",
+        preferredDisplayName: null,
+        headline: "Senior systems designer",
+        summary: "Builds resilient workflows.",
+        currentLocation: "London, UK",
+        currentCity: null,
+        currentRegion: null,
+        currentCountry: null,
+        timeZone: null,
+        yearsExperience: 10,
+        email: "alex@example.com",
+        secondaryEmail: null,
+        phone: null,
+        portfolioUrl: null,
+        linkedinUrl: null,
+        githubUrl: null,
+        personalWebsiteUrl: null,
+        baseResume: {
+          id: "resume_1",
+          fileName: "alex.pdf",
+          uploadedAt: "2026-04-12T09:55:00.000Z",
+          storagePath: "/tmp/alex.pdf",
+          textContent: "Alex Vanguard",
+          textUpdatedAt: "2026-04-12T09:55:00.000Z",
+          extractionStatus: "ready",
+          lastAnalyzedAt: "2026-04-12T09:56:00.000Z",
+          analysisProviderKind: null,
+          analysisProviderLabel: null,
+          analysisWarnings: [],
+        },
+        workEligibility: {},
+        professionalSummary: {},
+        narrative: {},
+        proofBank: [],
+        answerBank: {},
+        applicationIdentity: {},
+        skillGroups: {},
+        targetRoles: [],
+        locations: [],
+        skills: [],
+        experiences: [],
+        education: [],
+        certifications: [],
+        links: [],
+        projects: [],
+        spokenLanguages: [],
+      },
+      snapshotSearchPreferences: {
+        targetRoles: ["Product Designer"],
+        jobFamilies: [],
+        locations: ["Remote"],
+        excludedLocations: [],
+        workModes: ["remote"],
+        seniorityLevels: [],
+        targetIndustries: [],
+        targetCompanyStages: [],
+        employmentTypes: [],
+        minimumSalaryUsd: null,
+        targetSalaryUsd: null,
+        salaryCurrency: "USD",
+        approvalMode: "review_before_submit",
+        tailoringMode: "balanced",
+        companyBlacklist: [],
+        companyWhitelist: [],
+        discovery: { historyLimit: 5, targets: [] },
+      },
+      snapshotProfileSetupState: {
+        status: "in_progress",
+        currentStep: "narrative",
+        completedAt: null,
+        reviewItems: [],
+        lastResumedAt: null,
+      },
+    });
+
+    expect(reply.patchGroups[0]?.applyMode).toBe("applied");
+    expect(revision.patchGroupId).toBe("profile_patch_group_3");
+  });
+});

@@ -6,6 +6,7 @@ import type {
   AssetStatus,
   BrowserSessionState,
   CandidateProfile,
+  ProfileSetupState,
   SourceDebugRunRecord
 } from '@unemployed/contracts'
 import type {
@@ -311,8 +312,21 @@ export function toExperienceFormEntries(profile: CandidateProfile): ExperienceFo
     skills: joinListInput(experience.skills),
     domainTags: joinListInput(experience.domainTags),
     peopleManagementScope: experience.peopleManagementScope ?? '',
-    ownershipScope: experience.ownershipScope ?? ''
+    ownershipScope: experience.ownershipScope ?? '',
+    sourceCandidateId: null,
+    sourceCandidateFingerprint: null,
   }))
+}
+
+export function getDefaultProfileRoute(
+  profileSetupState: ProfileSetupState,
+  options?: { forceFullProfile?: boolean }
+): '/job-finder/profile' | '/job-finder/profile/setup' {
+  if (profileSetupState.status === 'not_started' && !options?.forceFullProfile) {
+    return '/job-finder/profile/setup'
+  }
+
+  return '/job-finder/profile'
 }
 
 export function toEducationFormEntries(profile: CandidateProfile): EducationFormEntry[] {
@@ -324,7 +338,9 @@ export function toEducationFormEntries(profile: CandidateProfile): EducationForm
     location: education.location ?? '',
     startDate: education.startDate ?? '',
     endDate: education.endDate ?? '',
-    summary: education.summary ?? ''
+    summary: education.summary ?? '',
+    sourceCandidateId: null,
+    sourceCandidateFingerprint: null,
   }))
 }
 

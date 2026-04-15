@@ -9,21 +9,20 @@ import {
   ResumeImportStageExtractionResultSchema,
   buildValuePreview,
   sanitizeStageCandidates,
-  type ResumeImportExtractionStage,
   type ResumeImportStageExtractionResult,
 } from "../resume-import";
+import { buildCandidateConfidenceBreakdown } from "../resume-import-helpers";
 import { buildDeterministicResumeProfileExtraction } from "./resume-parser";
-import {
-  PROFILE_PLACEHOLDER_HEADLINE,
-  PROFILE_PLACEHOLDER_LOCATION,
-} from "@unemployed/job-finder";
 
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[]) {
-  const normalizedCandidates = candidates.map((candidate) => normalizeText(candidate));
+  const nonEmptyCandidates = candidates
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => candidate.length > 0);
+  const normalizedCandidates = nonEmptyCandidates.map((candidate) => normalizeText(candidate));
   const matchedBlocks = bundle.blocks.filter((block) => {
     const blockText = normalizeText(block.text);
     return normalizedCandidates.some(
@@ -35,18 +34,26 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
   if (matchedBlocks.length === 0) {
     return {
       sourceBlockIds: [],
-      evidenceText: candidates[0] ?? null,
+      evidenceText: nonEmptyCandidates[0] ?? null,
     };
   }
 
   // Prefer a short snippet around the first exact match in the first matched block.
   const block = matchedBlocks[0];
+
+  if (!block) {
+    return {
+      sourceBlockIds: [],
+      evidenceText: nonEmptyCandidates[0] ?? null,
+    };
+  }
+
   const blockText = block.text ?? "";
 
   // Helper to safely escape candidate strings for RegExp
   const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  for (const candidate of candidates) {
+  for (const candidate of nonEmptyCandidates) {
     if (!candidate) continue;
     try {
       const re = new RegExp(`(.{0,80}{CAND}.{0,240})`.replace("{CAND}", escapeRegExp(candidate)), "is");
@@ -55,14 +62,14 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
         const snippet = m[1].trim().replace(/\s+/g, " ");
         return { sourceBlockIds: [block.id], evidenceText: snippet };
       }
-    } catch (_) {
+    } catch {
       // fallthrough to next candidate
     }
   }
 
   // If we couldn't extract a focused snippet, return a truncated version of the block
   const truncated = blockText.length > 400 ? `${blockText.slice(0, 400).trim()}...` : blockText.trim();
-  return { sourceBlockIds: [block.id], evidenceText: truncated || (candidates[0] ?? null) };
+  return { sourceBlockIds: [block.id], evidenceText: truncated || (nonEmptyCandidates[0] ?? null) };
 }
 
 function createCandidate(
@@ -88,9 +95,25 @@ function createCandidate(
     evidenceText: evidence.evidenceText,
     sourceBlockIds: evidence.sourceBlockIds,
     confidence: input.confidence,
+    confidenceBreakdown: buildCandidateConfidenceBreakdown({
+      candidate: {
+        target: input.target,
+        confidence: input.confidence,
+        sourceBlockIds: evidence.sourceBlockIds,
+      },
+      bundle,
+    }),
     notes: [...(input.notes ?? [])],
     alternatives: [],
   });
+}
+
+function getRecordStringValue(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function toResumeText(bundle: ResumeDocumentBundle): string {
@@ -109,8 +132,12 @@ export function buildDeterministicResumeImportStageExtraction(
     },
     "deterministic",
     providerLabel,
+    { preserveExistingValues: false },
   );
   const candidates: ResumeImportFieldCandidateDraft[] = [];
+  const existingProfileValues = input.existingProfile as Record<string, unknown>;
+  const existingSearchPreferenceValues =
+    input.existingSearchPreferences as Record<string, unknown>;
 
   const add = (
     target: ResumeImportFieldCandidateDraft["target"],
@@ -132,36 +159,29 @@ export function buildDeterministicResumeImportStageExtraction(
       return;
     }
 
-    // Avoid emitting candidates that are simply the current workspace's defaults
-    // (these come from buildDeterministicResumeProfileExtraction falling back to the
-    // existing profile). When a candidate exactly equals the existing profile value
-    // for the same field, skip it to avoid creating noisy auto-applies.
-    try {
-      if (typeof value === "string") {
-        const key = target.key as string;
-        if (target.section === "identity" || target.section === "location" || target.section === "contact" || target.section === "narrative") {
-          const existing = (input.existingProfile as any)[key];
-          // Only skip when the existing value is non-empty and not a placeholder
-          if (
-            existing &&
-            typeof existing === "string" &&
-            existing === value &&
-            existing !== PROFILE_PLACEHOLDER_HEADLINE &&
-            existing !== PROFILE_PLACEHOLDER_LOCATION &&
-            existing !== "New Candidate"
-          ) {
-            return;
-          }
-        }
-        if (target.section === "search_preferences") {
-          const existing = (input.existingSearchPreferences as any)[key];
-          if (existing && typeof existing === "string" && existing === value) {
-            return;
-          }
+    // Skip no-op literals so deterministic extraction emits resume-backed changes
+    // rather than echoing the current workspace values.
+    if (typeof value === "string") {
+      const key = target.key;
+
+      if (
+        target.section === "identity" ||
+        target.section === "location" ||
+        target.section === "contact" ||
+        target.section === "narrative"
+      ) {
+        const existing = getRecordStringValue(existingProfileValues, key);
+        if (existing && existing === value) {
+          return;
         }
       }
-    } catch (_) {
-      // If anything goes wrong reading existing profile, continue and create candidate.
+
+      if (target.section === "search_preferences") {
+        const existing = getRecordStringValue(existingSearchPreferenceValues, key);
+        if (existing && existing === value) {
+          return;
+        }
+      }
     }
 
     candidates.push(
@@ -184,9 +204,21 @@ export function buildDeterministicResumeImportStageExtraction(
     add({ section: "identity", key: "lastName", recordId: null }, "Last name", extraction.lastName, 0.92, [extraction.lastName ?? "", extraction.fullName ?? ""]);
     add({ section: "identity", key: "headline", recordId: null }, "Headline", extraction.headline, 0.84, [extraction.headline ?? ""]);
     add({ section: "identity", key: "summary", recordId: null }, "Summary", extraction.summary, 0.8, [extraction.summary ?? ""]);
-    add({ section: "location", key: "currentLocation", recordId: null }, "Current location", extraction.currentLocation, 0.88, [extraction.currentLocation ?? ""]);
-    add({ section: "location", key: "timeZone", recordId: null }, "Time zone", extraction.timeZone, 0.62, [extraction.currentLocation ?? ""]);
-    add({ section: "identity", key: "yearsExperience", recordId: null }, "Years of experience", extraction.yearsExperience, 0.7, [`${extraction.yearsExperience ?? ""} years`]);
+    add({ section: "location", key: "currentLocation", recordId: null }, "Current location", extraction.currentLocation, 0.9, [extraction.currentLocation ?? ""]);
+    add(
+      { section: "location", key: "timeZone", recordId: null },
+      "Time zone",
+      extraction.timeZone,
+      extraction.currentLocation ? 0.84 : 0.62,
+      [extraction.currentLocation ?? ""],
+    );
+    add(
+      { section: "identity", key: "yearsExperience", recordId: null },
+      "Years of experience",
+      extraction.yearsExperience,
+      extraction.yearsExperience !== null ? 0.82 : 0.7,
+      [`${extraction.yearsExperience ?? ""} years`],
+    );
     add({ section: "contact", key: "email", recordId: null }, "Email", extraction.email, 0.98, [extraction.email ?? ""]);
     add({ section: "contact", key: "phone", recordId: null }, "Phone", extraction.phone, 0.94, [extraction.phone ?? ""]);
     add({ section: "contact", key: "portfolioUrl", recordId: null }, "Portfolio URL", extraction.portfolioUrl, 0.9, [extraction.portfolioUrl ?? ""]);
@@ -226,7 +258,7 @@ export function buildDeterministicResumeImportStageExtraction(
     add({ section: "skill", key: "skillGroups.coreSkills", recordId: null }, "Core skills", extraction.skillGroups.coreSkills, 0.78, extraction.skillGroups.coreSkills);
     add({ section: "skill", key: "skillGroups.tools", recordId: null }, "Tools", extraction.skillGroups.tools, 0.76, extraction.skillGroups.tools);
     add({ section: "skill", key: "skillGroups.languagesAndFrameworks", recordId: null }, "Languages and frameworks", extraction.skillGroups.languagesAndFrameworks, 0.76, extraction.skillGroups.languagesAndFrameworks);
-    add({ section: "skill", key: "skillGroups.softSkills", recordId: null }, "Soft skills", extraction.skillGroups.softSkills, 0.68, extraction.skillGroups.softSkills);
+    add({ section: "skill", key: "skillGroups.softSkills", recordId: null }, "Soft skills", extraction.skillGroups.softSkills, 0.74, extraction.skillGroups.softSkills);
     add({ section: "skill", key: "skillGroups.highlightedSkills", recordId: null }, "Highlighted skills", extraction.skillGroups.highlightedSkills, 0.74, extraction.skillGroups.highlightedSkills);
 
     extraction.education.forEach((entry, index) => {
@@ -247,8 +279,6 @@ export function buildDeterministicResumeImportStageExtraction(
   }
 
   if (input.stage === "shared_memory") {
-    add({ section: "application_identity", key: "preferredEmail", recordId: null }, "Preferred application email", extraction.email, 0.72, [extraction.email ?? ""]);
-    add({ section: "application_identity", key: "preferredPhone", recordId: null }, "Preferred application phone", extraction.phone, 0.72, [extraction.phone ?? ""]);
     add({ section: "narrative", key: "professionalStory", recordId: null }, "Professional story", extraction.summary, 0.46, [extraction.summary ?? ""]);
     add({ section: "answer_bank", key: "selfIntroduction", recordId: null }, "Self introduction", extraction.summary, 0.44, [extraction.summary ?? ""]);
 

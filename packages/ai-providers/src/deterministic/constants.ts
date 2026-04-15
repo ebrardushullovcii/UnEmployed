@@ -57,6 +57,7 @@ export const knownSoftSkillPhrases = [
 ] as const;
 
 export const resumeSectionHeadings = new Set([
+  "ABOUT ME",
   "ABOUT MYSELF",
   "ABOUT",
   "SUMMARY",
@@ -90,6 +91,7 @@ export const skillSectionAliases = [
 ] as const;
 
 export const summarySectionAliases = [
+  "ABOUT ME",
   "ABOUT MYSELF",
   "ABOUT",
   "SUMMARY",
@@ -98,13 +100,17 @@ export const summarySectionAliases = [
   "PROFESSIONAL SUMMARY",
 ] as const;
 
-export const experienceSectionAliases = ["WORK EXPERIENCE", "EXPERIENCE"] as const;
+export const experienceSectionAliases = [
+  "WORK EXPERIENCE",
+  "PROFESSIONAL EXPERIENCE",
+  "EXPERIENCE",
+] as const;
 
 export const skillCategoryHeadingPattern =
   /^(frameworks|programming languages|languages|databases|tools|security(?:\s*&\s*authentication)?|soft skills)$/i;
 
 export const dateRangePattern =
-  /((?:\d{2}\/)?\d{4})\s*[–—-]\s*(current|present|(?:\d{2}\/)?\d{4})/i;
+  /((?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:\d{2}\/)?\d{4})\s*[–—-]\s*(current|present|(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:\d{2}\/)?\d{4})/i;
 
 export const knownPersonalWebsitePlatformDomains = [
   "coursera.org",

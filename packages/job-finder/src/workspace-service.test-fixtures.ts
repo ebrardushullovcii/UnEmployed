@@ -229,6 +229,13 @@ export function createSeed(): JobFinderRepositorySeed {
         ],
       },
     },
+    profileSetupState: {
+      status: "completed",
+      currentStep: "ready_check",
+      completedAt: "2026-03-20T10:02:00.000Z",
+      reviewItems: [],
+      lastResumedAt: null,
+    },
     savedJobs: [
       {
         id: "job_ready",
@@ -422,6 +429,8 @@ export function createSeed(): JobFinderRepositorySeed {
     resumeImportRuns: [],
     resumeImportDocumentBundles: [],
     resumeImportFieldCandidates: [],
+    profileCopilotMessages: [],
+    profileRevisions: [],
     settings: {
       resumeFormat: "pdf",
       resumeTemplateId: "classic_ats",

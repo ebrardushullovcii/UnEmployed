@@ -25,6 +25,7 @@
 - Application record, event timeline, attempt checkpoints, and apply execution results
 - Browser session state, adapter-scoped discovery sessions, driver metadata, run-scoped browser open/close lifecycle for live discovery and source-debug work, and agent-provider status for source adapters
 - Job Finder repository and workspace snapshot state plus typed save/update IPC payloads for profile, preferences, settings, retained run history, and staged discovery results
+- Guided profile-setup workflow state, resumable current-step tracking, and typed review-item queues that stay adjacent to workspace state instead of hiding in renderer-only storage; unresolved resume-import candidates now map into durable `profileSetupState.reviewItems` by setup step so guided setup and later profile recovery can reopen the exact pending review work
 - Source-debug IPC payloads for launch/query/cancel actions, additive run-details review data, source-instruction promotion or verification actions, and renderer-visible learned instruction artifacts
 - Interview workspace, transcript chunks, and live suggestions later in the roadmap
 
@@ -35,6 +36,7 @@
 - The newest bound draft source instructions for a target are injected into live discovery/apply runs for that same target by default; validated artifacts apply when no newer draft is bound
 - Source-debug artifacts should stay structured and curated: persist attempt artifacts, evidence refs, phase summaries, completion metadata, and instruction artifacts instead of raw worker transcripts
 - Resume import now persists typed import runs, canonical document bundles, and field candidates; only accepted candidates may update canonical profile or search-preference roots
+- Resume import benchmark reports retain both a top-level `parserManifestVersion` summary and a `parserManifestVersions` list so QA can tell whether a corpus replay ran through one parser manifest or a mixed embedded-plus-sidecar set of manifests
 - Tailored assets and apply attempt checkpoints should be validated before persistence
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them

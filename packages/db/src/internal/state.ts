@@ -5,6 +5,9 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ProfileCopilotMessageSchema,
+  ProfileRevisionSchema,
+  ProfileSetupStateSchema,
   ResumeDocumentBundleSchema,
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
@@ -36,6 +39,8 @@ import type {
 export const stateTableNames = {
   application_attempts: "application_attempts",
   application_records: "application_records",
+  profile_copilot_messages: "profile_copilot_messages",
+  profile_revisions: "profile_revisions",
   saved_jobs: "saved_jobs",
   resume_assistant_messages: "resume_assistant_messages",
   resume_draft_revisions: "resume_draft_revisions",
@@ -95,7 +100,7 @@ export function listValues<TValue>(
     });
 }
 
-export function listResumeDraftValues<TValue>(
+export function listCollectionValues<TValue>(
   database: DatabaseSync,
   tableName: StateCollectionTable,
   schema: SchemaParser<TValue>,
@@ -234,6 +239,7 @@ export function writeState(
   try {
     saveSingletonValue(database, "profile", state.profile);
     saveSingletonValue(database, "search_preferences", state.searchPreferences);
+    saveSingletonValue(database, "profile_setup_state", state.profileSetupState);
     saveSingletonValue(database, "settings", state.settings);
     saveSingletonValue(database, "discovery_state", state.discovery);
     replaceCollection(database, "saved_jobs", state.savedJobs);
@@ -346,6 +352,25 @@ export function writeState(
         },
       },
     );
+    replaceIndexedCollection(
+      database,
+      "profile_copilot_messages",
+      state.profileCopilotMessages,
+      {
+        columnNames: ["created_at"],
+        getColumns: (value) => {
+          const message = ProfileCopilotMessageSchema.parse(value);
+          return [message.createdAt];
+        },
+      },
+    );
+    replaceIndexedCollection(database, "profile_revisions", state.profileRevisions, {
+      columnNames: ["created_at"],
+      getColumns: (value) => {
+        const revision = ProfileRevisionSchema.parse(value);
+        return [revision.createdAt];
+      },
+    });
     replaceCollection(database, "application_records", state.applicationRecords);
     replaceCollection(
       database,
@@ -412,6 +437,12 @@ export function readState(
   const settings =
     getSingletonValue(database, "settings", JobFinderSettingsSchema) ??
     fallbackSeed.settings;
+  const profileSetupState =
+    getSingletonValue(
+      database,
+      "profile_setup_state",
+      ProfileSetupStateSchema,
+    ) ?? fallbackSeed.profileSetupState;
   const discovery =
     getSingletonValue(database, "discovery_state", {
       parse: normalizeLegacyDiscoveryState,
@@ -420,9 +451,10 @@ export function readState(
   return JobFinderRepositoryStateSchema.parse({
     profile,
     searchPreferences,
+    profileSetupState,
     savedJobs: listValues(database, "saved_jobs", SavedJobSchema),
     tailoredAssets: listValues(database, "tailored_assets", TailoredAssetSchema),
-    resumeDrafts: listResumeDraftValues(
+    resumeDrafts: listCollectionValues(
       database,
       "resume_drafts",
       ResumeDraftSchema,
@@ -430,7 +462,7 @@ export function readState(
         orderBySql: "updated_at DESC, id ASC",
       },
     ),
-    resumeDraftRevisions: listResumeDraftValues(
+    resumeDraftRevisions: listCollectionValues(
       database,
       "resume_draft_revisions",
       ResumeDraftRevisionSchema,
@@ -438,7 +470,7 @@ export function readState(
         orderBySql: "created_at DESC, id ASC",
       },
     ),
-    resumeExportArtifacts: listResumeDraftValues(
+    resumeExportArtifacts: listCollectionValues(
       database,
       "resume_export_artifacts",
       ResumeExportArtifactSchema,
@@ -446,7 +478,7 @@ export function readState(
         orderBySql: "exported_at DESC, id ASC",
       },
     ),
-    resumeImportRuns: listResumeDraftValues(
+    resumeImportRuns: listCollectionValues(
       database,
       "resume_import_runs",
       ResumeImportRunSchema,
@@ -454,7 +486,7 @@ export function readState(
         orderBySql: "started_at DESC, id ASC",
       },
     ),
-    resumeImportDocumentBundles: listResumeDraftValues(
+    resumeImportDocumentBundles: listCollectionValues(
       database,
       "resume_import_document_bundles",
       ResumeDocumentBundleSchema,
@@ -462,7 +494,7 @@ export function readState(
         orderBySql: "created_at DESC, id ASC",
       },
     ),
-    resumeImportFieldCandidates: listResumeDraftValues(
+    resumeImportFieldCandidates: listCollectionValues(
       database,
       "resume_import_field_candidates",
       ResumeImportFieldCandidateSchema,
@@ -470,7 +502,7 @@ export function readState(
         orderBySql: "created_at DESC, id ASC",
       },
     ),
-    resumeResearchArtifacts: listResumeDraftValues(
+    resumeResearchArtifacts: listCollectionValues(
       database,
       "resume_research_artifacts",
       ResumeResearchArtifactSchema,
@@ -478,7 +510,7 @@ export function readState(
         orderBySql: "fetched_at DESC, id ASC",
       },
     ),
-    resumeValidationResults: listResumeDraftValues(
+    resumeValidationResults: listCollectionValues(
       database,
       "resume_validation_results",
       ResumeValidationResultSchema,
@@ -486,12 +518,28 @@ export function readState(
         orderBySql: "validated_at DESC, id ASC",
       },
     ),
-    resumeAssistantMessages: listResumeDraftValues(
+    resumeAssistantMessages: listCollectionValues(
       database,
       "resume_assistant_messages",
       ResumeAssistantMessageSchema,
       {
         orderBySql: "created_at ASC, id ASC",
+      },
+    ),
+    profileCopilotMessages: listCollectionValues(
+      database,
+      "profile_copilot_messages",
+      ProfileCopilotMessageSchema,
+      {
+        orderBySql: "created_at ASC, id ASC",
+      },
+    ),
+    profileRevisions: listCollectionValues(
+      database,
+      "profile_revisions",
+      ProfileRevisionSchema,
+      {
+        orderBySql: "created_at DESC, id ASC",
       },
     ),
     applicationRecords: listValues(

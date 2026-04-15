@@ -8,6 +8,7 @@ export {
   JobFinderApplicationsRoute,
   JobFinderDiscoveryRoute,
   JobFinderProfileRoute,
+  JobFinderProfileSetupRoute,
   JobFinderResumeWorkspaceRoute,
   JobFinderReviewQueueRoute,
   JobFinderSettingsRoute,

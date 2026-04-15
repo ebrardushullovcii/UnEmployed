@@ -20,6 +20,81 @@ export function secureDatabaseFile(filePath: string): Promise<void> {
 }
 
 export function runMigrations(database: DatabaseSync): void {
+  function hasTable(tableName: string): boolean {
+    return Boolean(
+      database
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+        )
+        .get(tableName),
+    );
+  }
+
+  function ensureResumeImportTables(): void {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS resume_import_runs (
+        id TEXT PRIMARY KEY,
+        source_resume_id TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS resume_import_runs_source_resume_id_idx
+        ON resume_import_runs(source_resume_id, started_at DESC);
+
+      CREATE TABLE IF NOT EXISTS resume_import_document_bundles (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        source_resume_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS resume_import_document_bundles_run_id_idx
+        ON resume_import_document_bundles(run_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS resume_import_document_bundles_source_resume_id_idx
+        ON resume_import_document_bundles(source_resume_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS resume_import_field_candidates (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        resolution TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS resume_import_field_candidates_run_id_idx
+        ON resume_import_field_candidates(run_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS resume_import_field_candidates_resolution_idx
+        ON resume_import_field_candidates(resolution, created_at DESC);
+    `);
+  }
+
+  function ensureProfileCopilotTables(): void {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS profile_copilot_messages (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS profile_copilot_messages_created_at_idx
+        ON profile_copilot_messages(created_at ASC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS profile_revisions (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS profile_revisions_created_at_idx
+        ON profile_revisions(created_at DESC, id ASC);
+    `);
+  }
+
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
@@ -41,61 +116,34 @@ export function runMigrations(database: DatabaseSync): void {
   const currentVersion = Number(versionRow?.version ?? 0);
 
   if (currentVersion >= 4) {
-    // If the DB claims to be current but the resume_import tables are missing
-    // (possible if a previous migration run failed partway), create them now.
-    const resumeImportTableExists = Boolean(
-      database
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
-        )
-        .get("resume_import_runs"),
-    );
+    const resumeImportTablesMissing =
+      !hasTable("resume_import_runs") ||
+      !hasTable("resume_import_document_bundles") ||
+      !hasTable("resume_import_field_candidates");
+    const profileCopilotTablesMissing =
+      !hasTable("profile_copilot_messages") || !hasTable("profile_revisions");
+    const needsProfileCopilotMigration = currentVersion < 5;
 
-    if (!resumeImportTableExists) {
-      // Only create the resume-import-related tables and indexes here so we
-      // repair partially-migrated DBs without re-running older migrations.
+    if (
+      resumeImportTablesMissing ||
+      profileCopilotTablesMissing ||
+      needsProfileCopilotMigration
+    ) {
       database.exec("BEGIN IMMEDIATE");
       try {
-        database.exec(`
-          CREATE TABLE IF NOT EXISTS resume_import_runs (
-            id TEXT PRIMARY KEY,
-            source_resume_id TEXT NOT NULL,
-            started_at TEXT NOT NULL,
-            status TEXT NOT NULL,
-            value TEXT NOT NULL
-          );
+        if (resumeImportTablesMissing) {
+          ensureResumeImportTables();
+        }
 
-          CREATE INDEX IF NOT EXISTS resume_import_runs_source_resume_id_idx
-            ON resume_import_runs(source_resume_id, started_at DESC);
+        if (profileCopilotTablesMissing || needsProfileCopilotMigration) {
+          ensureProfileCopilotTables();
+        }
 
-          CREATE TABLE IF NOT EXISTS resume_import_document_bundles (
-            id TEXT PRIMARY KEY,
-            run_id TEXT NOT NULL,
-            source_resume_id TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            value TEXT NOT NULL
-          );
-
-          CREATE INDEX IF NOT EXISTS resume_import_document_bundles_run_id_idx
-            ON resume_import_document_bundles(run_id, created_at DESC);
-
-          CREATE INDEX IF NOT EXISTS resume_import_document_bundles_source_resume_id_idx
-            ON resume_import_document_bundles(source_resume_id, created_at DESC);
-
-          CREATE TABLE IF NOT EXISTS resume_import_field_candidates (
-            id TEXT PRIMARY KEY,
-            run_id TEXT NOT NULL,
-            resolution TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            value TEXT NOT NULL
-          );
-
-          CREATE INDEX IF NOT EXISTS resume_import_field_candidates_run_id_idx
-            ON resume_import_field_candidates(run_id, created_at DESC);
-
-          CREATE INDEX IF NOT EXISTS resume_import_field_candidates_resolution_idx
-            ON resume_import_field_candidates(resolution, created_at DESC);
-        `);
+        if (needsProfileCopilotMigration) {
+          database
+            .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .run(5, "job_finder_profile_copilot_history");
+        }
 
         database.exec("COMMIT");
       } catch (error) {
@@ -246,50 +294,19 @@ export function runMigrations(database: DatabaseSync): void {
     }
 
     if (currentVersion < 4) {
-      database.exec(`
-        CREATE TABLE IF NOT EXISTS resume_import_runs (
-          id TEXT PRIMARY KEY,
-          source_resume_id TEXT NOT NULL,
-          started_at TEXT NOT NULL,
-          status TEXT NOT NULL,
-          value TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS resume_import_runs_source_resume_id_idx
-          ON resume_import_runs(source_resume_id, started_at DESC);
-
-        CREATE TABLE IF NOT EXISTS resume_import_document_bundles (
-          id TEXT PRIMARY KEY,
-          run_id TEXT NOT NULL,
-          source_resume_id TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          value TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS resume_import_document_bundles_run_id_idx
-          ON resume_import_document_bundles(run_id, created_at DESC);
-
-        CREATE INDEX IF NOT EXISTS resume_import_document_bundles_source_resume_id_idx
-          ON resume_import_document_bundles(source_resume_id, created_at DESC);
-
-        CREATE TABLE IF NOT EXISTS resume_import_field_candidates (
-          id TEXT PRIMARY KEY,
-          run_id TEXT NOT NULL,
-          resolution TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          value TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS resume_import_field_candidates_run_id_idx
-          ON resume_import_field_candidates(run_id, created_at DESC);
-
-        CREATE INDEX IF NOT EXISTS resume_import_field_candidates_resolution_idx
-          ON resume_import_field_candidates(resolution, created_at DESC);
-      `);
+      ensureResumeImportTables();
 
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(4, "job_finder_resume_import_runs");
+    }
+
+    if (currentVersion < 5) {
+      ensureProfileCopilotTables();
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(5, "job_finder_profile_copilot_history");
     }
 
     database.exec("COMMIT");

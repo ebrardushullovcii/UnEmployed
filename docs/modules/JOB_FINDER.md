@@ -20,6 +20,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - `Shortlisted` now frames apply readiness as explicit resume, approval, and browser checks instead of relying only on stacked status cards.
 - `Applications` now supports filtered triage views so the user can focus on needs-action, in-progress, submitted, and manual-only records.
 - `Profile` keeps more optional fields behind secondary disclosure sections so the main editing path stays focused on the details that drive search, resumes, and applications.
+- Fresh workspaces now route through `/job-finder/profile/setup` first, with persisted `profileSetupState` deciding whether the user should start setup, resume it later, or fall through to the full `Profile` editor, unresolved resume-import candidates now widening into durable setup review items that follow the user across reloads, and full-Profile Preferences copilot requests now able to add or re-enable common job sources such as LinkedIn Jobs and Wellfound through typed `searchPreferences.discovery` patch groups that stay review-gated instead of broad auto-apply.
 - Shared data now keeps richer candidate narrative, proof-bank entries, reusable screener answers, application identity defaults, enriched saved-job metadata, and structured apply-memory summaries on durable roots that later workflows can reuse directly.
 - `Settings` now concentrates editable defaults in the main column and keeps live status plus destructive reset controls in a smaller side rail.
 - Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback.
@@ -32,7 +33,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Completed full-app copy pass plan: `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - Browser efficiency and speed plan: `docs/exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md`
 - Completed shared data expansion plan: `docs/exec-plans/completed/011-job-finder-shared-data-expansion.md`
-- Guided setup and profile copilot plan: `docs/exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md`
+- Guided setup and profile copilot plan: `docs/exec-plans/active/012-job-finder-guided-setup-and-profile-copilot.md`
 - Source intelligence and faster discovery plan: `docs/exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md`
 - Resume output and template quality plan: `docs/exec-plans/queued/014-job-finder-resume-output-and-template-quality.md`
 - Automatic job apply plan: `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`

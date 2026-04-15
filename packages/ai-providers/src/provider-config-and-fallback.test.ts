@@ -9,6 +9,7 @@ import {
   createPreferences,
   createProfile,
   createSettings,
+  mockJsonFetch,
   mockRejectedFetch,
   mockTextFetch
 } from './test-fixtures'
@@ -149,6 +150,171 @@ describe('ai provider config and fallback behavior', () => {
     } finally {
       restoreFetch()
       errorSpy.mockRestore()
+    }
+  })
+
+  test('uses deterministic profile copilot reply when the model returns guidance-only but deterministic can structure the edit', async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              content: 'I reviewed the setup essentials context, but I could not turn that request into a safe structured profile edit.',
+              patchGroups: []
+            })
+          }
+        }
+      ]
+    })
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      const reply = await client.reviseCandidateProfile({
+        profile: {
+          ...createProfile(),
+          yearsExperience: 6,
+        },
+        searchPreferences: createPreferences(),
+        context: { surface: 'setup', step: 'essentials' },
+        relevantReviewItems: [],
+        request: 'change my experience to only 5 years',
+      })
+
+      expect(reply.patchGroups).toHaveLength(1)
+      expect(reply.patchGroups[0]?.operations[0]).toEqual({
+        operation: 'replace_identity_fields',
+        value: {
+          yearsExperience: 5,
+        },
+      })
+    } finally {
+      restoreFetch()
+    }
+  })
+
+  test('uses deterministic profile copilot reply when the model gives generic no-op guidance for an existing job source request', async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              content: 'I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.',
+              patchGroups: []
+            })
+          }
+        }
+      ]
+    })
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      const reply = await client.reviseCandidateProfile({
+        profile: createProfile(),
+        searchPreferences: {
+          ...createPreferences(),
+          discovery: {
+            historyLimit: 5,
+            targets: [
+              {
+                id: 'target_linkedin_jobs',
+                label: 'LinkedIn Jobs',
+                startingUrl: 'https://www.linkedin.com/jobs/search/',
+                enabled: true,
+                adapterKind: 'auto',
+                customInstructions: null,
+                instructionStatus: 'missing',
+                validatedInstructionId: null,
+                draftInstructionId: null,
+                lastDebugRunId: null,
+                lastVerifiedAt: null,
+                staleReason: null,
+              },
+            ],
+          },
+        },
+        context: { surface: 'profile', section: 'preferences' },
+        relevantReviewItems: [],
+        request: 'please add linkedin jobs again',
+      })
+
+      expect(reply.patchGroups).toEqual([])
+      expect(reply.content).toContain('already saved')
+    } finally {
+      restoreFetch()
+    }
+  })
+
+  test('uses deterministic profile copilot reply when the model gives generic no-op guidance for a direct github url', async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              content: 'I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.',
+              patchGroups: []
+            })
+          }
+        }
+      ]
+    })
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      const reply = await client.reviseCandidateProfile({
+        profile: {
+          ...createProfile(),
+          githubUrl: null,
+        },
+        searchPreferences: createPreferences(),
+        context: { surface: 'profile', section: 'preferences' },
+        relevantReviewItems: [],
+        request: 'https://github.com/ebrardushullovcii',
+      })
+
+      expect(reply.patchGroups).toHaveLength(1)
+      expect(reply.patchGroups[0]?.operations[0]).toEqual({
+        operation: 'replace_identity_fields',
+        value: {
+          githubUrl: 'https://github.com/ebrardushullovcii',
+        },
+      })
+    } finally {
+      restoreFetch()
+    }
+  })
+
+  test('uses deterministic profile copilot clarification when the model gives generic no-op guidance for visa sponsorship', async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              content: 'I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.',
+              patchGroups: []
+            })
+          }
+        }
+      ]
+    })
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      const reply = await client.reviseCandidateProfile({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        context: { surface: 'profile', section: 'preferences' },
+        relevantReviewItems: [],
+        request: 'update visa sponsorship',
+      })
+
+      expect(reply.patchGroups).toEqual([])
+      expect(reply.content).toContain('I need visa sponsorship')
+    } finally {
+      restoreFetch()
     }
   })
 })

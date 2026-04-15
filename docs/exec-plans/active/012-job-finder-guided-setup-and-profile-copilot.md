@@ -1,6 +1,29 @@
 # 012 Job Finder Guided Setup And Profile Copilot
 
-Status: ready
+Status: active
+
+Latest implementation note:
+
+- setup review items now preserve explicit user resolution semantics instead of auto-resolving import-backed suggestions when the user merely navigates away and back
+- setup review rows now include direct `Edit this` actions that jump into the matching setup step, focus simple field targets directly, and reopen matching experience cards when the target lives inside collapsible work-history records
+- Profile Copilot now behaves like a floating expandable chat widget instead of a permanently docked bottom rail, shows optimistic user messages immediately, shows a visible working state while the reply is in flight, and can seed a starter question for the highest-priority missing profile detail
+- deterministic copilot fallback now understands a small set of direct setup answers beyond headline edits, including marking a pending experience review item as `remote`
+- deterministic copilot fallback now also handles practical essentials numeric edits such as updating years of experience during setup, while record-level copilot mutations stay in explicit review mode instead of auto-applying
+- the enlarged setup and copilot renderer files are split back under the structure warning budgets, the setup workspace scenarios are split into focused test modules, and `apps/desktop/scripts/capture-profile-setup.mjs` now explicitly opens the floating copilot before driving the composer, adds a test-only copilot delay seam so optimistic pending state is screenshot-stable, and captures explicit pending plus `Edit this` focus-jump evidence in the seeded demo
+- explicit setup saves now resolve matching literal review items correctly for contact fields like portfolio URL instead of leaving them pending after the saved workspace value already matches the suggestion
+- setup and full-profile renderer field arrays now preserve semantic imported record ids via `keyName: 'fieldKey'`, which keeps review-first records stable and lets nested edit-jumps target the intended record reliably
+- setup review actions no longer offer invalid clear-value handling for non-nullable years-of-experience items, and fresh-start readiness plus renderer preload logic now consistently treat `0` as the fresh-start sentinel rather than a filled imported value
+- the refreshed setup harness now proves essentials draft-aware save truth, stable background record edit-jumps, list-editor targeting saves, and full ready-check completion again
+- Preferences-side copilot requests can now add common job sources like `LinkedIn Jobs` and `Wellfound` through typed `replace_search_preferences_fields` discovery patches, the deterministic fallback now returns explicit `already saved` no-op feedback when those sources already exist, disabled matching sources are re-enabled instead of treated as duplicates, discovery-target rewrites now stay in explicit review mode instead of broad auto-apply, and `apps/desktop/scripts/capture-profile-copilot-preferences.mjs` proves the reviewed source-add flow plus the compact Show/Hide recent-changes tray in the floating copilot
+- Preferences-side copilot requests now also cover richer natural phrasing for years of experience, expected salary, preferred work mode, and multi-edit prompts in one request, add `KosovaJob` as a repo-consistent source preset, let the collapsed bubble toggle open or closed directly, support dragging the bubble away from the Profile save area, and remove stale `Last action` footer copy from the shell-level profile flow
+- the floating copilot pending state no longer locks the whole profile surface while a reply is in flight; the bubble stays draggable, the composer stays editable for drafting the next request, and the in-flight UI now uses a lighter animated thinking indicator instead of broadly disabling the rail
+- Preferences/profile copilot now handles more normal iterative chat by auto-filling safe inferred details during profile-gap audits, accepting raw GitHub link messages as direct profile edits, and turning natural no-visa-plus-remote phrasing into typed work-eligibility updates; the floating rail sizing is also clamped against the real open panel dimensions so smaller desktop viewports keep the full chat usable, and scripted UI captures now force `System` theme to resolve dark by default for stable appearance QA
+- the full `Profile` editor now mirrors setup's unsaved-draft copilot safety by blocking send, apply, reject, and undo while the page has unsaved user edits, the shared composer is once again truly editable while replies are pending, and `apps/desktop/scripts/capture-profile-copilot-preferences.mjs` now proves both the blocked full-Profile mutation path and draft-while-pending behavior with saved workspace artifacts
+- the final cleanup pass also extracts full-Profile form and section-view-model wiring into `screens/profile-screen-hooks.ts` so `profile-screen.tsx` drops back under the renderer structure budget, restores save/import/copilot action feedback inside the full-Profile save footer, and scopes starter-question prompts to the active full-Profile tab instead of pulling from unrelated review domains
+- deterministic Profile Copilot coverage is now widened beyond the earlier narrow headline/salary/source set: explicit direct requests can now update additional identity fields, work-eligibility details such as available start date and notice-period days, professional-summary fields, narrative list fields, answer-bank text fields, application-identity defaults, skill-group lists, top-level profile skills, scalar preference fields like salary currency and tailoring mode, and review-mode preference lists such as preferred locations while keeping broader search-preference rewrites and approval-mode changes in explicit review
+- the oversized deterministic patch parser was also re-split into focused modules (`profile-copilot-field-updates.ts`, `profile-copilot-job-sources.ts`, `profile-copilot-specialized-patches.ts`, `profile-copilot-url-patches.ts`) so the provider layer stays closer to package guidance instead of accreting one more large parser file
+- assistant transcript rendering now formats markdown-like reply structure into readable chat UI for headings, lists, inline code, blockquotes, and fenced code instead of showing raw markdown markers, and the Preferences capture harness now saves a dedicated markdown transcript screenshot as regression evidence
+- the floating copilot open-state clamp now also respects the full-Profile save-footer safe offset instead of only the collapsed bubble offset, the collapsed bubble exposes explicit click plus keyboard toggle semantics instead of pointer-only interaction, and the resume panel now keeps a visible fallback-quality note when import had to degrade through embedded parsing
 
 This plan is the implementation-grade follow-on for turning `Job Finder` onboarding into a guided setup instead of dropping new users into the full `Profile` editor immediately. It also defines the first bounded `Profile Copilot` slice: a side assistant that can explain profile gaps, recommend improvements, and apply typed profile edits with visible history.
 
@@ -564,6 +587,12 @@ Implementation rule:
 - resume import plus analysis produces targeted review items
 - the setup flow can collect and save the high-value profile, targeting, and `011` shared-data inputs
 - the user can finish setup with an honest readiness summary
+
+Current landed slice:
+
+- unresolved resume-import candidates now widen into durable `profileSetupState.reviewItems` grouped by guided setup step instead of living only as coarse resume warnings
+- setup-state derivation now stays `in_progress` while pending critical or recommended review items remain, even when the underlying profile would otherwise look materially complete
+- the desktop setup screen now surfaces the current step's persisted review queue and the seeded `ui:profile-setup` harness proves import -> setup review -> bounded copilot headline edit -> ready-check completion -> full Profile handoff as a real demo path
 
 ### Milestone 3: Profile copilot with typed edits
 

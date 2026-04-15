@@ -5,10 +5,14 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  ProfileCopilotContext,
   JobFinderPerformanceSnapshot,
+  ResumeImportBenchmarkReport,
+  ResumeImportBenchmarkRequest,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderSettings,
+  ProfileSetupState,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -26,6 +30,22 @@ let activeSourceDebugRequestId: string | null = null;
 const testApiEnabled =
   process.env.UNEMPLOYED_ENABLE_TEST_API === "1" ||
   process.env.UNEMPLOYED_ENABLE_TEST_API === "true";
+const configuredSystemThemeOverride =
+  process.env.UNEMPLOYED_TEST_SYSTEM_THEME === "dark" ||
+  process.env.UNEMPLOYED_TEST_SYSTEM_THEME === "light"
+    ? process.env.UNEMPLOYED_TEST_SYSTEM_THEME
+    : null;
+const SYSTEM_THEME_CHANGE_EVENT = "unemployed:system-theme-change";
+let currentSystemThemeOverride: "dark" | "light" | null =
+  configuredSystemThemeOverride;
+
+function applySystemThemeOverride(theme: "dark" | "light" | null) {
+  currentSystemThemeOverride = theme;
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SYSTEM_THEME_CHANGE_EVENT));
+  }
+}
 
 function isSaveWorkspaceInputsPayload(
   profileOrInput: CandidateProfile | SaveJobFinderWorkspaceInput,
@@ -126,6 +146,39 @@ const desktopApi = {
         "job-finder:save-settings",
         settings,
       ) as Promise<JobFinderWorkspaceSnapshot>,
+    saveProfileSetupState: (profileSetupState: ProfileSetupState) =>
+      ipcRenderer.invoke(
+        "job-finder:save-profile-setup-state",
+        profileSetupState,
+      ) as Promise<JobFinderWorkspaceSnapshot>,
+    applyProfileSetupReviewAction: (
+      reviewItemId: string,
+      action: "confirm" | "dismiss" | "clear_value",
+    ) =>
+      ipcRenderer.invoke("job-finder:apply-profile-setup-review-action", {
+        reviewItemId,
+        action,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    sendProfileCopilotMessage: (
+      content: string,
+      context?: ProfileCopilotContext,
+    ) =>
+      ipcRenderer.invoke("job-finder:send-profile-copilot-message", {
+        content,
+        context: context ?? { surface: "general" },
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    applyProfileCopilotPatchGroup: (patchGroupId: string) =>
+      ipcRenderer.invoke("job-finder:apply-profile-copilot-patch-group", {
+        patchGroupId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    rejectProfileCopilotPatchGroup: (patchGroupId: string) =>
+      ipcRenderer.invoke("job-finder:reject-profile-copilot-patch-group", {
+        patchGroupId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    undoProfileRevision: (revisionId: string) =>
+      ipcRenderer.invoke("job-finder:undo-profile-revision", {
+        revisionId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
     importResume: () =>
       ipcRenderer.invoke(
         "job-finder:import-resume",
@@ -320,8 +373,14 @@ const desktopApi = {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
     ...(testApiEnabled
-      ? {
+        ? {
           test: {
+            getSystemThemeOverride: () => currentSystemThemeOverride,
+            setSystemThemeOverride: (theme: "dark" | "light" | null) =>
+              Promise.resolve().then(() => {
+                applySystemThemeOverride(theme);
+                return { ok: true as const };
+              }),
             loadResumeWorkspaceDemo: () =>
               ipcRenderer.invoke(
                 "job-finder:test-load-resume-workspace-demo",
@@ -335,6 +394,13 @@ const desktopApi = {
               ipcRenderer.invoke(
                 "job-finder:test-get-performance-snapshot",
               ) as Promise<JobFinderPerformanceSnapshot>,
+            runResumeImportBenchmark: (
+              input?: Partial<ResumeImportBenchmarkRequest>,
+            ) =>
+              ipcRenderer.invoke(
+                "job-finder:test-run-resume-import-benchmark",
+                input ?? {},
+              ) as Promise<ResumeImportBenchmarkReport>,
             importResumeFromPath: (sourcePath: string) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
                 sourcePath,

@@ -155,6 +155,19 @@ export function ApplicationsDetailPanel({
               ) : null}
             </div>
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+              <span className="card-heading-sm">Consent</span>
+              <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
+                {formatStatusLabel(selectedRecord.consentSummary.status)}
+              </strong>
+              {selectedRecord.consentSummary.pendingCount > 0 ? (
+                <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
+                  {selectedRecord.consentSummary.pendingCount} pending
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
               <span className="card-heading-sm">Replay memory</span>
               <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
                 {selectedRecord.replaySummary.checkpointCount} checkpoints

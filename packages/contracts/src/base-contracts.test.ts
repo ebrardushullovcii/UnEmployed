@@ -4,6 +4,7 @@ import {
   CandidateProfileSchema,
   DesktopWindowControlsStateSchema,
   JobSearchPreferencesSchema,
+  WorkModeListSchema,
   applicationStatusValues,
 } from "./index";
 
@@ -124,5 +125,13 @@ describe("contracts base schemas", () => {
     });
 
     expect(controlsState.isClosable).toBe(true);
+  });
+
+  test("normalizes legacy onsite work mode spellings", () => {
+    expect(WorkModeListSchema.parse(["on-site", "in office", "remote"])).toEqual([
+      "onsite",
+      "onsite",
+      "remote",
+    ]);
   });
 });

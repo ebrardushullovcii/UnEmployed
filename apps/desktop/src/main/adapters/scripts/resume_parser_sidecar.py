@@ -1,0 +1,822 @@
+import json
+import os
+import pathlib
+import re
+import sys
+from typing import Any, Dict, List, Optional, Tuple
+
+
+def get_runtime_root() -> pathlib.Path:
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            return pathlib.Path(meipass).resolve()
+
+        executable = getattr(sys, "executable", "")
+        if executable:
+            return pathlib.Path(executable).resolve().parent
+
+    return pathlib.Path(__file__).resolve().parent
+
+
+def hydrate_bundled_sys_path() -> None:
+    script_dir = get_runtime_root()
+    candidates = [
+        script_dir / "site-packages",
+        script_dir / ".python-packages",
+    ]
+
+    extra_pythonpath = os.environ.get("PYTHONPATH", "")
+    for entry in extra_pythonpath.split(os.pathsep):
+        if entry.strip():
+            candidates.append(pathlib.Path(entry.strip()))
+
+    inserted: List[str] = []
+    for candidate in candidates:
+        if candidate.exists():
+            resolved = str(candidate.resolve())
+            if resolved not in inserted:
+                sys.path.insert(0, resolved)
+                inserted.append(resolved)
+
+
+hydrate_bundled_sys_path()
+
+
+def normalize_inline_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.replace("\u00A0", " ").strip())
+
+
+def normalize_multiline_text(value: str) -> Optional[str]:
+    normalized = (
+        value.replace("\r\n", "\n")
+        .replace("\u00A0", " ")
+        .replace("\u200B", "")
+        .replace("\u200C", "")
+        .replace("\u200D", "")
+        .replace("\uFEFF", "")
+    )
+    normalized = re.sub(r"\u0000", " ", normalized)
+    normalized = re.sub(r"[ \t]+\n", "\n", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    normalized = normalized.strip()
+    return normalized or None
+
+
+def clamp_probability(value: Optional[float]) -> float:
+    if value is None:
+        return 0.0
+
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+    return max(0.0, min(1.0, numeric))
+
+
+RESUME_HEADINGS = {
+    "ABOUT",
+    "ABOUT ME",
+    "ABOUT MYSELF",
+    "PROFILE",
+    "SUMMARY",
+    "PROFESSIONAL SUMMARY",
+    "PERSONAL PROFILE",
+    "EXPERIENCE",
+    "WORK EXPERIENCE",
+    "EDUCATION",
+    "EDUCATION AND TRAINING",
+    "SKILLS",
+    "TECHNICAL SKILLS",
+    "CORE SKILLS",
+    "KEY SKILLS",
+    "PROJECTS",
+    "LANGUAGES",
+    "LANGUAGE SKILLS",
+    "CERTIFICATIONS",
+}
+
+MONTH_PATTERN = (
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|"
+    r"Nov(?:ember)?|Dec(?:ember)?)"
+)
+
+DATE_RANGE_PATTERN = re.compile(
+    rf"((?:\d{{2}}/\d{{4}})|(?:\d{{4}})|(?:{MONTH_PATTERN}\s+\d{{4}}))\s*[–—-]\s*"
+    rf"(Current|Present|(?:\d{{2}}/\d{{4}})|(?:\d{{4}})|(?:{MONTH_PATTERN}\s+\d{{4}}))",
+    re.IGNORECASE,
+)
+
+CONTACT_META_PATTERN = re.compile(
+    r"date of birth|nationality|phone|email|website|address|skills|experience|education|"
+    r"frameworks|languages|databases|tools|soft skills",
+    re.IGNORECASE,
+)
+
+ROLE_COMPANY_PATTERN = re.compile(
+    r"\b(?:Engineer|Developer|Designer|Manager|Director|Analyst|Consultant|Specialist|"
+    r"Intern|Lead|Inc|Corp|LLC|Ltd|GmbH|Principal|Senior|Staff)\b",
+    re.IGNORECASE,
+)
+
+
+def classify_block_kind(text: str) -> str:
+    normalized = normalize_inline_text(text)
+
+    if not normalized:
+        return "unknown"
+
+    if re.search(r"@|linkedin\.com|github\.com|https?://", normalized, re.IGNORECASE):
+        return "contact"
+
+    if DATE_RANGE_PATTERN.search(normalized):
+        return "experience_header"
+
+    if re.match(r"^(?:[-*•●])", normalized):
+        return "list_item"
+
+    if (
+        normalized.upper() == normalized and len(normalized) <= 72
+    ) or re.match(r"^[A-Z][A-Z\s&/.'()_-]{5,}$", normalized):
+        return "heading"
+
+    return "paragraph"
+
+
+def classify_section_hint(text: str) -> str:
+    normalized = normalize_inline_text(text).lower()
+
+    if not normalized:
+        return "other"
+
+    if normalized in {
+        "about",
+        "about me",
+        "about myself",
+        "profile",
+        "summary",
+        "professional summary",
+        "personal profile",
+    }:
+        return "summary"
+
+    if normalized in {"experience", "work experience", "employment", "professional experience"}:
+        return "experience"
+
+    if normalized in {"education", "education and training"}:
+        return "education"
+
+    if normalized in {"certification", "certifications", "license", "licenses"}:
+        return "certifications"
+
+    if normalized in {
+        "skills",
+        "technical skills",
+        "core skills",
+        "key skills",
+        "frameworks",
+        "tools",
+        "programming languages",
+    }:
+        return "skills"
+
+    if normalized in {"projects", "portfolio"}:
+        return "projects"
+
+    if normalized in {"language skills", "languages"}:
+        return "languages"
+
+    if re.search(r"@|linkedin\.com|github\.com|https?://|phone|email|address", normalized, re.IGNORECASE):
+        return "contact"
+
+    if re.search(r"\b(university|college|school|bachelor|master|phd|degree)\b", normalized, re.IGNORECASE):
+        return "education"
+
+    if re.search(r"\b(engineer|developer|manager|designer|analyst|consultant|architect|officer)\b", normalized, re.IGNORECASE):
+        return "identity"
+
+    if len(normalized) >= 64:
+        return "summary"
+
+    if len(normalized) <= 80 and re.match(r"^[a-z][a-z\s.'()_-]+$", normalized, re.IGNORECASE):
+        return "identity"
+
+    return "other"
+
+
+def compute_invalid_unicode_ratio(text: Optional[str]) -> float:
+    if not text:
+        return 0.0
+
+    suspicious = len(re.findall(r"[\uFFFD\x00-\x08\x0B\x0C\x0E-\x1F]", text))
+    return suspicious / max(len(text), 1)
+
+
+def build_quality_signal(
+    full_text: Optional[str],
+    line_count: int,
+    block_count: int,
+    reading_order_confidence: Optional[float],
+    native_text_coverage: Optional[float],
+    ocr_confidence: Optional[float],
+    column_likelihood: Optional[float],
+    image_coverage_ratio: Optional[float],
+    invalid_unicode_ratio: Optional[float],
+) -> Dict[str, Any]:
+    text = full_text or ""
+    token_count = len([part for part in re.split(r"\s+", text) if part])
+    page_count = 1
+    text_density = clamp_probability(len(text) / max(page_count * 1600, 1))
+    normalized_reading_order = clamp_probability(
+        reading_order_confidence if reading_order_confidence is not None else 0.9,
+    )
+    normalized_native_text = clamp_probability(
+        native_text_coverage if native_text_coverage is not None else 1.0,
+    )
+    normalized_ocr = None if ocr_confidence is None else clamp_probability(ocr_confidence)
+    normalized_columns = None if column_likelihood is None else clamp_probability(column_likelihood)
+    normalized_image = clamp_probability(image_coverage_ratio if image_coverage_ratio is not None else 0.0)
+    normalized_invalid_unicode = clamp_probability(
+        invalid_unicode_ratio if invalid_unicode_ratio is not None else 0.0,
+    )
+
+    score = clamp_probability(
+        normalized_reading_order * 0.38
+        + normalized_native_text * 0.24
+        + text_density * 0.18
+        + ((normalized_ocr if normalized_ocr is not None else 0.8) * 0.08)
+        + ((1 - normalized_image) * 0.06)
+        + ((1 - normalized_invalid_unicode) * 0.06)
+    )
+
+    return {
+        "score": score,
+        "textDensity": text_density,
+        "tokenCount": token_count,
+        "lineCount": line_count,
+        "blockCount": block_count,
+        "columnLikelihood": normalized_columns,
+        "readingOrderConfidence": normalized_reading_order,
+        "nativeTextCoverage": normalized_native_text,
+        "ocrConfidence": normalized_ocr,
+        "imageCoverageRatio": normalized_image,
+        "invalidUnicodeRatio": normalized_invalid_unicode,
+    }
+
+
+def normalize_location_label(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+
+    cleaned = normalize_inline_text(value)
+    if not cleaned:
+        return None
+
+    if re.search(r"[A-Z]{2,}", cleaned):
+        words: List[str] = []
+        for word in cleaned.split(" "):
+            lower = word.lower()
+            if lower in {"uk", "usa", "uae", "ny", "tx", "pa", "ca", "fl"}:
+                words.append(word.upper())
+            else:
+                words.append(word[:1].upper() + word[1:].lower() if word else word)
+        return " ".join(words)
+
+    return cleaned
+
+
+def clean_location_candidate(value: str) -> Optional[str]:
+    trimmed = normalize_inline_text(value)
+    without_prefix = re.sub(r"^Address:\s*", "", trimmed, flags=re.IGNORECASE)
+    without_suffix = re.sub(r"\s*\([^)]*\)\s*$", "", without_prefix)
+    without_linkedin = re.sub(r"\s+linkedin\.com/\S+$", "", without_suffix, flags=re.IGNORECASE)
+    return normalize_location_label(without_linkedin)
+
+
+def is_likely_location_value(value: str) -> bool:
+    cleaned = clean_location_candidate(value)
+
+    if not cleaned or len(cleaned) > 96:
+        return False
+
+    if re.search(r"[@]|https?://", cleaned, re.IGNORECASE):
+        return False
+
+    if re.search(
+        r"\b(recently|decided|return|passion|experience|building|driven|improving)\b",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        return False
+
+    if re.search(r"[.!?]", cleaned):
+        return False
+
+    return bool(
+        re.match(r"^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$", cleaned)
+        or re.match(r"^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?$", cleaned)
+        or re.match(r"^[A-Za-z][A-Za-z\s.'-]+\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?$", cleaned)
+    )
+
+
+def is_likely_person_name(value: str) -> bool:
+    trimmed = normalize_inline_text(value)
+
+    if not trimmed or len(trimmed) > 56:
+        return False
+
+    if re.search(r"[@\d]|https?://", trimmed, re.IGNORECASE):
+        return False
+
+    if re.search(
+        r"resume|curriculum|summary|profile|experience|birth|nationality|phone|email|address|skills|linkedin",
+        trimmed,
+        re.IGNORECASE,
+    ):
+        return False
+
+    if re.search(r"[.!?]", trimmed):
+        return False
+
+    parts = [part for part in re.split(r"\s+", trimmed) if part]
+    if len(parts) < 2 or len(parts) > 4:
+        return False
+
+    if not re.match(r"^[A-Za-z][A-Za-z\s.'-]+$", trimmed):
+        return False
+
+    banned = {"Remote", "Current", "Present", "Summary", "Experience", "Profile"}
+    return not any(part in banned for part in parts)
+
+
+def infer_name(lines: List[str]) -> Optional[str]:
+    top_lines = lines[:8]
+
+    for line in top_lines:
+        if is_likely_person_name(line):
+            return line
+
+    identity_candidates: List[str] = []
+    for line in top_lines:
+        candidate = normalize_inline_text(line)
+
+        if not candidate:
+            continue
+
+        if re.search(r"[@]|https?://", candidate, re.IGNORECASE):
+            continue
+
+        if CONTACT_META_PATTERN.search(candidate):
+            continue
+
+        if DATE_RANGE_PATTERN.search(candidate):
+            continue
+
+        if ROLE_COMPANY_PATTERN.search(candidate):
+            continue
+
+        if candidate.upper() in RESUME_HEADINGS:
+            continue
+
+        if re.search(
+            r"\b(?:senior|staff|principal|lead|software|engineer|developer|designer|manager|architect|consultant|analyst|mentorship)\b",
+            candidate,
+            re.IGNORECASE,
+        ):
+            continue
+
+        parts = candidate.split()
+        if len(parts) < 2 or len(parts) > 4:
+            continue
+
+        if re.match(r"^[A-Za-z][A-Za-z\s.'-]+$", candidate):
+            identity_candidates.append(candidate)
+
+    return identity_candidates[0] if identity_candidates else None
+
+
+def infer_current_location(lines: List[str]) -> Optional[str]:
+    address_line = next(
+        (line for line in lines if re.match(r"^Address:", line, re.IGNORECASE)),
+        None,
+    )
+
+    if address_line:
+        cleaned = clean_location_candidate(address_line)
+        if cleaned:
+            return cleaned
+
+    for line in lines[:6]:
+        cleaned = clean_location_candidate(line)
+        if cleaned and is_likely_location_value(cleaned):
+            return cleaned
+
+    location_hint_pattern = re.compile(
+        r"\b(?:[A-Z]{2}|UK|USA|UAE|Kosovo|Canada|Germany|France|India|Japan|Australia|Singapore|"
+        r"London|Toronto|Berlin|Paris|Prishtina|New York|Tampa|Philadelphia|Cedar Park|Austin|"
+        r"Texas|Florida|California|Pennsylvania)\b|\b\d{5}(?:-\d{4})?\b",
+        re.IGNORECASE,
+    )
+    degree_or_school_pattern = re.compile(
+        r"\b(?:Bachelor|Master|B\.?Sc|M\.?Sc|Ph\.?D|University|College|School|Academy)\b",
+        re.IGNORECASE,
+    )
+
+    for line in lines[:12]:
+        candidate = clean_location_candidate(line)
+
+        if not candidate:
+            continue
+
+        if CONTACT_META_PATTERN.search(candidate):
+            continue
+
+        if degree_or_school_pattern.search(candidate):
+            continue
+
+        if location_hint_pattern.search(candidate) and is_likely_location_value(candidate):
+            return candidate
+
+    return None
+
+
+def detect_file_kind(file_path: str) -> str:
+    suffix = pathlib.Path(file_path).suffix.lower()
+
+    if suffix == ".txt":
+        return "plain_text"
+
+    if suffix in {".md", ".markdown"}:
+        return "markdown"
+
+    if suffix == ".docx":
+        return "docx"
+
+    if suffix == ".pdf":
+        return "pdf"
+
+    return "unknown"
+
+
+def extract_plain_text(file_path: str) -> Optional[str]:
+    return normalize_multiline_text(
+        pathlib.Path(file_path).read_text(encoding="utf-8", errors="ignore"),
+    )
+
+
+def iter_docx_block_text(document: Any) -> List[str]:
+    lines: List[str] = []
+
+    def append_text(value: str) -> None:
+        normalized = normalize_inline_text(value)
+        if normalized:
+            lines.append(normalized)
+
+    def walk_table(table: Any) -> None:
+        for row in getattr(table, "rows", []):
+            for cell in getattr(row, "cells", []):
+                walk_container(cell)
+
+    def walk_container(container: Any) -> None:
+        for paragraph in getattr(container, "paragraphs", []):
+            append_text(getattr(paragraph, "text", ""))
+
+        for table in getattr(container, "tables", []):
+            walk_table(table)
+
+    walk_container(document)
+
+    for section in getattr(document, "sections", []):
+        walk_container(getattr(section, "header", None))
+        walk_container(getattr(section, "first_page_header", None))
+        walk_container(getattr(section, "even_page_header", None))
+        walk_container(getattr(section, "footer", None))
+        walk_container(getattr(section, "first_page_footer", None))
+        walk_container(getattr(section, "even_page_footer", None))
+
+    deduped_lines: List[str] = []
+    seen: set[str] = set()
+
+    for line in lines:
+        key = line.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_lines.append(line)
+
+    return deduped_lines
+
+
+def extract_docx_text(file_path: str) -> Tuple[Optional[str], str, List[str]]:
+    warnings: List[str] = []
+
+    try:
+        from docx import Document  # type: ignore
+
+        document = Document(file_path)
+        paragraphs = iter_docx_block_text(document)
+        text = normalize_multiline_text(
+            "\n".join([paragraph for paragraph in paragraphs if paragraph]),
+        )
+        return text, "local_docx", warnings
+    except Exception:
+        warnings.append(
+            "python-docx is unavailable, so DOCX import stayed on the lightweight sidecar fallback.",
+        )
+        return None, "local_sidecar_fallback", warnings
+
+
+def extract_pdf_text(
+    file_path: str,
+) -> Tuple[List[str], Optional[str], str, List[str], Dict[str, Any]]:
+    warnings: List[str] = []
+    metadata: Dict[str, Any] = {"availableCapabilities": []}
+
+    try:
+        import pdfplumber  # type: ignore
+
+        page_texts: List[str] = []
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                page_text = normalize_multiline_text(
+                    page.extract_text(x_tolerance=2, y_tolerance=3) or "",
+                ) or ""
+                page_texts.append(page_text)
+
+        text = normalize_multiline_text(
+            "\n\n".join(page_text for page_text in page_texts if page_text),
+        )
+        metadata["availableCapabilities"] = ["pdf_layout"]
+        return page_texts, text, "local_pdf_layout", warnings, metadata
+    except Exception:
+        warnings.append(
+            "pdfplumber is unavailable, so PDF import stayed on the lightweight sidecar fallback.",
+        )
+
+    try:
+        from pypdf import PdfReader  # type: ignore
+
+        reader = PdfReader(file_path)
+        page_texts = [normalize_multiline_text(page.extract_text() or "") or "" for page in reader.pages]
+        text = normalize_multiline_text(
+            "\n\n".join(page_text for page_text in page_texts if page_text),
+        )
+        metadata["availableCapabilities"] = ["pdf_text_probe"]
+        return page_texts, text, "local_pdf_text_probe", warnings, metadata
+    except Exception:
+        warnings.append(
+            "pypdf is unavailable, so PDF import stayed on the lightweight sidecar fallback.",
+        )
+
+    return [], None, "local_sidecar_fallback", warnings, metadata
+
+
+def create_blocks(
+    page_number: int,
+    text: Optional[str],
+    parser_kind: str,
+) -> List[Dict[str, Any]]:
+    if not text:
+        return []
+
+    lines = [normalize_inline_text(line) for line in re.split(r"\r?\n", text)]
+    lines = [line for line in lines if line]
+    blocks: List[Dict[str, Any]] = []
+
+    for index, line in enumerate(lines):
+        blocks.append(
+            {
+                "id": f"page_{page_number}_block_{index + 1}",
+                "pageNumber": page_number,
+                "readingOrder": index,
+                "text": line,
+                "kind": classify_block_kind(line),
+                "sectionHint": classify_section_hint(line),
+                "bbox": None,
+                "sourceParserKinds": [parser_kind],
+                "sourceConfidence": 0.88,
+                "lineIds": [f"page_{page_number}_line_{index + 1}"],
+                "parserLineage": [parser_kind],
+                "readingOrderConfidence": 0.9,
+                "textSpan": None,
+            },
+        )
+
+    return blocks
+
+
+def build_pages(
+    page_texts: List[str],
+    parser_kind: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    pages: List[Dict[str, Any]] = []
+    blocks: List[Dict[str, Any]] = []
+
+    for page_number, page_text in enumerate(page_texts, start=1):
+        blocks_for_page = create_blocks(page_number, page_text or None, parser_kind)
+        line_count = len(
+            [
+                line
+                for line in re.split(r"\r?\n", page_text or "")
+                if normalize_inline_text(line)
+            ],
+        )
+        quality = build_quality_signal(
+            page_text or None,
+            line_count=line_count,
+            block_count=len(blocks_for_page),
+            reading_order_confidence=0.9 if blocks_for_page else 0.0,
+            native_text_coverage=1.0 if page_text else 0.0,
+            ocr_confidence=None,
+            column_likelihood=0.22 if len(blocks_for_page) > 4 else 0.08,
+            image_coverage_ratio=0.0 if page_text else 1.0,
+            invalid_unicode_ratio=compute_invalid_unicode_ratio(page_text or None),
+        )
+        pages.append(
+            {
+                "pageNumber": page_number,
+                "text": page_text or "",
+                "charCount": len(page_text or ""),
+                "tokenCount": quality["tokenCount"],
+                "quality": quality,
+                "qualityWarnings": [],
+                "usedOcr": False,
+                "width": None,
+                "height": None,
+            },
+        )
+        blocks.extend(blocks_for_page)
+
+    return pages, blocks
+
+
+def extract_document(
+    file_path: str,
+    file_kind: str,
+) -> Tuple[List[str], Optional[str], str, List[str], str, List[str], List[str]]:
+    if file_kind in {"plain_text", "markdown"}:
+        text = extract_plain_text(file_path)
+        return [text] if text else [], text, "plain_text", [], "plain_text_native", ["text_input_available"], ["text_ingest"]
+
+    if file_kind == "docx":
+        text, parser_kind, warnings = extract_docx_text(file_path)
+        return [text] if text else [], text, parser_kind, warnings, "docx_native", ["docx_sidecar_attempt"], ["docx_attempt"]
+
+    if file_kind == "pdf":
+        page_texts, text, parser_kind, warnings, metadata = extract_pdf_text(file_path)
+        triage = ["python_sidecar_pdf_attempt", *metadata.get("availableCapabilities", [])]
+        capabilities = ["pdf_attempt", *metadata.get("availableCapabilities", [])]
+        return page_texts, text, parser_kind, warnings, "native_first", triage, capabilities
+
+    return (
+        [],
+        None,
+        "local_sidecar_fallback",
+        ["Unsupported file type for python sidecar."],
+        "unsupported_fallback",
+        ["unsupported_file_kind"],
+        ["unsupported_fallback"],
+    )
+
+
+def build_response(request: Dict[str, Any]) -> Dict[str, Any]:
+    file_path = request["filePath"]
+    file_kind = request.get("fileKind") or detect_file_kind(file_path)
+    (
+        page_texts,
+        text,
+        parser_kind,
+        warnings,
+        route_kind,
+        triage_reasons,
+        available_capabilities,
+    ) = extract_document(file_path, file_kind)
+
+    pages, blocks = build_pages(page_texts, parser_kind)
+    aggregate_line_count = sum(page["quality"]["lineCount"] for page in pages)
+    aggregate_reading_order = (
+        sum((page["quality"]["readingOrderConfidence"] or 0.0) for page in pages) / len(pages)
+        if pages
+        else 0.0
+    )
+    native_text_coverage = (
+        sum(1 for page in pages if page["charCount"] > 0) / len(pages)
+        if pages
+        else 0.0
+    )
+    image_coverage_ratio = (
+        sum(1 for page in pages if page["charCount"] == 0) / len(pages)
+        if pages
+        else 1.0
+    )
+    column_likelihood = (
+        max((page["quality"]["columnLikelihood"] or 0.0) for page in pages)
+        if pages
+        else None
+    )
+    quality = build_quality_signal(
+        text,
+        line_count=aggregate_line_count,
+        block_count=len(blocks),
+        reading_order_confidence=aggregate_reading_order,
+        native_text_coverage=native_text_coverage,
+        ocr_confidence=None,
+        column_likelihood=column_likelihood,
+        image_coverage_ratio=image_coverage_ratio,
+        invalid_unicode_ratio=compute_invalid_unicode_ratio(text),
+    )
+    script_path = get_runtime_root()
+
+    return {
+        "requestId": request["requestId"],
+        "ok": True,
+        "primaryParserKind": parser_kind,
+        "parserKinds": [parser_kind],
+        "route": {
+            "routeKind": route_kind,
+            "triageReasons": triage_reasons,
+            "preferredExecutors": request.get("preferredExecutors", []),
+            "usedExecutors": [parser_kind],
+        },
+        "parserManifest": {
+            "workerKind": "python_sidecar",
+            "workerVersion": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "manifestVersion": "019-python-sidecar-v1",
+            "runtimeLabel": f"python {sys.version_info.major}.{sys.version_info.minor}",
+            "availableCapabilities": ["routing_manifest", *available_capabilities],
+            "executorVersions": {
+                parser_kind: str(script_path.stat().st_mtime_ns),
+            },
+        },
+        "quality": quality,
+        "qualityWarnings": [],
+        "warnings": warnings,
+        "pages": pages,
+        "blocks": blocks,
+        "fullText": text,
+        "errorMessage": None,
+    }
+
+
+def build_failure_response(request_id: str, error_message: str) -> Dict[str, Any]:
+    return {
+        "requestId": request_id,
+        "ok": False,
+        "primaryParserKind": None,
+        "parserKinds": [],
+        "route": None,
+        "parserManifest": {
+            "workerKind": "python_sidecar",
+            "workerVersion": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "manifestVersion": "019-python-sidecar-v1",
+            "runtimeLabel": f"python {sys.version_info.major}.{sys.version_info.minor}",
+            "availableCapabilities": [],
+            "executorVersions": {},
+        },
+        "quality": {
+            "score": 0,
+            "textDensity": None,
+            "tokenCount": 0,
+            "lineCount": 0,
+            "blockCount": 0,
+            "columnLikelihood": None,
+            "readingOrderConfidence": None,
+            "nativeTextCoverage": None,
+            "ocrConfidence": None,
+            "imageCoverageRatio": None,
+            "invalidUnicodeRatio": None,
+        },
+        "qualityWarnings": [],
+        "warnings": [],
+        "pages": [],
+        "blocks": [],
+        "fullText": None,
+        "errorMessage": error_message,
+    }
+
+
+def main() -> int:
+    raw_input = ""
+
+    try:
+        raw_input = sys.stdin.read()
+        request = json.loads(raw_input)
+        response = build_response(request)
+    except Exception as error:  # pragma: no cover - defensive transport fallback
+        request_id = "unknown_request"
+
+        try:
+            request_id = json.loads(raw_input).get("requestId", request_id)
+        except Exception:
+            pass
+
+        response = build_failure_response(request_id, str(error))
+
+    sys.stdout.write(json.dumps(response))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

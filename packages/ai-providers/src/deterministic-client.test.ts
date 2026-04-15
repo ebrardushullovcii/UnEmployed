@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { createDeterministicJobFinderAiClient } from './index'
 import { createPreferences, createProfile } from './test-fixtures'
 
-describe('deterministic ai client', () => {
+describe('deterministic ai client resume extraction', () => {
   test('extracts structured details with the deterministic client', async () => {
     const client = createDeterministicJobFinderAiClient()
 

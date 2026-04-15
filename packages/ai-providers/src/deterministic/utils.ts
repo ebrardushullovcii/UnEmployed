@@ -92,12 +92,38 @@ export function titleCaseWords(value: string): string {
   );
 }
 
+function titleCaseLocationToken(value: string): string {
+  const leading = value.match(/^[^A-Za-z0-9]*/)?.[0] ?? "";
+  const trailing = value.match(/[^A-Za-z0-9]*$/)?.[0] ?? "";
+  const core = value.slice(leading.length, value.length - trailing.length);
+
+  if (!core) {
+    return value;
+  }
+
+  if (/^\d{5}(?:-\d{4})?$/.test(core)) {
+    return `${leading}${core}${trailing}`;
+  }
+
+  if (/^[A-Z]{2,4}$/.test(core) || /^[A-Z](?:\.[A-Z])+\.?$/.test(core)) {
+    return `${leading}${core.toUpperCase()}${trailing}`;
+  }
+
+  return `${leading}${titleCaseWords(core)}${trailing}`;
+}
+
 export function normalizeLocationLabel(value: string | null): string | null {
   if (!value) {
     return null;
   }
 
-  return /[A-Z]{2,}/.test(value) ? titleCaseWords(value) : cleanLine(value);
+  const cleaned = cleanLine(value);
+
+  if (!cleaned) {
+    return null;
+  }
+
+  return cleaned.split(/\s+/).map(titleCaseLocationToken).join(" ");
 }
 
 export function extractAllUrls(resumeText: string): string[] {

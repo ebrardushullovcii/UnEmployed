@@ -10,6 +10,9 @@ import type {
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
+  ProfileCopilotContext,
+  ProfileSetupState,
+  ProfileSetupReviewAction,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -46,6 +49,26 @@ export interface JobFinderWorkspaceService {
   analyzeProfileFromResume(): Promise<JobFinderWorkspaceSnapshot>;
   saveSearchPreferences(
     searchPreferences: JobSearchPreferences,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  saveProfileSetupState(
+    profileSetupState: ProfileSetupState,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  applyProfileSetupReviewAction(
+    reviewItemId: string,
+    action: ProfileSetupReviewAction,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  sendProfileCopilotMessage(
+    content: string,
+    context?: ProfileCopilotContext,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  applyProfileCopilotPatchGroup(
+    patchGroupId: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  rejectProfileCopilotPatchGroup(
+    patchGroupId: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  undoProfileRevision(
+    revisionId: string,
   ): Promise<JobFinderWorkspaceSnapshot>;
   saveSettings(
     settings: JobFinderSettings,

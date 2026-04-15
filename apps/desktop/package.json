@@ -5,14 +5,19 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode best-effort && electron-vite dev",
+    "build": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode best-effort && electron-vite build",
     "lint": "eslint electron.vite.config.ts src --ext .ts,.tsx",
+    "prepare:resume-parser-sidecar": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode required",
+    "prepare:resume-parser-sidecar:matrix": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode required --target win32-x64,darwin-arm64,darwin-x64,linux-x64",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "benchmark:resume-import": "pnpm build && node ./scripts/run-resume-import-benchmark.mjs",
     "ui:capture": "pnpm build && node ./scripts/capture-ui.mjs",
+    "ui:profile-copilot-preferences": "pnpm build && node ./scripts/capture-profile-copilot-preferences.mjs",
     "ui:resume-import": "pnpm build && node ./scripts/capture-resume-import.mjs",
     "ui:profile-baseline": "pnpm build && node ./scripts/capture-profile-baseline.mjs",
+    "ui:profile-setup": "pnpm build && node ./scripts/capture-profile-setup.mjs",
     "ui:resume-workspace": "pnpm build && node ./scripts/capture-resume-workspace.mjs",
     "ui:resume-workspace-dirty": "pnpm build && node ./scripts/capture-resume-workspace-dirty.mjs"
   },
@@ -52,5 +57,21 @@
     "electron-vite": "^3.1.0",
     "tailwindcss": "^4.2.2",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "files": [
+      "out/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/resume-parser-sidecar",
+        "to": "resume-parser-sidecar",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }

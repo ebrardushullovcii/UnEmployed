@@ -2,15 +2,18 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  ProfileCopilotContext,
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
+  ProfileSetupStep,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
   SourceDebugRunDetails
 } from '@unemployed/contracts'
+import { ProfileSetupScreen } from '@renderer/features/job-finder/components/profile/setup/profile-setup-screen'
 import { ProfileScreen } from '@renderer/features/job-finder/screens/profile-screen'
 import { ApplicationsScreen } from '@renderer/features/job-finder/screens/applications-screen'
 import { DiscoveryScreen } from '@renderer/features/job-finder/screens/discovery-screen'
@@ -18,14 +21,23 @@ import { ReviewQueueScreen } from '@renderer/features/job-finder/screens/review-
 import { ResumeWorkspaceScreen } from '@renderer/features/job-finder/screens/review-queue/resume-workspace-screen'
 import { SettingsScreen } from '@renderer/features/job-finder/screens/settings-screen'
 import type { ActionState } from '@renderer/features/job-finder/lib/job-finder-types'
-import { Navigate, useOutletContext, useParams } from 'react-router-dom'
+import { getDefaultProfileRoute } from '@renderer/features/job-finder/lib/job-finder-utils'
+import { Navigate, useLocation, useOutletContext, useParams } from 'react-router-dom'
 
 export interface JobFinderPageContext {
   actionState: ActionState
   busy: boolean
+  canImportResume: boolean
+  importResumeGuardMessage: string | null
+  profileCopilotBusy: boolean
   liveDiscoveryEvents: readonly DiscoveryActivityEvent[]
   onAnalyzeProfileFromResume: () => void
   onApproveApply: (jobId: string) => void
+  onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
+  onApplyProfileSetupReviewAction: (
+    reviewItemId: string,
+    action: 'confirm' | 'dismiss' | 'clear_value'
+  ) => void
   onCheckBrowserSession: () => void
   onDismissJob: (jobId: string) => void
   onEditResumeWorkspace: (jobId: string) => void
@@ -36,8 +48,13 @@ export interface JobFinderPageContext {
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
   onOpenBrowserSession: () => void
+  onOpenProfile: () => void
+  onProfileSurfaceDirtyChange: (dirty: boolean) => void
+  profileCopilotPendingContextKey: string | null
   onQueueJob: (jobId: string) => void
+  onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void
   onResetWorkspace: () => void
+  onResumeProfileSetup: (step?: ProfileSetupStep) => void
   onRunAgentDiscovery: (() => void) | undefined
   onRefreshResumeWorkspace: (jobId: string) => void
   onResumeWorkspaceDirtyChange: (dirty: boolean) => void
@@ -49,8 +66,19 @@ export interface JobFinderPageContext {
     next: () => void,
     successMessage?: string | null
   ) => void
+  onSaveSetupStep: (
+    profile: CandidateProfile,
+    searchPreferences: JobSearchPreferences,
+    nextStep: ProfileSetupStep,
+    options?: { message?: string; openProfile?: boolean; stayOnCurrentStep?: boolean }
+  ) => void
   onApplyResumePatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void
+  onSendProfileCopilotMessage: (
+    content: string,
+    context?: ProfileCopilotContext
+  ) => void
   onSendResumeAssistantMessage: (jobId: string, content: string) => void
+  onUndoProfileRevision: (revisionId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
   onSaveProfile: (profile: CandidateProfile) => void
@@ -186,24 +214,81 @@ export function buildSourceDebugOutcomeMessage(
 
 export function JobFinderProfileRoute() {
   const context = useJobFinderPageContext()
+  const location = useLocation()
+  const forceFullProfile = Boolean(
+    (location.state as { forceFullProfile?: boolean } | null)?.forceFullProfile
+  )
+  const resolvedProfileRoute = getDefaultProfileRoute(context.workspace.profileSetupState, {
+    forceFullProfile
+  })
+
+  if (resolvedProfileRoute !== '/job-finder/profile') {
+    return <Navigate replace to={resolvedProfileRoute} />
+  }
 
   return (
     <ProfileScreen
       actionState={context.actionState}
       busy={context.busy}
+      importResumeGuardMessage={context.importResumeGuardMessage}
+      profileCopilotBusy={context.profileCopilotBusy}
+      onApplyProfileCopilotPatchGroup={context.onApplyProfileCopilotPatchGroup}
       onAnalyzeProfileFromResume={context.onAnalyzeProfileFromResume}
       onGetSourceDebugRunDetails={context.onGetSourceDebugRunDetails}
       onImportResume={context.onImportResume}
+      onProfileSurfaceDirtyChange={context.onProfileSurfaceDirtyChange}
+      profileCopilotPendingContextKey={context.profileCopilotPendingContextKey}
+      onResumeProfileSetup={context.onResumeProfileSetup}
+      onRejectProfileCopilotPatchGroup={context.onRejectProfileCopilotPatchGroup}
       onRunSourceDebug={context.onRunSourceDebug}
       onSaveAll={context.onSaveAll}
       onSaveSourceInstructionArtifact={context.onSaveSourceInstructionArtifact}
+      onSendProfileCopilotMessage={context.onSendProfileCopilotMessage}
+      onUndoProfileRevision={context.onUndoProfileRevision}
       onVerifySourceInstructions={context.onVerifySourceInstructions}
       latestResumeImportReviewCandidates={context.workspace.latestResumeImportReviewCandidates}
       latestResumeImportRun={context.workspace.latestResumeImportRun}
       profile={context.workspace.profile}
+      profileCopilotMessages={context.workspace.profileCopilotMessages}
+      profileRevisions={context.workspace.profileRevisions}
+      profileSetupState={context.workspace.profileSetupState}
       recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       searchPreferences={context.workspace.searchPreferences}
       sourceInstructionArtifacts={context.workspace.sourceInstructionArtifacts}
+    />
+  )
+}
+
+export function JobFinderProfileSetupRoute() {
+  const context = useJobFinderPageContext()
+
+  if (context.workspace.profileSetupState.status === 'completed') {
+    return <Navigate replace to="/job-finder/profile" />
+  }
+
+  return (
+    <ProfileSetupScreen
+      actionState={context.actionState}
+      busy={context.busy}
+      importResumeGuardMessage={context.importResumeGuardMessage}
+      profileCopilotBusy={context.profileCopilotBusy}
+      latestResumeImportReviewCandidates={context.workspace.latestResumeImportReviewCandidates}
+      onApplyProfileCopilotPatchGroup={context.onApplyProfileCopilotPatchGroup}
+      onApplyProfileSetupReviewAction={context.onApplyProfileSetupReviewAction}
+      onContinueToProfile={context.onOpenProfile}
+      onImportResume={context.onImportResume}
+      onProfileSurfaceDirtyChange={context.onProfileSurfaceDirtyChange}
+      profileCopilotPendingContextKey={context.profileCopilotPendingContextKey}
+      onRejectProfileCopilotPatchGroup={context.onRejectProfileCopilotPatchGroup}
+      onResumeSetup={context.onResumeProfileSetup}
+      onSaveSetupStep={context.onSaveSetupStep}
+      onSendProfileCopilotMessage={context.onSendProfileCopilotMessage}
+      onUndoProfileRevision={context.onUndoProfileRevision}
+      profile={context.workspace.profile}
+      profileCopilotMessages={context.workspace.profileCopilotMessages}
+      profileRevisions={context.workspace.profileRevisions}
+      profileSetupState={context.workspace.profileSetupState}
+      searchPreferences={context.workspace.searchPreferences}
     />
   )
 }

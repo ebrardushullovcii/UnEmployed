@@ -1,6 +1,9 @@
 import {
   type AgentProviderStatus,
   NonEmptyStringSchema,
+  type ProfileCopilotContext,
+  type ProfileCopilotRelevantReviewItem,
+  type ProfileCopilotReply,
   type ResumeDocumentBundle,
   ResumeDraftPatchSchema,
   WorkModeListSchema,
@@ -26,7 +29,7 @@ const ResumeExtractionWorkModeSchema = z.preprocess((value) => {
   }
 
   if (Array.isArray(value)) {
-    return value;
+    return value.map((entry): unknown => entry);
   }
 
   return [];
@@ -224,6 +227,15 @@ export interface ReviseResumeDraftInput {
   };
 }
 
+export interface ReviseCandidateProfileInput {
+  profile: CandidateProfile;
+  searchPreferences: JobSearchPreferences;
+  context: ProfileCopilotContext;
+  relevantReviewItems: readonly ProfileCopilotRelevantReviewItem[];
+  request: string;
+  conversationFacts?: readonly string[];
+}
+
 export interface AssessJobFitInput {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
@@ -258,6 +270,9 @@ export interface JobFinderAiClient {
   ): Promise<ResumeImportStageExtractionResult>;
   createResumeDraft(input: CreateResumeDraftInput): Promise<TailoredResumeDraft>;
   reviseResumeDraft(input: ReviseResumeDraftInput): Promise<ResumeAssistantReply>;
+  reviseCandidateProfile(
+    input: ReviseCandidateProfileInput,
+  ): Promise<ProfileCopilotReply>;
   tailorResume(input: TailorResumeInput): Promise<TailoredResumeDraft>;
   assessJobFit(input: AssessJobFitInput): Promise<JobFitAssessment | null>;
   extractJobsFromPage(input: ExtractJobsFromPageInput): Promise<JobPosting[]>;

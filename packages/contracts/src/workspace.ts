@@ -26,6 +26,13 @@ import {
   TailoredAssetSchema,
 } from "./discovery";
 import { CandidateProfileSchema } from "./profile";
+import { ProfileSetupStateSchema } from "./profile-setup";
+import {
+  ProfileCopilotContextSchema,
+  ProfileCopilotMessageSchema,
+  ProfileRevisionSchema,
+  ProfileRevisionSummarySchema,
+} from "./profile-copilot";
 import {
   ResumeAssistantMessageSchema,
   ResumeDraftPatchSchema,
@@ -104,6 +111,36 @@ export const JobFinderResumeAssistantMessageInputSchema = z.object({
 });
 export type JobFinderResumeAssistantMessageInput = z.infer<
   typeof JobFinderResumeAssistantMessageInputSchema
+>;
+
+export const JobFinderProfileSetupReviewActionInputSchema = z.object({
+  reviewItemId: NonEmptyStringSchema,
+  action: z.enum(["confirm", "dismiss", "clear_value"]),
+});
+export type JobFinderProfileSetupReviewActionInput = z.infer<
+  typeof JobFinderProfileSetupReviewActionInputSchema
+>;
+
+export const JobFinderProfileCopilotMessageInputSchema = z.object({
+  content: NonEmptyStringSchema,
+  context: ProfileCopilotContextSchema.default({ surface: "general" }),
+});
+export type JobFinderProfileCopilotMessageInput = z.infer<
+  typeof JobFinderProfileCopilotMessageInputSchema
+>;
+
+export const JobFinderProfileCopilotPatchGroupActionInputSchema = z.object({
+  patchGroupId: NonEmptyStringSchema,
+});
+export type JobFinderProfileCopilotPatchGroupActionInput = z.infer<
+  typeof JobFinderProfileCopilotPatchGroupActionInputSchema
+>;
+
+export const JobFinderUndoProfileRevisionInputSchema = z.object({
+  revisionId: NonEmptyStringSchema,
+});
+export type JobFinderUndoProfileRevisionInput = z.infer<
+  typeof JobFinderUndoProfileRevisionInputSchema
 >;
 
 export const JobFinderSourceDebugActionInputSchema = z.object({
@@ -193,6 +230,7 @@ export type JobFinderDiscoveryState = z.infer<
 export const JobFinderRepositoryStateSchema = z.object({
   profile: CandidateProfileSchema,
   searchPreferences: JobSearchPreferencesSchema,
+  profileSetupState: ProfileSetupStateSchema.default({}),
   savedJobs: z.array(SavedJobSchema).default([]),
   tailoredAssets: z.array(TailoredAssetSchema).default([]),
   resumeDrafts: z.array(ResumeDraftSchema).default([]),
@@ -201,6 +239,8 @@ export const JobFinderRepositoryStateSchema = z.object({
   resumeResearchArtifacts: z.array(ResumeResearchArtifactSchema).default([]),
   resumeValidationResults: z.array(ResumeValidationResultSchema).default([]),
   resumeAssistantMessages: z.array(ResumeAssistantMessageSchema).default([]),
+  profileCopilotMessages: z.array(ProfileCopilotMessageSchema).default([]),
+  profileRevisions: z.array(ProfileRevisionSchema).default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
   applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
   sourceDebugRuns: z.array(SourceDebugRunRecordSchema).default([]),
@@ -269,6 +309,7 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   availableResumeTemplates: z.array(ResumeTemplateDefinitionSchema).default([]),
   profile: CandidateProfileSchema,
   searchPreferences: JobSearchPreferencesSchema,
+  profileSetupState: ProfileSetupStateSchema,
   browserSession: BrowserSessionStateSchema,
   discoverySessions: z.array(DiscoveryAdapterSessionStateSchema).default([]),
   discoveryRunState: DiscoveryRunStateSchema.default("idle"),
@@ -295,6 +336,8 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   latestResumeImportReviewCandidates: z
     .array(ResumeImportFieldCandidateSummarySchema)
     .default([]),
+  profileCopilotMessages: z.array(ProfileCopilotMessageSchema).default([]),
+  profileRevisions: z.array(ProfileRevisionSummarySchema).default([]),
   selectedApplicationRecordId: NonEmptyStringSchema.nullable(),
   settings: JobFinderSettingsSchema,
 });

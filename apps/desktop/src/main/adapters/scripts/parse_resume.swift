@@ -100,11 +100,11 @@ func classifySectionHint(_ text: String) -> String {
     if lowercased.contains("@") || lowercased.contains("linkedin.com") || lowercased.contains("github.com") || lowercased.contains("phone") {
         return "contact"
     }
-    if text == text.uppercased() || text.count <= 80 {
-        return "identity"
-    }
-    if text.count >= 48 {
+    if text.count >= 64 {
         return "summary"
+    }
+    if text.count <= 80, text.range(of: "^[a-zA-Z][a-zA-Z\\s.'()\\-]+$", options: .regularExpression) != nil {
+        return "identity"
     }
     return "other"
 }

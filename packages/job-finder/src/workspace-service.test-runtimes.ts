@@ -15,6 +15,8 @@ import type {
   DiscoveryRunResult,
   EditableSourceInstructionArtifact,
   JobPosting,
+  ResumeDocumentBundle,
+  ResumeImportFieldCandidateDraft,
   ResumeResearchArtifact,
   SourceDebugCompactionState,
   SourceDebugPhaseCompletionMode,
@@ -277,112 +279,190 @@ export function createExtractionAiClient(
     "Tests use the deterministic fallback agent.",
   );
 
-  function buildStageCandidates(stage: Parameters<JobFinderAiClient["extractResumeImportStage"]>[0]["stage"]) {
+  function normalizeEvidenceText(value: string): string {
+    return value.toLowerCase().replace(/\s+/g, " ").trim();
+  }
+
+  function buildEvidenceCandidates(value: unknown): string[] {
+    if (typeof value === "string") {
+      return value.trim() ? [value.trim()] : [];
+    }
+
+    if (typeof value === "number" || typeof value === "boolean") {
+      return [String(value)];
+    }
+
+    if (Array.isArray(value)) {
+      return value.flatMap((entry) => buildEvidenceCandidates(entry));
+    }
+
+    if (value && typeof value === "object") {
+      return Object.values(value as Record<string, unknown>).flatMap((entry) =>
+        buildEvidenceCandidates(entry),
+      );
+    }
+
+    return [];
+  }
+
+  function groundCandidatesToBundle<TCandidate extends {
+    value?: unknown;
+    evidenceText?: string | null;
+    sourceBlockIds: string[];
+  }>(
+    documentBundle: ResumeDocumentBundle,
+    candidates: readonly TCandidate[],
+  ): TCandidate[] {
+    return candidates.map((candidate): TCandidate => {
+      if (candidate.sourceBlockIds.length > 0) {
+        return candidate;
+      }
+
+      const evidenceCandidates = buildEvidenceCandidates(candidate.value).map(
+        normalizeEvidenceText,
+      );
+      const matchedBlocks = documentBundle.blocks.filter((block) => {
+        const blockText = normalizeEvidenceText(block.text);
+        return evidenceCandidates.some(
+          (entry) => entry.length >= 4 && blockText.includes(entry),
+        );
+      });
+
+      if (matchedBlocks.length === 0) {
+        return candidate;
+      }
+
+      return {
+        ...candidate,
+        sourceBlockIds: matchedBlocks.slice(0, 3).map((block) => block.id),
+        evidenceText: candidate.evidenceText ?? matchedBlocks[0]?.text ?? null,
+      } as TCandidate;
+    });
+  }
+
+  function buildStageCandidates(
+    stage: Parameters<JobFinderAiClient["extractResumeImportStage"]>[0]["stage"],
+    documentBundle: ResumeDocumentBundle,
+  ): ResumeImportFieldCandidateDraft[] {
+    type StageCandidates = ResumeImportFieldCandidateDraft[];
+
     if (stage === "identity_summary") {
-      return [
-        extraction.fullName
-          ? {
-              target: { section: "identity" as const, key: "fullName", recordId: null },
-              label: "Full name",
-              value: extraction.fullName,
-              normalizedValue: extraction.fullName,
-              valuePreview: extraction.fullName,
-              evidenceText: extraction.fullName,
-              sourceBlockIds: [],
-              confidence: 0.95,
-              notes: [],
-              alternatives: [],
-            }
-          : null,
-        extraction.headline
-          ? {
-              target: { section: "identity" as const, key: "headline", recordId: null },
-              label: "Headline",
-              value: extraction.headline,
-              normalizedValue: extraction.headline,
-              valuePreview: extraction.headline,
-              evidenceText: extraction.headline,
-              sourceBlockIds: [],
-              confidence: 0.9,
-              notes: [],
-              alternatives: [],
-            }
-          : null,
-        extraction.summary
-          ? {
-              target: { section: "identity" as const, key: "summary", recordId: null },
-              label: "Summary",
-              value: extraction.summary,
-              normalizedValue: extraction.summary,
-              valuePreview: extraction.summary,
-              evidenceText: extraction.summary,
-              sourceBlockIds: [],
-              confidence: 0.84,
-              notes: [],
-              alternatives: [],
-            }
-          : null,
-        extraction.currentLocation
-          ? {
-              target: { section: "location" as const, key: "currentLocation", recordId: null },
-              label: "Current location",
-              value: extraction.currentLocation,
-              normalizedValue: extraction.currentLocation,
-              valuePreview: extraction.currentLocation,
-              evidenceText: extraction.currentLocation,
-              sourceBlockIds: [],
-              confidence: 0.99,
-              notes: [],
-              alternatives: [],
-            }
-          : null,
-        extraction.email
-          ? {
-              target: { section: "contact" as const, key: "email", recordId: null },
-              label: "Email",
-              value: extraction.email,
-              normalizedValue: extraction.email,
-              valuePreview: extraction.email,
-              evidenceText: extraction.email,
-              sourceBlockIds: [],
-              confidence: 0.96,
-              notes: [],
-              alternatives: [],
-            }
-          : null,
-        extraction.phone
-          ? {
-              target: { section: "contact" as const, key: "phone", recordId: null },
-              label: "Phone",
-              value: extraction.phone,
-              normalizedValue: extraction.phone,
-              valuePreview: extraction.phone,
-              evidenceText: extraction.phone,
-              sourceBlockIds: [],
-              confidence: 0.94,
-              notes: [],
-              alternatives: [],
-            }
-          : null,
-        extraction.salaryCurrency
-          ? {
-              target: { section: "search_preferences" as const, key: "salaryCurrency", recordId: null },
-              label: "Salary currency",
-              value: extraction.salaryCurrency,
-              normalizedValue: extraction.salaryCurrency,
-              valuePreview: extraction.salaryCurrency,
-              evidenceText: extraction.salaryCurrency,
-              sourceBlockIds: [],
-              confidence: 0.95,
-              notes: [],
-              alternatives: [],
-            }
-          : null,
-      ].filter(Boolean)
+      const candidates: StageCandidates = [];
+
+      if (extraction.fullName) {
+        candidates.push({
+          target: { section: "identity" as const, key: "fullName", recordId: null },
+          label: "Full name",
+          value: extraction.fullName,
+          normalizedValue: extraction.fullName,
+          valuePreview: extraction.fullName,
+          evidenceText: extraction.fullName,
+          sourceBlockIds: [],
+          confidence: 0.95,
+          notes: [],
+          alternatives: [],
+        });
+      }
+
+      if (extraction.headline) {
+        candidates.push({
+          target: { section: "identity" as const, key: "headline", recordId: null },
+          label: "Headline",
+          value: extraction.headline,
+          normalizedValue: extraction.headline,
+          valuePreview: extraction.headline,
+          evidenceText: extraction.headline,
+          sourceBlockIds: [],
+          confidence: 0.9,
+          notes: [],
+          alternatives: [],
+        });
+      }
+
+      if (extraction.summary) {
+        candidates.push({
+          target: { section: "identity" as const, key: "summary", recordId: null },
+          label: "Summary",
+          value: extraction.summary,
+          normalizedValue: extraction.summary,
+          valuePreview: extraction.summary,
+          evidenceText: extraction.summary,
+          sourceBlockIds: [],
+          confidence: 0.84,
+          notes: [],
+          alternatives: [],
+        });
+      }
+
+      if (extraction.currentLocation) {
+        candidates.push({
+          target: { section: "location" as const, key: "currentLocation", recordId: null },
+          label: "Current location",
+          value: extraction.currentLocation,
+          normalizedValue: extraction.currentLocation,
+          valuePreview: extraction.currentLocation,
+          evidenceText: extraction.currentLocation,
+          sourceBlockIds: [],
+          confidence: 0.99,
+          notes: [],
+          alternatives: [],
+        });
+      }
+
+      if (extraction.email) {
+        candidates.push({
+          target: { section: "contact" as const, key: "email", recordId: null },
+          label: "Email",
+          value: extraction.email,
+          normalizedValue: extraction.email,
+          valuePreview: extraction.email,
+          evidenceText: extraction.email,
+          sourceBlockIds: [],
+          confidence: 0.96,
+          notes: [],
+          alternatives: [],
+        });
+      }
+
+      if (extraction.phone) {
+        candidates.push({
+          target: { section: "contact" as const, key: "phone", recordId: null },
+          label: "Phone",
+          value: extraction.phone,
+          normalizedValue: extraction.phone,
+          valuePreview: extraction.phone,
+          evidenceText: extraction.phone,
+          sourceBlockIds: [],
+          confidence: 0.94,
+          notes: [],
+          alternatives: [],
+        });
+      }
+
+      if (extraction.salaryCurrency) {
+        candidates.push({
+          target: {
+            section: "search_preferences" as const,
+            key: "salaryCurrency",
+            recordId: null,
+          },
+          label: "Salary currency",
+          value: extraction.salaryCurrency,
+          normalizedValue: extraction.salaryCurrency,
+          valuePreview: extraction.salaryCurrency,
+          evidenceText: extraction.salaryCurrency,
+          sourceBlockIds: [],
+          confidence: 0.95,
+          notes: [],
+          alternatives: [],
+        });
+      }
+
+      return groundCandidatesToBundle(documentBundle, candidates);
     }
 
     if (stage === "experience") {
-      return extraction.experiences.map((entry, index) => ({
+      const candidates: StageCandidates = extraction.experiences.map((entry, index) => ({
         target: { section: "experience" as const, key: "record", recordId: `experience_${index + 1}` },
         label: entry.title ?? `Experience ${index + 1}`,
         value: entry,
@@ -393,11 +473,13 @@ export function createExtractionAiClient(
         confidence: 0.85,
         notes: [],
         alternatives: [],
-      }))
+      }));
+
+      return groundCandidatesToBundle(documentBundle, candidates);
     }
 
     if (stage === "background") {
-      return [
+      const candidates: StageCandidates = [
         ...extraction.links.map((entry, index) => ({
           target: { section: "link" as const, key: "record", recordId: `link_${index + 1}` },
           label: entry.label ?? `Link ${index + 1}`,
@@ -434,20 +516,22 @@ export function createExtractionAiClient(
           notes: [],
           alternatives: [],
         })),
-      ]
+      ];
+
+      return groundCandidatesToBundle(documentBundle, candidates);
     }
 
-    return []
+    return [];
   }
 
   return {
     ...fallbackClient,
     extractProfileFromResume: () => Promise.resolve(extraction),
-    extractResumeImportStage: async (input) => ({
+    extractResumeImportStage: (input) => Promise.resolve({
       stage: input.stage,
       analysisProviderKind: extraction.analysisProviderKind,
       analysisProviderLabel: extraction.analysisProviderLabel,
-      candidates: buildStageCandidates(input.stage),
+      candidates: buildStageCandidates(input.stage, input.documentBundle),
       notes: extraction.notes,
     }),
   };
