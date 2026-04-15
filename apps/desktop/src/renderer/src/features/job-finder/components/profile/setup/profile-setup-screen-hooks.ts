@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useFieldArray, useForm } from 'react-hook-form'
+import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 import type {
   CandidateProfile,
   JobSearchPreferences,
@@ -55,15 +55,91 @@ export function useProfileSetupForms(input: {
     projectArray,
   }
 
-  const currentProfileValues = profileForm.watch()
-  const currentPreferenceValues = preferencesForm.watch()
-  const draftProfileResult = buildProfilePayload(
-    currentProfileBaseline,
-    currentProfileValues,
+  const [identityValues, summaryValues, narrativeValues, skillGroupValues, profileSkillValues, eligibilityValues, applicationIdentityValues, answerBankValues, experienceValues, educationValues, certificationValues, projectValues, linkValues, languageValues, proofBankValues] = useWatch({
+    control: profileForm.control,
+    name: [
+      'identity',
+      'summary',
+      'narrative',
+      'skillGroups',
+      'profileSkills',
+      'eligibility',
+      'applicationIdentity',
+      'answerBank',
+      'records.experiences',
+      'records.education',
+      'records.certifications',
+      'projects',
+      'links',
+      'languages',
+      'proofBank',
+    ],
+  })
+  const [targetRoles, jobFamilies, seniorityLevels, employmentTypes, locations, excludedLocations, targetIndustries, targetCompanyStages, companyWhitelist, companyBlacklist, workModes, tailoringMode, minimumSalaryUsd, targetSalaryUsd, salaryCurrency, discoveryTargets] = useWatch({
+    control: preferencesForm.control,
+    name: [
+      'targetRoles',
+      'jobFamilies',
+      'seniorityLevels',
+      'employmentTypes',
+      'locations',
+      'excludedLocations',
+      'targetIndustries',
+      'targetCompanyStages',
+      'companyWhitelist',
+      'companyBlacklist',
+      'workModes',
+      'tailoringMode',
+      'minimumSalaryUsd',
+      'targetSalaryUsd',
+      'salaryCurrency',
+      'discoveryTargets',
+    ],
+  })
+  const draftProfileResult = useMemo(
+    () => buildProfilePayload(currentProfileBaseline, profileForm.getValues()),
+    [
+      applicationIdentityValues,
+      answerBankValues,
+      certificationValues,
+      currentProfileBaseline,
+      educationValues,
+      eligibilityValues,
+      experienceValues,
+      identityValues,
+      languageValues,
+      linkValues,
+      narrativeValues,
+      profileForm,
+      profileSkillValues,
+      proofBankValues,
+      projectValues,
+      skillGroupValues,
+      summaryValues,
+    ],
   )
-  const draftPreferencesResult = buildSearchPreferencesPayload(
-    currentSearchPreferencesBaseline,
-    currentPreferenceValues,
+  const draftPreferencesResult = useMemo(
+    () => buildSearchPreferencesPayload(currentSearchPreferencesBaseline, preferencesForm.getValues()),
+    [
+      companyBlacklist,
+      companyWhitelist,
+      currentSearchPreferencesBaseline,
+      discoveryTargets,
+      employmentTypes,
+      excludedLocations,
+      jobFamilies,
+      locations,
+      minimumSalaryUsd,
+      preferencesForm,
+      salaryCurrency,
+      seniorityLevels,
+      tailoringMode,
+      targetCompanyStages,
+      targetIndustries,
+      targetRoles,
+      targetSalaryUsd,
+      workModes,
+    ],
   )
   const draftProfile = draftProfileResult.payload ?? currentProfileBaseline
   const draftSearchPreferences =

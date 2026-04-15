@@ -457,11 +457,11 @@ strong {
 }
 
 .job-finder-shell-grid {
-  grid-template-columns: var(--job-finder-side-width) minmax(0, 1fr) var(--job-finder-side-width);
+  grid-template-columns: var(--job-finder-side-width) minmax(0, 1fr) auto;
 }
 
 @media (min-width: 640px) {
   .job-finder-shell-grid {
-    grid-template-columns: var(--job-finder-side-width-sm) minmax(0, 1fr) var(--job-finder-side-width-sm);
+    grid-template-columns: var(--job-finder-side-width-sm) minmax(0, 1fr) auto;
   }
 }

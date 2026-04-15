@@ -8,6 +8,30 @@ import {
 } from "@unemployed/contracts";
 import { normalizeText, uniqueStrings } from "./shared";
 
+const KNOWN_COUNTRY_LIKE_LOCATION_PARTS = new Set([
+  "kosovo",
+  "albania",
+  "germany",
+  "france",
+  "italy",
+  "spain",
+  "portugal",
+  "netherlands",
+  "belgium",
+  "switzerland",
+  "austria",
+  "uk",
+  "united kingdom",
+  "england",
+  "usa",
+  "united states",
+  "canada",
+  "australia",
+  "japan",
+  "india",
+  "singapore",
+]);
+
 export function buildTailoredResumeText(
   profile: CandidateProfile,
   job: SavedJob,
@@ -123,30 +147,6 @@ export function parseLocationParts(location: string | null | undefined): {
   currentRegion: string | null;
   currentCountry: string | null;
 } {
-  const knownCountryLikeParts = new Set([
-    "kosovo",
-    "albania",
-    "germany",
-    "france",
-    "italy",
-    "spain",
-    "portugal",
-    "netherlands",
-    "belgium",
-    "switzerland",
-    "austria",
-    "uk",
-    "united kingdom",
-    "england",
-    "usa",
-    "united states",
-    "canada",
-    "australia",
-    "japan",
-    "india",
-    "singapore",
-  ]);
-
   if (!location) {
     return {
       currentCity: null,
@@ -179,7 +179,7 @@ export function parseLocationParts(location: string | null | undefined): {
   if (parts.length === 2) {
     const normalizedSecondPart = parts[1]?.toLowerCase() ?? "";
 
-    if (knownCountryLikeParts.has(normalizedSecondPart)) {
+    if (KNOWN_COUNTRY_LIKE_LOCATION_PARTS.has(normalizedSecondPart)) {
       return {
         currentCity: parts[0] ?? null,
         currentRegion: null,

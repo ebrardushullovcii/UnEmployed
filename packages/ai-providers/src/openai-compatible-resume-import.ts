@@ -180,7 +180,7 @@ function buildStageInstructions(stage: ExtractResumeImportStageInput["stage"]): 
         "Return only conservative shared-memory suggestions.",
         "Valid target sections: narrative, proof_point, answer_bank, application_identity.",
         "Never invent sensitive facts such as work authorization, sponsorship, relocation, notice period, availability, or salary expectations.",
-        "For application_identity, prefer keys preferredEmail, preferredPhone, or preferredLinkUrls.",
+        "For application_identity, prefer keys preferredEmail, preferredPhone, or preferredLinkIds.",
         "For proof_point records, use value objects with title, claim, heroMetric, supportingContext, roleFamilies, projectIds, and linkIds.",
         "Prefer concise reusable narratives grounded in multiple resume lines over clipped fragments from a single wrapped sentence.",
       ].join(" ");

@@ -65,7 +65,7 @@ export function useProfileScreenForms(input: {
       'proofBank',
     ],
   })
-  const [targetRoles, jobFamilies, seniorityLevels, employmentTypes, locations, excludedLocations, targetIndustries, targetCompanyStages, companyWhitelist, companyBlacklist, workModes, tailoringMode, minimumSalaryUsd, targetSalaryUsd] = useWatch({
+  const [targetRoles, jobFamilies, seniorityLevels, employmentTypes, locations, excludedLocations, targetIndustries, targetCompanyStages, companyWhitelist, companyBlacklist, workModes, tailoringMode, minimumSalaryUsd, targetSalaryUsd, salaryCurrency, discoveryTargets] = useWatch({
     control: preferencesForm.control,
     name: [
       'targetRoles',
@@ -82,18 +82,54 @@ export function useProfileScreenForms(input: {
       'tailoringMode',
       'minimumSalaryUsd',
       'targetSalaryUsd',
+      'salaryCurrency',
+      'discoveryTargets',
     ],
   })
-
-  const currentProfileValues = profileForm.watch()
-  const currentPreferenceValues = preferencesForm.watch()
-  const draftProfileResult = buildProfilePayload(
-    currentProfileBaseline,
-    currentProfileValues,
+  const draftProfileResult = useMemo(
+    () => buildProfilePayload(currentProfileBaseline, profileForm.getValues()),
+    [
+      applicationIdentityValues,
+      answerBankValues,
+      certificationValues,
+      currentProfileBaseline,
+      educationValues,
+      eligibilityValues,
+      experienceValues,
+      identityValues,
+      languageValues,
+      linkValues,
+      narrativeValues,
+      profileForm,
+      profileSkillValues,
+      proofBankValues,
+      projectValues,
+      skillGroupValues,
+      summaryValues,
+    ],
   )
-  const draftSearchPreferencesResult = buildSearchPreferencesPayload(
-    currentSearchPreferencesBaseline,
-    currentPreferenceValues,
+  const draftSearchPreferencesResult = useMemo(
+    () => buildSearchPreferencesPayload(currentSearchPreferencesBaseline, preferencesForm.getValues()),
+    [
+      companyBlacklist,
+      companyWhitelist,
+      currentSearchPreferencesBaseline,
+      discoveryTargets,
+      employmentTypes,
+      excludedLocations,
+      jobFamilies,
+      locations,
+      minimumSalaryUsd,
+      preferencesForm,
+      salaryCurrency,
+      seniorityLevels,
+      tailoringMode,
+      targetCompanyStages,
+      targetIndustries,
+      targetRoles,
+      targetSalaryUsd,
+      workModes,
+    ],
   )
 
   useEffect(() => {

@@ -48,7 +48,7 @@ Use one track per meaningful workstream, not per person or per chat.
 ### `Plan 018 Resume Import And Extraction Reliability`
 
 - status: `done`
-- last updated: `2026-04-10`
+- last updated: `2026-04-09`
 - linked plan: `docs/exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md`
 - plan maturity: `completed`
 - code areas: `apps/desktop`, `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/ai-providers`, `docs`

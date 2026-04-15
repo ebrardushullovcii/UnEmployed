@@ -1,8 +1,9 @@
 import type { AppearanceTheme } from '@unemployed/contracts'
+import { SYSTEM_THEME_CHANGE_EVENT } from '../../../shared/system-theme'
 
 export const STORAGE_KEY = 'unemployed.appearance-theme'
 export const DARK_QUERY = '(prefers-color-scheme: dark)'
-export const SYSTEM_THEME_CHANGE_EVENT = 'unemployed:system-theme-change'
+export { SYSTEM_THEME_CHANGE_EVENT }
 
 export type ResolvedTheme = 'dark' | 'light'
 

@@ -23,6 +23,7 @@ import type {
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
 } from "@unemployed/contracts";
+import { SYSTEM_THEME_CHANGE_EVENT } from "../shared/system-theme";
 
 let activeAgentDiscoveryRequestId: string | null = null;
 let activeSourceDebugRequestId: string | null = null;
@@ -35,7 +36,6 @@ const configuredSystemThemeOverride =
   process.env.UNEMPLOYED_TEST_SYSTEM_THEME === "light"
     ? process.env.UNEMPLOYED_TEST_SYSTEM_THEME
     : null;
-const SYSTEM_THEME_CHANGE_EVENT = "unemployed:system-theme-change";
 let currentSystemThemeOverride: "dark" | "light" | null =
   configuredSystemThemeOverride;
 

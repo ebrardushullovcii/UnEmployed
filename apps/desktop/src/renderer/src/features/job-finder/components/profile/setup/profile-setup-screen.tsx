@@ -210,28 +210,28 @@ export function ProfileSetupScreen(props: {
             <ProfileSetupStepEditor
               backgroundArrays={backgroundArrays}
               busy={busy}
-            currentStepReviewItems={currentStepReviewItems}
-            currentStep={profileSetupState.currentStep}
-            experienceArray={experienceArray}
-            draftProfile={draftProfile}
-            draftSearchPreferences={draftSearchPreferences}
-            focusedReviewItemId={focusedReviewItemId}
+              currentStepReviewItems={currentStepReviewItems}
+              currentStep={profileSetupState.currentStep}
+              experienceArray={experienceArray}
+              draftProfile={draftProfile}
+              draftSearchPreferences={draftSearchPreferences}
+              focusedReviewItemId={focusedReviewItemId}
               focusedReviewRequestKey={focusedReviewRequestKey}
               hasUnsavedChanges={hasUnsavedChanges}
               importDisabledReason={importResumeGuardMessage ?? null}
               latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
-            onContinueToProfile={onContinueToProfile}
-            onImportResume={onImportResume}
-            onSaveCurrentStep={handleSaveCurrentStep}
-            onSaveAndFinish={() => handleSaveStep('ready_check', { openProfile: true })}
-            onSaveAndGoToStep={(step) => handleSaveStep(step)}
-            profile={profile}
-            profileForm={profileForm}
-            profileSetupReviewItems={draftAwareReviewItems}
-            preferencesForm={preferencesForm}
-            searchPreferences={searchPreferences}
-            validationMessage={validationMessage}
-          />
+              onContinueToProfile={onContinueToProfile}
+              onImportResume={onImportResume}
+              onSaveCurrentStep={handleSaveCurrentStep}
+              onSaveAndFinish={() => handleSaveStep('ready_check', { openProfile: true })}
+              onSaveAndGoToStep={(step) => handleSaveStep(step)}
+              profile={profile}
+              profileForm={profileForm}
+              profileSetupReviewItems={draftAwareReviewItems}
+              preferencesForm={preferencesForm}
+              searchPreferences={searchPreferences}
+              validationMessage={validationMessage}
+            />
         </div>
 
         <div className="flex h-full min-h-0 flex-col gap-6">

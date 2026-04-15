@@ -265,7 +265,17 @@ export async function extractMacOsPdfDocumentBundle(
   input: ExtractResumeDocumentInput,
   request: ResumeParserWorkerRequest,
 ): Promise<ResumeDocumentBundle> {
-  const macOsBundle = await extractPdfDocumentBundleWithMacOs(filePath, input)
+  let macOsBundle: ResumeDocumentBundle
+
+  try {
+    macOsBundle = await extractPdfDocumentBundleWithMacOs(filePath, input)
+  } catch (error) {
+    console.warn(
+      `[ResumeImport] macOS native PDF parser unavailable, so the embedded PDF.js parser was used: ${error instanceof Error ? error.message : 'unknown error'}`,
+    )
+    return extractPdfDocumentBundleWithPdfJs(filePath, input, request)
+  }
+
   const pages = macOsBundle.pages.map((page) => ({
     ...page,
     routeKind: request.preferredRoute ?? 'native_first',

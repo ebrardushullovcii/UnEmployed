@@ -4,6 +4,7 @@ import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
 import { formatOptionalDateOnly, formatStatusLabel, getApplicationTone } from '../../lib/job-finder-utils'
+import { formatNormalizedCompensation } from '../../lib/normalized-compensation'
 
 interface DiscoveryDetailPanelProps {
   busy: boolean
@@ -11,21 +12,6 @@ interface DiscoveryDetailPanelProps {
   onDismissJob: (jobId: string) => void
   onQueueJob: (jobId: string) => void
   selectedJob: SavedJob | null
-}
-
-function formatNormalizedCompensation(job: SavedJob): string | null {
-  const compensation = job.normalizedCompensation
-
-  if (compensation.minAmount === null && compensation.maxAmount === null) {
-    return null
-  }
-
-  const currencyPrefix = compensation.currency ? `${compensation.currency} ` : ''
-  const interval = compensation.interval ? ` / ${compensation.interval}` : ''
-  const min = compensation.minAmount !== null ? `${currencyPrefix}${compensation.minAmount.toLocaleString()}` : null
-  const max = compensation.maxAmount !== null ? `${currencyPrefix}${compensation.maxAmount.toLocaleString()}` : null
-
-  return [min, max].filter(Boolean).join(' – ') + interval
 }
 
 export function DiscoveryDetailPanel({
@@ -36,7 +22,7 @@ export function DiscoveryDetailPanel({
   selectedJob
 }: DiscoveryDetailPanelProps) {
   const discoveryTargetLabels = new Map(discoveryTargets.map((target) => [target.id, target.label]))
-  const normalizedCompensation = selectedJob ? formatNormalizedCompensation(selectedJob) : null
+  const normalizedCompensation = formatNormalizedCompensation(selectedJob?.normalizedCompensation)
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">

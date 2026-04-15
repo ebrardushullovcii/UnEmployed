@@ -33,15 +33,24 @@ export function getLatestApplicationAttempt(
     workspace.applicationRecords[0] ??
     null
 
-  const selectedApplicationAttempt = selectedApplicationRecord
-    ? ([...workspace.applicationAttempts]
-        .filter((attempt) => attempt.jobId === selectedApplicationRecord.jobId)
-        .sort(
-          (left, right) =>
-            new Date(right.updatedAt).getTime() -
-            new Date(left.updatedAt).getTime(),
-        )[0] ?? null)
-    : null
+  let selectedApplicationAttempt = null
+
+  if (selectedApplicationRecord) {
+    let latestUpdatedAt = Number.NEGATIVE_INFINITY
+
+    for (const attempt of workspace.applicationAttempts) {
+      if (attempt.jobId !== selectedApplicationRecord.jobId) {
+        continue
+      }
+
+      const updatedAt = new Date(attempt.updatedAt).getTime()
+
+      if (updatedAt > latestUpdatedAt) {
+        latestUpdatedAt = updatedAt
+        selectedApplicationAttempt = attempt
+      }
+    }
+  }
 
   return {
     selectedApplicationAttempt,
