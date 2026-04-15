@@ -53,6 +53,13 @@ async function writeJson(fileName, value) {
   await writeFile(path.join(outputDir, fileName), `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
+async function waitForProfileOrSetupHeading(window) {
+  await window.waitForFunction(() => {
+    const heading = document.querySelector('h1')
+    return heading?.textContent?.includes('Guided setup') || heading?.textContent?.includes('Your profile')
+  }, undefined, { timeout: 15000 })
+}
+
 async function captureResumeImport() {
   await mkdir(outputDir, { recursive: true })
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-import-'))
@@ -63,6 +70,7 @@ async function captureResumeImport() {
     env: {
       ...process.env,
       UNEMPLOYED_ENABLE_TEST_API: '1',
+      UNEMPLOYED_TEST_SYSTEM_THEME: process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark',
       UNEMPLOYED_USER_DATA_DIR: userDataDirectory
     }
   })
@@ -70,8 +78,12 @@ async function captureResumeImport() {
   try {
     const window = await app.firstWindow()
 
+    await window.evaluate(async (theme) => {
+      await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
+    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
+
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await waitForProfileOrSetupHeading(window)
     await window.setViewportSize({ width: 1440, height: 920 })
 
     const beforeImport = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
@@ -98,15 +110,44 @@ async function captureResumeImport() {
 
     await window.reload()
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await waitForProfileOrSetupHeading(window)
+
+    const headingText = (await window.locator('h1').first().textContent())?.trim() ?? ''
+    if (headingText !== 'Your profile') {
+      await window.getByRole('button', { name: /^Profile$/ }).click()
+      await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
+    }
 
     const reloadedSnapshot = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
     failIfExpectationMisses(reloadedSnapshot)
     await writeJson('workspace-after-reload.json', reloadedSnapshot)
 
+    await window.getByRole('tab', { name: /Experience/i }).click()
+    await window.getByRole('heading', { level: 2, name: 'Work history' }).waitFor({ timeout: 15000 })
+
+    const visibleExperienceCards = await window.evaluate(() => {
+      const summaries = Array.from(document.querySelectorAll('details summary'))
+      return summaries
+        .map((summary) => {
+          const title = summary.querySelector('span > span')
+          return title?.textContent?.trim() ?? null
+        })
+        .filter(Boolean)
+    })
+
+    await writeJson('experience-tab-review.json', {
+      count: visibleExperienceCards.length,
+      titles: visibleExperienceCards
+    })
+
     await window.screenshot({
       animations: 'disabled',
       path: path.join(outputDir, 'profile-after-import.png')
+    })
+
+    await window.screenshot({
+      animations: 'disabled',
+      path: path.join(outputDir, 'profile-experience-after-import.png')
     })
 
     await writeJson('resume-import-report.json', {
@@ -129,7 +170,8 @@ async function captureResumeImport() {
         summary: reloadedSnapshot.profile.summary,
         resumeFileName: reloadedSnapshot.profile.baseResume.fileName,
         extractionStatus: reloadedSnapshot.profile.baseResume.extractionStatus,
-        analysisWarnings: reloadedSnapshot.profile.baseResume.analysisWarnings
+        analysisWarnings: reloadedSnapshot.profile.baseResume.analysisWarnings,
+        visibleExperienceCards
       }
     })
 

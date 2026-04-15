@@ -1,6 +1,6 @@
 # 011 Job Finder Shared Data Expansion
 
-Status: ready
+Status: completed
 
 Plan `011` is the first queued foundation slice. The earlier note captured the right direction, but it was still too abstract to execute cleanly. This version turns it into an implementation-ready plan grounded in the current schema, repository, and UI roots that already exist in the repo.
 
@@ -477,6 +477,27 @@ Additional completion rules:
 - leave behind the field-to-consumer map in the updated plan or implementation notes
 - document any new table or top-level store as an explicit exception, not an implicit drift
 - leave behind a seeded demo or screenshot path proving that the new profile data is editable, saved-job enrichment is visible, and application detail can show structured blocker or question memory
+
+## Implementation Notes (2026-04-09)
+
+Delivered without introducing a new top-level store or SQLite table. The completed slice extends the existing durable roots and keeps source-debug evidence linked by reference instead of copied into a second artifact system.
+
+### Final field-to-consumer map
+
+- `CandidateProfile.narrative` -> consumed by `Profile` editing, resume evidence gathering, resume workspace shared-profile summaries, and resume staleness checks
+- `CandidateProfile.proofBank` -> consumed by `Profile` editing, resume evidence gathering, resume workspace shared-profile summaries, and future apply answer provenance hooks
+- `CandidateProfile.answerBank` -> consumed by `Profile` editing, deterministic apply question suggestions, and guided follow-on collection work in `012`
+- `CandidateProfile.applicationIdentity` -> consumed by `Profile` editing, deterministic apply link/contact defaults, and resume workspace shared-profile summaries
+- `SavedJob.applicationUrl`, freshness timestamps, normalized compensation, screening hints, `atsProvider`, and `keywordSignals` -> consumed by discovery merge and persistence, discovery detail UI, resume workspace job-context UI, resume evidence gathering, and resume/job staleness checks
+- `ApplicationAttempt.questions`, `blocker`, `consentDecisions`, and `replay` -> consumed by apply persistence, `Applications` detail UI, and application-record rollups
+- `ApplicationRecord.questionSummary`, `latestBlocker`, `consentSummary`, and `replaySummary` -> consumed by renderer-friendly `Applications` detail summaries without flattening the full attempt artifact into the list layer
+- `ApplicationAttempt.replay.sourceInstructionArtifactId` plus `sourceDebugEvidenceRefIds` -> consumed by apply-memory persistence so attempts can point back to the source-debug instruction and evidence lineage that informed the run
+
+### Evidence paths used during completion
+
+- Profile baseline fixture: `apps/desktop/test-fixtures/job-finder/profile-baseline-workspace.json`
+- Profile UI capture command: `pnpm --filter @unemployed/desktop ui:profile-baseline`
+- Resume workspace demo command: `pnpm --filter @unemployed/desktop ui:resume-workspace`
 
 ## Open Questions To Defer Unless They Block Delivery
 

@@ -25,7 +25,9 @@ Use one track per meaningful workstream, not per person or per chat.
 ### Recommended Execution Bundles
 
 - `011 Shared Data Expansion` -> first foundation pass so later setup, discovery, resume, and apply work stop inventing parallel memory
-- `012 Guided Setup And Profile Copilot` -> turns the new `011` roots into a real first-run experience and captures the discovery/apply details the app is currently missing
+- `018 Resume Import And Extraction Reliability` -> completed missing `011` part 2; now turns raw resume import into a local document-understanding pipeline with parser routing, evidence-backed field candidates, and reviewable canonical merges
+- `019 World-Class Resume Import` -> pulled-forward importer-quality rebuild that preserves the `018` substrate but replaces the text-first parser core with a benchmarked local executor architecture, richer document IR, cross-platform sidecar packaging, and composite confidence before any future remote fallback discussion
+- `012 Guided Setup And Profile Copilot` -> turns the new `011` roots plus `018` extraction candidates into a real first-run experience and captures the discovery/apply details the app is currently missing
 - `013 Source Intelligence And Faster Discovery` -> merged source-debug plus discovery workstream; typed source intelligence first, then provider-aware per-target and run-all discovery, richer job persistence, seen/applied dedupe, and browser closeout improvements
 - `014 Resume Content Correctness And Output Quality` -> after stronger profile and job inputs exist; focus first on usable content, editability, and ATS-safe output, not template variety
 - `015 Automatic Job Apply` -> final major product workstream after the stronger data, setup, discovery, and resume foundations exist
@@ -34,25 +36,63 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `Plan 011 Job Finder Shared Data Expansion`
 
-- status: `ready`
+- status: `done`
 - last updated: `2026-04-09`
-- linked plan: `docs/exec-plans/queued/011-job-finder-shared-data-expansion.md`
-- plan maturity: `execution_ready`
+- linked plan: `docs/exec-plans/completed/011-job-finder-shared-data-expansion.md`
+- plan maturity: `completed`
 - code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `apps/desktop`, `docs`
-- current focus: queued first foundation pass now grounded in the current `CandidateProfile`, `SavedJob`, `ApplicationAttempt`, and source-debug evidence roots so later discovery, resume, and apply work reuse durable shared data instead of inventing parallel stores, including reusable screener defaults such as compensation, availability, relocation, sponsorship, and short career-transition explanations
-- next step: start with the field-to-consumer audit in the plan, extend `CandidateProfile` for narrative and proof and answer defaults, extend `SavedJob` for richer job context, extend `ApplicationAttempt` for question and blocker and replay memory, and only introduce a new collection if JSON-shape expansion inside those roots proves insufficient
+- current focus: completed shared-data baseline across `CandidateProfile`, `SavedJob`, `ApplicationAttempt`, and source-debug links so later setup, discovery, resume, and apply work reuse durable shared roots for narrative, proof, reusable answers, enriched job context, blocker summaries, consent history, and replay memory instead of inventing parallel stores
+- next step: reuse the completed `011` roots while starting `012` guided setup and profile copilot so the richer fields become easier to collect and maintain in normal product flows
 - blockers: none
+
+### `Plan 018 Resume Import And Extraction Reliability`
+
+- status: `done`
+- last updated: `2026-04-09`
+- linked plan: `docs/exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md`
+- plan maturity: `completed`
+- code areas: `apps/desktop`, `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/ai-providers`, `docs`
+- current focus: completed missing `011` part 2 with persisted import runs, canonical document bundles, field candidates, staged model extraction, safe auto-apply rules, workspace-visible unresolved review candidates, and stronger desktop parser routing including macOS-native PDF and DOCX paths
+- next step: build `012` guided setup and profile copilot directly on top of the retained `018` run and candidate substrate instead of inventing a second temporary review model
+- blockers: none
+
+### `Plan 019 Job Finder World-Class Resume Import`
+
+- status: `handoff`
+- last updated: `2026-04-15`
+- linked plan: `docs/exec-plans/active/019-job-finder-world-class-resume-import.md`
+- plan maturity: `execution_ready`
+- code areas: `apps/desktop`, `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/ai-providers`, `docs`
+- current focus: the local parser-executor seam now includes a spawned Python sidecar fallback path, the desktop benchmark harness is runnable, scripted desktop test flows force deterministic AI for stable QA, and local desktop builds now prepare a bundled native sidecar artifact for the current host platform so resume import no longer depends on ambient Python PDF packages during normal local use
+- next step: keep `019` active by producing and validating the bundled native sidecar artifact on each supported desktop release platform, then continue parser-routing and packaging work against the now-aligned retained benchmark corpus
+- additional note: current `019` hardening now widens sidecar DOCX extraction to include tables plus headers/footers, falls back to the embedded DOCX parser when sidecar output is suspiciously thin, and renames the host-aware packaging helper to `prepare:resume-parser-sidecar:matrix`
+- additional note: benchmark reports for `019` now preserve mixed parser-manifest evidence via both `parserManifestVersion` and `parserManifestVersions`, so retained corpus QA still shows which manifests actually ran when one replay spans embedded and sidecar routes
+- additional note: the latest 2026-04-15 follow-up also makes successful import finalization atomic across canonical profile/search-preference writes and retained import artifacts, with matching file-backed plus in-memory repository coverage
+- additional note: the same 2026-04-15 follow-up now also assigns a fresh stored document-bundle id to every import run, including resume refreshes from stored text, so retained bundle history is no longer overwritten when later runs reuse the same source resume
+- blockers: none, but it should run ahead of deeper `012` and `014` dependence on imported profile quality if resume import remains the current quality bottleneck
 
 ### `Plan 012 Guided Setup And Profile Copilot`
 
-- status: `ready`
-- last updated: `2026-04-09`
-- linked plan: `docs/exec-plans/queued/012-job-finder-guided-setup-and-profile-copilot.md`
+- status: `handoff`
+- last updated: `2026-04-15`
+- linked plan: `docs/exec-plans/active/012-job-finder-guided-setup-and-profile-copilot.md`
 - plan maturity: `execution_ready`
 - code areas: `apps/desktop`, `packages/job-finder`, `packages/contracts`, `packages/db`, `packages/ai-providers`
-- current focus: queued second foundation pass to turn broad first-run profile editing into a concrete guided setup route with resumable setup state, low-confidence review items, readiness checks, discovery/apply-relevant prompts, and a bounded side copilot that applies typed profile patch groups on top of the richer `011` data roots
-- next step: start Milestone 1 after the `011` contract roots are clear enough to avoid temporary setup-only storage, then land setup-state contracts, migration defaults, and the `/job-finder/profile/setup` route before widening the side-copilot behavior; the early capture steps should explicitly cover compensation expectations, work authorization, sponsorship, relocation or travel, availability, and short career-transition explanations instead of leaving them to later screeners
-- blockers: best started after the initial `011` schema direction is clear enough that setup and chat edits target durable fields instead of temporary shapes
+- current focus: milestone two now extends the landed setup route by deriving durable `profileSetupState.reviewItems` from unresolved resume-import candidates, preserving resolved states across refreshes, keeping explicit in-progress setup navigation stable even after readiness improves, surfacing the current step's pending review work, shipping direct review-item edit jumps with direct field focus or record reopen behavior across essentials plus nested setup records, keeping Profile Copilot as a floating expandable chat with optimistic sends and starter questions, fixing the explicit-save portfolio URL resolution bug, preserving semantic imported record ids through renderer field arrays, teaching deterministic copilot setup edits to handle practical years-of-experience changes plus richer Preferences requests including multi-edit prompts, expected salary, preferred work mode, and job-source additions such as `KosovaJob`, hiding invalid clear-value actions for non-nullable years-of-experience review items, aligning fresh-start years-of-experience readiness and preload semantics around the existing `0` sentinel, returning grounded no-op feedback when requested sources already exist, re-enabling disabled saved sources instead of duplicating them, forcing discovery-target and other list-heavy search-preference rewrites through explicit review instead of broad auto-apply, removing stale `Last action` footer copy, keeping the floating bubble toggle-plus-drag behavior clear of the Profile save area, mirroring setup's unsaved-draft copilot send/apply/reject/undo guard on the full `Profile` screen, and keeping the shared composer editable while replies are pending while the refreshed desktop setup harness plus the Preferences copilot capture stay green through essentials draft/save truth, bounded copilot years-of-experience proof, background edit-jump proof, reviewed source-apply proof, blocked full-Profile mutation proof, compact recent-changes tray toggling, and full ready-check completion
+- next step: treat the visual QA pass as complete and closed, then keep `012` in handoff mode while later work focuses on downstream `013` discovery improvements or any future setup polish that emerges from new product work
+- additional note: the latest perfection pass cleaned developer-speak copy from setup, replaced camelCase field keys with human labels in revision summaries, completed the `profile-setup-screen-helpers` file split, and renamed `listResumeDraftValues` to `listCollectionValues`; `pnpm verify` passes clean
+- additional note: the same `012` continuation now also renders markdown-like assistant transcript formatting as structured chat content instead of raw `.md`, and the Preferences capture harness records a dedicated markdown transcript screenshot for manual QA
+- additional note: resume import and refresh are now blocked while setup or full-Profile drafts are unsaved so imported workspace updates cannot silently wipe in-progress edits
+- additional note: the floating full-Profile copilot now keeps its open rail above the save footer, the collapsed bubble can be toggled by click or keyboard as well as drag, and the resume panel keeps a visible fallback-quality note when import had to degrade through embedded parsing
+- additional note: fresh-workspace Profile nav now resolves directly to guided setup from the shell instead of briefly rendering the full Profile screen first, while an explicit `Open full Profile` action from setup still bypasses that redirect so users can leave setup early without a bounce
+- additional note: the same 2026-04-15 follow-up also makes Profile Copilot auto-apply persistence atomic across profile/search-preference updates, derived setup state, revision history, and final patch-group status so partial writes cannot leave assistant state inconsistent
+- additional note: a later renderer-only follow-up on 2026-04-15 also keeps setup and full-Profile draft comparisons aligned to the same persisted baseline during prop-driven form resets, preventing transient dirty-state mismatches after workspace updates, and restores explicit typed annotations on the renderer bridge callbacks that forward Profile Copilot and source-debug requests
+- additional note: a later shell cleanup on 2026-04-15 also removes the unused `actionMessage` prop from the top-level `JobFinderShell` wrapper so action-status messaging stays owned by the concrete screens and footers that actually render it
+- note: the current `012` continuation also widened deterministic field coverage so explicit requests can now reach more of the already-supported patch/apply surface across identity, work-eligibility, professional summary, narrative, answer bank, application identity, skill groups, top-level profile skills, and scalar search preferences, while broader list-heavy preference rewrites and approval-mode changes remain review-first
+- final-check note: `apps/desktop/src/renderer/src/features/job-finder/screens/profile-screen.tsx` is now back under the renderer structure warning budget via `screens/profile-screen-hooks.ts`, the full-Profile save footer shows action feedback again, and starter prompts are scoped to the active profile tab instead of unrelated review domains
+- visual-qa note: perfection-level visual QA completed across 80 screenshots in 13 batches with full verdicts in `apps/desktop/test-artifacts/ui/VISUAL-QA-TRACKER.md`; 3 issues found total and all 3 are now fixed, regenerated, and visually re-verified
+- final cleanup note: a 2026-04-15 cleanup round re-ran `pnpm verify`, desktop build, benchmark plus scripted UI captures (`ui:capture` dark + light, `ui:resume-import` TXT + PDF, `ui:profile-baseline`, `ui:profile-setup`, `ui:profile-copilot-preferences`, `ui:resume-workspace`, and `ui:resume-workspace-dirty`) and an independent release-QA pass returned Go-with-risk pending only cross-platform native sidecar packaging proof
+- blockers: best started after the initial `011` schema direction is clear enough that setup and chat edits target durable fields instead of temporary shapes, and materially stronger once `018` leaves behind real candidate-evidence artifacts instead of only warnings
 
 ### `Plan 013 Job Finder Source Intelligence And Faster Discovery`
 
@@ -162,4 +202,5 @@ Use one track per meaningful workstream, not per person or per chat.
 
 - Expand Applications with retry controls and attempt-centric recovery views beyond the shipped filters.
 - Add broader runtime tests for unsupported apply branches, live-browser extraction, and resume-import flows.
-- Improve cleanup and fallback extraction so difficult PDF and DOCX resumes yield cleaner structured text before the agent runs.
+- Keep `019` moving by validating bundled sidecar packaging on each supported desktop release platform and retaining cross-platform benchmark evidence.
+- Extend `012` with any remaining screenshot-polish or import-review targeting work now that the guided setup plus profile-copilot baseline is landed.

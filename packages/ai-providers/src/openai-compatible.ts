@@ -1,4 +1,10 @@
-import { AgentProviderStatusSchema, ResumeDraftPatchSchema, type ToolCall } from "@unemployed/contracts";
+import {
+  AgentProviderStatusSchema,
+  ProfileCopilotReplySchema,
+  ResumeDraftPatchSchema,
+  type ProfileCopilotReply,
+  type ToolCall,
+} from "@unemployed/contracts";
 import {
   JobFitAssessmentSchema,
   OpenAiCompatibleJobFinderAiClientOptionsSchema,
@@ -29,12 +35,26 @@ import {
   buildJobsExtractionPrompt,
   normalizeExtractedJobs,
 } from "./openai-compatible-jobs";
+import { extractOpenAiCompatibleResumeImportStage } from "./openai-compatible-resume-import";
 
 const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
+const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
 const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
 const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
 const SEARCH_RESULTS_MAX_MODEL_JOBS = 4;
+
+function parseConfiguredTimeoutMs(
+  value: string | undefined,
+): number | undefined {
+  const parsedValue = Number.parseInt(value ?? "", 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1_000) {
+    return undefined;
+  }
+
+  return parsedValue;
+}
 
 function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
   const message = error instanceof Error ? error.message.trim() : "";
@@ -100,7 +120,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
     }
 
     const controller = new AbortController();
-    const timeoutMs = options?.timeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
+    const timeoutMs =
+      options?.timeoutMs ??
+      validatedOptions.requestTimeoutMs ??
+      DEFAULT_MODEL_TIMEOUT_MS;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -159,6 +182,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Do not repeat exact duplicates across skills, grouped skills, links, languages, projects, or experience item arrays.",
           "Populate skillGroups with coreSkills, tools, languagesAndFrameworks, softSkills, and highlightedSkills instead of dumping everything into skills.",
           "Populate experiences, education, certifications, links, projects, and spokenLanguages as structured arrays with one record per item whenever the resume contains enough evidence.",
+          "For each experience, return workMode as an array such as ['remote'], ['hybrid'], or ['onsite']; do not return a nested object.",
           "Use professionalSummary for narrative rollups such as shortValueProposition, fullSummary, careerThemes, and strengths.",
           "Return notes only when the extraction is uncertain, incomplete, or needs user review; otherwise return an empty array.",
         ].join(" "),
@@ -166,6 +190,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
           existingProfile: input.existingProfile,
           existingSearchPreferences: input.existingSearchPreferences,
           resumeText: input.resumeText,
+        },
+        {
+          timeoutMs:
+            validatedOptions?.resumeExtractionTimeoutMs ??
+            validatedOptions?.requestTimeoutMs ??
+            DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
         },
       );
       const normalizedPayload =
@@ -190,6 +220,17 @@ export function createOpenAiCompatibleJobFinderAiClient(
         ),
         analysisProviderKind: "openai_compatible",
         analysisProviderLabel: status.label,
+      });
+    },
+    async extractResumeImportStage(input) {
+      return extractOpenAiCompatibleResumeImportStage({
+        stageInput: input,
+        status,
+        fetchModelJson,
+        timeoutMs:
+          validatedOptions?.resumeExtractionTimeoutMs ??
+          validatedOptions?.requestTimeoutMs ??
+          DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
       });
     },
     async createResumeDraft(input) {
@@ -234,6 +275,33 @@ export function createOpenAiCompatibleJobFinderAiClient(
           typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
             ? normalizedPayload.content
             : "I could not turn that request into a safe grounded edit, so no changes were applied.",
+      });
+    },
+    async reviseCandidateProfile(input) {
+      const payload = await fetchModelJson(
+        [
+          "You are a profile editing assistant.",
+          "Return JSON only with content and typed patchGroups.",
+          "Patch groups must use the provided bounded profile copilot operations only.",
+          "Answer grounded factual questions directly when the request is asking what is already in the profile, even if no edit is needed.",
+          "If no safe edit is needed, return patchGroups as an empty array and keep the content helpful, specific, and grounded in the provided profile facts.",
+          "Do not invent candidate experience, credentials, dates, or metrics.",
+          "Prefer no-op guidance over unsafe edits.",
+          "If a change is broad, destructive, or ambiguous, mark the patch group applyMode as needs_review.",
+        ].join(" "),
+        input,
+      );
+      const normalizedPayload =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+
+      return ProfileCopilotReplySchema.parse({
+        ...normalizedPayload,
+        content:
+          typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
+            ? normalizedPayload.content
+            : "I could not turn that request into a safe structured profile change, so no profile edits were proposed.",
       });
     },
     async tailorResume(input) {
@@ -321,7 +389,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
       }
 
       const controller = new AbortController();
-      const timeoutMs = DEFAULT_MODEL_TIMEOUT_MS;
+      const timeoutMs =
+        validatedOptions.requestTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
       let localTimedOut = false;
       const timeoutId = setTimeout(() => {
         localTimedOut = true;
@@ -455,6 +524,12 @@ export function createJobFinderAiClientFromEnvironment(
   env: StringMap = process.env,
 ): JobFinderAiClient {
   const apiKey = env.UNEMPLOYED_AI_API_KEY;
+  const parsedRequestTimeoutMs = parseConfiguredTimeoutMs(
+    env.UNEMPLOYED_AI_TIMEOUT_MS,
+  );
+  const parsedResumeExtractionTimeoutMs = parseConfiguredTimeoutMs(
+    env.UNEMPLOYED_AI_RESUME_TIMEOUT_MS,
+  );
 
   if (!apiKey) {
     return createDeterministicJobFinderAiClient();
@@ -465,6 +540,8 @@ export function createJobFinderAiClientFromEnvironment(
     baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? "https://ai.automatedpros.link/v1",
     model: env.UNEMPLOYED_AI_MODEL ?? "FelidaeAI-Pro-2.5",
     label: "AI resume agent",
+    requestTimeoutMs: parsedRequestTimeoutMs,
+    resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
   });
   const fallbackClient = createDeterministicJobFinderAiClient(
     "The configured model is enabled, and deterministic fallbacks protect the app when a model call fails.",
@@ -486,6 +563,37 @@ export function createJobFinderAiClientFromEnvironment(
             ...fallback.notes,
             "Fell back to the deterministic resume parser after the model call failed.",
             `Primary AI extraction failed: ${summarizeError(error)}`,
+          ]),
+        };
+      }
+    },
+    async extractResumeImportStage(input) {
+      const fallbackPromise = fallbackClient.extractResumeImportStage(input);
+
+      try {
+        const primary = await primaryClient.extractResumeImportStage(input);
+        const fallback = await fallbackPromise;
+
+        return {
+          ...primary,
+          candidates: [
+            ...primary.candidates,
+            ...fallback.candidates.map((candidate) => ({
+              ...candidate,
+              notes: [...candidate.notes, "deterministic_stage_fallback"],
+            })),
+          ],
+          notes: uniqueStrings([...primary.notes, ...fallback.notes]),
+        };
+      } catch (error) {
+        logFallbackError("extractResumeImportStage", error);
+        const fallback = await fallbackPromise;
+        return {
+          ...fallback,
+          notes: uniqueStrings([
+            ...fallback.notes,
+            "Fell back to the deterministic staged resume importer after the model call failed.",
+            `Primary AI import stage failed: ${summarizeError(error)}`,
           ]),
         };
       }
@@ -512,6 +620,41 @@ export function createJobFinderAiClientFromEnvironment(
       } catch (error) {
         logFallbackError("reviseResumeDraft", error);
         return fallbackClient.reviseResumeDraft(input);
+      }
+    },
+    async reviseCandidateProfile(input) {
+      function shouldUseDeterministicProfileReply(
+        primaryReply: ProfileCopilotReply,
+        fallbackReply: ProfileCopilotReply,
+      ): boolean {
+        if (fallbackReply.patchGroups.length > primaryReply.patchGroups.length) {
+          return true;
+        }
+
+        if (primaryReply.patchGroups.length > 0) {
+          return false;
+        }
+
+        return /could not turn|guidance only|no profile edits were proposed/i.test(
+          primaryReply.content,
+        ) && fallbackReply.content.trim() !== primaryReply.content.trim();
+      }
+
+      try {
+        const primaryReply = await primaryClient.reviseCandidateProfile(input);
+
+        if (primaryReply.patchGroups.length === 0) {
+          const fallbackReply = await fallbackClient.reviseCandidateProfile(input);
+
+          if (shouldUseDeterministicProfileReply(primaryReply, fallbackReply)) {
+            return fallbackReply;
+          }
+        }
+
+        return primaryReply;
+      } catch (error) {
+        logFallbackError("reviseCandidateProfile", error);
+        return fallbackClient.reviseCandidateProfile(input);
       }
     },
     async tailorResume(input) {

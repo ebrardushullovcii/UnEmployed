@@ -12,9 +12,11 @@
 ## Shared Domains
 
 - Candidate profile and resume source metadata
+- Candidate narrative, proof-bank entries, reusable screener answers, and application identity defaults stored on `CandidateProfile`
 - Candidate contact fields, stored resume text, extraction status, and provider-visible profile state
 - Job search preferences, approval mode, and tailoring mode
-- Job posting, adapter-driven discovery targets, retained discovery runs, activity timeline events, fit assessment, discovery provenance, and review queue items
+- Job posting, adapter-driven discovery targets, retained discovery runs, activity timeline events, fit assessment, discovery provenance, richer saved-job metadata, and review queue items
+- Application attempt question memory, answer provenance, blocker summaries, consent history, replay links, and summary-level application-record rollups
 - Source-debug run and attempt artifacts, per-phase completion metadata, evidence refs, and learned navigation/search/detail/apply guidance artifacts for each target
 - Live discovery and supported apply consume only the active instruction artifact for the exact target: the newest bound `draft`, or `validated` when no newer draft is present
 - Review Queue resume-review state is modeled as a typed discriminated object instead of loosely related approval or stale fields, so renderer and service code can reason about `not_started`, `draft`, `needs_review`, `stale`, and `approved` states consistently
@@ -23,6 +25,7 @@
 - Application record, event timeline, attempt checkpoints, and apply execution results
 - Browser session state, adapter-scoped discovery sessions, driver metadata, run-scoped browser open/close lifecycle for live discovery and source-debug work, and agent-provider status for source adapters
 - Job Finder repository and workspace snapshot state plus typed save/update IPC payloads for profile, preferences, settings, retained run history, and staged discovery results
+- Guided profile-setup workflow state, resumable current-step tracking, and typed review-item queues that stay adjacent to workspace state instead of hiding in renderer-only storage; unresolved resume-import candidates now map into durable `profileSetupState.reviewItems` by setup step so guided setup and later profile recovery can reopen the exact pending review work
 - Source-debug IPC payloads for launch/query/cancel actions, additive run-details review data, source-instruction promotion or verification actions, and renderer-visible learned instruction artifacts
 - Interview workspace, transcript chunks, and live suggestions later in the roadmap
 
@@ -32,7 +35,8 @@
 - Debug-agent findings and source-instruction drafts must be schema-validated and replay-verified before they become reusable target instructions
 - The newest bound draft source instructions for a target are injected into live discovery/apply runs for that same target by default; validated artifacts apply when no newer draft is bound
 - Source-debug artifacts should stay structured and curated: persist attempt artifacts, evidence refs, phase summaries, completion metadata, and instruction artifacts instead of raw worker transcripts
-- Resume-text extraction outputs must be normalized through schemas before they overwrite stored candidate details
+- Resume import now persists typed import runs, canonical document bundles, and field candidates; only accepted candidates may update canonical profile or search-preference roots
+- Resume import benchmark reports retain both a top-level `parserManifestVersion` summary and a `parserManifestVersions` list so QA can tell whether a corpus replay ran through one parser manifest or a mixed embedded-plus-sidecar set of manifests
 - Tailored assets and apply attempt checkpoints should be validated before persistence
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them
@@ -53,10 +57,13 @@
 
 ## Job Posting Fields
 
+- `applicationUrl`: nullable absolute URL; use when the apply entry route differs from the canonical job-detail route.
 - `postedAt`: nullable ISO datetime, defaults to `null`; only use for exact machine-readable posting timestamps.
 - `postedAtText`: nullable non-empty string, defaults to `null`; preserves source-facing relative or fuzzy posted-time copy when exact time is unavailable.
 - `discoveredAt`: required ISO datetime; records when the app captured the posting.
+- `firstSeenAt`, `lastSeenAt`, and `lastVerifiedActiveAt`: nullable ISO datetimes used for saved-job freshness tracking.
 - `salaryText`: nullable non-empty string; stores raw display salary text.
+- `normalizedCompensation`: additive normalized compensation object with nullable `currency`, `interval`, `minAmount`, `maxAmount`, `minAnnualUsd`, and `maxAnnualUsd`; preserve `salaryText` even when normalization is partial.
 - `summary`: nullable non-empty string, defaults to `null`; short grounded summary for list/review surfaces.
 - `description`: required non-empty string; normalized primary job body text.
 - `keySkills`: array of non-empty strings, defaults to `[]`; explicit skills proven by the source.
@@ -69,7 +76,18 @@
 - `team`: nullable non-empty string, defaults to `null`; smaller team or squad label when present.
 - `employerWebsiteUrl`: nullable absolute URL string, defaults to `null`; must be normalized to a real URL before validation.
 - `employerDomain`: nullable non-empty string, defaults to `null`; normalized hostname/domain used for employer research targeting.
+- `atsProvider`: nullable non-empty string, defaults to `null`; only set when grounded from the source or URL patterns.
+- `screeningHints`: additive job-attached screening metadata for sponsorship, clearance, relocation, travel, and remote-geography hints.
+- `keywordSignals`: weighted keyword cues retained on saved jobs for later resume targeting, review, and apply memory.
 - `benefits`: array of non-empty strings, defaults to `[]`; visible benefits copied from the source.
+
+## Application Memory Fields
+
+- `ApplicationAttempt.questions`: structured detected question records with `kind`, `isRequired`, suggested answers, submitted answers, and answer provenance refs.
+- `ApplicationAttempt.blocker`: nullable typed blocker summary with a code, user-facing summary, optional detail, linked question IDs, and linked source-debug evidence IDs.
+- `ApplicationAttempt.consentDecisions`: bounded consent history for resume use, profile autofill, external redirects, or manual follow-up requests.
+- `ApplicationAttempt.replay`: last apply URL, replay checkpoints, active instruction link, and linked source-debug evidence IDs.
+- `ApplicationRecord.questionSummary`, `latestBlocker`, `consentSummary`, and `replaySummary`: summary-only rollups for renderer list/detail surfaces; keep the full detailed artifacts on `ApplicationAttempt`.
 
 ## Review Queue Resume Review State
 

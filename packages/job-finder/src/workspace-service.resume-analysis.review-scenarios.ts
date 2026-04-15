@@ -1,0 +1,453 @@
+import { describe, expect, test } from "vitest";
+import {
+  createAiClient,
+  createDocumentManager,
+  createExtractionAiClient,
+  createResumeExtraction,
+  createSeed,
+  createWorkspaceServiceHarness,
+} from "./workspace-service.test-support";
+import {
+  createStageCandidate,
+  createTestBundle,
+} from "./workspace-service.resume-analysis.shared";
+
+describe("createJobFinderWorkspaceService", () => {
+  test("keeps the import run review_ready when only abstained candidates remain unresolved", async () => {
+    const seed = createSeed();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage === "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [
+                createStageCandidate({
+                  target: { section: "identity", key: "headline", recordId: null },
+                  label: "Headline",
+                  value: "Uncertain Headline",
+                  sourceBlockIds: ["page_1_block_2"],
+                  confidence: 0.2,
+                  recommendation: "abstain",
+                  overall: 0.2,
+                }),
+              ],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [],
+            notes: [],
+          });
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_abstain_only",
+        fileName: "resume.txt",
+        textContent: ["Jamie Rivers", "Possibly Headline"].join("\n"),
+      },
+      documentBundle: createTestBundle({
+        fullText: ["Jamie Rivers", "Possibly Headline"].join("\n"),
+        blocks: [
+          { id: "page_1_block_1", pageNumber: 1, readingOrder: 0, text: "Jamie Rivers", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.98, parserLineage: ["plain_text"], readingOrderConfidence: 0.98, lineIds: ["line_1"], textSpan: null },
+          { id: "page_1_block_2", pageNumber: 1, readingOrder: 1, text: "Possibly Headline", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.4, parserLineage: ["plain_text"], readingOrderConfidence: 0.6, lineIds: ["line_2"], textSpan: null },
+        ],
+      }),
+    });
+
+    expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
+    expect(snapshot.latestResumeImportRun?.candidateCounts.abstained).toBeGreaterThan(0);
+    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toContain(
+      "Headline",
+    );
+  });
+
+  test("only auto-applies low-risk literal fields while routing experience records to review", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          experiences: [],
+          fullName: "New Candidate",
+          headline: "Import your resume to begin",
+          currentLocation: "Set your preferred location",
+          email: null,
+          phone: null,
+          portfolioUrl: null,
+          linkedinUrl: null,
+        },
+      },
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage === "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [
+                createStageCandidate({
+                  target: { section: "identity", key: "headline", recordId: null },
+                  label: "Headline",
+                  value: "Staff Frontend Engineer",
+                  sourceBlockIds: ["page_1_block_2"],
+                  confidence: 0.9,
+                  recommendation: "needs_review",
+                  overall: 0.79,
+                }),
+              ],
+              notes: [],
+            });
+          }
+
+          if (input.stage === "experience") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [
+                createStageCandidate({
+                  target: { section: "experience", key: "record", recordId: "experience_1" },
+                  label: "Staff Frontend Engineer at Signal Labs",
+                  value: {
+                    companyName: "Signal Labs",
+                    companyUrl: null,
+                    title: "Staff Frontend Engineer",
+                    employmentType: "Full-time",
+                    location: "Berlin, Germany",
+                    workMode: ["remote"],
+                    startDate: "2021-02",
+                    endDate: null,
+                    isCurrent: true,
+                    summary: "Leads design system adoption.",
+                    achievements: ["Built accessible shared components."],
+                    skills: ["React", "TypeScript"],
+                    domainTags: ["design systems"],
+                    peopleManagementScope: null,
+                    ownershipScope: null,
+                  },
+                  sourceBlockIds: ["page_1_block_7"],
+                  confidence: 0.91,
+                  recommendation: "needs_review",
+                  overall: 0.76,
+                }),
+              ],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [],
+            notes: [],
+          });
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_literal_safe",
+        fileName: "resume.pdf",
+        textContent: [
+          "Jamie Rivers",
+          "Staff Frontend Engineer",
+          "Berlin, Germany",
+          "jamie@example.com",
+          "+49 555 1234",
+          "https://www.linkedin.com/in/jamie-rivers",
+          "SIGNAL LABS – BERLIN, GERMANY",
+          "STAFF FRONTEND ENGINEER – 2021-02 – Current",
+        ].join("\n"),
+      },
+      documentBundle: createTestBundle({
+        fullText: [
+          "Jamie Rivers",
+          "Staff Frontend Engineer",
+          "Berlin, Germany",
+          "jamie@example.com",
+          "+49 555 1234",
+          "https://www.linkedin.com/in/jamie-rivers",
+          "SIGNAL LABS – BERLIN, GERMANY",
+          "STAFF FRONTEND ENGINEER – 2021-02 – Current",
+        ].join("\n"),
+        blocks: [
+          { id: "page_1_block_1", pageNumber: 1, readingOrder: 0, text: "Jamie Rivers", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.98, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.98, lineIds: ["line_1"], textSpan: null },
+          { id: "page_1_block_2", pageNumber: 1, readingOrder: 1, text: "Staff Frontend Engineer", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.9, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.95, lineIds: ["line_2"], textSpan: null },
+          { id: "page_1_block_3", pageNumber: 1, readingOrder: 2, text: "Berlin, Germany", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.92, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.95, lineIds: ["line_3"], textSpan: null },
+          { id: "page_1_block_4", pageNumber: 1, readingOrder: 3, text: "jamie@example.com", kind: "contact", sectionHint: "contact", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.99, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.99, lineIds: ["line_4"], textSpan: null },
+          { id: "page_1_block_5", pageNumber: 1, readingOrder: 4, text: "+49 555 1234", kind: "contact", sectionHint: "contact", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.96, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.98, lineIds: ["line_5"], textSpan: null },
+          { id: "page_1_block_6", pageNumber: 1, readingOrder: 5, text: "https://www.linkedin.com/in/jamie-rivers", kind: "contact", sectionHint: "contact", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.96, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.98, lineIds: ["line_6"], textSpan: null },
+          { id: "page_1_block_7", pageNumber: 1, readingOrder: 6, text: "SIGNAL LABS – BERLIN, GERMANY", kind: "heading", sectionHint: "experience", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.86, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.9, lineIds: ["line_7"], textSpan: null },
+          { id: "page_1_block_8", pageNumber: 1, readingOrder: 7, text: "STAFF FRONTEND ENGINEER – 2021-02 – Current", kind: "experience_header", sectionHint: "experience", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.86, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.9, lineIds: ["line_8"], textSpan: null },
+        ],
+      }),
+    });
+
+    expect(snapshot.profile.fullName).toBe("Jamie Rivers");
+    expect(snapshot.profile.firstName).toBe("Jamie");
+    expect(snapshot.profile.lastName).toBe("Rivers");
+    expect(snapshot.profile.email).toBe("jamie@example.com");
+    expect(snapshot.profile.phone).toBe("+49 555 1234");
+    expect(snapshot.profile.linkedinUrl).toBe("https://www.linkedin.com/in/jamie-rivers");
+    expect(snapshot.profile.experiences).toEqual([]);
+    expect(snapshot.latestResumeImportRun?.candidateCounts.autoApplied).toBeGreaterThanOrEqual(4);
+    expect(snapshot.latestResumeImportRun?.candidateCounts.needsReview).toBeGreaterThanOrEqual(2);
+    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toContain(
+      "Staff Frontend Engineer at Signal Labs",
+    );
+
+    const run = await repository.getLatestResumeImportRun();
+    const reviewCandidates = await repository.listResumeImportFieldCandidates({
+      runId: run?.id ?? "",
+      resolutions: ["needs_review", "abstained"],
+    });
+
+    expect(
+      reviewCandidates.some(
+        (candidate) =>
+          candidate.target.section === "experience" &&
+          candidate.resolution === "needs_review" &&
+          candidate.resolutionReason === "record_candidates_require_review",
+      ),
+    ).toBe(true);
+  });
+
+  test("abstains low-confidence scalar conflicts instead of overwriting existing profile values", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage === "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [
+                createStageCandidate({
+                  target: { section: "identity", key: "headline", recordId: null },
+                  label: "Headline",
+                  value: "Operations Wizard",
+                  sourceBlockIds: ["page_1_block_2"],
+                  confidence: 0.42,
+                  recommendation: "abstain",
+                  overall: 0.24,
+                }),
+                createStageCandidate({
+                  target: { section: "location", key: "currentLocation", recordId: null },
+                  label: "Current location",
+                  value: "Mars Colony",
+                  sourceBlockIds: ["page_1_block_3"],
+                  confidence: 0.4,
+                  recommendation: "abstain",
+                  overall: 0.22,
+                }),
+              ],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [],
+            notes: [],
+          });
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_abstain_conflict",
+        fileName: "resume.pdf",
+        textContent: ["Alex Vanguard", "Operations Wizard", "Mars Colony"].join("\n"),
+      },
+      documentBundle: createTestBundle({
+        fullText: ["Alex Vanguard", "Operations Wizard", "Mars Colony"].join("\n"),
+        qualityScore: 0.44,
+      }),
+    });
+
+    expect(snapshot.profile.headline).toBe(seed.profile.headline);
+    expect(snapshot.profile.currentLocation).toBe(seed.profile.currentLocation);
+    expect(snapshot.latestResumeImportRun?.candidateCounts.abstained).toBeGreaterThanOrEqual(2);
+
+    const run = await repository.getLatestResumeImportRun();
+    const abstainedCandidates = await repository.listResumeImportFieldCandidates({
+      runId: run?.id ?? "",
+      resolution: "abstained",
+    });
+
+    expect(abstainedCandidates.map((candidate) => candidate.label)).toEqual(
+      expect.arrayContaining(["Headline", "Current location"]),
+    );
+    expect(
+      abstainedCandidates.every(
+        (candidate) => candidate.resolutionReason === "composite_confidence_recommended_abstain",
+      ),
+    ).toBe(true);
+    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toEqual(
+      expect.arrayContaining(["Headline", "Current location"]),
+    );
+  });
+
+  test("keeps literal imported name and address when the model proposes invalid identity values", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: createExtractionAiClient(
+        createResumeExtraction({
+          fullName: "ABOUT ME",
+          headline: "Senior Full-STACK Software Engineer",
+          currentLocation:
+            "recently decided to return to hands-on development, where my career initially began and where my true passion lies. I",
+          email: "ebrar.dushullovci@gmail.com",
+          phone: "(+383) 44283970",
+        }),
+      ),
+      documentManager: createDocumentManager(),
+    });
+
+    const snapshot = await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_cv_pdf",
+        fileName: "CV.pdf",
+        textContent: "Ebrar Dushullovci\nAddress: Prishtina, Kosovo (Home)",
+      },
+      documentBundle: {
+        id: "bundle_cv_pdf",
+        runId: "bundle_run_cv_pdf",
+        sourceResumeId: "resume_cv_pdf",
+        sourceFileKind: "pdf",
+        primaryParserKind: "pdfjs_text",
+        parserKinds: ["pdfjs_text"],
+        createdAt: "2026-04-10T00:00:00.000Z",
+        warnings: [],
+        languageHints: [],
+        pages: [
+          {
+            pageNumber: 1,
+            text: [
+              "Ebrar Dushullovci",
+              "Date of birth: 04/07/1998 Nationality: Kosovar Phone number: (+383) 44283970 (Mobile) Email address:",
+              "ebrar.dushullovci@gmail.com Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+              "Address: Prishtina, Kosovo (Home)",
+              "ABOUT ME",
+              "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js,",
+            ].join("\n"),
+            charCount: 0,
+            parserKinds: ["pdfjs_text"],
+            usedOcr: false,
+          },
+        ],
+        blocks: [
+          { id: "page_1_block_1", pageNumber: 1, readingOrder: 0, text: "Ebrar Dushullovci", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
+          { id: "page_1_block_2", pageNumber: 1, readingOrder: 1, text: "Date of birth: 04/07/1998 Nationality: Kosovar Phone number: (+383) 44283970 (Mobile) Email address:", kind: "paragraph", sectionHint: "contact", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
+          { id: "page_1_block_3", pageNumber: 1, readingOrder: 2, text: "ebrar.dushullovci@gmail.com Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/", kind: "contact", sectionHint: "contact", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
+          { id: "page_1_block_4", pageNumber: 1, readingOrder: 3, text: "Address: Prishtina, Kosovo (Home)", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
+          { id: "page_1_block_5", pageNumber: 1, readingOrder: 4, text: "ABOUT ME", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
+          { id: "page_1_block_6", pageNumber: 1, readingOrder: 5, text: "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js,", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
+        ],
+        fullText: [
+          "Ebrar Dushullovci",
+          "Date of birth: 04/07/1998 Nationality: Kosovar Phone number: (+383) 44283970 (Mobile) Email address:",
+          "ebrar.dushullovci@gmail.com Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+          "Address: Prishtina, Kosovo (Home)",
+          "ABOUT ME",
+          "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js,",
+        ].join("\n"),
+      },
+    });
+
+    expect(snapshot.profile.fullName).toBe("Ebrar Dushullovci");
+    expect(snapshot.profile.currentLocation).toBe("Prishtina, Kosovo");
+
+    const run = await repository.getLatestResumeImportRun();
+    const candidates = await repository.listResumeImportFieldCandidates({
+      runId: run?.id ?? "",
+    });
+    const rejectedNameCandidate = candidates.find(
+      (candidate) =>
+        candidate.target.section === "identity" &&
+        candidate.target.key === "fullName" &&
+        candidate.value === "ABOUT ME",
+    );
+
+    expect(rejectedNameCandidate?.resolution).toBe("rejected");
+  });
+
+  test("does not auto-apply low-confidence fallback full-name guesses from non-name text", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+
+    const snapshot = await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_bad_name_fallback",
+        fileName: "Ryan Holstien Resume.pdf",
+        textContent: [
+          "+1 650-353-7911",
+          "Ryan Holstien Cedar Park, TX 78613",
+          "linkedin.com/in/ryan-holstien-7954b665",
+          "Senior Software Engineer ryanholstien993@outlook.com",
+          "Senior Software Engineer with 10+ years of experience building secure, scalable healthcare and SaaS platforms.",
+          "Technical Mentorship",
+        ].join("\n"),
+      },
+      documentBundle: createTestBundle({
+        fullText: [
+          "+1 650-353-7911",
+          "Ryan Holstien Cedar Park, TX 78613",
+          "linkedin.com/in/ryan-holstien-7954b665",
+          "Senior Software Engineer ryanholstien993@outlook.com",
+          "Senior Software Engineer with 10+ years of experience building secure, scalable healthcare and SaaS platforms.",
+          "Technical Mentorship",
+        ].join("\n"),
+        qualityScore: 0.92,
+      }),
+    });
+
+    expect(snapshot.profile.fullName).toBe("Ryan Holstien");
+    expect(snapshot.profile.firstName).toBe("Ryan");
+    expect(snapshot.profile.lastName).toBe("Holstien");
+    expect(snapshot.profile.currentLocation).toBe("Cedar Park, TX 78613");
+    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.valuePreview)).not.toContain("Technical Mentorship");
+
+    const run = await repository.getLatestResumeImportRun();
+    const candidates = await repository.listResumeImportFieldCandidates({
+      runId: run?.id ?? "",
+    });
+
+    expect(
+      candidates.some(
+        (candidate) =>
+          candidate.target.section === "location" &&
+          candidate.target.key === "currentLocation" &&
+          candidate.value === "Set your preferred location",
+      ),
+    ).toBe(false);
+  });
+});

@@ -91,11 +91,67 @@ export const MatchAssessmentSchema = z.object({
 });
 export type MatchAssessment = z.infer<typeof MatchAssessmentSchema>;
 
+export const normalizedCompensationIntervalValues = [
+  "hour",
+  "day",
+  "week",
+  "month",
+  "year",
+] as const;
+export const NormalizedCompensationIntervalSchema = z.enum(
+  normalizedCompensationIntervalValues,
+);
+export type NormalizedCompensationInterval = z.infer<
+  typeof NormalizedCompensationIntervalSchema
+>;
+
+export const NormalizedCompensationSchema = z.object({
+  currency: NonEmptyStringSchema.nullable().default(null),
+  interval: NormalizedCompensationIntervalSchema.nullable().default(null),
+  minAmount: z.number().nonnegative().nullable().default(null),
+  maxAmount: z.number().nonnegative().nullable().default(null),
+  minAnnualUsd: z.number().int().nonnegative().nullable().default(null),
+  maxAnnualUsd: z.number().int().nonnegative().nullable().default(null),
+});
+export type NormalizedCompensation = z.infer<
+  typeof NormalizedCompensationSchema
+>;
+
+export const jobKeywordSignalKindValues = [
+  "skill",
+  "responsibility",
+  "qualification",
+  "benefit",
+  "domain",
+  "tool",
+  "industry",
+] as const;
+export const JobKeywordSignalKindSchema = z.enum(jobKeywordSignalKindValues);
+export type JobKeywordSignalKind = z.infer<typeof JobKeywordSignalKindSchema>;
+
+export const JobKeywordSignalSchema = z.object({
+  id: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  kind: JobKeywordSignalKindSchema.default("skill"),
+  weight: z.number().int().min(1).max(5).default(3),
+});
+export type JobKeywordSignal = z.infer<typeof JobKeywordSignalSchema>;
+
+export const JobScreeningHintsSchema = z.object({
+  sponsorshipText: NonEmptyStringSchema.nullable().default(null),
+  requiresSecurityClearance: z.boolean().nullable().default(null),
+  relocationText: NonEmptyStringSchema.nullable().default(null),
+  travelText: NonEmptyStringSchema.nullable().default(null),
+  remoteGeographies: z.array(NonEmptyStringSchema).default([]),
+});
+export type JobScreeningHints = z.infer<typeof JobScreeningHintsSchema>;
+
 export const JobPostingSchema = z.object({
   source: JobSourceSchema,
   sourceJobId: NonEmptyStringSchema,
   discoveryMethod: JobDiscoveryMethodSchema.default("catalog_seed"),
   canonicalUrl: NonEmptyStringSchema,
+  applicationUrl: UrlStringSchema.nullable().default(null),
   title: NonEmptyStringSchema,
   company: NonEmptyStringSchema,
   location: NonEmptyStringSchema,
@@ -105,7 +161,11 @@ export const JobPostingSchema = z.object({
   postedAt: IsoDateTimeSchema.nullable().default(null),
   postedAtText: NonEmptyStringSchema.nullable().default(null),
   discoveredAt: IsoDateTimeSchema,
+  firstSeenAt: IsoDateTimeSchema.nullable().default(null),
+  lastSeenAt: IsoDateTimeSchema.nullable().default(null),
+  lastVerifiedActiveAt: IsoDateTimeSchema.nullable().default(null),
   salaryText: NonEmptyStringSchema.nullable(),
+  normalizedCompensation: NormalizedCompensationSchema.default({}),
   summary: NonEmptyStringSchema.nullable().default(null),
   description: NonEmptyStringSchema,
   keySkills: z.array(NonEmptyStringSchema).default([]),
@@ -118,6 +178,9 @@ export const JobPostingSchema = z.object({
   team: NonEmptyStringSchema.nullable().default(null),
   employerWebsiteUrl: UrlStringSchema.nullable().default(null),
   employerDomain: NonEmptyStringSchema.nullable().default(null),
+  atsProvider: NonEmptyStringSchema.nullable().default(null),
+  screeningHints: JobScreeningHintsSchema.default({}),
+  keywordSignals: z.array(JobKeywordSignalSchema).default([]),
   benefits: z.array(NonEmptyStringSchema).default([]),
 });
 export type JobPosting = z.infer<typeof JobPostingSchema>;
@@ -220,6 +283,223 @@ export const ApplicationEventSchema = z.object({
 });
 export type ApplicationEvent = z.infer<typeof ApplicationEventSchema>;
 
+export const applicationQuestionKindValues = [
+  "work_authorization",
+  "visa_sponsorship",
+  "salary_expectation",
+  "availability",
+  "notice_period",
+  "portfolio",
+  "cover_letter",
+  "experience",
+  "clearance",
+  "relocation",
+  "travel",
+  "location",
+  "personal_info",
+  "resume",
+  "other",
+] as const;
+export const ApplicationQuestionKindSchema = z.enum(
+  applicationQuestionKindValues,
+);
+export type ApplicationQuestionKind = z.infer<
+  typeof ApplicationQuestionKindSchema
+>;
+
+export const applicationAnswerSourceKindValues = [
+  "profile",
+  "proof_bank",
+  "resume",
+  "job",
+  "prior_answer",
+  "source_debug",
+  "user",
+] as const;
+export const ApplicationAnswerSourceKindSchema = z.enum(
+  applicationAnswerSourceKindValues,
+);
+export type ApplicationAnswerSourceKind = z.infer<
+  typeof ApplicationAnswerSourceKindSchema
+>;
+
+export const applicationQuestionStatusValues = [
+  "detected",
+  "answered",
+  "submitted",
+  "skipped",
+] as const;
+export const ApplicationQuestionStatusSchema = z.enum(
+  applicationQuestionStatusValues,
+);
+export type ApplicationQuestionStatus = z.infer<
+  typeof ApplicationQuestionStatusSchema
+>;
+
+export const applicationBlockerCodeValues = [
+  "missing_candidate_answer",
+  "requires_manual_review",
+  "unsupported_apply_path",
+  "missing_resume",
+  "missing_consent",
+  "external_redirect",
+  "site_login_required",
+  "unknown",
+] as const;
+export const ApplicationBlockerCodeSchema = z.enum(
+  applicationBlockerCodeValues,
+);
+export type ApplicationBlockerCode = z.infer<
+  typeof ApplicationBlockerCodeSchema
+>;
+
+export const applicationConsentKindValues = [
+  "resume_use",
+  "autofill_profile",
+  "external_redirect",
+  "manual_follow_up",
+] as const;
+export const ApplicationConsentKindSchema = z.enum(
+  applicationConsentKindValues,
+);
+export type ApplicationConsentKind = z.infer<
+  typeof ApplicationConsentKindSchema
+>;
+
+export const applicationConsentStatusValues = [
+  "requested",
+  "approved",
+  "declined",
+  "not_needed",
+] as const;
+export const ApplicationConsentStatusSchema = z.enum(
+  applicationConsentStatusValues,
+);
+export type ApplicationConsentStatus = z.infer<
+  typeof ApplicationConsentStatusSchema
+>;
+
+export const applicationConsentSummaryStatusValues = [
+  "none",
+  "requested",
+  "approved",
+  "declined",
+] as const;
+export const ApplicationConsentSummaryStatusSchema = z.enum(
+  applicationConsentSummaryStatusValues,
+);
+export type ApplicationConsentSummaryStatus = z.infer<
+  typeof ApplicationConsentSummaryStatusSchema
+>;
+
+export const ApplicationAnswerProvenanceSchema = z.object({
+  id: NonEmptyStringSchema,
+  sourceKind: ApplicationAnswerSourceKindSchema.default("profile"),
+  sourceId: NonEmptyStringSchema.nullable().default(null),
+  label: NonEmptyStringSchema,
+  snippet: NonEmptyStringSchema.nullable().default(null),
+});
+export type ApplicationAnswerProvenance = z.infer<
+  typeof ApplicationAnswerProvenanceSchema
+>;
+
+export const ApplicationAttemptSuggestedAnswerSchema = z.object({
+  id: NonEmptyStringSchema,
+  text: NonEmptyStringSchema,
+  sourceKind: ApplicationAnswerSourceKindSchema.default("profile"),
+  sourceId: NonEmptyStringSchema.nullable().default(null),
+  confidenceLabel: NonEmptyStringSchema.nullable().default(null),
+  provenance: z.array(ApplicationAnswerProvenanceSchema).default([]),
+});
+export type ApplicationAttemptSuggestedAnswer = z.infer<
+  typeof ApplicationAttemptSuggestedAnswerSchema
+>;
+
+export const ApplicationAttemptQuestionSchema = z.object({
+  id: NonEmptyStringSchema,
+  prompt: NonEmptyStringSchema,
+  kind: ApplicationQuestionKindSchema.default("other"),
+  isRequired: z.boolean().default(true),
+  detectedAt: IsoDateTimeSchema,
+  answerOptions: z.array(NonEmptyStringSchema).default([]),
+  suggestedAnswers: z.array(ApplicationAttemptSuggestedAnswerSchema).default([]),
+  submittedAnswer: NonEmptyStringSchema.nullable().default(null),
+  status: ApplicationQuestionStatusSchema.default("detected"),
+});
+export type ApplicationAttemptQuestion = z.infer<
+  typeof ApplicationAttemptQuestionSchema
+>;
+
+export const ApplicationAttemptBlockerSchema = z.object({
+  code: ApplicationBlockerCodeSchema.default("unknown"),
+  summary: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema.nullable().default(null),
+  questionIds: z.array(NonEmptyStringSchema).default([]),
+  sourceDebugEvidenceRefIds: z.array(NonEmptyStringSchema).default([]),
+  url: UrlStringSchema.nullable().default(null),
+});
+export type ApplicationAttemptBlocker = z.infer<
+  typeof ApplicationAttemptBlockerSchema
+>;
+
+export const ApplicationAttemptConsentDecisionSchema = z.object({
+  id: NonEmptyStringSchema,
+  kind: ApplicationConsentKindSchema.default("resume_use"),
+  label: NonEmptyStringSchema,
+  status: ApplicationConsentStatusSchema.default("requested"),
+  decidedAt: IsoDateTimeSchema.nullable().default(null),
+  detail: NonEmptyStringSchema.nullable().default(null),
+});
+export type ApplicationAttemptConsentDecision = z.infer<
+  typeof ApplicationAttemptConsentDecisionSchema
+>;
+
+export const ApplicationAttemptReplaySchema = z.object({
+  sourceInstructionArtifactId: NonEmptyStringSchema.nullable().default(null),
+  sourceDebugEvidenceRefIds: z.array(NonEmptyStringSchema).default([]),
+  lastUrl: UrlStringSchema.nullable().default(null),
+  checkpointUrls: z.array(UrlStringSchema).default([]),
+});
+export type ApplicationAttemptReplay = z.infer<
+  typeof ApplicationAttemptReplaySchema
+>;
+
+export const ApplicationAttemptQuestionSummarySchema = z.object({
+  total: z.number().int().nonnegative().default(0),
+  required: z.number().int().nonnegative().default(0),
+  answered: z.number().int().nonnegative().default(0),
+  unansweredRequired: z.number().int().nonnegative().default(0),
+});
+export type ApplicationAttemptQuestionSummary = z.infer<
+  typeof ApplicationAttemptQuestionSummarySchema
+>;
+
+export const ApplicationAttemptBlockerSummarySchema = z.object({
+  code: ApplicationBlockerCodeSchema.default("unknown"),
+  summary: NonEmptyStringSchema,
+});
+export type ApplicationAttemptBlockerSummary = z.infer<
+  typeof ApplicationAttemptBlockerSummarySchema
+>;
+
+export const ApplicationAttemptConsentSummarySchema = z.object({
+  status: ApplicationConsentSummaryStatusSchema.default("none"),
+  pendingCount: z.number().int().nonnegative().default(0),
+});
+export type ApplicationAttemptConsentSummary = z.infer<
+  typeof ApplicationAttemptConsentSummarySchema
+>;
+
+export const ApplicationAttemptReplaySummarySchema = z.object({
+  lastUrl: UrlStringSchema.nullable().default(null),
+  checkpointCount: z.number().int().nonnegative().default(0),
+  evidenceCount: z.number().int().nonnegative().default(0),
+  sourceInstructionArtifactId: NonEmptyStringSchema.nullable().default(null),
+});
+export type ApplicationAttemptReplaySummary = z.infer<
+  typeof ApplicationAttemptReplaySummarySchema
+>;
+
 export const ApplicationAttemptCheckpointSchema = z.object({
   id: NonEmptyStringSchema,
   at: IsoDateTimeSchema,
@@ -242,6 +522,10 @@ export const ApplicationAttemptSchema = z.object({
   completedAt: IsoDateTimeSchema.nullable(),
   outcome: ApplicationStatusSchema.nullable(),
   checkpoints: z.array(ApplicationAttemptCheckpointSchema).default([]),
+  questions: z.array(ApplicationAttemptQuestionSchema).default([]),
+  blocker: ApplicationAttemptBlockerSchema.nullable().default(null),
+  consentDecisions: z.array(ApplicationAttemptConsentDecisionSchema).default([]),
+  replay: ApplicationAttemptReplaySchema.default({}),
   nextActionLabel: NonEmptyStringSchema.nullable(),
 });
 export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>;
@@ -253,6 +537,10 @@ export const ApplyExecutionResultSchema = z.object({
   submittedAt: IsoDateTimeSchema.nullable(),
   outcome: ApplicationStatusSchema.nullable(),
   checkpoints: z.array(ApplicationAttemptCheckpointSchema).default([]),
+  questions: z.array(ApplicationAttemptQuestionSchema).default([]),
+  blocker: ApplicationAttemptBlockerSchema.nullable().default(null),
+  consentDecisions: z.array(ApplicationAttemptConsentDecisionSchema).default([]),
+  replay: ApplicationAttemptReplaySchema.default({}),
   nextActionLabel: NonEmptyStringSchema.nullable(),
 });
 export type ApplyExecutionResult = z.infer<typeof ApplyExecutionResultSchema>;
@@ -406,6 +694,10 @@ export const ApplicationRecordSchema = z.object({
   nextActionLabel: NonEmptyStringSchema.nullable(),
   lastUpdatedAt: IsoDateTimeSchema,
   lastAttemptState: ApplicationAttemptStateSchema.nullable().default(null),
+  questionSummary: ApplicationAttemptQuestionSummarySchema.default({}),
+  latestBlocker: ApplicationAttemptBlockerSummarySchema.nullable().default(null),
+  consentSummary: ApplicationAttemptConsentSummarySchema.default({}),
+  replaySummary: ApplicationAttemptReplaySummarySchema.default({}),
   events: z.array(ApplicationEventSchema).default([]),
 });
 export type ApplicationRecord = z.infer<typeof ApplicationRecordSchema>;

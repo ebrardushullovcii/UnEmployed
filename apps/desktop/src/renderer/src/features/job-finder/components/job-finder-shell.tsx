@@ -17,18 +17,16 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
 import type { JobFinderScreen } from '../lib/job-finder-types'
-import { formatStatusLabel } from '../lib/job-finder-utils'
+import { formatStatusLabel, getDefaultProfileRoute } from '../lib/job-finder-utils'
 
 interface JobFinderShellProps {
-  actionMessage: string | null
   children: ReactNode
   onNavigate?: (path: string) => void
   platform: 'darwin' | 'linux' | 'win32'
   workspace: JobFinderWorkspaceSnapshot
 }
 
-const screenRouteMap: Record<JobFinderScreen, string> = {
-  profile: '/job-finder/profile',
+const screenRouteMap: Record<Exclude<JobFinderScreen, 'profile'>, string> = {
   discovery: '/job-finder/discovery',
   'review-queue': '/job-finder/review-queue',
   applications: '/job-finder/applications',
@@ -62,7 +60,7 @@ function getActiveScreen(pathname: string): JobFinderScreen {
   return 'profile'
 }
 
-export function JobFinderShell({ actionMessage, children, onNavigate, platform, workspace }: JobFinderShellProps) {
+export function JobFinderShell({ children, onNavigate, platform, workspace }: JobFinderShellProps) {
   const isMac = platform === 'darwin'
   const location = useLocation()
   const navigate = useNavigate()
@@ -79,7 +77,6 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
     () => LOCKED_LAYOUT_SCREENS.includes(activeScreen),
     [activeScreen]
   )
-
   const screenDefinitions = useMemo(
     () => [
       { id: 'profile', label: 'Profile', count: null, icon: UserRound },
@@ -141,7 +138,10 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
   }
 
   function handleScreenChange(nextScreen: string) {
-    const nextPath = screenRouteMap[nextScreen as JobFinderScreen]
+    const nextPath =
+      nextScreen === 'profile'
+        ? getDefaultProfileRoute(workspace.profileSetupState)
+        : screenRouteMap[nextScreen as Exclude<JobFinderScreen, 'profile'>]
 
     if (onNavigate) {
       onNavigate(nextPath)
@@ -280,12 +280,6 @@ export function JobFinderShell({ actionMessage, children, onNavigate, platform, 
           </div>
         </main>
 
-        <footer className="border-t border-border/10 px-4 py-3 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground sm:px-6">
-          <div className="mx-auto flex max-w-472 items-center justify-between gap-3">
-            <span>Last action</span>
-            {actionMessage ? <span className="truncate text-foreground-soft">{actionMessage}</span> : null}
-          </div>
-        </footer>
       </div>
     </div>
   )

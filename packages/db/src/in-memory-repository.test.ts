@@ -43,6 +43,15 @@ describe("createInMemoryJobFinderRepository", () => {
       updatedAt: "2026-03-20T10:05:00.000Z",
       completedAt: "2026-03-20T10:05:00.000Z",
       outcome: "submitted",
+      questions: [],
+      blocker: null,
+      consentDecisions: [],
+      replay: {
+        sourceInstructionArtifactId: null,
+        sourceDebugEvidenceRefIds: [],
+        lastUrl: "https://jobs.example.com/roles/job_1/apply",
+        checkpointUrls: ["https://jobs.example.com/roles/job_1/apply"],
+      },
       nextActionLabel: "Monitor inbox",
       checkpoints: [],
     });
@@ -61,6 +70,50 @@ describe("createInMemoryJobFinderRepository", () => {
 
     expect(resetAssets).toHaveLength(0);
     expect(resetAttempts).toHaveLength(0);
+  });
+
+  test("stores and resets profile setup state", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+
+    await repository.saveProfileSetupState({
+      status: "in_progress",
+      currentStep: "targeting",
+      completedAt: null,
+      reviewItems: [
+        {
+          id: "review_1",
+          step: "essentials",
+          target: { domain: "identity", key: "headline", recordId: null },
+          label: "Headline",
+          reason: "Headline still needs a quick confirmation.",
+          severity: "recommended",
+          status: "pending",
+          proposedValue: "Senior Product Designer",
+          sourceSnippet: "Senior Product Designer",
+          sourceCandidateId: null,
+          sourceRunId: null,
+          createdAt: "2026-04-11T10:00:00.000Z",
+          resolvedAt: null,
+        },
+      ],
+      lastResumedAt: "2026-04-11T10:05:00.000Z",
+    });
+
+    await expect(repository.getProfileSetupState()).resolves.toEqual(
+      expect.objectContaining({
+        status: "in_progress",
+        currentStep: "targeting",
+      }),
+    );
+
+    await repository.reset(createSeed());
+
+    await expect(repository.getProfileSetupState()).resolves.toEqual(
+      expect.objectContaining({
+        status: "completed",
+        currentStep: "ready_check",
+      }),
+    );
   });
 
   test("stores resume workspace collections with the expected ordering", async () => {
@@ -161,6 +214,155 @@ describe("createInMemoryJobFinderRepository", () => {
     ).resolves.toEqual([expect.objectContaining({ id: "resume_validation_1" })]);
     await expect(repository.listResumeAssistantMessages("job_1")).resolves.toEqual([
       expect.objectContaining({ id: "assistant_message_1" }),
+    ]);
+  });
+
+  test("stores profile copilot messages and revisions with the expected ordering", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const seed = createSeed();
+
+    await repository.upsertProfileCopilotMessage({
+      id: "profile_message_older",
+      role: "assistant",
+      content: "I found a few profile improvements.",
+      context: { surface: "general" },
+      patchGroups: [],
+      createdAt: "2026-04-11T10:05:00.000Z",
+    });
+    await repository.upsertProfileCopilotMessage({
+      id: "profile_message_newer",
+      role: "assistant",
+      content: "I can tighten your headline for product roles.",
+      context: { surface: "setup", step: "essentials" },
+      patchGroups: [
+        {
+          id: "profile_patch_group_1",
+          summary: "Refine your headline",
+          applyMode: "needs_review",
+          operations: [
+            {
+              operation: "replace_identity_fields",
+              value: {
+                headline: "Principal Product Designer",
+              },
+            },
+          ],
+          createdAt: "2026-04-11T10:06:00.000Z",
+        },
+      ],
+      createdAt: "2026-04-11T10:06:00.000Z",
+    });
+
+    await repository.upsertProfileRevision({
+      id: "profile_revision_older",
+      createdAt: "2026-04-11T10:06:30.000Z",
+      reason: "Applied a safe headline refinement.",
+      trigger: "assistant_patch",
+      messageId: "profile_message_newer",
+      patchGroupId: "profile_patch_group_1",
+      restoredFromRevisionId: null,
+      snapshotProfile: seed.profile,
+      snapshotSearchPreferences: seed.searchPreferences,
+      snapshotProfileSetupState: seed.profileSetupState,
+    });
+    await repository.upsertProfileRevision({
+      id: "profile_revision_newer",
+      createdAt: "2026-04-11T10:07:00.000Z",
+      reason: "Undid the last assistant suggestion.",
+      trigger: "undo",
+      messageId: null,
+      patchGroupId: "profile_patch_group_1",
+      restoredFromRevisionId: "profile_revision_older",
+      snapshotProfile: {
+        ...seed.profile,
+        headline: "Principal Product Designer",
+      },
+      snapshotSearchPreferences: seed.searchPreferences,
+      snapshotProfileSetupState: {
+        ...seed.profileSetupState,
+        status: "in_progress",
+        currentStep: "essentials",
+        completedAt: null,
+      },
+    });
+
+    await expect(repository.listProfileCopilotMessages()).resolves.toEqual([
+      expect.objectContaining({ id: "profile_message_older" }),
+      expect.objectContaining({
+        id: "profile_message_newer",
+        patchGroups: [expect.objectContaining({ id: "profile_patch_group_1" })],
+      }),
+    ]);
+    await expect(repository.listProfileRevisions()).resolves.toEqual([
+      expect.objectContaining({ id: "profile_revision_newer" }),
+      expect.objectContaining({ id: "profile_revision_older" }),
+    ]);
+
+    await repository.reset(createSeed());
+
+    await expect(repository.listProfileCopilotMessages()).resolves.toEqual([]);
+    await expect(repository.listProfileRevisions()).resolves.toEqual([]);
+  });
+
+  test("commits profile copilot state atomically", async () => {
+    const seed = createSeed();
+    const repository = createInMemoryJobFinderRepository(seed);
+
+    await repository.commitProfileCopilotState({
+      profile: {
+        ...seed.profile,
+        headline: "Principal Product Designer",
+      },
+      searchPreferences: {
+        ...seed.searchPreferences,
+        targetSalaryUsd: 220000,
+      },
+      profileSetupState: {
+        ...seed.profileSetupState,
+        status: "in_progress",
+        currentStep: "essentials",
+        completedAt: null,
+      },
+      messages: [
+        {
+          id: "profile_message_atomic",
+          role: "assistant",
+          content: "Applied a safe profile update.",
+          context: { surface: "setup", step: "essentials" },
+          patchGroups: [],
+          createdAt: "2026-04-15T10:00:00.000Z",
+        },
+      ],
+      revisions: [
+        {
+          id: "profile_revision_atomic",
+          createdAt: "2026-04-15T10:00:01.000Z",
+          reason: "Atomic assistant patch.",
+          trigger: "assistant_patch",
+          messageId: "profile_message_atomic",
+          patchGroupId: null,
+          restoredFromRevisionId: null,
+          snapshotProfile: seed.profile,
+          snapshotSearchPreferences: seed.searchPreferences,
+          snapshotProfileSetupState: seed.profileSetupState,
+        },
+      ],
+    });
+
+    await expect(repository.getProfile()).resolves.toEqual(
+      expect.objectContaining({ headline: "Principal Product Designer" }),
+    );
+    await expect(repository.getSearchPreferences()).resolves.toEqual(
+      expect.objectContaining({ targetSalaryUsd: 220000 }),
+    );
+    await expect(repository.getProfileSetupState()).resolves.toEqual(
+      expect.objectContaining({ status: "in_progress", currentStep: "essentials" }),
+    );
+    await expect(repository.listProfileCopilotMessages()).resolves.toEqual([
+      expect.objectContaining({ id: "profile_message_atomic" }),
+    ]);
+    await expect(repository.listProfileRevisions()).resolves.toEqual([
+      expect.objectContaining({ id: "profile_revision_atomic" }),
     ]);
   });
 
@@ -308,6 +510,98 @@ describe("createInMemoryJobFinderRepository", () => {
     );
   });
 
+  test("finalizes resume import state atomically", async () => {
+    const seed = createSeed();
+    const repository = createInMemoryJobFinderRepository(seed);
+
+    await repository.finalizeResumeImportRun({
+      profile: {
+        ...seed.profile,
+        fullName: "Taylor Rivera",
+      },
+      searchPreferences: {
+        ...seed.searchPreferences,
+        targetRoles: ["Staff Product Designer"],
+      },
+      run: {
+        id: "resume_import_run_atomic",
+        sourceResumeId: seed.profile.baseResume.id,
+        sourceResumeFileName: seed.profile.baseResume.fileName,
+        trigger: "import",
+        status: "applied",
+        startedAt: "2026-04-15T10:10:00.000Z",
+        completedAt: "2026-04-15T10:10:10.000Z",
+        primaryParserKind: "plain_text",
+        parserKinds: ["plain_text"],
+        analysisProviderKind: null,
+        analysisProviderLabel: null,
+        warnings: [],
+        errorMessage: null,
+        candidateCounts: {
+          total: 1,
+          autoApplied: 1,
+          needsReview: 0,
+          rejected: 0,
+          abstained: 0,
+        },
+      },
+      documentBundles: [
+        {
+          id: "resume_bundle_atomic",
+          runId: "resume_import_run_atomic",
+          sourceResumeId: seed.profile.baseResume.id,
+          sourceFileKind: "plain_text",
+          primaryParserKind: "plain_text",
+          parserKinds: ["plain_text"],
+          createdAt: "2026-04-15T10:10:00.000Z",
+          languageHints: [],
+          warnings: [],
+          pages: [],
+          blocks: [],
+          fullText: "Taylor Rivera",
+        },
+      ],
+      fieldCandidates: [
+        {
+          id: "resume_candidate_atomic",
+          runId: "resume_import_run_atomic",
+          target: { section: "identity", key: "fullName", recordId: null },
+          sourceKind: "parser_literal",
+          resolution: "auto_applied",
+          label: "Full name",
+          value: "Taylor Rivera",
+          normalizedValue: "Taylor Rivera",
+          valuePreview: "Taylor Rivera",
+          sourceBlockIds: [],
+          evidenceText: "Taylor Rivera",
+          confidence: 0.99,
+          confidenceBreakdown: null,
+          notes: [],
+          alternatives: [],
+          createdAt: "2026-04-15T10:10:05.000Z",
+          resolvedAt: "2026-04-15T10:10:10.000Z",
+          resolutionReason: "grounded_literal_match",
+        },
+      ],
+    });
+
+    await expect(repository.getProfile()).resolves.toEqual(
+      expect.objectContaining({ fullName: "Taylor Rivera" }),
+    );
+    await expect(repository.getSearchPreferences()).resolves.toEqual(
+      expect.objectContaining({ targetRoles: ["Staff Product Designer"] }),
+    );
+    await expect(repository.getLatestResumeImportRun(seed.profile.baseResume.id)).resolves.toEqual(
+      expect.objectContaining({ id: "resume_import_run_atomic", status: "applied" }),
+    );
+    await expect(
+      repository.listResumeImportDocumentBundles({ runId: "resume_import_run_atomic" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "resume_bundle_atomic" })]);
+    await expect(
+      repository.listResumeImportFieldCandidates({ runId: "resume_import_run_atomic" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "resume_candidate_atomic" })]);
+  });
+
   test("atomically replaces saved jobs while clearing resume approval", async () => {
     const seed = createSeed();
     seed.savedJobs = [
@@ -317,6 +611,7 @@ describe("createInMemoryJobFinderRepository", () => {
         sourceJobId: "target_job_ready",
         discoveryMethod: "catalog_seed",
         canonicalUrl: "https://jobs.example.com/roles/target_job_ready",
+        applicationUrl: "https://jobs.example.com/roles/target_job_ready/apply",
         title: "Lead Designer",
         company: "Signal Systems",
         location: "Remote",
@@ -326,7 +621,18 @@ describe("createInMemoryJobFinderRepository", () => {
         postedAt: "2026-03-20T10:00:00.000Z",
         postedAtText: null,
         discoveredAt: "2026-03-20T10:01:00.000Z",
+        firstSeenAt: "2026-03-20T10:01:00.000Z",
+        lastSeenAt: "2026-03-20T10:01:00.000Z",
+        lastVerifiedActiveAt: "2026-03-20T10:01:00.000Z",
         salaryText: "$180k",
+        normalizedCompensation: {
+          currency: "USD",
+          interval: "year",
+          minAmount: 180000,
+          maxAmount: 180000,
+          minAnnualUsd: 180000,
+          maxAnnualUsd: 180000,
+        },
         summary: "Lead product design.",
         description: "Lead product design for operational software.",
         keySkills: ["Figma"],
@@ -339,6 +645,15 @@ describe("createInMemoryJobFinderRepository", () => {
         team: null,
         employerWebsiteUrl: null,
         employerDomain: null,
+        atsProvider: null,
+        screeningHints: {
+          sponsorshipText: null,
+          requiresSecurityClearance: null,
+          relocationText: null,
+          travelText: null,
+          remoteGeographies: [],
+        },
+        keywordSignals: [],
         benefits: [],
         status: "ready_for_review",
         matchAssessment: {
@@ -426,13 +741,8 @@ describe("createInMemoryJobFinderRepository", () => {
     const exports = await repository.listResumeExportArtifacts({ jobId: "job_ready" });
     const assets = await repository.listTailoredAssets();
 
-    expect(refreshedJobs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: "job_ready",
-          description: expect.stringMatching(/Updated\./),
-        }),
-      ]),
+    expect(refreshedJobs.find((job) => job.id === "job_ready")?.description).toMatch(
+      /Updated\./,
     );
     expect(refreshedDraft?.status).toBe("stale");
     expect(refreshedDraft?.approvedExportId).toBeNull();

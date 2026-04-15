@@ -72,7 +72,7 @@ export function ProfileSectionTabs({
               className={cn(
                 'group relative w-full border text-left transition-all duration-200',
                 activeSection === section.id
-                  ? 'translate-y-1 overflow-hidden rounded-(--radius-button) border-(--surface-panel-border-active) bg-transparent text-(--text-headline)'
+                  ? 'overflow-hidden rounded-(--radius-button) border-(--surface-panel-border-active) bg-[linear-gradient(180deg,rgba(86,184,120,0.08),rgba(255,255,255,0.01))] text-(--text-headline) shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]'
                   : 'overflow-hidden rounded-(--radius-button) border-(--surface-panel-border-warm) bg-(--surface-fill-subtle) text-foreground-soft hover:border-(--surface-panel-border-warm-hover) hover:bg-(--surface-tab-hover) hover:text-foreground'
               )}
               id={`${section.id}-tab`}

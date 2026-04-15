@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import type { ProfileEditorValues } from '../../lib/profile-editor'
@@ -14,6 +15,10 @@ interface ProfileCoreTabProps {
 export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
   const { register, setValue, watch } = profileForm
   const listFieldOptions = { shouldDirty: true, shouldTouch: true, shouldValidate: true } as const
+  const careerThemesId = useId()
+  const nextChapterSummaryId = useId()
+  const leadershipSummaryId = useId()
+  const careerTransitionSummaryId = useId()
 
   return (
     <div className="grid gap-6">
@@ -93,6 +98,10 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
               <ProfileTextarea className="min-h-(--textarea-default) max-h-(--textarea-default)" rows={5} {...register('summary.fullSummary')} />
             </Field>
             <Field>
+              <FieldLabel>Professional story</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-default) max-h-(--textarea-default)" rows={5} {...register('narrative.professionalStory')} />
+            </Field>
+            <Field>
               <FieldLabel>Strengths</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.strengths')} />
             </Field>
@@ -105,16 +114,32 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         >
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <Field>
-              <FieldLabel>Career themes</FieldLabel>
-              <ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.careerThemes')} />
+              <FieldLabel htmlFor={careerThemesId}>Career themes</FieldLabel>
+              <ProfileTextarea id={careerThemesId} className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register('summary.careerThemes')} />
             </Field>
             <Field>
-              <FieldLabel>Leadership experience</FieldLabel>
-              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('summary.leadershipSummary')} />
+              <FieldLabel htmlFor={nextChapterSummaryId}>Next chapter</FieldLabel>
+              <ProfileTextarea id={nextChapterSummaryId} className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('narrative.nextChapterSummary')} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={leadershipSummaryId}>Leadership experience</FieldLabel>
+              <ProfileTextarea id={leadershipSummaryId} className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('summary.leadershipSummary')} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={careerTransitionSummaryId}>Career transition context</FieldLabel>
+              <ProfileTextarea id={careerTransitionSummaryId} className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('narrative.careerTransitionSummary')} />
             </Field>
             <Field className="md:col-span-2">
               <FieldLabel>Industry focus</FieldLabel>
               <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('summary.domainFocusSummary')} />
+            </Field>
+            <Field>
+              <FieldLabel>Differentiators</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('narrative.differentiators')} />
+            </Field>
+            <Field>
+              <FieldLabel>Motivation themes</FieldLabel>
+              <ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register('narrative.motivationThemes')} />
             </Field>
           </div>
         </ProfileOptionalSection>

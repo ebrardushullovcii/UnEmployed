@@ -133,6 +133,50 @@ export function ApplicationsDetailPanel({
               </strong>
             </div>
           </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+              <span className="card-heading-sm">Detected questions</span>
+              <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
+                {selectedRecord.questionSummary.total}
+              </strong>
+              <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
+                {selectedRecord.questionSummary.answered} answered • {selectedRecord.questionSummary.unansweredRequired} required left
+              </p>
+            </div>
+            <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+              <span className="card-heading-sm">Latest blocker</span>
+              <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
+                {selectedRecord.latestBlocker ? formatStatusLabel(selectedRecord.latestBlocker.code) : 'No blocker'}
+              </strong>
+              {selectedRecord.latestBlocker ? (
+                <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
+                  {selectedRecord.latestBlocker.summary}
+                </p>
+              ) : null}
+            </div>
+            <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+              <span className="card-heading-sm">Consent</span>
+              <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
+                {formatStatusLabel(selectedRecord.consentSummary.status)}
+              </strong>
+              {selectedRecord.consentSummary.pendingCount > 0 ? (
+                <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
+                  {selectedRecord.consentSummary.pendingCount} pending
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+              <span className="card-heading-sm">Replay memory</span>
+              <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
+                {selectedRecord.replaySummary.checkpointCount} checkpoints
+              </strong>
+              <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
+                {selectedRecord.replaySummary.lastUrl ?? 'No replay URL saved'}
+              </p>
+            </div>
+          </div>
           {selectedAttempt ? (
             <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
               <h3 className="label-mono-xs text-primary">Attempt details</h3>
@@ -155,6 +199,49 @@ export function ApplicationsDetailPanel({
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                   Next step: {selectedAttempt.nextActionLabel}
                 </p>
+              ) : null}
+              {selectedAttempt.blocker ? (
+                <div className="grid gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
+                  <strong>{formatStatusLabel(selectedAttempt.blocker.code)}</strong>
+                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">{selectedAttempt.blocker.summary}</p>
+                  {selectedAttempt.blocker.detail ? <p className="text-(length:--text-small) leading-6 text-foreground-soft">{selectedAttempt.blocker.detail}</p> : null}
+                </div>
+              ) : null}
+              {selectedAttempt.questions.length ? (
+                <div className="grid gap-2">
+                  <p className="label-mono-xs">Question memory</p>
+                  {selectedAttempt.questions.map((question) => (
+                    <div key={question.id} className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <strong>{question.prompt}</strong>
+                        <StatusBadge tone={question.status === 'submitted' || question.status === 'answered' ? 'positive' : 'active'}>
+                          {formatStatusLabel(question.status)}
+                        </StatusBadge>
+                      </div>
+                      <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
+                        {formatStatusLabel(question.kind)}{question.isRequired ? ' • Required' : ' • Optional'}
+                      </p>
+                      {question.submittedAnswer ? (
+                        <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">Submitted: {question.submittedAnswer}</p>
+                      ) : null}
+                      {question.suggestedAnswers[0] ? (
+                        <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">Suggested: {question.suggestedAnswers[0].text}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {selectedAttempt.consentDecisions.length ? (
+                <div className="grid gap-2">
+                  <p className="label-mono-xs">Consent history</p>
+                  {selectedAttempt.consentDecisions.map((decision) => (
+                    <div key={decision.id} className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft">
+                      <strong className="text-foreground">{decision.label}</strong>
+                      <p>{formatStatusLabel(decision.status)}</p>
+                      {decision.detail ? <p>{decision.detail}</p> : null}
+                    </div>
+                  ))}
+                </div>
               ) : null}
             </section>
           ) : (

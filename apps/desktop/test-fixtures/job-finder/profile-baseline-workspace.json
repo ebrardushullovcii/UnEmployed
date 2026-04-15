@@ -1,0 +1,194 @@
+{
+  "profile": {
+    "id": "candidate_1",
+    "firstName": "Alex",
+    "lastName": "Vanguard",
+    "fullName": "Alex Vanguard",
+    "headline": "Senior systems designer",
+    "summary": "Builds resilient workflows for design systems, workflow automation, and operations platforms.",
+    "currentLocation": "London, UK",
+    "yearsExperience": 10,
+    "email": "alex@example.com",
+    "phone": "+44 7700 900123",
+    "portfolioUrl": "https://alex.example.com",
+    "linkedinUrl": "https://www.linkedin.com/in/alex-vanguard",
+    "narrative": {
+      "professionalStory": "Design systems and workflow tooling leader who turns messy multi-team operations into clear product systems.",
+      "nextChapterSummary": "Looking for remote product-design roles that combine systems thinking, workflow automation, and cross-functional leadership.",
+      "careerTransitionSummary": "Open to roles that bridge product design and workflow platform ownership because that has been the strongest throughline of recent work.",
+      "differentiators": [
+        "Turns ambiguous workflow pain into durable design systems",
+        "Pairs product strategy with hands-on systems execution"
+      ],
+      "motivationThemes": [
+        "workflow automation",
+        "design systems",
+        "platform quality"
+      ]
+    },
+    "proofBank": [
+      {
+        "id": "proof_1",
+        "title": "Design-system rollout",
+        "claim": "Led a design-system rollout across core workflow surfaces used by design and operations teams.",
+        "heroMetric": "Adoption reached 80% of core product surfaces within two quarters.",
+        "supportingContext": "Worked across product, engineering, and operations to standardize interaction and content patterns.",
+        "roleFamilies": [
+          "product design",
+          "design systems",
+          "platform"
+        ],
+        "projectIds": [],
+        "linkIds": [
+          "link_1"
+        ]
+      }
+    ],
+    "answerBank": {
+      "workAuthorization": "Authorized to work in the United Kingdom and open to remote roles across Europe.",
+      "visaSponsorship": "Do not currently require visa sponsorship for UK-based roles.",
+      "relocation": "Open to relocation for the right platform or systems role.",
+      "travel": "Open to occasional travel for planning, workshops, and launch support.",
+      "noticePeriod": "Currently able to start after a 30-day notice period.",
+      "availability": "Available to interview now and start within 30 days.",
+      "salaryExpectations": "Targeting senior remote roles in the 180k-220k USD range depending on scope and package.",
+      "selfIntroduction": "I am a systems-focused product designer with 10 years of experience building workflow tools, design systems, and cross-functional operating rhythms.",
+      "careerTransition": "I am leaning further into systems and workflow platform roles because that is where my strongest measurable impact has been.",
+      "customAnswers": []
+    },
+    "applicationIdentity": {
+      "preferredEmail": "alex@example.com",
+      "preferredPhone": "+44 7700 900123",
+      "preferredLinkIds": [
+        "link_1"
+      ]
+    },
+    "baseResume": {
+      "id": "resume_1",
+      "fileName": "alex-vanguard.pdf",
+      "uploadedAt": "2026-03-20T10:00:00.000Z",
+      "storagePath": "/tmp/alex-vanguard.pdf",
+      "textContent": "Alex Vanguard\nSenior systems designer\nLondon, UK\nalex@example.com\n+44 7700 900123\nhttps://alex.example.com\nhttps://www.linkedin.com/in/alex-vanguard\n\n10 years of experience building resilient workflow tools with Figma, React, and design systems.",
+      "textUpdatedAt": "2026-03-20T10:00:00.000Z",
+      "extractionStatus": "ready",
+      "lastAnalyzedAt": "2026-03-20T10:01:00.000Z",
+      "analysisWarnings": []
+    },
+    "targetRoles": [
+      "Principal Designer"
+    ],
+    "locations": [
+      "Remote"
+    ],
+    "skills": [
+      "Figma",
+      "React",
+      "Design Systems"
+    ],
+    "experiences": [
+      {
+        "id": "experience_1",
+        "companyName": "Signal Systems",
+        "title": "Senior systems designer",
+        "employmentType": "Full-time",
+        "location": "London, UK",
+        "workMode": [
+          "hybrid"
+        ],
+        "startDate": "2020-01",
+        "endDate": null,
+        "isCurrent": true,
+        "isDraft": false,
+        "summary": "Builds resilient workflow tools.",
+        "achievements": [
+          "Led design-system rollout across core workflow surfaces."
+        ],
+        "skills": [
+          "Figma",
+          "Design Systems"
+        ],
+        "domainTags": [],
+        "peopleManagementScope": null,
+        "ownershipScope": null
+      }
+    ],
+    "education": [
+      {
+        "id": "education_1",
+        "schoolName": "Royal College of Art",
+        "degree": "MA",
+        "fieldOfStudy": "Design Products",
+        "location": "London, UK",
+        "startDate": "2012-09",
+        "endDate": "2014-06",
+        "isDraft": false,
+        "summary": null
+      }
+    ],
+    "links": [
+      {
+        "id": "link_1",
+        "label": "Portfolio",
+        "url": "https://alex.example.com",
+        "kind": "portfolio",
+        "isDraft": false
+      }
+    ],
+    "projects": [],
+    "spokenLanguages": []
+  },
+  "searchPreferences": {
+    "targetRoles": [
+      "Principal Designer",
+      "Senior Product Designer",
+      "Principal UX Engineer"
+    ],
+    "locations": [
+      "Remote",
+      "London"
+    ],
+    "workModes": [
+      "remote",
+      "hybrid"
+    ],
+    "seniorityLevels": [
+      "senior"
+    ],
+    "minimumSalaryUsd": 170000,
+    "salaryCurrency": "USD",
+    "companyWhitelist": [
+      "Signal Systems"
+    ],
+    "approvalMode": "review_before_submit",
+    "tailoringMode": "balanced",
+    "discovery": {
+      "historyLimit": 5,
+      "targets": [
+        {
+          "id": "target_linkedin_default",
+          "label": "Primary target",
+          "startingUrl": "https://www.linkedin.com/jobs/search/",
+          "enabled": true,
+          "adapterKind": "auto",
+          "customInstructions": null,
+          "instructionStatus": "missing",
+          "validatedInstructionId": null,
+          "draftInstructionId": null,
+          "lastDebugRunId": null,
+          "lastVerifiedAt": null,
+          "staleReason": null
+        }
+      ]
+    }
+  },
+  "settings": {
+    "resumeTemplateId": "classic_ats",
+    "resumeFormat": "pdf",
+    "fontPreset": "inter_requisite",
+    "appearanceTheme": "system",
+    "humanReviewRequired": true,
+    "keepSessionAlive": true,
+    "allowAutoSubmitOverride": false,
+    "discoveryOnly": false
+  }
+}

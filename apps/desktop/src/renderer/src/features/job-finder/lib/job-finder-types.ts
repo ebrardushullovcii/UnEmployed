@@ -1,4 +1,6 @@
 import type {
+  CandidateAnswerKind,
+  CandidateLinkKind,
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
@@ -7,6 +9,8 @@ import type {
   JobSearchPreferences,
   JobFinderWorkspaceSnapshot,
   JobSourceAdapterKind,
+  ProfileCopilotContext,
+  ProfileSetupState,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -63,6 +67,26 @@ export interface JobFinderShellActions {
   saveSettings: (
     settings: JobFinderSettings,
   ) => Promise<JobFinderWorkspaceSnapshot>;
+  saveProfileSetupState: (
+    profileSetupState: ProfileSetupState,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  applyProfileSetupReviewAction: (
+    reviewItemId: string,
+    action: "confirm" | "dismiss" | "clear_value",
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  sendProfileCopilotMessage: (
+    content: string,
+    context?: ProfileCopilotContext,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  applyProfileCopilotPatchGroup: (
+    patchGroupId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  rejectProfileCopilotPatchGroup: (
+    patchGroupId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  undoProfileRevision: (
+    revisionId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
@@ -116,6 +140,8 @@ export type ExperienceFormEntry = {
   domainTags: string;
   peopleManagementScope: string;
   ownershipScope: string;
+  sourceCandidateId?: string | null;
+  sourceCandidateFingerprint?: string | null;
 };
 
 export type EducationFormEntry = {
@@ -127,6 +153,8 @@ export type EducationFormEntry = {
   startDate: string;
   endDate: string;
   summary: string;
+  sourceCandidateId?: string | null;
+  sourceCandidateFingerprint?: string | null;
 };
 
 export type CertificationFormEntry = {
@@ -142,7 +170,7 @@ export type LinkFormEntry = {
   id: string;
   label: string;
   url: string;
-  kind: string;
+  kind: CandidateLinkKind | "";
 };
 
 export type ProjectFormEntry = {
@@ -164,6 +192,27 @@ export type LanguageFormEntry = {
   proficiency: string;
   interviewPreference: boolean;
   notes: string;
+};
+
+export type ProofBankEntryFormEntry = {
+  id: string;
+  title: string;
+  claim: string;
+  heroMetric: string;
+  supportingContext: string;
+  roleFamilies: string;
+  projectIds: string;
+  linkIds: string;
+};
+
+export type ReusableAnswerFormEntry = {
+  id: string;
+  label: string;
+  question: string;
+  answer: string;
+  kind: CandidateAnswerKind;
+  roleFamilies: string;
+  proofEntryIds: string;
 };
 
 export type DiscoveryTargetEditorValue = {

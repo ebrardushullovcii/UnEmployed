@@ -50,6 +50,13 @@ async function clickNavigationControl(window, name) {
   await window.getByRole('button', { name }).click()
 }
 
+async function waitForProfileOrSetupHeading(window) {
+  await window.waitForFunction(() => {
+    const heading = document.querySelector('h1')
+    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
+  }, undefined, { timeout: 15000 })
+}
+
 async function captureScreens() {
   await mkdir(outputDir, { recursive: true })
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-ui-capture-'))
@@ -59,6 +66,8 @@ async function captureScreens() {
     cwd: desktopDir,
     env: {
       ...process.env,
+      UNEMPLOYED_ENABLE_TEST_API: '1',
+      UNEMPLOYED_TEST_SYSTEM_THEME: process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark',
       UNEMPLOYED_USER_DATA_DIR: userDataDirectory
     }
   })
@@ -67,7 +76,10 @@ async function captureScreens() {
     const window = await app.firstWindow()
 
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await window.evaluate(async (theme) => {
+      await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
+    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
+    await waitForProfileOrSetupHeading(window)
     await window.setViewportSize({ width, height })
 
     for (const screen of screens) {

@@ -6,10 +6,18 @@ import type {
   JobFinderRepositoryState,
   JobFinderSettings,
   JobSearchPreferences,
+  ProfileCopilotMessage,
+  ProfileRevision,
+  ProfileSetupState,
   ResumeAssistantMessage,
+  ResumeDocumentBundle,
   ResumeDraft,
   ResumeDraftRevision,
   ResumeExportArtifact,
+  ResumeImportCandidateResolution,
+  ResumeImportFieldCandidate,
+  ResumeImportRun,
+  ResumeImportRunStatus,
   ResumeResearchArtifact,
   ResumeValidationResult,
   SavedJob,
@@ -29,10 +37,19 @@ export interface JobFinderRepository {
   saveProfile(profile: CandidateProfile): Promise<void>;
   getSearchPreferences(): Promise<JobSearchPreferences>;
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<void>;
+  getProfileSetupState(): Promise<ProfileSetupState>;
+  saveProfileSetupState(profileSetupState: ProfileSetupState): Promise<void>;
   saveProfileAndSearchPreferences(
     profile: CandidateProfile,
     searchPreferences: JobSearchPreferences,
   ): Promise<void>;
+  commitProfileCopilotState(input: {
+    profile: CandidateProfile;
+    searchPreferences: JobSearchPreferences;
+    profileSetupState: ProfileSetupState;
+    messages?: readonly ProfileCopilotMessage[];
+    revisions?: readonly ProfileRevision[];
+  }): Promise<void>;
   listSavedJobs(): Promise<readonly SavedJob[]>;
   replaceSavedJobs(savedJobs: readonly SavedJob[]): Promise<void>;
   replaceSavedJobsAndClearResumeApproval(input: {
@@ -59,6 +76,33 @@ export interface JobFinderRepository {
     jobId?: string,
   ): Promise<readonly ResumeResearchArtifact[]>;
   upsertResumeResearchArtifact(artifact: ResumeResearchArtifact): Promise<void>;
+  listResumeImportRuns(options?: {
+    sourceResumeId?: string;
+    statuses?: readonly ResumeImportRunStatus[];
+    limit?: number;
+  }): Promise<readonly ResumeImportRun[]>;
+  getLatestResumeImportRun(sourceResumeId?: string): Promise<ResumeImportRun | null>;
+  listResumeImportDocumentBundles(options?: {
+    runId?: string;
+    sourceResumeId?: string;
+  }): Promise<readonly ResumeDocumentBundle[]>;
+  listResumeImportFieldCandidates(options?: {
+    runId?: string;
+    resolution?: ResumeImportCandidateResolution;
+    resolutions?: readonly ResumeImportCandidateResolution[];
+  }): Promise<readonly ResumeImportFieldCandidate[]>;
+  replaceResumeImportRunArtifacts(input: {
+    run: ResumeImportRun;
+    documentBundles: readonly ResumeDocumentBundle[];
+    fieldCandidates: readonly ResumeImportFieldCandidate[];
+  }): Promise<void>;
+  finalizeResumeImportRun(input: {
+    profile: CandidateProfile;
+    searchPreferences: JobSearchPreferences;
+    run: ResumeImportRun;
+    documentBundles: readonly ResumeDocumentBundle[];
+    fieldCandidates: readonly ResumeImportFieldCandidate[];
+  }): Promise<void>;
   listResumeValidationResults(
     draftId?: string,
   ): Promise<readonly ResumeValidationResult[]>;
@@ -71,6 +115,12 @@ export interface JobFinderRepository {
   upsertResumeAssistantMessage(
     message: ResumeAssistantMessage,
   ): Promise<void>;
+  listProfileCopilotMessages(): Promise<readonly ProfileCopilotMessage[]>;
+  upsertProfileCopilotMessage(
+    message: ProfileCopilotMessage,
+  ): Promise<void>;
+  listProfileRevisions(): Promise<readonly ProfileRevision[]>;
+  upsertProfileRevision(revision: ProfileRevision): Promise<void>;
   saveResumeDraftWithValidation(input: {
     draft: ResumeDraft;
     validation: ResumeValidationResult;
@@ -128,6 +178,7 @@ export interface FileJobFinderRepositoryOptions {
 export type StateTableKey =
   | "profile"
   | "search_preferences"
+  | "profile_setup_state"
   | "settings"
   | "discovery_state";
 

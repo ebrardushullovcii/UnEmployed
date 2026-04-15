@@ -1,4 +1,6 @@
 import {
+  ApplicationAttemptConsentDecisionSchema,
+  ApplicationAttemptQuestionSchema,
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   ResumeAssistantMessageSchema,
@@ -10,6 +12,15 @@ import {
   type ResumeDraftPatch,
 } from "@unemployed/contracts";
 import { mergeSavedJobs } from "./workspace-service-helpers";
+import {
+  buildConsentSummary,
+  buildEvidenceRefIdsFromInstruction,
+  buildLatestBlockerSummary,
+  buildQuestionSummary,
+  buildReplaySummary,
+  mergeAttemptBlocker,
+  mergeAttemptReplay,
+} from "./workspace-application-attempt-support";
 import { buildInstructionGuidance, mergeEvents, nextAssetVersion, nextJobStatusFromAttempt, resolveActiveSourceInstructionArtifact, toApplicationEvents } from "./workspace-helpers";
 import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 import {
@@ -612,6 +623,7 @@ export function createWorkspaceApplicationMethods(
         tailoredAssets,
         applicationRecords,
         sourceInstructionArtifacts,
+        sourceDebugAttempts,
         draft,
         approvedExports,
       ] = await Promise.all([
@@ -622,6 +634,7 @@ export function createWorkspaceApplicationMethods(
         ctx.repository.listTailoredAssets(),
         ctx.repository.listApplicationRecords(),
         ctx.repository.listSourceInstructionArtifacts(),
+        ctx.repository.listSourceDebugAttempts(),
         ctx.repository.getResumeDraftByJobId(jobId),
         ctx.repository.listResumeExportArtifacts({ jobId }),
       ]);
@@ -689,6 +702,27 @@ export function createWorkspaceApplicationMethods(
         ...(applyInstructions.length > 0 ? { instructions: applyInstructions } : {}),
       });
       const now = new Date().toISOString();
+      const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
+        activeInstruction,
+        sourceDebugAttempts,
+      });
+      const questions = executionResult.questions.map((question) =>
+        ApplicationAttemptQuestionSchema.parse(question),
+      );
+      const consentDecisions = executionResult.consentDecisions.map((decision) =>
+        ApplicationAttemptConsentDecisionSchema.parse(decision),
+      );
+      const blocker = mergeAttemptBlocker({
+        blocker: executionResult.blocker,
+        sourceDebugEvidenceRefIds,
+        defaultUrl: job.applicationUrl ?? job.canonicalUrl,
+      });
+      const replay = mergeAttemptReplay({
+        replay: executionResult.replay,
+        activeInstruction,
+        sourceDebugEvidenceRefIds,
+        fallbackUrl: job.applicationUrl ?? job.canonicalUrl,
+      });
       const attempt = ApplicationAttemptSchema.parse({
         id: `attempt_${jobId}_${Date.now()}`,
         jobId,
@@ -703,6 +737,10 @@ export function createWorkspaceApplicationMethods(
             : (executionResult.submittedAt ?? now),
         outcome: executionResult.outcome,
         checkpoints: executionResult.checkpoints,
+        questions,
+        blocker,
+        consentDecisions,
+        replay,
         nextActionLabel: executionResult.nextActionLabel,
       });
 
@@ -719,6 +757,10 @@ export function createWorkspaceApplicationMethods(
         nextActionLabel: executionResult.nextActionLabel,
         lastUpdatedAt: executionResult.submittedAt ?? now,
         lastAttemptState: executionResult.state,
+        questionSummary: buildQuestionSummary(attempt.questions),
+        latestBlocker: buildLatestBlockerSummary(attempt.blocker),
+        consentSummary: buildConsentSummary(attempt.consentDecisions),
+        replaySummary: buildReplaySummary(attempt.replay),
         events: mergeEvents(
           existingRecord?.events ?? [],
           toApplicationEvents(job, executionResult.checkpoints),

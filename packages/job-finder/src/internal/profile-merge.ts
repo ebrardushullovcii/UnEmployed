@@ -8,6 +8,30 @@ import {
 } from "@unemployed/contracts";
 import { normalizeText, uniqueStrings } from "./shared";
 
+const KNOWN_COUNTRY_LIKE_LOCATION_PARTS = new Set([
+  "kosovo",
+  "albania",
+  "germany",
+  "france",
+  "italy",
+  "spain",
+  "portugal",
+  "netherlands",
+  "belgium",
+  "switzerland",
+  "austria",
+  "uk",
+  "united kingdom",
+  "england",
+  "usa",
+  "united states",
+  "canada",
+  "australia",
+  "japan",
+  "india",
+  "singapore",
+]);
+
 export function buildTailoredResumeText(
   profile: CandidateProfile,
   job: SavedJob,
@@ -96,6 +120,16 @@ export function normalizeRecordKey(
     .join("|");
 }
 
+function safeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) =>
+    typeof entry === "string" && entry.trim().length > 0 ? [entry] : [],
+  );
+}
+
 export function toValidUrlOrNull(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -143,6 +177,16 @@ export function parseLocationParts(location: string | null | undefined): {
   }
 
   if (parts.length === 2) {
+    const normalizedSecondPart = parts[1]?.toLowerCase() ?? "";
+
+    if (KNOWN_COUNTRY_LIKE_LOCATION_PARTS.has(normalizedSecondPart)) {
+      return {
+        currentCity: parts[0] ?? null,
+        currentRegion: null,
+        currentCountry: parts[1] ?? null,
+      };
+    }
+
     return {
       currentCity: parts[0] ?? null,
       currentRegion: parts[1] ?? null,
@@ -193,15 +237,15 @@ export function mergeExperienceRecords(
       title: entry.title,
       employmentType: entry.employmentType,
       location: entry.location,
-      workMode: entry.workMode ? [entry.workMode] : [],
+      workMode: entry.workMode,
       startDate: entry.startDate,
       endDate: entry.endDate,
       isCurrent: entry.isCurrent,
       isDraft: !entry.companyName && !entry.title,
       summary: entry.summary,
-      achievements: uniqueStrings(entry.achievements),
-      skills: uniqueStrings(entry.skills),
-      domainTags: uniqueStrings(entry.domainTags),
+      achievements: uniqueStrings(safeStringArray(entry.achievements)),
+      skills: uniqueStrings(safeStringArray(entry.skills)),
+      domainTags: uniqueStrings(safeStringArray(entry.domainTags)),
       peopleManagementScope: entry.peopleManagementScope,
       ownershipScope: entry.ownershipScope,
     };
@@ -355,7 +399,7 @@ export function mergeProjectRecords(
         projectType: entry.projectType,
         summary: entry.summary,
         role: entry.role,
-        skills: uniqueStrings(entry.skills),
+        skills: uniqueStrings(safeStringArray(entry.skills)),
         outcome: entry.outcome,
         projectUrl: entry.projectUrl,
         repositoryUrl: entry.repositoryUrl,
@@ -553,4 +597,3 @@ export function mergeResumeExtractionIntoWorkspace(
     }),
   };
 }
-

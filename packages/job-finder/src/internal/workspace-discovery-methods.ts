@@ -1,12 +1,7 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   DiscoveryRunRecordSchema,
-  DiscoveryTimingSummarySchema,
-  browserRunWaitReasonValues,
-  discoveryActivityStageValues,
   type DiscoveryActivityEvent,
-  type DiscoveryRunRecord,
-  type DiscoveryTargetExecution,
   type JobSource,
 } from "@unemployed/contracts";
 import {
@@ -27,7 +22,6 @@ import {
 } from "./workspace-helpers";
 import { collectResumeAffectingChangedJobIds } from "./resume-workspace-staleness";
 import {
-  DEFAULT_MAX_STEPS,
   DEFAULT_ROLE,
   DEFAULT_TARGET_JOB_COUNT,
   discoveryAdapters,
@@ -38,162 +32,14 @@ import {
   overlayTouchedPendingJobs,
   overlayTouchedSavedJobs,
 } from "./workspace-service-helpers";
-import {
-  calculateDurationMs,
-  computeTimelineSummary,
-  serializeOrderedDurationEntries,
-} from "./performance-timing";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
-
-function buildDiscoveryTimingSummary(
-  events: readonly DiscoveryActivityEvent[],
-  startedAt: string,
-  completedAt: string,
-) {
-  const stageTimeline = computeTimelineSummary({
-    startedAt,
-    completedAt,
-    events: events.map((event) => ({
-      timestamp: event.timestamp,
-      key: event.stage,
-    })),
-  });
-  const waitReasonTimeline = computeTimelineSummary({
-    startedAt,
-    completedAt,
-    events: events
-      .filter(
-        (
-          event,
-        ): event is DiscoveryActivityEvent & {
-          waitReason: NonNullable<DiscoveryActivityEvent["waitReason"]>;
-        } => event.waitReason !== null,
-      )
-      .map((event) => ({
-        timestamp: event.timestamp,
-        key: event.waitReason,
-      })),
-  });
-
-  return DiscoveryTimingSummarySchema.parse({
-    totalDurationMs: stageTimeline.totalDurationMs,
-    firstActivityMs: stageTimeline.firstEventMs,
-    longestGapMs: stageTimeline.longestGapMs,
-    eventCount: events.length,
-    stageDurations: serializeOrderedDurationEntries(
-      stageTimeline.durationsMsByKey,
-      discoveryActivityStageValues,
-      (stage, durationMs) => ({
-        stage,
-        durationMs,
-      }),
-    ),
-    waitReasonDurations: serializeOrderedDurationEntries(
-      waitReasonTimeline.durationsMsByKey,
-      browserRunWaitReasonValues,
-      (waitReason, durationMs) => ({
-        waitReason,
-        durationMs,
-      }),
-    ),
-  });
-}
-
-function completeTargetExecution(
-  run: DiscoveryRunRecord,
-  targetId: string,
-  completedAt: string,
-  patch: Partial<DiscoveryTargetExecution>,
-): DiscoveryRunRecord {
-  const nextRun = updateTargetExecution(run, targetId, (entry) => ({
-    ...entry,
-    ...patch,
-    completedAt,
-    timing:
-      entry.startedAt === null
-        ? null
-        : buildDiscoveryTimingSummary(
-            run.activity.filter((event) => event.targetId === entry.targetId),
-            entry.startedAt,
-            completedAt,
-          ),
-  }));
-
-  return DiscoveryRunRecordSchema.parse({
-    ...nextRun,
-    summary: {
-      ...nextRun.summary,
-      targetsCompleted: countCompletedTargetExecutions(nextRun),
-    },
-  });
-}
-
-function finalizeRunningTargetExecutions(
-  run: DiscoveryRunRecord,
-  state: "cancelled" | "failed",
-  completedAt: string,
-): DiscoveryRunRecord {
-  let nextRun = run;
-
-  for (const targetExecution of run.targetExecutions) {
-    if (targetExecution.state !== "running") {
-      continue;
-    }
-
-    nextRun = completeTargetExecution(nextRun, targetExecution.targetId, completedAt, {
-      state,
-      warning:
-        state === "cancelled"
-          ? "Discovery was cancelled before this target finished."
-          : targetExecution.warning,
-    });
-  }
-
-  return nextRun;
-}
-
-function finalizeDiscoveryRun(
-  run: DiscoveryRunRecord,
-  state: "completed" | "cancelled" | "failed",
-  completedAt: string,
-): DiscoveryRunRecord {
-  return DiscoveryRunRecordSchema.parse({
-    ...run,
-    state,
-    completedAt,
-    summary: {
-      ...run.summary,
-      durationMs: calculateDurationMs(run.startedAt, completedAt),
-      outcome: state,
-      timing: buildDiscoveryTimingSummary(run.activity, run.startedAt, completedAt),
-    },
-  });
-}
-
-const MIN_DISCOVERY_TARGET_MAX_STEPS = 20;
-
-function resolveDiscoveryTargetBudget(input: {
-  targetsRemaining: number;
-  validJobsFoundSoFar: number;
-}) {
-  const remainingJobs = Math.max(
-    1,
-    DEFAULT_TARGET_JOB_COUNT - input.validJobsFoundSoFar,
-  );
-  const targetJobCount = Math.min(
-    DEFAULT_TARGET_JOB_COUNT,
-    Math.ceil(remainingJobs / Math.max(1, input.targetsRemaining)),
-  );
-
-  return {
-    targetJobCount,
-    maxSteps: Math.min(
-      DEFAULT_MAX_STEPS,
-      Math.max(MIN_DISCOVERY_TARGET_MAX_STEPS, targetJobCount * 6),
-    ),
-  };
-}
+import {
+  completeTargetExecution,
+  finalizeDiscoveryRun,
+  finalizeRunningTargetExecutions,
+  resolveDiscoveryTargetBudget,
+} from "./workspace-discovery-run-helpers";
 
 export function createWorkspaceDiscoveryMethods(
   ctx: WorkspaceServiceContext,
@@ -240,7 +86,7 @@ export function createWorkspaceDiscoveryMethods(
       const mergeSeedJobs = settings.discoveryOnly
         ? mergeSavedJobs(savedJobs, discoveryState.pendingDiscoveryJobs)
         : savedJobs;
-      const mergeResult = await mergeDiscoveredPostings(
+      const mergeResult = mergeDiscoveredPostings(
         profile,
         enrichedPreferences,
         mergeSeedJobs,
@@ -595,7 +441,7 @@ export function createWorkspaceDiscoveryMethods(
           const mergeSeedJobs = settings.discoveryOnly
             ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
             : workingSavedJobs;
-          const mergeResult = await mergeDiscoveredPostings(
+          const mergeResult = mergeDiscoveredPostings(
             profile,
             enrichedPreferences,
             mergeSeedJobs,

@@ -2,7 +2,6 @@ import type {
   ExtractProfileFromResumeInput,
   ResumeProfileExtraction,
 } from "../shared";
-import type { CandidateLinkKind, CandidateProfile, JobSearchPreferences } from "@unemployed/contracts";
 import { ResumeProfileExtractionSchema } from "../shared";
 import {
   contactOrMetaPattern,
@@ -15,11 +14,9 @@ import {
   extractFirstUrl,
   extractRegexMatch,
   findSectionBodyLinesByAliases,
-  isLikelyPersonalWebsiteUrl,
   isResumeSectionHeading,
   normalizeLocationLabel,
   splitLines,
-  titleCaseWords,
   uniqueStrings,
 } from "./utils";
 import {
@@ -30,8 +27,176 @@ import {
   inferExperienceEntries,
   normalizeHeadlineText,
 } from "./resume-parser-experience";
+import {
+  buildProfileExtractionNotes,
+  inferEducationEntries,
+  inferGithubUrl,
+  inferLinks,
+  inferLocations,
+  inferPersonalWebsiteUrl,
+  inferProfessionalSummary,
+  inferSalaryCurrencyFromLocation,
+  inferSpokenLanguages,
+  inferTimeZoneFromLocation,
+} from "./resume-parser-profile-helpers";
 
-function inferCurrentLocation(lines: readonly string[]): string | null {
+type BuildDeterministicResumeProfileExtractionOptions = {
+  preserveExistingValues?: boolean;
+};
+
+const nonNamePhrasePattern =
+  /\b(software|engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|consulting|technical|mentorship|leadership|performance|productivity|quality|security|platform|platforms|systems|cloud|devops|support|experience|summary|profile|skills|project|projects|work|professional|staff|senior|principal|lead|frontend|backend|full-stack|scale)\b/i;
+
+function hasNearbyHeaderSignal(lines: readonly string[], index: number): boolean {
+  return lines
+    .slice(Math.max(0, index - 2), Math.min(lines.length, index + 3))
+    .some((line, relativeIndex) => {
+      const absoluteIndex = Math.max(0, index - 2) + relativeIndex;
+
+      if (absoluteIndex === index) {
+        return false;
+      }
+
+      return (
+        /^\+?\d/.test(line) ||
+        /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(line) ||
+        /(?:https?:\/\/|(?:www\.)?(?:linkedin|github)\.com\/)/i.test(line) ||
+        isLikelyHeaderLocation(trimTrailingContactFragments(line))
+      );
+    });
+}
+
+function isLikelyNameToken(value: string): boolean {
+  return /^[A-Z][A-Za-z.'-]*$/.test(value) || /^[A-Z]{2,}$/.test(value);
+}
+
+function isLikelyHeaderName(value: string): boolean {
+  const cleaned = cleanLine(value);
+
+  if (!cleaned || cleaned.length > 56) {
+    return false;
+  }
+
+  if (/@|https?:\/\//i.test(cleaned)) {
+    return false;
+  }
+
+  if (/resume|curriculum|summary|profile|experience|birth|nationality|phone|email|address|skills|linkedin/i.test(cleaned)) {
+    return false;
+  }
+
+  if (nonNamePhrasePattern.test(cleaned)) {
+    return false;
+  }
+
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  return parts.length >= 2 && parts.length <= 4 && parts.every(isLikelyNameToken);
+}
+
+function extractNameFromHeaderLine(line: string): string | null {
+  const cleaned = cleanLine(line);
+
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+
+  for (let tokenCount = 2; tokenCount <= Math.min(4, tokens.length); tokenCount += 1) {
+    const candidate = cleanLine(tokens.slice(0, tokenCount).join(" "));
+    const remainder = cleanLine(tokens.slice(tokenCount).join(" "));
+
+    if (!isLikelyHeaderName(candidate) || !remainder) {
+      continue;
+    }
+
+    if (
+      /^\+?\d/.test(remainder) ||
+      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(remainder) ||
+      /(?:https?:\/\/|(?:www\.)?(?:linkedin|github)\.com\/)/i.test(remainder) ||
+      isLikelyHeaderLocation(trimTrailingContactFragments(remainder))
+    ) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function trimTrailingContactFragments(value: string): string {
+  return cleanLine(
+    value
+      .split(/\s*[·|]\s*/)[0] ?? value,
+  )
+    .replace(/\s+(?:\(?\+?\d[\d\s().-]{7,}\d\)?|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?:\/\/\S+|(?:www\.)?(?:linkedin|github)\.com\/\S+)$/i, "")
+    .trim();
+}
+
+function extractLocationFromHeaderLine(
+  line: string,
+  fullName: string | null,
+): string | null {
+  let candidate = cleanLine(line);
+
+  if (fullName) {
+    const escapedName = fullName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    candidate = candidate.replace(new RegExp(`^${escapedName}\\s+`, "i"), "");
+  }
+
+  candidate = trimTrailingContactFragments(candidate);
+  const match = candidate.match(
+    /([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+)*,\s*(?:[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?|[A-Za-z][A-Za-z\s.'-]+))$/,
+  );
+  return normalizeLocationLabel(match?.[1] ?? candidate);
+}
+
+function isLikelyHeaderLocation(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  const cleaned = cleanLine(value);
+  const firstSegment = cleanLine(cleaned.split(",")[0] ?? "");
+  const secondSegment = cleanLine(cleaned.split(",").slice(1).join(","));
+
+  if (!cleaned || cleaned.length > 96) {
+    return false;
+  }
+
+  if (/[@]|https?:\/\//i.test(cleaned)) {
+    return false;
+  }
+
+  if (/\b(recently|decided|return|passion|experience|building|driven|improving)\b/i.test(cleaned)) {
+    return false;
+  }
+
+  if (
+    /\b(engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|intern|officer|scientist)\b/i.test(
+      firstSegment,
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    /\b(bachelor|master|ph\.?d|degree|university|college|school|academy)\b/i.test(cleaned)
+  ) {
+    return false;
+  }
+
+  if (/\b(inc|corp|corporation|llc|ltd|gmbh|company)\b/i.test(secondSegment)) {
+    return false;
+  }
+
+  return (
+    /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$/.test(cleaned) ||
+    /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(cleaned) ||
+    /^[A-Za-z][A-Za-z\s.'-]+\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?$/.test(cleaned)
+  );
+}
+
+function inferCurrentLocation(
+  lines: readonly string[],
+  fullName: string | null,
+): string | null {
+  const headerLines = lines.slice(0, 8);
   const addressLine = lines.find((line) => /^Address:/i.test(line));
 
   if (addressLine) {
@@ -41,6 +206,41 @@ function inferCurrentLocation(lines: readonly string[]): string | null {
 
     if (cleaned) {
       return cleaned;
+      }
+  }
+
+  for (const line of headerLines) {
+    const headerLocation = extractLocationFromHeaderLine(line, fullName);
+
+    if (isLikelyHeaderLocation(headerLocation)) {
+      return headerLocation;
+    }
+  }
+
+  if (fullName) {
+    for (const line of headerLines) {
+      const cleaned = cleanLine(line);
+      const inlineMatch = cleaned.match(
+        /^([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3})\s+(.+)$/,
+      );
+
+      if (!inlineMatch) {
+        continue;
+      }
+
+      const candidateName = cleanLine(inlineMatch[1] ?? "");
+
+      if (candidateName.toLowerCase() !== fullName.toLowerCase()) {
+        continue;
+      }
+
+      const locationCandidate = normalizeLocationLabel(
+        trimTrailingContactFragments(inlineMatch[2] ?? ""),
+      );
+
+      if (isLikelyHeaderLocation(locationCandidate)) {
+        return locationCandidate;
+      }
     }
   }
 
@@ -48,7 +248,7 @@ function inferCurrentLocation(lines: readonly string[]): string | null {
   const degreeOrSchoolPattern = /\b(?:Bachelor|Master|B\.?Sc|M\.?Sc|Ph\.?D|University|College|School|Academy)\b/i;
   const roleOrCompanyPattern = /\b(?:Engineer|Developer|Designer|Manager|Director|Analyst|Consultant|Specialist|Intern|Lead|Inc|Corp|LLC|Ltd|GmbH)\b/i;
 
-  const fallbackLine = lines.find(
+  const fallbackLine = lines.slice(0, 12).find(
     (line) =>
       /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$/.test(line) &&
       !/–/.test(line) &&
@@ -132,18 +332,40 @@ function inferPortfolioUrl(
 }
 
 function inferName(lines: readonly string[]): string | null {
-  const candidate = lines.find(
-    (line) =>
-      !line.includes("@") &&
-      !/^https?:\/\//i.test(line) &&
-      !/resume|curriculum|summary|profile|experience|birth|nationality|phone|email|address/i.test(line) &&
-      line.split(" ").length >= 2 &&
-      line.split(" ").length <= 5 &&
-      line.length <= 48 &&
-      /^[A-Za-z\s'-]+$/.test(line),
-  );
+  const headerLines = lines.slice(0, 12);
 
-  return candidate ?? null;
+  for (const line of headerLines) {
+    const inlineName = extractNameFromHeaderLine(line);
+
+    if (inlineName) {
+      return inlineName;
+    }
+  }
+
+  const rankedCandidates = headerLines
+    .map((line, index) => {
+      if (
+        !isLikelyHeaderName(line) ||
+        /^https?:\/\//i.test(line) ||
+        /resume|curriculum|summary|profile|experience|birth|nationality|phone|email|address/i.test(line)
+      ) {
+        return null;
+      }
+
+      const score =
+        (index < 4 ? 3 : 0) +
+        (hasNearbyHeaderSignal(headerLines, index) ? 4 : 0) +
+        (line.split(/\s+/).length === 2 ? 1 : 0);
+
+      return {
+        line,
+        score,
+      };
+    })
+    .filter((candidate): candidate is { line: string; score: number } => Boolean(candidate))
+    .sort((left, right) => right.score - left.score);
+
+  return rankedCandidates[0]?.line ?? null;
 }
 
 function parseNameParts(fullName: string | null) {
@@ -173,17 +395,20 @@ function parseNameParts(fullName: string | null) {
 }
 
 function inferHeadline(lines: readonly string[]): string | null {
-  const candidate = lines.find(
-    (line) =>
-      !line.includes("@") &&
-      !/^https?:\/\//i.test(line) &&
-      !contactOrMetaPattern.test(line) &&
-      headlineKeywordPattern.test(line) &&
-      line.length <= 72 &&
-      line.split(/\s+/).length <= 10,
-  );
+  const candidate = lines.find((line) => {
+    const sanitized = trimTrailingContactFragments(line);
 
-  return candidate ? normalizeHeadlineText(candidate) : null;
+    return (
+      !sanitized.includes("@") &&
+      !/^https?:\/\//i.test(sanitized) &&
+      !contactOrMetaPattern.test(sanitized) &&
+      headlineKeywordPattern.test(sanitized) &&
+      sanitized.length <= 72 &&
+      sanitized.split(/\s+/).length <= 10
+    );
+  });
+
+  return candidate ? normalizeHeadlineText(trimTrailingContactFragments(candidate)) : null;
 }
 
 function inferSummary(lines: readonly string[]): string | null {
@@ -210,335 +435,86 @@ function inferSummary(lines: readonly string[]): string | null {
 }
 
 
-function inferTimeZoneFromLocation(location: string | null): string | null {
-  if (!location) {
-    return null;
-  }
-
-  const normalizedLocation = location.toLowerCase();
-  const knownMappings: Array<[RegExp, string]> = [
-    [/prishtina|kosovo/, "Europe/Belgrade"],
-    [/london|united kingdom|uk\b|england/, "Europe/London"],
-    [/new york/, "America/New_York"],
-    [/berlin|germany/, "Europe/Berlin"],
-    [/paris|france/, "Europe/Paris"],
-    [/toronto/, "America/Toronto"],
-    [/zurich|switzerland/, "Europe/Zurich"],
-    [/sydney|melbourne/, "Australia/Sydney"],
-    [/tokyo|japan/, "Asia/Tokyo"],
-    [/mumbai|delhi|bangalore|india/, "Asia/Kolkata"],
-    [/sao paulo/, "America/Sao_Paulo"],
-    [/singapore/, "Asia/Singapore"],
-    [/hong kong/, "Asia/Hong_Kong"],
-    [/dubai|uae/, "Asia/Dubai"],
-    [/tel aviv|israel/, "Asia/Jerusalem"],
-    [/amsterdam|netherlands/, "Europe/Amsterdam"],
-    [/stockholm|sweden/, "Europe/Stockholm"],
-    [/oslo|norway/, "Europe/Oslo"],
-    [/copenhagen|denmark/, "Europe/Copenhagen"],
-    [/helsinki|finland/, "Europe/Helsinki"],
-  ];
-
-  for (const [pattern, timeZone] of knownMappings) {
-    if (pattern.test(normalizedLocation)) {
-      return timeZone;
-    }
-  }
-
-  return null;
-}
-
-function inferSalaryCurrencyFromLocation(location: string | null): string | null {
-  if (!location) {
-    return null;
-  }
-
-  const normalizedLocation = location.toLowerCase();
-  const knownMappings: Array<[RegExp, string]> = [
-    [/prishtina|kosovo|germany|berlin|france|paris|spain|italy|netherlands|belgium|austria|portugal|finland|ireland|greece/, "EUR"],
-    [/london|united kingdom|uk\b|england/, "GBP"],
-    [/switzerland|zurich|geneva/, "CHF"],
-    [/toronto|canada/, "CAD"],
-    [/new york|usa|united states/, "USD"],
-    [/sydney|melbourne|australia/, "AUD"],
-    [/tokyo|japan/, "JPY"],
-    [/mumbai|delhi|bangalore|india/, "INR"],
-    [/sao paulo|brazil/, "BRL"],
-    [/singapore/, "SGD"],
-    [/hong kong/, "HKD"],
-    [/dubai|uae/, "AED"],
-    [/tel aviv|israel/, "ILS"],
-  ];
-
-  for (const [pattern, currency] of knownMappings) {
-    if (pattern.test(normalizedLocation)) {
-      return currency;
-    }
-  }
-
-  return null;
-}
-
-function inferProfessionalSummary(summary: string | null, headline: string | null, skills: readonly string[]) {
-  const firstSentence = cleanLine(summary?.split(/(?<=[.!?])\s+/)[0] ?? "") || null;
-
-  return {
-    shortValueProposition: firstSentence,
-    fullSummary: summary,
-    careerThemes: uniqueStrings([headline ?? "", ...skills.slice(0, 3)]),
-    leadershipSummary: null,
-    domainFocusSummary: null,
-    strengths: uniqueStrings(skills.slice(0, 5)),
-  };
-}
-
-
-function inferLinkKind(url: string): CandidateLinkKind {
-  if (/linkedin\.com/i.test(url)) {
-    return "linkedin";
-  }
-
-  if (/github\.com/i.test(url)) {
-    return "github";
-  }
-
-  if (/(behance\.net|dribbble\.com|artstation\.com|adobe\.com\/portfolio)/i.test(url)) {
-    return "portfolio";
-  }
-
-  if (/(gitlab\.com|bitbucket\.org)/i.test(url) || /\/(?:repo|repository|tree|blob)\//i.test(url)) {
-    return "repository";
-  }
-
-  if (/\/(?:case[-_ ]study|case[-_ ]studies|work\/)/i.test(url)) {
-    return "case_study";
-  }
-
-  if (/(portfolio|showcase|projects|my[-_ ]work)/i.test(url)) {
-    return "portfolio";
-  }
-
-  if (/website|site/i.test(url)) {
-    return "website";
-  }
-
-  return "other";
-}
-
-function inferLinkLabel(url: string): string {
-  if (/linkedin\.com/i.test(url)) {
-    return "LinkedIn";
-  }
-
-  if (/github\.com/i.test(url)) {
-    return "GitHub";
-  }
-
-  try {
-    return new URL(url).hostname.replace(/^www\./i, "");
-  } catch {
-    return "Website";
-  }
-}
-
-function inferLinks(resumeText: string) {
-  return extractAllUrls(resumeText).map((url) => ({
-    label: inferLinkLabel(url),
-    url,
-    kind: inferLinkKind(url),
-  }));
-}
-
-function inferEducationEntries(resumeText: string) {
-  const lines = splitLines(resumeText);
-  const educationLine = lines.find(
-    (line) =>
-      /degree|bachelor|master|phd/i.test(line) &&
-      /(college|university|school|institute|kolegji)/i.test(line) &&
-      !isResumeSectionHeading(line),
-  );
-
-  if (!educationLine) {
-    return [];
-  }
-
-  const schoolKeywordMatch = educationLine.match(/\b(College|University|School|Institute|Kolegji)\b/i);
-  const schoolName = schoolKeywordMatch?.index !== undefined ? cleanLine(educationLine.slice(schoolKeywordMatch.index)) : null;
-  const detailsPart = schoolKeywordMatch?.index !== undefined ? cleanLine(educationLine.slice(0, schoolKeywordMatch.index)) : educationLine;
-  const detailsParts = detailsPart.split(",").map(cleanLine);
-  const degreePart = detailsParts[0] ?? null;
-  const fieldPart = detailsParts[1] ?? null;
-  const locationLine = lines[lines.indexOf(educationLine) - 1];
-
-  return [
-    {
-      schoolName,
-      degree: degreePart || null,
-      fieldOfStudy: fieldPart || null,
-      location: normalizeLocationLabel(locationLine ?? null),
-      startDate: null,
-      endDate: null,
-      summary: null,
-    },
-  ].filter((entry) => entry.schoolName || entry.degree || entry.fieldOfStudy);
-}
-
-function inferSpokenLanguages(resumeText: string) {
-  const lines = splitLines(resumeText);
-  const entries: Array<{ language: string | null; proficiency: string | null; interviewPreference: boolean; notes: string | null }> = [];
-  const motherTongueMatch = resumeText.match(/Mother tongue\(s\):\s*([A-Za-z]+)/i);
-
-  if (motherTongueMatch?.[1]) {
-    entries.push({
-      language: titleCaseWords(motherTongueMatch[1]),
-      proficiency: "Native",
-      interviewPreference: true,
-      notes: null,
-    });
-  }
-
-  for (const line of lines) {
-    const proficiencyMatch = line.match(
-      /^([A-Z][A-Z\s]+?)\s+(A1|A2|B1|B2|C1|C2)(?:\s+(A1|A2|B1|B2|C1|C2)){4}$/,
-    );
-
-    if (!proficiencyMatch) {
-      continue;
-    }
-
-    entries.push({
-      language: titleCaseWords(proficiencyMatch[1] ?? ""),
-      proficiency: proficiencyMatch[2] ?? null,
-      interviewPreference: false,
-      notes: null,
-    });
-  }
-
-  return entries.filter((entry) => entry.language);
-}
-
-function buildProfileExtractionNotes(input: {
-  fullName: string | null;
-  headline: string | null;
-  summary: string | null;
-  currentLocation: string | null;
-}): string[] {
-  const notes: string[] = [];
-
-  if (!input.fullName) {
-    notes.push("Review the imported name because the parser could not confidently extract it.");
-  }
-
-  if (!input.headline) {
-    notes.push("Add a preferred headline if the resume does not expose a clear current role.");
-  }
-
-  if (!input.summary) {
-    notes.push("Add a short professional summary if the resume does not include one.");
-  }
-
-  if (!input.currentLocation) {
-    notes.push("Confirm the preferred location because the resume did not expose a clear location line.");
-  }
-
-  return notes;
-}
-
-function inferTargetRoles(headline: string | null, existingProfile: CandidateProfile): string[] {
-  if (!headline) {
-    return uniqueStrings(existingProfile.targetRoles);
-  }
-
-  return [headline];
-}
-
-function inferLocations(currentLocation: string | null, profile: CandidateProfile, searchPreferences: JobSearchPreferences): string[] {
-  if (currentLocation) {
-    return uniqueStrings([currentLocation]);
-  }
-
-  if (profile.locations.length > 0) {
-    return uniqueStrings(profile.locations);
-  }
-
-  if (searchPreferences.locations.length > 0) {
-    return uniqueStrings(searchPreferences.locations);
-  }
-
-  return uniqueStrings([profile.currentLocation]);
-}
-
-function inferGithubUrl(resumeText: string): string | null {
-  const match = extractFirstUrl(
-    resumeText,
-    /https?:\/\/(?:www\.)?github\.com\/[A-Za-z0-9_-]+\/?$/i,
-  );
-  if (match) {
-    try {
-      const url = new URL(match);
-      const pathParts = url.pathname.split("/").filter(Boolean);
-      if (pathParts.length === 1) {
-        return match.replace(/\/$/, "");
-      }
-    } catch {
-      // Ignore URL parsing errors
-    }
-  }
-  return null;
-}
-
-function inferPersonalWebsiteUrl(resumeText: string): string | null {
-  return extractAllUrls(resumeText).find((url) => isLikelyPersonalWebsiteUrl(url)) ?? null;
-}
-
 export function buildDeterministicResumeProfileExtraction(
   input: ExtractProfileFromResumeInput,
   analysisProviderKind: ResumeProfileExtraction["analysisProviderKind"],
   analysisProviderLabel: string,
+  options?: BuildDeterministicResumeProfileExtractionOptions,
 ): ResumeProfileExtraction {
+  const preserveExistingValues = options?.preserveExistingValues ?? true;
   const lines = splitLines(input.resumeText);
   const fullName = inferName(lines);
   const nameParts = parseNameParts(fullName);
-  const headline = inferHeadline(lines) ?? input.existingProfile.headline;
-  const summary = inferSummary(lines) ?? input.existingProfile.summary;
-  const currentLocation = inferCurrentLocation(lines);
-  const skills = inferSkills(input.resumeText, input.existingProfile.skills);
+  const headline = inferHeadline(lines);
+  const summary = inferSummary(lines);
+  const currentLocation = inferCurrentLocation(lines, fullName);
+  const skills = inferSkills(
+    input.resumeText,
+    preserveExistingValues ? input.existingProfile.skills : [],
+  );
   const skillGroups = inferSkillGroups(input.resumeText, skills);
-  const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText) ?? input.existingProfile.personalWebsiteUrl;
-  const portfolioUrl = inferPortfolioUrl(input.resumeText, personalWebsiteUrl) ?? input.existingProfile.portfolioUrl;
+  const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText);
+  const portfolioUrl = inferPortfolioUrl(input.resumeText, personalWebsiteUrl);
   const education = inferEducationEntries(input.resumeText);
   const notes = buildProfileExtractionNotes({ fullName, headline, summary, currentLocation });
   const parsedYearsExperience = Number.parseInt(
     extractRegexMatch(input.resumeText, /\b\d{1,2}\+?\s+years?\b/i)?.match(/\d+/)?.[0] ?? "",
     10,
   );
+  const extractedYearsExperience = Number.isNaN(parsedYearsExperience)
+    ? null
+    : parsedYearsExperience;
+  const extractedEmail = extractRegexMatch(input.resumeText, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const extractedPhone = inferPhone(
+    input.resumeText,
+    preserveExistingValues ? input.existingProfile.phone : null,
+  );
+  const extractedGithubUrl = inferGithubUrl(input.resumeText);
+  const extractedLinkedinUrl = extractFirstUrl(
+    input.resumeText,
+    /https?:\/\/(?:www\.)?linkedin\.com\/[\w./?%&=+-]*/i,
+  );
+  const extractedTimeZone = inferTimeZoneFromLocation(currentLocation);
+  const extractedSalaryCurrency = inferSalaryCurrencyFromLocation(currentLocation);
+  const targetRoles = headline
+    ? [headline]
+    : preserveExistingValues
+      ? uniqueStrings(input.existingProfile.targetRoles)
+      : [];
+  const preferredLocations = currentLocation
+    ? uniqueStrings([currentLocation])
+    : preserveExistingValues
+      ? inferLocations(currentLocation, input.existingProfile, input.existingSearchPreferences)
+      : [];
 
   return ResumeProfileExtractionSchema.parse({
-    firstName: nameParts.firstName ?? input.existingProfile.firstName,
-    lastName: nameParts.lastName ?? input.existingProfile.lastName,
-    middleName: nameParts.middleName ?? input.existingProfile.middleName,
-    fullName: fullName ?? input.existingProfile.fullName,
-    headline,
-    summary,
-    currentLocation: currentLocation ?? input.existingProfile.currentLocation,
-    timeZone: inferTimeZoneFromLocation(currentLocation) ?? input.existingProfile.timeZone,
-    salaryCurrency: inferSalaryCurrencyFromLocation(currentLocation) ?? input.existingSearchPreferences.salaryCurrency,
-    yearsExperience: Number.isNaN(parsedYearsExperience)
-      ? input.existingProfile.yearsExperience
-      : parsedYearsExperience,
-    email: extractRegexMatch(input.resumeText, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i) ?? input.existingProfile.email,
-    phone: inferPhone(input.resumeText, input.existingProfile.phone),
-    portfolioUrl,
-    linkedinUrl:
-      extractFirstUrl(input.resumeText, /https?:\/\/(?:www\.)?linkedin\.com\/[\w./?%&=+-]*/i) ??
-      input.existingProfile.linkedinUrl,
-    githubUrl: inferGithubUrl(input.resumeText) ?? input.existingProfile.githubUrl,
-    personalWebsiteUrl,
+    firstName: preserveExistingValues ? nameParts.firstName ?? input.existingProfile.firstName : nameParts.firstName,
+    lastName: preserveExistingValues ? nameParts.lastName ?? input.existingProfile.lastName : nameParts.lastName,
+    middleName: preserveExistingValues ? nameParts.middleName ?? input.existingProfile.middleName : nameParts.middleName,
+    fullName: preserveExistingValues ? fullName ?? input.existingProfile.fullName : fullName,
+    headline: preserveExistingValues ? headline ?? input.existingProfile.headline : headline,
+    summary: preserveExistingValues ? summary ?? input.existingProfile.summary : summary,
+    currentLocation: preserveExistingValues ? currentLocation ?? input.existingProfile.currentLocation : currentLocation,
+    timeZone: preserveExistingValues ? extractedTimeZone ?? input.existingProfile.timeZone : extractedTimeZone,
+    salaryCurrency: preserveExistingValues
+      ? extractedSalaryCurrency ?? input.existingSearchPreferences.salaryCurrency
+      : extractedSalaryCurrency,
+    yearsExperience: preserveExistingValues
+      ? extractedYearsExperience ?? input.existingProfile.yearsExperience
+      : extractedYearsExperience,
+    email: preserveExistingValues ? extractedEmail ?? input.existingProfile.email : extractedEmail,
+    phone: extractedPhone,
+    portfolioUrl: preserveExistingValues ? portfolioUrl ?? input.existingProfile.portfolioUrl : portfolioUrl,
+    linkedinUrl: preserveExistingValues ? extractedLinkedinUrl ?? input.existingProfile.linkedinUrl : extractedLinkedinUrl,
+    githubUrl: preserveExistingValues ? extractedGithubUrl ?? input.existingProfile.githubUrl : extractedGithubUrl,
+    personalWebsiteUrl: preserveExistingValues
+      ? personalWebsiteUrl ?? input.existingProfile.personalWebsiteUrl
+      : personalWebsiteUrl,
     professionalSummary: inferProfessionalSummary(summary, headline, skillGroups.highlightedSkills),
     skillGroups,
     skills,
-    targetRoles: inferTargetRoles(headline, input.existingProfile),
-    preferredLocations: inferLocations(currentLocation, input.existingProfile, input.existingSearchPreferences),
+    targetRoles,
+    preferredLocations,
     experiences: inferExperienceEntries(input.resumeText),
     education,
     certifications: [],

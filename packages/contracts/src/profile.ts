@@ -142,6 +142,80 @@ export type CandidateProfessionalSummary = z.infer<
   typeof CandidateProfessionalSummarySchema
 >;
 
+export const CandidateNarrativeSchema = z.object({
+  professionalStory: NonEmptyStringSchema.nullable().default(null),
+  nextChapterSummary: NonEmptyStringSchema.nullable().default(null),
+  careerTransitionSummary: NonEmptyStringSchema.nullable().default(null),
+  differentiators: z.array(NonEmptyStringSchema).default([]),
+  motivationThemes: z.array(NonEmptyStringSchema).default([]),
+});
+export type CandidateNarrative = z.infer<typeof CandidateNarrativeSchema>;
+
+export const CandidateProofBankEntrySchema = z.object({
+  id: NonEmptyStringSchema,
+  title: NonEmptyStringSchema,
+  claim: NonEmptyStringSchema,
+  heroMetric: NonEmptyStringSchema.nullable().default(null),
+  supportingContext: NonEmptyStringSchema.nullable().default(null),
+  roleFamilies: z.array(NonEmptyStringSchema).default([]),
+  projectIds: z.array(NonEmptyStringSchema).default([]),
+  linkIds: z.array(NonEmptyStringSchema).default([]),
+});
+export type CandidateProofBankEntry = z.infer<
+  typeof CandidateProofBankEntrySchema
+>;
+
+export const candidateAnswerKindValues = [
+  "work_authorization",
+  "visa_sponsorship",
+  "relocation",
+  "travel",
+  "notice_period",
+  "availability",
+  "salary_expectation",
+  "self_intro",
+  "career_transition",
+  "other",
+] as const;
+export const CandidateAnswerKindSchema = z.enum(candidateAnswerKindValues);
+export type CandidateAnswerKind = z.infer<typeof CandidateAnswerKindSchema>;
+
+export const CandidateReusableAnswerSchema = z.object({
+  id: NonEmptyStringSchema,
+  kind: CandidateAnswerKindSchema.default("other"),
+  label: NonEmptyStringSchema,
+  question: NonEmptyStringSchema,
+  answer: NonEmptyStringSchema,
+  roleFamilies: z.array(NonEmptyStringSchema).default([]),
+  proofEntryIds: z.array(NonEmptyStringSchema).default([]),
+});
+export type CandidateReusableAnswer = z.infer<
+  typeof CandidateReusableAnswerSchema
+>;
+
+export const CandidateAnswerBankSchema = z.object({
+  workAuthorization: NonEmptyStringSchema.nullable().default(null),
+  visaSponsorship: NonEmptyStringSchema.nullable().default(null),
+  relocation: NonEmptyStringSchema.nullable().default(null),
+  travel: NonEmptyStringSchema.nullable().default(null),
+  noticePeriod: NonEmptyStringSchema.nullable().default(null),
+  availability: NonEmptyStringSchema.nullable().default(null),
+  salaryExpectations: NonEmptyStringSchema.nullable().default(null),
+  selfIntroduction: NonEmptyStringSchema.nullable().default(null),
+  careerTransition: NonEmptyStringSchema.nullable().default(null),
+  customAnswers: z.array(CandidateReusableAnswerSchema).default([]),
+});
+export type CandidateAnswerBank = z.infer<typeof CandidateAnswerBankSchema>;
+
+export const CandidateApplicationIdentitySchema = z.object({
+  preferredEmail: NonEmptyStringSchema.nullable().default(null),
+  preferredPhone: NonEmptyStringSchema.nullable().default(null),
+  preferredLinkIds: z.array(NonEmptyStringSchema).default([]),
+});
+export type CandidateApplicationIdentity = z.infer<
+  typeof CandidateApplicationIdentitySchema
+>;
+
 export const CandidateSkillGroupSchema = z.object({
   coreSkills: z.array(NonEmptyStringSchema).default([]),
   tools: z.array(NonEmptyStringSchema).default([]),
@@ -176,6 +250,10 @@ export const CandidateProfileSchema = z.object({
   baseResume: ResumeSourceDocumentSchema,
   workEligibility: CandidateWorkEligibilitySchema.default({}),
   professionalSummary: CandidateProfessionalSummarySchema.default({}),
+  narrative: CandidateNarrativeSchema.default({}),
+  proofBank: z.array(CandidateProofBankEntrySchema).default([]),
+  answerBank: CandidateAnswerBankSchema.default({}),
+  applicationIdentity: CandidateApplicationIdentitySchema.default({}),
   skillGroups: CandidateSkillGroupSchema.default({}),
   targetRoles: z.array(NonEmptyStringSchema).default([]),
   locations: z.array(NonEmptyStringSchema).default([]),

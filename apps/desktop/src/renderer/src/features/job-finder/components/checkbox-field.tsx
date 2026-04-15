@@ -4,19 +4,21 @@ import { cn } from '@renderer/lib/utils'
 interface CheckboxFieldProps {
   checked: boolean
   className?: string
+  inputId?: string
   label: string
   onCheckedChange: (checked: boolean) => void
 }
 
-export function CheckboxField({ checked, className, label, onCheckedChange }: CheckboxFieldProps) {
+export function CheckboxField({ checked, className, inputId, label, onCheckedChange }: CheckboxFieldProps) {
   return (
     <label
+      htmlFor={inputId}
       className={cn(
         'surface-card-tint flex min-h-11 items-center gap-3 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3 text-(length:--text-field) normal-case tracking-normal text-foreground-soft',
         className
       )}
     >
-      <Checkbox checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} />
+      <Checkbox id={inputId} checked={checked} onCheckedChange={(value) => onCheckedChange(value === true)} />
       <span>{label}</span>
     </label>
   )

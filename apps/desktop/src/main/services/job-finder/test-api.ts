@@ -47,3 +47,9 @@ export function parseResumeImportPathPayload(payload: unknown): ResumeImportPath
     sourcePath: payload.sourcePath
   }
 }
+
+export function getDesktopTestDelayMs(value: string | undefined): number {
+  const parsed = value ? Number.parseInt(value, 10) : 0
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}

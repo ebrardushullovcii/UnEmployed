@@ -1,21 +1,17 @@
 import {
+  candidateAnswerKindValues,
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
+  type ResumeImportFieldCandidateSummary,
   SourceInstructionStatusSchema,
   type CandidateProfile,
-  type CandidateLinkKind,
   type JobDiscoveryTarget,
   type JobSearchPreferences
 } from '@unemployed/contracts'
 import type {
-  BooleanSelectValue,
-  CertificationFormEntry,
   DiscoveryTargetEditorValue,
-  EducationFormEntry,
-  ExperienceFormEntry,
-  LanguageFormEntry,
-  LinkFormEntry,
-  ProjectFormEntry
+  ProofBankEntryFormEntry,
+  ReusableAnswerFormEntry
 } from './job-finder-types'
 import {
   booleanToSelect,
@@ -32,84 +28,47 @@ import {
   toProjectFormEntries,
   uniqueList
 } from './job-finder-utils'
+import {
+  applyReviewCandidates,
+  buildComparableValueFingerprint,
+  buildEducationFormFingerprint,
+  buildExperienceFormFingerprint,
+} from './profile-editor-review-candidates'
+import type { ProfileEditorValues, SearchPreferencesEditorValues } from './profile-editor-types'
 
-export interface ProfileEditorValues {
-  identity: {
-    currentCity: string
-    currentCountry: string
-    currentLocation: string
-    currentRegion: string
-    email: string
-    firstName: string
-    githubUrl: string
-    headline: string
-    lastName: string
-    linkedinUrl: string
-    middleName: string
-    personalWebsiteUrl: string
-    phone: string
-    portfolioUrl: string
-    preferredDisplayName: string
-    resumeText: string
-    secondaryEmail: string
-    summary: string
-    timeZone: string
-    yearsExperience: string
+export type { ProfileEditorValues, SearchPreferencesEditorValues } from './profile-editor-types'
+
+function shouldPersistReviewCandidateEntry(input: {
+  sourceCandidateId?: string | null | undefined
+  sourceCandidateFingerprint?: string | null | undefined
+  currentFingerprint: string
+}): boolean {
+  if (!input.sourceCandidateId || !input.sourceCandidateFingerprint) {
+    return true
   }
-  eligibility: {
-    authorizedWorkCountries: string
-    availableStartDate: string
-    noticePeriodDays: string
-    preferredRelocationRegions: string
-    remoteEligible: BooleanSelectValue
-    requiresVisaSponsorship: BooleanSelectValue
-    securityClearance: string
-    willingToRelocate: BooleanSelectValue
-    willingToTravel: BooleanSelectValue
-  }
-  languages: LanguageFormEntry[]
-  links: LinkFormEntry[]
-  profileSkills: string
-  projects: ProjectFormEntry[]
-  records: {
-    certifications: CertificationFormEntry[]
-    education: EducationFormEntry[]
-    experiences: ExperienceFormEntry[]
-  }
-  skillGroups: {
-    coreSkills: string
-    highlightedSkills: string
-    languagesAndFrameworks: string
-    softSkills: string
-    tools: string
-  }
-  summary: {
-    careerThemes: string
-    domainFocusSummary: string
-    fullSummary: string
-    leadershipSummary: string
-    shortValueProposition: string
-    strengths: string
-  }
+
+  return input.currentFingerprint !== input.sourceCandidateFingerprint
 }
 
-export interface SearchPreferencesEditorValues {
-  companyBlacklist: string
-  companyWhitelist: string
-  employmentTypes: string
-  excludedLocations: string
-  jobFamilies: string
-  locations: string
-  minimumSalaryUsd: string
-  salaryCurrency: string
-  seniorityLevels: string
-  tailoringMode: JobSearchPreferences['tailoringMode']
-  targetCompanyStages: string
-  targetIndustries: string
-  discoveryTargets: DiscoveryTargetEditorValue[]
-  targetRoles: string
-  targetSalaryUsd: string
-  workModes: JobSearchPreferences['workModes']
+function dedupeRecordsByFingerprint<TRecord extends Record<string, unknown>>(
+  records: readonly TRecord[],
+): TRecord[] {
+  const seen = new Set<string>()
+
+  return records.filter((record) => {
+    const fingerprint = buildComparableValueFingerprint(record)
+
+    if (!fingerprint) {
+      return true
+    }
+
+    if (seen.has(fingerprint)) {
+      return false
+    }
+
+    seen.add(fingerprint)
+    return true
+  })
 }
 
 function toDiscoveryTargetEditorValues(searchPreferences: JobSearchPreferences): DiscoveryTargetEditorValue[] {
@@ -155,8 +114,36 @@ function isValidSourceInstructionStatus(value: string): boolean {
   return SourceInstructionStatusSchema.safeParse(value).success
 }
 
-export function createProfileEditorValues(profile: CandidateProfile): ProfileEditorValues {
-  return {
+function toProofBankFormEntries(profile: CandidateProfile): ProofBankEntryFormEntry[] {
+  return profile.proofBank.map((entry) => ({
+    id: entry.id,
+    title: entry.title,
+    claim: entry.claim,
+    heroMetric: entry.heroMetric ?? '',
+    supportingContext: entry.supportingContext ?? '',
+    roleFamilies: joinListInput(entry.roleFamilies),
+    projectIds: joinListInput(entry.projectIds),
+    linkIds: joinListInput(entry.linkIds)
+  }))
+}
+
+function toReusableAnswerFormEntries(profile: CandidateProfile): ReusableAnswerFormEntry[] {
+  return profile.answerBank.customAnswers.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    question: entry.question,
+    answer: entry.answer,
+    kind: entry.kind,
+    roleFamilies: joinListInput(entry.roleFamilies),
+    proofEntryIds: joinListInput(entry.proofEntryIds)
+  }))
+}
+
+export function createProfileEditorValues(
+  profile: CandidateProfile,
+  reviewCandidates: readonly ResumeImportFieldCandidateSummary[] = []
+): ProfileEditorValues {
+  const values: ProfileEditorValues = {
     identity: {
       currentCity: profile.currentCity ?? '',
       currentCountry: profile.currentCountry ?? '',
@@ -190,9 +177,34 @@ export function createProfileEditorValues(profile: CandidateProfile): ProfileEdi
       willingToRelocate: booleanToSelect(profile.workEligibility.willingToRelocate),
       willingToTravel: booleanToSelect(profile.workEligibility.willingToTravel)
     },
+    applicationIdentity: {
+      preferredEmail: profile.applicationIdentity.preferredEmail ?? '',
+      preferredLinkIds: joinListInput(profile.applicationIdentity.preferredLinkIds),
+      preferredPhone: profile.applicationIdentity.preferredPhone ?? ''
+    },
+    answerBank: {
+      availability: profile.answerBank.availability ?? '',
+      careerTransition: profile.answerBank.careerTransition ?? '',
+      customAnswers: toReusableAnswerFormEntries(profile),
+      noticePeriod: profile.answerBank.noticePeriod ?? '',
+      relocation: profile.answerBank.relocation ?? '',
+      salaryExpectations: profile.answerBank.salaryExpectations ?? '',
+      selfIntroduction: profile.answerBank.selfIntroduction ?? '',
+      travel: profile.answerBank.travel ?? '',
+      visaSponsorship: profile.answerBank.visaSponsorship ?? '',
+      workAuthorization: profile.answerBank.workAuthorization ?? ''
+    },
     languages: toLanguageFormEntries(profile),
     links: toLinkFormEntries(profile),
+    narrative: {
+      careerTransitionSummary: profile.narrative.careerTransitionSummary ?? '',
+      differentiators: joinListInput(profile.narrative.differentiators),
+      motivationThemes: joinListInput(profile.narrative.motivationThemes),
+      nextChapterSummary: profile.narrative.nextChapterSummary ?? '',
+      professionalStory: profile.narrative.professionalStory ?? ''
+    },
     profileSkills: joinListInput(profile.skills),
+    proofBank: toProofBankFormEntries(profile),
     projects: toProjectFormEntries(profile),
     records: {
       certifications: toCertificationFormEntries(profile),
@@ -215,6 +227,8 @@ export function createProfileEditorValues(profile: CandidateProfile): ProfileEdi
       strengths: joinListInput(profile.professionalSummary.strengths)
     }
   }
+
+  return applyReviewCandidates(values, profile, reviewCandidates)
 }
 
 export function createSearchPreferencesEditorValues(
@@ -238,6 +252,28 @@ export function createSearchPreferencesEditorValues(
     targetSalaryUsd: searchPreferences.targetSalaryUsd?.toString() ?? '',
     workModes: searchPreferences.workModes
   }
+}
+
+export function hasProfileDraftChanges(
+  profile: CandidateProfile,
+  draftProfile: CandidateProfile | undefined,
+): boolean {
+  if (!draftProfile) {
+    return false
+  }
+
+  return buildComparableValueFingerprint(profile) !== buildComparableValueFingerprint(draftProfile)
+}
+
+export function hasSearchPreferencesDraftChanges(
+  searchPreferences: JobSearchPreferences,
+  draftSearchPreferences: JobSearchPreferences | undefined,
+): boolean {
+  if (!draftSearchPreferences) {
+    return false
+  }
+
+  return buildComparableValueFingerprint(searchPreferences) !== buildComparableValueFingerprint(draftSearchPreferences)
 }
 
 export function buildProfilePayload(
@@ -273,6 +309,56 @@ export function buildProfilePayload(
     ...parseListInput(values.skillGroups.languagesAndFrameworks),
     ...parseListInput(values.skillGroups.highlightedSkills)
   ])
+  const persistedExperiences = dedupeRecordsByFingerprint(
+    values.records.experiences
+      .filter((entry) =>
+        shouldPersistReviewCandidateEntry({
+          sourceCandidateId: entry.sourceCandidateId,
+          sourceCandidateFingerprint: entry.sourceCandidateFingerprint,
+          currentFingerprint: buildExperienceFormFingerprint(entry),
+        }),
+      )
+      .map((entry) => ({
+        id: entry.id,
+        companyName: entry.companyName.trim() || null,
+        companyUrl: entry.companyUrl.trim() || null,
+        title: entry.title.trim() || null,
+        employmentType: entry.employmentType.trim() || null,
+        location: entry.location.trim() || null,
+        workMode: entry.workMode,
+        startDate: entry.startDate.trim() || null,
+        endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
+        isCurrent: entry.isCurrent,
+        isDraft: !entry.companyName.trim() || !entry.title.trim(),
+        summary: entry.summary.trim() || null,
+        achievements: parseListInput(entry.achievements),
+        skills: parseListInput(entry.skills),
+        domainTags: parseListInput(entry.domainTags),
+        peopleManagementScope: entry.peopleManagementScope.trim() || null,
+        ownershipScope: entry.ownershipScope.trim() || null,
+      })),
+  )
+  const persistedEducation = dedupeRecordsByFingerprint(
+    values.records.education
+      .filter((entry) =>
+        shouldPersistReviewCandidateEntry({
+          sourceCandidateId: entry.sourceCandidateId,
+          sourceCandidateFingerprint: entry.sourceCandidateFingerprint,
+          currentFingerprint: buildEducationFormFingerprint(entry),
+        }),
+      )
+      .map((entry) => ({
+        id: entry.id,
+        schoolName: entry.schoolName.trim() || null,
+        degree: entry.degree.trim() || null,
+        fieldOfStudy: entry.fieldOfStudy.trim() || null,
+        location: entry.location.trim() || null,
+        startDate: entry.startDate.trim() || null,
+        endDate: entry.endDate.trim() || null,
+        isDraft: !entry.schoolName.trim(),
+        summary: entry.summary.trim() || null,
+      })),
+  )
 
   const payload: CandidateProfile = {
     ...profile,
@@ -315,6 +401,35 @@ export function buildProfilePayload(
       availableStartDate: values.eligibility.availableStartDate.trim() || null,
       securityClearance: values.eligibility.securityClearance.trim() || null
     },
+    applicationIdentity: {
+      preferredEmail: values.applicationIdentity.preferredEmail.trim() || null,
+      preferredPhone: values.applicationIdentity.preferredPhone.trim() || null,
+      preferredLinkIds: parseListInput(values.applicationIdentity.preferredLinkIds)
+    },
+    answerBank: {
+      workAuthorization: values.answerBank.workAuthorization.trim() || null,
+      visaSponsorship: values.answerBank.visaSponsorship.trim() || null,
+      relocation: values.answerBank.relocation.trim() || null,
+      travel: values.answerBank.travel.trim() || null,
+      noticePeriod: values.answerBank.noticePeriod.trim() || null,
+      availability: values.answerBank.availability.trim() || null,
+      salaryExpectations: values.answerBank.salaryExpectations.trim() || null,
+      selfIntroduction: values.answerBank.selfIntroduction.trim() || null,
+      careerTransition: values.answerBank.careerTransition.trim() || null,
+      customAnswers: values.answerBank.customAnswers
+        .filter((entry) => entry.question.trim() && entry.answer.trim())
+        .map((entry) => ({
+          id: entry.id,
+          kind: candidateAnswerKindValues.includes(entry.kind)
+            ? entry.kind
+            : 'other',
+          label: entry.label.trim() || entry.question.trim(),
+          question: entry.question.trim(),
+          answer: entry.answer.trim(),
+          roleFamilies: parseListInput(entry.roleFamilies),
+          proofEntryIds: parseListInput(entry.proofEntryIds)
+        }))
+    },
     professionalSummary: {
       shortValueProposition: values.summary.shortValueProposition.trim() || null,
       fullSummary: values.summary.fullSummary.trim() || null,
@@ -323,6 +438,25 @@ export function buildProfilePayload(
       domainFocusSummary: values.summary.domainFocusSummary.trim() || null,
       strengths: parseListInput(values.summary.strengths)
     },
+    narrative: {
+      professionalStory: values.narrative.professionalStory.trim() || null,
+      nextChapterSummary: values.narrative.nextChapterSummary.trim() || null,
+      careerTransitionSummary: values.narrative.careerTransitionSummary.trim() || null,
+      differentiators: parseListInput(values.narrative.differentiators),
+      motivationThemes: parseListInput(values.narrative.motivationThemes)
+    },
+    proofBank: values.proofBank
+      .filter((entry) => entry.title.trim() && entry.claim.trim())
+      .map((entry) => ({
+        id: entry.id,
+        title: entry.title.trim(),
+        claim: entry.claim.trim(),
+        heroMetric: entry.heroMetric.trim() || null,
+        supportingContext: entry.supportingContext.trim() || null,
+        roleFamilies: parseListInput(entry.roleFamilies),
+        projectIds: parseListInput(entry.projectIds),
+        linkIds: parseListInput(entry.linkIds)
+      })),
     skillGroups: {
       coreSkills: parseListInput(values.skillGroups.coreSkills),
       tools: parseListInput(values.skillGroups.tools),
@@ -331,36 +465,8 @@ export function buildProfilePayload(
       highlightedSkills: parseListInput(values.skillGroups.highlightedSkills)
     },
     skills: mergedSkills,
-    experiences: values.records.experiences.map((entry) => ({
-      id: entry.id,
-      companyName: entry.companyName.trim() || null,
-      companyUrl: entry.companyUrl.trim() || null,
-      title: entry.title.trim() || null,
-      employmentType: entry.employmentType.trim() || null,
-      location: entry.location.trim() || null,
-      workMode: entry.workMode,
-      startDate: entry.startDate.trim() || null,
-      endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
-      isCurrent: entry.isCurrent,
-      isDraft: !entry.companyName.trim() || !entry.title.trim(),
-      summary: entry.summary.trim() || null,
-      achievements: parseListInput(entry.achievements),
-      skills: parseListInput(entry.skills),
-      domainTags: parseListInput(entry.domainTags),
-      peopleManagementScope: entry.peopleManagementScope.trim() || null,
-      ownershipScope: entry.ownershipScope.trim() || null
-    })),
-    education: values.records.education.map((entry) => ({
-      id: entry.id,
-      schoolName: entry.schoolName.trim() || null,
-      degree: entry.degree.trim() || null,
-      fieldOfStudy: entry.fieldOfStudy.trim() || null,
-      location: entry.location.trim() || null,
-      startDate: entry.startDate.trim() || null,
-      endDate: entry.endDate.trim() || null,
-      isDraft: !entry.schoolName.trim(),
-      summary: entry.summary.trim() || null
-    })),
+    experiences: persistedExperiences,
+    education: persistedEducation,
     certifications: values.records.certifications.map((entry) => ({
       id: entry.id,
       name: entry.name.trim() || null,
@@ -374,7 +480,7 @@ export function buildProfilePayload(
       id: entry.id,
       label: entry.label.trim() || null,
       url: entry.url.trim() || null,
-      kind: entry.kind ? (entry.kind as CandidateLinkKind) : null,
+      kind: entry.kind ? entry.kind : null,
       isDraft: !entry.label.trim() || !entry.url.trim()
     })),
     projects: values.projects.filter((entry) => entry.name.trim()).map((entry) => ({

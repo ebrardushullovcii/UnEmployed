@@ -4,6 +4,7 @@ import {
   JobFinderDiscoveryRoute,
   JobFinderPage,
   JobFinderProfileRoute,
+  JobFinderProfileSetupRoute,
   JobFinderResumeWorkspaceRoute,
   JobFinderReviewQueueRoute,
   JobFinderSettingsRoute
@@ -25,6 +26,10 @@ export const appRouter = createHashRouter([
       {
         path: 'profile',
         element: <JobFinderProfileRoute />
+      },
+      {
+        path: 'profile/setup',
+        element: <JobFinderProfileSetupRoute />
       },
       {
         path: 'discovery',

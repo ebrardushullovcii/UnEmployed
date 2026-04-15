@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useFieldArray, useForm, useWatch } from 'react-hook-form'
+import { useEffect, useState } from 'react'
 import type {
   CandidateProfile,
   EditableSourceInstructionArtifact,
+  JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
+  ProfileCopilotContext,
+  ProfileSetupState,
+  ResumeImportFieldCandidateSummary,
+  ResumeImportRun,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
   SourceInstructionArtifact
 } from '@unemployed/contracts'
+import { Button } from '@renderer/components/ui/button'
 import { LockedScreenLayout } from '../components/locked-screen-layout'
 import { ProfileActiveSectionContent } from '../components/profile/profile-active-section-content'
+import { ProfileCopilotRail } from '../components/profile/profile-copilot-rail'
+import { buildProfileSectionStarterQuestion } from '../components/profile/profile-copilot-prompts'
 import { ProfileResumePanel } from '../components/profile/profile-resume-panel'
 import { ProfileSaveFooter } from '../components/profile/profile-save-footer'
 import { ProfileSectionTabs } from '../components/profile/profile-section-tabs'
@@ -17,287 +24,114 @@ import { PageHeader } from '../components/page-header'
 import {
   buildProfilePayload,
   buildSearchPreferencesPayload,
-  createProfileEditorValues,
-  createSearchPreferencesEditorValues,
-  type ProfileEditorValues,
-  type SearchPreferencesEditorValues
 } from '../lib/profile-editor'
-import {
-  combineSectionProgress,
-  countFilledFields,
-  countFilledRecordFields,
-  type ProfileSection,
-  type SectionProgress
-} from '../lib/profile-screen-progress'
+import type { ProfileSection } from '../lib/profile-screen-progress'
+import { useProfileScreenForms } from './profile-screen-hooks'
+
+const unsavedProfileCopilotMessage =
+  'Save this page before asking Profile Copilot to edit it so your current profile draft does not get overwritten.'
+const unsavedProfileCopilotActionsMessage =
+  'Save this page before applying, rejecting, or undoing copilot changes so your current profile draft stays intact.'
 
 export function ProfileScreen(props: {
   actionState: { busy: boolean; message: string | null }
   busy: boolean
+  importResumeGuardMessage: string | null
+  profileCopilotBusy: boolean
+  onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
   onAnalyzeProfileFromResume: () => void
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
+  onProfileSurfaceDirtyChange: (dirty: boolean) => void
+  profileCopilotPendingContextKey: string | null
+  onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void
+  onResumeProfileSetup: (step?: 'import' | 'essentials' | 'background' | 'targeting' | 'narrative' | 'answers' | 'ready_check') => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
+  onSendProfileCopilotMessage: (content: string, context?: ProfileCopilotContext) => void
+  onUndoProfileRevision: (revisionId: string) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
+  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  latestResumeImportRun: ResumeImportRun | null
   profile: CandidateProfile
+  profileCopilotMessages: readonly JobFinderWorkspaceSnapshot['profileCopilotMessages'][number][]
+  profileRevisions: readonly JobFinderWorkspaceSnapshot['profileRevisions'][number][]
+  profileSetupState: ProfileSetupState
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   searchPreferences: JobSearchPreferences
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
 }) {
   const {
-    actionState,
     busy,
+    importResumeGuardMessage,
+    profileCopilotBusy,
+    onApplyProfileCopilotPatchGroup,
     onAnalyzeProfileFromResume,
     onGetSourceDebugRunDetails,
     onImportResume,
+    onProfileSurfaceDirtyChange,
+    profileCopilotPendingContextKey,
+    onRejectProfileCopilotPatchGroup,
+    onResumeProfileSetup,
     onRunSourceDebug,
     onSaveSourceInstructionArtifact,
     onSaveAll,
+    onSendProfileCopilotMessage,
+    onUndoProfileRevision,
     onVerifySourceInstructions,
+    latestResumeImportReviewCandidates,
+    latestResumeImportRun,
     profile,
+    profileCopilotMessages,
+    profileRevisions,
+    profileSetupState,
     recentSourceDebugRuns,
     searchPreferences,
     sourceInstructionArtifacts
   } = props
 
-  const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState<ProfileSection>('basics')
-
-  const profileForm = useForm<ProfileEditorValues>({
-    defaultValues: createProfileEditorValues(profile)
-  })
-  const preferencesForm = useForm<SearchPreferencesEditorValues>({
-    defaultValues: createSearchPreferencesEditorValues(searchPreferences)
-  })
-
-  const experienceArray = useFieldArray({ control: profileForm.control, name: 'records.experiences' })
-  const educationArray = useFieldArray({ control: profileForm.control, name: 'records.education' })
-  const certificationArray = useFieldArray({ control: profileForm.control, name: 'records.certifications' })
-  const projectArray = useFieldArray({ control: profileForm.control, name: 'projects' })
-  const linkArray = useFieldArray({ control: profileForm.control, name: 'links' })
-  const languageArray = useFieldArray({ control: profileForm.control, name: 'languages' })
-  const [identityValues, summaryValues, skillGroupValues, profileSkillValues, eligibilityValues, experienceValues, educationValues, certificationValues, projectValues, linkValues, languageValues] = useWatch({
-    control: profileForm.control,
-    name: [
-      'identity',
-      'summary',
-      'skillGroups',
-      'profileSkills',
-      'eligibility',
-      'records.experiences',
-      'records.education',
-      'records.certifications',
-      'projects',
-      'links',
-      'languages'
-    ]
-  })
-  const [
-    targetRoles,
-    jobFamilies,
-    seniorityLevels,
-    employmentTypes,
-    locations,
-    excludedLocations,
-    targetIndustries,
-    targetCompanyStages,
-    companyWhitelist,
-    companyBlacklist,
-    workModes,
-    tailoringMode,
-    minimumSalaryUsd,
-    targetSalaryUsd
-  ] = useWatch({
-    control: preferencesForm.control,
-    name: [
-      'targetRoles',
-      'jobFamilies',
-      'seniorityLevels',
-      'employmentTypes',
-      'locations',
-      'excludedLocations',
-      'targetIndustries',
-      'targetCompanyStages',
-      'companyWhitelist',
-      'companyBlacklist',
-      'workModes',
-      'tailoringMode',
-      'minimumSalaryUsd',
-      'targetSalaryUsd'
-    ]
-  })
-
-  useEffect(() => {
-    profileForm.reset(createProfileEditorValues(profile))
-    setValidationMessage(null)
-  }, [profile, profileForm])
-
-  useEffect(() => {
-    preferencesForm.reset(createSearchPreferencesEditorValues(searchPreferences))
-    setValidationMessage(null)
-  }, [preferencesForm, searchPreferences])
-
-  const snapshotDisplayName = identityValues?.preferredDisplayName || null
-  const snapshotFullName = [
-    identityValues?.firstName,
-    identityValues?.middleName,
-    identityValues?.lastName
-  ]
-    .filter(Boolean)
-    .join(' ') || profile.fullName
-  const snapshotHeadline = identityValues?.headline || profile.headline
-  const snapshotLocation = identityValues?.currentLocation || profile.currentLocation
-  const snapshotYearsExperience = identityValues?.yearsExperience
-  const parsedSnapshotYearsExperience = Number.parseInt(snapshotYearsExperience ?? '', 10)
-  const hasUnsavedChanges = profileForm.formState.isDirty || preferencesForm.formState.isDirty
-
-  const overviewProfile = useMemo<CandidateProfile>(() => ({
-    ...profile,
-    preferredDisplayName: snapshotDisplayName,
-    fullName: snapshotFullName,
-    headline: snapshotHeadline,
-    currentLocation: snapshotLocation,
-    yearsExperience: Number.isFinite(parsedSnapshotYearsExperience) ? parsedSnapshotYearsExperience : profile.yearsExperience
-  }), [
-    parsedSnapshotYearsExperience,
+  const {
+    backgroundArrays,
+    experienceArray,
+    hasUnsavedChanges,
+    hasUserDraftChanges,
+    overviewProfile,
+    preferencesForm,
+    profileForm,
+    sections,
+    setValidationMessage,
+    validationMessage,
+  } = useProfileScreenForms({
+    latestResumeImportReviewCandidates,
     profile,
-    snapshotDisplayName,
-    snapshotFullName,
-    snapshotHeadline,
-    snapshotLocation
-  ])
+    searchPreferences,
+  })
 
-  const sectionProgress = useMemo<Record<ProfileSection, SectionProgress>>(() => {
-    const basics = countFilledFields([
-      identityValues?.firstName,
-      identityValues?.lastName,
-      identityValues?.preferredDisplayName,
-      identityValues?.headline,
-      identityValues?.yearsExperience,
-      identityValues?.email,
-      identityValues?.phone,
-      identityValues?.currentCity,
-      identityValues?.currentRegion,
-      identityValues?.currentCountry,
-      identityValues?.currentLocation,
-      identityValues?.linkedinUrl,
-      identityValues?.portfolioUrl,
-      identityValues?.githubUrl,
-      summaryValues?.shortValueProposition,
-      summaryValues?.fullSummary,
-      summaryValues?.strengths,
-      summaryValues?.leadershipSummary,
-      summaryValues?.domainFocusSummary,
-      profileSkillValues,
-      skillGroupValues?.highlightedSkills,
-      skillGroupValues?.coreSkills,
-      skillGroupValues?.tools,
-      skillGroupValues?.languagesAndFrameworks,
-      skillGroupValues?.softSkills
-    ])
-
-    const experience = countFilledRecordFields(experienceValues ?? [], ['id', 'isCurrent'])
-
-    const background = combineSectionProgress(
-      countFilledRecordFields(educationValues ?? [], ['id']),
-      countFilledRecordFields(certificationValues ?? [], ['id']),
-      countFilledRecordFields(projectValues ?? [], ['id']),
-      countFilledRecordFields(linkValues ?? [], ['id']),
-      countFilledRecordFields(languageValues ?? [], ['id', 'interviewPreference'])
-    )
-
-    const preferences = countFilledFields([
-      eligibilityValues?.authorizedWorkCountries,
-      eligibilityValues?.requiresVisaSponsorship,
-      eligibilityValues?.remoteEligible,
-      eligibilityValues?.securityClearance,
-      eligibilityValues?.willingToRelocate,
-      eligibilityValues?.willingToTravel,
-      eligibilityValues?.preferredRelocationRegions,
-      eligibilityValues?.noticePeriodDays,
-      eligibilityValues?.availableStartDate,
-      targetRoles,
-      jobFamilies,
-      seniorityLevels,
-      employmentTypes,
-      locations,
-      excludedLocations,
-      targetIndustries,
-      targetCompanyStages,
-      companyWhitelist,
-      companyBlacklist,
-      workModes,
-      tailoringMode,
-      minimumSalaryUsd,
-      targetSalaryUsd
-    ])
-
-    return {
-      basics,
-      experience,
-      background,
-      preferences
-    }
-  }, [
-    certificationValues,
-    companyBlacklist,
-    companyWhitelist,
-    educationValues,
-    eligibilityValues,
-    employmentTypes,
-    excludedLocations,
-    experienceValues,
-    identityValues,
-    jobFamilies,
-    languageValues,
-    linkValues,
-    locations,
-    minimumSalaryUsd,
-    profileSkillValues,
-    projectValues,
-    seniorityLevels,
-    skillGroupValues,
-    summaryValues,
-    tailoringMode,
-    targetCompanyStages,
-    targetIndustries,
-    targetRoles,
-    targetSalaryUsd,
-    workModes
-  ])
-
-  const sections = useMemo(
-    () => [
-      {
-        id: 'basics' as const,
-        label: 'Basics',
-        description: 'Review your contact info, summary, and skills in one place.',
-        progress: sectionProgress.basics
-      },
-      {
-        id: 'experience' as const,
-        label: 'Experience',
-        description: 'Keep each role separate so resumes and forms stay accurate.',
-        progress: sectionProgress.experience
-      },
-      {
-        id: 'background' as const,
-        label: 'Background',
-        description: 'Manage education, certifications, projects, links, and languages.',
-        progress: sectionProgress.background
-      },
-      {
-        id: 'preferences' as const,
-        label: 'Preferences',
-        description: 'Set screening answers, job preferences, and source setup for future searches and applications.',
-        progress: sectionProgress.preferences
-      }
-    ],
-    [sectionProgress]
-  )
+  useEffect(() => {
+    onProfileSurfaceDirtyChange(hasUserDraftChanges)
+    return () => onProfileSurfaceDirtyChange(false)
+  }, [hasUserDraftChanges, onProfileSurfaceDirtyChange])
 
   const activeSectionPanelId = 'profile-section-panel'
+  const pendingSetupItems = profileSetupState.reviewItems.filter((item) => item.status === 'pending')
+  const profileCopilotContext: ProfileCopilotContext = {
+    surface: 'profile',
+    section: activeSection === 'preferences' ? 'preferences' : activeSection,
+  }
+
+  const visibleProfileCopilotMessages = profileCopilotMessages.filter((message) => {
+    if (message.context.surface !== 'profile') {
+      return false
+    }
+
+    return message.context.section === profileCopilotContext.section
+  })
+  const starterQuestion = buildProfileSectionStarterQuestion(
+    profileSetupState.reviewItems,
+    activeSection,
+  )
 
   function handleSaveAll() {
     const profileResult = buildProfilePayload(profile, profileForm.getValues())
@@ -332,56 +166,95 @@ export function ProfileScreen(props: {
 
           <ProfileResumePanel
             busy={busy}
+            importDisabledReason={importResumeGuardMessage}
+            latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
+            latestResumeImportRun={latestResumeImportRun}
             onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
             onImportResume={onImportResume}
             profile={overviewProfile}
           />
+
+          {profileSetupState.status !== 'completed' ? (
+            <div className="surface-card-tint flex flex-col gap-3 rounded-(--radius-panel) border border-border/30 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="grid gap-1">
+                <p className="text-(length:--text-tiny) uppercase tracking-[0.18em] text-muted-foreground">Setup still in progress</p>
+                <p className="text-sm text-foreground-soft">
+                  {pendingSetupItems.length > 0
+                    ? `${pendingSetupItems.length} setup review item${pendingSetupItems.length === 1 ? '' : 's'} ${pendingSetupItems.length === 1 ? 'is' : 'are'} still open. Resume setup from ${profileSetupState.currentStep.replace('_', ' ')}.`
+                    : `Your guided setup is still resumable from ${profileSetupState.currentStep.replace('_', ' ')}.`}
+                </p>
+              </div>
+              <Button
+                disabled={busy}
+                onClick={() => onResumeProfileSetup(profileSetupState.currentStep)}
+                type="button"
+                variant="secondary"
+              >
+                Resume guided setup
+              </Button>
+            </div>
+          ) : null}
         </>
       )}
     >
-      <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0 xl:grid-rows-[auto_minmax(0,1fr)]">
-        <ProfileSectionTabs
-          activeSection={activeSection}
-          onSectionChange={setActiveSection}
-          panelId={activeSectionPanelId}
-          sections={sections}
-        />
-
-        <div className="surface-panel-shell relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft)">
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">
-              <ProfileActiveSectionContent
-                activeSection={activeSection}
-                backgroundArrays={{
-                  certificationArray,
-                  educationArray,
-                  languageArray,
-                  linkArray,
-                  projectArray
-                }}
-                busy={busy}
-                experienceArray={experienceArray}
-                onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-                onRunSourceDebug={onRunSourceDebug}
-                onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
-                onVerifySourceInstructions={onVerifySourceInstructions}
-                preferencesForm={preferencesForm}
-                profileForm={profileForm}
-                recentSourceDebugRuns={recentSourceDebugRuns}
-                sourceInstructionArtifacts={sourceInstructionArtifacts}
-              />
-            </div>
-          </div>
-
-          <ProfileSaveFooter
-            hasUnsavedChanges={hasUnsavedChanges}
-            actionMessage={actionState.message}
-            busy={busy}
-            onSave={handleSaveAll}
-            validationMessage={validationMessage}
+      <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0">
+        <div className="grid min-h-0 min-w-0 gap-(--gap-content) xl:grid-rows-[auto_minmax(0,1fr)]">
+          <ProfileSectionTabs
+            activeSection={activeSection}
+            onSectionChange={setActiveSection}
+            panelId={activeSectionPanelId}
+            sections={sections}
           />
+
+          <div className="surface-panel-shell relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft)">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">
+                <ProfileActiveSectionContent
+                  activeSection={activeSection}
+                  backgroundArrays={backgroundArrays}
+                  busy={busy}
+                  experienceArray={experienceArray}
+                  onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+                  onRunSourceDebug={onRunSourceDebug}
+                  onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
+                  onVerifySourceInstructions={onVerifySourceInstructions}
+                  preferencesForm={preferencesForm}
+                  profileForm={profileForm}
+                  recentSourceDebugRuns={recentSourceDebugRuns}
+                  sourceInstructionArtifacts={sourceInstructionArtifacts}
+                />
+              </div>
+            </div>
+
+            <ProfileSaveFooter
+              actionMessage={props.actionState.message}
+              hasUnsavedChanges={hasUnsavedChanges}
+              busy={busy}
+              onSave={handleSaveAll}
+              validationMessage={validationMessage}
+            />
+          </div>
         </div>
+
       </section>
+      <ProfileCopilotRail
+        busy={profileCopilotBusy}
+        actionsDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null}
+        context={profileCopilotContext}
+        emptyStateDescription="Ask for a tighter headline, a stronger summary, or a structured profile edit for this section."
+        emptyStateTitle="No profile copilot requests yet"
+        messages={visibleProfileCopilotMessages}
+        onApplyPatchGroup={onApplyProfileCopilotPatchGroup}
+        onRejectPatchGroup={onRejectProfileCopilotPatchGroup}
+        onSendMessage={onSendProfileCopilotMessage}
+        onUndoRevision={onUndoProfileRevision}
+        pendingContextKey={profileCopilotPendingContextKey}
+        placeholder={'Example: update my headline to "Principal systems designer focused on workflow platforms"'}
+        revisions={profileRevisions}
+        sendDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotMessage : null}
+        starterQuestion={starterQuestion}
+        minBottomOffset={96}
+      />
     </LockedScreenLayout>
   )
 }

@@ -1,301 +1,205 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  CandidateProfile,
   DiscoveryActivityEvent,
   JobFinderResumeWorkspace,
-  JobFinderSettings,
   JobFinderWorkspaceSnapshot,
-  JobSearchPreferences,
+  ProfileCopilotMessage,
   ResumeAssistantMessage,
-  ResumeDraft,
-  ResumeDraftPatch,
-} from "@unemployed/contracts";
-import { useJobFinderWorkspace } from "@renderer/features/job-finder/hooks/use-job-finder-workspace";
-import type {
-  ActionState,
-  JobFinderShellActions,
-} from "@renderer/features/job-finder/lib/job-finder-types";
-import { useLocation, useNavigate } from "react-router-dom";
+} from '@unemployed/contracts'
+import { useJobFinderWorkspace } from '@renderer/features/job-finder/hooks/use-job-finder-workspace'
+import type { ActionState, JobFinderShellActions } from '@renderer/features/job-finder/lib/job-finder-types'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { type JobFinderPageContext } from './job-finder-page-routes'
 import {
-  buildSourceDebugOutcomeMessage,
-  type JobFinderPageContext,
-} from "./job-finder-page-routes";
-
-type SelectedState = string | null;
-
-function useResettableSelection(initialValue: SelectedState) {
-  const [value, setValue] = useState<SelectedState>(initialValue);
-
-  useEffect(() => {
-    setValue(initialValue);
-  }, [initialValue]);
-
-  return [value, setValue] as const;
-}
-
-function getActiveResumeWorkspaceJobId(pathname: string): string | null {
-  const match = pathname.match(/\/job-finder\/review-queue\/([^/]+)\/resume$/);
-  return match?.[1] ?? null;
-}
-
-function getLatestApplicationAttempt(
-  workspace: JobFinderWorkspaceSnapshot,
-  selectedApplicationRecordId: string | null,
-) {
-  const selectedApplicationRecord =
-    workspace.applicationRecords.find(
-      (record) => record.id === selectedApplicationRecordId,
-    ) ??
-    workspace.applicationRecords[0] ??
-    null;
-
-  const selectedApplicationAttempt = selectedApplicationRecord
-    ? ([...workspace.applicationAttempts]
-        .filter((attempt) => attempt.jobId === selectedApplicationRecord.jobId)
-        .sort(
-          (left, right) =>
-            new Date(right.updatedAt).getTime() -
-            new Date(left.updatedAt).getTime(),
-        )[0] ?? null)
-    : null;
-
-  return {
-    selectedApplicationAttempt,
-    selectedApplicationRecord,
-  };
-}
+  buildJobFinderPageContext,
+} from './use-job-finder-page-controller-context'
+import {
+  getActiveResumeWorkspaceJobId,
+  getLatestApplicationAttempt,
+  useResettableSelection,
+} from './use-job-finder-page-controller-helpers'
 
 export function useJobFinderPageController() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const workspaceState = useJobFinderWorkspace();
+  const location = useLocation()
+  const navigate = useNavigate()
+  const workspaceState = useJobFinderWorkspace()
   const [actionState, setActionState] = useState<ActionState>({
     busy: false,
     message: null,
-  });
+  })
   const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<
     DiscoveryActivityEvent[]
-  >([]);
+  >([])
   const [resumeWorkspace, setResumeWorkspace] =
-    useState<JobFinderResumeWorkspace | null>(null);
+    useState<JobFinderResumeWorkspace | null>(null)
   const [resumeAssistantMessages, setResumeAssistantMessages] = useState<
     readonly ResumeAssistantMessage[]
-  >([]);
-  const [resumeAssistantPending, setResumeAssistantPending] = useState(false);
-  const [resumeWorkspaceDirty, setResumeWorkspaceDirty] = useState(false);
-  const sourceDebugRunIdRef = useRef(0);
+  >([])
+  const [resumeAssistantPending, setResumeAssistantPending] = useState(false)
+  const [optimisticProfileCopilotMessages, setOptimisticProfileCopilotMessages] =
+    useState<readonly ProfileCopilotMessage[]>([])
+  const [profileCopilotPendingContextKey, setProfileCopilotPendingContextKey] =
+    useState<string | null>(null)
+  const [profileCopilotBusy, setProfileCopilotBusy] = useState(false)
+  const profileCopilotRequestTokenRef = useRef(0)
+  const [resumeWorkspaceDirty, setResumeWorkspaceDirty] = useState(false)
+  const sourceDebugRunIdRef = useRef(0)
   const activeResumeWorkspaceJobId = getActiveResumeWorkspaceJobId(
     location.pathname,
-  );
+  )
 
   const [selectedDiscoveryJobId, setSelectedDiscoveryJobId] =
     useResettableSelection(
-      workspaceState.status === "ready"
+      workspaceState.status === 'ready'
         ? workspaceState.workspace.selectedDiscoveryJobId
         : null,
-    );
+    )
   const [selectedReviewJobId, setSelectedReviewJobId] = useResettableSelection(
-    workspaceState.status === "ready"
+    workspaceState.status === 'ready'
       ? workspaceState.workspace.selectedReviewJobId
       : null,
-  );
+  )
   const [selectedApplicationRecordId, setSelectedApplicationRecordId] =
     useResettableSelection(
-      workspaceState.status === "ready"
+      workspaceState.status === 'ready'
         ? workspaceState.workspace.selectedApplicationRecordId
         : null,
-    );
-
-  const runAction = useCallback(
-    async <TResult,>(
-      action: () => Promise<TResult>,
-      onSuccess: (result: TResult) => void | Promise<void>,
-      successMessage:
-        | string
-        | null
-        | ((result: TResult) => string | null),
-    ) => {
-      try {
-        setActionState({ busy: true, message: null });
-        const result = await action();
-        const resolvedSuccessMessage =
-          typeof successMessage === "function"
-            ? successMessage(result)
-            : successMessage;
-
-        try {
-          await onSuccess(result);
-        } catch (error) {
-          const detail =
-            error instanceof Error
-              ? error.message
-              : "The workspace view could not refresh automatically.";
-          setActionState({
-            busy: false,
-            message: `Action completed, but the current view could not refresh automatically. ${detail}`,
-          });
-          return;
-        }
-
-        setActionState({
-          busy: false,
-          message: resolvedSuccessMessage,
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "The requested Job Finder action failed.";
-        setActionState({ busy: false, message });
-      }
-    },
-    [],
-  );
-
-  const runResumeWorkspaceAction = useCallback(
-    async <TResult,>(
-      action: () => Promise<TResult>,
-      onSuccess: (result: TResult) => void | Promise<void>,
-      successMessage: string | null,
-    ) => {
-      try {
-        setActionState({ busy: true, message: null });
-        const result = await action();
-
-        try {
-          await onSuccess(result);
-        } catch (error) {
-          const detail =
-            error instanceof Error
-              ? error.message
-              : "The resume editor could not refresh automatically.";
-          setActionState({
-            message: `Resume action succeeded, but the editor could not refresh automatically. ${detail}`,
-            busy: false,
-          });
-          return;
-        }
-
-        setActionState({ busy: false, message: successMessage });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "The requested resume action failed.";
-        setActionState({ busy: false, message });
-      }
-    },
-    [],
-  );
+    )
 
   const activeRouteResumeWorkspace =
-    activeResumeWorkspaceJobId && resumeWorkspace?.job.id === activeResumeWorkspaceJobId
+    activeResumeWorkspaceJobId &&
+    resumeWorkspace?.job.id === activeResumeWorkspaceJobId
       ? resumeWorkspace
-      : null;
+      : null
   const activeRouteResumeAssistantMessages = activeRouteResumeWorkspace
     ? resumeAssistantMessages
-    : [];
+    : []
   const activeRouteResumeAssistantPending = activeRouteResumeWorkspace
     ? resumeAssistantPending
-    : false;
+    : false
   const activeRouteResumeWorkspaceDirty = activeRouteResumeWorkspace
     ? resumeWorkspaceDirty
-    : false;
+    : false
+  const [profileSurfaceDirty, setProfileSurfaceDirty] = useState(false)
 
   const confirmLeaveDirtyResumeWorkspace = useCallback(() => {
     if (!activeResumeWorkspaceJobId || !activeRouteResumeWorkspaceDirty) {
-      return true;
+      return true
     }
 
     return window.confirm(
-      "You have unsaved resume edits. Leave this workspace and discard them?",
-    );
-  }, [activeResumeWorkspaceJobId, activeRouteResumeWorkspaceDirty]);
+      'You have unsaved resume edits. Leave this workspace and discard them?',
+    )
+  }, [activeResumeWorkspaceJobId, activeRouteResumeWorkspaceDirty])
 
   const readyWorkspaceState =
-    workspaceState.status === "ready" ? workspaceState : null;
-  const actions = readyWorkspaceState?.actions ?? null;
-  const lastKnownPlatformRef = useRef<"darwin" | "win32" | "linux" | undefined>(
-    workspaceState.status === "ready" ? workspaceState.platform : undefined,
-  );
+    workspaceState.status === 'ready' ? workspaceState : null
+  const actions = readyWorkspaceState?.actions ?? null
+  const lastKnownPlatformRef = useRef<
+    'darwin' | 'win32' | 'linux' | undefined
+  >(
+    workspaceState.status === 'ready' ? workspaceState.platform : undefined,
+  )
   if (readyWorkspaceState?.platform) {
-    lastKnownPlatformRef.current = readyWorkspaceState.platform;
+    lastKnownPlatformRef.current = readyWorkspaceState.platform
   }
   const platform =
     readyWorkspaceState?.platform ??
     lastKnownPlatformRef.current ??
-    (workspaceState.status === "ready" ? workspaceState.platform : undefined);
-  const workspace = readyWorkspaceState?.workspace ?? null;
+    (workspaceState.status === 'ready' ? workspaceState.platform : undefined)
+  const workspace = readyWorkspaceState?.workspace ?? null
+  const workspaceWithOptimisticProfileCopilot = useMemo<JobFinderWorkspaceSnapshot | null>(() => {
+    if (!workspace) {
+      return null
+    }
+
+    if (optimisticProfileCopilotMessages.length === 0) {
+      return workspace
+    }
+
+    return {
+      ...workspace,
+      profileCopilotMessages: [
+        ...workspace.profileCopilotMessages,
+        ...optimisticProfileCopilotMessages,
+      ],
+    }
+  }, [optimisticProfileCopilotMessages, workspace])
+  const profileSetupState = workspace?.profileSetupState ?? null
+  const canImportResume = !profileSurfaceDirty
+  const importResumeGuardMessage = profileSurfaceDirty
+    ? 'Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten.'
+    : null
   const activeResumeWorkspaceJobIdRef = useRef<string | null>(
     activeResumeWorkspaceJobId,
-  );
+  )
   const getResumeWorkspaceRef = useRef<
-    JobFinderShellActions["getResumeWorkspace"] | null
-  >(actions?.getResumeWorkspace ?? null);
-  const resumeAssistantRequestTokenRef = useRef(0);
-  activeResumeWorkspaceJobIdRef.current = activeResumeWorkspaceJobId;
-  getResumeWorkspaceRef.current = actions?.getResumeWorkspace ?? null;
+    JobFinderShellActions['getResumeWorkspace'] | null
+  >(actions?.getResumeWorkspace ?? null)
+  const resumeAssistantRequestTokenRef = useRef(0)
+  activeResumeWorkspaceJobIdRef.current = activeResumeWorkspaceJobId
+  getResumeWorkspaceRef.current = actions?.getResumeWorkspace ?? null
 
   const clearResumeWorkspaceState = useCallback(() => {
-    setResumeWorkspace(null);
-    setResumeAssistantMessages([]);
-    setResumeAssistantPending(false);
-    setResumeWorkspaceDirty(false);
-  }, []);
+    setResumeWorkspace(null)
+    setResumeAssistantMessages([])
+    setResumeAssistantPending(false)
+    setResumeWorkspaceDirty(false)
+  }, [])
 
   const isCurrentResumeWorkspaceJob = useCallback(
     (jobId: string) => activeResumeWorkspaceJobIdRef.current === jobId,
     [],
-  );
+  )
 
   const isCurrentResumeAssistantRequest = useCallback(
     (jobId: string, requestToken: number) =>
       activeResumeWorkspaceJobIdRef.current === jobId &&
       resumeAssistantRequestTokenRef.current === requestToken,
     [],
-  );
+  )
 
   const refreshResumeWorkspace = useCallback(
     async (
       jobId: string,
       options?: {
-        updateAssistantMessages?: boolean;
+        updateAssistantMessages?: boolean
       },
     ) => {
-      const nextWorkspace = await actions?.getResumeWorkspace(jobId);
+      const nextWorkspace = await actions?.getResumeWorkspace(jobId)
 
       if (!nextWorkspace || !isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
-        return false;
+        return false
       }
 
-      setResumeWorkspace(nextWorkspace);
+      setResumeWorkspace(nextWorkspace)
 
       if (options?.updateAssistantMessages) {
-        setResumeAssistantMessages(nextWorkspace.assistantMessages);
-        setResumeAssistantPending(false);
+        setResumeAssistantMessages(nextWorkspace.assistantMessages)
+        setResumeAssistantPending(false)
       }
 
-      return true;
+      return true
     },
     [actions, isCurrentResumeWorkspaceJob],
-  );
+  )
 
   useEffect(() => {
     if (
       resumeWorkspace?.job.id &&
       resumeWorkspace.job.id !== activeResumeWorkspaceJobId
     ) {
-      clearResumeWorkspaceState();
+      clearResumeWorkspaceState()
     }
 
     if (!activeResumeWorkspaceJobId) {
-      clearResumeWorkspaceState();
+      clearResumeWorkspaceState()
     }
   }, [
     activeResumeWorkspaceJobId,
     clearResumeWorkspaceState,
     resumeWorkspace?.job.id,
-  ]);
+  ])
 
   useEffect(() => {
     if (
@@ -303,26 +207,26 @@ export function useJobFinderPageController() {
       !workspace?.reviewQueue ||
       workspace.reviewQueue.some((item) => item.jobId === activeResumeWorkspaceJobId)
     ) {
-      return;
+      return
     }
 
     setActionState({
       busy: false,
       message:
-        "This resume is no longer available. Shortlisted is shown instead.",
-    });
-    void navigate("/job-finder/review-queue", { replace: true });
-  }, [activeResumeWorkspaceJobId, navigate, workspace?.reviewQueue]);
+        'This resume is no longer available. Shortlisted is shown instead.',
+    })
+    void navigate('/job-finder/review-queue', { replace: true })
+  }, [activeResumeWorkspaceJobId, navigate, workspace?.reviewQueue])
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false
 
-    const getResumeWorkspace = getResumeWorkspaceRef.current;
+    const getResumeWorkspace = getResumeWorkspaceRef.current
 
     if (!activeResumeWorkspaceJobId || !actions || !getResumeWorkspace) {
       return () => {
-        cancelled = true;
-      };
+        cancelled = true
+      }
     }
 
     void getResumeWorkspace(activeResumeWorkspaceJobId)
@@ -333,11 +237,11 @@ export function useJobFinderPageController() {
         ) {
           setActionState((current) =>
             current.message === null ? current : { ...current, message: null },
-          );
-          setResumeWorkspace(nextWorkspace);
-          setResumeAssistantMessages(nextWorkspace.assistantMessages);
-          setResumeAssistantPending(false);
-          setSelectedReviewJobId(nextWorkspace.job.id);
+          )
+          setResumeWorkspace(nextWorkspace)
+          setResumeAssistantMessages(nextWorkspace.assistantMessages)
+          setResumeAssistantPending(false)
+          setSelectedReviewJobId(nextWorkspace.job.id)
         }
       })
       .catch((error) => {
@@ -347,33 +251,33 @@ export function useJobFinderPageController() {
             message:
               error instanceof Error
                 ? `Resume editor could not be loaded. ${error.message}`
-                : "Resume editor could not be loaded. Shortlisted is shown instead.",
-          });
-          void navigate("/job-finder/review-queue", { replace: true });
+                : 'Resume editor could not be loaded. Shortlisted is shown instead.',
+          })
+          void navigate('/job-finder/review-queue', { replace: true })
         }
-      });
+      })
 
     return () => {
-      cancelled = true;
-    };
+      cancelled = true
+    }
   }, [
     activeResumeWorkspaceJobId,
     actions,
     navigate,
     setSelectedReviewJobId,
-  ]);
+  ])
 
   const navigateFromShell = useCallback(
     (path: string) => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
-        return;
+        return
       }
 
-      setResumeWorkspaceDirty(false);
-      void navigate(path);
+      setResumeWorkspaceDirty(false)
+      void navigate(path)
     },
     [confirmLeaveDirtyResumeWorkspace, navigate],
-  );
+  )
 
   const selectedDiscoveryJob = useMemo(
     () =>
@@ -381,7 +285,7 @@ export function useJobFinderPageController() {
       workspace?.discoveryJobs[0] ??
       null,
     [selectedDiscoveryJobId, workspace?.discoveryJobs],
-  );
+  )
 
   const selectedReviewItem = useMemo(
     () =>
@@ -389,7 +293,7 @@ export function useJobFinderPageController() {
       workspace?.reviewQueue[0] ??
       null,
     [selectedReviewJobId, workspace?.reviewQueue],
-  );
+  )
 
   const selectedReviewJob = useMemo(
     () =>
@@ -399,7 +303,7 @@ export function useJobFinderPageController() {
       selectedDiscoveryJob ??
       null,
     [selectedDiscoveryJob, selectedReviewItem?.jobId, workspace?.discoveryJobs],
-  );
+  )
 
   const selectedTailoredAsset = useMemo(
     () =>
@@ -407,7 +311,7 @@ export function useJobFinderPageController() {
         (asset) => asset.id === selectedReviewItem?.resumeAssetId,
       ) ?? null,
     [selectedReviewItem?.resumeAssetId, workspace?.tailoredAssets],
-  );
+  )
 
   const { selectedApplicationAttempt, selectedApplicationRecord } = useMemo(
     () =>
@@ -415,434 +319,86 @@ export function useJobFinderPageController() {
         ? getLatestApplicationAttempt(workspace, selectedApplicationRecordId)
         : { selectedApplicationAttempt: null, selectedApplicationRecord: null },
     [selectedApplicationRecordId, workspace],
-  );
+  )
 
   const context = useMemo<JobFinderPageContext | null>(() => {
     if (!readyWorkspaceState || !workspace || !actions) {
-      return null;
+      return null
     }
 
-    return ({
-    actionState,
-    busy: actionState.busy,
-    onAnalyzeProfileFromResume: () =>
-      void runAction(actions.analyzeProfileFromResume, () => undefined, null),
-    onApproveApply: (jobId: string) => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return;
-      }
-
-      void runAction(
-        () => actions.approveApply(jobId),
-        () => {
-          setResumeWorkspaceDirty(false);
-          void navigate("/job-finder/applications");
-        },
-        "Applications updated. Check the latest attempt and next step there.",
-      );
-    },
-    onCheckBrowserSession: () =>
-      void runAction(
-        actions.checkBrowserSession,
-        () => undefined,
-        "Browser status refreshed.",
-      ),
-    onDismissJob: (jobId: string) =>
-      void runAction(
-        () => actions.dismissDiscoveryJob(jobId),
-        () => undefined,
-        "Job dismissed.",
-      ),
-    onEditResumeWorkspace: (jobId: string) => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return;
-      }
-
-      if (!jobId) {
-        clearResumeWorkspaceState();
-        void navigate("/job-finder/review-queue");
-        return;
-      }
-
-      setSelectedReviewJobId(jobId);
-      void navigate(`/job-finder/review-queue/${jobId}/resume`);
-    },
-    onGenerateResume: (jobId: string) =>
-      void runAction(
-        () => actions.generateResume(jobId),
-        () => setSelectedReviewJobId(jobId),
-        "Resume created for this job.",
-      ),
-    onApproveResume: (jobId: string, exportId: string) =>
-      void runResumeWorkspaceAction(
-        () => actions.approveResume(jobId, exportId),
-        async () => {
-          await refreshResumeWorkspace(jobId);
-        },
-        "Resume approved for this job.",
-      ),
-    onImportResume: () =>
-      void runAction(
-        actions.importResume,
-        () => undefined,
-        "Resume imported from your device.",
-      ),
-    onOpenBrowserSession: () =>
-      void runAction(
-        actions.openBrowserSession,
-        () => undefined,
-        workspace.browserSession.status === "ready"
-          ? "Browser refreshed."
-          : "Browser opened and status refreshed.",
-      ),
-    onQueueJob: (jobId: string) => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return;
-      }
-
-      void runAction(
-        () => actions.queueJobForReview(jobId),
-        () => {
-          setResumeWorkspaceDirty(false);
-          setSelectedReviewJobId(jobId);
-          void navigate("/job-finder/review-queue");
-        },
-        "Job added to Shortlisted.",
-      );
-    },
-    onRefreshResumeWorkspace: (jobId: string) =>
-      void runResumeWorkspaceAction(
-        () => actions.getResumeWorkspace(jobId),
-        (nextWorkspace) => {
-          if (!isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
-            return;
-          }
-
-          setResumeWorkspace(nextWorkspace);
-          setResumeAssistantMessages(nextWorkspace.assistantMessages);
-          setResumeAssistantPending(false);
-        },
-        "Workspace reloaded.",
-      ),
-    onRegenerateResumeDraft: (jobId: string) =>
-      void runResumeWorkspaceAction(
-        () => actions.regenerateResumeDraft(jobId),
-        async () => {
-          await refreshResumeWorkspace(jobId);
-        },
-        "Draft refreshed.",
-      ),
-    onRegenerateResumeSection: (jobId: string, sectionId: string) =>
-      void runResumeWorkspaceAction(
-        () => actions.regenerateResumeSection(jobId, sectionId),
-        async () => {
-          await refreshResumeWorkspace(jobId);
-        },
-        "Section refreshed.",
-      ),
-    onRunAgentDiscovery: () => {
-      setLiveDiscoveryEvents([]);
-      void runAction(
-        () =>
-          actions.runAgentDiscovery((event) => {
-            setLiveDiscoveryEvents((current) => [...current, event]);
-          }),
-        () => {
-          setLiveDiscoveryEvents([]);
-        },
-        "Search finished and results were saved on this device.",
-      );
-    },
-    onRunSourceDebug: (targetId: string) => {
-      const runId = sourceDebugRunIdRef.current + 1;
-      sourceDebugRunIdRef.current = runId;
-      setActionState({
-        busy: true,
-        message: "Starting source debug and attaching the browser profile...",
-      });
-      void actions
-        .runSourceDebug(targetId, (progressEvent) => {
-          if (sourceDebugRunIdRef.current !== runId) {
-            return;
-          }
-
-          setActionState({
-            busy: true,
-            message: progressEvent.message,
-          });
-        })
-        .then((nextWorkspace) => {
-          if (sourceDebugRunIdRef.current !== runId) {
-            return;
-          }
-
-          sourceDebugRunIdRef.current = 0;
-          setActionState({
-            busy: false,
-            message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
-          });
-        })
-        .catch((error) => {
-          if (sourceDebugRunIdRef.current !== runId) {
-            return;
-          }
-
-          sourceDebugRunIdRef.current = 0;
-          const message =
-            error instanceof Error
-              ? error.message
-              : "The requested Job Finder action failed.";
-          setActionState({ busy: false, message });
-        });
-    },
-    onGetSourceDebugRunDetails: actions.getSourceDebugRunDetails,
-    onSaveSourceInstructionArtifact: (targetId, artifact) =>
-      void runAction(
-        () => actions.saveSourceInstructionArtifact(targetId, artifact),
-        () => undefined,
-        "Saved guidance updated.",
-      ),
-    onVerifySourceInstructions: (targetId: string, instructionId: string) =>
-      void runAction(
-        () => actions.verifySourceInstructions(targetId, instructionId),
-        () => undefined,
-        "Saved guidance checked.",
-      ),
-    onResetWorkspace: () => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return;
-      }
-
-      void runAction(
-        actions.resetWorkspace,
-        () => {
-          void navigate("/job-finder/profile");
-        },
-        "Workspace reset. Your profile, resume, jobs, and browser session were cleared on this device.",
-      );
-    },
-    onSaveAll: (
-      profile: CandidateProfile,
-      searchPreferences: JobSearchPreferences,
-    ) =>
-      void runAction(
-        () => actions.saveWorkspaceInputs(profile, searchPreferences),
-        () => undefined,
-        null,
-      ),
-    onSaveResumeDraft: (draft: ResumeDraft) =>
-      void runResumeWorkspaceAction(
-        () => actions.saveResumeDraft(draft),
-        async () => {
-          await refreshResumeWorkspace(draft.jobId);
-        },
-        "Draft saved.",
-      ),
-    onSaveResumeDraftAndThen: (
-      draft: ResumeDraft,
-      next: () => void,
-      successMessage?: string | null,
-    ) =>
-      void (async () => {
-        const jobId = draft.jobId;
-        let saveSucceeded = false;
-
-        await runResumeWorkspaceAction(
-          () => actions.saveResumeDraft(draft),
-          async () => {
-            saveSucceeded = true;
-            await refreshResumeWorkspace(jobId);
-          },
-          successMessage === undefined ? "Changes saved." : successMessage,
-        );
-
-        if (saveSucceeded && isCurrentResumeWorkspaceJob(jobId)) {
-          next();
-        }
-      })(),
-    onApplyResumePatch: (
-      patch: ResumeDraftPatch,
-      revisionReason?: string | null,
-    ) =>
-      void runResumeWorkspaceAction(
-        () => actions.applyResumePatch(patch, revisionReason),
-        async () => {
-          if (!activeRouteResumeWorkspace) {
-            return;
-          }
-
-          await refreshResumeWorkspace(activeRouteResumeWorkspace.job.id, {
-            updateAssistantMessages: true,
-          });
-        },
-        "Resume updated.",
-      ),
-    onSaveProfile: (profile: CandidateProfile) =>
-      void runAction(() => actions.saveProfile(profile), () => undefined, null),
-    onExportResumePdf: (jobId: string) =>
-      void runResumeWorkspaceAction(
-        () => actions.exportResumePdf(jobId),
-          async () => {
-            await refreshResumeWorkspace(jobId);
-          },
-        "PDF exported for review.",
-      ),
-    onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
-      void runAction(
-        () => actions.saveSearchPreferences(searchPreferences),
-        () => undefined,
-        null,
-      ),
-    onClearResumeApproval: (jobId: string) =>
-      void runResumeWorkspaceAction(
-        () => actions.clearResumeApproval(jobId),
-        async () => {
-          await refreshResumeWorkspace(jobId);
-        },
-        "Approved PDF removed.",
-      ),
-    onSaveSettings: (settings: JobFinderSettings) =>
-      void runAction(() => actions.saveSettings(settings), () => undefined, null),
-    onSendResumeAssistantMessage: (jobId: string, content: string) =>
-      void (async () => {
-        const requestJobId = jobId;
-        const requestToken = ++resumeAssistantRequestTokenRef.current;
-        const createdAt = new Date().toISOString();
-        const optimisticUserMessage: ResumeAssistantMessage = {
-          id: `resume_message_user_optimistic_${jobId}_${requestToken}`,
-          jobId,
-          role: "user",
-          content,
-          patches: [],
-          createdAt,
-        };
-        const optimisticAssistantMessage: ResumeAssistantMessage = {
-          id: `resume_message_assistant_pending_${jobId}_${requestToken}`,
-          jobId,
-          role: "assistant",
-          content: "Updating your draft...",
-          patches: [],
-          createdAt,
-        };
-
-        setResumeAssistantPending(true);
-        setResumeAssistantMessages((current) => [
-          ...current,
-          optimisticUserMessage,
-          optimisticAssistantMessage,
-        ]);
-        setActionState({
-          busy: true,
-          message: "Assistant is updating your draft...",
-        });
-
-        try {
-          const messages = await actions.sendResumeAssistantMessage(jobId, content);
-          const assistantReply = [...messages]
-            .reverse()
-            .find((message) => message.role === "assistant");
-          const appliedCount = assistantReply?.patches.length ?? 0;
-
-          if (
-            !isCurrentResumeWorkspaceJob(requestJobId) ||
-            requestToken !== resumeAssistantRequestTokenRef.current
-          ) {
-            return;
-          }
-
-          setResumeAssistantMessages(messages);
-          setResumeAssistantPending(false);
-
-          let refreshMessage: string | null = null;
-
-          try {
-            const nextWorkspace = await actions.getResumeWorkspace(jobId);
-            if (isCurrentResumeWorkspaceJob(nextWorkspace.job.id)) {
-              setResumeWorkspace(nextWorkspace);
-            }
-          } catch (error) {
-            refreshMessage =
-              error instanceof Error
-                ? error.message
-                : "The editor could not refresh automatically.";
-          }
-
-          if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
-            setActionState({
-              busy: false,
-              message:
-                refreshMessage !== null
-                  ? `Assistant finished${appliedCount > 0 ? ` and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}` : ""}, but the editor could not refresh automatically. ${refreshMessage}`
-                  : appliedCount > 0
-                    ? `Assistant finished and applied ${appliedCount} change${appliedCount === 1 ? "" : "s"}.`
-                    : "Assistant finished and shared a reply with no direct resume changes.",
-            });
-          }
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "The requested resume action failed.";
-          if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
-            setResumeAssistantPending(false);
-            setResumeAssistantMessages((current) =>
-              current.filter(
-                (entry) =>
-                  entry.id !== optimisticUserMessage.id &&
-                  entry.id !== optimisticAssistantMessage.id,
-              ),
-            );
-            setActionState({ busy: false, message });
-          }
-        } finally {
-          if (resumeAssistantRequestTokenRef.current === requestToken) {
-            setActionState((current) =>
-              current.busy ? { ...current, busy: false } : current,
-            );
-          }
-        }
-      })(),
-    onResumeWorkspaceDirtyChange: (dirty: boolean) => {
-      setResumeWorkspaceDirty(dirty);
-    },
-    onSelectApplicationRecord: setSelectedApplicationRecordId,
-    onSelectDiscoveryJob: setSelectedDiscoveryJobId,
-    onSelectReviewItem: setSelectedReviewJobId,
-    selectedApplicationAttempt,
-    selectedApplicationRecord,
-    selectedDiscoveryJob,
-    liveDiscoveryEvents,
-    selectedReviewItem,
-    selectedReviewJob,
-    selectedTailoredAsset,
-    resumeAssistantMessages: activeRouteResumeAssistantMessages,
-    resumeAssistantPending: activeRouteResumeAssistantPending,
-    resumeWorkspace: activeRouteResumeWorkspace,
-    workspace,
-  })}, [
+    return buildJobFinderPageContext({
+      actionState,
+      actions,
+      activeRouteResumeAssistantMessages,
+      activeRouteResumeAssistantPending,
+     activeRouteResumeWorkspace,
+     canImportResume,
+     confirmLeaveDirtyResumeWorkspace,
+      importResumeGuardMessage,
+      isCurrentResumeAssistantRequest,
+      isCurrentResumeWorkspaceJob,
+      liveDiscoveryEvents,
+      locationPathname: location.pathname,
+      navigate: (path, options) => {
+        void navigate(path, options)
+      },
+      profileCopilotBusy,
+      profileCopilotPendingContextKey,
+      profileCopilotRequestTokenRef,
+      profileSetupState,
+      refreshResumeWorkspace,
+      resumeAssistantRequestTokenRef,
+      selectedApplicationAttempt,
+      selectedApplicationRecord,
+       selectedDiscoveryJob,
+       selectedReviewItem,
+       selectedReviewJob,
+       selectedTailoredAsset,
+       setActionState,
+       setLiveDiscoveryEvents,
+       setOptimisticProfileCopilotMessages,
+       setProfileCopilotBusy,
+       setProfileCopilotPendingContextKey,
+      setProfileSurfaceDirty,
+      setResumeAssistantMessages,
+      setResumeAssistantPending,
+      setResumeWorkspace,
+      setResumeWorkspaceDirty,
+      setSelectedApplicationRecordId,
+      setSelectedDiscoveryJobId,
+      setSelectedReviewJobId,
+      sourceDebugRunIdRef,
+      workspace: workspaceWithOptimisticProfileCopilot ?? workspace,
+    })
+  }, [
     actionState,
     actions,
+    activeRouteResumeAssistantMessages,
+    activeRouteResumeAssistantPending,
+    activeRouteResumeWorkspace,
     clearResumeWorkspaceState,
     confirmLeaveDirtyResumeWorkspace,
     isCurrentResumeAssistantRequest,
     isCurrentResumeWorkspaceJob,
     liveDiscoveryEvents,
-    navigate,
-    refreshResumeWorkspace,
-    activeRouteResumeAssistantMessages,
-    activeRouteResumeAssistantPending,
-    activeRouteResumeWorkspace,
+    location.pathname,
+     navigate,
+     optimisticProfileCopilotMessages,
+     canImportResume,
+     profileCopilotBusy,
+     profileSetupState,
+     profileCopilotPendingContextKey,
+     importResumeGuardMessage,
+     refreshResumeWorkspace,
     selectedApplicationAttempt,
     selectedApplicationRecord,
     selectedDiscoveryJob,
     selectedReviewItem,
     selectedReviewJob,
     selectedTailoredAsset,
-    setSelectedApplicationRecordId,
-    setSelectedDiscoveryJobId,
-    setSelectedReviewJobId,
     workspace,
-  ]);
+    workspaceWithOptimisticProfileCopilot,
+  ])
 
   if (!readyWorkspaceState || !workspace || !actions) {
     return {
@@ -852,7 +408,7 @@ export function useJobFinderPageController() {
       platform,
       workspace,
       workspaceState,
-    };
+    }
   }
 
   return {
@@ -862,5 +418,5 @@ export function useJobFinderPageController() {
     platform,
     workspace,
     workspaceState,
-  };
+  }
 }

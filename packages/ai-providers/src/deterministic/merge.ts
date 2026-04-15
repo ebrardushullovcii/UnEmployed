@@ -134,7 +134,7 @@ function mergeExperienceExtractionEntries(
       companyName: pickNullableValue(entry.companyName, match?.companyName, preferFallbackValues),
       companyUrl: pickNullableValue(entry.companyUrl, match?.companyUrl, preferFallbackValues),
       location: pickNullableValue(entry.location, match?.location, preferFallbackValues),
-      workMode: pickNullableValue(entry.workMode, match?.workMode, preferFallbackValues),
+      workMode: pickArrayValue(entry.workMode, match?.workMode, preferFallbackValues),
       employmentType: pickNullableValue(entry.employmentType, match?.employmentType, preferFallbackValues),
       startDate: entry.startDate ?? match?.startDate ?? null,
       endDate: pickNullableValue(entry.endDate, match?.endDate, preferFallbackValues),

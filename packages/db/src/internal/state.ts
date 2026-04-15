@@ -5,10 +5,16 @@ import {
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ProfileCopilotMessageSchema,
+  ProfileRevisionSchema,
+  ProfileSetupStateSchema,
+  ResumeDocumentBundleSchema,
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
   ResumeExportArtifactSchema,
+  ResumeImportFieldCandidateSchema,
+  ResumeImportRunSchema,
   ResumeResearchArtifactSchema,
   ResumeValidationResultSchema,
   SavedJobSchema,
@@ -33,11 +39,16 @@ import type {
 export const stateTableNames = {
   application_attempts: "application_attempts",
   application_records: "application_records",
+  profile_copilot_messages: "profile_copilot_messages",
+  profile_revisions: "profile_revisions",
   saved_jobs: "saved_jobs",
   resume_assistant_messages: "resume_assistant_messages",
   resume_draft_revisions: "resume_draft_revisions",
   resume_drafts: "resume_drafts",
   resume_export_artifacts: "resume_export_artifacts",
+  resume_import_document_bundles: "resume_import_document_bundles",
+  resume_import_field_candidates: "resume_import_field_candidates",
+  resume_import_runs: "resume_import_runs",
   resume_research_artifacts: "resume_research_artifacts",
   resume_validation_results: "resume_validation_results",
   singleton_state: "singleton_state",
@@ -89,7 +100,7 @@ export function listValues<TValue>(
     });
 }
 
-export function listResumeDraftValues<TValue>(
+export function listCollectionValues<TValue>(
   database: DatabaseSync,
   tableName: StateCollectionTable,
   schema: SchemaParser<TValue>,
@@ -228,6 +239,7 @@ export function writeState(
   try {
     saveSingletonValue(database, "profile", state.profile);
     saveSingletonValue(database, "search_preferences", state.searchPreferences);
+    saveSingletonValue(database, "profile_setup_state", state.profileSetupState);
     saveSingletonValue(database, "settings", state.settings);
     saveSingletonValue(database, "discovery_state", state.discovery);
     replaceCollection(database, "saved_jobs", state.savedJobs);
@@ -270,6 +282,42 @@ export function writeState(
     );
     replaceIndexedCollection(
       database,
+      "resume_import_runs",
+      state.resumeImportRuns,
+      {
+        columnNames: ["source_resume_id", "started_at", "status"],
+        getColumns: (value) => {
+          const run = ResumeImportRunSchema.parse(value);
+          return [run.sourceResumeId, run.startedAt, run.status];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
+      "resume_import_document_bundles",
+      state.resumeImportDocumentBundles,
+      {
+        columnNames: ["run_id", "source_resume_id", "created_at"],
+        getColumns: (value) => {
+          const bundle = ResumeDocumentBundleSchema.parse(value);
+          return [bundle.runId, bundle.sourceResumeId, bundle.createdAt];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
+      "resume_import_field_candidates",
+      state.resumeImportFieldCandidates,
+      {
+        columnNames: ["run_id", "resolution", "created_at"],
+        getColumns: (value) => {
+          const candidate = ResumeImportFieldCandidateSchema.parse(value);
+          return [candidate.runId, candidate.resolution, candidate.createdAt];
+        },
+      },
+    );
+    replaceIndexedCollection(
+      database,
       "resume_research_artifacts",
       state.resumeResearchArtifacts,
       {
@@ -304,6 +352,25 @@ export function writeState(
         },
       },
     );
+    replaceIndexedCollection(
+      database,
+      "profile_copilot_messages",
+      state.profileCopilotMessages,
+      {
+        columnNames: ["created_at"],
+        getColumns: (value) => {
+          const message = ProfileCopilotMessageSchema.parse(value);
+          return [message.createdAt];
+        },
+      },
+    );
+    replaceIndexedCollection(database, "profile_revisions", state.profileRevisions, {
+      columnNames: ["created_at"],
+      getColumns: (value) => {
+        const revision = ProfileRevisionSchema.parse(value);
+        return [revision.createdAt];
+      },
+    });
     replaceCollection(database, "application_records", state.applicationRecords);
     replaceCollection(
       database,
@@ -370,6 +437,12 @@ export function readState(
   const settings =
     getSingletonValue(database, "settings", JobFinderSettingsSchema) ??
     fallbackSeed.settings;
+  const profileSetupState =
+    getSingletonValue(
+      database,
+      "profile_setup_state",
+      ProfileSetupStateSchema,
+    ) ?? fallbackSeed.profileSetupState;
   const discovery =
     getSingletonValue(database, "discovery_state", {
       parse: normalizeLegacyDiscoveryState,
@@ -378,9 +451,10 @@ export function readState(
   return JobFinderRepositoryStateSchema.parse({
     profile,
     searchPreferences,
+    profileSetupState,
     savedJobs: listValues(database, "saved_jobs", SavedJobSchema),
     tailoredAssets: listValues(database, "tailored_assets", TailoredAssetSchema),
-    resumeDrafts: listResumeDraftValues(
+    resumeDrafts: listCollectionValues(
       database,
       "resume_drafts",
       ResumeDraftSchema,
@@ -388,7 +462,7 @@ export function readState(
         orderBySql: "updated_at DESC, id ASC",
       },
     ),
-    resumeDraftRevisions: listResumeDraftValues(
+    resumeDraftRevisions: listCollectionValues(
       database,
       "resume_draft_revisions",
       ResumeDraftRevisionSchema,
@@ -396,7 +470,7 @@ export function readState(
         orderBySql: "created_at DESC, id ASC",
       },
     ),
-    resumeExportArtifacts: listResumeDraftValues(
+    resumeExportArtifacts: listCollectionValues(
       database,
       "resume_export_artifacts",
       ResumeExportArtifactSchema,
@@ -404,7 +478,31 @@ export function readState(
         orderBySql: "exported_at DESC, id ASC",
       },
     ),
-    resumeResearchArtifacts: listResumeDraftValues(
+    resumeImportRuns: listCollectionValues(
+      database,
+      "resume_import_runs",
+      ResumeImportRunSchema,
+      {
+        orderBySql: "started_at DESC, id ASC",
+      },
+    ),
+    resumeImportDocumentBundles: listCollectionValues(
+      database,
+      "resume_import_document_bundles",
+      ResumeDocumentBundleSchema,
+      {
+        orderBySql: "created_at DESC, id ASC",
+      },
+    ),
+    resumeImportFieldCandidates: listCollectionValues(
+      database,
+      "resume_import_field_candidates",
+      ResumeImportFieldCandidateSchema,
+      {
+        orderBySql: "created_at DESC, id ASC",
+      },
+    ),
+    resumeResearchArtifacts: listCollectionValues(
       database,
       "resume_research_artifacts",
       ResumeResearchArtifactSchema,
@@ -412,7 +510,7 @@ export function readState(
         orderBySql: "fetched_at DESC, id ASC",
       },
     ),
-    resumeValidationResults: listResumeDraftValues(
+    resumeValidationResults: listCollectionValues(
       database,
       "resume_validation_results",
       ResumeValidationResultSchema,
@@ -420,12 +518,28 @@ export function readState(
         orderBySql: "validated_at DESC, id ASC",
       },
     ),
-    resumeAssistantMessages: listResumeDraftValues(
+    resumeAssistantMessages: listCollectionValues(
       database,
       "resume_assistant_messages",
       ResumeAssistantMessageSchema,
       {
         orderBySql: "created_at ASC, id ASC",
+      },
+    ),
+    profileCopilotMessages: listCollectionValues(
+      database,
+      "profile_copilot_messages",
+      ProfileCopilotMessageSchema,
+      {
+        orderBySql: "created_at ASC, id ASC",
+      },
+    ),
+    profileRevisions: listCollectionValues(
+      database,
+      "profile_revisions",
+      ProfileRevisionSchema,
+      {
+        orderBySql: "created_at DESC, id ASC",
       },
     ),
     applicationRecords: listValues(

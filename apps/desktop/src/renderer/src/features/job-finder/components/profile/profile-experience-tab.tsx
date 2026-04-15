@@ -8,18 +8,29 @@ import { EmptyState } from '../empty-state'
 import type { ProfileEditorValues } from '../../lib/profile-editor'
 import { formatStatusLabel, joinListInput, parseListInput } from '../../lib/job-finder-utils'
 import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
+import type { ProfileFieldArrayKeyName } from './profile-field-array-types'
 import { ProfileListEditor } from './profile-list-editor'
 import { ProfileRecordCard } from './profile-record-card'
 import { ProfileSectionHeader } from './profile-section-header'
 
 interface ProfileExperienceTabProps {
   busy: boolean
-  experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', 'id'>
+  experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', ProfileFieldArrayKeyName>
+  focusRecordOpenSignal?: string | null
+  focusRecordId?: string | null
   profileForm: UseFormReturn<ProfileEditorValues>
 }
 
-export function ProfileExperienceTab({ busy, experienceArray, profileForm }: ProfileExperienceTabProps) {
+export function ProfileExperienceTab({ busy, experienceArray, focusRecordId = null, focusRecordOpenSignal = null, profileForm }: ProfileExperienceTabProps) {
   const { control, register, setValue, watch } = profileForm
+
+  function buildExperienceFieldId(recordId: string, field: string) {
+    return `experience-record-${recordId}-${field}`
+  }
+
+  function buildWorkModeFieldId(recordId: string, workMode: string) {
+    return `experience-record-${recordId}-work-mode-${workMode}`
+  }
 
   function buildRoleSummary(index: number) {
     const title = watch(`records.experiences.${index}.title`)?.trim()
@@ -79,8 +90,10 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
 
             return (
               <ProfileRecordCard
-                key={entry.id}
-                defaultOpen={index === 0 || currentRole}
+                id={`experience-record-${entry.id}`}
+                key={entry.fieldKey}
+                defaultOpen={index === 0 || currentRole || entry.id === focusRecordId}
+                forceOpenSignal={entry.id === focusRecordId ? focusRecordOpenSignal : null}
                 summary={buildRoleSummary(index)}
                 title={watch(`records.experiences.${index}.title`)?.trim() || watch(`records.experiences.${index}.companyName`)?.trim() || `Role ${index + 1}`}
               >
@@ -92,12 +105,12 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
                 </div>
 
                 <div className="grid gap-(--gap-content) md:grid-cols-2">
-                  <Field><FieldLabel>Company</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyName`)} /></Field>
-                  <Field><FieldLabel>Company URL (optional)</FieldLabel><ProfileInput {...register(`records.experiences.${index}.companyUrl`)} /></Field>
-                  <Field><FieldLabel>Title</FieldLabel><ProfileInput {...register(`records.experiences.${index}.title`)} /></Field>
-                  <Field><FieldLabel>Employment type</FieldLabel><ProfileInput {...register(`records.experiences.${index}.employmentType`)} /></Field>
-                  <Field><FieldLabel>Location</FieldLabel><ProfileInput {...register(`records.experiences.${index}.location`)} /></Field>
-                  <div className="grid gap-(--gap-field)">
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'company-name')}>Company</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'company-name')} {...register(`records.experiences.${index}.companyName`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'company-url')}>Company URL (optional)</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'company-url')} {...register(`records.experiences.${index}.companyUrl`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'title')}>Title</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'title')} {...register(`records.experiences.${index}.title`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'employment-type')}>Employment type</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'employment-type')} {...register(`records.experiences.${index}.employmentType`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'location')}>Location</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'location')} {...register(`records.experiences.${index}.location`)} /></Field>
+                  <div className="grid gap-(--gap-field)" id={buildExperienceFieldId(entry.id, 'work-mode')}>
                     <FieldLabel>Work mode</FieldLabel>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {workModeValues.map((workMode) => (
@@ -108,6 +121,7 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
                           render={({ field }) => (
                             <CheckboxField
                               checked={field.value.includes(workMode)}
+                              inputId={buildWorkModeFieldId(entry.id, workMode)}
                               label={formatStatusLabel(workMode)}
                               onCheckedChange={(checked) =>
                                 field.onChange(
@@ -126,15 +140,15 @@ export function ProfileExperienceTab({ busy, experienceArray, profileForm }: Pro
                     control={control}
                     name={`records.experiences.${index}.isCurrent`}
                     render={({ field }) => (
-                      <CheckboxField checked={field.value} className="md:col-span-2" label="Current role" onCheckedChange={field.onChange} />
+                      <CheckboxField checked={field.value} className="md:col-span-2" inputId={buildExperienceFieldId(entry.id, 'is-current')} label="Current role" onCheckedChange={field.onChange} />
                     )}
                   />
-                  <Field><FieldLabel>Start date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.experiences.${index}.startDate`)} /></Field>
-                  <Field><FieldLabel>End date</FieldLabel><ProfileInput disabled={currentRole} placeholder="YYYY-MM" {...register(`records.experiences.${index}.endDate`)} /></Field>
-                  <Field><FieldLabel>Team scope (optional)</FieldLabel><ProfileInput {...register(`records.experiences.${index}.peopleManagementScope`)} /></Field>
-                  <Field><FieldLabel>Ownership or budget scope (optional)</FieldLabel><ProfileInput {...register(`records.experiences.${index}.ownershipScope`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Industries or domains</FieldLabel><ProfileTextarea className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register(`records.experiences.${index}.domainTags`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Role overview</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.experiences.${index}.summary`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'start-date')}>Start date</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'start-date')} placeholder="YYYY-MM" {...register(`records.experiences.${index}.startDate`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'end-date')}>End date</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'end-date')} disabled={currentRole} placeholder="YYYY-MM" {...register(`records.experiences.${index}.endDate`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'people-management-scope')}>Team scope (optional)</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'people-management-scope')} {...register(`records.experiences.${index}.peopleManagementScope`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'ownership-scope')}>Ownership or budget scope (optional)</FieldLabel><ProfileInput id={buildExperienceFieldId(entry.id, 'ownership-scope')} {...register(`records.experiences.${index}.ownershipScope`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'domain-tags')}>Industries or domains</FieldLabel><ProfileTextarea id={buildExperienceFieldId(entry.id, 'domain-tags')} className="min-h-(--textarea-tall) max-h-(--textarea-tall)" rows={4} {...register(`records.experiences.${index}.domainTags`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel htmlFor={buildExperienceFieldId(entry.id, 'summary')}>Role overview</FieldLabel><ProfileTextarea id={buildExperienceFieldId(entry.id, 'summary')} className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.experiences.${index}.summary`)} /></Field>
                   <ProfileListEditor
                     className="md:col-span-2"
                     displayMode="rows"

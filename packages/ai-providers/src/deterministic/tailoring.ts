@@ -212,7 +212,7 @@ export function buildDeterministicResumeAssistantReply(
     ) ?? null;
     const targetBullet = requestedOrdinalIndex >= 0
       ? unlockedBullets[requestedOrdinalIndex] ?? null
-      : keywordMatchedBullet;
+      : keywordMatchedBullet ?? unlockedBullets[0] ?? null;
 
     if (targetBullet) {
       const tightenedBullet = tightenSentence(targetBullet.text);

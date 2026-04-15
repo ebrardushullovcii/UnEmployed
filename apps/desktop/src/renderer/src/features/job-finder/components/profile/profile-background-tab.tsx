@@ -1,35 +1,34 @@
-import type { UseFieldArrayReturn, UseFormReturn } from 'react-hook-form'
-import { Controller } from 'react-hook-form'
-import { candidateLinkKindValues } from '@unemployed/contracts'
+import type { UseFormReturn } from 'react-hook-form'
 import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
-import { CheckboxField } from '../checkbox-field'
 import { EmptyState } from '../empty-state'
-import { FormSelect } from '../form-select'
 import type { ProfileEditorValues } from '../../lib/profile-editor'
-import { formatStatusLabel } from '../../lib/job-finder-utils'
-import { ProfileInput, ProfileTextarea, profileSelectTriggerClassName } from './profile-form-primitives'
+import type { ProfileBackgroundArrays } from './profile-field-array-types'
+import {
+  joinProfileSummaryParts,
+  ProfileBackgroundProofBankSection,
+  ProfileBackgroundSupportingDetailSection,
+} from './profile-background-sections'
+import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
 import { ProfileRecordCard } from './profile-record-card'
 import { ProfileSectionHeader } from './profile-section-header'
 
 interface ProfileBackgroundTabProps {
-  backgroundArrays: {
-    certificationArray: UseFieldArrayReturn<ProfileEditorValues, 'records.certifications', 'id'>
-    educationArray: UseFieldArrayReturn<ProfileEditorValues, 'records.education', 'id'>
-    languageArray: UseFieldArrayReturn<ProfileEditorValues, 'languages', 'id'>
-    linkArray: UseFieldArrayReturn<ProfileEditorValues, 'links', 'id'>
-    projectArray: UseFieldArrayReturn<ProfileEditorValues, 'projects', 'id'>
-  }
+  backgroundArrays: ProfileBackgroundArrays
   busy: boolean
   profileForm: UseFormReturn<ProfileEditorValues>
 }
 
 export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: ProfileBackgroundTabProps) {
-  const { certificationArray, educationArray, languageArray, linkArray, projectArray } = backgroundArrays
-  const { control, register, watch } = profileForm
+  const { certificationArray, educationArray } = backgroundArrays
+  const { register, watch } = profileForm
 
-  function joinParts(parts: Array<string | null | undefined>) {
-    return parts.map((part) => part?.trim()).filter(Boolean).join(' | ')
+  function buildEducationFieldId(recordId: string, field: string) {
+    return `education-record-${recordId}-${field}`
+  }
+
+  function buildCertificationFieldId(recordId: string, field: string) {
+    return `certification-record-${recordId}-${field}`
   }
 
   return (
@@ -87,12 +86,13 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
           {educationArray.fields.length > 0 ? (
             educationArray.fields.map((entry, index) => (
               <ProfileRecordCard
-                key={entry.id}
+                id={`education-record-${entry.id}`}
+                key={entry.fieldKey}
                 defaultOpen={index === 0}
-                summary={joinParts([
+                summary={joinProfileSummaryParts([
                   watch(`records.education.${index}.degree`),
                   watch(`records.education.${index}.schoolName`),
-                  joinParts([
+                  joinProfileSummaryParts([
                     watch(`records.education.${index}.startDate`),
                     watch(`records.education.${index}.endDate`)
                   ])
@@ -106,13 +106,13 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                   </Button>
                 </div>
                 <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-                  <Field><FieldLabel>School</FieldLabel><ProfileInput {...register(`records.education.${index}.schoolName`)} /></Field>
-                  <Field><FieldLabel>Degree</FieldLabel><ProfileInput {...register(`records.education.${index}.degree`)} /></Field>
-                  <Field><FieldLabel>Field of study</FieldLabel><ProfileInput {...register(`records.education.${index}.fieldOfStudy`)} /></Field>
-                  <Field><FieldLabel>Location</FieldLabel><ProfileInput {...register(`records.education.${index}.location`)} /></Field>
-                  <Field><FieldLabel>Start date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.education.${index}.startDate`)} /></Field>
-                  <Field><FieldLabel>End date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.education.${index}.endDate`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Highlights</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.education.${index}.summary`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildEducationFieldId(entry.id, 'school-name')}>School</FieldLabel><ProfileInput id={buildEducationFieldId(entry.id, 'school-name')} {...register(`records.education.${index}.schoolName`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildEducationFieldId(entry.id, 'degree')}>Degree</FieldLabel><ProfileInput id={buildEducationFieldId(entry.id, 'degree')} {...register(`records.education.${index}.degree`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildEducationFieldId(entry.id, 'field-of-study')}>Field of study</FieldLabel><ProfileInput id={buildEducationFieldId(entry.id, 'field-of-study')} {...register(`records.education.${index}.fieldOfStudy`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildEducationFieldId(entry.id, 'location')}>Location</FieldLabel><ProfileInput id={buildEducationFieldId(entry.id, 'location')} {...register(`records.education.${index}.location`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildEducationFieldId(entry.id, 'start-date')}>Start date</FieldLabel><ProfileInput id={buildEducationFieldId(entry.id, 'start-date')} placeholder="YYYY-MM" {...register(`records.education.${index}.startDate`)} /></Field>
+                  <Field><FieldLabel htmlFor={buildEducationFieldId(entry.id, 'end-date')}>End date</FieldLabel><ProfileInput id={buildEducationFieldId(entry.id, 'end-date')} placeholder="YYYY-MM" {...register(`records.education.${index}.endDate`)} /></Field>
+                  <Field className="md:col-span-2"><FieldLabel htmlFor={buildEducationFieldId(entry.id, 'summary')}>Highlights</FieldLabel><ProfileTextarea id={buildEducationFieldId(entry.id, 'summary')} className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`records.education.${index}.summary`)} /></Field>
                 </div>
               </ProfileRecordCard>
             ))
@@ -125,9 +125,10 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
 
           {certificationArray.fields.map((entry, index) => (
             <ProfileRecordCard
-              key={entry.id}
+              id={`certification-record-${entry.id}`}
+              key={entry.fieldKey}
               defaultOpen={index === 0 && educationArray.fields.length === 0}
-              summary={joinParts([
+              summary={joinProfileSummaryParts([
                 watch(`records.certifications.${index}.name`),
                 watch(`records.certifications.${index}.issuer`)
               ])}
@@ -140,199 +141,19 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 </Button>
               </div>
               <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-                <Field><FieldLabel>Name</FieldLabel><ProfileInput {...register(`records.certifications.${index}.name`)} /></Field>
-                <Field><FieldLabel>Issuer</FieldLabel><ProfileInput {...register(`records.certifications.${index}.issuer`)} /></Field>
-                <Field><FieldLabel>Issue date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.certifications.${index}.issueDate`)} /></Field>
-                <Field><FieldLabel>Expiry date</FieldLabel><ProfileInput placeholder="YYYY-MM" {...register(`records.certifications.${index}.expiryDate`)} /></Field>
-                <Field className="md:col-span-2"><FieldLabel>Credential URL</FieldLabel><ProfileInput {...register(`records.certifications.${index}.credentialUrl`)} /></Field>
+                <Field><FieldLabel htmlFor={buildCertificationFieldId(entry.id, 'name')}>Name</FieldLabel><ProfileInput id={buildCertificationFieldId(entry.id, 'name')} {...register(`records.certifications.${index}.name`)} /></Field>
+                <Field><FieldLabel htmlFor={buildCertificationFieldId(entry.id, 'issuer')}>Issuer</FieldLabel><ProfileInput id={buildCertificationFieldId(entry.id, 'issuer')} {...register(`records.certifications.${index}.issuer`)} /></Field>
+                <Field><FieldLabel htmlFor={buildCertificationFieldId(entry.id, 'issue-date')}>Issue date</FieldLabel><ProfileInput id={buildCertificationFieldId(entry.id, 'issue-date')} placeholder="YYYY-MM" {...register(`records.certifications.${index}.issueDate`)} /></Field>
+                <Field><FieldLabel htmlFor={buildCertificationFieldId(entry.id, 'expiry-date')}>Expiry date</FieldLabel><ProfileInput id={buildCertificationFieldId(entry.id, 'expiry-date')} placeholder="YYYY-MM" {...register(`records.certifications.${index}.expiryDate`)} /></Field>
+                <Field className="md:col-span-2"><FieldLabel htmlFor={buildCertificationFieldId(entry.id, 'credential-url')}>Credential URL</FieldLabel><ProfileInput id={buildCertificationFieldId(entry.id, 'credential-url')} {...register(`records.certifications.${index}.credentialUrl`)} /></Field>
               </div>
             </ProfileRecordCard>
           ))}
         </div>
       </section>
 
-      <section className="grid content-start gap-(--gap-card)">
-        <ProfileSectionHeader
-          eyebrow="Supporting detail"
-          title="Projects, links, and languages"
-          description="Use these records to add proof, public links, and language details without turning the page into one long form."
-          action={
-            <div className="flex flex-wrap items-stretch gap-2.5">
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  projectArray.append({
-                    id: `project_${crypto.randomUUID().slice(0, 8)}`,
-                    name: '',
-                    projectType: '',
-                    summary: '',
-                    role: '',
-                    skills: '',
-                    outcome: '',
-                    projectUrl: '',
-                    repositoryUrl: '',
-                    caseStudyUrl: ''
-                  })
-                }
-                type="button"
-                variant="secondary"
-                className="h-11 px-4"
-              >
-                Add project
-              </Button>
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  linkArray.append({
-                    id: `link_${crypto.randomUUID().slice(0, 8)}`,
-                    label: '',
-                    url: '',
-                    kind: ''
-                  })
-                }
-                type="button"
-                variant="secondary"
-                className="h-11 px-4"
-              >
-                Add link
-              </Button>
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  languageArray.append({
-                    id: `language_${crypto.randomUUID().slice(0, 8)}`,
-                    language: '',
-                    proficiency: '',
-                    interviewPreference: false,
-                    notes: ''
-                  })
-                }
-                type="button"
-                variant="secondary"
-                className="h-11 px-4"
-              >
-                Add language
-              </Button>
-            </div>
-          }
-        />
-
-        <div className="grid gap-4">
-          {projectArray.fields.map((entry, index) => (
-            <ProfileRecordCard
-              key={entry.id}
-              defaultOpen={index === 0}
-              summary={joinParts([
-                watch(`projects.${index}.name`),
-                watch(`projects.${index}.role`),
-                watch(`projects.${index}.projectType`)
-              ])}
-              title={watch(`projects.${index}.name`)?.trim() || `Project ${index + 1}`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Project details</p>
-                <Button disabled={busy} onClick={() => projectArray.remove(index)} size="compact" type="button" variant="ghost">
-                  Remove
-                </Button>
-              </div>
-                <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-                  <Field><FieldLabel>Project name</FieldLabel><ProfileInput {...register(`projects.${index}.name`)} /></Field>
-                  <Field><FieldLabel>Project type</FieldLabel><ProfileInput {...register(`projects.${index}.projectType`)} /></Field>
-                  <Field><FieldLabel>Role</FieldLabel><ProfileInput {...register(`projects.${index}.role`)} /></Field>
-                  <Field><FieldLabel>Project URL</FieldLabel><ProfileInput {...register(`projects.${index}.projectUrl`)} /></Field>
-                  <Field><FieldLabel>Repository URL (optional)</FieldLabel><ProfileInput {...register(`projects.${index}.repositoryUrl`)} /></Field>
-                  <Field><FieldLabel>Case study URL (optional)</FieldLabel><ProfileInput {...register(`projects.${index}.caseStudyUrl`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Skills used</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.skills`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Summary</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.summary`)} /></Field>
-                  <Field className="md:col-span-2"><FieldLabel>Impact</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`projects.${index}.outcome`)} /></Field>
-                </div>
-            </ProfileRecordCard>
-          ))}
-
-          {linkArray.fields.map((entry, index) => (
-            <ProfileRecordCard
-              key={entry.id}
-              defaultOpen={index === 0 && projectArray.fields.length === 0}
-              summary={joinParts([
-                watch(`links.${index}.label`),
-                watch(`links.${index}.kind`) ? formatStatusLabel(watch(`links.${index}.kind`)) : null
-              ])}
-              title={watch(`links.${index}.label`)?.trim() || `Link ${index + 1}`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Link details</p>
-                <Button disabled={busy} onClick={() => linkArray.remove(index)} size="compact" type="button" variant="ghost">
-                  Remove
-                </Button>
-              </div>
-              <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-                <Field><FieldLabel>Label</FieldLabel><ProfileInput {...register(`links.${index}.label`)} /></Field>
-                <Controller
-                  control={control}
-                  name={`links.${index}.kind`}
-                  render={({ field }) => (
-                    <Field>
-                      <FieldLabel>Type</FieldLabel>
-                      <FormSelect
-                        onValueChange={field.onChange}
-                        options={[
-                          { label: 'Select type', value: '' },
-                          ...candidateLinkKindValues.map((kind) => ({
-                            label: formatStatusLabel(kind),
-                            value: kind
-                          }))
-                        ]}
-                        placeholder="Select type"
-                        triggerClassName={profileSelectTriggerClassName}
-                        value={field.value}
-                      />
-                    </Field>
-                  )}
-                />
-                <Field className="md:col-span-2"><FieldLabel>URL</FieldLabel><ProfileInput {...register(`links.${index}.url`)} /></Field>
-              </div>
-            </ProfileRecordCard>
-          ))}
-
-          {languageArray.fields.map((entry, index) => (
-            <ProfileRecordCard
-              key={entry.id}
-              defaultOpen={index === 0 && projectArray.fields.length === 0 && linkArray.fields.length === 0}
-              summary={joinParts([
-                watch(`languages.${index}.language`),
-                watch(`languages.${index}.proficiency`)
-              ])}
-              title={watch(`languages.${index}.language`)?.trim() || `Language ${index + 1}`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Language details</p>
-                <Button disabled={busy} onClick={() => languageArray.remove(index)} size="compact" type="button" variant="ghost">
-                  Remove
-                </Button>
-              </div>
-              <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-                <Field><FieldLabel>Language</FieldLabel><ProfileInput {...register(`languages.${index}.language`)} /></Field>
-                <Field><FieldLabel>Proficiency</FieldLabel><ProfileInput {...register(`languages.${index}.proficiency`)} /></Field>
-                <Controller
-                  control={control}
-                  name={`languages.${index}.interviewPreference`}
-                  render={({ field }) => (
-                    <CheckboxField checked={field.value} label="Can interview in this language" onCheckedChange={field.onChange} />
-                  )}
-                />
-                <Field className="md:col-span-2"><FieldLabel>Context (optional)</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" rows={4} {...register(`languages.${index}.notes`)} /></Field>
-              </div>
-            </ProfileRecordCard>
-          ))}
-
-          {projectArray.fields.length === 0 && linkArray.fields.length === 0 && languageArray.fields.length === 0 ? (
-            <EmptyState
-              description="Add projects, links, and languages here when they help support applications."
-              title="Nothing added here yet"
-            />
-          ) : null}
-        </div>
-      </section>
+      <ProfileBackgroundSupportingDetailSection backgroundArrays={backgroundArrays} busy={busy} profileForm={profileForm} />
+      <ProfileBackgroundProofBankSection backgroundArrays={backgroundArrays} busy={busy} profileForm={profileForm} />
     </div>
   )
 }

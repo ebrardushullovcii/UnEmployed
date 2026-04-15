@@ -11,19 +11,14 @@ import { ProfileCoreTab } from './profile-core-tab'
 import { ProfileExperienceTab } from './profile-experience-tab'
 import { ProfilePreferencesTab } from './profile-preferences-tab'
 import type { ProfileEditorValues, SearchPreferencesEditorValues } from '../../lib/profile-editor'
+import type { ProfileBackgroundArrays, ProfileFieldArrayKeyName } from './profile-field-array-types'
 import type { ProfileSection } from '../../lib/profile-screen-progress'
 
 interface ProfileActiveSectionContentProps {
   activeSection: ProfileSection
-  backgroundArrays: {
-    certificationArray: UseFieldArrayReturn<ProfileEditorValues, 'records.certifications', 'id'>
-    educationArray: UseFieldArrayReturn<ProfileEditorValues, 'records.education', 'id'>
-    languageArray: UseFieldArrayReturn<ProfileEditorValues, 'languages', 'id'>
-    linkArray: UseFieldArrayReturn<ProfileEditorValues, 'links', 'id'>
-    projectArray: UseFieldArrayReturn<ProfileEditorValues, 'projects', 'id'>
-  }
+  backgroundArrays: ProfileBackgroundArrays
   busy: boolean
-  experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', 'id'>
+  experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', ProfileFieldArrayKeyName>
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
@@ -61,6 +56,7 @@ export function ProfileActiveSectionContent({
         onVerifySourceInstructions={onVerifySourceInstructions}
         preferencesForm={preferencesForm}
         profileForm={profileForm}
+        customAnswerArray={backgroundArrays.customAnswerArray}
         recentSourceDebugRuns={recentSourceDebugRuns}
         sourceInstructionArtifacts={sourceInstructionArtifacts}
       />

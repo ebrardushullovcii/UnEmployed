@@ -114,7 +114,12 @@ function normalizeWorkModeValue(value: unknown): unknown {
 
   const normalized = value.trim().toLowerCase();
 
-  if (normalized === "in_office" || normalized === "in office") {
+  if (
+    normalized === "in_office" ||
+    normalized === "in office" ||
+    normalized === "on-site" ||
+    normalized === "on site"
+  ) {
     return "onsite";
   }
 

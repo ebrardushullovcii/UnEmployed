@@ -1,9 +1,48 @@
 import type { AppearanceTheme } from '@unemployed/contracts'
+import { SYSTEM_THEME_CHANGE_EVENT } from '../../../shared/system-theme'
 
 export const STORAGE_KEY = 'unemployed.appearance-theme'
 export const DARK_QUERY = '(prefers-color-scheme: dark)'
+export { SYSTEM_THEME_CHANGE_EVENT }
 
 export type ResolvedTheme = 'dark' | 'light'
+
+export function readSystemThemeOverride(): ResolvedTheme | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const unemployedWindow = window as Window & {
+    unemployed?: {
+      jobFinder?: {
+        test?: {
+          getSystemThemeOverride?: () => ResolvedTheme | null
+        }
+      }
+    }
+  }
+  const overrideValue = unemployedWindow.unemployed?.jobFinder?.test?.getSystemThemeOverride?.()
+
+  return overrideValue === 'dark' || overrideValue === 'light' ? overrideValue : null
+}
+
+export function getSystemPrefersDark() {
+  const override = readSystemThemeOverride()
+
+  if (override === 'dark') {
+    return true
+  }
+
+  if (override === 'light') {
+    return false
+  }
+
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return true
+  }
+
+  return window.matchMedia(DARK_QUERY).matches
+}
 
 export function readStoredAppearanceTheme(): AppearanceTheme | null {
   if (typeof window === 'undefined') {

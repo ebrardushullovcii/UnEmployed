@@ -1,12 +1,22 @@
-import type { AssetStatus, CandidateProfile, ResumeExtractionStatus } from '@unemployed/contracts'
+import type {
+  AssetStatus,
+  CandidateProfile,
+  ResumeExtractionStatus,
+  ResumeImportFieldCandidateSummary,
+  ResumeImportRun
+} from '@unemployed/contracts'
 import { Sparkles, Upload } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
-import { formatDateOnly, formatResumeAnalysisSummary, getAssetTone } from '@renderer/features/job-finder/lib/job-finder-utils'
+import { formatDateOnly, formatResumeAnalysisSummary, formatStatusLabel, getAssetTone } from '@renderer/features/job-finder/lib/job-finder-utils'
+import { getVisibleYearsExperience } from '@renderer/features/job-finder/lib/profile-resume-panel-utils'
 import { PreferenceList } from '../preference-list'
 import { StatusBadge } from '../status-badge'
 
 interface ProfileResumePanelProps {
   busy: boolean
+  importDisabledReason?: string | null
+  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  latestResumeImportRun: ResumeImportRun | null
   onAnalyzeProfileFromResume: () => void
   onImportResume: () => void
   profile: CandidateProfile
@@ -24,6 +34,39 @@ const extractionStatusToLabel: Record<ResumeExtractionStatus, string> = {
   failed: 'Import failed',
   needs_text: 'Needs better text',
   not_started: 'Not imported'
+}
+
+function shouldHideAnalysisWarning(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+
+  return (
+    normalized.includes('pdfplumber is unavailable') ||
+    normalized.includes('pypdf is unavailable') ||
+    normalized.includes('python resume parser sidecar returned no usable parse') ||
+    normalized.includes('python resume parser sidecar fallback:') ||
+    normalized.includes('fell back to the deterministic staged resume importer after the model call failed') ||
+    normalized.includes('primary ai import stage failed:') ||
+    normalized.includes('fell back to the deterministic resume parser after the model call failed') ||
+    normalized.includes('primary ai extraction failed:')
+  )
+}
+
+function getFallbackResumeImportWarning(warnings: readonly string[]): string | null {
+  const normalizedWarnings = warnings.map((warning) => warning.trim().toLowerCase())
+  const usedFallback = normalizedWarnings.some((warning) =>
+    warning.includes('python resume parser sidecar fallback:')
+    || warning.includes('python resume parser sidecar returned no usable parse')
+    || warning.includes('fell back to the deterministic staged resume importer after the model call failed')
+    || warning.includes('fell back to the deterministic resume parser after the model call failed')
+    || warning.includes('primary ai import stage failed:')
+    || warning.includes('primary ai extraction failed:'),
+  )
+
+  if (!usedFallback) {
+    return null
+  }
+
+  return 'This import used a fallback parsing path, so review the imported details more closely before saving them.'
 }
 
 function getResumePanelCopy(input: {
@@ -60,6 +103,9 @@ function getResumePanelCopy(input: {
 
 export function ProfileResumePanel({
   busy,
+  importDisabledReason,
+  latestResumeImportReviewCandidates,
+  latestResumeImportRun,
   onAnalyzeProfileFromResume,
   onImportResume,
   profile
@@ -78,6 +124,10 @@ export function ProfileResumePanel({
     ? `Imported ${formatDateOnly(profile.baseResume.uploadedAt)}`
     : 'Import your resume to fill in this profile faster.'
   const extractionStatusLabel = (() => {
+    if (latestResumeImportRun) {
+      return formatStatusLabel(latestResumeImportRun.status)
+    }
+
     const label = extractionStatusToLabel[profile.baseResume.extractionStatus]
 
     if (label) {
@@ -90,7 +140,18 @@ export function ProfileResumePanel({
   const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Name not set yet'
   const headline = profile.headline.trim() || 'Headline not set yet'
   const location = profile.currentLocation.trim() || 'Location not set yet'
-  const experienceLabel = profile.yearsExperience === 1 ? '1 year' : `${profile.yearsExperience} years`
+  const visibleYearsExperience = getVisibleYearsExperience({
+    profileYearsExperience: profile.yearsExperience,
+    reviewCandidates: latestResumeImportReviewCandidates,
+  })
+  const experienceLabel = visibleYearsExperience === 1 ? '1 year' : `${visibleYearsExperience} years`
+  const latestRunSummary = latestResumeImportRun
+    ? `${latestResumeImportRun.candidateCounts.autoApplied} auto-applied, ${latestResumeImportRun.candidateCounts.needsReview} waiting for review.`
+    : null
+  const visibleAnalysisWarnings = profile.baseResume.analysisWarnings.filter(
+    (warning) => !shouldHideAnalysisWarning(warning)
+  )
+  const fallbackResumeImportWarning = getFallbackResumeImportWarning(profile.baseResume.analysisWarnings)
 
   return (
     <section className="relative overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-[linear-gradient(135deg,var(--surface-panel-border-warm),var(--surface-overlay-subtle)_38%,var(--surface-overlay-soft))] p-5 sm:p-6">
@@ -121,6 +182,10 @@ export function ProfileResumePanel({
                 <span className="text-(length:--text-description) leading-6 text-foreground-muted">
                   {resumeAnalysisSummary}
                 </span>
+              ) : latestRunSummary ? (
+                <span className="text-(length:--text-description) leading-6 text-foreground-muted">
+                  {latestRunSummary}
+                </span>
               ) : (
                 <span className="text-(length:--text-description) leading-6 text-foreground-muted">
                   Refresh your profile suggestions any time you want to pull in changes from the saved resume text.
@@ -129,13 +194,13 @@ export function ProfileResumePanel({
             </div>
 
             <div className="flex flex-wrap gap-2.5">
-              <Button className="h-11 px-4" disabled={busy} onClick={onImportResume} type="button" variant="secondary">
+              <Button className="h-11 px-4" disabled={busy || Boolean(importDisabledReason)} onClick={onImportResume} type="button" variant="secondary">
                 <Upload className="size-4" />
                 {hasImportedResume ? 'Replace resume' : 'Import resume'}
               </Button>
               <Button
                 className="h-11 px-4"
-                disabled={busy || !resumeTextReadyToAnalyze}
+                disabled={busy || !resumeTextReadyToAnalyze || Boolean(importDisabledReason)}
                 onClick={onAnalyzeProfileFromResume}
                 type="button"
                 variant="primary"
@@ -144,12 +209,26 @@ export function ProfileResumePanel({
                 Refresh from resume
               </Button>
             </div>
+            {importDisabledReason ? (
+              <p className="text-sm leading-6 text-foreground-soft">{importDisabledReason}</p>
+            ) : null}
           </article>
 
-          {profile.baseResume.analysisWarnings.length > 0 ? (
+          {visibleAnalysisWarnings.length > 0 || fallbackResumeImportWarning || latestResumeImportReviewCandidates.length > 0 ? (
             <article className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border-warm) bg-(--surface-overlay-strong) p-4">
               <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Review before saving</p>
-              <PreferenceList label="Check these details before saving" values={profile.baseResume.analysisWarnings} />
+              {fallbackResumeImportWarning ? (
+                <PreferenceList label="Import quality note" values={[fallbackResumeImportWarning]} />
+              ) : null}
+              {visibleAnalysisWarnings.length > 0 ? (
+                <PreferenceList label="Check these details before saving" values={visibleAnalysisWarnings} />
+              ) : null}
+              {latestResumeImportReviewCandidates.length > 0 ? (
+                <PreferenceList
+                  label="Imported suggestions waiting for confirmation"
+                  values={latestResumeImportReviewCandidates.map((candidate) => candidate.label)}
+                />
+              ) : null}
             </article>
           ) : null}
         </div>

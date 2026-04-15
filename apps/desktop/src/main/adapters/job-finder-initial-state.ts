@@ -2,6 +2,7 @@ import {
   CandidateProfileSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
+  ProfileSetupStateSchema,
   type JobFinderRepositoryState
 } from '@unemployed/contracts'
 
@@ -75,6 +76,13 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
         targets: []
       }
     }),
+    profileSetupState: ProfileSetupStateSchema.parse({
+      status: 'not_started',
+      currentStep: 'import',
+      completedAt: null,
+      reviewItems: [],
+      lastResumedAt: null
+    }),
     savedJobs: [],
     tailoredAssets: [],
     resumeDrafts: [],
@@ -83,12 +91,17 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
     resumeResearchArtifacts: [],
     resumeValidationResults: [],
     resumeAssistantMessages: [],
+    profileCopilotMessages: [],
+    profileRevisions: [],
     applicationRecords: [],
     applicationAttempts: [],
     sourceDebugRuns: [],
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
     sourceDebugEvidenceRefs: [],
+    resumeImportRuns: [],
+    resumeImportDocumentBundles: [],
+    resumeImportFieldCandidates: [],
     settings: JobFinderSettingsSchema.parse({
       resumeTemplateId: 'classic_ats',
       resumeFormat: 'pdf',

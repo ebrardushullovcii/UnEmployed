@@ -88,6 +88,13 @@ async function ensureLocatorText(page, text) {
   await page.getByText(text, { exact: true }).first().waitFor({ timeout: 10000 })
 }
 
+async function waitForProfileOrSetupHeading(page, timeout = 15000) {
+  await page.waitForFunction(() => {
+    const heading = document.querySelector('h1')
+    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
+  }, undefined, { timeout })
+}
+
 async function clickNavigationControl(page, name) {
   const control = page.locator('button, [role="tab"]').filter({ hasText: name }).first()
 
@@ -293,14 +300,19 @@ async function captureProfileBaseline() {
       env: {
         ...process.env,
         UNEMPLOYED_ENABLE_TEST_API: '1',
+        UNEMPLOYED_TEST_SYSTEM_THEME: process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark',
         UNEMPLOYED_USER_DATA_DIR: userDataDirectory
       }
     })
 
     const page = await app.firstWindow()
 
+    await page.evaluate(async (theme) => {
+      await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
+    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
+
     await page.waitForLoadState('domcontentloaded')
-    await page.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await waitForProfileOrSetupHeading(page)
     await page.setViewportSize({ width, height })
 
     await page.evaluate(async ({ profile, searchPreferences, settings }) => {
@@ -318,6 +330,7 @@ async function captureProfileBaseline() {
 
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
+    await waitForProfileOrSetupHeading(page, 10000)
 
     await clickNavigationControl(page, /^Profile$/)
     await page.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 10000 })

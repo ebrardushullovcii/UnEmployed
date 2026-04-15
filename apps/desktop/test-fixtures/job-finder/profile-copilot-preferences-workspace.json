@@ -1,0 +1,156 @@
+{
+  "profile": {
+    "id": "candidate_test_1",
+    "firstName": "Jamie",
+    "lastName": "Rivers",
+    "fullName": "Jamie Rivers",
+    "headline": "Senior Full-Stack Software Engineer",
+    "summary": "A passionate software developer with 6+ years of full-stack experience building impactful solutions.",
+    "currentLocation": "Berlin, Germany",
+    "yearsExperience": 6,
+    "email": "jamie.rivers@example.com",
+    "phone": "+49 555 0000000",
+    "portfolioUrl": null,
+    "linkedinUrl": "https://www.linkedin.com/in/jamie-rivers-test",
+    "narrative": {
+      "professionalStory": null,
+      "nextChapterSummary": null,
+      "careerTransitionSummary": null,
+      "differentiators": [],
+      "motivationThemes": []
+    },
+    "proofBank": [],
+    "answerBank": {
+      "workAuthorization": null,
+      "visaSponsorship": null,
+      "relocation": null,
+      "travel": null,
+      "noticePeriod": null,
+      "availability": null,
+      "salaryExpectations": null,
+      "selfIntroduction": null,
+      "careerTransition": null,
+      "customAnswers": []
+    },
+    "applicationIdentity": {
+      "preferredEmail": null,
+      "preferredPhone": null,
+      "preferredLinkIds": []
+    },
+    "baseResume": {
+      "id": "resume_1",
+      "fileName": "CV.pdf",
+      "uploadedAt": "2026-04-14T15:55:00.000Z",
+      "storagePath": "/tmp/CV.pdf",
+      "textContent": "Jamie Rivers\nSenior Full-Stack Software Engineer\nBerlin, Germany",
+      "textUpdatedAt": "2026-04-14T15:55:00.000Z",
+      "extractionStatus": "ready",
+      "lastAnalyzedAt": "2026-04-14T15:55:00.000Z",
+      "analysisWarnings": []
+    },
+    "workEligibility": {
+      "authorizedWorkCountries": [],
+      "requiresVisaSponsorship": null,
+      "willingToRelocate": null,
+      "preferredRelocationRegions": [],
+      "willingToTravel": null,
+      "remoteEligible": null,
+      "noticePeriodDays": null,
+      "availableStartDate": null,
+      "securityClearance": null
+    },
+    "professionalSummary": {
+      "shortValueProposition": null,
+      "fullSummary": null,
+      "careerThemes": [],
+      "leadershipSummary": null,
+      "domainFocusSummary": null,
+      "strengths": []
+    },
+    "skillGroups": {
+      "coreSkills": [],
+      "tools": [],
+      "languagesAndFrameworks": [],
+      "softSkills": [],
+      "highlightedSkills": []
+    },
+    "targetRoles": [
+      "Senior Full-Stack Software Engineer"
+    ],
+    "locations": [
+      "Berlin, Germany"
+    ],
+    "skills": [],
+    "experiences": [
+      {
+        "id": "experience_1",
+        "companyName": "Northstar Labs",
+        "companyUrl": null,
+        "title": "Senior Full-Stack Software Engineer",
+        "employmentType": null,
+        "location": "Berlin, Germany",
+        "workMode": [
+          "remote"
+        ],
+        "startDate": "2023-07",
+        "endDate": null,
+        "isCurrent": true,
+        "isDraft": false,
+        "summary": null,
+        "achievements": [],
+        "skills": [],
+        "domainTags": [],
+        "peopleManagementScope": null,
+        "ownershipScope": null
+      }
+    ],
+    "education": [],
+    "certifications": [],
+    "links": [],
+    "projects": [],
+    "spokenLanguages": []
+  },
+  "searchPreferences": {
+    "targetRoles": [
+      "Senior Full-Stack Software Engineer"
+    ],
+    "jobFamilies": [],
+    "locations": [
+      "Berlin, Germany"
+    ],
+    "excludedLocations": [],
+    "workModes": [],
+    "seniorityLevels": [],
+    "targetIndustries": [],
+    "targetCompanyStages": [],
+    "employmentTypes": [],
+    "minimumSalaryUsd": null,
+    "targetSalaryUsd": null,
+    "salaryCurrency": "USD",
+    "approvalMode": "review_before_submit",
+    "tailoringMode": "balanced",
+    "companyBlacklist": [],
+    "companyWhitelist": [],
+    "discovery": {
+      "historyLimit": 5,
+      "targets": []
+    }
+  },
+  "profileSetupState": {
+    "status": "completed",
+    "currentStep": "ready_check",
+    "completedAt": "2026-04-14T15:56:00.000Z",
+    "reviewItems": [],
+    "lastResumedAt": null
+  },
+  "settings": {
+    "resumeTemplateId": "classic_ats",
+    "resumeFormat": "pdf",
+    "fontPreset": "inter_requisite",
+    "appearanceTheme": "system",
+    "humanReviewRequired": true,
+    "keepSessionAlive": true,
+    "allowAutoSubmitOverride": false,
+    "discoveryOnly": false
+  }
+}

@@ -38,7 +38,7 @@ export function ProfileSaveFooter({
             <p
               aria-atomic="true"
               aria-live="polite"
-              className="text-(length:--text-description) leading-6 text-foreground-muted"
+              className="text-(length:--text-description) leading-6 text-primary"
               role="status"
             >
               {actionMessage}

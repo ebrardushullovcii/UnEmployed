@@ -5,12 +5,14 @@ import { cn } from '@renderer/lib/cn'
 interface ProfileRecordCardProps {
   children: ReactNode
   className?: string
+  id?: string
   defaultOpen?: boolean
+  forceOpenSignal?: string | null
   summary?: string
   title: string
 }
 
-export function ProfileRecordCard({ children, className, defaultOpen = false, summary, title }: ProfileRecordCardProps) {
+export function ProfileRecordCard({ children, className, id, defaultOpen = false, forceOpenSignal = null, summary, title }: ProfileRecordCardProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   const detailSummary = summary?.trim() || 'Review and edit this entry.'
 
@@ -18,8 +20,15 @@ export function ProfileRecordCard({ children, className, defaultOpen = false, su
     setIsOpen(defaultOpen)
   }, [defaultOpen])
 
+  useEffect(() => {
+    if (forceOpenSignal) {
+      setIsOpen(true)
+    }
+  }, [forceOpenSignal])
+
   return (
     <details
+      id={id}
       className={cn(
         'surface-card-tint group rounded-(--radius-panel) border border-(--surface-panel-border) p-4 [&_summary::-webkit-details-marker]:hidden',
         className
