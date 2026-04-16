@@ -893,7 +893,9 @@ export function createWorkspaceDiscoveryMethods(
       }
     }
 
-    activeRun = finalizeDiscoveryRun(activeRun, "completed", new Date().toISOString());
+    if (!aborted) {
+      activeRun = finalizeDiscoveryRun(activeRun, "completed", new Date().toISOString());
+    }
 
     const latestDiscoveryState = await ctx.repository.getDiscoveryState();
     await ctx.repository.replaceSavedJobs(

@@ -31,7 +31,7 @@ export function ProfileIntelligenceSummaries({
             {summary.items.map((item) => (
               <div className="grid gap-0.5" key={`${summary.title}_${item.label}`}>
                 <dt className="font-medium text-foreground">{item.label}</dt>
-                <dd className="wrap-break-word">{item.value}</dd>
+                <dd className="break-words">{item.value}</dd>
               </div>
             ))}
           </dl>

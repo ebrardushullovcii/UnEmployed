@@ -14,6 +14,83 @@ import {
 import { matchesAnyPhrase } from "./matching";
 import { normalizeText, uniqueStrings } from "./shared";
 
+type GreenhouseJobPayload = {
+  id: number | string;
+  title?: string;
+  absolute_url?: string;
+  location?: { name?: string | null } | null;
+  updated_at?: string | null;
+  content?: string | null;
+};
+
+function parseOptionalString(value: unknown): { value: string } | null {
+  return typeof value === "string" ? { value } : null;
+}
+
+function parseNullableString(value: unknown): { value: string | null } | null {
+  if (value == null) {
+    return { value: null };
+  }
+
+  return typeof value === "string" ? { value } : null;
+}
+
+function parseGreenhouseJobsResponse(value: unknown): { jobs: GreenhouseJobPayload[] } {
+  if (!value || typeof value !== "object") {
+    throw new Error("Greenhouse API returned an invalid payload.");
+  }
+
+  const jobsValue = (value as { jobs?: unknown }).jobs;
+  if (jobsValue == null) {
+    return { jobs: [] };
+  }
+  if (!Array.isArray(jobsValue)) {
+    throw new Error("Greenhouse API returned an invalid payload.");
+  }
+
+  const jobs = jobsValue.map((job) => {
+    if (!job || typeof job !== "object") {
+      throw new Error("Greenhouse API returned an invalid payload.");
+    }
+
+    const record = job as Record<string, unknown>;
+    const locationValue = record.location;
+    const parsedLocationName =
+      typeof locationValue === "object" && locationValue !== null
+        ? parseNullableString((locationValue as Record<string, unknown>).name)
+        : null;
+    const payload: GreenhouseJobPayload = {
+      id: typeof record.id === "number" || typeof record.id === "string" ? record.id : "",
+    };
+    const parsedTitle = parseOptionalString(record.title);
+    const parsedAbsoluteUrl = parseOptionalString(record.absolute_url);
+    const parsedUpdatedAt = parseNullableString(record.updated_at);
+    const parsedContent = parseNullableString(record.content);
+
+    if (parsedTitle) {
+      payload.title = parsedTitle.value;
+    }
+    if (parsedAbsoluteUrl) {
+      payload.absolute_url = parsedAbsoluteUrl.value;
+    }
+    if (locationValue == null) {
+      payload.location = null;
+    } else if (typeof locationValue === "object") {
+      payload.location = parsedLocationName ? { name: parsedLocationName.value } : {};
+    }
+    if (parsedUpdatedAt) {
+      payload.updated_at = parsedUpdatedAt.value;
+    }
+    if (parsedContent) {
+      payload.content = parsedContent.value;
+    }
+
+    return payload;
+  });
+
+  return { jobs };
+}
+
 function tryParseUrl(value: string | null | undefined): URL | null {
   if (!value) {
     return null;
@@ -556,16 +633,7 @@ export async function collectPublicProviderJobs(input: {
           throw new Error(`Greenhouse API returned ${response.status}.`);
         }
 
-        const payload = (await response.json()) as {
-          jobs?: Array<{
-            id: number | string;
-            title?: string;
-            absolute_url?: string;
-            location?: { name?: string | null } | null;
-            updated_at?: string | null;
-            content?: string | null;
-          }>;
-        };
+        const payload = parseGreenhouseJobsResponse(await response.json());
 
         return {
           jobs: (payload.jobs ?? []).flatMap((job) => {

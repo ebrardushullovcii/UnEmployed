@@ -170,7 +170,7 @@ function buildBenchmarkAiClient(
   } satisfies JobFinderAiClient;
 }
 
-function buildBenchmarkRepositoryState(input: {
+export function buildBenchmarkRepositoryState(input: {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
 }) {
@@ -653,4 +653,4 @@ export async function runResumeImportBenchmark(input: {
   });
 }
 
-export { buildBenchmarkRepositoryState, buildBenchmarkAiClient };
+export { buildBenchmarkAiClient };

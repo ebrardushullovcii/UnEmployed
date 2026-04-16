@@ -105,6 +105,7 @@ export function DiscoveryFiltersPanel({
   const enabledTargets = searchPreferences.discovery.targets.filter(
     (target) => target.enabled,
   );
+  const runOneSourceHeadingId = `${sectionHeadingPrefix}-run-one-source`;
   const hasRunnableTarget = enabledTargets.length > 0;
   const chromeProfileSession =
     discoverySessions.find(
@@ -245,9 +246,9 @@ export function DiscoveryFiltersPanel({
           )})}
 
           {enabledTargets.length > 0 ? (
-            <section className="min-w-0 border-t border-(--surface-panel-border) px-4 py-4">
+            <section aria-labelledby={runOneSourceHeadingId} className="min-w-0 border-t border-(--surface-panel-border) px-4 py-4">
               <div className="grid min-w-0 gap-3">
-                <h3 className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-badge) text-foreground-muted">
+                <h3 className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-badge) text-foreground-muted" id={runOneSourceHeadingId}>
                   Run one source
                 </h3>
                 <div className="grid gap-2">

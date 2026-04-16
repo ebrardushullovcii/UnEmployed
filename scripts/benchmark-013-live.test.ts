@@ -7,9 +7,16 @@ import dotenv from 'dotenv'
 import { describe, expect, test } from 'vitest'
 import { createJobFinderAiClientFromEnvironment } from '@unemployed/ai-providers'
 import { createBrowserAgentRuntime } from '@unemployed/browser-runtime'
+import {
+  CandidateProfileSchema,
+  JobSearchPreferencesSchema,
+} from '@unemployed/contracts'
 import { createInMemoryJobFinderRepository } from '@unemployed/db'
-import { createJobFinderWorkspaceService, type JobFinderDocumentManager } from '@unemployed/job-finder'
-import { createEmptyJobFinderRepositoryState } from '../apps/desktop/src/main/adapters/job-finder-initial-state'
+import {
+  buildBenchmarkRepositoryState,
+  createJobFinderWorkspaceService,
+  type JobFinderDocumentManager,
+} from '@unemployed/job-finder'
 
 const currentFile = fileURLToPath(import.meta.url)
 const repoRoot = path.resolve(path.dirname(currentFile), '..')
@@ -91,7 +98,10 @@ async function loadFixture() {
 }
 
 function buildSeed(fixture: Awaited<ReturnType<typeof loadFixture>>, target: (typeof benchmarkTargets)[number]) {
-  const emptyState = createEmptyJobFinderRepositoryState()
+  const emptyState = buildBenchmarkRepositoryState({
+    profile: CandidateProfileSchema.parse(fixture.profile),
+    searchPreferences: JobSearchPreferencesSchema.parse(fixture.searchPreferences),
+  })
 
   return {
     ...emptyState,

@@ -130,22 +130,25 @@ export function createWorkspaceApplicationMethods(
       } else {
         const savedJobs = await ctx.repository.listSavedJobs();
         const targetJob = savedJobs.find((job) => job.id === jobId) ?? null;
+
+        if (!targetJob) {
+          throw new Error(`Unable to archive unknown job '${jobId}'.`);
+        }
+
         await ctx.updateJob(jobId, (job) => ({
           ...job,
           status: "archived",
         }));
-        if (targetJob) {
-          await ctx.persistDiscoveryState((current) => ({
-            ...current,
-            discoveryLedger: markSavedJobStatusInLedger({
-              ledger: current.discoveryLedger,
-              job: targetJob,
-              status: "skipped",
-              occurredAt: new Date().toISOString(),
-              skipReason: "Archived intentionally by the user.",
-            }),
-          }));
-        }
+        await ctx.persistDiscoveryState((current) => ({
+          ...current,
+          discoveryLedger: markSavedJobStatusInLedger({
+            ledger: current.discoveryLedger,
+            job: targetJob,
+            status: "skipped",
+            occurredAt: new Date().toISOString(),
+            skipReason: "Archived intentionally by the user.",
+          }),
+        }));
       }
 
       return ctx.getWorkspaceSnapshot();
