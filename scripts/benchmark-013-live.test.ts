@@ -98,14 +98,15 @@ async function loadFixture() {
 }
 
 function buildSeed(fixture: Awaited<ReturnType<typeof loadFixture>>, target: (typeof benchmarkTargets)[number]) {
+  const parsedProfile = CandidateProfileSchema.parse(fixture.profile)
   const emptyState = buildBenchmarkRepositoryState({
-    profile: CandidateProfileSchema.parse(fixture.profile),
+    profile: parsedProfile,
     searchPreferences: JobSearchPreferencesSchema.parse(fixture.searchPreferences),
   })
 
   return {
     ...emptyState,
-    profile: fixture.profile,
+    profile: parsedProfile,
     searchPreferences: {
       ...emptyState.searchPreferences,
       ...fixture.searchPreferences,

@@ -184,11 +184,22 @@ export function recordDiscoveredPostingInLedger(input: {
 export function markSavedJobStatusInLedger(input: {
   ledger: readonly DiscoveryLedgerEntry[];
   job: SavedJob;
+  activeTargetId?: string;
   status: DiscoveryLedgerEntry["latestStatus"];
   occurredAt: string;
   skipReason: string | null;
 }): DiscoveryLedgerEntry[] {
   const existingEntry = findDiscoveryLedgerEntry(input.ledger, input.job);
+  const targetId =
+    input.job.provenance[input.job.provenance.length - 1]?.targetId ??
+    input.job.provenance[0]?.targetId ??
+    existingEntry?.targetId ??
+    input.activeTargetId ??
+    null;
+
+  if (!targetId) {
+    return [...input.ledger];
+  }
 
   return recordDiscoveredPostingInLedger({
     ledger: input.ledger,
@@ -207,11 +218,7 @@ export function markSavedJobStatusInLedger(input: {
         input.job.collectionMethod,
       titleTriageOutcome: input.job.titleTriageOutcome,
     },
-    targetId:
-      input.job.provenance[input.job.provenance.length - 1]?.targetId ??
-      input.job.provenance[0]?.targetId ??
-      existingEntry?.targetId ??
-      "unknown_target",
+    targetId,
     seenAt: input.occurredAt,
     status: input.status,
     skipReason: input.skipReason,

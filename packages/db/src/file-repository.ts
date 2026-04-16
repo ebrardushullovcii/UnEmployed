@@ -176,6 +176,19 @@ export async function createFileJobFinderRepository(
 
       return secureDatabaseFile(options.filePath)
     },
+    replaceSavedJobsAndDiscoveryState({ savedJobs, discoveryState }) {
+      const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]))
+      const normalizedDiscoveryState = JobFinderDiscoveryStateSchema.parse(
+        cloneValue(discoveryState),
+      )
+
+      runImmediateTransaction(database, () => {
+        replaceCollection(database, 'saved_jobs', normalizedJobs)
+        saveSingletonValue(database, 'discovery_state', normalizedDiscoveryState)
+      })
+
+      return secureDatabaseFile(options.filePath)
+    },
     replaceSavedJobsAndClearResumeApproval({
       savedJobs,
       draft,

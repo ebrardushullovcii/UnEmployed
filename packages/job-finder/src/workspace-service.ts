@@ -78,6 +78,15 @@ export function createJobFinderWorkspaceService(
       await repository.saveDiscoveryState(next);
       return next;
     },
+    async persistSavedJobsAndDiscoveryState({
+      savedJobs,
+      discoveryState,
+    }): Promise<void> {
+      await repository.replaceSavedJobsAndDiscoveryState({
+        savedJobs: SavedJobSchema.array().parse(savedJobs),
+        discoveryState: JobFinderDiscoveryStateSchema.parse(discoveryState),
+      });
+    },
     async refreshDiscoverySessions(
       searchPreferences: JobSearchPreferences,
     ): Promise<JobFinderDiscoveryState["sessions"]> {

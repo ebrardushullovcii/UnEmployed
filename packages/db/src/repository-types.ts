@@ -52,6 +52,10 @@ export interface JobFinderRepository {
   }): Promise<void>;
   listSavedJobs(): Promise<readonly SavedJob[]>;
   replaceSavedJobs(savedJobs: readonly SavedJob[]): Promise<void>;
+  replaceSavedJobsAndDiscoveryState(input: {
+    savedJobs: readonly SavedJob[];
+    discoveryState: JobFinderDiscoveryState;
+  }): Promise<void>;
   replaceSavedJobsAndClearResumeApproval(input: {
     savedJobs: readonly SavedJob[];
     draft: ResumeDraft;

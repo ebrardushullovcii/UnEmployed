@@ -567,6 +567,12 @@ function createBenchmarkContext(input: {
       await repository.saveDiscoveryState(next);
       return next;
     },
+    persistSavedJobsAndDiscoveryState: async ({ savedJobs, discoveryState }) => {
+      await repository.replaceSavedJobsAndDiscoveryState({
+        savedJobs,
+        discoveryState,
+      });
+    },
     refreshDiscoverySessions: () => Promise.resolve([]),
     saveDiscoveryTargetUpdate: async () => {
       return repository.getSearchPreferences();

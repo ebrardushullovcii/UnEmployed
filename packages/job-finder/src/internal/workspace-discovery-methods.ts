@@ -62,6 +62,7 @@ import {
   selectDiscoveryCollectionMethod,
   selectDiscoveryMethod,
 } from "./workspace-source-intelligence";
+import { createUniqueId } from "./shared";
 
 function describeCloseoutMode(keptAlive: boolean) {
   return keptAlive
@@ -448,7 +449,7 @@ export function createWorkspaceDiscoveryMethods(
     const touchedPendingJobIds = new Set<string>();
     const openedSessionSources = new Set<JobSource>();
     const sourceInstructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
-    const runId = `discovery_run_${Date.now()}`;
+    const runId = createUniqueId("discovery_run");
     const keepSessionAlive = settings.keepSessionAlive;
     let activeRun = createInitialRunRecord({
       id: runId,
@@ -864,7 +865,6 @@ export function createWorkspaceDiscoveryMethods(
       );
       aborted = interrupted;
     } finally {
-      const browserCloseoutOccurredAt = new Date().toISOString();
       if (!keepSessionAlive) {
         for (const source of openedSessionSources) {
           await ctx.closeRunBrowserSession(source).catch(() => {});
@@ -872,7 +872,8 @@ export function createWorkspaceDiscoveryMethods(
       }
 
       if (openedSessionSources.size > 0) {
-        const representativeSource = [...openedSessionSources][0] ?? "target_site";
+        const representativeSource = [...openedSessionSources].pop() ?? "target_site";
+        const browserCloseoutOccurredAt = new Date().toISOString();
         const session = await ctx.browserRuntime.getSessionState(representativeSource).catch(
           () => null,
         );
@@ -919,10 +920,6 @@ export function createWorkspaceDiscoveryMethods(
 
     if (caughtError && terminalStatus === "failed") {
       throw caughtError;
-    }
-
-    if (aborted) {
-      return ctx.getWorkspaceSnapshot();
     }
 
     return ctx.getWorkspaceSnapshot();

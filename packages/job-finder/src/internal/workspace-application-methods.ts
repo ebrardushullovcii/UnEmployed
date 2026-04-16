@@ -112,7 +112,9 @@ export function createWorkspaceApplicationMethods(
       if (pendingIndex >= 0) {
         const pendingJob = discoveryState.pendingDiscoveryJobs[pendingIndex];
         if (!pendingJob) {
-          return ctx.getWorkspaceSnapshot();
+          throw new Error(
+            `Pending discovery job missing at index ${pendingIndex} while dismissing '${jobId}' (pending count ${discoveryState.pendingDiscoveryJobs.length}).`,
+          );
         }
         await ctx.persistDiscoveryState((current) => ({
           ...current,
@@ -135,20 +137,24 @@ export function createWorkspaceApplicationMethods(
           throw new Error(`Unable to archive unknown job '${jobId}'.`);
         }
 
-        await ctx.updateJob(jobId, (job) => ({
-          ...job,
-          status: "archived",
-        }));
-        await ctx.persistDiscoveryState((current) => ({
-          ...current,
+        const nextSavedJobs = savedJobs.map((job) =>
+          job.id === jobId ? SavedJobSchema.parse({ ...job, status: "archived" }) : job,
+        );
+        const nextDiscoveryState = {
+          ...discoveryState,
           discoveryLedger: markSavedJobStatusInLedger({
-            ledger: current.discoveryLedger,
+            ledger: discoveryState.discoveryLedger,
             job: targetJob,
             status: "skipped",
             occurredAt: new Date().toISOString(),
             skipReason: "Archived intentionally by the user.",
           }),
-        }));
+        };
+
+        await ctx.persistSavedJobsAndDiscoveryState({
+          savedJobs: nextSavedJobs,
+          discoveryState: nextDiscoveryState,
+        });
       }
 
       return ctx.getWorkspaceSnapshot();
@@ -712,6 +718,11 @@ export function createWorkspaceApplicationMethods(
             (target) => target.id === provenanceTargetId,
           ) ?? null)
         : null;
+      const activeLedgerTargetId =
+        provenanceTarget?.id ??
+        (searchPreferences.discovery.targets.length === 1
+          ? (searchPreferences.discovery.targets[0]?.id ?? null)
+          : null);
       const activeInstruction = provenanceTarget
         ? resolveActiveSourceInstructionArtifact(
             provenanceTarget,
@@ -797,24 +808,36 @@ export function createWorkspaceApplicationMethods(
       });
 
       await ctx.repository.upsertApplicationRecord(nextRecord);
-      await ctx.updateJob(jobId, (currentJob) => ({
-        ...currentJob,
-        status: nextJobStatusFromAttempt(currentJob, executionResult.state),
-      }));
+      const nextSavedJobs = savedJobs.map((savedJob) =>
+        savedJob.id === jobId
+          ? SavedJobSchema.parse({
+              ...savedJob,
+              status: nextJobStatusFromAttempt(savedJob, executionResult.state),
+            })
+          : savedJob,
+      );
       if (executionResult.state === "submitted") {
-        await ctx.persistDiscoveryState((current) => ({
-          ...current,
-          discoveryLedger: markSavedJobStatusInLedger({
-            ledger: current.discoveryLedger,
-            job: {
-              ...job,
-              status: "submitted",
-            },
-            status: "applied",
-            occurredAt: executionResult.submittedAt ?? now,
-            skipReason: null,
-          }),
-        }));
+        const discoveryState = await ctx.repository.getDiscoveryState();
+        await ctx.persistSavedJobsAndDiscoveryState({
+          savedJobs: nextSavedJobs,
+          discoveryState: {
+            ...discoveryState,
+            discoveryLedger: markSavedJobStatusInLedger({
+              ledger: discoveryState.discoveryLedger,
+              job: {
+                ...job,
+              },
+              ...(activeLedgerTargetId
+                ? { activeTargetId: activeLedgerTargetId }
+                : {}),
+              status: "applied",
+              occurredAt: executionResult.submittedAt ?? now,
+              skipReason: null,
+            }),
+          },
+        });
+      } else {
+        await ctx.repository.replaceSavedJobs(nextSavedJobs);
       }
 
       return ctx.getWorkspaceSnapshot();

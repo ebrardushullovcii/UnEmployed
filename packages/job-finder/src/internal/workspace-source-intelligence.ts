@@ -621,14 +621,17 @@ export async function collectPublicProviderJobs(input: {
   }
 
   try {
-    if (provider.key === "greenhouse" && provider.boardToken) {
+    if (
+      provider.key === "greenhouse" &&
+      provider.boardToken &&
+      provider.publicApiUrlTemplate
+    ) {
       const timeout = createProviderApiTimeoutSignal();
 
       try {
-        const response = await fetch(
-          `https://boards-api.greenhouse.io/v1/boards/${provider.boardToken}/jobs?content=true`,
-          { signal: timeout.signal },
-        );
+        const response = await fetch(provider.publicApiUrlTemplate, {
+          signal: timeout.signal,
+        });
         if (!response.ok) {
           throw new Error(`Greenhouse API returned ${response.status}.`);
         }
@@ -691,14 +694,17 @@ export async function collectPublicProviderJobs(input: {
       }
     }
 
-    if (provider.key === "lever" && provider.providerIdentifier) {
+    if (
+      provider.key === "lever" &&
+      provider.providerIdentifier &&
+      provider.publicApiUrlTemplate
+    ) {
       const timeout = createProviderApiTimeoutSignal();
 
       try {
-        const response = await fetch(
-          `https://api.lever.co/v0/postings/${provider.providerIdentifier}?mode=json`,
-          { signal: timeout.signal },
-        );
+        const response = await fetch(provider.publicApiUrlTemplate, {
+          signal: timeout.signal,
+        });
         if (!response.ok) {
           throw new Error(`Lever API returned ${response.status}.`);
         }

@@ -44,6 +44,10 @@ export interface WorkspaceServiceContext {
   persistDiscoveryState: (
     updater: (current: JobFinderDiscoveryState) => JobFinderDiscoveryState,
   ) => Promise<JobFinderDiscoveryState>;
+  persistSavedJobsAndDiscoveryState: (input: {
+    savedJobs: readonly SavedJob[];
+    discoveryState: JobFinderDiscoveryState;
+  }) => Promise<void>;
   refreshDiscoverySessions: (
     searchPreferences: JobSearchPreferences,
   ) => Promise<JobFinderDiscoveryState["sessions"]>;
