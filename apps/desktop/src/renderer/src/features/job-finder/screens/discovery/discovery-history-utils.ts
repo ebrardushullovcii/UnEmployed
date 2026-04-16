@@ -90,8 +90,6 @@ export function buildLiveRunRecord(
   const runId = firstEvent.runId
   const runEvents = liveEvents.filter((event) => event.runId === runId)
   const enabledTargets = targets.filter((target) => target.enabled)
-  const targetIds = enabledTargets.map((target) => target.id)
-  const knownTargetIds = new Set(targetIds)
   const executions = new Map(enabledTargets.map((target) => [target.id, createPlannedExecution(target)]))
 
   for (const event of runEvents) {
@@ -104,10 +102,6 @@ export function buildLiveRunRecord(
     if (!currentExecution) {
       currentExecution = createSyntheticExecution(event)
       executions.set(event.targetId, currentExecution)
-      if (!knownTargetIds.has(event.targetId)) {
-        knownTargetIds.add(event.targetId)
-        targetIds.push(event.targetId)
-      }
     }
 
     const nextExecution: DiscoveryTargetExecution = {
@@ -142,21 +136,23 @@ export function buildLiveRunRecord(
     executions.set(event.targetId, nextExecution)
   }
 
-  const actualTargetIds = Array.from(executions.keys())
-  const targetExecutions = actualTargetIds.map((targetId) => executions.get(targetId)).filter((execution): execution is DiscoveryTargetExecution => Boolean(execution))
+  const observedTargetIds = runEvents
+    .flatMap((event) => (event.targetId ? [event.targetId] : []))
+    .filter((targetId, index, values) => values.indexOf(targetId) === index)
+  const targetExecutions = observedTargetIds.map((targetId) => executions.get(targetId)).filter((execution): execution is DiscoveryTargetExecution => Boolean(execution))
   const targetsCompleted = targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
 
   return {
     id: runId,
     state: 'running',
-    scope: actualTargetIds.length === 1 ? 'single_target' : 'run_all',
+    scope: observedTargetIds.length === 1 ? 'single_target' : 'run_all',
     startedAt: firstEvent.timestamp,
     completedAt: null,
-    targetIds: actualTargetIds,
+    targetIds: observedTargetIds,
     targetExecutions,
     activity: runEvents,
     summary: {
-      targetsPlanned: actualTargetIds.length,
+      targetsPlanned: observedTargetIds.length,
       targetsCompleted,
       validJobsFound: targetExecutions.reduce((total, execution) => total + execution.jobsFound, 0),
       jobsPersisted: targetExecutions.reduce((total, execution) => total + execution.jobsPersisted, 0),

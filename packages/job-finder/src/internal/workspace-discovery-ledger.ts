@@ -109,26 +109,19 @@ function upsertLedgerEntry(
   ledger: readonly DiscoveryLedgerEntry[],
   nextEntry: DiscoveryLedgerEntry,
 ): DiscoveryLedgerEntry[] {
-  let replaced = false;
-  const nextLedger = ledger.map((entry) => {
-    if (
-        !matchesLedgerEntry(entry, {
-          canonicalUrl: nextEntry.canonicalUrl,
-          source: nextEntry.source,
-          sourceJobId: nextEntry.sourceJobId,
-          providerKey: nextEntry.providerKey,
-          providerBoardToken: nextEntry.providerBoardToken,
-          providerIdentifier: nextEntry.providerIdentifier,
-      })
-    ) {
-      return entry;
-    }
+  const nextLedger = ledger.filter(
+    (entry) =>
+      !matchesLedgerEntry(entry, {
+        canonicalUrl: nextEntry.canonicalUrl,
+        source: nextEntry.source,
+        sourceJobId: nextEntry.sourceJobId,
+        providerKey: nextEntry.providerKey,
+        providerBoardToken: nextEntry.providerBoardToken,
+        providerIdentifier: nextEntry.providerIdentifier,
+      }),
+  );
 
-    replaced = true;
-    return nextEntry;
-  });
-
-  return replaced ? nextLedger : [...nextLedger, nextEntry];
+  return [...nextLedger, nextEntry];
 }
 
 export function recordDiscoveredPostingInLedger(input: {

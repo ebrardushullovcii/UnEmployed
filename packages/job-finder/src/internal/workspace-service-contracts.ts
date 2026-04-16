@@ -141,14 +141,22 @@ export interface JobFinderWorkspaceService {
   approveApply(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
 }
 
-export interface DiscoveryTargetPipelineOptions {
-  targetId?: string;
+type DiscoveryTargetPipelineSharedOptions = {
   onActivity?: (event: DiscoveryActivityEvent) => void;
   signal?: AbortSignal;
-  scope: DiscoveryRunScope;
   allowInactiveMarking?: boolean;
   useAgentRuntime?: boolean;
-}
+};
+
+export type DiscoveryTargetPipelineOptions =
+  | (DiscoveryTargetPipelineSharedOptions & {
+      scope: "single_target";
+      targetId: string;
+    })
+  | (DiscoveryTargetPipelineSharedOptions & {
+      scope: Exclude<DiscoveryRunScope, "single_target">;
+      targetId?: never;
+    });
 
 export interface RenderedResumeArtifact {
   fileName: string | null;

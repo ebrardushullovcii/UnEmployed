@@ -140,15 +140,15 @@ function updateRunSummary(
 
 function selectTargets(
   searchPreferences: JobSearchPreferences,
-  targetId?: string,
+  options: DiscoveryTargetPipelineOptions,
 ): JobDiscoveryTarget[] {
   const activeTargets = getActiveDiscoveryTargets(searchPreferences);
 
-  if (!targetId) {
+  if (options.scope !== "single_target") {
     return activeTargets;
   }
 
-  return activeTargets.filter((target) => target.id === targetId);
+  return activeTargets.filter((target) => target.id === options.targetId);
 }
 
 function createPostingWithTriage(
@@ -421,6 +421,8 @@ export function createWorkspaceDiscoveryMethods(
     options: DiscoveryTargetPipelineOptions,
   ) {
     let aborted = false;
+    let terminalStatus: "cancelled" | "failed" | "completed" = "completed";
+    let caughtError: unknown = null;
     const [profile, searchPreferences, settings, startingSavedJobs, startingDiscovery] =
       await Promise.all([
         ctx.repository.getProfile(),
@@ -433,7 +435,7 @@ export function createWorkspaceDiscoveryMethods(
       searchPreferences,
       profile,
     );
-    const targets = selectTargets(enrichedPreferences, options.targetId);
+    const targets = selectTargets(enrichedPreferences, options);
 
     if (targets.length === 0) {
       return ctx.getWorkspaceSnapshot();
@@ -606,6 +608,8 @@ export function createWorkspaceDiscoveryMethods(
         const triagedPostings: JobPosting[] = [];
         let skippedByTitleTriage = 0;
         let skippedByLedger = 0;
+        const collectionSucceeded =
+          collected.result.warning == null || collected.result.jobs.length > 0;
 
         for (const rawPosting of collected.result.jobs) {
           const posting = JobPostingSchema.parse(rawPosting);
@@ -622,7 +626,7 @@ export function createWorkspaceDiscoveryMethods(
               posting: triagedPosting,
               targetId: target.id,
               seenAt: triagedPosting.discoveredAt,
-              status: "skipped",
+              status: "seen",
               skipReason: triageReason,
             });
             continue;
@@ -746,7 +750,9 @@ export function createWorkspaceDiscoveryMethods(
           targetId: target.id,
           seenCanonicalUrls: targetSeenUrls,
           occurredAt: new Date().toISOString(),
-          allowInactiveMarking: options.allowInactiveMarking ?? options.scope === "run_all",
+          allowInactiveMarking:
+            (options.allowInactiveMarking ?? options.scope === "run_all") &&
+            collectionSucceeded,
         });
 
         emitActivity(
@@ -843,30 +849,20 @@ export function createWorkspaceDiscoveryMethods(
       }
     } catch (error) {
       const interrupted = error instanceof DOMException && error.name === "AbortError";
+      terminalStatus = interrupted ? "cancelled" : "failed";
+      caughtError = error;
       const completedAt = new Date().toISOString();
       activeRun = finalizeRunningTargetExecutions(
         activeRun,
-        interrupted ? "cancelled" : "failed",
+        terminalStatus,
         completedAt,
       );
       activeRun = finalizeDiscoveryRun(
         activeRun,
-        interrupted ? "cancelled" : "failed",
+        terminalStatus,
         completedAt,
       );
-
-      const latestDiscoveryState = await ctx.repository.getDiscoveryState();
-      await ctx.repository.replaceSavedJobs(
-        overlayTouchedSavedJobs(
-          await ctx.repository.listSavedJobs(),
-          workingSavedJobs,
-          touchedSavedJobIds,
-        ),
-      );
-      if (!interrupted) {
-        throw error;
-      }
-      aborted = true;
+      aborted = interrupted;
     } finally {
       const browserCloseoutOccurredAt = new Date().toISOString();
       if (!keepSessionAlive) {
@@ -893,8 +889,8 @@ export function createWorkspaceDiscoveryMethods(
       }
     }
 
-    if (!aborted) {
-      activeRun = finalizeDiscoveryRun(activeRun, "completed", new Date().toISOString());
+    if (terminalStatus === "completed") {
+      activeRun = finalizeDiscoveryRun(activeRun, terminalStatus, new Date().toISOString());
     }
 
     const latestDiscoveryState = await ctx.repository.getDiscoveryState();
@@ -921,6 +917,10 @@ export function createWorkspaceDiscoveryMethods(
       ),
     );
 
+    if (caughtError && terminalStatus === "failed") {
+      throw caughtError;
+    }
+
     if (aborted) {
       return ctx.getWorkspaceSnapshot();
     }
@@ -930,20 +930,38 @@ export function createWorkspaceDiscoveryMethods(
 
   return {
     async runDiscovery(targetId) {
+      if (targetId) {
+        return executeDiscoveryPipeline({
+          scope: "single_target",
+          targetId,
+          allowInactiveMarking: false,
+          useAgentRuntime: false,
+        });
+      }
+
       return executeDiscoveryPipeline({
-        scope: targetId ? "single_target" : "run_all",
-        ...(targetId ? { targetId } : {}),
-        allowInactiveMarking: !targetId,
+        scope: "run_all",
+        allowInactiveMarking: true,
         useAgentRuntime: false,
       });
     },
     async runAgentDiscovery(onActivity, signal, targetId) {
+      if (targetId) {
+        return executeDiscoveryPipeline({
+          scope: "single_target",
+          targetId,
+          ...(onActivity ? { onActivity } : {}),
+          ...(signal ? { signal } : {}),
+          allowInactiveMarking: false,
+          useAgentRuntime: true,
+        });
+      }
+
       return executeDiscoveryPipeline({
-        scope: targetId ? "single_target" : "run_all",
-        ...(targetId ? { targetId } : {}),
+        scope: "run_all",
         ...(onActivity ? { onActivity } : {}),
         ...(signal ? { signal } : {}),
-        allowInactiveMarking: !targetId,
+        allowInactiveMarking: true,
         useAgentRuntime: true,
       });
     },

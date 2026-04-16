@@ -2,10 +2,8 @@ import type {
   EditableSourceInstructionArtifact,
   SourceInstructionArtifact
 } from '@unemployed/contracts'
-import {
-  type LearnedInstructionIntelligenceSummary
-} from '../../lib/source-intelligence-utils'
 export { buildLearnedInstructionIntelligenceSummaries } from '../../lib/source-intelligence-utils'
+export type { LearnedInstructionIntelligenceSummary } from '../../lib/source-intelligence-utils'
 
 export type LearnedInstructionField =
   | 'navigationGuidance'

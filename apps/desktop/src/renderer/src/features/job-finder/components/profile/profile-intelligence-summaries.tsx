@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import type { LearnedInstructionIntelligenceSummary } from '../../lib/source-intelligence-utils'
 
 interface ProfileIntelligenceSummariesProps {
@@ -25,18 +25,42 @@ export function ProfileIntelligenceSummaries({
   return (
     <div className={className}>
       {intelligenceSummaries.map((summary) => (
-        <section className={sectionClassName} key={summary.title}>
-          <p className={titleClassName}>{summary.title}</p>
-          <dl className={listClassName}>
-            {summary.items.map((item) => (
-              <div className="grid gap-0.5" key={`${summary.title}_${item.label}`}>
-                <dt className="font-medium text-foreground">{item.label}</dt>
-                <dd className="break-words">{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
+        <ProfileIntelligenceSummarySection
+          key={summary.title}
+          listClassName={listClassName}
+          sectionClassName={sectionClassName}
+          summary={summary}
+          titleClassName={titleClassName}
+        />
       ))}
     </div>
+  )
+}
+
+function ProfileIntelligenceSummarySection({
+  listClassName,
+  sectionClassName,
+  summary,
+  titleClassName,
+}: {
+  listClassName: string
+  sectionClassName: string
+  summary: LearnedInstructionIntelligenceSummary
+  titleClassName: string
+}) {
+  const headingId = useId()
+
+  return (
+    <section aria-labelledby={headingId} className={sectionClassName}>
+      <h3 className={titleClassName} id={headingId}>{summary.title}</h3>
+      <dl className={listClassName}>
+        {summary.items.map((item) => (
+          <div className="grid gap-0.5" key={`${summary.title}_${item.label}`}>
+            <dt className="font-medium text-foreground">{item.label}</dt>
+            <dd className="break-words">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   )
 }

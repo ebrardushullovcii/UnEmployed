@@ -140,7 +140,7 @@ function parseGreenhouseToken(url: URL): string | null {
     return parts[0] ?? null;
   }
   if (url.hostname.startsWith("job-boards.greenhouse.io")) {
-    return parts[1] ?? parts[0] ?? null;
+    return parts[0] ?? null;
   }
   return null;
 }
