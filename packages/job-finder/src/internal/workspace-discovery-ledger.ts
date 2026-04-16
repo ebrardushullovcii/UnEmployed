@@ -25,8 +25,6 @@ function buildLedgerKeys(input: {
   providerKey: string | null;
   providerBoardToken: string | null;
   providerIdentifier: string | null;
-  title: string;
-  company: string | null;
 }) {
   return {
     canonicalUrl: normalizeLedgerUrl(input.canonicalUrl),
@@ -59,8 +57,6 @@ function matchesLedgerEntry(
     providerKey: string | null;
     providerBoardToken: string | null;
     providerIdentifier: string | null;
-    title: string;
-    company: string | null;
   },
 ): boolean {
   const left = buildLedgerKeys({
@@ -70,8 +66,6 @@ function matchesLedgerEntry(
     providerKey: entry.providerKey,
     providerBoardToken: entry.providerBoardToken,
     providerIdentifier: entry.providerIdentifier,
-    title: entry.title,
-    company: entry.company,
   });
   const right = buildLedgerKeys(input);
 
@@ -106,8 +100,6 @@ export function findDiscoveryLedgerEntry(
           providerKey: posting.providerKey,
           providerBoardToken: posting.providerBoardToken,
           providerIdentifier: posting.providerIdentifier,
-        title: posting.title,
-        company: posting.company,
       }),
     ) ?? null
   );
@@ -127,8 +119,6 @@ function upsertLedgerEntry(
           providerKey: nextEntry.providerKey,
           providerBoardToken: nextEntry.providerBoardToken,
           providerIdentifier: nextEntry.providerIdentifier,
-        title: nextEntry.title,
-        company: nextEntry.company,
       })
     ) {
       return entry;
