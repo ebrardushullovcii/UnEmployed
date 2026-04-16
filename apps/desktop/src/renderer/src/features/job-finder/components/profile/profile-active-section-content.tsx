@@ -53,7 +53,7 @@ export function ProfileActiveSectionContent({
       <ProfilePreferencesTab
         busy={busy}
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-        onRunDiscoveryForTarget={onRunDiscoveryForTarget}
+        {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
         onRunSourceDebug={onRunSourceDebug}
         onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
         onVerifySourceInstructions={onVerifySourceInstructions}

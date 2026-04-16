@@ -146,6 +146,7 @@ export interface DiscoveryTargetPipelineOptions {
   onActivity?: (event: DiscoveryActivityEvent) => void;
   signal?: AbortSignal;
   scope: DiscoveryRunScope;
+  allowInactiveMarking?: boolean;
 }
 
 export interface RenderedResumeArtifact {

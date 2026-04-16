@@ -217,7 +217,7 @@ export function ProfileScreen(props: {
                   busy={busy}
                   experienceArray={experienceArray}
                   onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-                  onRunDiscoveryForTarget={onRunDiscoveryForTarget}
+                  {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
                   onRunSourceDebug={onRunSourceDebug}
                   onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
                   onVerifySourceInstructions={onVerifySourceInstructions}

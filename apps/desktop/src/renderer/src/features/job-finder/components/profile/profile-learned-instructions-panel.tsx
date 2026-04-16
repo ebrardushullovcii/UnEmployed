@@ -1,8 +1,8 @@
 import { useId } from 'react'
 import { Button } from '@renderer/components/ui/button'
+import type { LearnedInstructionIntelligenceSummary } from '../../lib/source-intelligence-utils'
 import { ProfileTextarea } from './profile-form-primitives'
 import {
-  type LearnedInstructionIntelligenceSummary,
   type LearnedInstructionSection,
   normalizeEditableInstructionInput
 } from './profile-source-debug-instruction-utils'

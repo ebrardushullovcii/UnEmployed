@@ -28,6 +28,23 @@ function createGreenhouseTarget(): JobDiscoveryTarget {
   };
 }
 
+function createLeverTarget(): JobDiscoveryTarget {
+  return {
+    id: "lever_aircall",
+    label: "Aircall Lever",
+    startingUrl: "https://jobs.lever.co/aircall",
+    enabled: true,
+    adapterKind: "auto",
+    customInstructions: null,
+    instructionStatus: "missing",
+    validatedInstructionId: null,
+    draftInstructionId: null,
+    lastDebugRunId: null,
+    lastVerifiedAt: null,
+    staleReason: null,
+  };
+}
+
 async function collectGreenhouseJobs(updatedAt: string | null) {
   const target = createGreenhouseTarget();
   const intelligence = inferSourceIntelligenceFromTarget({
@@ -74,5 +91,49 @@ describe("collectPublicProviderJobs", () => {
     expect(result.warning).toBeNull();
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0]?.postedAt).toBeNull();
+  });
+
+  test("returns a clear timeout warning when the Greenhouse API hangs", async () => {
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(new AbortController().signal);
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("Timed out", "AbortError"));
+
+    const target = createGreenhouseTarget();
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target,
+      currentArtifact: null,
+    });
+
+    const result = await collectPublicProviderJobs({
+      target,
+      artifact: { intelligence },
+      source: "target_site",
+    });
+
+    expect(result.jobs).toEqual([]);
+    expect(result.warning).toBe(
+      "Public provider API collection failed: Greenhouse API request timed out.",
+    );
+  });
+
+  test("returns a clear timeout warning when the Lever API hangs", async () => {
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(new AbortController().signal);
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("Timed out", "AbortError"));
+
+    const target = createLeverTarget();
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target,
+      currentArtifact: null,
+    });
+
+    const result = await collectPublicProviderJobs({
+      target,
+      artifact: { intelligence },
+      source: "target_site",
+    });
+
+    expect(result.jobs).toEqual([]);
+    expect(result.warning).toBe(
+      "Public provider API collection failed: Lever API request timed out.",
+    );
   });
 });

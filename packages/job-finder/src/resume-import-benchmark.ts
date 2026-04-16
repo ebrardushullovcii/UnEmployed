@@ -220,6 +220,7 @@ function buildBenchmarkRepositoryState(input: {
       recentRuns: [],
       activeSourceDebugRun: null,
       recentSourceDebugRuns: [],
+      discoveryLedger: [],
       pendingDiscoveryJobs: [],
     },
   };

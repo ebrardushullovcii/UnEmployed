@@ -174,7 +174,7 @@ export function ProfilePreferencesTargetingSection(props: {
                 instructionArtifact={instructionArtifact}
                 key={target.id}
                 onGetSourceDebugRunDetails={props.onGetSourceDebugRunDetails}
-                onRunDiscoveryForTarget={props.onRunDiscoveryForTarget}
+                {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
                 onRunSourceDebug={props.onRunSourceDebug}
                 onSaveSourceInstructionArtifact={props.onSaveSourceInstructionArtifact}
                 onVerifySourceInstructions={props.onVerifySourceInstructions}

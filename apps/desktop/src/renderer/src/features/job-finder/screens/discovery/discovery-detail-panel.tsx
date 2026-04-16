@@ -3,9 +3,7 @@ import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
-import {
-  buildIntelligenceSummaries,
-} from '../../components/profile/profile-source-debug-instruction-utils'
+import { buildIntelligenceSummaries } from '../../lib/source-intelligence-utils'
 import { formatOptionalDateOnly, formatStatusLabel, getApplicationTone } from '../../lib/job-finder-utils'
 import { formatNormalizedCompensation } from '../../lib/normalized-compensation'
 

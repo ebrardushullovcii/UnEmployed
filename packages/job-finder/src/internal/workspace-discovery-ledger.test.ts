@@ -106,4 +106,17 @@ describe("workspace-discovery-ledger", () => {
     expect(ledger[0]?.latestStatus).toBe("enriched");
     expect(ledger[0]?.inactiveAt).toBeNull();
   });
+
+  test("marks unseen entries inactive when inactive marking is enabled", () => {
+    const ledger = applyInactiveLedgerMarks({
+      ledger: [createLedgerEntry({ latestStatus: "enriched", lastEnrichedAt: "2026-03-20T09:10:00.000Z" })],
+      targetId: "target_one",
+      seenCanonicalUrls: [],
+      occurredAt: "2026-03-20T10:00:00.000Z",
+      allowInactiveMarking: true,
+    });
+
+    expect(ledger[0]?.latestStatus).toBe("inactive");
+    expect(ledger[0]?.inactiveAt).toBe("2026-03-20T10:00:00.000Z");
+  });
 });

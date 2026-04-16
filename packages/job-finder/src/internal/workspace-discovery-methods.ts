@@ -197,6 +197,9 @@ function toProviderAwarePosting(input: {
 async function collectTargetJobs(input: {
   ctx: WorkspaceServiceContext;
   target: JobDiscoveryTarget;
+  sourceInstructionArtifacts: Awaited<
+    ReturnType<WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]>
+  >;
   profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
   searchPreferences: JobSearchPreferences;
   targetJobCount: number;
@@ -215,7 +218,7 @@ async function collectTargetJobs(input: {
   const adapterKind = resolveAdapterKind(target);
   const activeInstruction = resolveActiveSourceInstructionArtifact(
     target,
-    await ctx.repository.listSourceInstructionArtifacts(),
+    input.sourceInstructionArtifacts,
   );
   const intelligence = inferSourceIntelligenceFromTarget({
     target,
@@ -438,6 +441,7 @@ export function createWorkspaceDiscoveryMethods(
     const touchedSavedJobIds = new Set<string>();
     const touchedPendingJobIds = new Set<string>();
     const openedSessionSources = new Set<JobSource>();
+    const sourceInstructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
     const runId = `discovery_run_${Date.now()}`;
     const keepSessionAlive = settings.keepSessionAlive;
     let activeRun = createInitialRunRecord({
@@ -554,13 +558,14 @@ export function createWorkspaceDiscoveryMethods(
         const collected = await collectTargetJobs({
           ctx,
           target,
+          sourceInstructionArtifacts,
           profile,
           searchPreferences,
           targetJobCount: discoveryBudget.targetJobCount,
           maxSteps: discoveryBudget.maxSteps,
           activeRun,
           emitActivity,
-          signal: options.signal,
+          ...(options.signal ? { signal: options.signal } : {}),
           openedSessionSources,
         });
 
@@ -736,7 +741,7 @@ export function createWorkspaceDiscoveryMethods(
           targetId: target.id,
           seenCanonicalUrls: targetSeenUrls,
           occurredAt: new Date().toISOString(),
-          allowInactiveMarking: false,
+          allowInactiveMarking: options.allowInactiveMarking ?? options.scope === "run_all",
         });
 
         emitActivity(
@@ -933,23 +938,26 @@ export function createWorkspaceDiscoveryMethods(
     async runDiscovery(targetId) {
       return executeDiscoveryPipeline({
         scope: targetId ? "single_target" : "run_all",
-        targetId,
+        ...(targetId ? { targetId } : {}),
+        allowInactiveMarking: !targetId,
       });
     },
     async runAgentDiscovery(onActivity, signal, targetId) {
       return executeDiscoveryPipeline({
         scope: targetId ? "single_target" : "run_all",
-        targetId,
-        onActivity,
-        signal,
+        ...(targetId ? { targetId } : {}),
+        ...(onActivity ? { onActivity } : {}),
+        ...(signal ? { signal } : {}),
+        allowInactiveMarking: !targetId,
       });
     },
     async runDiscoveryForTarget(targetId, onActivity, signal) {
       return executeDiscoveryPipeline({
         scope: "single_target",
         targetId,
-        onActivity,
-        signal,
+        ...(onActivity ? { onActivity } : {}),
+        ...(signal ? { signal } : {}),
+        allowInactiveMarking: false,
       });
     },
   };

@@ -201,7 +201,7 @@ function uniqueRoutes(
 }
 
 function inferPreferredCollectionMethod(
-  provider: ReturnType<typeof detectProvider>,
+  provider: SourceIntelligenceArtifact["provider"],
   routes: readonly { kind: string }[],
   existing: SourceInstructionArtifact | null,
 ): JobDiscoveryCollectionMethod {
@@ -507,6 +507,27 @@ function inferWorkModes(location: string | null | undefined): JobPosting["workMo
   return ["onsite"];
 }
 
+const PROVIDER_API_TIMEOUT_MS = 10_000;
+
+function createProviderApiTimeoutSignal() {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return { signal: AbortSignal.timeout(PROVIDER_API_TIMEOUT_MS) };
+  }
+
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), PROVIDER_API_TIMEOUT_MS);
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timeoutHandle),
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : error instanceof Error && error.name === "AbortError";
+}
+
 export async function collectPublicProviderJobs(input: {
   target: JobDiscoveryTarget;
   artifact: Pick<SourceInstructionArtifact, "intelligence">;
@@ -522,151 +543,165 @@ export async function collectPublicProviderJobs(input: {
 
   try {
     if (provider.key === "greenhouse" && provider.boardToken) {
-      const response = await fetch(
-        `https://boards-api.greenhouse.io/v1/boards/${provider.boardToken}/jobs?content=true`,
-      );
-      if (!response.ok) {
-        throw new Error(`Greenhouse API returned ${response.status}.`);
+      const timeout = createProviderApiTimeoutSignal();
+
+      try {
+        const response = await fetch(
+          `https://boards-api.greenhouse.io/v1/boards/${provider.boardToken}/jobs?content=true`,
+          { signal: timeout.signal },
+        );
+        if (!response.ok) {
+          throw new Error(`Greenhouse API returned ${response.status}.`);
+        }
+
+        const payload = (await response.json()) as {
+          jobs?: Array<{
+            id: number | string;
+            title?: string;
+            absolute_url?: string;
+            location?: { name?: string | null } | null;
+            updated_at?: string | null;
+            content?: string | null;
+          }>;
+        };
+
+        return {
+          jobs: (payload.jobs ?? []).flatMap((job) => {
+            if (!job.id || !job.title || !job.absolute_url) {
+              return [];
+            }
+
+            const description = htmlToText(job.content);
+            return [
+              JobPostingSchema.parse({
+                source: input.source,
+                sourceJobId: String(job.id),
+                discoveryMethod: "public_api",
+                collectionMethod: "api",
+                canonicalUrl: job.absolute_url,
+                applicationUrl: job.absolute_url,
+                title: job.title,
+                company: input.target.label,
+                location: job.location?.name?.trim() || "Unknown",
+                workMode: inferWorkModes(job.location?.name),
+                applyPath: "external_redirect",
+                easyApplyEligible: false,
+                postedAt: normalizeProviderDateTime(job.updated_at),
+                postedAtText: null,
+                discoveredAt: new Date().toISOString(),
+                salaryText: null,
+                summary: description.slice(0, 280) || null,
+                description: description || job.title,
+                keySkills: [],
+                responsibilities: [],
+                minimumQualifications: [],
+                preferredQualifications: [],
+                seniority: null,
+                employmentType: null,
+                department: null,
+                team: null,
+                employerWebsiteUrl: null,
+                employerDomain: tryParseUrl(job.absolute_url)?.hostname ?? null,
+                atsProvider: provider.label,
+                providerKey: provider.key,
+                providerBoardToken: provider.boardToken,
+                providerIdentifier: provider.providerIdentifier,
+                titleTriageOutcome: "pass",
+                sourceIntelligence: input.artifact.intelligence,
+                screeningHints: {},
+                keywordSignals: [],
+                benefits: [],
+              }),
+            ];
+          }),
+          warning: null,
+        };
+      } finally {
+        timeout.cleanup?.();
       }
-
-      const payload = (await response.json()) as {
-        jobs?: Array<{
-          id: number | string;
-          title?: string;
-          absolute_url?: string;
-          location?: { name?: string | null } | null;
-          updated_at?: string | null;
-          content?: string | null;
-        }>;
-      };
-
-      return {
-        jobs: (payload.jobs ?? []).flatMap((job) => {
-          if (!job.id || !job.title || !job.absolute_url) {
-            return [];
-          }
-
-          const description = htmlToText(job.content);
-          return [
-            JobPostingSchema.parse({
-              source: input.source,
-              sourceJobId: String(job.id),
-              discoveryMethod: "public_api",
-              collectionMethod: "api",
-              canonicalUrl: job.absolute_url,
-              applicationUrl: job.absolute_url,
-              title: job.title,
-              company: input.target.label,
-              location: job.location?.name?.trim() || "Unknown",
-              workMode: inferWorkModes(job.location?.name),
-              applyPath: "external_redirect",
-              easyApplyEligible: false,
-              postedAt: normalizeProviderDateTime(job.updated_at),
-              postedAtText: null,
-              discoveredAt: new Date().toISOString(),
-              salaryText: null,
-              summary: description.slice(0, 280) || null,
-              description: description || job.title,
-              keySkills: [],
-              responsibilities: [],
-              minimumQualifications: [],
-              preferredQualifications: [],
-              seniority: null,
-              employmentType: null,
-              department: null,
-              team: null,
-              employerWebsiteUrl: null,
-              employerDomain: tryParseUrl(job.absolute_url)?.hostname ?? null,
-              atsProvider: provider.label,
-              providerKey: provider.key,
-              providerBoardToken: provider.boardToken,
-              providerIdentifier: provider.providerIdentifier,
-              titleTriageOutcome: "pass",
-              sourceIntelligence: input.artifact.intelligence,
-              screeningHints: {},
-              keywordSignals: [],
-              benefits: [],
-            }),
-          ];
-        }),
-        warning: null,
-      };
     }
 
     if (provider.key === "lever" && provider.providerIdentifier) {
-      const response = await fetch(
-        `https://api.lever.co/v0/postings/${provider.providerIdentifier}?mode=json`,
-      );
-      if (!response.ok) {
-        throw new Error(`Lever API returned ${response.status}.`);
+      const timeout = createProviderApiTimeoutSignal();
+
+      try {
+        const response = await fetch(
+          `https://api.lever.co/v0/postings/${provider.providerIdentifier}?mode=json`,
+          { signal: timeout.signal },
+        );
+        if (!response.ok) {
+          throw new Error(`Lever API returned ${response.status}.`);
+        }
+
+        const payload = (await response.json()) as Array<{
+          id?: string;
+          text?: string;
+          hostedUrl?: string;
+          applyUrl?: string | null;
+          descriptionPlain?: string | null;
+          description?: string | null;
+          categories?: {
+            location?: string | null;
+            team?: string | null;
+            department?: string | null;
+            commitment?: string | null;
+          } | null;
+        }>;
+
+        return {
+          jobs: payload.flatMap((job) => {
+            if (!job.id || !job.text || !job.hostedUrl) {
+              return [];
+            }
+
+            const description = htmlToText(job.descriptionPlain ?? job.description);
+            return [
+              JobPostingSchema.parse({
+                source: input.source,
+                sourceJobId: job.id,
+                discoveryMethod: "public_api",
+                collectionMethod: "api",
+                canonicalUrl: job.hostedUrl,
+                applicationUrl: job.applyUrl ?? job.hostedUrl,
+                title: job.text,
+                company: input.target.label,
+                location: job.categories?.location?.trim() || "Unknown",
+                workMode: inferWorkModes(job.categories?.location),
+                applyPath: "external_redirect",
+                easyApplyEligible: false,
+                postedAt: null,
+                postedAtText: null,
+                discoveredAt: new Date().toISOString(),
+                salaryText: null,
+                summary: description.slice(0, 280) || null,
+                description: description || job.text,
+                keySkills: [],
+                responsibilities: [],
+                minimumQualifications: [],
+                preferredQualifications: [],
+                seniority: null,
+                employmentType: job.categories?.commitment ?? null,
+                department: job.categories?.department ?? null,
+                team: job.categories?.team ?? null,
+                employerWebsiteUrl: null,
+                employerDomain: tryParseUrl(job.hostedUrl)?.hostname ?? null,
+                atsProvider: provider.label,
+                providerKey: provider.key,
+                providerBoardToken: provider.boardToken,
+                providerIdentifier: provider.providerIdentifier,
+                titleTriageOutcome: "pass",
+                sourceIntelligence: input.artifact.intelligence,
+                screeningHints: {},
+                keywordSignals: [],
+                benefits: [],
+              }),
+            ];
+          }),
+          warning: null,
+        };
+      } finally {
+        timeout.cleanup?.();
       }
-
-      const payload = (await response.json()) as Array<{
-        id?: string;
-        text?: string;
-        hostedUrl?: string;
-        applyUrl?: string | null;
-        descriptionPlain?: string | null;
-        description?: string | null;
-        categories?: {
-          location?: string | null;
-          team?: string | null;
-          department?: string | null;
-          commitment?: string | null;
-        } | null;
-      }>;
-
-      return {
-        jobs: payload.flatMap((job) => {
-          if (!job.id || !job.text || !job.hostedUrl) {
-            return [];
-          }
-
-          const description = htmlToText(job.descriptionPlain ?? job.description);
-          return [
-            JobPostingSchema.parse({
-              source: input.source,
-              sourceJobId: job.id,
-              discoveryMethod: "public_api",
-              collectionMethod: "api",
-              canonicalUrl: job.hostedUrl,
-              applicationUrl: job.applyUrl ?? job.hostedUrl,
-              title: job.text,
-              company: input.target.label,
-              location: job.categories?.location?.trim() || "Unknown",
-              workMode: inferWorkModes(job.categories?.location),
-              applyPath: "external_redirect",
-              easyApplyEligible: false,
-              postedAt: null,
-              postedAtText: null,
-              discoveredAt: new Date().toISOString(),
-              salaryText: null,
-              summary: description.slice(0, 280) || null,
-              description: description || job.text,
-              keySkills: [],
-              responsibilities: [],
-              minimumQualifications: [],
-              preferredQualifications: [],
-              seniority: null,
-              employmentType: job.categories?.commitment ?? null,
-              department: job.categories?.department ?? null,
-              team: job.categories?.team ?? null,
-              employerWebsiteUrl: null,
-              employerDomain: tryParseUrl(job.hostedUrl)?.hostname ?? null,
-              atsProvider: provider.label,
-              providerKey: provider.key,
-              providerBoardToken: provider.boardToken,
-              providerIdentifier: provider.providerIdentifier,
-              titleTriageOutcome: "pass",
-              sourceIntelligence: input.artifact.intelligence,
-              screeningHints: {},
-              keywordSignals: [],
-              benefits: [],
-            }),
-          ];
-        }),
-        warning: null,
-      };
     }
 
     return {
@@ -677,6 +712,9 @@ export async function collectPublicProviderJobs(input: {
     return {
       jobs: [],
       warning:
+        isAbortError(error)
+          ? `Public provider API collection failed: ${provider.label} API request timed out.`
+          :
         error instanceof Error
           ? `Public provider API collection failed: ${error.message}`
           : "Public provider API collection failed.",

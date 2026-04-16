@@ -11,7 +11,6 @@ import {
   createSeed,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
-import { applyInactiveLedgerMarks, findDiscoveryLedgerEntry } from "./internal/workspace-discovery-ledger";
 
 function createDiscoveryOnlySeed() {
   return {
@@ -565,78 +564,4 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.discoveryJobs[0]?.provenance[0]?.targetId).toBe("target_two");
   });
 
-  test("partial discovery runs do not mark prior ledger entries inactive", async () => {
-    const unchangedLedger = applyInactiveLedgerMarks({
-      ledger: [
-        {
-          id: "ledger_existing",
-          canonicalUrl: "https://example.com/jobs/existing",
-          source: "target_site",
-          sourceJobId: "existing_job",
-          providerKey: null,
-          providerBoardToken: null,
-          providerIdentifier: null,
-          title: "Principal Designer",
-          company: "Acme",
-          targetId: "target_one",
-          collectionMethod: "careers_page",
-          firstSeenAt: "2026-03-20T09:00:00.000Z",
-          lastSeenAt: "2026-03-20T09:00:00.000Z",
-          lastAppliedAt: null,
-          lastEnrichedAt: "2026-03-20T09:00:00.000Z",
-          inactiveAt: null,
-          latestStatus: "enriched",
-          titleTriageOutcome: "pass",
-          skipReason: null,
-        },
-      ],
-      targetId: "target_one",
-      seenCanonicalUrls: [],
-      occurredAt: "2026-03-20T10:00:00.000Z",
-      allowInactiveMarking: false,
-    });
-
-    expect(unchangedLedger[0]?.latestStatus).toBe("enriched");
-    expect(unchangedLedger[0]?.inactiveAt).toBeNull();
-  });
-
-  test("ledger lookup does not collapse distinct jobs with the same title and company", async () => {
-    const ledgerEntry = findDiscoveryLedgerEntry(
-      [
-        {
-          id: "ledger_job_one",
-          canonicalUrl: "https://example.com/jobs/job-one",
-          source: "target_site",
-          sourceJobId: "job_one",
-          providerKey: null,
-          providerBoardToken: null,
-          providerIdentifier: null,
-          title: "Software Engineer",
-          company: "Acme",
-          targetId: "target_one",
-          collectionMethod: "careers_page",
-          firstSeenAt: "2026-03-20T09:00:00.000Z",
-          lastSeenAt: "2026-03-20T09:00:00.000Z",
-          lastAppliedAt: null,
-          lastEnrichedAt: "2026-03-20T09:00:00.000Z",
-          inactiveAt: null,
-          latestStatus: "enriched",
-          titleTriageOutcome: "pass",
-          skipReason: null,
-        },
-      ],
-      {
-        canonicalUrl: "https://example.com/jobs/job-two",
-        source: "target_site",
-        sourceJobId: "job_two",
-        providerKey: null,
-        providerBoardToken: null,
-        providerIdentifier: null,
-        title: "Software Engineer",
-        company: "Acme",
-      },
-    );
-
-    expect(ledgerEntry).toBeNull();
-  });
 });

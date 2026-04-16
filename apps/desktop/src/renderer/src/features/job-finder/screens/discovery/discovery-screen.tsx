@@ -97,7 +97,7 @@ export function DiscoveryScreen(props: {
               discoverySessions={discoverySessions}
               onOpenBrowserSession={onOpenBrowserSession}
               onRunAgentDiscovery={onRunAgentDiscovery}
-              onRunDiscoveryForTarget={props.onRunDiscoveryForTarget}
+              {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
               onViewProgress={() => setShowHistory(true)}
               searchPreferences={searchPreferences}
             />
@@ -126,7 +126,7 @@ export function DiscoveryScreen(props: {
               discoverySessions={discoverySessions}
               onOpenBrowserSession={onOpenBrowserSession}
               onRunAgentDiscovery={onRunAgentDiscovery}
-              onRunDiscoveryForTarget={props.onRunDiscoveryForTarget}
+              {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
               onViewProgress={() => setShowHistory(true)}
               searchPreferences={searchPreferences}
             />

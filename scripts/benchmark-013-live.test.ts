@@ -3,11 +3,12 @@ import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import dotenv from 'dotenv'
 import { describe, expect, test } from 'vitest'
-import { createJobFinderAiClientFromEnvironment } from '../packages/ai-providers/src/index'
-import { createBrowserAgentRuntime } from '../packages/browser-runtime/src/index'
-import { createInMemoryJobFinderRepository } from '../packages/db/src/index'
-import { createJobFinderWorkspaceService, type JobFinderDocumentManager } from '../packages/job-finder/src/index'
+import { createJobFinderAiClientFromEnvironment } from '@unemployed/ai-providers'
+import { createBrowserAgentRuntime } from '@unemployed/browser-runtime'
+import { createInMemoryJobFinderRepository } from '@unemployed/db'
+import { createJobFinderWorkspaceService, type JobFinderDocumentManager } from '@unemployed/job-finder'
 import { createEmptyJobFinderRepositoryState } from '../apps/desktop/src/main/adapters/job-finder-initial-state'
 
 const currentFile = fileURLToPath(import.meta.url)
@@ -47,36 +48,6 @@ const benchmarkTargets = [
   },
 ] as const
 
-function parseDotEnvContent(content: string): Record<string, string> {
-  const parsed: Record<string, string> = {}
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) {
-      continue
-    }
-
-    const normalized = line.startsWith('export ') ? line.slice(7).trim() : line
-    const separatorIndex = normalized.indexOf('=')
-    if (separatorIndex <= 0) {
-      continue
-    }
-
-    const key = normalized.slice(0, separatorIndex).trim()
-    let value = normalized.slice(separatorIndex + 1).trim()
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1)
-    }
-
-    parsed[key] = value.replace(/\\n/g, '\n')
-  }
-
-  return parsed
-}
-
 function loadEnvOverrides(root: string): Record<string, string> {
   const candidates = [
     path.join(root, '.env'),
@@ -91,7 +62,13 @@ function loadEnvOverrides(root: string): Record<string, string> {
       continue
     }
 
-    Object.assign(merged, parseDotEnvContent(readFileSync(candidate, 'utf8')))
+    const parsed = dotenv.parse(readFileSync(candidate, 'utf8'))
+    Object.assign(
+      merged,
+      Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => [key, value.replace(/\\n/g, '\n')])
+      )
+    )
   }
 
   return merged

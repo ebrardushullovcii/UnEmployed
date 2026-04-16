@@ -83,7 +83,7 @@ export function ProfilePreferencesTab({
         busy={busy}
         discoveryTargets={discoveryTargets}
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-        onRunDiscoveryForTarget={onRunDiscoveryForTarget}
+        {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
         onRunSourceDebug={onRunSourceDebug}
         onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
         onVerifySourceInstructions={onVerifySourceInstructions}

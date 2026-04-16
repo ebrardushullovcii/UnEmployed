@@ -204,7 +204,7 @@ export function markSavedJobStatusInLedger(input: {
   job: SavedJob;
   status: DiscoveryLedgerEntry["latestStatus"];
   occurredAt: string;
-  skipReason?: string | null;
+  skipReason: string | null;
 }): DiscoveryLedgerEntry[] {
   const existingEntry = findDiscoveryLedgerEntry(input.ledger, input.job);
 

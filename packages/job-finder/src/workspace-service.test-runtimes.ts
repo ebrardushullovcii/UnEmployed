@@ -23,6 +23,7 @@ import type {
   SourceDebugPhaseCompletionMode,
   SourceDebugPhaseEvidence,
 } from "@unemployed/contracts";
+import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 
 import { toPhaseId, type SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
 
@@ -164,7 +165,7 @@ export function toEditableSourceInstructionArtifactInput(artifact: {
     detailGuidance: [...artifact.detailGuidance],
     applyGuidance: [...artifact.applyGuidance],
     warnings: [...artifact.warnings],
-    intelligence: artifact.intelligence ?? undefined,
+    intelligence: artifact.intelligence ?? SourceIntelligenceArtifactSchema.parse({}),
   };
 }
 

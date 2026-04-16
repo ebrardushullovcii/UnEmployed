@@ -809,6 +809,7 @@ export function createWorkspaceApplicationMethods(
             },
             status: "applied",
             occurredAt: executionResult.submittedAt ?? now,
+            skipReason: null,
           }),
         }));
       }

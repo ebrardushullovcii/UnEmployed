@@ -40,7 +40,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Automatic job apply plan: `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`
 - Shared agent auto compaction plan: `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
 - Browser substrate evaluation and direction plan: `docs/exec-plans/queued/017-browser-substrate-evaluation-and-direction.md`
-- The recommended forward path now treats completed `011` as the shared-data baseline, then continues with `012` -> `013` -> `014` -> `015`, with `016` auto compaction and `017` browser-substrate direction treated as deferred cross-cutting follow-ons rather than the main product queue.
+- The recommended forward path now treats completed `011`, `012`, and `013` as the shared-data, setup, and discovery baseline, then starts with queued `014` for resume quality before moving to `015`, with `016` auto compaction and `017` browser-substrate direction treated as deferred cross-cutting follow-ons rather than the main product queue.
 - `015` intentionally defines the queued apply direction as a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission. The current shipped apply flow remains more conservative until that plan lands.
 
 ## Completed Background Plans

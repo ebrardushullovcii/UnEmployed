@@ -148,6 +148,7 @@ export function buildLiveRunRecord(
   return {
     id: runId,
     state: 'running',
+    scope: targetIds.length === 1 ? 'single_target' : 'run_all',
     startedAt: firstEvent.timestamp,
     completedAt: null,
     targetIds,

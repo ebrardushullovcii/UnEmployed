@@ -5,7 +5,7 @@ import type {
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { formatDuration, formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
-import { buildLearnedInstructionIntelligenceSummaries } from './profile-source-debug-instruction-utils'
+import { buildLearnedInstructionIntelligenceSummaries } from '../../lib/source-intelligence-utils'
 
 function formatTimestamp(value: string | null): string | null {
   if (!value) {
