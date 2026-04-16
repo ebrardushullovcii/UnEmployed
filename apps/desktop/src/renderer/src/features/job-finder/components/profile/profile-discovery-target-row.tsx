@@ -14,6 +14,7 @@ import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
 import { ProfileLearnedInstructionsPanel } from './profile-learned-instructions-panel'
 import { ProfileSourceDebugReviewModal } from './profile-source-debug-review-modal'
 import {
+  buildLearnedInstructionIntelligenceSummaries,
   type LearnedInstructionField,
   type LearnedInstructionSection,
   buildLearnedInstructionSections,
@@ -49,6 +50,7 @@ interface ProfileDiscoveryTargetRowProps {
   index: number
   instructionArtifact: SourceInstructionArtifact | null
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
@@ -67,6 +69,10 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   const accessibleLabel = targetLabel || `New source ${props.index + 1}`
   const learnedInstructionSections = useMemo(
     () => buildLearnedInstructionSections(props.instructionArtifact),
+    [props.instructionArtifact]
+  )
+  const learnedInstructionIntelligenceSummaries = useMemo(
+    () => buildLearnedInstructionIntelligenceSummaries(props.instructionArtifact),
     [props.instructionArtifact]
   )
   const {
@@ -186,6 +192,10 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     props.onRunSourceDebug(props.target.id)
   }, [props.onRunSourceDebug, props.target.id])
 
+  const handleRunDiscoveryForTarget = useCallback(() => {
+    props.onRunDiscoveryForTarget?.(props.target.id)
+  }, [props.onRunDiscoveryForTarget, props.target.id])
+
   const handleMoveTargetUp = useCallback(() => {
     moveTarget(-1)
   }, [moveTarget])
@@ -222,6 +232,17 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Source {props.index + 1}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {props.onRunDiscoveryForTarget ? (
+            <Button
+              aria-label={`Search only ${accessibleLabel}`}
+              disabled={props.busy || !props.target.enabled || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
+              onClick={handleRunDiscoveryForTarget}
+              type="button"
+              variant="primary"
+            >
+              Search this source
+            </Button>
+          ) : null}
           <Button
             aria-label={`Check this source for ${accessibleLabel}`}
             disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
@@ -322,6 +343,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           busy={props.busy}
           editingInstruction={editingInstruction}
           editingInstructionValue={editingInstructionValue}
+          intelligenceSummaries={learnedInstructionIntelligenceSummaries}
           instructionArtifactDescription={describeLearnedInstructionUsage(props.instructionArtifact)}
           onBeginEditingInstruction={beginEditingInstruction}
           onCancelEditingInstruction={cancelEditingInstruction}

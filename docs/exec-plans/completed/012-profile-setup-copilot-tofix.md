@@ -1,6 +1,6 @@
 # 012 Guided Setup And Profile Copilot - Active Fixlist
 
-Status: active
+Status: completed
 
 Purpose:
 

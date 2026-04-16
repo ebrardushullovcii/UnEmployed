@@ -451,4 +451,114 @@ describe("createJobFinderWorkspaceService", () => {
       /missing on disk/i,
     );
   });
+
+  test("dismissing and applying jobs writes durable discovery-ledger statuses", async () => {
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        tailoredAssets: [],
+        resumeDrafts: [],
+        resumeDraftRevisions: [],
+        resumeExportArtifacts: [],
+        resumeResearchArtifacts: [],
+        resumeValidationResults: [],
+        resumeAssistantMessages: [],
+        applicationRecords: [],
+        applicationAttempts: [],
+        discovery: {
+          sessions: [],
+          runState: "idle",
+          activeRun: null,
+          recentRuns: [],
+          activeSourceDebugRun: null,
+          recentSourceDebugRuns: [],
+          discoveryLedger: [],
+          pendingDiscoveryJobs: [
+            SavedJobSchema.parse({
+              id: "pending_job_1",
+              source: "target_site",
+              sourceJobId: "pending_job_1",
+              discoveryMethod: "catalog_seed",
+              collectionMethod: "careers_page",
+              canonicalUrl: "https://example.com/jobs/pending-job-1",
+              applicationUrl: "https://example.com/jobs/pending-job-1/apply",
+              title: "Principal Designer",
+              company: "Acme",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "easy_apply",
+              easyApplyEligible: true,
+              postedAt: null,
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              salaryText: null,
+              summary: "Pending job summary",
+              description: "Pending job description",
+              keySkills: ["React"],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+              status: "discovered",
+              matchAssessment: {
+                score: 90,
+                reasons: ["Strong overlap"],
+                gaps: [],
+              },
+              provenance: [
+                {
+                  targetId: "target_linkedin_default",
+                  adapterKind: "auto",
+                  resolvedAdapterKind: "target_site",
+                  startingUrl: "https://www.linkedin.com/jobs/search/",
+                  discoveredAt: "2026-03-20T10:00:00.000Z",
+                  collectionMethod: "careers_page",
+                  providerKey: null,
+                  providerBoardToken: null,
+                  titleTriageOutcome: "pass",
+                },
+              ],
+            }),
+          ],
+        },
+      },
+    });
+
+    await workspaceService.dismissDiscoveryJob("pending_job_1");
+    let discoveryState = await repository.getDiscoveryState();
+    expect(discoveryState.discoveryLedger).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://example.com/jobs/pending-job-1",
+          latestStatus: "skipped",
+          skipReason: "Dismissed from discovery results.",
+        }),
+      ]),
+    );
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+    await workspaceService.approveApply("job_ready");
+
+    discoveryState = await repository.getDiscoveryState();
+    expect(discoveryState.discoveryLedger).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+          latestStatus: "applied",
+          lastAppliedAt: expect.any(String),
+        }),
+      ]),
+    );
+  });
 });

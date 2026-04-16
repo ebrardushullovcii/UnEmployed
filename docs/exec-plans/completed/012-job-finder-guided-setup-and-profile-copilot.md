@@ -1,6 +1,6 @@
 # 012 Job Finder Guided Setup And Profile Copilot
 
-Status: active
+Status: completed
 
 Latest implementation note:
 

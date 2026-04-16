@@ -582,6 +582,8 @@ export async function runSourceDebugWorkflow(
             attempts,
             adapterKind,
             null,
+            undefined,
+            synthesizedInstruction ?? preservedRouteHintArtifact,
           );
           synthesizedInstruction = nextSynthesizedInstruction;
 
@@ -635,6 +637,8 @@ export async function runSourceDebugWorkflow(
       attempts,
       adapterKind,
       verification,
+      undefined,
+      reviewInstructionArtifact ?? synthesizedInstruction ?? preservedRouteHintArtifact,
     );
     emitProgress({
       waitReason: "waiting_on_ai",
@@ -667,6 +671,7 @@ export async function runSourceDebugWorkflow(
           adapterKind,
           verification,
           reviewOverride,
+          reviewInstructionArtifact ?? synthesizedInstruction ?? preservedRouteHintArtifact,
         )
       : heuristicFinalizedInstruction;
     const preserveExistingValidatedInstruction =

@@ -12,6 +12,7 @@ import {
   type ResumeDraftPatch,
 } from "@unemployed/contracts";
 import { mergeSavedJobs } from "./workspace-service-helpers";
+import { markSavedJobStatusInLedger } from "./workspace-discovery-ledger";
 import {
   buildConsentSummary,
   buildEvidenceRefIdsFromInstruction,
@@ -109,17 +110,42 @@ export function createWorkspaceApplicationMethods(
       );
 
       if (pendingIndex >= 0) {
+        const pendingJob = discoveryState.pendingDiscoveryJobs[pendingIndex];
+        if (!pendingJob) {
+          return ctx.getWorkspaceSnapshot();
+        }
         await ctx.persistDiscoveryState((current) => ({
           ...current,
+          discoveryLedger: markSavedJobStatusInLedger({
+            ledger: current.discoveryLedger,
+            job: pendingJob,
+            status: "skipped",
+            occurredAt: new Date().toISOString(),
+            skipReason: "Dismissed from discovery results.",
+          }),
           pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter(
             (job) => job.id !== jobId,
           ),
         }));
       } else {
+        const savedJobs = await ctx.repository.listSavedJobs();
+        const targetJob = savedJobs.find((job) => job.id === jobId) ?? null;
         await ctx.updateJob(jobId, (job) => ({
           ...job,
           status: "archived",
         }));
+        if (targetJob) {
+          await ctx.persistDiscoveryState((current) => ({
+            ...current,
+            discoveryLedger: markSavedJobStatusInLedger({
+              ledger: current.discoveryLedger,
+              job: targetJob,
+              status: "skipped",
+              occurredAt: new Date().toISOString(),
+              skipReason: "Archived intentionally by the user.",
+            }),
+          }));
+        }
       }
 
       return ctx.getWorkspaceSnapshot();
@@ -772,6 +798,20 @@ export function createWorkspaceApplicationMethods(
         ...currentJob,
         status: nextJobStatusFromAttempt(currentJob, executionResult.state),
       }));
+      if (executionResult.state === "submitted") {
+        await ctx.persistDiscoveryState((current) => ({
+          ...current,
+          discoveryLedger: markSavedJobStatusInLedger({
+            ledger: current.discoveryLedger,
+            job: {
+              ...job,
+              status: "submitted",
+            },
+            status: "applied",
+            occurredAt: executionResult.submittedAt ?? now,
+          }),
+        }));
+      }
 
       return ctx.getWorkspaceSnapshot();
     },

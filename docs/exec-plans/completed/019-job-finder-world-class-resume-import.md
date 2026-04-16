@@ -1,6 +1,6 @@
 # 019 Job Finder World-Class Resume Import
 
-Status: active
+Status: completed
 
 This plan is the successor to completed `018` resume-import reliability work. `018` landed the right substrate: import runs, document bundles, field candidates, evidence-backed review, and safer canonical merges. It did not yet land world-class document understanding.
 

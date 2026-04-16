@@ -3,6 +3,7 @@ import { History, Search } from "lucide-react";
 import type {
   BrowserSessionState,
   DiscoveryAdapterSessionState,
+  DiscoveryRunRecord,
   JobSearchPreferences,
 } from "@unemployed/contracts";
 import { Chip } from "@renderer/components/ui/chip";
@@ -22,11 +23,13 @@ const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
 };
 
 interface DiscoveryFiltersPanelProps {
+  activeRun: DiscoveryRunRecord | null;
   actionMessage: string | null;
   busy: boolean;
   discoverySessions: readonly DiscoveryAdapterSessionState[];
   onOpenBrowserSession: () => void;
   onRunAgentDiscovery: (() => void) | undefined;
+  onRunDiscoveryForTarget?: (targetId: string) => void;
   onViewProgress: () => void;
   searchPreferences: JobSearchPreferences;
 }
@@ -52,11 +55,13 @@ function getBrowserStatusLabel(status: BrowserSessionState["status"]): string {
 }
 
 export function DiscoveryFiltersPanel({
+  activeRun,
   actionMessage,
   busy,
   discoverySessions,
   onOpenBrowserSession,
   onRunAgentDiscovery,
+  onRunDiscoveryForTarget,
   onViewProgress,
   searchPreferences,
 }: DiscoveryFiltersPanelProps) {
@@ -123,6 +128,10 @@ export function DiscoveryFiltersPanel({
   const isBlocked = displaySessionSnapshot.status === "blocked";
   const canRunDiscovery =
     Boolean(onRunAgentDiscovery) && hasRunnableTarget && !busy;
+  const activeTargetId =
+    activeRun?.state === "running" && activeRun.scope === "single_target"
+      ? activeRun.targetIds[0] ?? null
+      : null;
 
   return (
     <section
@@ -234,6 +243,38 @@ export function DiscoveryFiltersPanel({
               </div>
             </section>
           )})}
+
+          {enabledTargets.length > 0 ? (
+            <section className="min-w-0 border-t border-(--surface-panel-border) px-4 py-4">
+              <div className="grid min-w-0 gap-3">
+                <h3 className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-badge) text-foreground-muted">
+                  Run one source
+                </h3>
+                <div className="grid gap-2">
+                  {enabledTargets.map((target) => {
+                    const isActiveSingleTarget = activeTargetId === target.id;
+
+                    return (
+                      <Button
+                        className="h-auto min-h-11 w-full justify-between whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
+                        disabled={busy || !onRunDiscoveryForTarget}
+                        key={target.id}
+                        onClick={() => onRunDiscoveryForTarget?.(target.id)}
+                        size="sm"
+                        type="button"
+                        variant={isActiveSingleTarget ? "secondary" : "ghost"}
+                      >
+                        <span className="truncate">{target.label}</span>
+                        <span className="text-(length:--text-small) text-foreground-muted">
+                          {isActiveSingleTarget ? "Running now" : "Search only this source"}
+                        </span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          ) : null}
         </div>
 
         <div className="mt-auto grid gap-3 border-t border-(--surface-panel-border) px-4 py-4">

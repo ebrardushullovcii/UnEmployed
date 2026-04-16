@@ -50,8 +50,9 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed source-debug background: [exec-plans/completed/005-job-source-debug-agent.md](exec-plans/completed/005-job-source-debug-agent.md)
 - Completed Job Finder resume workspace: [exec-plans/completed/007-job-finder-resume-workspace.md](exec-plans/completed/007-job-finder-resume-workspace.md)
 - Completed shared data expansion plan: [exec-plans/completed/011-job-finder-shared-data-expansion.md](exec-plans/completed/011-job-finder-shared-data-expansion.md)
-- Active guided setup and profile copilot plan: [exec-plans/active/012-job-finder-guided-setup-and-profile-copilot.md](exec-plans/active/012-job-finder-guided-setup-and-profile-copilot.md)
-- Queued source intelligence and faster discovery plan: [exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md](exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md)
+- Completed guided setup and profile copilot plan: [exec-plans/completed/012-job-finder-guided-setup-and-profile-copilot.md](exec-plans/completed/012-job-finder-guided-setup-and-profile-copilot.md)
+- Completed source intelligence and faster discovery plan: [exec-plans/completed/013-job-finder-source-intelligence-and-faster-discovery.md](exec-plans/completed/013-job-finder-source-intelligence-and-faster-discovery.md)
+- Completed 013 live benchmark report: [exec-plans/completed/013-benchmark-results.md](exec-plans/completed/013-benchmark-results.md)
 - Queued resume output and template quality plan: [exec-plans/queued/014-job-finder-resume-output-and-template-quality.md](exec-plans/queued/014-job-finder-resume-output-and-template-quality.md)
 - Queued automatic job apply plan: [exec-plans/queued/015-job-finder-automatic-job-apply.md](exec-plans/queued/015-job-finder-automatic-job-apply.md)
 - Queued shared agent auto compaction plan: [exec-plans/queued/016-shared-agent-auto-compaction.md](exec-plans/queued/016-shared-agent-auto-compaction.md)
@@ -59,7 +60,7 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed browser efficiency and speed: [exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md](exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md)
 - Queued browser substrate evaluation and direction plan: [exec-plans/queued/017-browser-substrate-evaluation-and-direction.md](exec-plans/queued/017-browser-substrate-evaluation-and-direction.md)
 - Completed resume import and extraction reliability plan: [exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md](exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md)
-- Active world-class resume import plan: [exec-plans/active/019-job-finder-world-class-resume-import.md](exec-plans/active/019-job-finder-world-class-resume-import.md)
+- Completed world-class resume import plan: [exec-plans/completed/019-job-finder-world-class-resume-import.md](exec-plans/completed/019-job-finder-world-class-resume-import.md)
 
 ## Design References
 

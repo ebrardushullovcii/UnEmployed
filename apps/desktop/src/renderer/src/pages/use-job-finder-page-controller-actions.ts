@@ -354,6 +354,22 @@ export function createPrimaryPageActions(
         'Search finished and results were saved on this device.',
       )
     },
+    onRunDiscoveryForTarget: (targetId: string) => {
+      setLiveDiscoveryEvents([])
+      void runAction(
+        () =>
+          actions.runAgentDiscovery(
+            (event) => {
+              setLiveDiscoveryEvents((current) => [...current, event])
+            },
+            targetId,
+          ),
+        () => {
+          setLiveDiscoveryEvents([])
+        },
+        () => `Search finished for this source and results were saved on this device.`,
+      )
+    },
     onRunSourceDebug: (targetId: string) => {
       const runId = sourceDebugRunIdRef.current + 1
       sourceDebugRunIdRef.current = runId

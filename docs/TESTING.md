@@ -65,6 +65,7 @@
 - Discovery timing currently lives on `latestDiscoveryRun.summary.timing` and `latestDiscoveryRun.targetExecutions[].timing`.
 - Source-debug timing currently lives on `latestSourceDebugRun.run.timing`, `latestSourceDebugRun.attempts[].timing`, and `latestSourceDebugRun.run.phaseSummaries[].timing`.
 - Use `totalDurationMs`, `firstActivityMs` or `firstProgressMs`, `longestGapMs`, and the grouped stage or wait-reason durations to explain long visible idle spans before making further runtime changes.
+- The retained `013` live benchmark harness lives at `scripts/benchmark-013-live.test.ts`; it is manual-only, skips during normal `pnpm test`, and should be run only with `UNEMPLOYED_RUN_013_LIVE_BENCHMARK=1` plus an explicit `BENCHMARK_VARIANT` when you intentionally want live before-vs-after measurement output.
 
 ## Live Agent Config
 

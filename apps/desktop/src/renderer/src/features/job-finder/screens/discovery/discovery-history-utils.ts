@@ -18,6 +18,8 @@ function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetE
     targetId: target.id,
     adapterKind: target.adapterKind,
     resolvedAdapterKind: null,
+    collectionMethod: null,
+    sourceIntelligenceProvider: null,
     state: 'planned',
     startedAt: null,
     completedAt: null,
@@ -34,6 +36,8 @@ function createSyntheticExecution(event: DiscoveryActivityEvent): DiscoveryTarge
     targetId: event.targetId ?? 'unknown_target',
     adapterKind: event.adapterKind ?? 'auto',
     resolvedAdapterKind: event.resolvedAdapterKind,
+    collectionMethod: null,
+    sourceIntelligenceProvider: null,
     state: 'planned',
     startedAt: null,
     completedAt: null,
@@ -112,7 +116,9 @@ export function buildLiveRunRecord(
       resolvedAdapterKind: event.resolvedAdapterKind ?? currentExecution.resolvedAdapterKind,
       jobsFound: event.jobsFound ?? currentExecution.jobsFound,
       jobsPersisted: event.jobsPersisted ?? currentExecution.jobsPersisted,
-      jobsStaged: event.jobsStaged ?? currentExecution.jobsStaged
+      jobsStaged: event.jobsStaged ?? currentExecution.jobsStaged,
+      collectionMethod: currentExecution.collectionMethod,
+      sourceIntelligenceProvider: currentExecution.sourceIntelligenceProvider,
     }
 
     if (event.stage === 'target' && event.message.startsWith('Starting target')) {
@@ -153,10 +159,13 @@ export function buildLiveRunRecord(
       validJobsFound: targetExecutions.reduce((total, execution) => total + execution.jobsFound, 0),
       jobsPersisted: targetExecutions.reduce((total, execution) => total + execution.jobsPersisted, 0),
       jobsStaged: targetExecutions.reduce((total, execution) => total + execution.jobsStaged, 0),
+      jobsSkippedByLedger: 0,
+      jobsSkippedByTitleTriage: 0,
       duplicatesMerged: 0,
       invalidSkipped: 0,
       durationMs: Math.max(0, new Date().getTime() - new Date(firstEvent.timestamp).getTime()),
       outcome: 'running',
+      browserCloseout: null,
       timing: null
     }
   }

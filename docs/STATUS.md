@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Plans `007`, `010`, `011`, and `018` are completed, and active plan `019` now pulls resume import back into the foreground as a world-class parser and benchmark pass on top of the `018` substrate. The near-term product sequence is now `019` importer-quality upgrade first, then `012` guided setup plus profile copilot, then `013` source intelligence and faster discovery, `014` resume correctness and output quality, `015` staged apply automation, `016` shared agent auto compaction, and `017` browser substrate evaluation and direction.
+Plans `007`, `010`, `011`, `012`, `013`, `018`, and `019` are completed. The near-term product sequence now continues with `014` resume correctness and output quality, `015` staged apply automation, `016` shared agent auto compaction, and `017` browser substrate evaluation and direction.
 
 ## Snapshot
 
@@ -11,7 +11,7 @@ Plans `007`, `010`, `011`, and `018` are completed, and active plan `019` now pu
 - Shared data roots now retain richer candidate narrative, proof-bank, reusable screener answers, application identity defaults, enriched saved-job context, and structured apply-memory summaries instead of forcing later workflows to reconstruct that context repeatedly.
 - The queue now needs to optimize for the real user loop, not only for contract dependencies: collect the right profile data, make source intelligence and discovery materially better, make resumes usable, then automate apply.
 - Brand-new workspaces now land in `/job-finder/profile/setup` with a persisted `profileSetupState` root that distinguishes fresh, in-progress, and completed setup; milestone one ships the resumable route and migration-style readiness derivation, milestone two derives durable setup review items from unresolved resume-import candidates so guided setup can reopen the right step with inspectable pending work instead of only coarse warnings, and the setup QA harness now proves bounded copilot edits plus ready-check completion through to the full Profile handoff. The latest setup pass also keeps import-backed review items pending until the user explicitly resolves them, adds direct `Edit this` jumps from the review queue into the relevant setup editor section with direct field focus for simple essentials fields, converts Profile Copilot into a floating expandable chat with optimistic user messages, visible working state, starter-question prompts for the highest-priority missing profile detail, and a more informative collapsed bubble preview, re-splits the enlarged setup and copilot files back under the structure warning budgets, fixes the explicit-save resolver path so matching portfolio URL edits no longer stay pending after save, preserves semantic imported record ids inside React Hook Form field arrays so nested review-first records and edit-jumps stay stable, teaches the deterministic copilot to handle practical essentials numeric edits like years-of-experience updates during setup, hides invalid clear-value actions for non-nullable years-of-experience review items, keeps fresh-start years-of-experience readiness and preload semantics aligned around `0` as the fresh-start sentinel, limits automatic copilot application to safe scalar patch groups while leaving record-level mutations in explicit review mode, adds deterministic Preferences copilot support for common job-source requests like LinkedIn Jobs and Wellfound, returns grounded no-op feedback when those sources are already saved, and ships a dedicated preferences capture flow that proves the compact Show/Hide recent-changes tray without consuming the main profile layout.
-- Discovery is live, but the shipped surface still behaves like one full agent run across all enabled targets; provider-aware fast paths, one-target execution, stronger seen/applied dedupe, and clearer browser closeout are not the default flow yet.
+- Discovery now uses typed source intelligence for provider-aware method selection, supports both one-target and run-all execution on the same target pipeline, applies title-first triage before expensive enrichment, retains a durable discovery ledger for handled-job dedupe, preserves richer saved-job context, and exposes explicit browser closeout state in run history.
 - The latest `012` hardening pass tightened Profile Copilot safety for Preferences edits by forcing discovery-target and other list-heavy search-preference rewrites through explicit review instead of broad auto-apply, while still letting deterministic job-source requests re-enable disabled saved sources instead of creating duplicate no-op outcomes.
 - The latest `012` follow-up also broadened deterministic Preferences handling so one request can bundle years of experience, expected salary, preferred work mode, and job-source additions including `KosovaJob`; the floating bubble now toggles from the collapsed control, supports dragging to stay above the save area, and stale `Last action` footer copy has been removed from the shell/profile flow.
 - The newest `012` stabilization follow-up now gives the full `Profile` screen the same unsaved-draft copilot guard already used in guided setup, keeps the shared floating composer editable while a reply is pending, and extends the Preferences capture harness to prove both the blocked mutation path and draft-while-pending behavior with saved workspace evidence.
@@ -50,17 +50,18 @@ Plans `007`, `010`, `011`, and `018` are completed, and active plan `019` now pu
 
 ## Active Work
 
-- Execute active plan `019` first so the importer becomes benchmarked, parser-ensemble based, locally shippable, and trustworthy before later setup, resume, and apply work depend on its output quality.
+- Reuse the completed `019` importer baseline while treating cross-platform packaged-sidecar validation as the main remaining release-prep follow-up, not as an active incomplete exec-plan move.
 - Treat completed `018` as the durable substrate for runs, bundles, and candidates, not as the final parser architecture.
 - Treat the completed `007`, `009`, and `010` passes as the current functional and wording baselines for later UX polish and QA.
 
 ## Immediate Next Steps
 
-- Continue `019` by hardening the real local parser route across supported desktop platforms so retained benchmark runs stop depending on `embedded_node+pdfjs_text`, then keep improving parser routing, sidecar extraction quality, and packaging against the now-aligned retained benchmark corpus.
-- Continue `019` by building and validating the native parser-sidecar bundle on each supported desktop target OS, wiring that artifact into installer packaging, then keep improving parser routing and sidecar extraction quality against the aligned retained benchmark corpus.
+- Validate the packaged native parser-sidecar bundle on each supported desktop target OS, then continue any remaining parser-routing or packaging follow-up against the retained `019` benchmark corpus.
+- Keep using the completed `019` benchmark harness and retained report as the baseline when validating future resume-import quality or packaging changes.
 - The `012` visual QA pass is now fully closed: 80 screenshots across 13 batches (default viewport, 1024×768, 1280×800, 1728×1080, resume workspace, dirty-state guards, and profile visual baselines) were reviewed, 3 issues were found, and all 3 are now fixed with regenerated evidence recorded in `apps/desktop/test-artifacts/ui/VISUAL-QA-TRACKER.md`.
 - A final cleanup testing round on 2026-04-15 re-ran `pnpm verify`, desktop build, the resume-import benchmark, dark and light shell captures, scripted TXT and PDF resume-import flows, profile baseline capture, guided setup capture, full-Profile Preferences copilot capture, resume-workspace demo capture, and resume-workspace dirty-state capture. Release QA returned Go-with-risk, with the only remaining release risk being cross-platform native sidecar packaging validation.
-- Start `013` after setup as the merged source-intelligence and faster-discovery workstream: typed source intelligence first, then provider-aware discovery, one-target plus run-all execution, richer job-detail persistence, durable seen/applied dedupe, and clearer browser closeout behavior.
+- Treat completed `013` as the new discovery baseline: typed source intelligence, provider-aware method selection, one-target plus run-all execution, title-first triage, durable handled-job dedupe, richer saved-job persistence, and explicit browser closeout are now in repo state for later resume and apply work to reuse.
+- Keep the retained `013` live benchmark report in `docs/exec-plans/completed/013-benchmark-results.md` as the evidence source for the measured Greenhouse and Lever discovery wins, the source-debug quality gains, and the remaining Greenhouse/Kosovajob follow-up gaps.
 - Keep `014` downstream of the stronger `019` import quality pass because resume quality should not absorb import-time structural mistakes.
 - Start `015` only after the stronger data, setup, source-intelligence, discovery, and resume foundations are in place; it remains the final major queued product sequence, not the first follow-on.
 - Pull `016` forward only if the longer-running discovery or apply agents start degrading because conversation growth becomes the next concrete blocker.
@@ -75,9 +76,10 @@ Plans `007`, `010`, `011`, and `018` are completed, and active plan `019` now pu
 - `docs/exec-plans/completed/009-full-app-production-copy-pass.md`
 - `docs/exec-plans/completed/011-job-finder-shared-data-expansion.md`
 - `docs/exec-plans/completed/018-job-finder-resume-import-and-extraction-reliability.md`
-- `docs/exec-plans/active/019-job-finder-world-class-resume-import.md`
-- `docs/exec-plans/active/012-job-finder-guided-setup-and-profile-copilot.md`
-- `docs/exec-plans/queued/013-job-finder-source-intelligence-and-faster-discovery.md`
+- `docs/exec-plans/completed/019-job-finder-world-class-resume-import.md`
+- `docs/exec-plans/completed/012-job-finder-guided-setup-and-profile-copilot.md`
+- `docs/exec-plans/completed/013-job-finder-source-intelligence-and-faster-discovery.md`
+- `docs/exec-plans/completed/013-benchmark-results.md`
 - `docs/exec-plans/queued/014-job-finder-resume-output-and-template-quality.md`
 - `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`
 - `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`

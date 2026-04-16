@@ -15,6 +15,7 @@ import type {
   DiscoveryRunResult,
   EditableSourceInstructionArtifact,
   JobPosting,
+  SourceIntelligenceArtifact,
   ResumeDocumentBundle,
   ResumeImportFieldCandidateDraft,
   ResumeResearchArtifact,
@@ -153,6 +154,7 @@ export function toEditableSourceInstructionArtifactInput(artifact: {
   detailGuidance: readonly string[];
   applyGuidance: readonly string[];
   warnings: readonly string[];
+  intelligence?: SourceIntelligenceArtifact | null;
 }): EditableSourceInstructionArtifact {
   return {
     id: artifact.id,
@@ -162,6 +164,7 @@ export function toEditableSourceInstructionArtifactInput(artifact: {
     detailGuidance: [...artifact.detailGuidance],
     applyGuidance: [...artifact.applyGuidance],
     warnings: [...artifact.warnings],
+    intelligence: artifact.intelligence ?? undefined,
   };
 }
 

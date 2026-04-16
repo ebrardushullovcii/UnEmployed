@@ -189,6 +189,7 @@ const desktopApi = {
       ) as Promise<JobFinderWorkspaceSnapshot>,
     runAgentDiscovery: (
       onActivity?: (event: DiscoveryActivityEvent) => void,
+      targetId?: string,
     ) => {
       if (activeAgentDiscoveryRequestId) {
         return Promise.reject(new Error("Agent discovery is already running."));
@@ -220,7 +221,10 @@ const desktopApi = {
       };
 
       const promise = ipcRenderer
-        .invoke("job-finder:run-agent-discovery", { requestId })
+        .invoke("job-finder:run-agent-discovery", {
+          requestId,
+          targetId: targetId ?? null,
+        })
         .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>;
 
       return promise;

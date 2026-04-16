@@ -126,6 +126,8 @@ describe("createJobFinderWorkspaceService", () => {
     expect(latestArtifact?.warnings).toContain(
       "Keep the source in draft if a future replay loses the collection route.",
     );
+    expect(latestArtifact?.intelligence.collection.preferredMethod).toBe("listing_route");
+    expect(latestArtifact?.intelligence.collection.startingRoutes.length).toBeGreaterThan(0);
   });
 
   test("final source-instruction reviewer is told to write future-run instructions and noisy extraction counts are filtered out", async () => {
@@ -237,6 +239,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(learnedLines).not.toContain("0 or 1 jobs extracted");
     expect(learnedLines).not.toContain("only 2 jobs found");
     expect(learnedLines).not.toContain("tool limitation");
+    expect(latestArtifact?.intelligence.collection.preferredMethod).toBe("listing_route");
   });
 
   test("keeps timed-out partial evidence in draft and exposes completion metadata in run details", async () => {

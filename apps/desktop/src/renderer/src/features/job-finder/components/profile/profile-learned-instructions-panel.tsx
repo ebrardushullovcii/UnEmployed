@@ -2,6 +2,7 @@ import { useId } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { ProfileTextarea } from './profile-form-primitives'
 import {
+  type LearnedInstructionIntelligenceSummary,
   type LearnedInstructionSection,
   normalizeEditableInstructionInput
 } from './profile-source-debug-instruction-utils'
@@ -22,6 +23,7 @@ interface ProfileLearnedInstructionsPanelProps {
     section: LearnedInstructionSection,
     line: LearnedInstructionSection['lines'][number]
   ) => void
+  intelligenceSummaries: readonly LearnedInstructionIntelligenceSummary[]
   sections: readonly LearnedInstructionSection[]
   targetId: string
 }
@@ -36,6 +38,7 @@ export function ProfileLearnedInstructionsPanel({
   onChangeEditingInstructionValue,
   onPersistEditedInstruction,
   onRemoveInstructionLine,
+  intelligenceSummaries,
   sections,
   targetId
 }: ProfileLearnedInstructionsPanelProps) {
@@ -53,6 +56,25 @@ export function ProfileLearnedInstructionsPanel({
         </p>
         <p className="text-[0.82rem] leading-6 text-foreground-soft">{instructionArtifactDescription}</p>
       </header>
+      {intelligenceSummaries.length > 0 ? (
+        <div className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3">
+          {intelligenceSummaries.map((summary) => (
+            <section className="grid gap-2" key={`${targetId}_${summary.title}`}>
+              <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                {summary.title}
+              </p>
+              <dl className="grid gap-2 text-[0.84rem] leading-6 text-foreground-soft">
+                {summary.items.map((item) => (
+                  <div className="grid gap-0.5" key={`${summary.title}_${item.label}`}>
+                    <dt className="font-medium text-foreground">{item.label}</dt>
+                    <dd className="wrap-break-word">{item.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+        </div>
+      ) : null}
       <div className="grid gap-3">
         {sections.map((section) => (
           <section key={`${targetId}_${section.label}`} className="grid gap-2">

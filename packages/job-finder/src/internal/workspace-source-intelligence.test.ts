@@ -1,0 +1,78 @@
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+import type { JobDiscoveryTarget, JobSource } from "@unemployed/contracts";
+
+import {
+  collectPublicProviderJobs,
+  inferSourceIntelligenceFromTarget,
+} from "./workspace-source-intelligence";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function createGreenhouseTarget(): JobDiscoveryTarget {
+  return {
+    id: "greenhouse_remote",
+    label: "Remote Greenhouse",
+    startingUrl: "https://job-boards.greenhouse.io/remote",
+    enabled: true,
+    adapterKind: "auto",
+    customInstructions: null,
+    instructionStatus: "missing",
+    validatedInstructionId: null,
+    draftInstructionId: null,
+    lastDebugRunId: null,
+    lastVerifiedAt: null,
+    staleReason: null,
+  };
+}
+
+async function collectGreenhouseJobs(updatedAt: string | null) {
+  const target = createGreenhouseTarget();
+  const intelligence = inferSourceIntelligenceFromTarget({
+    target,
+    currentArtifact: null,
+  });
+  const source: JobSource = "target_site";
+
+  vi.spyOn(globalThis, "fetch").mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      jobs: [
+        {
+          id: 4622190,
+          title: "SEI Instructor Lead",
+          absolute_url: "https://job-boards.greenhouse.io/remote/jobs/4622190",
+          location: { name: "New York, NY" },
+          updated_at: updatedAt,
+          content: "<p>Teach software engineering.</p>",
+        },
+      ],
+    }),
+  } as Response);
+
+  return collectPublicProviderJobs({
+    target,
+    artifact: { intelligence },
+    source,
+  });
+}
+
+describe("collectPublicProviderJobs", () => {
+  test("normalizes Greenhouse offset timestamps before job parsing", async () => {
+    const result = await collectGreenhouseJobs("2024-07-24T16:08:01-04:00");
+
+    expect(result.warning).toBeNull();
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]?.postedAt).toBe("2024-07-24T20:08:01.000Z");
+  });
+
+  test("keeps Greenhouse jobs when provider timestamps are invalid", async () => {
+    const result = await collectGreenhouseJobs("not-a-date");
+
+    expect(result.warning).toBeNull();
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]?.postedAt).toBeNull();
+  });
+});

@@ -5,6 +5,7 @@ import type {
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { formatDuration, formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
+import { buildLearnedInstructionIntelligenceSummaries } from './profile-source-debug-instruction-utils'
 
 function formatTimestamp(value: string | null): string | null {
   if (!value) {
@@ -78,6 +79,7 @@ export function ProfileSourceDebugReviewModalContent({
   const formattedRunTime = details
     ? formatTimestamp(details.run.completedAt ?? details.run.updatedAt)
     : null
+  const intelligenceSummaries = buildLearnedInstructionIntelligenceSummaries(artifact)
 
   return (
     <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
@@ -166,6 +168,25 @@ export function ProfileSourceDebugReviewModalContent({
               </div>
               {details.run.finalSummary ? (
                 <p className="text-[0.92rem] leading-6 text-foreground">{details.run.finalSummary}</p>
+              ) : null}
+              {intelligenceSummaries.length > 0 ? (
+                <div className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3">
+                  {intelligenceSummaries.map((summary) => (
+                    <section className="grid gap-1.5" key={summary.title}>
+                      <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                        {summary.title}
+                      </p>
+                      <dl className="grid gap-1 text-[0.82rem] leading-6 text-foreground-soft">
+                        {summary.items.map((item) => (
+                          <div className="grid gap-0.5" key={`${summary.title}_${item.label}`}>
+                            <dt className="font-medium text-foreground">{item.label}</dt>
+                            <dd className="wrap-break-word">{item.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </section>
+                  ))}
+                </div>
               ) : null}
               {details.run.timing ? (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.82rem] text-foreground-muted">

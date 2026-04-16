@@ -29,6 +29,7 @@ export function DiscoveryScreen(props: {
   onOpenBrowserSession: () => void
   onQueueJob: (jobId: string) => void
   onRunAgentDiscovery: (() => void) | undefined
+  onRunDiscoveryForTarget?: (targetId: string) => void
   onSelectJob: (jobId: string) => void
   recentRuns: readonly DiscoveryRunRecord[]
   searchPreferences: JobSearchPreferences
@@ -90,11 +91,13 @@ export function DiscoveryScreen(props: {
         {showEmptyDiscoveryState ? (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
             <DiscoveryFiltersPanel
+              activeRun={activeRun}
               actionMessage={actionState.message}
               busy={busy}
               discoverySessions={discoverySessions}
               onOpenBrowserSession={onOpenBrowserSession}
               onRunAgentDiscovery={onRunAgentDiscovery}
+              onRunDiscoveryForTarget={props.onRunDiscoveryForTarget}
               onViewProgress={() => setShowHistory(true)}
               searchPreferences={searchPreferences}
             />
@@ -117,11 +120,13 @@ export function DiscoveryScreen(props: {
         ) : (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
             <DiscoveryFiltersPanel
+              activeRun={activeRun}
               actionMessage={actionState.message}
               busy={busy}
               discoverySessions={discoverySessions}
               onOpenBrowserSession={onOpenBrowserSession}
               onRunAgentDiscovery={onRunAgentDiscovery}
+              onRunDiscoveryForTarget={props.onRunDiscoveryForTarget}
               onViewProgress={() => setShowHistory(true)}
               searchPreferences={searchPreferences}
             />

@@ -56,6 +56,7 @@ export interface JobFinderPageContext {
   onResetWorkspace: () => void
   onResumeProfileSetup: (step?: ProfileSetupStep) => void
   onRunAgentDiscovery: (() => void) | undefined
+  onRunDiscoveryForTarget: ((targetId: string) => void) | undefined
   onRefreshResumeWorkspace: (jobId: string) => void
   onResumeWorkspaceDirtyChange: (dirty: boolean) => void
   onRegenerateResumeDraft: (jobId: string) => void
@@ -240,6 +241,7 @@ export function JobFinderProfileRoute() {
       profileCopilotPendingContextKey={context.profileCopilotPendingContextKey}
       onResumeProfileSetup={context.onResumeProfileSetup}
       onRejectProfileCopilotPatchGroup={context.onRejectProfileCopilotPatchGroup}
+      onRunDiscoveryForTarget={context.onRunDiscoveryForTarget}
       onRunSourceDebug={context.onRunSourceDebug}
       onSaveAll={context.onSaveAll}
       onSaveSourceInstructionArtifact={context.onSaveSourceInstructionArtifact}
@@ -309,6 +311,7 @@ export function JobFinderDiscoveryRoute() {
       onOpenBrowserSession={context.onOpenBrowserSession}
       onQueueJob={context.onQueueJob}
       onRunAgentDiscovery={context.onRunAgentDiscovery}
+      onRunDiscoveryForTarget={context.onRunDiscoveryForTarget}
       onSelectJob={context.onSelectDiscoveryJob}
       recentRuns={context.workspace.recentDiscoveryRuns}
       searchPreferences={context.workspace.searchPreferences}

@@ -1,6 +1,7 @@
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import type {
+  DiscoveryRunScope,
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
@@ -73,8 +74,14 @@ export interface JobFinderWorkspaceService {
   saveSettings(
     settings: JobFinderSettings,
   ): Promise<JobFinderWorkspaceSnapshot>;
-  runDiscovery(): Promise<JobFinderWorkspaceSnapshot>;
+  runDiscovery(targetId?: string): Promise<JobFinderWorkspaceSnapshot>;
   runAgentDiscovery(
+    onActivity?: (event: DiscoveryActivityEvent) => void,
+    signal?: AbortSignal,
+    targetId?: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  runDiscoveryForTarget(
+    targetId: string,
     onActivity?: (event: DiscoveryActivityEvent) => void,
     signal?: AbortSignal,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -132,6 +139,13 @@ export interface JobFinderWorkspaceService {
     content: string,
   ): Promise<readonly ResumeAssistantMessage[]>;
   approveApply(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+}
+
+export interface DiscoveryTargetPipelineOptions {
+  targetId?: string;
+  onActivity?: (event: DiscoveryActivityEvent) => void;
+  signal?: AbortSignal;
+  scope: DiscoveryRunScope;
 }
 
 export interface RenderedResumeArtifact {

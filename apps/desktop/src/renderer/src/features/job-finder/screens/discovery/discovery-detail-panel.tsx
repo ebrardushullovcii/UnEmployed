@@ -3,6 +3,9 @@ import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
+import {
+  buildIntelligenceSummaries,
+} from '../../components/profile/profile-source-debug-instruction-utils'
 import { formatOptionalDateOnly, formatStatusLabel, getApplicationTone } from '../../lib/job-finder-utils'
 import { formatNormalizedCompensation } from '../../lib/normalized-compensation'
 
@@ -23,6 +26,9 @@ export function DiscoveryDetailPanel({
 }: DiscoveryDetailPanelProps) {
   const discoveryTargetLabels = new Map(discoveryTargets.map((target) => [target.id, target.label]))
   const normalizedCompensation = formatNormalizedCompensation(selectedJob?.normalizedCompensation)
+  const intelligenceSummaries = buildIntelligenceSummaries(
+    selectedJob?.sourceIntelligence ?? null,
+  )
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
@@ -90,6 +96,23 @@ export function DiscoveryDetailPanel({
             <p className="text-(length:--text-body) leading-7 text-foreground-soft">{selectedJob.summary ?? selectedJob.description}</p>
 
             <PreferenceList compact label="Found on" values={selectedJob.provenance.map((entry) => discoveryTargetLabels.get(entry.targetId) ?? 'Saved source')} />
+            {intelligenceSummaries.length > 0 ? (
+              <div className="grid gap-3">
+                {intelligenceSummaries.map((summary) => (
+                  <div key={summary.title} className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">{summary.title}</p>
+                    <dl className="grid gap-2 text-(length:--text-small) leading-6 text-foreground-soft">
+                      {summary.items.map((item) => (
+                        <div className="grid gap-0.5" key={`${summary.title}_${item.label}`}>
+                          <dt className="font-medium text-foreground">{item.label}</dt>
+                          <dd className="wrap-break-word">{item.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {selectedJob.keySkills.length > 0 ? <PreferenceList compact label="Skills mentioned" values={selectedJob.keySkills} /> : null}
             {selectedJob.keywordSignals.length > 0 ? <PreferenceList compact label="Targeting cues" values={selectedJob.keywordSignals.map((signal) => signal.label)} /> : null}
             {selectedJob.matchAssessment.reasons.length > 0 ? <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} /> : null}

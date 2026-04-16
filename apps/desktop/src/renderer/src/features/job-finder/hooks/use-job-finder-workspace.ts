@@ -117,9 +117,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() => window.unemployed.jobFinder.resetWorkspace()),
       runAgentDiscovery: (
         onProgress?: (event: DiscoveryActivityEvent) => void,
+        targetId?: string,
       ) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.runAgentDiscovery(onProgress),
+          window.unemployed.jobFinder.runAgentDiscovery(onProgress, targetId),
         ),
       runSourceDebug: (
         targetId: string,

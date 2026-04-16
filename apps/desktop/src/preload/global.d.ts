@@ -83,6 +83,7 @@ declare global {
         runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>;
         runAgentDiscovery: (
           onActivity?: (event: DiscoveryActivityEvent) => void,
+          targetId?: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         runSourceDebug: (
           targetId: string,

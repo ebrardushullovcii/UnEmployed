@@ -25,6 +25,7 @@ export function ProfilePreferencesTargetingSection(props: {
   busy: boolean
   discoveryTargets: SearchPreferencesEditorValues['discoveryTargets']
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
@@ -173,6 +174,7 @@ export function ProfilePreferencesTargetingSection(props: {
                 instructionArtifact={instructionArtifact}
                 key={target.id}
                 onGetSourceDebugRunDetails={props.onGetSourceDebugRunDetails}
+                onRunDiscoveryForTarget={props.onRunDiscoveryForTarget}
                 onRunSourceDebug={props.onRunSourceDebug}
                 onSaveSourceInstructionArtifact={props.onSaveSourceInstructionArtifact}
                 onVerifySourceInstructions={props.onVerifySourceInstructions}
