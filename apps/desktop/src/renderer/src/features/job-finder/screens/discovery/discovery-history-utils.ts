@@ -117,8 +117,8 @@ export function buildLiveRunRecord(
       jobsFound: event.jobsFound ?? currentExecution.jobsFound,
       jobsPersisted: event.jobsPersisted ?? currentExecution.jobsPersisted,
       jobsStaged: event.jobsStaged ?? currentExecution.jobsStaged,
-      collectionMethod: currentExecution.collectionMethod,
-      sourceIntelligenceProvider: currentExecution.sourceIntelligenceProvider,
+      collectionMethod: event.collectionMethod ?? currentExecution.collectionMethod,
+      sourceIntelligenceProvider: event.sourceIntelligenceProvider ?? currentExecution.sourceIntelligenceProvider,
     }
 
     if (event.stage === 'target' && event.message.startsWith('Starting target')) {
@@ -142,20 +142,21 @@ export function buildLiveRunRecord(
     executions.set(event.targetId, nextExecution)
   }
 
-  const targetExecutions = targetIds.map((targetId) => executions.get(targetId)).filter((execution): execution is DiscoveryTargetExecution => Boolean(execution))
+  const actualTargetIds = Array.from(executions.keys())
+  const targetExecutions = actualTargetIds.map((targetId) => executions.get(targetId)).filter((execution): execution is DiscoveryTargetExecution => Boolean(execution))
   const targetsCompleted = targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
 
   return {
     id: runId,
     state: 'running',
-    scope: targetIds.length === 1 ? 'single_target' : 'run_all',
+    scope: actualTargetIds.length === 1 ? 'single_target' : 'run_all',
     startedAt: firstEvent.timestamp,
     completedAt: null,
-    targetIds,
+    targetIds: actualTargetIds,
     targetExecutions,
     activity: runEvents,
     summary: {
-      targetsPlanned: targetIds.length,
+      targetsPlanned: actualTargetIds.length,
       targetsCompleted,
       validJobsFound: targetExecutions.reduce((total, execution) => total + execution.jobsFound, 0),
       jobsPersisted: targetExecutions.reduce((total, execution) => total + execution.jobsPersisted, 0),

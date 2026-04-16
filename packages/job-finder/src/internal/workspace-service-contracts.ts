@@ -147,6 +147,7 @@ export interface DiscoveryTargetPipelineOptions {
   signal?: AbortSignal;
   scope: DiscoveryRunScope;
   allowInactiveMarking?: boolean;
+  useAgentRuntime?: boolean;
 }
 
 export interface RenderedResumeArtifact {

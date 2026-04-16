@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import type { LearnedInstructionIntelligenceSummary } from '../../lib/source-intelligence-utils'
+import { ProfileIntelligenceSummaries } from './profile-intelligence-summaries'
 import { ProfileTextarea } from './profile-form-primitives'
 import {
   type LearnedInstructionSection,
@@ -44,7 +45,7 @@ export function ProfileLearnedInstructionsPanel({
 }: ProfileLearnedInstructionsPanelProps) {
   const editingTextareaId = useId()
 
-  if (sections.length === 0) {
+  if (sections.length === 0 && intelligenceSummaries.length === 0) {
     return null
   }
 
@@ -56,26 +57,15 @@ export function ProfileLearnedInstructionsPanel({
         </p>
         <p className="text-[0.82rem] leading-6 text-foreground-soft">{instructionArtifactDescription}</p>
       </header>
-      {intelligenceSummaries.length > 0 ? (
-        <div className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3">
-          {intelligenceSummaries.map((summary) => (
-            <section className="grid gap-2" key={`${targetId}_${summary.title}`}>
-              <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                {summary.title}
-              </p>
-              <dl className="grid gap-2 text-[0.84rem] leading-6 text-foreground-soft">
-                {summary.items.map((item) => (
-                  <div className="grid gap-0.5" key={`${summary.title}_${item.label}`}>
-                    <dt className="font-medium text-foreground">{item.label}</dt>
-                    <dd className="wrap-break-word">{item.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ))}
-        </div>
-      ) : null}
-      <div className="grid gap-3">
+      <ProfileIntelligenceSummaries
+        className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3"
+        intelligenceSummaries={intelligenceSummaries}
+        listClassName="grid gap-2 text-[0.84rem] leading-6 text-foreground-soft"
+        sectionClassName="grid gap-2"
+        titleClassName="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
+      />
+      {sections.length > 0 ? (
+        <div className="grid gap-3">
         {sections.map((section) => (
           <section key={`${targetId}_${section.label}`} className="grid gap-2">
             <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
@@ -149,7 +139,8 @@ export function ProfileLearnedInstructionsPanel({
             </ul>
           </section>
         ))}
-      </div>
+        </div>
+      ) : null}
     </section>
   )
 }

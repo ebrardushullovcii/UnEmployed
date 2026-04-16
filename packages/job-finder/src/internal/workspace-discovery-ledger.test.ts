@@ -119,4 +119,28 @@ describe("workspace-discovery-ledger", () => {
     expect(ledger[0]?.latestStatus).toBe("inactive");
     expect(ledger[0]?.inactiveAt).toBe("2026-03-20T10:00:00.000Z");
   });
+
+  test("clears stale inactive timestamps when a posting becomes active again", () => {
+    const ledger = recordDiscoveredPostingInLedger({
+      ledger: [createLedgerEntry({ latestStatus: "inactive", inactiveAt: "2026-03-20T09:10:00.000Z" })],
+      posting: {
+        canonicalUrl: "https://example.com/jobs/job-1",
+        source: "target_site",
+        sourceJobId: "job_1",
+        providerKey: null,
+        providerBoardToken: null,
+        providerIdentifier: null,
+        title: "Software Engineer",
+        company: "Acme",
+        collectionMethod: "careers_page",
+        titleTriageOutcome: "pass",
+      },
+      targetId: "target_one",
+      seenAt: "2026-03-20T10:00:00.000Z",
+      status: "seen",
+    });
+
+    expect(ledger[0]?.latestStatus).toBe("seen");
+    expect(ledger[0]?.inactiveAt).toBeNull();
+  });
 });

@@ -708,6 +708,10 @@ export const DiscoveryActivityEventSchema = z.object({
   targetId: NonEmptyStringSchema.nullable().default(null),
   adapterKind: JobSourceAdapterKindSchema.nullable().default(null),
   resolvedAdapterKind: JobSourceSchema.nullable().default(null),
+  collectionMethod:
+    JobDiscoveryCollectionMethodSchema.nullable().default(null),
+  sourceIntelligenceProvider:
+    SourceIntelligenceProviderKeySchema.nullable().default(null),
   message: NonEmptyStringSchema,
   terminalState: DiscoveryActivityTerminalStateSchema.nullable().default(null),
   url: UrlStringSchema.nullable().default(null),

@@ -136,4 +136,39 @@ describe("collectPublicProviderJobs", () => {
       "Public provider API collection failed: Lever API request timed out.",
     );
   });
+
+  test("normalizes Lever createdAt timestamps when present", async () => {
+    const target = createLeverTarget();
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target,
+      currentArtifact: null,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          id: "lever_job_1",
+          text: "Senior Engineer",
+          createdAt: "2024-07-24T16:08:01-04:00",
+          hostedUrl: "https://jobs.lever.co/aircall/lever_job_1",
+          applyUrl: null,
+          descriptionPlain: "Build platform features.",
+          categories: {
+            location: "Remote",
+          },
+        },
+      ],
+    } as Response);
+
+    const result = await collectPublicProviderJobs({
+      target,
+      artifact: { intelligence },
+      source: "target_site",
+    });
+
+    expect(result.warning).toBeNull();
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]?.postedAt).toBe("2024-07-24T20:08:01.000Z");
+  });
 });

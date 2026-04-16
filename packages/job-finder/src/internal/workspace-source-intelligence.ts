@@ -27,7 +27,9 @@ function tryParseUrl(value: string | null | undefined): URL | null {
 }
 
 function extractUrlsFromText(text: string): string[] {
-  return text.match(/https?:\/\/[^\s)\]>",]+/gi) ?? [];
+  return (text.match(/https?:\/\/[^\s)\]>",]+/gi) ?? []).map((match) =>
+    match.replace(/[.,;:!?\)\]>"]+$/g, ""),
+  );
 }
 
 function extractSameHostUrls(target: JobDiscoveryTarget, lines: readonly string[]) {
@@ -636,6 +638,7 @@ export async function collectPublicProviderJobs(input: {
         const payload = (await response.json()) as Array<{
           id?: string;
           text?: string;
+          createdAt?: string | null;
           hostedUrl?: string;
           applyUrl?: string | null;
           descriptionPlain?: string | null;
@@ -669,7 +672,7 @@ export async function collectPublicProviderJobs(input: {
                 workMode: inferWorkModes(job.categories?.location),
                 applyPath: "external_redirect",
                 easyApplyEligible: false,
-                postedAt: null,
+                postedAt: normalizeProviderDateTime(job.createdAt),
                 postedAtText: null,
                 discoveredAt: new Date().toISOString(),
                 salaryText: null,

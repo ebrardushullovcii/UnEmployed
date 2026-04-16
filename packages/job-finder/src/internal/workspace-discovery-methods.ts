@@ -208,6 +208,7 @@ async function collectTargetJobs(input: {
   emitActivity: (event: DiscoveryActivityEvent) => void;
   signal?: AbortSignal;
   openedSessionSources: Set<JobSource>;
+  useAgentRuntime: boolean;
 }): Promise<{
   result: DiscoveryRunResult;
   collectionMethod: JobPosting["collectionMethod"];
@@ -233,10 +234,11 @@ async function collectTargetJobs(input: {
   const providerLabel = intelligence.provider?.label ?? "Unknown provider";
 
   if (discoveryMethod === "public_api") {
+    const startedAt = new Date().toISOString();
     input.emitActivity(
       createDiscoveryEvent({
         runId: input.activeRun.id,
-        timestamp: new Date().toISOString(),
+        timestamp: startedAt,
         kind: "progress",
         stage: "navigation",
         waitReason: "executing_tool",
@@ -258,12 +260,13 @@ async function collectTargetJobs(input: {
       artifact: { intelligence },
       source: adapterKind,
     });
+    const completedAt = new Date().toISOString();
 
     return {
       result: {
         source: adapterKind,
-        startedAt: new Date().toISOString(),
-        completedAt: new Date().toISOString(),
+        startedAt,
+        completedAt,
         querySummary: `${target.label} via ${providerLabel} API`,
         warning: apiResult.warning,
         jobs: apiResult.jobs.map((posting) =>
@@ -318,7 +321,7 @@ async function collectTargetJobs(input: {
   const adapter = discoveryAdapters[adapterKind];
   const instructionLines = buildInstructionGuidance(activeInstruction);
 
-  if (ctx.browserRuntime.runAgentDiscovery) {
+  if (input.useAgentRuntime && ctx.browserRuntime.runAgentDiscovery) {
     const result = await ctx.browserRuntime.runAgentDiscovery(adapterKind, {
       userProfile: input.profile,
       searchPreferences: {
@@ -417,6 +420,7 @@ export function createWorkspaceDiscoveryMethods(
   async function executeDiscoveryPipeline(
     options: DiscoveryTargetPipelineOptions,
   ) {
+    let aborted = false;
     const [profile, searchPreferences, settings, startingSavedJobs, startingDiscovery] =
       await Promise.all([
         ctx.repository.getProfile(),
@@ -560,13 +564,14 @@ export function createWorkspaceDiscoveryMethods(
           target,
           sourceInstructionArtifacts,
           profile,
-          searchPreferences,
+          searchPreferences: enrichedPreferences,
           targetJobCount: discoveryBudget.targetJobCount,
           maxSteps: discoveryBudget.maxSteps,
           activeRun,
           emitActivity,
           ...(options.signal ? { signal: options.signal } : {}),
           openedSessionSources,
+          useAgentRuntime: options.useAgentRuntime ?? false,
         });
 
         activeRun = updateTargetExecution(activeRun, target.id, (entry) => ({
@@ -858,27 +863,10 @@ export function createWorkspaceDiscoveryMethods(
           touchedSavedJobIds,
         ),
       );
-      await ctx.repository.saveDiscoveryState(
-        finalizeDiscoveryState(
-          {
-            ...latestDiscoveryState,
-            pendingDiscoveryJobs: overlayTouchedPendingJobs(
-              latestDiscoveryState.pendingDiscoveryJobs,
-              workingPendingJobs,
-              touchedPendingJobIds,
-            ),
-            discoveryLedger: workingLedger,
-          },
-          activeRun,
-          enrichedPreferences,
-        ),
-      );
-
       if (!interrupted) {
         throw error;
       }
-
-      return ctx.getWorkspaceSnapshot();
+      aborted = true;
     } finally {
       const browserCloseoutOccurredAt = new Date().toISOString();
       if (!keepSessionAlive) {
@@ -931,6 +919,10 @@ export function createWorkspaceDiscoveryMethods(
       ),
     );
 
+    if (aborted) {
+      return ctx.getWorkspaceSnapshot();
+    }
+
     return ctx.getWorkspaceSnapshot();
   }
 
@@ -940,6 +932,7 @@ export function createWorkspaceDiscoveryMethods(
         scope: targetId ? "single_target" : "run_all",
         ...(targetId ? { targetId } : {}),
         allowInactiveMarking: !targetId,
+        useAgentRuntime: false,
       });
     },
     async runAgentDiscovery(onActivity, signal, targetId) {
@@ -949,6 +942,7 @@ export function createWorkspaceDiscoveryMethods(
         ...(onActivity ? { onActivity } : {}),
         ...(signal ? { signal } : {}),
         allowInactiveMarking: !targetId,
+        useAgentRuntime: true,
       });
     },
     async runDiscoveryForTarget(targetId, onActivity, signal) {
@@ -958,6 +952,7 @@ export function createWorkspaceDiscoveryMethods(
         ...(onActivity ? { onActivity } : {}),
         ...(signal ? { signal } : {}),
         allowInactiveMarking: false,
+        useAgentRuntime: true,
       });
     },
   };

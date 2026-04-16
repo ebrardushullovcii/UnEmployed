@@ -3,9 +3,9 @@ import type {
   SourceInstructionArtifact
 } from '@unemployed/contracts'
 import {
-  buildIntelligenceSummaries,
   type LearnedInstructionIntelligenceSummary
 } from '../../lib/source-intelligence-utils'
+export { buildLearnedInstructionIntelligenceSummaries } from '../../lib/source-intelligence-utils'
 
 export type LearnedInstructionField =
   | 'navigationGuidance'
@@ -189,12 +189,6 @@ export function describeLearnedInstructionUsage(artifact: SourceInstructionArtif
   }
 
   return 'Saved from the latest source check.'
-}
-
-export function buildLearnedInstructionIntelligenceSummaries(
-  artifact: SourceInstructionArtifact | null
-): LearnedInstructionIntelligenceSummary[] {
-  return buildIntelligenceSummaries(artifact?.intelligence ?? null)
 }
 
 export function buildLearnedInstructionSections(

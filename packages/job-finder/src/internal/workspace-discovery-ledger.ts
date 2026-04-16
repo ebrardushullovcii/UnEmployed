@@ -177,8 +177,7 @@ export function recordDiscoveredPostingInLedger(input: {
         input.status === "enriched"
           ? input.seenAt
           : existingEntry?.lastEnrichedAt ?? null,
-      inactiveAt:
-        input.status === "inactive" ? input.seenAt : existingEntry?.inactiveAt ?? null,
+      inactiveAt: input.status === "inactive" ? input.seenAt : null,
       latestStatus: input.status,
       titleTriageOutcome: input.posting.titleTriageOutcome,
       skipReason:
