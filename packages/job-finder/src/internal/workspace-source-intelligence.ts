@@ -23,6 +23,22 @@ type GreenhouseJobPayload = {
   content?: string | null;
 };
 
+type LeverJobPayload = {
+  id: string;
+  text?: string;
+  createdAt?: string | number | null;
+  hostedUrl?: string;
+  applyUrl?: string | null;
+  descriptionPlain?: string | null;
+  description?: string | null;
+  categories?: {
+    location?: string | null;
+    team?: string | null;
+    department?: string | null;
+    commitment?: string | null;
+  } | null;
+};
+
 function parseOptionalString(value: unknown): { value: string } | null {
   return typeof value === "string" ? { value } : null;
 }
@@ -33,6 +49,20 @@ function parseNullableString(value: unknown): { value: string | null } | null {
   }
 
   return typeof value === "string" ? { value } : null;
+}
+
+function parseNullableStringOrNumber(
+  value: unknown,
+): { value: string | number | null } | null {
+  if (value == null) {
+    return { value: null };
+  }
+
+  if (typeof value === "string") {
+    return { value };
+  }
+
+  return typeof value === "number" && Number.isFinite(value) ? { value } : null;
 }
 
 function parseGreenhouseJobsResponse(value: unknown): { jobs: GreenhouseJobPayload[] } {
@@ -91,6 +121,69 @@ function parseGreenhouseJobsResponse(value: unknown): { jobs: GreenhouseJobPaylo
   return { jobs };
 }
 
+function parseLeverJobsResponse(value: unknown): { jobs: LeverJobPayload[] } {
+  if (!Array.isArray(value)) {
+    throw new Error("Lever API returned an invalid payload.");
+  }
+
+  const jobs = value.map((job) => {
+    if (!job || typeof job !== "object") {
+      throw new Error("Lever API returned an invalid payload.");
+    }
+
+    const record = job as Record<string, unknown>;
+    const categoriesValue = record.categories;
+    const payload: LeverJobPayload = {
+      id: typeof record.id === "string" ? record.id : "",
+    };
+    const parsedText = parseOptionalString(record.text);
+    const parsedCreatedAt = parseNullableStringOrNumber(record.createdAt);
+    const parsedHostedUrl = parseOptionalString(record.hostedUrl);
+    const parsedApplyUrl = parseNullableString(record.applyUrl);
+    const parsedDescriptionPlain = parseNullableString(record.descriptionPlain);
+    const parsedDescription = parseNullableString(record.description);
+
+    if (parsedText) {
+      payload.text = parsedText.value;
+    }
+    if (parsedCreatedAt) {
+      payload.createdAt = parsedCreatedAt.value;
+    }
+    if (parsedHostedUrl) {
+      payload.hostedUrl = parsedHostedUrl.value;
+    }
+    if (parsedApplyUrl) {
+      payload.applyUrl = parsedApplyUrl.value;
+    }
+    if (parsedDescriptionPlain) {
+      payload.descriptionPlain = parsedDescriptionPlain.value;
+    }
+    if (parsedDescription) {
+      payload.description = parsedDescription.value;
+    }
+    if (categoriesValue == null) {
+      payload.categories = null;
+    } else if (typeof categoriesValue === "object") {
+      const categoryRecord = categoriesValue as Record<string, unknown>;
+      const parsedLocation = parseNullableString(categoryRecord.location);
+      const parsedTeam = parseNullableString(categoryRecord.team);
+      const parsedDepartment = parseNullableString(categoryRecord.department);
+      const parsedCommitment = parseNullableString(categoryRecord.commitment);
+
+      payload.categories = {
+        ...(parsedLocation ? { location: parsedLocation.value } : {}),
+        ...(parsedTeam ? { team: parsedTeam.value } : {}),
+        ...(parsedDepartment ? { department: parsedDepartment.value } : {}),
+        ...(parsedCommitment ? { commitment: parsedCommitment.value } : {}),
+      };
+    }
+
+    return payload;
+  });
+
+  return { jobs };
+}
+
 function tryParseUrl(value: string | null | undefined): URL | null {
   if (!value) {
     return null;
@@ -105,7 +198,7 @@ function tryParseUrl(value: string | null | undefined): URL | null {
 
 function extractUrlsFromText(text: string): string[] {
   return (text.match(/https?:\/\/[^\s)\]>",]+/gi) ?? []).map((match) =>
-    match.replace(/[.,;:!?\)\]>"]+$/g, ""),
+    match.replace(/[.,;:!?)\]>"]+$/g, ""),
   );
 }
 
@@ -554,9 +647,15 @@ function htmlToText(value: string | null | undefined): string {
     .trim();
 }
 
-function normalizeProviderDateTime(value: string | null | undefined): string | null {
+function normalizeProviderDateTime(
+  value: string | number | null | undefined,
+): string | null {
   if (!value) {
     return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? new Date(value).toISOString() : null;
   }
 
   const trimmed = value.trim();
@@ -709,24 +808,10 @@ export async function collectPublicProviderJobs(input: {
           throw new Error(`Lever API returned ${response.status}.`);
         }
 
-        const payload = (await response.json()) as Array<{
-          id?: string;
-          text?: string;
-          createdAt?: string | null;
-          hostedUrl?: string;
-          applyUrl?: string | null;
-          descriptionPlain?: string | null;
-          description?: string | null;
-          categories?: {
-            location?: string | null;
-            team?: string | null;
-            department?: string | null;
-            commitment?: string | null;
-          } | null;
-        }>;
+        const payload = parseLeverJobsResponse(await response.json());
 
         return {
-          jobs: payload.flatMap((job) => {
+          jobs: payload.jobs.flatMap((job) => {
             if (!job.id || !job.text || !job.hostedUrl) {
               return [];
             }

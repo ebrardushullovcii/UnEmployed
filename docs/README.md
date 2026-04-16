@@ -52,7 +52,7 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed shared data expansion plan: [exec-plans/completed/011-job-finder-shared-data-expansion.md](exec-plans/completed/011-job-finder-shared-data-expansion.md)
 - Completed guided setup and profile copilot plan: [exec-plans/completed/012-job-finder-guided-setup-and-profile-copilot.md](exec-plans/completed/012-job-finder-guided-setup-and-profile-copilot.md)
 - Completed source intelligence and faster discovery plan: [exec-plans/completed/013-job-finder-source-intelligence-and-faster-discovery.md](exec-plans/completed/013-job-finder-source-intelligence-and-faster-discovery.md)
-- Completed 013 live benchmark report: [exec-plans/completed/013-benchmark-results.md](exec-plans/completed/013-benchmark-results.md)
+- Completed 013 companion benchmark report and evidence: [exec-plans/completed/013-benchmark-results.md](exec-plans/completed/013-benchmark-results.md)
 - Queued resume output and template quality plan: [exec-plans/queued/014-job-finder-resume-output-and-template-quality.md](exec-plans/queued/014-job-finder-resume-output-and-template-quality.md)
 - Queued automatic job apply plan: [exec-plans/queued/015-job-finder-automatic-job-apply.md](exec-plans/queued/015-job-finder-automatic-job-apply.md)
 - Queued shared agent auto compaction plan: [exec-plans/queued/016-shared-agent-auto-compaction.md](exec-plans/queued/016-shared-agent-auto-compaction.md)

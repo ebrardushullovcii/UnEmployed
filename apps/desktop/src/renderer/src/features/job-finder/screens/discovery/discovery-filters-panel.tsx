@@ -67,7 +67,6 @@ export function DiscoveryFiltersPanel({
 }: DiscoveryFiltersPanelProps) {
   const searchControlsHeadingId = useId();
   const sectionHeadingPrefix = useId();
-  const runOneSourceOptionPrefix = useId();
   const sections = useMemo<
     Array<{
       label: string;
@@ -246,7 +245,7 @@ export function DiscoveryFiltersPanel({
             </section>
           )})}
 
-          {enabledTargets.length > 0 ? (
+          {enabledTargets.length > 0 && onRunDiscoveryForTarget ? (
             <section aria-labelledby={runOneSourceHeadingId} className="min-w-0 border-t border-(--surface-panel-border) px-4 py-4">
               <div className="grid min-w-0 gap-3">
                 <h3 className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-badge) text-foreground-muted" id={runOneSourceHeadingId}>
@@ -255,7 +254,6 @@ export function DiscoveryFiltersPanel({
                 <div className="grid gap-2">
                   {enabledTargets.map((target) => {
                     const isActiveSingleTarget = activeTargetId === target.id;
-                    const targetButtonId = `${runOneSourceOptionPrefix}-${target.id}`;
 
                     return (
                       <Button
@@ -263,7 +261,6 @@ export function DiscoveryFiltersPanel({
                         aria-pressed={isActiveSingleTarget}
                         className="h-auto min-h-11 w-full justify-between whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
                         disabled={busy || !onRunDiscoveryForTarget}
-                        id={targetButtonId}
                         key={target.id}
                         onClick={() => onRunDiscoveryForTarget?.(target.id)}
                         size="sm"

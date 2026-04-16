@@ -1,5 +1,6 @@
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import {
+  type SourceIntelligenceArtifact,
   type JobDiscoveryTarget,
   type JobSource,
   type SourceDebugPhase,
@@ -21,6 +22,44 @@ const SOURCE_DEBUG_PHASES: SourceDebugPhase[] = [
   "apply_path_validation",
   "replay_verification",
 ];
+
+const SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE = {
+  navigationGuidance: [],
+  searchGuidance: [],
+  detailGuidance: [],
+  applyGuidance: [],
+  warnings: [],
+  intelligence: {
+    provider: null,
+    collection: {
+      preferredMethod: "fallback_search",
+      rankedMethods: [],
+      startingRoutes: [],
+      searchRouteTemplates: [],
+      detailRoutePatterns: [],
+      listingMarkers: [],
+    },
+    apply: {
+      applyPath: "unknown",
+      authMarkers: [],
+      consentMarkers: [],
+      questionSurfaceHints: [],
+      resumeUploadHints: [],
+    },
+    reliability: {
+      selectorFingerprints: [],
+      stableControlNames: [],
+      failureFingerprints: [],
+      verifiedAt: null,
+      freshnessNotes: [],
+    },
+    overrides: {
+      forceMethod: null,
+      deniedRoutePatterns: [],
+      extraStartingRoutes: [],
+    },
+  } satisfies SourceIntelligenceArtifact,
+} satisfies SourceInstructionReviewOverride;
 
 export function buildSourceInstructionFinalReviewPrompt(input: {
   target: JobDiscoveryTarget;
@@ -83,7 +122,7 @@ export function buildSourceInstructionFinalReviewPrompt(input: {
     "Do not invent routes, controls, or outcomes that are not supported by the evidence.",
     "Keep the output concise and operator-facing.",
     "Return JSON only with this shape:",
-    '{"navigationGuidance":[],"searchGuidance":[],"detailGuidance":[],"applyGuidance":[],"warnings":[],"intelligence":{"provider":null,"collection":{"preferredMethod":"fallback_search","rankedMethods":[],"startingRoutes":[],"searchRouteTemplates":[],"detailRoutePatterns":[],"listingMarkers":[]},"apply":{"applyPath":"unknown","authMarkers":[],"consentMarkers":[],"questionSurfaceHints":[],"resumeUploadHints":[]},"reliability":{"selectorFingerprints":[],"stableControlNames":[],"failureFingerprints":[],"verifiedAt":null,"freshnessNotes":[]},"overrides":{"forceMethod":null,"deniedRoutePatterns":[],"extraStartingRoutes":[]}}}',
+    JSON.stringify(SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE),
     "Guidance rules:",
     "- Prefer stable routes, visible controls, canonical detail behavior, and safe apply-entry rules.",
     "- Keep typed intelligence aligned with the evidence: provider classification, ranked routes, preferred collection method, apply hints, reliability notes, and structured overrides should reflect what the run actually proved.",

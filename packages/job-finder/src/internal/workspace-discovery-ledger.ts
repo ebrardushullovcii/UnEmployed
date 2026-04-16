@@ -5,6 +5,7 @@ import {
   type JobDiscoveryCollectionMethod,
   type JobPosting,
   type SavedJob,
+  type SavedJobDiscoveryProvenance,
 } from "@unemployed/contracts";
 import { createUniqueId, normalizeText } from "./shared";
 
@@ -87,8 +88,6 @@ export function findDiscoveryLedgerEntry(
     | "providerKey"
     | "providerBoardToken"
     | "providerIdentifier"
-    | "title"
-    | "company"
   >,
 ): DiscoveryLedgerEntry | null {
   return (
@@ -190,6 +189,9 @@ export function markSavedJobStatusInLedger(input: {
   skipReason: string | null;
 }): DiscoveryLedgerEntry[] {
   const existingEntry = findDiscoveryLedgerEntry(input.ledger, input.job);
+  // Prefer the most recent saved-job provenance, then older provenance and existing
+  // ledger context, so status updates still attach to the same target after imports,
+  // merges, or legacy records that may not carry a fresh active target id.
   const targetId =
     input.job.provenance[input.job.provenance.length - 1]?.targetId ??
     input.job.provenance[0]?.targetId ??
@@ -317,7 +319,7 @@ export function createDiscoveryProvenance(input: {
   providerKey: SavedJob["providerKey"];
   providerBoardToken: SavedJob["providerBoardToken"];
   titleTriageOutcome: DiscoveryTitleTriageOutcome;
-}) {
+}): SavedJobDiscoveryProvenance {
   return {
     targetId: input.targetId,
     adapterKind: input.adapterKind,

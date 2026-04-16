@@ -136,23 +136,23 @@ export function buildLiveRunRecord(
     executions.set(event.targetId, nextExecution)
   }
 
-  const observedTargetIds = runEvents
-    .flatMap((event) => (event.targetId ? [event.targetId] : []))
-    .filter((targetId, index, values) => values.indexOf(targetId) === index)
-  const targetExecutions = observedTargetIds.map((targetId) => executions.get(targetId)).filter((execution): execution is DiscoveryTargetExecution => Boolean(execution))
+  const targetExecutions = [...executions.values()]
   const targetsCompleted = targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
+  const isSingleTargetRun =
+    enabledTargets.length === 1 ||
+    runEvents.some((event) => event.message.toLowerCase().includes('planning discovery for'))
 
   return {
     id: runId,
     state: 'running',
-    scope: observedTargetIds.length === 1 ? 'single_target' : 'run_all',
+    scope: isSingleTargetRun ? 'single_target' : 'run_all',
     startedAt: firstEvent.timestamp,
     completedAt: null,
-    targetIds: observedTargetIds,
+    targetIds: enabledTargets.map((target) => target.id),
     targetExecutions,
     activity: runEvents,
     summary: {
-      targetsPlanned: observedTargetIds.length,
+      targetsPlanned: enabledTargets.length,
       targetsCompleted,
       validJobsFound: targetExecutions.reduce((total, execution) => total + execution.jobsFound, 0),
       jobsPersisted: targetExecutions.reduce((total, execution) => total + execution.jobsPersisted, 0),

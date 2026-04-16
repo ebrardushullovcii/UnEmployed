@@ -234,13 +234,13 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         <div className="flex flex-wrap gap-2">
           {props.onRunDiscoveryForTarget ? (
             <Button
-              aria-label={`Search only ${accessibleLabel}`}
+              aria-label={`Run search now for ${accessibleLabel}`}
               disabled={props.busy || !props.target.enabled || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
               onClick={handleRunDiscoveryForTarget}
               type="button"
               variant="primary"
             >
-              Search this source
+              Search now
             </Button>
           ) : null}
           <Button
@@ -356,7 +356,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         <div className="grid gap-2 md:col-span-2">
           <CheckboxField
             checked={props.target.enabled}
-            label="Search this source"
+            label="Include this source in searches"
             onCheckedChange={handleToggleEnabled}
           />
           <p aria-live="polite" aria-atomic="true" className="text-[0.82rem] leading-6 text-foreground-soft" role="status">

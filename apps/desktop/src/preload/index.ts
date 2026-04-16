@@ -11,6 +11,7 @@ import type {
   ResumeImportBenchmarkRequest,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
+  JobFinderAgentDiscoveryActionInput,
   JobFinderSettings,
   ProfileSetupState,
   ResumeAssistantMessage,
@@ -220,11 +221,13 @@ const desktopApi = {
         }
       };
 
+      const payload: JobFinderAgentDiscoveryActionInput = {
+        requestId,
+        targetId: targetId ?? null,
+      };
+
       const promise = ipcRenderer
-        .invoke("job-finder:run-agent-discovery", {
-          requestId,
-          targetId: targetId ?? null,
-        })
+        .invoke("job-finder:run-agent-discovery", payload)
         .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>;
 
       return promise;

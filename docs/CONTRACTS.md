@@ -45,7 +45,7 @@
 
 - `AgentDiscoveryProgress` is the shared browser-agent progress envelope for discovery-facing orchestration and may carry product-facing `message`, `waitReason`, `phase`, `elapsedMs`, and `lastActivityAt` fields in addition to the current URL, jobs found, and step count.
 - `DiscoveryActivityEvent` may now retain the normalized `waitReason` alongside its stage so saved discovery activity can distinguish browser movement from AI waiting, merge work, and persistence work after the fact.
-- `DiscoveryActivityEvent` also carries nullable `collectionMethod` and `sourceIntelligenceProvider` fields so live and retained run history can explain whether a target used API collection, browser search, or provider-aware fast paths.
+- `DiscoveryActivityEvent` also carries nullable `collectionMethod` and `sourceIntelligenceProvider` fields so live and retained run history can explain whether a target used API collection, browser search, or provider-aware fast paths. These fields are nullable here because activity events can be emitted before source intelligence or collection-method resolution is complete.
 - `SourceDebugProgressEvent` is the typed live progress payload for `runSourceDebug`; desktop IPC may stream it while a run is active so renderer surfaces can explain browser startup, AI waiting, tool execution, persistence, manual prerequisites, and final review or finalization work in real time.
 - Progress wait states should reuse the shared `BrowserRunWaitReason` vocabulary instead of package-local ad hoc strings so discovery, source-debug, and renderer status surfaces stay aligned.
 
@@ -78,10 +78,10 @@
 - `employerWebsiteUrl`: nullable absolute URL string, defaults to `null`; must be normalized to a real URL before validation.
 - `employerDomain`: nullable non-empty string, defaults to `null`; normalized hostname/domain used for employer research targeting.
 - `atsProvider`: nullable non-empty string, defaults to `null`; only set when grounded from the source or URL patterns.
-- `discoveryMethod`: required enum with default `catalog_seed`; distinguishes seeded fixtures, browser-agent discovery, and public provider API collection.
-- `collectionMethod`: required enum with default `fallback_search`; records how the target was collected even when the overall discovery method is browser- or API-driven.
-- `providerKey`, `providerBoardToken`, and `providerIdentifier`: nullable provider-routing metadata retained when source intelligence identifies a public board API or provider-specific listing shape.
-- `sourceIntelligence`: nullable `SourceIntelligenceArtifact`; keeps the typed provider, route, reliability, and apply-hint artifact used for this posting.
+- `discoveryMethod`: required enum with default `catalog_seed`; records the top-level origin of the posting (`catalog_seed`, browser-agent discovery, or public provider API collection).
+- `collectionMethod`: required enum with default `fallback_search`; records the concrete collection path used for the target or posting inside that broader discovery origin. In practice, `discoveryMethod` answers `where did this posting come from overall?`, while `collectionMethod` answers `how was this target actually collected?`.
+- `providerKey`, `providerBoardToken`, and `providerIdentifier`: nullable provider-routing metadata retained when source intelligence identifies a public board API or provider-specific listing shape. These are the denormalized lookup fields used most often for routing, identity matching, and persisted summaries.
+- `sourceIntelligence`: nullable `SourceIntelligenceArtifact`; keeps the fuller typed provider, route, reliability, collection, and apply-hint artifact used for this posting. When present, the top-level provider metadata fields above should be treated as concise mirrors or extracts of that richer artifact, not as a second competing source of truth.
 - `titleTriageOutcome`: enum defaulting to `pass`; records whether preferences or title-first triage kept, deprioritized, or skipped the posting.
 - `screeningHints`: additive job-attached screening metadata for sponsorship, clearance, relocation, travel, and remote-geography hints.
 - `keywordSignals`: weighted keyword cues retained on saved jobs for later resume targeting, review, and apply memory.
@@ -93,7 +93,9 @@
 
 - `DiscoveryRunRecord.scope`: persisted run scope enum (`run_all` or `single_target`) used by renderer history and IPC consumers.
 - `DiscoveryRunRecord.summary.browserCloseout`: nullable closeout summary describing whether the browser was closed or kept alive, plus the observed session status/driver and `occurredAt` timestamp.
-- `DiscoveryTargetExecution`: per-target retained execution summary including nullable `collectionMethod`, nullable `sourceIntelligenceProvider`, target-local counts, warnings, and optional timing.
+- `DiscoveryTargetExecution`: per-target retained execution summary including nullable `collectionMethod`, nullable `sourceIntelligenceProvider`, warnings, optional timing, and the concrete target-local count fields `jobsFound`, `jobsPersisted`, and `jobsStaged`.
+- `collectionMethod` nullability differs by entity on purpose: `JobPosting`, `SavedJob.provenance[]`, and `DiscoveryLedgerEntry` persist a concrete collection method once a posting or ledger record exists, while `DiscoveryTargetExecution` and `DiscoveryActivityEvent` allow `null` because execution- or event-level history may be recorded before the target's final method is known or when no concrete method was resolved.
+- `sourceIntelligenceProvider` on `DiscoveryTargetExecution` and `DiscoveryActivityEvent` is only the normalized provider key summary; the richer provider metadata fields (`providerKey`, `providerBoardToken`, `providerIdentifier`) and the full `sourceIntelligence` artifact remain on the persisted posting and related provenance records.
 
 ## Application Memory Fields
 

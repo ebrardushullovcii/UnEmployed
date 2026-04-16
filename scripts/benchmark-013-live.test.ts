@@ -3,12 +3,12 @@ import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import dotenv from 'dotenv'
 import { describe, expect, test } from 'vitest'
 import { createJobFinderAiClientFromEnvironment } from '@unemployed/ai-providers'
 import { createBrowserAgentRuntime } from '@unemployed/browser-runtime'
 import {
   CandidateProfileSchema,
+  JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
 } from '@unemployed/contracts'
 import { createInMemoryJobFinderRepository } from '@unemployed/db'
@@ -27,9 +27,22 @@ const outputDir = process.env.BENCHMARK_OUTPUT_DIR
 const outputVariant = process.env.BENCHMARK_VARIANT ?? 'after'
 const headless = (process.env.UNEMPLOYED_BROWSER_HEADLESS ?? '1') === '1'
 const runLiveBenchmark = process.env.UNEMPLOYED_RUN_013_LIVE_BENCHMARK === '1'
+
+function getDefaultChromeExecutablePath(): string {
+  if (process.platform === 'win32') {
+    const programFiles = process.env.PROGRAMFILES ?? 'C:\\Program Files'
+    return path.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe')
+  }
+
+  if (process.platform === 'darwin') {
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+  }
+
+  return '/usr/bin/google-chrome'
+}
+
 const chromeExecutablePath =
-  process.env.UNEMPLOYED_CHROME_PATH ??
-  'C:/Program Files/Google/Chrome/Application/chrome.exe'
+  process.env.UNEMPLOYED_CHROME_PATH ?? getDefaultChromeExecutablePath()
 
 const benchmarkTargets = [
   {
@@ -55,6 +68,34 @@ const benchmarkTargets = [
   },
 ] as const
 
+function parseEnvFile(content: string): Record<string, string> {
+  const parsed: Record<string, string> = {}
+
+  for (const rawLine of content.split(/\r?\n/u)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) {
+      continue
+    }
+
+    const separatorIndex = line.indexOf('=')
+    if (separatorIndex <= 0) {
+      continue
+    }
+
+    const key = line.slice(0, separatorIndex).trim()
+    const rawValue = line.slice(separatorIndex + 1).trim()
+    const unquotedValue =
+      (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+      (rawValue.startsWith("'") && rawValue.endsWith("'"))
+        ? rawValue.slice(1, -1)
+        : rawValue
+
+    parsed[key] = unquotedValue.replace(/\\n/g, '\n')
+  }
+
+  return parsed
+}
+
 function loadEnvOverrides(root: string): Record<string, string> {
   const candidates = [
     path.join(root, '.env'),
@@ -69,12 +110,10 @@ function loadEnvOverrides(root: string): Record<string, string> {
       continue
     }
 
-    const parsed = dotenv.parse(readFileSync(candidate, 'utf8'))
+    const parsed = parseEnvFile(readFileSync(candidate, 'utf8'))
     Object.assign(
       merged,
-      Object.fromEntries(
-        Object.entries(parsed).map(([key, value]) => [key, value.replace(/\\n/g, '\n')])
-      )
+      parsed,
     )
   }
 
@@ -99,9 +138,11 @@ async function loadFixture() {
 
 function buildSeed(fixture: Awaited<ReturnType<typeof loadFixture>>, target: (typeof benchmarkTargets)[number]) {
   const parsedProfile = CandidateProfileSchema.parse(fixture.profile)
+  const parsedSearchPreferences = JobSearchPreferencesSchema.parse(fixture.searchPreferences)
+  const parsedSettings = JobFinderSettingsSchema.parse(fixture.settings)
   const emptyState = buildBenchmarkRepositoryState({
     profile: parsedProfile,
-    searchPreferences: JobSearchPreferencesSchema.parse(fixture.searchPreferences),
+    searchPreferences: parsedSearchPreferences,
   })
 
   return {
@@ -109,7 +150,7 @@ function buildSeed(fixture: Awaited<ReturnType<typeof loadFixture>>, target: (ty
     profile: parsedProfile,
     searchPreferences: {
       ...emptyState.searchPreferences,
-      ...fixture.searchPreferences,
+      ...parsedSearchPreferences,
       targetRoles: [
         'Engineer',
         'Developer',
@@ -151,7 +192,7 @@ function buildSeed(fixture: Awaited<ReturnType<typeof loadFixture>>, target: (ty
     },
     settings: {
       ...emptyState.settings,
-      ...fixture.settings,
+      ...parsedSettings,
       keepSessionAlive: true,
       discoveryOnly: false,
     },
@@ -191,7 +232,28 @@ function titleMatchRate(jobs: Array<Record<string, unknown>>, targetRoles: strin
   return Number((matched / jobs.length).toFixed(3))
 }
 
-async function runWithTimeout<TValue>(label: string, timeoutMs: number, run: (signal: AbortSignal) => Promise<TValue>) {
+type RunWithTimeoutResult<TValue> =
+  | {
+      value: TValue
+      wallClockMs: number
+      timedOut: false
+    }
+  | {
+      error: string
+      wallClockMs: number
+      timedOut: boolean
+    }
+
+type SourceDebugBenchmarkRunResult = {
+  snapshot: Record<string, unknown>
+  details: Record<string, unknown> | null
+}
+
+async function runWithTimeout<TValue>(
+  label: string,
+  timeoutMs: number,
+  run: (signal: AbortSignal) => Promise<TValue>,
+): Promise<RunWithTimeoutResult<TValue>> {
   const controller = new AbortController()
   const timeoutHandle = setTimeout(() => controller.abort(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
   const startedAt = Date.now()
@@ -202,13 +264,13 @@ async function runWithTimeout<TValue>(label: string, timeoutMs: number, run: (si
       value,
       wallClockMs: Date.now() - startedAt,
       timedOut: false,
-    }
+    } satisfies RunWithTimeoutResult<TValue>
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : String(error),
       wallClockMs: Date.now() - startedAt,
       timedOut: controller.signal.aborted,
-    }
+    } satisfies RunWithTimeoutResult<TValue>
   } finally {
     clearTimeout(timeoutHandle)
   }
@@ -394,7 +456,7 @@ describe.sequential('013 live before/after benchmark harness', () => {
         })
 
         try {
-          const sourceDebugRun = await runWithTimeout(
+          const sourceDebugRun = await runWithTimeout<SourceDebugBenchmarkRunResult>(
             `source debug ${target.id}`,
             240_000,
             (signal) =>
@@ -405,14 +467,17 @@ describe.sequential('013 live before/after benchmark harness', () => {
                   const details = latestRun
                     ? await workspaceService.getSourceDebugRunDetails(latestRun.id)
                     : null
-                  return { snapshot, details }
+                  return {
+                    snapshot: snapshot as unknown as Record<string, unknown>,
+                    details: details as unknown as Record<string, unknown> | null,
+                  }
                 }),
           )
 
           const discoveryRun = await runWithTimeout(
             `discovery ${target.id}`,
             180_000,
-            (signal) => workspaceService.runAgentDiscovery(undefined, signal),
+            (signal) => workspaceService.runAgentDiscovery(undefined, signal, target.id),
           )
 
           results.push({
@@ -476,7 +541,7 @@ describe.sequential('013 live before/after benchmark harness', () => {
       expect(results.some((entry) => {
         const sourceDebug = entry.sourceDebug as Record<string, unknown>
         const discovery = entry.discovery as Record<string, unknown>
-        return !sourceDebug.error || !discovery.error
+        return !sourceDebug.error && !discovery.error
       })).toBe(true)
     },
   )

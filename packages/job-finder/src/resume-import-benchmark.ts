@@ -17,6 +17,7 @@ import {
   type ResumeImportBenchmarkRequest,
   type ResumeImportErrorTaxonomy,
   type ResumeImportFieldCandidate,
+  type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 import { createInMemoryJobFinderRepository } from "@unemployed/db";
 
@@ -173,7 +174,7 @@ function buildBenchmarkAiClient(
 export function buildBenchmarkRepositoryState(input: {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
-}) {
+}): JobFinderRepositoryState {
   return {
     profile: input.profile,
     searchPreferences: input.searchPreferences,

@@ -226,10 +226,7 @@ async function collectTargetJobs(input: {
     target,
     currentArtifact: activeInstruction,
   });
-  const collectionMethod =
-    activeInstruction?.intelligence.collection.preferredMethod ??
-    intelligence.collection.preferredMethod ??
-    selectDiscoveryCollectionMethod(target, activeInstruction);
+  const collectionMethod = selectDiscoveryCollectionMethod(target, activeInstruction);
   const discoveryMethod = selectDiscoveryMethod(collectionMethod);
   const startingUrls = buildDiscoveryStartingUrls(target, activeInstruction);
   const providerLabel = intelligence.provider?.label ?? "Unknown provider";
@@ -421,7 +418,6 @@ export function createWorkspaceDiscoveryMethods(
   async function executeDiscoveryPipeline(
     options: DiscoveryTargetPipelineOptions,
   ) {
-    let aborted = false;
     let terminalStatus: "cancelled" | "failed" | "completed" = "completed";
     let caughtError: unknown = null;
     const [profile, searchPreferences, settings, startingSavedJobs, startingDiscovery] =
@@ -863,7 +859,6 @@ export function createWorkspaceDiscoveryMethods(
         terminalStatus,
         completedAt,
       );
-      aborted = interrupted;
     } finally {
       if (!keepSessionAlive) {
         for (const source of openedSessionSources) {

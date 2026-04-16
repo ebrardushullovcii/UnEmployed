@@ -140,13 +140,14 @@ export function createWorkspaceApplicationMethods(
         const nextSavedJobs = savedJobs.map((job) =>
           job.id === jobId ? SavedJobSchema.parse({ ...job, status: "archived" }) : job,
         );
+        const occurredAt = new Date().toISOString();
         const nextDiscoveryState = {
           ...discoveryState,
           discoveryLedger: markSavedJobStatusInLedger({
             ledger: discoveryState.discoveryLedger,
             job: targetJob,
             status: "skipped",
-            occurredAt: new Date().toISOString(),
+            occurredAt,
             skipReason: "Archived intentionally by the user.",
           }),
         };
@@ -824,9 +825,7 @@ export function createWorkspaceApplicationMethods(
             ...discoveryState,
             discoveryLedger: markSavedJobStatusInLedger({
               ledger: discoveryState.discoveryLedger,
-              job: {
-                ...job,
-              },
+              job,
               ...(activeLedgerTargetId
                 ? { activeTargetId: activeLedgerTargetId }
                 : {}),

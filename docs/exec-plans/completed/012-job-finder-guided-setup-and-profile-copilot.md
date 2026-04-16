@@ -30,6 +30,13 @@ Latest implementation note:
 
 This plan is the implementation-grade follow-on for turning `Job Finder` onboarding into a guided setup instead of dropping new users into the full `Profile` editor immediately. It also defines the first bounded `Profile Copilot` slice: a side assistant that can explain profile gaps, recommend improvements, and apply typed profile edits with visible history.
 
+## Related Repo References
+
+- shared-data foundation consumed by this plan: [011 Job Finder Shared Data Expansion](011-job-finder-shared-data-expansion.md)
+- resume-import substrate and candidate-review inputs reused here: [018 Job Finder Resume Import And Extraction Reliability](018-job-finder-resume-import-and-extraction-reliability.md)
+- downstream sequence that consumes setup output: [013 Job Finder Source Intelligence And Faster Discovery](013-job-finder-source-intelligence-and-faster-discovery.md), [014 Job Finder Resume Output And Template Quality](../queued/014-job-finder-resume-output-and-template-quality.md), and [015 Job Finder Automatic Job Apply](../queued/015-job-finder-automatic-job-apply.md)
+- current handoff sequencing and repo status: [docs/STATUS.md](../../STATUS.md) and [docs/TRACKS.md](../../TRACKS.md)
+
 ## Goal
 
 Turn the current broad `Profile` experience into two connected product surfaces that write to the same underlying data:

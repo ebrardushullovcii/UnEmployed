@@ -411,10 +411,14 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       ) => {
         const cancelRequestId = (() => {
           try {
-             return parseAgentDiscoveryRequest(cancelPayload).requestId;
-           } catch {
-             return null;
-           }
+            return parseAgentDiscoveryRequest(cancelPayload).requestId;
+          } catch (error) {
+            if (!(error instanceof Error) || error.name !== "ZodError") {
+              throw error;
+            }
+
+            return null;
+          }
         })();
 
         if (

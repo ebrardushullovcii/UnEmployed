@@ -367,7 +367,7 @@ export function createPrimaryPageActions(
         () => {
           setLiveDiscoveryEvents([])
         },
-        () => `Search finished for this source and results were saved on this device.`,
+        'Search finished for this source and results were saved on this device.',
       )
     },
     onRunSourceDebug: (targetId: string) => {

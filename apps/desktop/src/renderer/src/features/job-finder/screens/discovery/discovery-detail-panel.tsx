@@ -96,14 +96,14 @@ export function DiscoveryDetailPanel({
             <PreferenceList compact label="Found on" values={selectedJob.provenance.map((entry) => discoveryTargetLabels.get(entry.targetId) ?? 'Saved source')} />
             {intelligenceSummaries.length > 0 ? (
               <div className="grid gap-3">
-                {intelligenceSummaries.map((summary) => (
-                  <div key={summary.title} className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                {intelligenceSummaries.map((summary, summaryIndex) => (
+                  <div key={`${summary.title}_${summaryIndex}`} className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                     <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">{summary.title}</p>
                     <dl className="grid gap-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                      {summary.items.map((item) => (
-                        <div className="grid gap-0.5" key={`${summary.title}_${item.label}`}>
+                      {summary.items.map((item, itemIndex) => (
+                        <div className="grid gap-0.5" key={`${summary.title}_${item.label}_${itemIndex}`}>
                           <dt className="font-medium text-foreground">{item.label}</dt>
-                          <dd className="wrap-break-word">{item.value}</dd>
+                          <dd className="break-words">{item.value}</dd>
                         </div>
                       ))}
                     </dl>

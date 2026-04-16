@@ -177,70 +177,70 @@ describe("contracts source-debug schemas", () => {
       updatedAt: "2026-03-20T10:02:00.000Z",
       acceptedAt: "2026-03-20T10:02:00.000Z",
       basedOnRunId: run.id,
-        basedOnAttemptIds: ["source_debug_attempt_1"],
-        notes: "Validated source guidance.",
-        navigationGuidance: ["Start from https://kosovajob.com/."],
-        searchGuidance: ["Use the jobs listing path."],
-        detailGuidance: ["Prefer stable job detail URLs."],
-        applyGuidance: [
-          "Prefer the inline apply button when the source exposes it.",
-        ],
-        warnings: [],
-        intelligence: {
-          provider: {
-            key: "greenhouse",
-            label: "Greenhouse",
-            confidence: 0.92,
-            apiAvailability: "available",
-            publicApiUrlTemplate:
-              "https://boards-api.greenhouse.io/v1/boards/example/jobs",
-            boardToken: "example",
-            boardSlug: null,
-            providerIdentifier: null,
-          },
-          collection: {
-            preferredMethod: "api",
-            rankedMethods: ["api", "listing_route", "careers_page"],
-            startingRoutes: [
-              {
-                url: "https://jobs.example.com/openings",
-                label: "Openings page",
-                kind: "listing",
-                confidence: 0.9,
-              },
-            ],
-            searchRouteTemplates: [],
-            detailRoutePatterns: [
-              {
-                pattern: "/jobs/:jobId",
-                label: "Job detail route",
-                confidence: 0.84,
-              },
-            ],
-            listingMarkers: ["job-card"],
-          },
-          apply: {
-            applyPath: "external_redirect",
-            authMarkers: [],
-            consentMarkers: [],
-            questionSurfaceHints: ["Resume upload after redirect"],
-            resumeUploadHints: [],
-          },
-          reliability: {
-            selectorFingerprints: ["button:Show all"],
-            stableControlNames: ["Show all"],
-            failureFingerprints: [],
-            verifiedAt: "2026-03-20T10:02:00.000Z",
-            freshnessNotes: ["Replay succeeded"],
-          },
-          overrides: {
-            forceMethod: null,
-            deniedRoutePatterns: [],
-            extraStartingRoutes: [],
-          },
+      basedOnAttemptIds: ["source_debug_attempt_1"],
+      notes: "Validated source guidance.",
+      navigationGuidance: ["Start from https://kosovajob.com/."],
+      searchGuidance: ["Use the jobs listing path."],
+      detailGuidance: ["Prefer stable job detail URLs."],
+      applyGuidance: [
+        "Prefer the inline apply button when the source exposes it.",
+      ],
+      warnings: [],
+      intelligence: {
+        provider: {
+          key: "greenhouse",
+          label: "Greenhouse",
+          confidence: 0.92,
+          apiAvailability: "available",
+          publicApiUrlTemplate:
+            "https://boards-api.greenhouse.io/v1/boards/example/jobs",
+          boardToken: "example",
+          boardSlug: null,
+          providerIdentifier: null,
         },
-        versionInfo: sourceDebugVersionInfo,
-        verification: {
+        collection: {
+          preferredMethod: "api",
+          rankedMethods: ["api", "listing_route", "careers_page"],
+          startingRoutes: [
+            {
+              url: "https://jobs.example.com/openings",
+              label: "Openings page",
+              kind: "listing",
+              confidence: 0.9,
+            },
+          ],
+          searchRouteTemplates: [],
+          detailRoutePatterns: [
+            {
+              pattern: "/jobs/:jobId",
+              label: "Job detail route",
+              confidence: 0.84,
+            },
+          ],
+          listingMarkers: ["job-card"],
+        },
+        apply: {
+          applyPath: "external_redirect",
+          authMarkers: [],
+          consentMarkers: [],
+          questionSurfaceHints: ["Resume upload after redirect"],
+          resumeUploadHints: [],
+        },
+        reliability: {
+          selectorFingerprints: ["button:Show all"],
+          stableControlNames: ["Show all"],
+          failureFingerprints: [],
+          verifiedAt: "2026-03-20T10:02:00.000Z",
+          freshnessNotes: ["Replay succeeded"],
+        },
+        overrides: {
+          forceMethod: null,
+          deniedRoutePatterns: [],
+          extraStartingRoutes: [],
+        },
+      },
+      versionInfo: sourceDebugVersionInfo,
+      verification: {
         id: "source_instruction_verification_1",
         replayRunId: run.id,
         verifiedAt: "2026-03-20T10:02:00.000Z",
