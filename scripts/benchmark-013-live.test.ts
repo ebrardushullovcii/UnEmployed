@@ -255,11 +255,18 @@ async function runWithTimeout<TValue>(
   run: (signal: AbortSignal) => Promise<TValue>,
 ): Promise<RunWithTimeoutResult<TValue>> {
   const controller = new AbortController()
-  const timeoutHandle = setTimeout(() => controller.abort(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
   const startedAt = Date.now()
+  const timeoutMessage = `${label} timed out after ${timeoutMs}ms`
+  let timeoutHandle: ReturnType<typeof setTimeout>
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      controller.abort(new Error(timeoutMessage))
+      reject(new Error(timeoutMessage))
+    }, timeoutMs)
+  })
 
   try {
-    const value = await run(controller.signal)
+    const value = await Promise.race([run(controller.signal), timeoutPromise])
     return {
       value,
       wallClockMs: Date.now() - startedAt,
@@ -269,7 +276,7 @@ async function runWithTimeout<TValue>(
     return {
       error: error instanceof Error ? error.message : String(error),
       wallClockMs: Date.now() - startedAt,
-      timedOut: controller.signal.aborted,
+      timedOut: controller.signal.aborted || (error instanceof Error && error.message === timeoutMessage),
     } satisfies RunWithTimeoutResult<TValue>
   } finally {
     clearTimeout(timeoutHandle)

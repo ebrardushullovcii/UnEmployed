@@ -344,10 +344,15 @@ export function createPrimaryPageActions(
     onRunAgentDiscovery: () => {
       setLiveDiscoveryEvents([])
       void runAction(
-        () =>
-          actions.runAgentDiscovery((event) => {
-            setLiveDiscoveryEvents((current) => [...current, event])
-          }),
+        async () => {
+          try {
+            return await actions.runAgentDiscovery((event) => {
+              setLiveDiscoveryEvents((current) => [...current, event])
+            })
+          } finally {
+            setLiveDiscoveryEvents([])
+          }
+        },
         () => {
           setLiveDiscoveryEvents([])
         },
@@ -357,13 +362,18 @@ export function createPrimaryPageActions(
     onRunDiscoveryForTarget: (targetId: string) => {
       setLiveDiscoveryEvents([])
       void runAction(
-        () =>
-          actions.runAgentDiscovery(
-            (event) => {
-              setLiveDiscoveryEvents((current) => [...current, event])
-            },
-            targetId,
-          ),
+        async () => {
+          try {
+            return await actions.runAgentDiscovery(
+              (event) => {
+                setLiveDiscoveryEvents((current) => [...current, event])
+              },
+              targetId,
+            )
+          } finally {
+            setLiveDiscoveryEvents([])
+          }
+        },
         () => {
           setLiveDiscoveryEvents([])
         },

@@ -605,6 +605,7 @@ export function buildDiscoveryStartingUrls(
   }
 
   const routes = uniqueStrings([
+    target.startingUrl,
     ...(artifact.intelligence.overrides.extraStartingRoutes ?? []),
     ...artifact.intelligence.collection.startingRoutes.map((route) => route.url),
     ...artifact.intelligence.collection.searchRouteTemplates.map((route) => route.url),
@@ -700,6 +701,27 @@ function createProviderApiTimeoutSignal() {
   };
 }
 
+function composeAbortSignals(
+  timeoutSignal: AbortSignal,
+  signal?: AbortSignal,
+): AbortSignal {
+  if (!signal) {
+    return timeoutSignal;
+  }
+
+  if (signal.aborted || timeoutSignal.aborted) {
+    const controller = new AbortController();
+    controller.abort();
+    return controller.signal;
+  }
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener("abort", abort, { once: true });
+  timeoutSignal.addEventListener("abort", abort, { once: true });
+  return controller.signal;
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException
     ? error.name === "AbortError"
@@ -710,6 +732,7 @@ export async function collectPublicProviderJobs(input: {
   target: JobDiscoveryTarget;
   artifact: Pick<SourceInstructionArtifact, "intelligence">;
   source: JobSource;
+  signal?: AbortSignal;
 }): Promise<{ jobs: JobPosting[]; warning: string | null }> {
   const provider = input.artifact.intelligence.provider;
   if (!provider || provider.apiAvailability !== "available") {
@@ -726,10 +749,11 @@ export async function collectPublicProviderJobs(input: {
       provider.publicApiUrlTemplate
     ) {
       const timeout = createProviderApiTimeoutSignal();
+      const signal = composeAbortSignals(timeout.signal, input.signal);
 
       try {
         const response = await fetch(provider.publicApiUrlTemplate, {
-          signal: timeout.signal,
+          signal,
         });
         if (!response.ok) {
           throw new Error(`Greenhouse API returned ${response.status}.`);
@@ -799,10 +823,11 @@ export async function collectPublicProviderJobs(input: {
       provider.publicApiUrlTemplate
     ) {
       const timeout = createProviderApiTimeoutSignal();
+      const signal = composeAbortSignals(timeout.signal, input.signal);
 
       try {
         const response = await fetch(provider.publicApiUrlTemplate, {
-          signal: timeout.signal,
+          signal,
         });
         if (!response.ok) {
           throw new Error(`Lever API returned ${response.status}.`);

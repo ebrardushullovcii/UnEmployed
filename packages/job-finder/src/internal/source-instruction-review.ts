@@ -126,6 +126,7 @@ export function buildSourceInstructionFinalReviewPrompt(input: {
     "Guidance rules:",
     "- Prefer stable routes, visible controls, canonical detail behavior, and safe apply-entry rules.",
     "- Keep typed intelligence aligned with the evidence: provider classification, ranked routes, preferred collection method, apply hints, reliability notes, and structured overrides should reflect what the run actually proved.",
+    "- The values shown in SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE are schema placeholders, not defaults. Do not copy placeholder literals such as provider: null, fallback_search, or empty arrays into the final output unless the evidence for this run actually proves them. Preserve stronger existing proven hints and only populate fields when this run validated them.",
     "- When a control was first flaky or unproven but later worked, keep the proven instruction and drop the earlier failure note.",
     "- When a later phase disproves an earlier claim, keep the later warning and remove the stale claim.",
     "- Empty arrays are intentional. If a category has no reliable instruction after organizing the evidence, return an empty array for that category instead of inheriting weaker lines.",

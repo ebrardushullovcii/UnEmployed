@@ -417,7 +417,7 @@ describe("contracts source-debug schemas", () => {
     ).toThrow();
   });
 
-  test("parses discovery ledger entries and browser closeout metadata", () => {
+  test("parses discovery summary browser closeout metadata", () => {
     const snapshot = JobFinderPerformanceSnapshotSchema.parse({
       generatedAt: "2026-03-20T10:02:00.000Z",
       latestDiscoveryRun: {

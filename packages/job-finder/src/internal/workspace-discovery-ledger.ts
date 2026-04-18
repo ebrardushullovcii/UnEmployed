@@ -30,15 +30,7 @@ function buildLedgerKeys(input: {
   return {
     canonicalUrl: normalizeLedgerUrl(input.canonicalUrl),
     sourceJobIdKey: input.sourceJobId
-      ? normalizeText(
-          [
-            input.source,
-            input.providerKey ?? "",
-            input.providerBoardToken ?? "",
-            input.providerIdentifier ?? "",
-            input.sourceJobId,
-          ].join(":"),
-        )
+      ? normalizeText([input.source, input.sourceJobId].join(":"))
       : null,
     providerPostingKey:
       input.sourceJobId && input.providerKey && (input.providerIdentifier || input.providerBoardToken)

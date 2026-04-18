@@ -257,6 +257,7 @@ async function collectTargetJobs(input: {
       target,
       artifact: { intelligence },
       source: adapterKind,
+      ...(input.signal ? { signal: input.signal } : {}),
     });
     const completedAt = new Date().toISOString();
 
@@ -435,6 +436,10 @@ export function createWorkspaceDiscoveryMethods(
     const targets = selectTargets(enrichedPreferences, options);
 
     if (targets.length === 0) {
+      if (options.scope === "single_target") {
+        throw new Error("single_target: target not found or unavailable");
+      }
+
       return ctx.getWorkspaceSnapshot();
     }
 
@@ -606,7 +611,7 @@ export function createWorkspaceDiscoveryMethods(
         let skippedByTitleTriage = 0;
         let skippedByLedger = 0;
         const collectionSucceeded =
-          collected.result.warning == null || collected.result.jobs.length > 0;
+          collected.result.warning == null && collected.result.jobs.length > 0;
 
         for (const rawPosting of collected.result.jobs) {
           const posting = JobPostingSchema.parse(rawPosting);
