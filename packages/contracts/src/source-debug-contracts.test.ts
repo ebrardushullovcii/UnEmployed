@@ -253,6 +253,12 @@ describe("contracts source-debug schemas", () => {
 
     expect(run.state).toBe("completed");
     expect(artifact.status).toBe("validated");
+    expect(artifact.intelligence.provider?.key).toBe("greenhouse");
+    expect(artifact.intelligence.collection.preferredMethod).toBe("api");
+    expect(artifact.intelligence.apply.applyPath).toBe("external_redirect");
+    expect(artifact.intelligence.reliability.verifiedAt).toBe(
+      "2026-03-20T10:02:00.000Z",
+    );
   });
 
   test("parses test-only performance snapshots", () => {

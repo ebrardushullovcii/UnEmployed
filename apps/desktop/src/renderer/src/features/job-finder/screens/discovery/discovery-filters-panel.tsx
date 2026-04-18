@@ -260,9 +260,9 @@ export function DiscoveryFiltersPanel({
                         aria-label={`Run discovery for ${target.label}`}
                         aria-pressed={isActiveSingleTarget}
                         className="h-auto min-h-11 w-full justify-between whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
-                        disabled={busy || !onRunDiscoveryForTarget}
+                        disabled={busy}
                         key={target.id}
-                        onClick={() => onRunDiscoveryForTarget?.(target.id)}
+                        onClick={() => onRunDiscoveryForTarget(target.id)}
                         size="sm"
                         type="button"
                         variant={isActiveSingleTarget ? "secondary" : "ghost"}

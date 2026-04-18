@@ -84,13 +84,13 @@ export function findDiscoveryLedgerEntry(
 ): DiscoveryLedgerEntry | null {
   return (
     ledger.find((entry) =>
-        matchesLedgerEntry(entry, {
-          canonicalUrl: posting.canonicalUrl,
-          source: posting.source,
-          sourceJobId: posting.sourceJobId,
-          providerKey: posting.providerKey,
-          providerBoardToken: posting.providerBoardToken,
-          providerIdentifier: posting.providerIdentifier,
+      matchesLedgerEntry(entry, {
+        canonicalUrl: posting.canonicalUrl,
+        source: posting.source,
+        sourceJobId: posting.sourceJobId,
+        providerKey: posting.providerKey,
+        providerBoardToken: posting.providerBoardToken,
+        providerIdentifier: posting.providerIdentifier,
       }),
     ) ?? null
   );
@@ -164,10 +164,7 @@ export function recordDiscoveredPostingInLedger(input: {
       inactiveAt: input.status === "inactive" ? input.seenAt : null,
       latestStatus: input.status,
       titleTriageOutcome: input.posting.titleTriageOutcome,
-      skipReason:
-        input.status === "skipped"
-          ? input.skipReason ?? existingEntry?.skipReason ?? null
-          : null,
+      skipReason: input.skipReason ?? existingEntry?.skipReason ?? null,
     }),
   );
 }

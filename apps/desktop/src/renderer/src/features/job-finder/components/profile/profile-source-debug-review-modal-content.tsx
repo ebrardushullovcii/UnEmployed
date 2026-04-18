@@ -4,8 +4,8 @@ import type {
   SourceInstructionArtifact
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import { buildLearnedInstructionIntelligenceSummaries } from '@renderer/features/job-finder/lib/source-intelligence-utils'
 import { formatDuration, formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
-import { buildLearnedInstructionIntelligenceSummaries } from '../../lib/source-intelligence-utils'
 import { ProfileIntelligenceSummaries } from './profile-intelligence-summaries'
 
 function formatTimestamp(value: string | null): string | null {

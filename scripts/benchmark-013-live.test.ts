@@ -129,10 +129,17 @@ async function loadFixture() {
     'job-finder',
     'profile-baseline-workspace.json',
   )
-  return JSON.parse(await readFile(fixturePath, 'utf8')) as {
-    profile: Record<string, unknown>
-    searchPreferences: Record<string, unknown>
-    settings: Record<string, unknown>
+  try {
+    return JSON.parse(await readFile(fixturePath, 'utf8')) as {
+      profile: Record<string, unknown>
+      searchPreferences: Record<string, unknown>
+      settings: Record<string, unknown>
+    }
+  } catch (error) {
+    throw new Error(
+      `Failed to load benchmark fixture at ${fixturePath}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    )
   }
 }
 

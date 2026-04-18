@@ -182,6 +182,29 @@ export function createPrimaryPageActions(
     sourceDebugRunIdRef,
     workspace,
   } = args
+
+  const runDiscoveryAction = (targetId?: string) => {
+    setLiveDiscoveryEvents([])
+    void runAction(
+      async () => {
+        try {
+          return await actions.runAgentDiscovery(
+            (event) => {
+              setLiveDiscoveryEvents((current) => [...current, event])
+            },
+            targetId,
+          )
+        } finally {
+          setLiveDiscoveryEvents([])
+        }
+      },
+      () => undefined,
+      targetId
+        ? 'Search finished for this source and results were saved on this device.'
+        : 'Search finished and results were saved on this device.',
+    )
+  }
+
   return {
     onAnalyzeProfileFromResume: () => {
       if (!canImportResume) {
@@ -341,45 +364,8 @@ export function createPrimaryPageActions(
         },
         'Section refreshed.',
       ),
-    onRunAgentDiscovery: () => {
-      setLiveDiscoveryEvents([])
-      void runAction(
-        async () => {
-          try {
-            return await actions.runAgentDiscovery((event) => {
-              setLiveDiscoveryEvents((current) => [...current, event])
-            })
-          } finally {
-            setLiveDiscoveryEvents([])
-          }
-        },
-        () => {
-          setLiveDiscoveryEvents([])
-        },
-        'Search finished and results were saved on this device.',
-      )
-    },
-    onRunDiscoveryForTarget: (targetId: string) => {
-      setLiveDiscoveryEvents([])
-      void runAction(
-        async () => {
-          try {
-            return await actions.runAgentDiscovery(
-              (event) => {
-                setLiveDiscoveryEvents((current) => [...current, event])
-              },
-              targetId,
-            )
-          } finally {
-            setLiveDiscoveryEvents([])
-          }
-        },
-        () => {
-          setLiveDiscoveryEvents([])
-        },
-        'Search finished for this source and results were saved on this device.',
-      )
-    },
+    onRunAgentDiscovery: () => runDiscoveryAction(),
+    onRunDiscoveryForTarget: (targetId: string) => runDiscoveryAction(targetId),
     onRunSourceDebug: (targetId: string) => {
       const runId = sourceDebugRunIdRef.current + 1
       sourceDebugRunIdRef.current = runId

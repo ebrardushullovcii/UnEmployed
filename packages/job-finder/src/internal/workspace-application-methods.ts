@@ -662,6 +662,7 @@ export function createWorkspaceApplicationMethods(
         sourceDebugAttempts,
         draft,
         approvedExports,
+        discoveryState,
       ] = await Promise.all([
         ctx.repository.getProfile(),
         ctx.repository.getSearchPreferences(),
@@ -673,6 +674,7 @@ export function createWorkspaceApplicationMethods(
         ctx.repository.listSourceDebugAttempts(),
         ctx.repository.getResumeDraftByJobId(jobId),
         ctx.repository.listResumeExportArtifacts({ jobId }),
+        ctx.repository.getDiscoveryState(),
       ]);
       const job = savedJobs.find((entry) => entry.id === jobId);
       const asset = tailoredAssets.find((entry) => entry.jobId === jobId);
@@ -818,7 +820,6 @@ export function createWorkspaceApplicationMethods(
           : savedJob,
       );
       if (executionResult.state === "submitted") {
-        const discoveryState = await ctx.repository.getDiscoveryState();
         await ctx.persistSavedJobsAndDiscoveryState({
           savedJobs: nextSavedJobs,
           discoveryState: {

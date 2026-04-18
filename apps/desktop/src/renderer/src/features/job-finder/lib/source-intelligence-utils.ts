@@ -73,9 +73,11 @@ function formatCollectionSummary(intelligence: SourceIntelligenceArtifact): Lear
 
 function formatApplySummary(intelligence: SourceIntelligenceArtifact): LearnedInstructionIntelligenceSummary | null {
   const apply = intelligence.apply
-  const items: LearnedInstructionIntelligenceSummaryItem[] = [
-    { label: 'Apply path', value: apply.applyPath.replace(/_/g, ' ') }
-  ]
+  const items: LearnedInstructionIntelligenceSummaryItem[] = []
+
+  if (apply.applyPath !== 'unknown') {
+    items.push({ label: 'Apply path', value: apply.applyPath.replace(/_/g, ' ') })
+  }
 
   if (apply.authMarkers.length > 0) {
     items.push({ label: 'Auth markers', value: apply.authMarkers.slice(0, 2).join(', ') })
@@ -89,7 +91,7 @@ function formatApplySummary(intelligence: SourceIntelligenceArtifact): LearnedIn
     items.push({ label: 'Resume hints', value: apply.resumeUploadHints.slice(0, 2).join(', ') })
   }
 
-  return items.length > 1 || apply.applyPath !== 'unknown'
+  return items.length > 0
     ? {
         title: 'Apply hints',
         items,

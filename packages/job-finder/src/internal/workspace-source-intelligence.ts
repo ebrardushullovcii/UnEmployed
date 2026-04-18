@@ -401,18 +401,18 @@ function inferApplyPath(
   attempts: readonly SourceDebugWorkerAttempt[],
   existing: SourceInstructionArtifact | null,
 ) {
-  const lines = normalizeText(
+  const combinedText = normalizeText(
     [
       ...(existing?.applyGuidance ?? []),
       ...attempts.flatMap((attempt) => attempt.confirmedFacts),
     ].join(" "),
   );
 
-  if (lines.includes("easy apply") || lines.includes("inline apply")) {
+  if (combinedText.includes("easy apply") || combinedText.includes("inline apply")) {
     return "easy_apply" as const;
   }
 
-  if (lines.includes("redirect") || lines.includes("company site")) {
+  if (combinedText.includes("redirect") || combinedText.includes("company site")) {
     return "external_redirect" as const;
   }
 
@@ -618,9 +618,15 @@ export function selectDiscoveryCollectionMethod(
   target: JobDiscoveryTarget,
   artifact: SourceInstructionArtifact | null,
 ): JobDiscoveryCollectionMethod {
+  const inferredIntelligence = inferSourceIntelligenceFromTarget({
+    target,
+    currentArtifact: artifact,
+  });
+
   return (
     artifact?.intelligence.overrides.forceMethod ??
     artifact?.intelligence.collection.preferredMethod ??
+    inferredIntelligence.collection.preferredMethod ??
     (tryParseUrl(target.startingUrl)?.pathname.match(/jobs|careers|openings/i)
       ? "careers_page"
       : "fallback_search")
@@ -683,10 +689,11 @@ function inferWorkModes(location: string | null | undefined): JobPosting["workMo
   if (normalized.includes("hybrid")) {
     return ["hybrid"];
   }
-  return ["onsite"];
+  return [];
 }
 
 const PROVIDER_API_TIMEOUT_MS = 10_000;
+const SUMMARY_MAX_LENGTH = 280;
 
 function createProviderApiTimeoutSignal() {
   if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
@@ -704,22 +711,38 @@ function createProviderApiTimeoutSignal() {
 function composeAbortSignals(
   timeoutSignal: AbortSignal,
   signal?: AbortSignal,
-): AbortSignal {
+): { signal: AbortSignal; cleanup: () => void } {
   if (!signal) {
-    return timeoutSignal;
+    return {
+      signal: timeoutSignal,
+      cleanup: () => undefined,
+    };
   }
 
   if (signal.aborted || timeoutSignal.aborted) {
     const controller = new AbortController();
     controller.abort();
-    return controller.signal;
+    return {
+      signal: controller.signal,
+      cleanup: () => undefined,
+    };
   }
 
   const controller = new AbortController();
-  const abort = () => controller.abort();
+  const cleanup = () => {
+    signal.removeEventListener("abort", abort);
+    timeoutSignal.removeEventListener("abort", abort);
+  };
+  const abort = () => {
+    cleanup();
+    controller.abort();
+  };
   signal.addEventListener("abort", abort, { once: true });
   timeoutSignal.addEventListener("abort", abort, { once: true });
-  return controller.signal;
+  return {
+    signal: controller.signal,
+    cleanup,
+  };
 }
 
 function isAbortError(error: unknown): boolean {
@@ -749,11 +772,11 @@ export async function collectPublicProviderJobs(input: {
       provider.publicApiUrlTemplate
     ) {
       const timeout = createProviderApiTimeoutSignal();
-      const signal = composeAbortSignals(timeout.signal, input.signal);
+      const composedSignal = composeAbortSignals(timeout.signal, input.signal);
 
       try {
         const response = await fetch(provider.publicApiUrlTemplate, {
-          signal,
+          signal: composedSignal.signal,
         });
         if (!response.ok) {
           throw new Error(`Greenhouse API returned ${response.status}.`);
@@ -786,7 +809,7 @@ export async function collectPublicProviderJobs(input: {
                 postedAtText: null,
                 discoveredAt: new Date().toISOString(),
                 salaryText: null,
-                summary: description.slice(0, 280) || null,
+                summary: description.slice(0, SUMMARY_MAX_LENGTH) || null,
                 description: description || job.title,
                 keySkills: [],
                 responsibilities: [],
@@ -813,6 +836,7 @@ export async function collectPublicProviderJobs(input: {
           warning: null,
         };
       } finally {
+        composedSignal.cleanup();
         timeout.cleanup?.();
       }
     }
@@ -823,11 +847,11 @@ export async function collectPublicProviderJobs(input: {
       provider.publicApiUrlTemplate
     ) {
       const timeout = createProviderApiTimeoutSignal();
-      const signal = composeAbortSignals(timeout.signal, input.signal);
+      const composedSignal = composeAbortSignals(timeout.signal, input.signal);
 
       try {
         const response = await fetch(provider.publicApiUrlTemplate, {
-          signal,
+          signal: composedSignal.signal,
         });
         if (!response.ok) {
           throw new Error(`Lever API returned ${response.status}.`);
@@ -860,7 +884,7 @@ export async function collectPublicProviderJobs(input: {
                 postedAtText: null,
                 discoveredAt: new Date().toISOString(),
                 salaryText: null,
-                summary: description.slice(0, 280) || null,
+                summary: description.slice(0, SUMMARY_MAX_LENGTH) || null,
                 description: description || job.text,
                 keySkills: [],
                 responsibilities: [],
@@ -887,6 +911,7 @@ export async function collectPublicProviderJobs(input: {
           warning: null,
         };
       } finally {
+        composedSignal.cleanup();
         timeout.cleanup?.();
       }
     }
@@ -896,6 +921,10 @@ export async function collectPublicProviderJobs(input: {
       warning: `${provider.label} API collection is not implemented yet for this provider.`,
     };
   } catch (error) {
+    if (input.signal?.aborted) {
+      throw error;
+    }
+
     return {
       jobs: [],
       warning:

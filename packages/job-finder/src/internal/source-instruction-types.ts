@@ -80,7 +80,13 @@ export function parseSourceInstructionReviewOverride(
 
     try {
       return SourceIntelligenceArtifactSchema.parse(payload.intelligence);
-    } catch {
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn(
+          "Failed to parse payload.intelligence into SourceIntelligenceArtifactSchema",
+          error,
+        );
+      }
       return null;
     }
   })();

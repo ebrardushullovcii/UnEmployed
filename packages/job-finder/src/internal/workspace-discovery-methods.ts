@@ -610,8 +610,7 @@ export function createWorkspaceDiscoveryMethods(
         const triagedPostings: JobPosting[] = [];
         let skippedByTitleTriage = 0;
         let skippedByLedger = 0;
-        const collectionSucceeded =
-          collected.result.warning == null && collected.result.jobs.length > 0;
+        const collectionSucceeded = collected.result.warning == null;
 
         for (const rawPosting of collected.result.jobs) {
           const posting = JobPostingSchema.parse(rawPosting);
@@ -853,16 +852,10 @@ export function createWorkspaceDiscoveryMethods(
       const interrupted = error instanceof DOMException && error.name === "AbortError";
       terminalStatus = interrupted ? "cancelled" : "failed";
       caughtError = error;
-      const completedAt = new Date().toISOString();
       activeRun = finalizeRunningTargetExecutions(
         activeRun,
         terminalStatus,
-        completedAt,
-      );
-      activeRun = finalizeDiscoveryRun(
-        activeRun,
-        terminalStatus,
-        completedAt,
+        new Date().toISOString(),
       );
     } finally {
       if (!keepSessionAlive) {
@@ -890,9 +883,7 @@ export function createWorkspaceDiscoveryMethods(
       }
     }
 
-    if (terminalStatus === "completed") {
-      activeRun = finalizeDiscoveryRun(activeRun, terminalStatus, new Date().toISOString());
-    }
+    activeRun = finalizeDiscoveryRun(activeRun, terminalStatus, new Date().toISOString());
 
     const latestDiscoveryState = await ctx.repository.getDiscoveryState();
     await ctx.repository.replaceSavedJobs(
