@@ -398,7 +398,6 @@ export function JobFinderSettingsRoute() {
   return (
     <SettingsScreen
       actionState={context.actionState}
-      availableResumeTemplates={context.workspace.availableResumeTemplates}
       browserSession={context.workspace.browserSession}
       busy={context.busy}
       onResetWorkspace={context.onResetWorkspace}

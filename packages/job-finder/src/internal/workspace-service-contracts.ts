@@ -168,11 +168,32 @@ export interface RenderedResumeArtifact {
   warnings?: readonly string[];
 }
 
+export interface ResumeRenderDocument {
+  fullName: string;
+  headline: string | null;
+  location: string | null;
+  contactItems: string[];
+  sections: Array<{
+    id: string;
+    kind: ResumeDraft["sections"][number]["kind"];
+    label: string;
+    text: string | null;
+    bullets: string[];
+    entries: Array<{
+      id: string;
+      heading: string | null;
+      summary: string | null;
+      bullets: string[];
+    }>;
+  }>;
+}
+
 export interface JobFinderDocumentManager {
   listResumeTemplates(): readonly ResumeTemplateDefinition[];
   renderResumeArtifact(input: {
     job: SavedJob;
     profile: CandidateProfile;
+    renderDocument: ResumeRenderDocument;
     previewSections: Array<{ heading: string; lines: string[] }>;
     settings: JobFinderSettings;
     textContent: string;

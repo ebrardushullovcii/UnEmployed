@@ -30,10 +30,12 @@ import {
   buildResumeDraftFromTailoredDraft,
   buildResumeDraftRevision,
   buildResumeExportArtifact,
+  buildResumeRenderDocument,
   buildTailoredResumeTextFromResumeDraft,
   buildTailoredAssetBridge,
   collectResearchContext,
   collectResumeWorkspaceEvidence,
+  sanitizeResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
 import {
@@ -66,7 +68,13 @@ export function createWorkspaceApplicationMethods(
 > {
   function hasLockedResumeContent(draft: ResumeDraft): boolean {
     return draft.sections.some(
-      (section) => section.locked || section.bullets.some((bullet) => bullet.locked),
+      (section) =>
+        section.locked ||
+        section.bullets.some((bullet) => bullet.locked) ||
+        section.entries.some(
+          (entry) =>
+            entry.locked || entry.bullets.some((bullet) => bullet.locked),
+        ),
     );
   }
 
@@ -213,17 +221,23 @@ export function createWorkspaceApplicationMethods(
         profile,
         research,
       });
-      const previewSections = buildTailoredAssetBridge({
+      const sanitizedResumeDraft = sanitizeResumeDraft({
         draft: resumeDraft,
+        job,
+        profile,
+      });
+      const previewSections = buildTailoredAssetBridge({
+        draft: sanitizedResumeDraft,
         job,
         profile,
       }).previewSections;
       const contentText =
         draft.fullText ||
-        buildTailoredResumeTextFromResumeDraft(profile, job, resumeDraft);
+        buildTailoredResumeTextFromResumeDraft(profile, job, sanitizedResumeDraft);
       const renderedArtifact = await ctx.documentManager.renderResumeArtifact({
         job,
         profile,
+        renderDocument: buildResumeRenderDocument(profile, sanitizedResumeDraft),
         previewSections,
         settings,
         textContent: contentText,
@@ -239,8 +253,9 @@ export function createWorkspaceApplicationMethods(
         .listResumeTemplates()
         .find((template) => template.id === settings.resumeTemplateId);
       const validation = validateResumeDraft({
-        draft: resumeDraft,
+        draft: sanitizedResumeDraft,
         job,
+        profile,
         pageCount: renderedArtifact.pageCount ?? null,
         validatedAt: now,
       });
@@ -291,7 +306,7 @@ export function createWorkspaceApplicationMethods(
       });
 
       await ctx.repository.saveResumeDraftWithValidation({
-        draft: resumeDraft,
+        draft: sanitizedResumeDraft,
         validation,
         tailoredAsset: nextAsset,
       });
@@ -321,13 +336,19 @@ export function createWorkspaceApplicationMethods(
             : null,
         updatedAt: now,
       });
-      const validation = validateResumeDraft({
+      const sanitizedDraft = sanitizeResumeDraft({
         draft: nextDraft,
         job,
+        profile,
+      });
+      const validation = validateResumeDraft({
+        draft: sanitizedDraft,
+        job,
+        profile,
         validatedAt: now,
       });
       const nextAsset = buildTailoredAssetBridge({
-        draft: nextDraft,
+        draft: sanitizedDraft,
         job,
         profile,
         existingAsset: tailoredAsset,
@@ -335,7 +356,7 @@ export function createWorkspaceApplicationMethods(
       });
 
       await ctx.repository.saveResumeDraftWithValidation({
-        draft: nextDraft,
+        draft: sanitizedDraft,
         validation,
         tailoredAsset: nextAsset,
       });
@@ -368,6 +389,16 @@ export function createWorkspaceApplicationMethods(
         );
       }
 
+      if (
+        targetSection.entries.some(
+          (entry) => entry.locked || entry.bullets.some((bullet) => bullet.locked),
+        )
+      ) {
+        throw new Error(
+          `Unlock the '${targetSection.label}' section before regenerating it.`,
+        );
+      }
+
       const research = await fetchAndPersistResearch(ctx, state.job);
       const assistantReply = await ctx.aiClient.reviseResumeDraft({
         draft,
@@ -386,6 +417,7 @@ export function createWorkspaceApplicationMethods(
           draftId: draft.id,
           operation: targetSection.text ? "replace_section_text" : "replace_section_bullets",
           targetSectionId: sectionId,
+          targetEntryId: null,
           targetBulletId: null,
           anchorBulletId: null,
           position: null,
@@ -426,6 +458,7 @@ export function createWorkspaceApplicationMethods(
       const validation = validateResumeDraft({
         draft,
         job,
+        profile,
         pageCount: renderedArtifact.pageCount ?? null,
         validatedAt: exportedAt,
       });
@@ -564,18 +597,24 @@ export function createWorkspaceApplicationMethods(
         patch: parsedPatch,
         updatedAt,
       });
+      const sanitizedDraft = sanitizeResumeDraft({
+        draft: nextDraft,
+        job: state.job,
+        profile: state.profile,
+      });
       const revision = buildResumeDraftRevision({
         draft: currentDraft,
         createdAt: updatedAt,
         reason: revisionReason ?? null,
       });
       const validation = validateResumeDraft({
-        draft: nextDraft,
+        draft: sanitizedDraft,
         job: state.job,
+        profile: state.profile,
         validatedAt: updatedAt,
       });
       const nextAsset = buildTailoredAssetBridge({
-        draft: nextDraft,
+        draft: sanitizedDraft,
         job: state.job,
         profile: state.profile,
         existingAsset: state.tailoredAsset,
@@ -583,7 +622,7 @@ export function createWorkspaceApplicationMethods(
       });
 
       await ctx.repository.applyResumePatchWithRevision({
-        draft: nextDraft,
+        draft: sanitizedDraft,
         revision,
         validation,
         tailoredAsset: nextAsset,
@@ -626,23 +665,67 @@ export function createWorkspaceApplicationMethods(
             patches: [],
           });
 
-      const appliedPatches: ResumeDraftPatch[] = [];
+      const normalizedPatches = assistantReply.patches.map((patch) =>
+        ResumeDraftPatchSchema.parse({
+          ...patch,
+          draftId: workspaceState.draft.id,
+          targetEntryId: patch.targetEntryId ?? null,
+        }),
+      );
 
-      for (const patch of assistantReply.patches) {
-        try {
-          await this.applyResumePatch(patch, `Assistant request: ${content}`);
-          appliedPatches.push(patch);
-        } catch (error) {
-          const failureMessage = buildAssistantReplyMessage({
-            jobId,
-            content: `${assistantReply.content}\n\nAssistant patch application stopped after ${appliedPatches.length} change${appliedPatches.length === 1 ? "" : "s"}. ${error instanceof Error ? error.message : "A resume patch could not be applied."}`,
-            patches: appliedPatches,
+      let candidateDraft = workspaceState.draft;
+      try {
+        for (const patch of normalizedPatches) {
+          candidateDraft = applyPatchToResumeDraft({
+            draft: candidateDraft,
+            patch,
+            updatedAt: new Date().toISOString(),
           });
-
-          await ctx.repository.upsertResumeAssistantMessage(userMessage);
-          await ctx.repository.upsertResumeAssistantMessage(failureMessage);
-          return ctx.repository.listResumeAssistantMessages(jobId);
         }
+      } catch (error) {
+        const failureMessage = buildAssistantReplyMessage({
+          jobId,
+          content: `${assistantReply.content}\n\nNo assistant changes were applied. ${error instanceof Error ? error.message : "A resume patch could not be applied."}`,
+          patches: [],
+        });
+
+        await ctx.repository.upsertResumeAssistantMessage(userMessage);
+        await ctx.repository.upsertResumeAssistantMessage(failureMessage);
+        return ctx.repository.listResumeAssistantMessages(jobId);
+      }
+
+      if (normalizedPatches.length > 0) {
+        const updatedAt = new Date().toISOString();
+        const sanitizedDraft = sanitizeResumeDraft({
+          draft: candidateDraft,
+          job: workspaceState.job,
+          profile: workspaceState.profile,
+        });
+        const revision = buildResumeDraftRevision({
+          draft: workspaceState.draft,
+          createdAt: updatedAt,
+          reason: `Assistant request: ${content}`,
+        });
+        const validation = validateResumeDraft({
+          draft: sanitizedDraft,
+          job: workspaceState.job,
+          profile: workspaceState.profile,
+          validatedAt: updatedAt,
+        });
+        const nextAsset = buildTailoredAssetBridge({
+          draft: sanitizedDraft,
+          job: workspaceState.job,
+          profile: workspaceState.profile,
+          existingAsset: workspaceState.tailoredAsset,
+          clearStoragePath: true,
+        });
+
+        await ctx.repository.applyResumePatchWithRevision({
+          draft: sanitizedDraft,
+          revision,
+          validation,
+          tailoredAsset: nextAsset,
+        });
       }
 
       await ctx.repository.upsertResumeAssistantMessage(userMessage);

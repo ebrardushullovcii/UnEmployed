@@ -1,4 +1,4 @@
-import type { BrowserSessionState, JobFinderSettings, ResumeTemplateDefinition } from '@unemployed/contracts'
+import type { BrowserSessionState, JobFinderSettings } from '@unemployed/contracts'
 import { PageHeader } from '../../components/page-header'
 import { SettingsEditableDefaults } from './settings-editable-defaults'
 import { SettingsRuntimeSummary } from './settings-runtime-summary'
@@ -6,7 +6,6 @@ import { SettingsWorkspaceControls } from './settings-workspace-controls'
 
 export function SettingsScreen(props: {
   actionState: { busy: boolean; message: string | null }
-  availableResumeTemplates: readonly ResumeTemplateDefinition[]
   browserSession: BrowserSessionState
   busy: boolean
   onResetWorkspace: () => void
@@ -15,7 +14,6 @@ export function SettingsScreen(props: {
 }) {
   const {
     actionState,
-    availableResumeTemplates,
     browserSession,
     busy,
     onResetWorkspace,
@@ -34,7 +32,6 @@ export function SettingsScreen(props: {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,24rem)] xl:items-start">
         <SettingsEditableDefaults
           actionMessage={actionState.message}
-          availableResumeTemplates={availableResumeTemplates}
           busy={busy}
           onSaveSettings={onSaveSettings}
           settings={settings}

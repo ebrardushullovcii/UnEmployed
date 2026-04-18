@@ -11,6 +11,30 @@ function sanitizeStringArray(value: unknown): string[] {
     : [];
 }
 
+function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
+  value: unknown,
+  requiredArrayKey?: keyof TEntry,
+): TEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+
+    if (requiredArrayKey) {
+      const candidate = entry[requiredArrayKey];
+      if (candidate !== undefined && !Array.isArray(candidate)) {
+        return [];
+      }
+    }
+
+    return [entry as TEntry];
+  });
+}
+
 export function summarizeError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim();
@@ -41,6 +65,40 @@ export function completeTailoredResumeDraft(
   const sanitizedTargetedKeywords = sanitizeStringArray(
     normalizedPrimary.targetedKeywords,
   );
+  const sanitizedExperienceEntries = sanitizeStructuredEntries<{
+    title?: string | null;
+    employer?: string | null;
+    location?: string | null;
+    dateRange?: string | null;
+    summary?: string | null;
+    bullets?: string[];
+    profileRecordId?: string | null;
+  }>(normalizedPrimary.experienceEntries, "bullets");
+  const sanitizedProjectEntries = sanitizeStructuredEntries<{
+    name?: string | null;
+    role?: string | null;
+    summary?: string | null;
+    outcome?: string | null;
+    bullets?: string[];
+    profileRecordId?: string | null;
+  }>(normalizedPrimary.projectEntries, "bullets");
+  const sanitizedEducationEntries = sanitizeStructuredEntries<{
+    school?: string | null;
+    degree?: string | null;
+    fieldOfStudy?: string | null;
+    location?: string | null;
+    dateRange?: string | null;
+    summary?: string | null;
+    profileRecordId?: string | null;
+  }>(normalizedPrimary.educationEntries);
+  const sanitizedCertificationEntries = sanitizeStructuredEntries<{
+    name?: string | null;
+    issuer?: string | null;
+    dateRange?: string | null;
+    profileRecordId?: string | null;
+  }>(normalizedPrimary.certificationEntries);
+  const sanitizedAdditionalSkills = sanitizeStringArray(normalizedPrimary.additionalSkills);
+  const sanitizedLanguages = sanitizeStringArray(normalizedPrimary.languages);
   const label =
     typeof normalizedPrimary.label === "string" &&
     normalizedPrimary.label.trim().length > 0
@@ -73,6 +131,52 @@ export function completeTailoredResumeDraft(
     summary,
     experienceHighlights,
     coreSkills,
+    experienceEntries:
+      sanitizedExperienceEntries.length > 0
+        ? sanitizedExperienceEntries.map((entry) => ({
+            title: typeof entry.title === "string" ? entry.title : null,
+            employer: typeof entry.employer === "string" ? entry.employer : null,
+            location: typeof entry.location === "string" ? entry.location : null,
+            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+            summary: typeof entry.summary === "string" ? entry.summary : null,
+            bullets: sanitizeStringArray(entry.bullets),
+          }))
+        : fallback.experienceEntries,
+    projectEntries:
+      sanitizedProjectEntries.length > 0
+        ? sanitizedProjectEntries.map((entry) => ({
+            name: typeof entry.name === "string" ? entry.name : null,
+            role: typeof entry.role === "string" ? entry.role : null,
+            summary: typeof entry.summary === "string" ? entry.summary : null,
+            outcome: typeof entry.outcome === "string" ? entry.outcome : null,
+            bullets: sanitizeStringArray(entry.bullets),
+          }))
+        : fallback.projectEntries,
+    educationEntries:
+      sanitizedEducationEntries.length > 0
+        ? sanitizedEducationEntries.map((entry) => ({
+            school: typeof entry.school === "string" ? entry.school : null,
+            degree: typeof entry.degree === "string" ? entry.degree : null,
+            fieldOfStudy:
+              typeof entry.fieldOfStudy === "string" ? entry.fieldOfStudy : null,
+            location: typeof entry.location === "string" ? entry.location : null,
+            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+            summary: typeof entry.summary === "string" ? entry.summary : null,
+          }))
+        : fallback.educationEntries,
+    certificationEntries:
+      sanitizedCertificationEntries.length > 0
+        ? sanitizedCertificationEntries.map((entry) => ({
+            name: typeof entry.name === "string" ? entry.name : null,
+            issuer: typeof entry.issuer === "string" ? entry.issuer : null,
+            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+          }))
+        : fallback.certificationEntries,
+    additionalSkills:
+      sanitizedAdditionalSkills.length > 0
+        ? sanitizedAdditionalSkills
+        : fallback.additionalSkills,
+    languages: sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
     targetedKeywords,
     notes,
   });
@@ -84,6 +188,60 @@ export function completeTailoredResumeDraft(
     experienceHighlights,
     coreSkills,
     targetedKeywords,
+    experienceEntries:
+      sanitizedExperienceEntries.length > 0
+        ? sanitizedExperienceEntries.map((entry) => ({
+            title: typeof entry.title === "string" ? entry.title : null,
+            employer: typeof entry.employer === "string" ? entry.employer : null,
+            location: typeof entry.location === "string" ? entry.location : null,
+            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+            summary: typeof entry.summary === "string" ? entry.summary : null,
+            bullets: sanitizeStringArray(entry.bullets),
+            profileRecordId:
+              typeof entry.profileRecordId === "string" ? entry.profileRecordId : null,
+          }))
+        : fallback.experienceEntries,
+    projectEntries:
+      sanitizedProjectEntries.length > 0
+        ? sanitizedProjectEntries.map((entry) => ({
+            name: typeof entry.name === "string" ? entry.name : null,
+            role: typeof entry.role === "string" ? entry.role : null,
+            summary: typeof entry.summary === "string" ? entry.summary : null,
+            outcome: typeof entry.outcome === "string" ? entry.outcome : null,
+            bullets: sanitizeStringArray(entry.bullets),
+            profileRecordId:
+              typeof entry.profileRecordId === "string" ? entry.profileRecordId : null,
+          }))
+        : fallback.projectEntries,
+    educationEntries:
+      sanitizedEducationEntries.length > 0
+        ? sanitizedEducationEntries.map((entry) => ({
+            school: typeof entry.school === "string" ? entry.school : null,
+            degree: typeof entry.degree === "string" ? entry.degree : null,
+            fieldOfStudy:
+              typeof entry.fieldOfStudy === "string" ? entry.fieldOfStudy : null,
+            location: typeof entry.location === "string" ? entry.location : null,
+            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+            summary: typeof entry.summary === "string" ? entry.summary : null,
+            profileRecordId:
+              typeof entry.profileRecordId === "string" ? entry.profileRecordId : null,
+          }))
+        : fallback.educationEntries,
+    certificationEntries:
+      sanitizedCertificationEntries.length > 0
+        ? sanitizedCertificationEntries.map((entry) => ({
+            name: typeof entry.name === "string" ? entry.name : null,
+            issuer: typeof entry.issuer === "string" ? entry.issuer : null,
+            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+            profileRecordId:
+              typeof entry.profileRecordId === "string" ? entry.profileRecordId : null,
+          }))
+        : fallback.certificationEntries,
+    additionalSkills:
+      sanitizedAdditionalSkills.length > 0
+        ? sanitizedAdditionalSkills
+        : fallback.additionalSkills,
+    languages: sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
     fullText,
     compatibilityScore:
       typeof normalizedPrimary.compatibilityScore === "number"

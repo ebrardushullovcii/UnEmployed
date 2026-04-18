@@ -26,13 +26,27 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        external: ['playwright', 'playwright-core', 'chromium-bidi', 'jsdom', '@mozilla/readability']
+        external: ['playwright', 'playwright-core', 'chromium-bidi', 'jsdom', '@mozilla/readability'],
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs',
+          chunkFileNames: '[name]-[hash].cjs'
+        }
       }
     }
   },
   preload: {
     resolve: {
       alias: workspaceAliases
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].cjs',
+          chunkFileNames: '[name]-[hash].cjs'
+        }
+      }
     }
   },
   renderer: {

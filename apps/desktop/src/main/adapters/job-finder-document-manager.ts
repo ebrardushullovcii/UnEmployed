@@ -15,16 +15,6 @@ const resumeTemplates: ResumeTemplateDefinition[] = [
     id: 'classic_ats',
     label: 'Classic ATS',
     description: 'Single-column, conservative, and recruiter-friendly for high parsing reliability.'
-  },
-  {
-    id: 'modern_split',
-    label: 'Modern Split',
-    description: 'Balanced two-column layout with a lightweight sidebar for skills and contact details.'
-  },
-  {
-    id: 'compact_exec',
-    label: 'Compact Executive',
-    description: 'Dense summary-first layout for senior roles that need a concise leadership snapshot.'
   }
 ]
 
@@ -53,43 +43,55 @@ function formatFontFamily(fontPreset: string): string {
   return "'IBM Plex Sans', 'Segoe UI', sans-serif"
 }
 
-function renderSection(title: string, lines: readonly string[]): string {
-  if (lines.length === 0) {
+function renderStructuredSection(input: {
+  title: string
+  text?: string | null
+  bullets?: readonly string[]
+  entries?: ReadonlyArray<{
+    id: string
+    heading: string | null
+    summary: string | null
+    bullets: string[]
+  }>
+}): string {
+  const bullets = input.bullets ?? []
+  const entries = input.entries ?? []
+  const hasContent = Boolean(input.text) || bullets.length > 0 || entries.length > 0
+
+  if (!hasContent) {
     return ''
   }
 
   return `
     <section class="section-block">
-      <h3>${escapeHtml(title)}</h3>
-      ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('')}
-    </section>
-  `
-}
-
-function renderList(title: string, values: readonly string[]): string {
-  if (values.length === 0) {
-    return ''
-  }
-
-  return `
-    <section class="section-block">
-      <h3>${escapeHtml(title)}</h3>
-      <ul>
-        ${values.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}
-      </ul>
+      <h3>${escapeHtml(input.title)}</h3>
+      ${input.text ? `<p>${escapeHtml(input.text)}</p>` : ''}
+      ${entries
+        .map(
+          (entry) => `
+            <article class="entry-block">
+              ${entry.heading ? `<h4>${escapeHtml(entry.heading)}</h4>` : ''}
+              ${entry.summary ? `<p>${escapeHtml(entry.summary)}</p>` : ''}
+              ${entry.bullets.length > 0 ? `<ul>${entry.bullets.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}</ul>` : ''}
+            </article>
+          `,
+        )
+        .join('')}
+      ${bullets.length > 0 ? `<ul>${bullets.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}</ul>` : ''}
     </section>
   `
 }
 
 function renderTemplateHtml(input: Parameters<JobFinderDocumentManager['renderResumeArtifact']>[0]): string {
-  const summary = input.previewSections.find((section) => section.heading === 'Summary')?.lines ?? []
-  const experience = input.previewSections.find((section) => section.heading === 'Experience Highlights')?.lines ?? []
-  const coreSkills = input.previewSections.find((section) => section.heading === 'Core Skills')?.lines ?? []
-  const targetedKeywords = input.previewSections.find((section) => section.heading === 'Targeted Keywords')?.lines ?? []
+  const renderDocument = input.renderDocument
   const templateId = input.settings.resumeTemplateId
   const fontFamily = formatFontFamily(input.settings.fontPreset)
-  const contactItems = [input.profile.email, input.profile.phone, input.profile.portfolioUrl, input.profile.linkedinUrl].filter(
-    (value): value is string => Boolean(value)
+  const contactItems = renderDocument.contactItems
+  const summarySection = renderDocument.sections.find((section) => section.kind === 'summary') ?? null
+  const experienceSection = renderDocument.sections.find((section) => section.kind === 'experience') ?? null
+  const coreSkillsSection = renderDocument.sections.find((section) => section.label === 'Core Skills') ?? null
+  const additionalSections = renderDocument.sections.filter(
+    (section) => !['summary', 'experience'].includes(section.kind) && section.label !== 'Core Skills' && section.kind !== 'keywords',
   )
 
   const sharedStyles = `
@@ -105,100 +107,24 @@ function renderTemplateHtml(input: Parameters<JobFinderDocumentManager['renderRe
     * { box-sizing: border-box; }
     body { margin: 0; background: white; color: var(--ink); font-family: ${fontFamily}; }
     .page { width: 8.5in; min-height: 11in; margin: 0 auto; padding: 0.55in; }
-    h1, h2, h3, p, ul { margin: 0; }
+    h1, h2, h3, h4, p, ul { margin: 0; }
     h1 { font-size: 1.9rem; line-height: 1.05; letter-spacing: -0.03em; }
     h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); }
     h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 0.35rem; }
+    h4 { font-size: 0.92rem; line-height: 1.35; font-weight: 600; }
     p, li { font-size: 0.92rem; line-height: 1.45; }
     ul { padding-left: 1.1rem; display: grid; gap: 0.2rem; }
     .header { display: grid; gap: 0.28rem; padding-bottom: 0.55rem; border-bottom: 1px solid var(--line); }
     .headline { font-size: 1rem; color: var(--muted); }
     .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; color: var(--muted); }
-    .target-role { margin-top: 0.5rem; padding: 0.5rem 0.65rem; background: var(--surface); border-left: 3px solid var(--accent); }
     .section-stack { display: grid; gap: 0.85rem; margin-top: 0.9rem; }
     .section-block { display: grid; gap: 0.35rem; }
+    .entry-block { display: grid; gap: 0.28rem; margin-top: 0.3rem; }
     .sidebar-card { background: var(--surface); border: 1px solid var(--line); padding: 0.7rem; display: grid; gap: 0.8rem; }
     .tag-grid { display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .tag { padding: 0.24rem 0.48rem; border: 1px solid var(--line); border-radius: 999px; font-size: 0.76rem; }
     .body-grid { display: grid; gap: 0.95rem; margin-top: 1rem; }
   `
-
-  if (templateId === 'modern_split') {
-    return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>${escapeHtml(input.profile.fullName)} Resume</title>
-    <style>
-      ${sharedStyles}
-      .body-grid { grid-template-columns: 1.6fr 0.9fr; align-items: start; }
-    </style>
-  </head>
-  <body>
-    <article class="page">
-      <header class="header">
-        <h1>${escapeHtml(input.profile.fullName)}</h1>
-        <p class="headline">${escapeHtml(input.profile.headline)}</p>
-        <div class="meta">
-          <span>${escapeHtml(input.profile.currentLocation)}</span>
-          ${contactItems.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}
-        </div>
-        <div class="target-role">
-          <h2>Target Role</h2>
-          <p>${escapeHtml(input.job.title)} at ${escapeHtml(input.job.company)}</p>
-        </div>
-      </header>
-      <div class="body-grid">
-        <main class="section-stack">
-          ${renderSection('Summary', summary)}
-          ${renderSection('Experience Highlights', experience)}
-        </main>
-        <aside class="sidebar-card">
-          ${renderList('Core Skills', coreSkills)}
-          ${renderList('Targeted Keywords', targetedKeywords)}
-        </aside>
-      </div>
-    </article>
-  </body>
-</html>`
-  }
-
-  if (templateId === 'compact_exec') {
-    return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>${escapeHtml(input.profile.fullName)} Resume</title>
-    <style>
-      ${sharedStyles}
-      .summary-band { margin-top: 0.9rem; padding: 0.75rem; background: var(--surface); border: 1px solid var(--line); }
-      .body-grid { grid-template-columns: 1fr; }
-    </style>
-  </head>
-  <body>
-    <article class="page">
-      <header class="header">
-        <h1>${escapeHtml(input.profile.fullName)}</h1>
-        <p class="headline">${escapeHtml(input.profile.headline)}</p>
-        <div class="meta">
-          <span>${escapeHtml(input.profile.currentLocation)}</span>
-          ${contactItems.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}
-        </div>
-      </header>
-      <section class="summary-band">
-        <h2>Target Role</h2>
-        <p>${escapeHtml(input.job.title)} at ${escapeHtml(input.job.company)}</p>
-        ${summary.map((line) => `<p style="margin-top:0.45rem;">${escapeHtml(line)}</p>`).join('')}
-      </section>
-      <div class="body-grid">
-        ${renderSection('Experience Highlights', experience)}
-        ${renderList('Core Skills', coreSkills)}
-        ${renderList('Targeted Keywords', targetedKeywords)}
-      </div>
-    </article>
-  </body>
-</html>`
-  }
 
   return `<!doctype html>
 <html lang="en">
@@ -214,21 +140,17 @@ function renderTemplateHtml(input: Parameters<JobFinderDocumentManager['renderRe
     <article class="page">
       <header class="header">
         <h1>${escapeHtml(input.profile.fullName)}</h1>
-        <p class="headline">${escapeHtml(input.profile.headline)}</p>
+        <p class="headline">${escapeHtml(renderDocument.headline ?? '')}</p>
         <div class="meta">
-          <span>${escapeHtml(input.profile.currentLocation)}</span>
+          ${renderDocument.location ? `<span>${escapeHtml(renderDocument.location)}</span>` : ''}
           ${contactItems.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}
-        </div>
-        <div class="target-role">
-          <h2>Target Role</h2>
-          <p>${escapeHtml(input.job.title)} at ${escapeHtml(input.job.company)}</p>
         </div>
       </header>
       <div class="body-grid">
-        ${renderSection('Summary', summary)}
-        ${renderSection('Experience Highlights', experience)}
-        ${renderList('Core Skills', coreSkills)}
-        ${renderList('Targeted Keywords', targetedKeywords)}
+        ${summarySection ? renderStructuredSection({ title: summarySection.label, text: summarySection.text, bullets: summarySection.bullets, entries: summarySection.entries }) : ''}
+        ${experienceSection ? renderStructuredSection({ title: experienceSection.label, text: experienceSection.text, bullets: experienceSection.bullets, entries: experienceSection.entries }) : ''}
+        ${coreSkillsSection ? renderStructuredSection({ title: coreSkillsSection.label, text: coreSkillsSection.text, bullets: coreSkillsSection.bullets, entries: coreSkillsSection.entries }) : ''}
+        ${additionalSections.map((section) => renderStructuredSection({ title: section.label, text: section.text, bullets: section.bullets, entries: section.entries })).join('')}
       </div>
     </article>
   </body>

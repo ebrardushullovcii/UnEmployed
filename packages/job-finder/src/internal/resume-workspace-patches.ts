@@ -2,6 +2,23 @@ import { ResumeDraftSchema, type ResumeDraft, type ResumeDraftBullet, type Resum
 import { createBullet } from "./resume-workspace-primitives";
 import { createUniqueId } from "./shared";
 
+function requireTargetEntry(
+  section: ResumeDraftSection,
+  entryId: string | null,
+) {
+  if (!entryId) {
+    return null;
+  }
+
+  const targetEntry = section.entries.find((entry) => entry.id === entryId) ?? null;
+
+  if (!targetEntry) {
+    throw new Error(`Unable to find entry '${entryId}'.`);
+  }
+
+  return targetEntry;
+}
+
 function assertAssistantMayEdit(
   patch: ResumeDraftPatch,
   section: ResumeDraftSection,
@@ -30,13 +47,16 @@ function updateSectionMeta(
 
 function requireTargetBullet(
   section: ResumeDraftSection,
+  entryId: string | null,
   bulletId: string | null,
 ): ResumeDraftBullet {
   if (!bulletId) {
     throw new Error("A target bullet id is required for this patch.");
   }
 
-  const targetBullet = section.bullets.find((bullet) => bullet.id === bulletId) ?? null;
+  const targetBullet = entryId
+    ? (requireTargetEntry(section, entryId)?.bullets.find((bullet) => bullet.id === bulletId) ?? null)
+    : (section.bullets.find((bullet) => bullet.id === bulletId) ?? null);
 
   if (!targetBullet) {
     throw new Error(`Unable to find bullet '${bulletId}'.`);
@@ -47,13 +67,18 @@ function requireTargetBullet(
 
 function createInsertedBulletId(
   section: ResumeDraftSection,
+  entryId: string | null,
   requestedId: string | null,
 ): string {
-  if (requestedId && !section.bullets.some((bullet) => bullet.id === requestedId)) {
+  const collection = entryId
+    ? (requireTargetEntry(section, entryId)?.bullets ?? [])
+    : section.bullets;
+
+  if (requestedId && !collection.some((bullet) => bullet.id === requestedId)) {
     return requestedId;
   }
 
-  return createUniqueId(`${section.id}_bullet`);
+  return createUniqueId(`${entryId ?? section.id}_bullet`);
 }
 
 function assertNeverResumePatchOperation(operation: never): never {
@@ -81,11 +106,17 @@ export function applyPatchToResumeDraft(input: {
     }
 
     const requiresExistingBullet = patch.operation !== "insert_bullet";
+    const targetEntry = patch.targetEntryId ? requireTargetEntry(section, patch.targetEntryId) : null;
+    const bulletCollection = targetEntry ? targetEntry.bullets : section.bullets;
+    const entryCollection = section.entries;
     const targetBullet = requiresExistingBullet && patch.targetBulletId
-      ? section.bullets.find((bullet) => bullet.id === patch.targetBulletId) ?? null
+      ? bulletCollection.find((bullet) => bullet.id === patch.targetBulletId) ?? null
       : null;
 
     assertAssistantMayEdit(patch, section, targetBullet);
+    if (patch.origin === "assistant" && targetEntry?.locked) {
+      throw new Error("Assistant patches cannot overwrite locked resume content.");
+    }
     switch (patch.operation) {
       case "replace_section_text":
         if ((section.text ?? null) === (patch.newText ?? null)) {
@@ -108,18 +139,18 @@ export function applyPatchToResumeDraft(input: {
         if (
           !patch.anchorBulletId &&
           !patch.targetBulletId &&
-          section.bullets.some((bullet) => bullet.text === patch.newText)
+          bulletCollection.some((bullet) => bullet.text === patch.newText)
         ) {
           return section;
         }
 
         const newBullet = createBullet(
-          createInsertedBulletId(section, patch.targetBulletId),
+          createInsertedBulletId(section, patch.targetEntryId, patch.targetBulletId),
           patch.newText,
           updatedAt,
           patch.origin === "assistant" ? "assistant_edited" : "user_edited",
         );
-        const bullets = [...section.bullets];
+        const bullets = [...bulletCollection];
 
         if (!patch.anchorBulletId) {
           bullets.push(newBullet);
@@ -138,6 +169,25 @@ export function applyPatchToResumeDraft(input: {
         }
 
         sectionsChanged = true;
+        if (targetEntry) {
+          return updateSectionMeta(
+            {
+              ...section,
+              entries: section.entries.map((entry) =>
+                entry.id === targetEntry.id
+                  ? {
+                      ...entry,
+                      bullets,
+                      origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                      updatedAt,
+                    }
+                  : entry,
+              ),
+            },
+            patch,
+            updatedAt,
+          );
+        }
         return updateSectionMeta(
           {
             ...section,
@@ -152,12 +202,41 @@ export function applyPatchToResumeDraft(input: {
           throw new Error("update_bullet requires a bullet id and replacement text.");
         }
 
-        const currentBullet = requireTargetBullet(section, patch.targetBulletId);
+        const currentBullet = requireTargetBullet(section, patch.targetEntryId, patch.targetBulletId);
         if (currentBullet.text === patch.newText) {
           return section;
         }
 
         sectionsChanged = true;
+        if (targetEntry) {
+          return updateSectionMeta(
+            {
+              ...section,
+              entries: section.entries.map((entry) =>
+                entry.id === targetEntry.id
+                  ? {
+                      ...entry,
+                      bullets: entry.bullets.map((bullet) => {
+                        if (bullet.id !== patch.targetBulletId) {
+                          return bullet;
+                        }
+                        return {
+                          ...bullet,
+                          text: patch.newText ?? bullet.text,
+                          origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                          updatedAt,
+                        };
+                      }),
+                      origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                      updatedAt,
+                    }
+                  : entry,
+              ),
+            },
+            patch,
+            updatedAt,
+          );
+        }
         return updateSectionMeta(
           {
             ...section,
@@ -185,9 +264,28 @@ export function applyPatchToResumeDraft(input: {
           throw new Error("remove_bullet requires a bullet id.");
         }
 
-        requireTargetBullet(section, patch.targetBulletId);
+        requireTargetBullet(section, patch.targetEntryId, patch.targetBulletId);
 
         sectionsChanged = true;
+        if (targetEntry) {
+          return updateSectionMeta(
+            {
+              ...section,
+              entries: section.entries.map((entry) =>
+                entry.id === targetEntry.id
+                  ? {
+                      ...entry,
+                      bullets: entry.bullets.filter((bullet) => bullet.id !== patch.targetBulletId),
+                      origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                      updatedAt,
+                    }
+                  : entry,
+              ),
+            },
+            patch,
+            updatedAt,
+          );
+        }
         return updateSectionMeta(
           {
             ...section,
@@ -200,8 +298,8 @@ export function applyPatchToResumeDraft(input: {
         );
       }
       case "move_bullet": {
-        const bullets = [...section.bullets];
-        const movingBullet = requireTargetBullet(section, patch.targetBulletId);
+        const bullets = [...bulletCollection];
+        const movingBullet = requireTargetBullet(section, patch.targetEntryId, patch.targetBulletId);
         const currentIndex = bullets.findIndex((bullet) => bullet.id === movingBullet.id);
 
         if (!patch.anchorBulletId && currentIndex === bullets.length - 1) {
@@ -236,6 +334,25 @@ export function applyPatchToResumeDraft(input: {
         }
 
         sectionsChanged = true;
+        if (targetEntry) {
+          return updateSectionMeta(
+            {
+              ...section,
+              entries: section.entries.map((entry) =>
+                entry.id === targetEntry.id
+                  ? {
+                      ...entry,
+                      bullets,
+                      origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                      updatedAt,
+                    }
+                  : entry,
+              ),
+            },
+            patch,
+            updatedAt,
+          );
+        }
         return updateSectionMeta(
           {
             ...section,
@@ -247,17 +364,44 @@ export function applyPatchToResumeDraft(input: {
       }
       case "toggle_include": {
         if (patch.targetBulletId) {
-          const currentBullet = requireTargetBullet(section, patch.targetBulletId);
+          const currentBullet = requireTargetBullet(section, patch.targetEntryId, patch.targetBulletId);
           const nextIncluded = patch.newIncluded ?? !currentBullet.included;
           if (nextIncluded === currentBullet.included) {
             return section;
           }
 
           sectionsChanged = true;
+          if (targetEntry) {
+            return updateSectionMeta(
+              {
+                ...section,
+                entries: section.entries.map((entry) =>
+                  entry.id === targetEntry.id
+                    ? {
+                        ...entry,
+                        bullets: entry.bullets.map((bullet) =>
+                          bullet.id === patch.targetBulletId
+                            ? {
+                                ...bullet,
+                                included: patch.newIncluded ?? !bullet.included,
+                                updatedAt,
+                              }
+                            : bullet,
+                        ),
+                        origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                        updatedAt,
+                      }
+                    : entry,
+                ),
+              },
+              patch,
+              updatedAt,
+            );
+          }
           return updateSectionMeta(
             {
               ...section,
-              bullets: section.bullets.map((bullet) =>
+                bullets: section.bullets.map((bullet) =>
                 bullet.id === patch.targetBulletId
                   ? {
                       ...bullet,
@@ -265,6 +409,32 @@ export function applyPatchToResumeDraft(input: {
                       updatedAt,
                     }
                   : bullet,
+              ),
+            },
+            patch,
+            updatedAt,
+          );
+        }
+
+        if (targetEntry) {
+          const nextIncluded = patch.newIncluded ?? !targetEntry.included;
+          if (nextIncluded === targetEntry.included) {
+            return section;
+          }
+
+          sectionsChanged = true;
+          return updateSectionMeta(
+            {
+              ...section,
+              entries: entryCollection.map((entry) =>
+                entry.id === targetEntry.id
+                  ? {
+                      ...entry,
+                      included: nextIncluded,
+                      origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                      updatedAt,
+                    }
+                  : entry,
               ),
             },
             patch,
@@ -289,13 +459,40 @@ export function applyPatchToResumeDraft(input: {
       }
       case "set_lock": {
         if (patch.targetBulletId) {
-          const currentBullet = requireTargetBullet(section, patch.targetBulletId);
+          const currentBullet = requireTargetBullet(section, patch.targetEntryId, patch.targetBulletId);
           const nextLocked = patch.newLocked ?? !currentBullet.locked;
           if (nextLocked === currentBullet.locked) {
             return section;
           }
 
           sectionsChanged = true;
+          if (targetEntry) {
+            return updateSectionMeta(
+              {
+                ...section,
+                entries: section.entries.map((entry) =>
+                  entry.id === targetEntry.id
+                    ? {
+                        ...entry,
+                        bullets: entry.bullets.map((bullet) =>
+                          bullet.id === patch.targetBulletId
+                            ? {
+                                ...bullet,
+                                locked: patch.newLocked ?? !bullet.locked,
+                                updatedAt,
+                              }
+                            : bullet,
+                        ),
+                        origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                        updatedAt,
+                      }
+                    : entry,
+                ),
+              },
+              patch,
+              updatedAt,
+            );
+          }
           return updateSectionMeta(
             {
               ...section,
@@ -307,6 +504,32 @@ export function applyPatchToResumeDraft(input: {
                       updatedAt,
                     }
                   : bullet,
+              ),
+            },
+            patch,
+            updatedAt,
+          );
+        }
+
+        if (targetEntry) {
+          const nextLocked = patch.newLocked ?? !targetEntry.locked;
+          if (nextLocked === targetEntry.locked) {
+            return section;
+          }
+
+          sectionsChanged = true;
+          return updateSectionMeta(
+            {
+              ...section,
+              entries: entryCollection.map((entry) =>
+                entry.id === targetEntry.id
+                  ? {
+                      ...entry,
+                      locked: nextLocked,
+                      origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                      updatedAt,
+                    }
+                  : entry,
               ),
             },
             patch,
@@ -334,9 +557,54 @@ export function applyPatchToResumeDraft(input: {
           throw new Error("replace_section_bullets requires newBullets.");
         }
 
+        const replacementBullets = patch.newBullets;
+
+        if (patch.targetEntryId) {
+          if (patch.origin === "assistant" && targetEntry?.bullets.some((bullet) => bullet.locked)) {
+            throw new Error(
+              "Assistant patches cannot replace entry bullets while any bullet is locked.",
+            );
+          }
+
+          if (
+            targetEntry &&
+            replacementBullets.length === targetEntry.bullets.length &&
+            replacementBullets.every(
+              (bullet, index) =>
+                targetEntry.bullets[index]?.text === bullet.text &&
+                targetEntry.bullets[index]?.included === bullet.included &&
+                targetEntry.bullets[index]?.locked === bullet.locked,
+            )
+          ) {
+            return section;
+          }
+
+          sectionsChanged = true;
+          return updateSectionMeta(
+            {
+              ...section,
+              entries: section.entries.map((entry) =>
+                entry.id === targetEntry?.id
+                  ? {
+                      ...entry,
+                      bullets: replacementBullets.map((bullet) => ({
+                        ...bullet,
+                        updatedAt,
+                      })),
+                      origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                      updatedAt,
+                    }
+                  : entry,
+              ),
+            },
+            patch,
+            updatedAt,
+          );
+        }
+
         if (
-          patch.newBullets.length === section.bullets.length &&
-          patch.newBullets.every(
+          replacementBullets.length === section.bullets.length &&
+          replacementBullets.every(
             (bullet, index) =>
               section.bullets[index]?.text === bullet.text &&
               section.bullets[index]?.included === bullet.included &&
@@ -359,7 +627,7 @@ export function applyPatchToResumeDraft(input: {
         return updateSectionMeta(
             {
               ...section,
-              bullets: patch.newBullets.map((bullet) => ({
+              bullets: replacementBullets.map((bullet) => ({
                 ...bullet,
                 updatedAt,
               })),

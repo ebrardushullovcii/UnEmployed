@@ -39,6 +39,18 @@ export type ResumeDraftSectionKind = z.infer<
   typeof ResumeDraftSectionKindSchema
 >;
 
+export const resumeDraftEntryTypeValues = [
+  "experience",
+  "project",
+  "education",
+  "certification",
+  "skill_group",
+  "language",
+] as const;
+
+export const ResumeDraftEntryTypeSchema = z.enum(resumeDraftEntryTypeValues);
+export type ResumeDraftEntryType = z.infer<typeof ResumeDraftEntryTypeSchema>;
+
 export const resumeDraftSourceKindValues = [
   "resume",
   "profile",
@@ -117,6 +129,10 @@ export const resumeValidationCategoryValues = [
   "unsupported_claim",
   "invented_metric",
   "duplicate_bullet",
+  "duplicate_section_content",
+  "job_description_bleed",
+  "thin_output",
+  "keyword_stuffing",
   "vague_filler",
   "poor_keyword_coverage",
   "empty_section",
@@ -169,12 +185,32 @@ export const ResumeDraftBulletSchema = z.object({
 });
 export type ResumeDraftBullet = z.infer<typeof ResumeDraftBulletSchema>;
 
+export const ResumeDraftEntrySchema = z.object({
+  id: NonEmptyStringSchema,
+  entryType: ResumeDraftEntryTypeSchema,
+  title: NonEmptyStringSchema.nullable().default(null),
+  subtitle: NonEmptyStringSchema.nullable().default(null),
+  location: NonEmptyStringSchema.nullable().default(null),
+  dateRange: NonEmptyStringSchema.nullable().default(null),
+  summary: NonEmptyStringSchema.nullable().default(null),
+  bullets: z.array(ResumeDraftBulletSchema).default([]),
+  origin: ResumeDraftOriginSchema,
+  locked: z.boolean().default(false),
+  included: z.boolean().default(true),
+  sortOrder: z.number().int().min(0),
+  profileRecordId: NonEmptyStringSchema.nullable().default(null),
+  sourceRefs: z.array(ResumeDraftSourceRefSchema).default([]),
+  updatedAt: IsoDateTimeSchema,
+});
+export type ResumeDraftEntry = z.infer<typeof ResumeDraftEntrySchema>;
+
 export const ResumeDraftSectionSchema = z.object({
   id: NonEmptyStringSchema,
   kind: ResumeDraftSectionKindSchema,
   label: NonEmptyStringSchema,
   text: NonEmptyStringSchema.nullable().default(null),
   bullets: z.array(ResumeDraftBulletSchema).default([]),
+  entries: z.array(ResumeDraftEntrySchema).default([]),
   origin: ResumeDraftOriginSchema,
   locked: z.boolean().default(false),
   included: z.boolean().default(true),
@@ -206,6 +242,7 @@ export const ResumeDraftPatchSchema = z.object({
   draftId: NonEmptyStringSchema,
   operation: ResumeDraftPatchOperationSchema,
   targetSectionId: NonEmptyStringSchema,
+  targetEntryId: NonEmptyStringSchema.nullable().default(null),
   targetBulletId: NonEmptyStringSchema.nullable().default(null),
   anchorBulletId: NonEmptyStringSchema.nullable().default(null),
   position: z.enum(["before", "after"]).nullable().default(null),

@@ -23,27 +23,102 @@ export function buildDeterministicResumeText(
   experienceHighlights: readonly string[],
   coreSkills: readonly string[],
   targetedKeywords: readonly string[],
+  experienceEntries: readonly {
+    title: string | null;
+    employer: string | null;
+    location: string | null;
+    dateRange: string | null;
+    summary: string | null;
+    bullets: readonly string[];
+  }[] = [],
+  projectEntries: readonly {
+    name: string | null;
+    role: string | null;
+    summary: string | null;
+    outcome: string | null;
+    bullets: readonly string[];
+  }[] = [],
+  educationEntries: readonly {
+    school: string | null;
+    degree: string | null;
+    fieldOfStudy: string | null;
+    location: string | null;
+    dateRange: string | null;
+    summary: string | null;
+  }[] = [],
+  certificationEntries: readonly {
+    name: string | null;
+    issuer: string | null;
+    dateRange: string | null;
+  }[] = [],
+  additionalSkills: readonly string[] = [],
+  languages: readonly string[] = [],
 ): string {
+  const formatHeading = (parts: readonly (string | null)[], right?: string | null) => {
+    const left = parts.filter(Boolean).join(" — ");
+    if (left && right) {
+      return `${left} | ${right}`;
+    }
+    return left || right || null;
+  };
+
   return [
     profile.fullName,
     profile.headline,
     [profile.currentLocation, profile.email, profile.phone].filter(Boolean).join(" | "),
     "",
-    `Target Role: ${job.title} at ${job.company}`,
-    "",
     "Summary",
     summary,
     "",
-    "Experience Highlights",
+    "Experience",
+    ...experienceEntries.flatMap((entry) => [
+      formatHeading([entry.title, entry.employer], formatHeading([entry.location], entry.dateRange)),
+      entry.summary,
+      ...entry.bullets.map((line) => `- ${line}`),
+      "",
+    ]),
     ...experienceHighlights.map((line) => `- ${line}`),
     "",
-    "Core Skills",
-    ...coreSkills.map((line) => `- ${line}`),
+    coreSkills.length > 0 ? `Core Skills: ${coreSkills.join(", ")}` : null,
+    additionalSkills.length > 0 ? `Additional Skills: ${additionalSkills.join(", ")}` : null,
+    languages.length > 0 ? `Languages: ${languages.join(", ")}` : null,
     "",
-    "Targeted Keywords",
-    ...targetedKeywords.map((line) => `- ${line}`),
+    ...(projectEntries.length > 0
+      ? [
+          "Projects",
+          ...projectEntries.flatMap((entry) => [
+            formatHeading([entry.name, entry.role]),
+            [entry.summary, entry.outcome].filter(Boolean).join(" "),
+            ...entry.bullets.map((line) => `- ${line}`),
+            "",
+          ]),
+        ]
+      : []),
+    ...(educationEntries.length > 0
+      ? [
+          "Education",
+          ...educationEntries.flatMap((entry) => [
+            formatHeading(
+              [entry.school, [entry.degree, entry.fieldOfStudy].filter(Boolean).join(", ") || null],
+              formatHeading([entry.location], entry.dateRange),
+            ),
+            entry.summary,
+            "",
+          ]),
+        ]
+      : []),
+    ...(certificationEntries.length > 0
+      ? [
+          "Certifications",
+          ...certificationEntries.map((entry) =>
+            formatHeading([entry.name, entry.issuer], entry.dateRange),
+          ),
+          "",
+        ]
+      : []),
+    targetedKeywords.length > 0 ? `Keywords: ${targetedKeywords.join(", ")}` : null,
   ]
-    .filter(Boolean)
+    .filter((value): value is string => Boolean(value && value.trim().length > 0))
     .join("\n");
 }
 
@@ -53,6 +128,23 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     ...input.job.keySkills.slice(0, 6),
   ]).slice(0, 8);
   const targetedKeywords = uniqueStrings(input.job.keySkills).slice(0, 6);
+  const additionalSkills = uniqueStrings([
+    ...input.profile.skillGroups.tools,
+    ...input.profile.skillGroups.languagesAndFrameworks,
+    ...input.profile.skillGroups.highlightedSkills,
+  ])
+    .filter(
+      (skill) =>
+        !coreSkills.some(
+          (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
+        ),
+    )
+    .slice(0, 8);
+  const languages = uniqueStrings(
+    input.profile.spokenLanguages
+      .map((entry) => [entry.language, entry.proficiency].filter(Boolean).join(" — "))
+      .filter(Boolean),
+  ).slice(0, 6);
   const workModeSummary = input.job.workMode.join(", ") || "flexible";
   const headline = input.profile.headline ?? input.job.title ?? "the candidate";
   const summary = `${headline} aligned to ${input.job.title} at ${input.job.company}, emphasizing ${targetedKeywords.slice(0, 3).join(", ") || "role alignment"} and ${workModeSummary} delivery.`;
@@ -65,6 +157,40 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
       ? "Tailoring references the stored base resume text and saved profile details."
       : "Tailoring references the saved structured profile because base resume text is not stored yet.",
   ]).slice(0, 3);
+  const experienceEntries = input.profile.experiences.slice(0, 3).map((experience) => ({
+    title: experience.title,
+    employer: experience.companyName,
+    location: experience.location,
+    dateRange: [experience.startDate, experience.isCurrent ? "Present" : experience.endDate]
+      .filter(Boolean)
+      .join(" – ") || null,
+    summary: experience.summary,
+    bullets: uniqueStrings(experience.achievements).slice(0, 3),
+    profileRecordId: experience.id,
+  }));
+  const projectEntries = input.profile.projects.slice(0, 2).map((project) => ({
+    name: project.name,
+    role: project.role,
+    summary: project.summary,
+    outcome: project.outcome,
+    bullets: uniqueStrings(project.skills).slice(0, 3),
+    profileRecordId: project.id,
+  }));
+  const educationEntries = input.profile.education.slice(0, 2).map((entry) => ({
+    school: entry.schoolName,
+    degree: entry.degree,
+    fieldOfStudy: entry.fieldOfStudy,
+    location: entry.location,
+    dateRange: [entry.startDate, entry.endDate].filter(Boolean).join(" – ") || null,
+    summary: entry.summary,
+    profileRecordId: entry.id,
+  }));
+  const certificationEntries = input.profile.certifications.slice(0, 3).map((entry) => ({
+    name: entry.name,
+    issuer: entry.issuer,
+    dateRange: [entry.issueDate, entry.expiryDate].filter(Boolean).join(" – ") || null,
+    profileRecordId: null,
+  }));
   const fullText = buildDeterministicResumeText(
     input.profile,
     input.job,
@@ -72,6 +198,12 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     experienceHighlights,
     coreSkills,
     targetedKeywords,
+    experienceEntries,
+    projectEntries,
+    educationEntries,
+    certificationEntries,
+    additionalSkills,
+    languages,
   );
 
   return TailoredResumeDraftSchema.parse({
@@ -80,6 +212,12 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     experienceHighlights,
     coreSkills,
     targetedKeywords,
+    experienceEntries,
+    projectEntries,
+    educationEntries,
+    certificationEntries,
+    additionalSkills,
+    languages,
     fullText,
     compatibilityScore: clampScore(78 + Math.min(input.job.keySkills.length * 3, 18)),
     notes: ["Used the built-in deterministic resume tailorer."],
@@ -89,16 +227,77 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
 export function composeDeterministicFullText(input: {
   coreSkills: readonly string[];
   experienceHighlights: readonly string[];
+  experienceEntries?: readonly {
+    title: string | null;
+    employer: string | null;
+    location: string | null;
+    dateRange: string | null;
+    summary: string | null;
+    bullets: readonly string[];
+  }[];
+  projectEntries?: readonly {
+    name: string | null;
+    role: string | null;
+    summary: string | null;
+    outcome: string | null;
+    bullets: readonly string[];
+  }[];
+  educationEntries?: readonly {
+    school: string | null;
+    degree: string | null;
+    fieldOfStudy: string | null;
+    location: string | null;
+    dateRange: string | null;
+    summary: string | null;
+  }[];
+  certificationEntries?: readonly {
+    name: string | null;
+    issuer: string | null;
+    dateRange: string | null;
+  }[];
+  additionalSkills?: readonly string[];
+  languages?: readonly string[];
   label?: string | null;
   notes?: readonly string[];
   summary: string;
   targetedKeywords: readonly string[];
 }) {
+  const stringifyEntry = (parts: readonly (string | null | undefined)[]) =>
+    parts.filter(Boolean).join(" | ");
+
   return [
     input.label ?? null,
     input.summary,
+    ...(input.experienceEntries ?? []).flatMap((entry) => [
+      stringifyEntry([entry.title, entry.employer, entry.location, entry.dateRange]),
+      entry.summary,
+      ...entry.bullets,
+    ]),
     ...input.experienceHighlights,
     input.coreSkills.length > 0 ? `Core skills: ${input.coreSkills.join(", ")}` : null,
+    input.additionalSkills && input.additionalSkills.length > 0
+      ? `Additional skills: ${input.additionalSkills.join(", ")}`
+      : null,
+    input.languages && input.languages.length > 0
+      ? `Languages: ${input.languages.join(", ")}`
+      : null,
+    ...(input.projectEntries ?? []).flatMap((entry) => [
+      stringifyEntry([entry.name, entry.role]),
+      [entry.summary, entry.outcome].filter(Boolean).join(" "),
+      ...entry.bullets,
+    ]),
+    ...(input.educationEntries ?? []).flatMap((entry) => [
+      stringifyEntry([
+        entry.school,
+        [entry.degree, entry.fieldOfStudy].filter(Boolean).join(", "),
+        entry.location,
+        entry.dateRange,
+      ]),
+      entry.summary,
+    ]),
+    ...(input.certificationEntries ?? []).map((entry) =>
+      stringifyEntry([entry.name, entry.issuer, entry.dateRange]),
+    ),
     input.targetedKeywords.length > 0
       ? `Targeted keywords: ${input.targetedKeywords.join(", ")}`
       : null,
@@ -146,6 +345,12 @@ export function buildDeterministicStructuredResumeDraft(
     summary,
     experienceHighlights,
     coreSkills,
+    experienceEntries: baseDraft.experienceEntries,
+    projectEntries: baseDraft.projectEntries,
+    educationEntries: baseDraft.educationEntries,
+    certificationEntries: baseDraft.certificationEntries,
+    additionalSkills: baseDraft.additionalSkills,
+    languages: baseDraft.languages,
     targetedKeywords,
     notes,
   });
@@ -156,6 +361,12 @@ export function buildDeterministicStructuredResumeDraft(
     experienceHighlights,
     coreSkills,
     targetedKeywords,
+    experienceEntries: baseDraft.experienceEntries,
+    projectEntries: baseDraft.projectEntries,
+    educationEntries: baseDraft.educationEntries,
+    certificationEntries: baseDraft.certificationEntries,
+    additionalSkills: baseDraft.additionalSkills,
+    languages: baseDraft.languages,
     fullText,
     notes,
   });
@@ -183,6 +394,7 @@ export function buildDeterministicResumeAssistantReply(
         draftId: input.draft.id,
         operation: "replace_section_text",
         targetSectionId: summarySection.id,
+        targetEntryId: null,
         targetBulletId: null,
         anchorBulletId: null,
         position: null,
@@ -202,21 +414,31 @@ export function buildDeterministicResumeAssistantReply(
   if (experienceSection && !experienceSection.locked && (lowerRequest.includes("bullet") || lowerRequest.includes("experience") || isExperienceShorteningRequest)) {
     const ordinalPatterns = ["first", "1st", "second", "2nd", "third", "3rd", "fourth", "4th"];
     const requestedOrdinalIndex = ordinalPatterns.findIndex((pattern) => lowerRequest.includes(pattern));
-    const unlockedBullets = experienceSection.bullets.filter((bullet) => !bullet.locked);
+    const unlockedEntryBullets = experienceSection.entries.flatMap((entry) =>
+      entry.locked
+        ? []
+        : entry.bullets
+            .filter((bullet) => !bullet.locked)
+            .map((bullet) => ({ bullet, entryId: entry.id })),
+    );
+    const unlockedBullets = experienceSection.bullets
+      .filter((bullet) => !bullet.locked)
+      .map((bullet) => ({ bullet, entryId: null as string | null }));
+    const candidateBullets = unlockedEntryBullets.length > 0 ? unlockedEntryBullets : unlockedBullets;
     const keywordMatchedBullet = unlockedBullets.find((bullet) =>
-      bullet.text
+      bullet.bullet.text
         .toLowerCase()
         .split(/[^a-z0-9]+/)
         .filter((token) => token.length >= 3)
         .some((token) => lowerRequest.includes(token)),
     ) ?? null;
     const targetBullet = requestedOrdinalIndex >= 0
-      ? unlockedBullets[requestedOrdinalIndex] ?? null
+      ? candidateBullets[requestedOrdinalIndex] ?? null
       : keywordMatchedBullet ?? unlockedBullets[0] ?? null;
 
     if (targetBullet) {
-      const tightenedBullet = tightenSentence(targetBullet.text);
-      if (tightenedBullet === targetBullet.text) {
+      const tightenedBullet = tightenSentence(targetBullet.bullet.text);
+      if (tightenedBullet === targetBullet.bullet.text) {
         return ResumeAssistantReplySchema.parse({
           content: "I could not safely turn that request into a grounded patch, so no changes were applied.",
           patches,
@@ -228,7 +450,8 @@ export function buildDeterministicResumeAssistantReply(
         draftId: input.draft.id,
         operation: "update_bullet",
         targetSectionId: experienceSection.id,
-        targetBulletId: targetBullet.id,
+        targetEntryId: targetBullet.entryId,
+        targetBulletId: targetBullet.bullet.id,
         anchorBulletId: null,
         position: null,
         newText: tightenedBullet,

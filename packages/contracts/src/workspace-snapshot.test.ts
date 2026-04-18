@@ -25,7 +25,8 @@ describe("contracts workspace snapshot schema", () => {
         {
           id: "classic_ats",
           label: "Classic ATS",
-          description: "Single-column and ATS-friendly.",
+          description:
+            "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
         },
       ],
       profile: {
