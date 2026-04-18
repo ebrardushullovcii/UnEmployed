@@ -18,6 +18,7 @@ import {
 import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
+  DiscoveryLedgerEntrySchema,
   DiscoveryAdapterSessionStateSchema,
   DiscoveryRunRecordSchema,
   JobSearchPreferencesSchema,
@@ -150,6 +151,21 @@ export type JobFinderSourceDebugActionInput = z.infer<
   typeof JobFinderSourceDebugActionInputSchema
 >;
 
+export const JobFinderDiscoveryTargetActionInputSchema = z.object({
+  targetId: NonEmptyStringSchema,
+});
+export type JobFinderDiscoveryTargetActionInput = z.infer<
+  typeof JobFinderDiscoveryTargetActionInputSchema
+>;
+
+export const JobFinderAgentDiscoveryActionInputSchema = z.object({
+  requestId: NonEmptyStringSchema,
+  targetId: NonEmptyStringSchema.nullable().default(null),
+});
+export type JobFinderAgentDiscoveryActionInput = z.infer<
+  typeof JobFinderAgentDiscoveryActionInputSchema
+>;
+
 export const JobFinderSourceDebugRunQuerySchema = z.object({
   runId: NonEmptyStringSchema,
 });
@@ -221,6 +237,7 @@ export const JobFinderDiscoveryStateSchema = z.object({
   recentRuns: z.array(DiscoveryRunRecordSchema).default([]),
   activeSourceDebugRun: SourceDebugRunRecordSchema.nullable().default(null),
   recentSourceDebugRuns: z.array(SourceDebugRunRecordSchema).default([]),
+  discoveryLedger: z.array(DiscoveryLedgerEntrySchema).default([]),
   pendingDiscoveryJobs: z.array(SavedJobSchema).default([]),
 });
 export type JobFinderDiscoveryState = z.infer<

@@ -119,6 +119,7 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       recentRuns: [],
       activeSourceDebugRun: null,
       recentSourceDebugRuns: [],
+      discoveryLedger: [],
       pendingDiscoveryJobs: []
     }
   }

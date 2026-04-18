@@ -1,9 +1,13 @@
 import { z } from "zod";
 
 import {
+  JobApplyPathSchema,
+  JobDiscoveryCollectionMethodSchema,
   BrowserRunWaitReasonSchema,
   IsoDateTimeSchema,
   NonEmptyStringSchema,
+  SourceIntelligenceApiAvailabilitySchema,
+  SourceIntelligenceProviderKeySchema,
   SourceDebugAttemptOutcomeSchema,
   SourceDebugPhaseCompletionModeSchema,
   SourceDebugPhaseSchema,
@@ -248,6 +252,106 @@ export type SourceInstructionVerification = z.infer<
   typeof SourceInstructionVerificationSchema
 >;
 
+export const SourceIntelligenceConfidenceSchema = z
+  .number()
+  .min(0)
+  .max(1)
+  .default(0.5);
+export type SourceIntelligenceConfidence = z.infer<
+  typeof SourceIntelligenceConfidenceSchema
+>;
+
+export const SourceIntelligenceProviderSchema = z.object({
+  key: SourceIntelligenceProviderKeySchema.default("other"),
+  label: NonEmptyStringSchema,
+  confidence: SourceIntelligenceConfidenceSchema,
+  apiAvailability:
+    SourceIntelligenceApiAvailabilitySchema.default("unconfirmed"),
+  publicApiUrlTemplate: NonEmptyStringSchema.nullable().default(null),
+  boardToken: NonEmptyStringSchema.nullable().default(null),
+  boardSlug: NonEmptyStringSchema.nullable().default(null),
+  providerIdentifier: NonEmptyStringSchema.nullable().default(null),
+});
+export type SourceIntelligenceProvider = z.infer<
+  typeof SourceIntelligenceProviderSchema
+>;
+
+export const SourceIntelligenceRouteSchema = z.object({
+  url: UrlStringSchema,
+  label: NonEmptyStringSchema,
+  kind: z
+    .enum(["anchor", "listing", "search", "detail", "apply", "collection"])
+    .default("listing"),
+  confidence: SourceIntelligenceConfidenceSchema,
+});
+export type SourceIntelligenceRoute = z.infer<
+  typeof SourceIntelligenceRouteSchema
+>;
+
+export const SourceIntelligenceRoutePatternSchema = z.object({
+  pattern: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  confidence: SourceIntelligenceConfidenceSchema,
+});
+export type SourceIntelligenceRoutePattern = z.infer<
+  typeof SourceIntelligenceRoutePatternSchema
+>;
+
+export const SourceIntelligenceCollectionStrategySchema = z.object({
+  preferredMethod:
+    JobDiscoveryCollectionMethodSchema.default("fallback_search"),
+  rankedMethods: z.array(JobDiscoveryCollectionMethodSchema).default([]),
+  startingRoutes: z.array(SourceIntelligenceRouteSchema).default([]),
+  searchRouteTemplates: z.array(SourceIntelligenceRouteSchema).default([]),
+  detailRoutePatterns: z.array(SourceIntelligenceRoutePatternSchema).default([]),
+  listingMarkers: z.array(NonEmptyStringSchema).default([]),
+});
+export type SourceIntelligenceCollectionStrategy = z.infer<
+  typeof SourceIntelligenceCollectionStrategySchema
+>;
+
+export const SourceIntelligenceApplyHintsSchema = z.object({
+  applyPath: JobApplyPathSchema.default("unknown"),
+  authMarkers: z.array(NonEmptyStringSchema).default([]),
+  consentMarkers: z.array(NonEmptyStringSchema).default([]),
+  questionSurfaceHints: z.array(NonEmptyStringSchema).default([]),
+  resumeUploadHints: z.array(NonEmptyStringSchema).default([]),
+});
+export type SourceIntelligenceApplyHints = z.infer<
+  typeof SourceIntelligenceApplyHintsSchema
+>;
+
+export const SourceIntelligenceReliabilitySchema = z.object({
+  selectorFingerprints: z.array(NonEmptyStringSchema).default([]),
+  stableControlNames: z.array(NonEmptyStringSchema).default([]),
+  failureFingerprints: z.array(NonEmptyStringSchema).default([]),
+  verifiedAt: IsoDateTimeSchema.nullable().default(null),
+  freshnessNotes: z.array(NonEmptyStringSchema).default([]),
+});
+export type SourceIntelligenceReliability = z.infer<
+  typeof SourceIntelligenceReliabilitySchema
+>;
+
+export const SourceIntelligenceOverridesSchema = z.object({
+  forceMethod: JobDiscoveryCollectionMethodSchema.nullable().default(null),
+  deniedRoutePatterns: z.array(NonEmptyStringSchema).default([]),
+  extraStartingRoutes: z.array(UrlStringSchema).default([]),
+});
+export type SourceIntelligenceOverrides = z.infer<
+  typeof SourceIntelligenceOverridesSchema
+>;
+
+export const SourceIntelligenceArtifactSchema = z.object({
+  provider: SourceIntelligenceProviderSchema.nullable().default(null),
+  collection: SourceIntelligenceCollectionStrategySchema.default({}),
+  apply: SourceIntelligenceApplyHintsSchema.default({}),
+  reliability: SourceIntelligenceReliabilitySchema.default({}),
+  overrides: SourceIntelligenceOverridesSchema.default({}),
+});
+export type SourceIntelligenceArtifact = z.infer<
+  typeof SourceIntelligenceArtifactSchema
+>;
+
 export const SourceInstructionArtifactSchema = z
   .object({
     id: NonEmptyStringSchema,
@@ -264,6 +368,7 @@ export const SourceInstructionArtifactSchema = z
     detailGuidance: z.array(NonEmptyStringSchema).default([]),
     applyGuidance: z.array(NonEmptyStringSchema).default([]),
     warnings: z.array(NonEmptyStringSchema).default([]),
+    intelligence: SourceIntelligenceArtifactSchema.default({}),
     versionInfo: SourceInstructionVersionInfoSchema,
     verification: SourceInstructionVerificationSchema.nullable().default(null),
   })
@@ -301,6 +406,7 @@ export const EditableSourceInstructionArtifactSchema = z.object({
   detailGuidance: z.array(NonEmptyStringSchema).default([]),
   applyGuidance: z.array(NonEmptyStringSchema).default([]),
   warnings: z.array(NonEmptyStringSchema).default([]),
+  intelligence: SourceIntelligenceArtifactSchema.default({}),
 });
 export type EditableSourceInstructionArtifact = z.infer<
   typeof EditableSourceInstructionArtifactSchema

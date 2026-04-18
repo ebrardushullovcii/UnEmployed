@@ -12,6 +12,7 @@ import {
   type ResumeDraftPatch,
 } from "@unemployed/contracts";
 import { mergeSavedJobs } from "./workspace-service-helpers";
+import { markSavedJobStatusInLedger } from "./workspace-discovery-ledger";
 import {
   buildConsentSummary,
   buildEvidenceRefIdsFromInstruction,
@@ -109,17 +110,52 @@ export function createWorkspaceApplicationMethods(
       );
 
       if (pendingIndex >= 0) {
+        const pendingJob = discoveryState.pendingDiscoveryJobs[pendingIndex];
+        if (!pendingJob) {
+          throw new Error(
+            `Pending discovery job missing at index ${pendingIndex} while dismissing '${jobId}' (pending count ${discoveryState.pendingDiscoveryJobs.length}).`,
+          );
+        }
         await ctx.persistDiscoveryState((current) => ({
           ...current,
+          discoveryLedger: markSavedJobStatusInLedger({
+            ledger: current.discoveryLedger,
+            job: pendingJob,
+            status: "skipped",
+            occurredAt: new Date().toISOString(),
+            skipReason: "Dismissed from discovery results.",
+          }),
           pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter(
             (job) => job.id !== jobId,
           ),
         }));
       } else {
-        await ctx.updateJob(jobId, (job) => ({
-          ...job,
-          status: "archived",
-        }));
+        const savedJobs = await ctx.repository.listSavedJobs();
+        const targetJob = savedJobs.find((job) => job.id === jobId) ?? null;
+
+        if (!targetJob) {
+          throw new Error(`Unable to archive unknown job '${jobId}'.`);
+        }
+
+        const nextSavedJobs = savedJobs.map((job) =>
+          job.id === jobId ? SavedJobSchema.parse({ ...job, status: "archived" }) : job,
+        );
+        const occurredAt = new Date().toISOString();
+        const nextDiscoveryState = {
+          ...discoveryState,
+          discoveryLedger: markSavedJobStatusInLedger({
+            ledger: discoveryState.discoveryLedger,
+            job: targetJob,
+            status: "skipped",
+            occurredAt,
+            skipReason: "Archived intentionally by the user.",
+          }),
+        };
+
+        await ctx.persistSavedJobsAndDiscoveryState({
+          savedJobs: nextSavedJobs,
+          discoveryState: nextDiscoveryState,
+        });
       }
 
       return ctx.getWorkspaceSnapshot();
@@ -626,6 +662,7 @@ export function createWorkspaceApplicationMethods(
         sourceDebugAttempts,
         draft,
         approvedExports,
+        discoveryState,
       ] = await Promise.all([
         ctx.repository.getProfile(),
         ctx.repository.getSearchPreferences(),
@@ -637,6 +674,7 @@ export function createWorkspaceApplicationMethods(
         ctx.repository.listSourceDebugAttempts(),
         ctx.repository.getResumeDraftByJobId(jobId),
         ctx.repository.listResumeExportArtifacts({ jobId }),
+        ctx.repository.getDiscoveryState(),
       ]);
       const job = savedJobs.find((entry) => entry.id === jobId);
       const asset = tailoredAssets.find((entry) => entry.jobId === jobId);
@@ -683,6 +721,11 @@ export function createWorkspaceApplicationMethods(
             (target) => target.id === provenanceTargetId,
           ) ?? null)
         : null;
+      const activeLedgerTargetId =
+        provenanceTarget?.id ??
+        (searchPreferences.discovery.targets.length === 1
+          ? (searchPreferences.discovery.targets[0]?.id ?? null)
+          : null);
       const activeInstruction = provenanceTarget
         ? resolveActiveSourceInstructionArtifact(
             provenanceTarget,
@@ -768,10 +811,34 @@ export function createWorkspaceApplicationMethods(
       });
 
       await ctx.repository.upsertApplicationRecord(nextRecord);
-      await ctx.updateJob(jobId, (currentJob) => ({
-        ...currentJob,
-        status: nextJobStatusFromAttempt(currentJob, executionResult.state),
-      }));
+      const nextSavedJobs = savedJobs.map((savedJob) =>
+        savedJob.id === jobId
+          ? SavedJobSchema.parse({
+              ...savedJob,
+              status: nextJobStatusFromAttempt(savedJob, executionResult.state),
+            })
+          : savedJob,
+      );
+      if (executionResult.state === "submitted") {
+        await ctx.persistSavedJobsAndDiscoveryState({
+          savedJobs: nextSavedJobs,
+          discoveryState: {
+            ...discoveryState,
+            discoveryLedger: markSavedJobStatusInLedger({
+              ledger: discoveryState.discoveryLedger,
+              job,
+              ...(activeLedgerTargetId
+                ? { activeTargetId: activeLedgerTargetId }
+                : {}),
+              status: "applied",
+              occurredAt: executionResult.submittedAt ?? now,
+              skipReason: null,
+            }),
+          },
+        });
+      } else {
+        await ctx.repository.replaceSavedJobs(nextSavedJobs);
+      }
 
       return ctx.getWorkspaceSnapshot();
     },

@@ -9,6 +9,7 @@ import {
 import {
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,
+  JobFinderAgentDiscoveryActionInputSchema,
   JobFinderApplyResumePatchInputSchema,
   JobFinderApproveResumeInputSchema,
   JobFinderProfileCopilotMessageInputSchema,
@@ -48,17 +49,8 @@ import {
   runDesktopResumeImportBenchmark,
 } from "../services/job-finder";
 
-function parseAgentDiscoveryRequestId(payload: unknown): string {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Missing agent discovery request id payload");
-  }
-
-  const requestId = (payload as { requestId?: unknown }).requestId;
-  if (typeof requestId !== "string" || requestId.trim().length === 0) {
-    throw new Error("Invalid agent discovery request id payload");
-  }
-
-  return requestId;
+function parseAgentDiscoveryRequest(payload: unknown) {
+  return JobFinderAgentDiscoveryActionInputSchema.parse(payload);
 }
 
 function parseOptionalRequestId(payload: unknown): string | null {
@@ -410,7 +402,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const window = event.sender;
       const senderId = event.sender.id;
-      const requestId = parseAgentDiscoveryRequestId(payload);
+      const { requestId, targetId } = parseAgentDiscoveryRequest(payload);
       const controller = new AbortController();
 
       const cancelHandler = (
@@ -419,9 +411,17 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       ) => {
         const cancelRequestId = (() => {
           try {
-            return parseAgentDiscoveryRequestId(cancelPayload);
-          } catch {
-            return null;
+            return parseAgentDiscoveryRequest(cancelPayload).requestId;
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.name === "ZodError" &&
+              Array.isArray((error as { issues?: unknown }).issues)
+            ) {
+              return null;
+            }
+
+            throw error;
           }
         })();
 
@@ -445,6 +445,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
             );
           },
           controller.signal,
+          targetId ?? undefined,
         );
 
         return JobFinderWorkspaceSnapshotSchema.parse(snapshot);

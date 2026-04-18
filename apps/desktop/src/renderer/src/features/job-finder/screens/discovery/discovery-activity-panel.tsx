@@ -44,6 +44,10 @@ function formatStageLabel(stage: DiscoveryActivityEvent['stage']): string {
   }
 }
 
+function formatScopeLabel(scope: DiscoveryRunRecord['scope']): string {
+  return scope === 'single_target' ? 'Single source' : 'Run all'
+}
+
 function ActivityEventCard(props: { event: DiscoveryActivityEvent; targetLabel: string | null }) {
   const { event, targetLabel } = props
 
@@ -301,6 +305,10 @@ export function DiscoveryHistoryModal(props: {
                   <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatOutcomeLabel(selectedRun.summary.outcome)}</p>
                 </div>
                 <div>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Scope</p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatScopeLabel(selectedRun.scope)}</p>
+                </div>
+                <div>
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Found</p>
                   <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.validJobsFound}</p>
                 </div>
@@ -318,6 +326,17 @@ export function DiscoveryHistoryModal(props: {
                   <div>
                     <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Longest quiet gap</p>
                     <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.timing.longestGapMs)}</p>
+                  </div>
+                ) : null}
+                {selectedRun.summary.browserCloseout ? (
+                  <div className="sm:col-span-2">
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Browser closeout</p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.browserCloseout.label}</p>
+                    {selectedRun.summary.browserCloseout.detail ? (
+                      <p className="mt-1 text-[0.84rem] leading-6 text-foreground-soft">
+                        {selectedRun.summary.browserCloseout.detail}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

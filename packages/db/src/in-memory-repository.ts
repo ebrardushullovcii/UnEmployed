@@ -163,6 +163,13 @@ export function createInMemoryJobFinderRepository(
       state.savedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
       return Promise.resolve();
     },
+    replaceSavedJobsAndDiscoveryState({ savedJobs, discoveryState }) {
+      state.savedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
+      state.discovery = JobFinderDiscoveryStateSchema.parse(
+        cloneValue(discoveryState),
+      );
+      return Promise.resolve();
+    },
     replaceSavedJobsAndClearResumeApproval({
       savedJobs,
       draft,

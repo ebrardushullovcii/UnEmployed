@@ -1,5 +1,6 @@
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import {
+  type SourceIntelligenceArtifact,
   type JobDiscoveryTarget,
   type JobSource,
   type SourceDebugPhase,
@@ -21,6 +22,44 @@ const SOURCE_DEBUG_PHASES: SourceDebugPhase[] = [
   "apply_path_validation",
   "replay_verification",
 ];
+
+const SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE = {
+  navigationGuidance: [],
+  searchGuidance: [],
+  detailGuidance: [],
+  applyGuidance: [],
+  warnings: [],
+  intelligence: {
+    provider: null,
+    collection: {
+      preferredMethod: "fallback_search",
+      rankedMethods: [],
+      startingRoutes: [],
+      searchRouteTemplates: [],
+      detailRoutePatterns: [],
+      listingMarkers: [],
+    },
+    apply: {
+      applyPath: "unknown",
+      authMarkers: [],
+      consentMarkers: [],
+      questionSurfaceHints: [],
+      resumeUploadHints: [],
+    },
+    reliability: {
+      selectorFingerprints: [],
+      stableControlNames: [],
+      failureFingerprints: [],
+      verifiedAt: null,
+      freshnessNotes: [],
+    },
+    overrides: {
+      forceMethod: null,
+      deniedRoutePatterns: [],
+      extraStartingRoutes: [],
+    },
+  } satisfies SourceIntelligenceArtifact,
+} satisfies SourceInstructionReviewOverride;
 
 export function buildSourceInstructionFinalReviewPrompt(input: {
   target: JobDiscoveryTarget;
@@ -56,6 +95,7 @@ export function buildSourceInstructionFinalReviewPrompt(input: {
           detailGuidance: input.instructionUnderReview.detailGuidance,
           applyGuidance: input.instructionUnderReview.applyGuidance,
           warnings: input.instructionUnderReview.warnings,
+          intelligence: input.instructionUnderReview.intelligence,
         }
       : null,
     heuristicInstruction: {
@@ -64,6 +104,7 @@ export function buildSourceInstructionFinalReviewPrompt(input: {
       detailGuidance: input.heuristicInstruction.detailGuidance,
       applyGuidance: input.heuristicInstruction.applyGuidance,
       warnings: input.heuristicInstruction.warnings,
+      intelligence: input.heuristicInstruction.intelligence,
     },
     phaseTests: input.phaseContexts,
   };
@@ -81,9 +122,11 @@ export function buildSourceInstructionFinalReviewPrompt(input: {
     "Do not invent routes, controls, or outcomes that are not supported by the evidence.",
     "Keep the output concise and operator-facing.",
     "Return JSON only with this shape:",
-    '{"navigationGuidance":[],"searchGuidance":[],"detailGuidance":[],"applyGuidance":[],"warnings":[]}',
+    JSON.stringify(SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE),
     "Guidance rules:",
     "- Prefer stable routes, visible controls, canonical detail behavior, and safe apply-entry rules.",
+    "- Keep typed intelligence aligned with the evidence: provider classification, ranked routes, preferred collection method, apply hints, reliability notes, and structured overrides should reflect what the run actually proved.",
+    "- The values shown in SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE are schema placeholders, not defaults. Do not copy placeholder literals such as provider: null, fallback_search, or empty arrays into the final output unless the evidence for this run actually proves them. Preserve stronger existing proven hints and only populate fields when this run validated them.",
     "- When a control was first flaky or unproven but later worked, keep the proven instruction and drop the earlier failure note.",
     "- When a later phase disproves an earlier claim, keep the later warning and remove the stale claim.",
     "- Empty arrays are intentional. If a category has no reliable instruction after organizing the evidence, return an empty array for that category instead of inheriting weaker lines.",

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  JobFinderAgentDiscoveryActionInputSchema,
   ApplicationAttemptSchema,
   JobFinderWorkspaceSnapshotSchema,
 } from "./index";
@@ -356,5 +357,26 @@ describe("contracts workspace snapshot schema", () => {
     expect(workspace.reviewQueue[0]?.assetStatus).toBe("ready");
     expect(workspace.applicationAttempts[0]?.state).toBe("submitted");
     expect(workspace.activeSourceDebugRun?.state).toBe("paused_manual");
+  });
+
+  test("parses agent discovery action payloads with optional single-target scope", () => {
+    expect(
+      JobFinderAgentDiscoveryActionInputSchema.parse({
+        requestId: "agent_discovery_1",
+      }),
+    ).toEqual({
+      requestId: "agent_discovery_1",
+      targetId: null,
+    });
+
+    expect(
+      JobFinderAgentDiscoveryActionInputSchema.parse({
+        requestId: "agent_discovery_2",
+        targetId: "target_linkedin_default",
+      }),
+    ).toEqual({
+      requestId: "agent_discovery_2",
+      targetId: "target_linkedin_default",
+    });
   });
 });

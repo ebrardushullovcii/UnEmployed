@@ -20,6 +20,7 @@ interface ProfileActiveSectionContentProps {
   busy: boolean
   experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', ProfileFieldArrayKeyName>
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
@@ -35,6 +36,7 @@ export function ProfileActiveSectionContent({
   busy,
   experienceArray,
   onGetSourceDebugRunDetails,
+  onRunDiscoveryForTarget,
   onRunSourceDebug,
   onSaveSourceInstructionArtifact,
   onVerifySourceInstructions,
@@ -51,6 +53,7 @@ export function ProfileActiveSectionContent({
       <ProfilePreferencesTab
         busy={busy}
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+        {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
         onRunSourceDebug={onRunSourceDebug}
         onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
         onVerifySourceInstructions={onVerifySourceInstructions}

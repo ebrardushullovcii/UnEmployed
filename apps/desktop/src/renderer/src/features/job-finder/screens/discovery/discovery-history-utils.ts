@@ -18,6 +18,8 @@ function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetE
     targetId: target.id,
     adapterKind: target.adapterKind,
     resolvedAdapterKind: null,
+    collectionMethod: null,
+    sourceIntelligenceProvider: null,
     state: 'planned',
     startedAt: null,
     completedAt: null,
@@ -34,6 +36,8 @@ function createSyntheticExecution(event: DiscoveryActivityEvent): DiscoveryTarge
     targetId: event.targetId ?? 'unknown_target',
     adapterKind: event.adapterKind ?? 'auto',
     resolvedAdapterKind: event.resolvedAdapterKind,
+    collectionMethod: null,
+    sourceIntelligenceProvider: null,
     state: 'planned',
     startedAt: null,
     completedAt: null,
@@ -86,8 +90,6 @@ export function buildLiveRunRecord(
   const runId = firstEvent.runId
   const runEvents = liveEvents.filter((event) => event.runId === runId)
   const enabledTargets = targets.filter((target) => target.enabled)
-  const targetIds = enabledTargets.map((target) => target.id)
-  const knownTargetIds = new Set(targetIds)
   const executions = new Map(enabledTargets.map((target) => [target.id, createPlannedExecution(target)]))
 
   for (const event of runEvents) {
@@ -100,10 +102,6 @@ export function buildLiveRunRecord(
     if (!currentExecution) {
       currentExecution = createSyntheticExecution(event)
       executions.set(event.targetId, currentExecution)
-      if (!knownTargetIds.has(event.targetId)) {
-        knownTargetIds.add(event.targetId)
-        targetIds.push(event.targetId)
-      }
     }
 
     const nextExecution: DiscoveryTargetExecution = {
@@ -112,7 +110,9 @@ export function buildLiveRunRecord(
       resolvedAdapterKind: event.resolvedAdapterKind ?? currentExecution.resolvedAdapterKind,
       jobsFound: event.jobsFound ?? currentExecution.jobsFound,
       jobsPersisted: event.jobsPersisted ?? currentExecution.jobsPersisted,
-      jobsStaged: event.jobsStaged ?? currentExecution.jobsStaged
+      jobsStaged: event.jobsStaged ?? currentExecution.jobsStaged,
+      collectionMethod: event.collectionMethod ?? currentExecution.collectionMethod,
+      sourceIntelligenceProvider: event.sourceIntelligenceProvider ?? currentExecution.sourceIntelligenceProvider,
     }
 
     if (event.stage === 'target' && event.message.startsWith('Starting target')) {
@@ -136,27 +136,34 @@ export function buildLiveRunRecord(
     executions.set(event.targetId, nextExecution)
   }
 
-  const targetExecutions = targetIds.map((targetId) => executions.get(targetId)).filter((execution): execution is DiscoveryTargetExecution => Boolean(execution))
+  const targetExecutions = [...executions.values()]
   const targetsCompleted = targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
+  const isSingleTargetRun =
+    enabledTargets.length === 1 ||
+    runEvents.some((event) => event.message.toLowerCase().includes('planning discovery for'))
 
   return {
     id: runId,
     state: 'running',
+    scope: isSingleTargetRun ? 'single_target' : 'run_all',
     startedAt: firstEvent.timestamp,
     completedAt: null,
-    targetIds,
+    targetIds: enabledTargets.map((target) => target.id),
     targetExecutions,
     activity: runEvents,
     summary: {
-      targetsPlanned: targetIds.length,
+      targetsPlanned: enabledTargets.length,
       targetsCompleted,
       validJobsFound: targetExecutions.reduce((total, execution) => total + execution.jobsFound, 0),
       jobsPersisted: targetExecutions.reduce((total, execution) => total + execution.jobsPersisted, 0),
       jobsStaged: targetExecutions.reduce((total, execution) => total + execution.jobsStaged, 0),
+      jobsSkippedByLedger: 0,
+      jobsSkippedByTitleTriage: 0,
       duplicatesMerged: 0,
       invalidSkipped: 0,
       durationMs: Math.max(0, new Date().getTime() - new Date(firstEvent.timestamp).getTime()),
       outcome: 'running',
+      browserCloseout: null,
       timing: null
     }
   }

@@ -22,6 +22,7 @@ import {
 } from "./source-instructions";
 import { normalizeText, uniqueStrings } from "./shared";
 import { buildSourceInstructionVersionInfo } from "./workspace-helpers";
+import { buildSourceIntelligenceArtifact } from "./workspace-source-intelligence";
 
 export function synthesizeSourceInstructionArtifact(
   target: JobDiscoveryTarget,
@@ -30,6 +31,7 @@ export function synthesizeSourceInstructionArtifact(
   adapterKind: JobSource,
   verification: SourceInstructionArtifact["verification"],
   reviewOverride?: SourceInstructionReviewOverride | null,
+  currentArtifact?: SourceInstructionArtifact | null,
 ): SourceInstructionArtifact {
   const byPhase = new Map(attempts.map((attempt) => [attempt.phase, attempt]));
   const accessAttempt = byPhase.get("access_auth_probe");
@@ -185,6 +187,13 @@ export function synthesizeSourceInstructionArtifact(
       : warnings.some((warning) => warning.toLowerCase().includes("unsupported"))
         ? "unsupported"
         : "draft";
+  const intelligence =
+    reviewOverride?.intelligence ??
+    buildSourceIntelligenceArtifact({
+      target,
+      attempts,
+      currentArtifact: currentArtifact ?? null,
+    });
 
   return SourceInstructionArtifactSchema.parse({
     id: run.instructionArtifactId ?? `source_instruction_${target.id}_${Date.now()}`,
@@ -201,6 +210,7 @@ export function synthesizeSourceInstructionArtifact(
     detailGuidance,
     applyGuidance,
     warnings,
+    intelligence,
     versionInfo: buildSourceInstructionVersionInfo(adapterKind),
     verification,
   });

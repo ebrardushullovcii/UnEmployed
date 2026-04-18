@@ -15,6 +15,7 @@ import type {
   DiscoveryRunResult,
   EditableSourceInstructionArtifact,
   JobPosting,
+  SourceIntelligenceArtifact,
   ResumeDocumentBundle,
   ResumeImportFieldCandidateDraft,
   ResumeResearchArtifact,
@@ -22,6 +23,7 @@ import type {
   SourceDebugPhaseCompletionMode,
   SourceDebugPhaseEvidence,
 } from "@unemployed/contracts";
+import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 
 import { toPhaseId, type SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
 
@@ -153,6 +155,7 @@ export function toEditableSourceInstructionArtifactInput(artifact: {
   detailGuidance: readonly string[];
   applyGuidance: readonly string[];
   warnings: readonly string[];
+  intelligence?: SourceIntelligenceArtifact | null;
 }): EditableSourceInstructionArtifact {
   return {
     id: artifact.id,
@@ -162,6 +165,7 @@ export function toEditableSourceInstructionArtifactInput(artifact: {
     detailGuidance: [...artifact.detailGuidance],
     applyGuidance: [...artifact.applyGuidance],
     warnings: [...artifact.warnings],
+    intelligence: artifact.intelligence ?? SourceIntelligenceArtifactSchema.parse({}),
   };
 }
 

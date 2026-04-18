@@ -222,11 +222,20 @@ function mapWaitReasonToStage(
 export function createDiscoveryEvent(
   input: Omit<
     DiscoveryActivityEvent,
-    "id" | "resolvedAdapterKind" | "terminalState" | "waitReason"
+    | "id"
+    | "resolvedAdapterKind"
+    | "terminalState"
+    | "waitReason"
+    | "collectionMethod"
+    | "sourceIntelligenceProvider"
   > &
     Pick<
       Partial<DiscoveryActivityEvent>,
-      "resolvedAdapterKind" | "terminalState" | "waitReason"
+      | "resolvedAdapterKind"
+      | "terminalState"
+      | "waitReason"
+      | "collectionMethod"
+      | "sourceIntelligenceProvider"
     >,
 ): DiscoveryActivityEvent {
   return DiscoveryActivityEventSchema.parse({

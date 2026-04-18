@@ -1,4 +1,6 @@
+import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 import type {
+  SourceIntelligenceArtifact,
   SourceDebugCompactionState,
   SourceDebugPhase,
   SourceDebugPhaseCompletionMode,
@@ -20,6 +22,7 @@ export interface SourceInstructionReviewOverride {
   detailGuidance: string[] | null;
   applyGuidance: string[] | null;
   warnings: string[] | null;
+  intelligence: SourceIntelligenceArtifact | null;
 }
 
 export interface SourceInstructionFinalReviewPhaseContext {
@@ -70,6 +73,24 @@ export function parseSourceInstructionReviewOverride(
 
   const payload = raw as Record<string, unknown>;
 
+  const intelligence = (() => {
+    if (!("intelligence" in payload)) {
+      return null;
+    }
+
+    try {
+      return SourceIntelligenceArtifactSchema.parse(payload.intelligence);
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn(
+          "Failed to parse payload.intelligence into SourceIntelligenceArtifactSchema",
+          error,
+        );
+      }
+      return null;
+    }
+  })();
+
   return {
     navigationGuidance: readReviewOverrideStringArray(
       payload,
@@ -79,5 +100,6 @@ export function parseSourceInstructionReviewOverride(
     detailGuidance: readReviewOverrideStringArray(payload, "detailGuidance"),
     applyGuidance: readReviewOverrideStringArray(payload, "applyGuidance"),
     warnings: readReviewOverrideStringArray(payload, "warnings"),
+    intelligence,
   };
 }

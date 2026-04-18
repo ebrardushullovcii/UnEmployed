@@ -7,20 +7,25 @@ import {
   ApprovalModeSchema,
   AssetGenerationMethodSchema,
   AssetStatusSchema,
+  BrowserRunCloseoutSchema,
   BrowserRunWaitReasonSchema,
   BrowserDriverSchema,
   BrowserSessionStatusSchema,
   DiscoveryActivityKindSchema,
+  DiscoveryRunScopeSchema,
   DiscoveryActivityStageSchema,
   DiscoveryActivityTerminalStateSchema,
   DiscoveryRunStateSchema,
+  DiscoveryTitleTriageOutcomeSchema,
   DiscoveryTargetExecutionStateSchema,
   IsoDateTimeSchema,
   JobApplyPathSchema,
+  JobDiscoveryCollectionMethodSchema,
   JobDiscoveryMethodSchema,
   JobSourceAdapterKindSchema,
   JobSourceSchema,
   NonEmptyStringSchema,
+  SourceIntelligenceProviderKeySchema,
   SourceDebugPhaseCompletionModeSchema,
   SourceInstructionStatusSchema,
   TailoringModeSchema,
@@ -33,6 +38,7 @@ import {
   SourceDebugPhaseEvidenceSchema,
   SourceDebugRunRecordSchema,
   SourceDebugWorkerAttemptSchema,
+  SourceIntelligenceArtifactSchema,
   SourceInstructionArtifactSchema,
 } from "./source-debug";
 import {
@@ -150,6 +156,8 @@ export const JobPostingSchema = z.object({
   source: JobSourceSchema,
   sourceJobId: NonEmptyStringSchema,
   discoveryMethod: JobDiscoveryMethodSchema.default("catalog_seed"),
+  collectionMethod:
+    JobDiscoveryCollectionMethodSchema.default("fallback_search"),
   canonicalUrl: NonEmptyStringSchema,
   applicationUrl: UrlStringSchema.nullable().default(null),
   title: NonEmptyStringSchema,
@@ -179,6 +187,12 @@ export const JobPostingSchema = z.object({
   employerWebsiteUrl: UrlStringSchema.nullable().default(null),
   employerDomain: NonEmptyStringSchema.nullable().default(null),
   atsProvider: NonEmptyStringSchema.nullable().default(null),
+  providerKey: SourceIntelligenceProviderKeySchema.nullable().default(null),
+  providerBoardToken: NonEmptyStringSchema.nullable().default(null),
+  providerIdentifier: NonEmptyStringSchema.nullable().default(null),
+  titleTriageOutcome:
+    DiscoveryTitleTriageOutcomeSchema.default("pass"),
+  sourceIntelligence: SourceIntelligenceArtifactSchema.nullable().default(null),
   screeningHints: JobScreeningHintsSchema.default({}),
   keywordSignals: z.array(JobKeywordSignalSchema).default([]),
   benefits: z.array(NonEmptyStringSchema).default([]),
@@ -191,10 +205,55 @@ export const SavedJobDiscoveryProvenanceSchema = z.object({
   resolvedAdapterKind: JobSourceSchema.nullable().default(null),
   startingUrl: UrlStringSchema,
   discoveredAt: IsoDateTimeSchema,
+  collectionMethod:
+    JobDiscoveryCollectionMethodSchema.default("fallback_search"),
+  providerKey: SourceIntelligenceProviderKeySchema.nullable().default(null),
+  providerBoardToken: NonEmptyStringSchema.nullable().default(null),
+  titleTriageOutcome:
+    DiscoveryTitleTriageOutcomeSchema.default("pass"),
 });
 export type SavedJobDiscoveryProvenance = z.infer<
   typeof SavedJobDiscoveryProvenanceSchema
 >;
+
+export const discoveryLedgerEntryStatusValues = [
+  "seen",
+  "skipped",
+  "applied",
+  "enriched",
+  "inactive",
+] as const;
+export const DiscoveryLedgerEntryStatusSchema = z.enum(
+  discoveryLedgerEntryStatusValues,
+);
+export type DiscoveryLedgerEntryStatus = z.infer<
+  typeof DiscoveryLedgerEntryStatusSchema
+>;
+
+export const DiscoveryLedgerEntrySchema = z.object({
+  id: NonEmptyStringSchema,
+  canonicalUrl: UrlStringSchema,
+  source: JobSourceSchema,
+  sourceJobId: NonEmptyStringSchema.nullable().default(null),
+  providerKey: SourceIntelligenceProviderKeySchema.nullable().default(null),
+  providerBoardToken: NonEmptyStringSchema.nullable().default(null),
+  providerIdentifier: NonEmptyStringSchema.nullable().default(null),
+  title: NonEmptyStringSchema,
+  company: NonEmptyStringSchema.nullable().default(null),
+  targetId: NonEmptyStringSchema,
+  collectionMethod:
+    JobDiscoveryCollectionMethodSchema.default("fallback_search"),
+  firstSeenAt: IsoDateTimeSchema,
+  lastSeenAt: IsoDateTimeSchema,
+  lastAppliedAt: IsoDateTimeSchema.nullable().default(null),
+  lastEnrichedAt: IsoDateTimeSchema.nullable().default(null),
+  inactiveAt: IsoDateTimeSchema.nullable().default(null),
+  latestStatus: DiscoveryLedgerEntryStatusSchema.default("seen"),
+  titleTriageOutcome:
+    DiscoveryTitleTriageOutcomeSchema.default("pass"),
+  skipReason: NonEmptyStringSchema.nullable().default(null),
+});
+export type DiscoveryLedgerEntry = z.infer<typeof DiscoveryLedgerEntrySchema>;
 
 export const SavedJobSchema = JobPostingSchema.extend({
   id: NonEmptyStringSchema,
@@ -622,6 +681,10 @@ export const DiscoveryTargetExecutionSchema = z.object({
   targetId: NonEmptyStringSchema,
   adapterKind: JobSourceAdapterKindSchema,
   resolvedAdapterKind: JobSourceSchema.nullable().default(null),
+  collectionMethod:
+    JobDiscoveryCollectionMethodSchema.nullable().default(null),
+  sourceIntelligenceProvider:
+    SourceIntelligenceProviderKeySchema.nullable().default(null),
   state: DiscoveryTargetExecutionStateSchema,
   startedAt: IsoDateTimeSchema.nullable().default(null),
   completedAt: IsoDateTimeSchema.nullable().default(null),
@@ -645,6 +708,10 @@ export const DiscoveryActivityEventSchema = z.object({
   targetId: NonEmptyStringSchema.nullable().default(null),
   adapterKind: JobSourceAdapterKindSchema.nullable().default(null),
   resolvedAdapterKind: JobSourceSchema.nullable().default(null),
+  collectionMethod:
+    JobDiscoveryCollectionMethodSchema.nullable().default(null),
+  sourceIntelligenceProvider:
+    SourceIntelligenceProviderKeySchema.nullable().default(null),
   message: NonEmptyStringSchema,
   terminalState: DiscoveryActivityTerminalStateSchema.nullable().default(null),
   url: UrlStringSchema.nullable().default(null),
@@ -664,10 +731,13 @@ export const DiscoveryRunSummarySchema = z.object({
   validJobsFound: z.number().int().nonnegative().default(0),
   jobsPersisted: z.number().int().nonnegative().default(0),
   jobsStaged: z.number().int().nonnegative().default(0),
+  jobsSkippedByLedger: z.number().int().nonnegative().default(0),
+  jobsSkippedByTitleTriage: z.number().int().nonnegative().default(0),
   duplicatesMerged: z.number().int().nonnegative().default(0),
   invalidSkipped: z.number().int().nonnegative().default(0),
   durationMs: z.number().int().nonnegative().default(0),
   outcome: DiscoveryRunStateSchema.default("idle"),
+  browserCloseout: BrowserRunCloseoutSchema.nullable().default(null),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
 });
 export type DiscoveryRunSummary = z.infer<typeof DiscoveryRunSummarySchema>;
@@ -675,6 +745,7 @@ export type DiscoveryRunSummary = z.infer<typeof DiscoveryRunSummarySchema>;
 export const DiscoveryRunRecordSchema = z.object({
   id: NonEmptyStringSchema,
   state: DiscoveryRunStateSchema,
+  scope: DiscoveryRunScopeSchema.default("run_all"),
   startedAt: IsoDateTimeSchema,
   completedAt: IsoDateTimeSchema.nullable().default(null),
   targetIds: z.array(NonEmptyStringSchema).default([]),

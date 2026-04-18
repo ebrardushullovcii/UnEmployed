@@ -1,6 +1,7 @@
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import type {
+  DiscoveryRunScope,
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
@@ -73,8 +74,14 @@ export interface JobFinderWorkspaceService {
   saveSettings(
     settings: JobFinderSettings,
   ): Promise<JobFinderWorkspaceSnapshot>;
-  runDiscovery(): Promise<JobFinderWorkspaceSnapshot>;
+  runDiscovery(targetId?: string): Promise<JobFinderWorkspaceSnapshot>;
   runAgentDiscovery(
+    onActivity?: (event: DiscoveryActivityEvent) => void,
+    signal?: AbortSignal,
+    targetId?: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  runDiscoveryForTarget(
+    targetId: string,
     onActivity?: (event: DiscoveryActivityEvent) => void,
     signal?: AbortSignal,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -133,6 +140,23 @@ export interface JobFinderWorkspaceService {
   ): Promise<readonly ResumeAssistantMessage[]>;
   approveApply(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
 }
+
+type DiscoveryTargetPipelineSharedOptions = {
+  onActivity?: (event: DiscoveryActivityEvent) => void;
+  signal?: AbortSignal;
+  allowInactiveMarking?: boolean;
+  useAgentRuntime?: boolean;
+};
+
+export type DiscoveryTargetPipelineOptions =
+  | (DiscoveryTargetPipelineSharedOptions & {
+      scope: "single_target";
+      targetId: string;
+    })
+  | (DiscoveryTargetPipelineSharedOptions & {
+      scope: Exclude<DiscoveryRunScope, "single_target">;
+      targetId?: never;
+    });
 
 export interface RenderedResumeArtifact {
   fileName: string | null;

@@ -17,6 +17,7 @@ import {
   type ResumeImportBenchmarkRequest,
   type ResumeImportErrorTaxonomy,
   type ResumeImportFieldCandidate,
+  type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 import { createInMemoryJobFinderRepository } from "@unemployed/db";
 
@@ -170,10 +171,10 @@ function buildBenchmarkAiClient(
   } satisfies JobFinderAiClient;
 }
 
-function buildBenchmarkRepositoryState(input: {
+export function buildBenchmarkRepositoryState(input: {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
-}) {
+}): JobFinderRepositoryState {
   return {
     profile: input.profile,
     searchPreferences: input.searchPreferences,
@@ -220,6 +221,7 @@ function buildBenchmarkRepositoryState(input: {
       recentRuns: [],
       activeSourceDebugRun: null,
       recentSourceDebugRuns: [],
+      discoveryLedger: [],
       pendingDiscoveryJobs: [],
     },
   };
@@ -566,6 +568,12 @@ function createBenchmarkContext(input: {
       await repository.saveDiscoveryState(next);
       return next;
     },
+    persistSavedJobsAndDiscoveryState: async ({ savedJobs, discoveryState }) => {
+      await repository.replaceSavedJobsAndDiscoveryState({
+        savedJobs,
+        discoveryState,
+      });
+    },
     refreshDiscoverySessions: () => Promise.resolve([]),
     saveDiscoveryTargetUpdate: async () => {
       return repository.getSearchPreferences();
@@ -652,4 +660,4 @@ export async function runResumeImportBenchmark(input: {
   });
 }
 
-export { buildBenchmarkRepositoryState, buildBenchmarkAiClient };
+export { buildBenchmarkAiClient };

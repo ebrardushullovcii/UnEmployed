@@ -11,6 +11,7 @@ import type {
   ResumeImportBenchmarkRequest,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
+  JobFinderAgentDiscoveryActionInput,
   JobFinderSettings,
   ProfileSetupState,
   ResumeAssistantMessage,
@@ -189,6 +190,7 @@ const desktopApi = {
       ) as Promise<JobFinderWorkspaceSnapshot>,
     runAgentDiscovery: (
       onActivity?: (event: DiscoveryActivityEvent) => void,
+      targetId?: string,
     ) => {
       if (activeAgentDiscoveryRequestId) {
         return Promise.reject(new Error("Agent discovery is already running."));
@@ -219,8 +221,13 @@ const desktopApi = {
         }
       };
 
+      const payload: JobFinderAgentDiscoveryActionInput = {
+        requestId,
+        targetId: targetId ?? null,
+      };
+
       const promise = ipcRenderer
-        .invoke("job-finder:run-agent-discovery", { requestId })
+        .invoke("job-finder:run-agent-discovery", payload)
         .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>;
 
       return promise;

@@ -7,6 +7,14 @@ export {
   overlayTouchedSavedJobs,
 } from "./workspace-discovery-state-helpers";
 export {
+  applyInactiveLedgerMarks,
+  createDiscoveryProvenance,
+  findDiscoveryLedgerEntry,
+  markSavedJobStatusInLedger,
+  recordDiscoveredPostingInLedger,
+  shouldSkipPostingFromLedger,
+} from "./workspace-discovery-ledger";
+export {
   buildSourceDebugPhasePacket,
   buildSourceDebugPhaseSummary,
   classifySourceDebugAttemptOutcome,

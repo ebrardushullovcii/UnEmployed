@@ -198,6 +198,26 @@ export const browserDriverValues = [
 export const BrowserDriverSchema = z.enum(browserDriverValues);
 export type BrowserDriver = z.infer<typeof BrowserDriverSchema>;
 
+export const browserRunCloseoutModeValues = [
+  "closed",
+  "kept_alive",
+] as const;
+
+export const BrowserRunCloseoutModeSchema = z.enum(browserRunCloseoutModeValues);
+export type BrowserRunCloseoutMode = z.infer<
+  typeof BrowserRunCloseoutModeSchema
+>;
+
+export const BrowserRunCloseoutSchema = z.object({
+  mode: BrowserRunCloseoutModeSchema.default("closed"),
+  label: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema.nullable().default(null),
+  status: BrowserSessionStatusSchema,
+  driver: BrowserDriverSchema.default("catalog_seed"),
+  occurredAt: IsoDateTimeSchema,
+});
+export type BrowserRunCloseout = z.infer<typeof BrowserRunCloseoutSchema>;
+
 export const resumeExtractionStatusValues = [
   "not_started",
   "needs_text",
@@ -215,10 +235,79 @@ export type ResumeExtractionStatus = z.infer<
 export const jobDiscoveryMethodValues = [
   "catalog_seed",
   "browser_agent",
+  "public_api",
 ] as const;
 
 export const JobDiscoveryMethodSchema = z.enum(jobDiscoveryMethodValues);
 export type JobDiscoveryMethod = z.infer<typeof JobDiscoveryMethodSchema>;
+
+export const jobDiscoveryCollectionMethodValues = [
+  "api",
+  "listing_route",
+  "careers_page",
+  "fallback_search",
+] as const;
+
+export const JobDiscoveryCollectionMethodSchema = z.enum(
+  jobDiscoveryCollectionMethodValues,
+);
+export type JobDiscoveryCollectionMethod = z.infer<
+  typeof JobDiscoveryCollectionMethodSchema
+>;
+
+export const discoveryRunScopeValues = ["single_target", "run_all"] as const;
+
+export const DiscoveryRunScopeSchema = z.enum(discoveryRunScopeValues);
+export type DiscoveryRunScope = z.infer<typeof DiscoveryRunScopeSchema>;
+
+export const discoveryTitleTriageOutcomeValues = [
+  "pass",
+  "skip_title",
+  "skip_location",
+  "skip_work_mode",
+  "skip_company",
+  "skip_handled",
+  "skip_existing",
+] as const;
+
+export const DiscoveryTitleTriageOutcomeSchema = z.enum(
+  discoveryTitleTriageOutcomeValues,
+);
+export type DiscoveryTitleTriageOutcome = z.infer<
+  typeof DiscoveryTitleTriageOutcomeSchema
+>;
+
+export const sourceIntelligenceProviderKeyValues = [
+  "linkedin",
+  "greenhouse",
+  "lever",
+  "ashby",
+  "workday",
+  "icims",
+  "smartrecruiters",
+  "teamtailor",
+  "other",
+] as const;
+
+export const SourceIntelligenceProviderKeySchema = z.enum(
+  sourceIntelligenceProviderKeyValues,
+);
+export type SourceIntelligenceProviderKey = z.infer<
+  typeof SourceIntelligenceProviderKeySchema
+>;
+
+export const sourceIntelligenceApiAvailabilityValues = [
+  "available",
+  "unconfirmed",
+  "not_supported",
+] as const;
+
+export const SourceIntelligenceApiAvailabilitySchema = z.enum(
+  sourceIntelligenceApiAvailabilityValues,
+);
+export type SourceIntelligenceApiAvailability = z.infer<
+  typeof SourceIntelligenceApiAvailabilitySchema
+>;
 
 export const discoveryRunStateValues = [
   "idle",

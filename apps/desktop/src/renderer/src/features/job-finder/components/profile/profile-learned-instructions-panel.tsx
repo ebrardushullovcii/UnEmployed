@@ -1,5 +1,7 @@
 import { useId } from 'react'
 import { Button } from '@renderer/components/ui/button'
+import type { LearnedInstructionIntelligenceSummary } from '../../lib/source-intelligence-utils'
+import { ProfileIntelligenceSummaries } from './profile-intelligence-summaries'
 import { ProfileTextarea } from './profile-form-primitives'
 import {
   type LearnedInstructionSection,
@@ -22,6 +24,7 @@ interface ProfileLearnedInstructionsPanelProps {
     section: LearnedInstructionSection,
     line: LearnedInstructionSection['lines'][number]
   ) => void
+  intelligenceSummaries: readonly LearnedInstructionIntelligenceSummary[]
   sections: readonly LearnedInstructionSection[]
   targetId: string
 }
@@ -36,12 +39,13 @@ export function ProfileLearnedInstructionsPanel({
   onChangeEditingInstructionValue,
   onPersistEditedInstruction,
   onRemoveInstructionLine,
+  intelligenceSummaries,
   sections,
   targetId
 }: ProfileLearnedInstructionsPanelProps) {
   const editingTextareaId = useId()
 
-  if (sections.length === 0) {
+  if (sections.length === 0 && intelligenceSummaries.length === 0) {
     return null
   }
 
@@ -53,7 +57,15 @@ export function ProfileLearnedInstructionsPanel({
         </p>
         <p className="text-[0.82rem] leading-6 text-foreground-soft">{instructionArtifactDescription}</p>
       </header>
-      <div className="grid gap-3">
+      <ProfileIntelligenceSummaries
+        className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3"
+        intelligenceSummaries={intelligenceSummaries}
+        listClassName="grid gap-2 text-[0.84rem] leading-6 text-foreground-soft"
+        sectionClassName="grid gap-2"
+        titleClassName="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
+      />
+      {sections.length > 0 ? (
+        <div className="grid gap-3">
         {sections.map((section) => (
           <section key={`${targetId}_${section.label}`} className="grid gap-2">
             <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
@@ -127,7 +139,8 @@ export function ProfileLearnedInstructionsPanel({
             </ul>
           </section>
         ))}
-      </div>
+        </div>
+      ) : null}
     </section>
   )
 }

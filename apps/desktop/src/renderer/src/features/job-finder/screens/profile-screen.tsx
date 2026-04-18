@@ -46,6 +46,7 @@ export function ProfileScreen(props: {
   profileCopilotPendingContextKey: string | null
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void
   onResumeProfileSetup: (step?: 'import' | 'essentials' | 'background' | 'targeting' | 'narrative' | 'answers' | 'ready_check') => void
+  onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onSaveAll: (profile: CandidateProfile, searchPreferences: JobSearchPreferences) => void
@@ -74,6 +75,7 @@ export function ProfileScreen(props: {
     profileCopilotPendingContextKey,
     onRejectProfileCopilotPatchGroup,
     onResumeProfileSetup,
+    onRunDiscoveryForTarget,
     onRunSourceDebug,
     onSaveSourceInstructionArtifact,
     onSaveAll,
@@ -215,6 +217,7 @@ export function ProfileScreen(props: {
                   busy={busy}
                   experienceArray={experienceArray}
                   onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+                  {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
                   onRunSourceDebug={onRunSourceDebug}
                   onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
                   onVerifySourceInstructions={onVerifySourceInstructions}

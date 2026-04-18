@@ -16,6 +16,7 @@ interface ProfilePreferencesTabProps {
   busy: boolean
   customAnswerArray: UseFieldArrayReturn<ProfileEditorValues, 'answerBank.customAnswers', ProfileFieldArrayKeyName>
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
@@ -29,6 +30,7 @@ export function ProfilePreferencesTab({
   busy,
   customAnswerArray,
   onGetSourceDebugRunDetails,
+  onRunDiscoveryForTarget,
   onRunSourceDebug,
   onSaveSourceInstructionArtifact,
   onVerifySourceInstructions,
@@ -81,6 +83,7 @@ export function ProfilePreferencesTab({
         busy={busy}
         discoveryTargets={discoveryTargets}
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+        {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
         onRunSourceDebug={onRunSourceDebug}
         onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
         onVerifySourceInstructions={onVerifySourceInstructions}

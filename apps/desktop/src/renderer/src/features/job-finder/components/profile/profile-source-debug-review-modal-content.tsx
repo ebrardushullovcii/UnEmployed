@@ -4,7 +4,9 @@ import type {
   SourceInstructionArtifact
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import { buildLearnedInstructionIntelligenceSummaries } from '@renderer/features/job-finder/lib/source-intelligence-utils'
 import { formatDuration, formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
+import { ProfileIntelligenceSummaries } from './profile-intelligence-summaries'
 
 function formatTimestamp(value: string | null): string | null {
   if (!value) {
@@ -78,6 +80,7 @@ export function ProfileSourceDebugReviewModalContent({
   const formattedRunTime = details
     ? formatTimestamp(details.run.completedAt ?? details.run.updatedAt)
     : null
+  const intelligenceSummaries = buildLearnedInstructionIntelligenceSummaries(artifact)
 
   return (
     <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
@@ -167,6 +170,13 @@ export function ProfileSourceDebugReviewModalContent({
               {details.run.finalSummary ? (
                 <p className="text-[0.92rem] leading-6 text-foreground">{details.run.finalSummary}</p>
               ) : null}
+              <ProfileIntelligenceSummaries
+                className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3"
+                intelligenceSummaries={intelligenceSummaries}
+                listClassName="grid gap-1 text-[0.82rem] leading-6 text-foreground-soft"
+                sectionClassName="grid gap-1.5"
+                titleClassName="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
+              />
               {details.run.timing ? (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.82rem] text-foreground-muted">
                   <span>Duration: {formatDuration(details.run.timing.totalDurationMs)}</span>

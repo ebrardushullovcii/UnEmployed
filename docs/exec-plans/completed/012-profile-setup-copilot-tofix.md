@@ -1,6 +1,12 @@
 # 012 Guided Setup And Profile Copilot - Active Fixlist
 
-Status: active
+Status: completed
+
+Open issues:
+
+- issue 3: save area can become visually huge on some sizes and still needs a dedicated alternate-size regression to prove the bug is gone
+- issue 19: structure follow-up remains open while `pnpm structure:check` still reports concentration warnings in the noted hotspots
+- issue 20: broader Profile Copilot field coverage remains an active follow-up beyond the finished `012` baseline
 
 Purpose:
 

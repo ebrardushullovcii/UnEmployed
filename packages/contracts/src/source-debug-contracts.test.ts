@@ -186,6 +186,59 @@ describe("contracts source-debug schemas", () => {
         "Prefer the inline apply button when the source exposes it.",
       ],
       warnings: [],
+      intelligence: {
+        provider: {
+          key: "greenhouse",
+          label: "Greenhouse",
+          confidence: 0.92,
+          apiAvailability: "available",
+          publicApiUrlTemplate:
+            "https://boards-api.greenhouse.io/v1/boards/example/jobs",
+          boardToken: "example",
+          boardSlug: null,
+          providerIdentifier: null,
+        },
+        collection: {
+          preferredMethod: "api",
+          rankedMethods: ["api", "listing_route", "careers_page"],
+          startingRoutes: [
+            {
+              url: "https://jobs.example.com/openings",
+              label: "Openings page",
+              kind: "listing",
+              confidence: 0.9,
+            },
+          ],
+          searchRouteTemplates: [],
+          detailRoutePatterns: [
+            {
+              pattern: "/jobs/:jobId",
+              label: "Job detail route",
+              confidence: 0.84,
+            },
+          ],
+          listingMarkers: ["job-card"],
+        },
+        apply: {
+          applyPath: "external_redirect",
+          authMarkers: [],
+          consentMarkers: [],
+          questionSurfaceHints: ["Resume upload after redirect"],
+          resumeUploadHints: [],
+        },
+        reliability: {
+          selectorFingerprints: ["button:Show all"],
+          stableControlNames: ["Show all"],
+          failureFingerprints: [],
+          verifiedAt: "2026-03-20T10:02:00.000Z",
+          freshnessNotes: ["Replay succeeded"],
+        },
+        overrides: {
+          forceMethod: null,
+          deniedRoutePatterns: [],
+          extraStartingRoutes: [],
+        },
+      },
       versionInfo: sourceDebugVersionInfo,
       verification: {
         id: "source_instruction_verification_1",
@@ -200,6 +253,12 @@ describe("contracts source-debug schemas", () => {
 
     expect(run.state).toBe("completed");
     expect(artifact.status).toBe("validated");
+    expect(artifact.intelligence.provider?.key).toBe("greenhouse");
+    expect(artifact.intelligence.collection.preferredMethod).toBe("api");
+    expect(artifact.intelligence.apply.applyPath).toBe("external_redirect");
+    expect(artifact.intelligence.reliability.verifiedAt).toBe(
+      "2026-03-20T10:02:00.000Z",
+    );
   });
 
   test("parses test-only performance snapshots", () => {
@@ -249,6 +308,36 @@ describe("contracts source-debug schemas", () => {
         detailGuidance: [],
         applyGuidance: [],
         warnings: [],
+        intelligence: {
+          provider: null,
+          collection: {
+            preferredMethod: "listing_route",
+            rankedMethods: ["listing_route"],
+            startingRoutes: [],
+            searchRouteTemplates: [],
+            detailRoutePatterns: [],
+            listingMarkers: [],
+          },
+          apply: {
+            applyPath: "unknown",
+            authMarkers: [],
+            consentMarkers: [],
+            questionSurfaceHints: [],
+            resumeUploadHints: [],
+          },
+          reliability: {
+            selectorFingerprints: [],
+            stableControlNames: [],
+            failureFingerprints: [],
+            verifiedAt: null,
+            freshnessNotes: [],
+          },
+          overrides: {
+            forceMethod: null,
+            deniedRoutePatterns: [],
+            extraStartingRoutes: [],
+          },
+        },
         versionInfo: sourceDebugVersionInfo,
         verification: {
           id: "source_instruction_verification_invalid",
@@ -332,5 +421,48 @@ describe("contracts source-debug schemas", () => {
         versionInfo: sourceDebugVersionInfo,
       }),
     ).toThrow();
+  });
+
+  test("parses discovery summary browser closeout metadata", () => {
+    const snapshot = JobFinderPerformanceSnapshotSchema.parse({
+      generatedAt: "2026-03-20T10:02:00.000Z",
+      latestDiscoveryRun: {
+        id: "discovery_run_1",
+        state: "completed",
+        scope: "single_target",
+        startedAt: "2026-03-20T10:00:00.000Z",
+        completedAt: "2026-03-20T10:02:00.000Z",
+        targetIds: ["target_1"],
+        targetExecutions: [],
+        activity: [],
+        summary: {
+          targetsPlanned: 1,
+          targetsCompleted: 1,
+          validJobsFound: 2,
+          jobsPersisted: 1,
+          jobsStaged: 1,
+          jobsSkippedByLedger: 1,
+          jobsSkippedByTitleTriage: 1,
+          duplicatesMerged: 0,
+          invalidSkipped: 0,
+          durationMs: 120000,
+          outcome: "completed",
+          browserCloseout: {
+            mode: "closed",
+            label: "Browser profile closed",
+            detail:
+              "The dedicated browser profile is closed. It will reopen automatically when the next run starts.",
+            status: "unknown",
+            driver: "chrome_profile_agent",
+            occurredAt: "2026-03-20T10:02:00.000Z",
+          },
+        },
+      },
+      latestSourceDebugRun: null,
+    });
+
+    expect(snapshot.latestDiscoveryRun?.summary.browserCloseout?.mode).toBe(
+      "closed",
+    );
   });
 });
