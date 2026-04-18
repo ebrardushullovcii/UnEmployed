@@ -540,37 +540,34 @@ export function inferSourceIntelligenceFromTarget(input: {
   }
 
   const provider = detectProvider(input.target, []);
+  const startingRoute = {
+    url: input.target.startingUrl,
+    label: "Starting URL",
+    kind: inferRouteKind(input.target.startingUrl),
+    confidence: 0.72,
+  };
 
   return SourceIntelligenceArtifactSchema.parse({
     provider,
     collection: {
-      preferredMethod: inferPreferredCollectionMethod(provider, [], input.currentArtifact),
+      preferredMethod: inferPreferredCollectionMethod(
+        provider,
+        [startingRoute],
+        input.currentArtifact,
+      ),
       rankedMethods: uniqueStrings([
         provider?.apiAvailability === "available" ? "api" : null,
-        tryParseUrl(input.target.startingUrl)?.pathname.match(/search|jobs|careers|openings/i)
+        startingRoute.kind === "search"
           ? "listing_route"
+          : null,
+        startingRoute.kind === "listing" || startingRoute.kind === "collection"
+          ? "careers_page"
           : null,
         "careers_page",
         "fallback_search",
       ].filter((value): value is JobDiscoveryCollectionMethod => value !== null)),
-      startingRoutes: [
-        {
-          url: input.target.startingUrl,
-          label: "Starting URL",
-          kind: inferRouteKind(input.target.startingUrl),
-          confidence: 0.72,
-        },
-      ],
-      searchRouteTemplates: tryParseUrl(input.target.startingUrl)?.pathname.match(/search/i)
-        ? [
-            {
-              url: input.target.startingUrl,
-              label: "Starting URL",
-              kind: "search",
-              confidence: 0.72,
-            },
-          ]
-        : [],
+      startingRoutes: [startingRoute],
+      searchRouteTemplates: startingRoute.kind === "search" ? [startingRoute] : [],
       detailRoutePatterns: [],
       listingMarkers: [],
     },
@@ -662,7 +659,12 @@ function normalizeProviderDateTime(
   }
 
   if (typeof value === "number") {
-    return Number.isFinite(value) ? new Date(value).toISOString() : null;
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+
+    const numericDate = new Date(value);
+    return Number.isNaN(numericDate.getTime()) ? null : numericDate.toISOString();
   }
 
   const trimmed = value.trim();
@@ -670,12 +672,23 @@ function normalizeProviderDateTime(
     return null;
   }
 
+  if (/^-?\d+$/.test(trimmed)) {
+    const numericValue = Number(trimmed);
+    if (!Number.isFinite(numericValue)) {
+      return null;
+    }
+
+    const numericDate = new Date(numericValue);
+    return Number.isNaN(numericDate.getTime()) ? null : numericDate.toISOString();
+  }
+
   const parsedAt = Date.parse(trimmed);
   if (Number.isNaN(parsedAt)) {
     return null;
   }
 
-  return new Date(parsedAt).toISOString();
+  const parsedDate = new Date(parsedAt);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString();
 }
 
 function inferWorkModes(location: string | null | undefined): JobPosting["workMode"] {
