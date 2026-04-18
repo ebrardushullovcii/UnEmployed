@@ -205,3 +205,4 @@ Use one track per meaningful workstream, not per person or per chat.
 - Add broader runtime tests for unsupported apply branches, live-browser extraction, and resume-import flows.
 - Keep `019` moving by validating bundled sidecar packaging on each supported desktop release platform and retaining cross-platform benchmark evidence.
 - Extend `012` with any remaining screenshot-polish or import-review targeting work now that the guided setup plus profile-copilot baseline is landed.
+- Keep the new repo-level quality commands (`format`, `format:check`, `verify:quick`, `verify:affected`, `knip`) aligned with actual workflow and CI usage as the monorepo grows.

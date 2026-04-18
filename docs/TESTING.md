@@ -2,16 +2,26 @@
 
 ## Baseline Repo Checks
 
+- `pnpm format:check`
 - `pnpm lint`
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm structure:check`
+
+## Fast Validation Loops
+
+- `pnpm verify:quick` runs the fastest repo-wide preflight we expect before wider validation: docs, structure, lint, and typecheck.
+- `pnpm verify:affected` runs docs plus structure checks first, then uses Turborepo `--affected` filtering for lint, typecheck, and test on the packages changed relative to the current branch base.
+- `pnpm format` applies the canonical repo formatter in place.
+- `pnpm format:check` checks formatting without mutating files.
+- `pnpm knip` reports unused files, exports, and dependencies so cleanup happens before review feedback has to point it out.
 
 ## Guidance Validation
 
 - Run `pnpm agents:sync` after changing repo-wide guidance, registry entries, or project-local skills.
 - Run `pnpm agents:check` after changing generated adapter sources, registry entries, required package guides, or project-local skills.
 - Run `pnpm docs:check` after changing canonical docs, root guidance, or internal markdown links.
+- Run `pnpm verify:quick` after repo-level script or tooling changes before the broader `pnpm verify` pass.
 
 ## Structure Checks
 

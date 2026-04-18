@@ -26,8 +26,11 @@ Pull in [docs/PLAN.md](docs/PLAN.md), [docs/AGENT_CONTEXT.md](docs/AGENT_CONTEXT
 
 ```bash
 pnpm install
+pnpm format:check
+pnpm verify:quick
 pnpm lsp:typescript
 pnpm verify
+pnpm knip
 pnpm desktop:dev
 ```
 
