@@ -406,7 +406,7 @@ describe('openai-compatible chat and draft behavior', () => {
         createdAt: '2026-04-14T10:00:00.000Z',
         resolvedAt: null,
       }))
-      const originalPayloadSize = JSON.stringify({
+      const largePayload = {
         profile: {
           ...createProfile(),
           summary: `Candidate summary ${'background '.repeat(80_000)}`,
@@ -420,25 +420,12 @@ describe('openai-compatible chat and draft behavior', () => {
         relevantReviewItems,
         request,
         conversationFacts,
-      }).length
+      } satisfies Parameters<typeof client.reviseCandidateProfile>[0]
+      const originalPayloadSize = JSON.stringify(largePayload).length
 
       expect(originalPayloadSize).toBeGreaterThan(1_000_000)
 
-      await client.reviseCandidateProfile({
-        profile: {
-          ...createProfile(),
-          summary: `Candidate summary ${'background '.repeat(80_000)}`,
-        },
-        searchPreferences: {
-          ...createPreferences(),
-          targetRoles: Array.from({ length: 120 }, (_, index) => `Role ${index + 1} ${'detail '.repeat(80)}`),
-          locations: Array.from({ length: 120 }, (_, index) => `Location ${index + 1} ${'detail '.repeat(80)}`),
-        },
-        context: { surface: 'profile', section: 'preferences' },
-        relevantReviewItems,
-        request,
-        conversationFacts,
-      })
+      await client.reviseCandidateProfile(largePayload)
 
       const body = JSON.parse(fetchMock.getCapturedBody()) as { messages?: Array<{ content?: string }> }
       const providerUserContent = body.messages?.[1]?.content ?? ''

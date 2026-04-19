@@ -151,7 +151,35 @@ export function buildMissingResumeCopilotArtifacts(input: {
 export function selectLatestApplyRunId(
   applyRuns: readonly JobFinderWorkspaceSnapshot["applyRuns"][number][],
 ) {
-  return applyRuns[0]?.id ?? null;
+  return applyRuns.reduce<JobFinderWorkspaceSnapshot["applyRuns"][number] | null>(
+    (latest, run) => {
+      if (!latest) {
+        return run;
+      }
+
+      const latestTimestamp = Date.parse(latest.updatedAt);
+      const nextTimestamp = Date.parse(run.updatedAt);
+
+      if (Number.isFinite(nextTimestamp) && !Number.isFinite(latestTimestamp)) {
+        return run;
+      }
+
+      if (!Number.isFinite(nextTimestamp)) {
+        return latest;
+      }
+
+      if (nextTimestamp > latestTimestamp) {
+        return run;
+      }
+
+      if (nextTimestamp === latestTimestamp && run.id.localeCompare(latest.id) > 0) {
+        return run;
+      }
+
+      return latest;
+    },
+    null,
+  )?.id ?? null;
 }
 
 export function buildSingleJobAutoApplyArtifacts(input: {
@@ -253,6 +281,9 @@ export function mapExecutionResultToApplyBlockerReason(
     case "unsupported_apply_path":
       return "unexpected_navigation";
     default:
+      console.warn(
+        `[job-finder] Unhandled apply blocker code '${String(blocker.code)}' while mapping apply blocker reason.`,
+      );
       return null;
   }
 }
@@ -317,11 +348,12 @@ export function buildApplyCopilotArtifacts(input: {
   const canonicalApplyUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
   const persistedQuestionIdByExecutionId = new Map<string, string>();
   const persistedAnswerIdByExecutionId = new Map<string, string>();
-  const persistedCheckpointIdByExecutionId = new Map<string, string>();
   const checkpointArtifactIdsByExecutionId = new Map<string, string[]>();
+  const executionQuestionIdByPersistedId = new Map<string, string>();
   input.executionResult.questions.forEach((question) => {
     const persistedQuestionId = createUniqueId("apply_question");
     persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
+    executionQuestionIdByPersistedId.set(persistedQuestionId, question.id);
   });
 
   for (const question of input.executionResult.questions) {
@@ -406,9 +438,7 @@ export function buildApplyCopilotArtifacts(input: {
   const artifactRefs = [
     ...questionRecords
       .filter((record) => {
-        const executionQuestionId = [...persistedQuestionIdByExecutionId.entries()].find(
-          ([, persistedId]) => persistedId === record.id,
-        )?.[0];
+        const executionQuestionId = executionQuestionIdByPersistedId.get(record.id);
         return executionQuestionId ? blockerQuestionIds.includes(executionQuestionId) : false;
       })
       .map((record) =>
@@ -448,7 +478,6 @@ export function buildApplyCopilotArtifacts(input: {
   ];
   const checkpoints = input.executionResult.checkpoints.map((checkpoint) => {
     const persistedCheckpointId = createUniqueId("apply_checkpoint");
-    persistedCheckpointIdByExecutionId.set(checkpoint.id, persistedCheckpointId);
 
     return ApplicationReplayCheckpointSchema.parse({
       id: persistedCheckpointId,
@@ -533,7 +562,9 @@ export function buildApplyCopilotArtifacts(input: {
     createdAt: input.detectedAt,
     updatedAt: input.detectedAt,
     completedAt:
-      input.executionResult.state === 'submitted' || input.executionResult.state === 'failed'
+      input.executionResult.state === 'submitted' ||
+      input.executionResult.state === 'failed' ||
+      input.executionResult.state === 'unsupported'
         ? input.detectedAt
         : null,
     summary: input.executionResult.summary,

@@ -112,7 +112,6 @@ function serializeCapturedBody(body: BodyInit | null | undefined): string {
   try {
     return JSON.stringify(body)
   } catch {
-    console.warn('[mockCapturingJsonFetch] Unsupported request body type; captured as empty string')
     return ''
   }
 }

@@ -5,6 +5,9 @@ import {
   uniqueStrings,
 } from "./deterministic";
 
+// Keep this set in sync with the reference-only identifier fields on the
+// structured draft payloads validated through TailoredResumeDraftSchema and the
+// related draft entry contracts in packages/contracts/src/resume.ts.
 const REFERENCE_ONLY_KEYS = new Set([
   "profileRecordId",
   "sourceId",

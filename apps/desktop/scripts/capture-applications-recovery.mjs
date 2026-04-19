@@ -275,7 +275,11 @@ async function captureApplicationsRecovery() {
         // Preserve the original failure while still cleaning up the temp profile.
       }
     }
-    await rm(userDataDirectory, { recursive: true, force: true })
+    try {
+      await rm(userDataDirectory, { recursive: true, force: true })
+    } catch {
+      // Preserve the original failure while still cleaning up the temp profile.
+    }
   }
 
   process.stdout.write(`Saved Applications recovery artifacts to ${outputDir}\n`)

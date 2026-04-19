@@ -291,7 +291,7 @@ export function runMigrations(database: DatabaseSync): void {
           needsApplyFoundationMigration ||
           needsApplyFoundationIndexMigration
         ) {
-          if (!applyFoundationTablesMissing && needsApplyFoundationIndexMigration) {
+          if (hasTable("apply_job_results") && needsApplyFoundationIndexMigration) {
             dedupeApplyJobResultsByRunAndJob();
           }
 

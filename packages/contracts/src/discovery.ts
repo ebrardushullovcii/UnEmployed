@@ -146,6 +146,14 @@ export const JobKeywordSignalSchema = z.object({
 });
 export type JobKeywordSignal = z.infer<typeof JobKeywordSignalSchema>;
 
+export const consentInterruptKindValues = [
+  "signup",
+  "existing_account_decision",
+  "manual_verification",
+] as const;
+export const ConsentInterruptKindSchema = z.enum(consentInterruptKindValues);
+export type ConsentInterruptKind = z.infer<typeof ConsentInterruptKindSchema>;
+
 export const JobScreeningHintsSchema = z.object({
   sponsorshipText: NonEmptyStringSchema.nullable().default(null),
   requiresSecurityClearance: z.boolean().nullable().default(null),
@@ -153,10 +161,7 @@ export const JobScreeningHintsSchema = z.object({
   travelText: NonEmptyStringSchema.nullable().default(null),
   remoteGeographies: z.array(NonEmptyStringSchema).default([]),
   requiresConsentInterrupt: z.boolean().nullable().default(null),
-  requiresConsentInterruptKind: z
-    .enum(["signup", "existing_account_decision", "manual_verification"])
-    .nullable()
-    .default(null),
+  requiresConsentInterruptKind: ConsentInterruptKindSchema.nullable().default(null),
 });
 export type JobScreeningHints = z.infer<typeof JobScreeningHintsSchema>;
 

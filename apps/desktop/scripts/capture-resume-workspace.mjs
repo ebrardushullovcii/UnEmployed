@@ -52,21 +52,20 @@ function getLatestBy(items, getTimestamp) {
     return null
   }
 
-  const indexedItems = items.map((item, index) => ({ item, index }))
+  return items
+    .map((item, index) => {
+      const parsedTimestamp = Date.parse(getTimestamp(item))
 
-  return [...items].sort(
-    (left, right) => {
-      const timestampDifference = new Date(getTimestamp(right)).getTime() - new Date(getTimestamp(left)).getTime()
-
-      if (timestampDifference !== 0) {
-        return timestampDifference
+      return {
+        item,
+        index,
+        timestamp: Number.isFinite(parsedTimestamp) ? parsedTimestamp : Number.NEGATIVE_INFINITY,
       }
-
-      const leftIndex = indexedItems.find((entry) => entry.item === left)?.index ?? -1
-      const rightIndex = indexedItems.find((entry) => entry.item === right)?.index ?? -1
-      return rightIndex - leftIndex
-    },
-  )[0]
+    })
+    .sort((left, right) => {
+      const timestampDifference = right.timestamp - left.timestamp
+      return timestampDifference !== 0 ? timestampDifference : right.index - left.index
+    })[0]?.item ?? null
 }
 
 async function waitForProfileOrSetupHeading(window) {

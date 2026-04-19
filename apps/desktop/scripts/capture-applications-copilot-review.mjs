@@ -11,6 +11,12 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(currentDir, '..')
 const width = Number.parseInt(process.env.UI_CAPTURE_WIDTH ?? '1440', 10)
 const height = Number.parseInt(process.env.UI_CAPTURE_HEIGHT ?? '920', 10)
+
+if (!Number.isFinite(width) || !Number.isFinite(height)) {
+  throw new Error(
+    `Invalid capture dimensions: width='${process.env.UI_CAPTURE_WIDTH ?? '1440'}', height='${process.env.UI_CAPTURE_HEIGHT ?? '920'}'. Expected numeric values.`,
+  )
+}
 const runLabel = process.env.UI_CAPTURE_LABEL ?? 'applications-copilot-review'
 const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel)
 

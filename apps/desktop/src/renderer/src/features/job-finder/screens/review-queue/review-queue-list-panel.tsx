@@ -79,7 +79,6 @@ export function ReviewQueueListPanel({
                   >
                     <Checkbox
                       id={queueCheckboxId}
-                      aria-label={`Select ${item.title} for queue automation`}
                       checked={selectedForQueue}
                       disabled={!queueReady && !selectedForQueue}
                       onCheckedChange={(value) =>

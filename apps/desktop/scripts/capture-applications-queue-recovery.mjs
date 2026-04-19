@@ -170,9 +170,9 @@ async function captureApplicationsQueueRecovery() {
     )
 
     const recoveredWorkspace = await getWorkspace(window)
-    const recoveredQueueRun = recoveredWorkspace.applyRuns.find(
-      (run) => run.mode === 'queue_auto' && run.id !== latestQueueRun.id,
-    )
+    const recoveredQueueRun = recoveredWorkspace.applyRuns
+      .filter((run) => run.mode === 'queue_auto' && run.id !== latestQueueRun.id)
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0]
     if (!recoveredQueueRun) {
       throw new Error('Expected a fresh queue recovery run from Applications.')
     }

@@ -50,7 +50,7 @@ export function ReviewQueueScreen(props: {
     })
   }, [queueJobIds])
 
-  const handleToggleQueueSelection = (jobId: string, checked: boolean) => {
+  const handleToggleQueueSelection = useCallback((jobId: string, checked: boolean) => {
     setQueueSelection((current) => {
       if (checked) {
         return current.includes(jobId) ? current : [...current, jobId]
@@ -58,7 +58,7 @@ export function ReviewQueueScreen(props: {
 
       return current.filter((entry) => entry !== jobId)
     })
-  }
+  }, [])
   const handleClearQueueSelection = useCallback(() => {
     setQueueSelection([])
   }, [])

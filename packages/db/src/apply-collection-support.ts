@@ -126,6 +126,8 @@ export function buildOptionalSqlFilters(
       throw new Error(`Unsupported apply collection filter column '${columnName}'.`)
     }
 
+    // SAFETY: columnName is validated against APPLY_FILTER_COLUMN_NAMES above.
+    // Values stay parameterized through params.push(value), so only whitelisted identifiers are interpolated.
     clauses.push(`${columnName} = ?`)
     params.push(value)
   }

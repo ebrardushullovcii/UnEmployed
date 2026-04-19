@@ -295,6 +295,11 @@ export function createPrimaryPageActions(
           : 'Consent declined. The run skipped that job and stayed non-submitting.',
       ),
     onStartAutoApplyQueue: (jobIds: string[]) => {
+      if (jobIds.length === 0) {
+        setActionState({ busy: false, message: 'No jobs selected for auto-apply queue.' })
+        return
+      }
+
       startAutoFlow(
         () => actions.startAutoApplyQueueRun(jobIds),
         'Automatic apply queue staged. Review and approve it in Applications before any later execution step.',

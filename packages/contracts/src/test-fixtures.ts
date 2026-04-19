@@ -43,8 +43,8 @@ export function createSubmittedAttempt(): ApplicationAttempt {
 export function createApplyRunFixture(): ApplyRun {
   return ApplyRunSchema.parse({
     id: "apply_run_1",
-    mode: "copilot" as const,
-    state: "paused_for_user_review" as const,
+    mode: "copilot",
+    state: "paused_for_user_review",
     jobIds: ["job_1"],
     currentJobId: "job_1",
     submitApprovalId: null,

@@ -66,7 +66,7 @@
 
 ## Apply Automation Safety
 
-- Until the user explicitly re-authorizes it, do not run live-site application flows, real employer submission attempts, or final-submit QA for Plan `015` work.
+- Until the user explicitly re-authorizes it, do not run live-site application flows, real employer submission attempts, or final-submit QA for Plan `015` work (the active Job Finder safe auto-apply execution plan in `docs/exec-plans/active/015-job-finder-automatic-job-apply.md`).
 - Validate early apply-automation slices with deterministic contract, repository, service, IPC, and desktop-build checks instead.
 - Treat any future live apply QA as an explicit opt-in gate, not the default local validation loop.
 - The current deterministic apply-copilot slice should prove that approved-resume upload memory, grounded answer capture, retained artifacts, and replay checkpoints persist while the run remains `paused` or `awaiting_review`; do not accept tests that report `submitted` for the copilot path.

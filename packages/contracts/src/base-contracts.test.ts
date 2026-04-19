@@ -27,6 +27,13 @@ describe("contracts base schemas", () => {
     expect(ApplySubmitApprovalStatusSchema.parse("approved")).toBe("approved");
   });
 
+  test("rejects invalid apply foundation enum values", () => {
+    expect(() => ApplyRunModeSchema.parse("invalid_mode")).toThrow();
+    expect(() => ApplyRunStateSchema.parse("bad_state")).toThrow();
+    expect(() => ApplyJobStateSchema.parse("unknown")).toThrow();
+    expect(() => ApplySubmitApprovalStatusSchema.parse("maybe")).toThrow();
+  });
+
   test("parses an expanded candidate profile", () => {
     const profile = CandidateProfileSchema.parse({
       id: "candidate_1",

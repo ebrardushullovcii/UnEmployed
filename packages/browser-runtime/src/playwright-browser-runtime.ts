@@ -526,6 +526,7 @@ export function createBrowserAgentRuntime(
       input: ExecuteApplicationFlowInput,
     ): Promise<ApplyExecutionResult> {
       const startedAt = new Date().toISOString();
+      const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
 
       return Promise.resolve(ApplyExecutionResultSchema.parse({
         state: "unsupported",
@@ -545,17 +546,14 @@ export function createBrowserAgentRuntime(
             "Use the learned target guidance to continue this application manually.",
           questionIds: [],
           sourceDebugEvidenceRefIds: [],
-          url: input.job.applicationUrl ?? input.job.canonicalUrl,
+          url: targetUrl,
         },
         consentDecisions: [],
         replay: {
           sourceInstructionArtifactId: null,
           sourceDebugEvidenceRefIds: [],
-          lastUrl: input.job.applicationUrl ?? input.job.canonicalUrl,
-          checkpointUrls:
-            input.job.applicationUrl ?? input.job.canonicalUrl
-              ? [input.job.applicationUrl ?? input.job.canonicalUrl]
-              : [],
+          lastUrl: targetUrl,
+          checkpointUrls: targetUrl ? [targetUrl] : [],
         },
         nextActionLabel: "Open the listing manually",
         checkpoints: [
@@ -648,21 +646,21 @@ export function createBrowserAgentRuntime(
           compactionCapability: {
             tokenEstimator: ({ messages, maxOutputTokens }) => {
               const estimatedInputTokens = messages.reduce((sum, message) => {
-                const messageContent = message.content ?? ""
-                const contentTokens = Math.ceil(messageContent.length / 4)
+                const messageContent = message.content ?? "";
+                const contentTokens = Math.ceil(messageContent.length / 4);
                 if (message.role === "assistant" && message.toolCalls) {
-                  return sum + contentTokens + Math.ceil(JSON.stringify(message.toolCalls).length / 4)
+                  return sum + contentTokens + Math.ceil(JSON.stringify(message.toolCalls).length / 4);
                 }
                 if (message.role === "tool") {
-                  return sum + contentTokens + Math.ceil((message.toolCallId ?? "").length / 4)
+                  return sum + contentTokens + Math.ceil((message.toolCallId ?? "").length / 4);
                 }
-                return sum + contentTokens
-              }, 0)
+                return sum + contentTokens;
+              }, 0);
 
               return {
                 estimatedInputTokens,
                 estimatedTotalTokens: estimatedInputTokens + Math.max(0, maxOutputTokens),
-              }
+              };
             },
             modelContextWindowTokens:
               agentOptions.modelContextWindowTokens ??

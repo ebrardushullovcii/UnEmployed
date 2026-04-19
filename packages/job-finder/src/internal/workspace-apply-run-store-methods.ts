@@ -37,8 +37,7 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
         throw new Error(`Apply run '${runId}' does not include job '${jobId}'.`);
       }
 
-      const jobResults = results;
-      const latestResult = jobResults[0] ?? null;
+      const latestResult = results[0] ?? null;
       const latestApproval =
         approvals.find((entry) => entry.id === run.submitApprovalId) ??
         approvals[0] ??
@@ -52,7 +51,14 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
         values
           .map((value) => ({
             value,
-            timestamp: new Date(getTimestamp(value)).getTime(),
+            timestamp: (() => {
+              const parsed = Date.parse(getTimestamp(value))
+              if (!Number.isFinite(parsed)) {
+                throw new Error('Encountered invalid persisted timestamp while sorting apply run details.')
+              }
+
+              return parsed
+            })(),
           }))
           .sort(
             (left, right) =>
@@ -62,9 +68,9 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
           .map(({ value }) => value);
 
       return ApplyRunDetailsSchema.parse({
-        run: ApplyRunSchema.parse(run),
-        result: latestResult,
-        results: jobResults,
+          run: ApplyRunSchema.parse(run),
+          result: latestResult,
+          results,
         submitApproval: latestApproval,
         questionRecords: sortByTimestamp(questionRecords, (record) => record.detectedAt),
         answerRecords: sortByTimestamp(answerRecords, (record) => record.createdAt),

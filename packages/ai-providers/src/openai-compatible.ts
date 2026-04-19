@@ -724,7 +724,12 @@ export function createJobFinderAiClientFromEnvironment(
       tools,
       options?: ChatWithToolsOptions,
     ) {
-      return primaryClient.chatWithTools(messages, tools, options);
+      try {
+        return await primaryClient.chatWithTools(messages, tools, options);
+      } catch (error) {
+        logFallbackError("chatWithTools", error);
+        throw error;
+      }
     },
   };
 }

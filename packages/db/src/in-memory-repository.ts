@@ -515,12 +515,12 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     listApplyRuns(options) {
+      const values = state.applyRuns.filter((run) =>
+        matchesOptionalStringFilters(run, [["id", options?.id]]),
+      );
+
       return Promise.resolve(
-        sortApplyRuns(
-          cloneValue(state.applyRuns).filter((run) =>
-            matchesOptionalStringFilters(run, [["id", options?.id]]),
-          ),
-        ),
+        sortApplyRuns(cloneValue(values)),
       );
     },
     upsertApplyRun(run) {
@@ -529,15 +529,15 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     listApplyJobResults(options) {
+      const values = state.applyJobResults.filter((result) =>
+        matchesOptionalStringFilters(result, [
+          ["runId", options?.runId],
+          ["jobId", options?.jobId],
+        ]),
+      );
+
       return Promise.resolve(
-        sortApplyJobResults(
-          cloneValue(state.applyJobResults).filter((result) =>
-            matchesOptionalStringFilters(result, [
-              ["runId", options?.runId],
-              ["jobId", options?.jobId],
-            ]),
-          ),
-        ),
+        sortApplyJobResults(cloneValue(values)),
       );
     },
     upsertApplyJobResult(result) {
@@ -546,15 +546,15 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     listApplySubmitApprovals(options) {
+      const values = state.applySubmitApprovals.filter((approval) =>
+        matchesOptionalStringFilters(approval, [
+          ["id", options?.id],
+          ["runId", options?.runId],
+        ]),
+      );
+
       return Promise.resolve(
-        sortApplySubmitApprovals(
-          cloneValue(state.applySubmitApprovals).filter((approval) =>
-            matchesOptionalStringFilters(approval, [
-              ["id", options?.id],
-              ["runId", options?.runId],
-            ]),
-          ),
-        ),
+        sortApplySubmitApprovals(cloneValue(values)),
       );
     },
     upsertApplySubmitApproval(approval) {
