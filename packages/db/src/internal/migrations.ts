@@ -224,19 +224,70 @@ export function runMigrations(database: DatabaseSync): void {
 
   function dedupeApplyJobResultsByRunAndJob(): void {
     database.exec(`
+      CREATE TEMP TABLE apply_job_result_dedupe_map AS
+      WITH ranked_results AS (
+        SELECT
+          id,
+          run_id,
+          job_id,
+          FIRST_VALUE(id) OVER (
+            PARTITION BY run_id, job_id
+            ORDER BY updated_at DESC, queue_position ASC, id ASC
+          ) AS survivor_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY run_id, job_id
+            ORDER BY updated_at DESC, queue_position ASC, id ASC
+          ) AS row_number
+        FROM apply_job_results
+      )
+      SELECT id AS duplicate_id, survivor_id
+      FROM ranked_results
+      WHERE row_number > 1;
+
+      UPDATE application_question_records
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_question_records.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      UPDATE application_answer_records
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_answer_records.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      UPDATE application_artifact_refs
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_artifact_refs.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      UPDATE application_replay_checkpoints
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_replay_checkpoints.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      UPDATE application_consent_requests
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_consent_requests.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
       DELETE FROM apply_job_results
-      WHERE id IN (
-        SELECT id FROM (
-          SELECT
-            id,
-            ROW_NUMBER() OVER (
-              PARTITION BY run_id, job_id
-              ORDER BY updated_at DESC, queue_position ASC, id ASC
-            ) AS row_number
-          FROM apply_job_results
-        ) duplicates
-        WHERE duplicates.row_number > 1
-      );
+      WHERE id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      DROP TABLE apply_job_result_dedupe_map;
     `);
   }
 
@@ -501,10 +552,6 @@ export function runMigrations(database: DatabaseSync): void {
     }
 
     if (currentVersion < 7) {
-      if (currentVersion === 6) {
-        dedupeApplyJobResultsByRunAndJob();
-      }
-
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(7, "job_finder_apply_foundation_dedupe");

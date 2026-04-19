@@ -6,7 +6,6 @@ import { _electron as electron } from 'playwright'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(currentDir, '..')
-const { console: globalConsole } = globalThis
 
 const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-startup-probe-'))
 
@@ -36,11 +35,11 @@ try {
   }))
 
   if (!snapshot.hasJobFinderBridge) {
-    globalConsole.error(JSON.stringify(snapshot, null, 2))
+    console.error(JSON.stringify(snapshot, null, 2))
     throw new Error('Preload bridge did not expose window.unemployed.jobFinder.')
   }
 
-  globalConsole.log(JSON.stringify(snapshot, null, 2))
+  console.log(JSON.stringify(snapshot, null, 2))
 } finally {
   if (app) {
     await app.close().catch(() => {})

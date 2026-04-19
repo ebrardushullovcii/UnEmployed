@@ -73,7 +73,7 @@ export function createSection(
     id: input.id,
     kind: input.kind,
     label: input.label,
-    text: input.text ?? null,
+    text: normalizeNullableText(input.text),
     bullets: (input.bullets ?? []).map((bullet, index) =>
       createBullet(
         `${input.id}_bullet_${index + 1}`,

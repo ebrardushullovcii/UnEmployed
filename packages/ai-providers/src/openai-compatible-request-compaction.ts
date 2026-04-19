@@ -324,19 +324,12 @@ export function compactOpenAiCompatibleUserPayload(input: {
     return levelOneCompacted;
   }
 
-  let lastCompacted: ResumeImportJsonValue = levelOneCompacted;
-
   for (const level of [2, 3]) {
     const compacted = compactValue(parsedPayload.data, [], level);
-    lastCompacted = compacted;
 
     if (estimateSerializedLength(compacted) <= charBudget) {
       return compacted;
     }
-  }
-
-  if (estimateSerializedLength(lastCompacted) <= charBudget) {
-    return lastCompacted;
   }
 
   throw new Error(

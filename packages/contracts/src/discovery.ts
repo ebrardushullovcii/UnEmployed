@@ -178,6 +178,14 @@ export const JobScreeningHintsSchema = z.object({
       path: ["requiresConsentInterruptKind"],
     })
   }
+
+  if (value.requiresConsentInterrupt == null && value.requiresConsentInterruptKind != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "requiresConsentInterruptKind must be null when requiresConsentInterrupt is null.",
+      path: ["requiresConsentInterruptKind"],
+    })
+  }
 });
 export type JobScreeningHints = z.infer<typeof JobScreeningHintsSchema>;
 

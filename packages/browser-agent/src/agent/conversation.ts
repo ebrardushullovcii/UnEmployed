@@ -401,9 +401,9 @@ export function maybeCompactConversation(
     return true
   }
 
-  const estimatedTokensBefore =
-    budgetSnapshot.estimate?.estimatedTotalTokens ??
-    estimateConversationTokensWithFallback(state.conversation, config).estimatedTotalTokens
+  const estimatedTokensBefore = budgetSnapshot.estimate?.estimatedTotalTokens
+    ? budgetSnapshot.estimate.estimatedTotalTokens
+    : estimateConversationTokensWithFallback(state.conversation, config).estimatedTotalTokens
   const baseSnapshot = buildCompactionSummary(
     state,
     config,

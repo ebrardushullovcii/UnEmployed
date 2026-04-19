@@ -96,6 +96,9 @@ describe("contracts source-debug schemas", () => {
     );
     expect(discovery.agentMetadata?.compactionState?.estimatedTokensBefore).toBe(130000);
     expect(discovery.agentMetadata?.compactionState?.estimatedTokensAfter).toBe(82000);
+    expect(discovery.agentMetadata?.compactionState?.stickyWorkflowState).toEqual([
+      "Phase goal: Verify search route",
+    ]);
     expect(discovery.agentMetadata?.compactionUsedFallbackTrigger).toBe(false);
     expect(
       discovery.agentMetadata?.debugFindings?.reliableControls[0],

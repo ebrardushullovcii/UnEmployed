@@ -327,8 +327,7 @@ export async function runSourceDebugWorkflow(
           ]),
           taskPacket: phasePacket,
           compaction: sourceDebugCompactionPolicy,
-          modelContextWindowTokens:
-            ctx.aiClient.getStatus().modelContextWindowTokens ?? null,
+          modelContextWindowTokens: modelContextWindowTokensSnapshot,
           relevantUrlSubstrings: adapter.relevantUrlSubstrings,
           experimental: adapter.experimental,
           skipSessionValidation: true,
@@ -694,8 +693,7 @@ export async function runSourceDebugWorkflow(
         return context ? [context] : [];
       }),
       compactionPolicy: sourceDebugCompactionPolicy,
-      modelContextWindowTokens:
-        ctx.aiClient.getStatus().modelContextWindowTokens ?? null,
+      modelContextWindowTokens: modelContextWindowTokensSnapshot,
       signal: executionSignal,
     });
     finalReviewMs = Date.now() - finalReviewStartedAtMs;

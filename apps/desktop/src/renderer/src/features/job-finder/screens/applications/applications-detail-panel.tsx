@@ -690,7 +690,9 @@ export function ApplicationsDetailPanel({
                   </Button>
                 ) : null}
                 {submitApproval.status === 'approved' &&
-                applyRunDetails.run.state === 'awaiting_submit_approval' ? (
+                applyRunDetails.run.state !== 'completed' &&
+                applyRunDetails.run.state !== 'cancelled' &&
+                applyRunDetails.run.state !== 'failed' ? (
                   <Button
                     onClick={() => onRevokeApplyRunApproval(submitApproval.runId)}
                     type="button"

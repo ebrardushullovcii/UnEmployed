@@ -229,6 +229,28 @@ export function createWorkspaceApplicationMethods(
     await ctx.repository.upsertApplicationRecord(nextRecord);
   }
 
+  function mergeMissingResumeApplicationRecord(input: {
+    applicationRecord: ReturnType<typeof ApplicationRecordSchema.parse>;
+    existingRecord: ReturnType<typeof ApplicationRecordSchema.parse> | null;
+  }) {
+    if (!input.existingRecord) {
+      return input.applicationRecord;
+    }
+
+    return ApplicationRecordSchema.parse({
+      ...input.existingRecord,
+      ...input.applicationRecord,
+      id: input.existingRecord.id,
+      status: input.existingRecord.status,
+      lastAttemptState: input.existingRecord.lastAttemptState,
+      questionSummary: input.applicationRecord.questionSummary,
+      latestBlocker: input.applicationRecord.latestBlocker,
+      consentSummary: input.applicationRecord.consentSummary,
+      replaySummary: input.applicationRecord.replaySummary,
+      events: mergeEvents(input.existingRecord.events, input.applicationRecord.events),
+    });
+  }
+
   async function buildApplyRecoveryContext(jobId: string) {
     const [runs, results, checkpoints] = await Promise.all([
       ctx.repository.listApplyRuns(),
@@ -1589,6 +1611,7 @@ export function createWorkspaceApplicationMethods(
         if (!approvedFileExists) {
           const detectedAt = new Date().toISOString();
           const artifacts = buildMissingResumeCopilotArtifacts({ job, detectedAt });
+          const existingRecord = applicationRecords.find((record) => record.jobId === jobId) ?? null;
 
           await Promise.all([
             ctx.repository.upsertApplyRun(ApplyRunSchema.parse(artifacts.run)),
@@ -1597,7 +1620,12 @@ export function createWorkspaceApplicationMethods(
             ctx.repository.upsertApplicationArtifactRef(artifacts.artifactRef),
             ctx.repository.upsertApplicationReplayCheckpoint(artifacts.checkpoint),
             ctx.repository.upsertApplicationConsentRequest(artifacts.consentRequest),
-            ctx.repository.upsertApplicationRecord(artifacts.applicationRecord),
+            ctx.repository.upsertApplicationRecord(
+              mergeMissingResumeApplicationRecord({
+                applicationRecord: artifacts.applicationRecord,
+                existingRecord,
+              }),
+            ),
           ]);
 
           return ctx.getWorkspaceSnapshot();
@@ -1607,6 +1635,7 @@ export function createWorkspaceApplicationMethods(
       if (shouldBlockForMissingResume) {
         const detectedAt = new Date().toISOString();
         const artifacts = buildMissingResumeCopilotArtifacts({ job, detectedAt });
+        const existingRecord = applicationRecords.find((record) => record.jobId === jobId) ?? null;
 
         await Promise.all([
           ctx.repository.upsertApplyRun(ApplyRunSchema.parse(artifacts.run)),
@@ -1615,7 +1644,12 @@ export function createWorkspaceApplicationMethods(
           ctx.repository.upsertApplicationArtifactRef(artifacts.artifactRef),
           ctx.repository.upsertApplicationReplayCheckpoint(artifacts.checkpoint),
           ctx.repository.upsertApplicationConsentRequest(artifacts.consentRequest),
-          ctx.repository.upsertApplicationRecord(artifacts.applicationRecord),
+          ctx.repository.upsertApplicationRecord(
+            mergeMissingResumeApplicationRecord({
+              applicationRecord: artifacts.applicationRecord,
+              existingRecord,
+            }),
+          ),
         ]);
 
         return ctx.getWorkspaceSnapshot();
@@ -2049,6 +2083,12 @@ export function createWorkspaceApplicationMethods(
         throw new Error(`Unknown apply run '${request.runId}' for consent request '${requestId}'.`);
       }
 
+      if (run.state !== "paused_for_consent") {
+        throw new Error(
+          `Consent request '${requestId}' cannot be resolved because run '${run.id}' is ${run.state}.`,
+        );
+      }
+
       const now = new Date().toISOString();
       const updatedRequest = ApplicationConsentRequestSchema.parse({
         ...request,
@@ -2252,7 +2292,11 @@ export function createWorkspaceApplicationMethods(
         throw new Error(`Apply run '${runId}' is not waiting on submit approval.`);
       }
 
-      if (run.state !== "awaiting_submit_approval") {
+      if (
+        run.state === "completed" ||
+        run.state === "cancelled" ||
+        run.state === "failed"
+      ) {
         throw new Error(`Cannot revoke approval for run '${runId}' in state '${run.state}'.`);
       }
 

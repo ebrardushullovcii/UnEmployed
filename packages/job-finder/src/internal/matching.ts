@@ -229,14 +229,12 @@ function enrichDiscoveredPosting(
         ...screeningHints.remoteGeographies,
       ]),
       requiresConsentInterrupt:
-        posting.screeningHints?.requiresConsentInterrupt ??
-        existingJob?.screeningHints.requiresConsentInterrupt ??
         screeningHints.requiresConsentInterrupt ??
+        existingJob?.screeningHints.requiresConsentInterrupt ??
         null,
       requiresConsentInterruptKind:
-        posting.screeningHints?.requiresConsentInterruptKind ??
-        existingJob?.screeningHints.requiresConsentInterruptKind ??
         screeningHints.requiresConsentInterruptKind ??
+        existingJob?.screeningHints.requiresConsentInterruptKind ??
         null,
     },
     keywordSignals: mergeKeywordSignals(

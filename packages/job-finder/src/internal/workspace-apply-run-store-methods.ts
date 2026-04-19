@@ -1,9 +1,14 @@
-import {
-  ApplyRunDetailsSchema,
-  ApplyRunSchema,
-  type ApplyRunDetails,
-} from "@unemployed/contracts";
+import { ApplyRunDetailsSchema, type ApplyRunDetails } from "@unemployed/contracts";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
+
+function parsePersistedTimestamp(value: string) {
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed)) {
+    throw new Error('Encountered invalid persisted timestamp while sorting apply run details.')
+  }
+
+  return parsed
+}
 
 export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext) {
   return {
@@ -37,10 +42,18 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
         throw new Error(`Apply run '${runId}' does not include job '${jobId}'.`);
       }
 
-      const latestResult = results[0] ?? null;
+      const latestResult = [...results].sort(
+        (left, right) =>
+          parsePersistedTimestamp(right.updatedAt) - parsePersistedTimestamp(left.updatedAt) ||
+          right.id.localeCompare(left.id),
+      )[0] ?? null;
       const latestApproval =
         approvals.find((entry) => entry.id === run.submitApprovalId) ??
-        approvals[0] ??
+        [...approvals].sort(
+          (left, right) =>
+            parsePersistedTimestamp(right.createdAt) - parsePersistedTimestamp(left.createdAt) ||
+            right.id.localeCompare(left.id),
+        )[0] ??
         null;
 
       const sortByTimestamp = <TValue>(
@@ -52,12 +65,7 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
           .map((value) => ({
             value,
             timestamp: (() => {
-              const parsed = Date.parse(getTimestamp(value))
-              if (!Number.isFinite(parsed)) {
-                throw new Error('Encountered invalid persisted timestamp while sorting apply run details.')
-              }
-
-              return parsed
+              return parsePersistedTimestamp(getTimestamp(value))
             })(),
           }))
           .sort(
@@ -68,9 +76,9 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
           .map(({ value }) => value);
 
       return ApplyRunDetailsSchema.parse({
-          run: ApplyRunSchema.parse(run),
-          result: latestResult,
-          results,
+        run,
+        result: latestResult,
+        results,
         submitApproval: latestApproval,
         questionRecords: sortByTimestamp(questionRecords, (record) => record.detectedAt),
         answerRecords: sortByTimestamp(answerRecords, (record) => record.createdAt),

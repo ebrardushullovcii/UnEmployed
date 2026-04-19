@@ -36,6 +36,7 @@ describe("shared agent handoff compaction", () => {
       instructionUnderReviewText: "existing",
       verificationText: "verification",
       compactionPolicy: {
+        enabled: true,
         warningTokenBudget: 10_000,
         targetTokenBudget: 12_000,
         minimumResponseHeadroomTokens: 500,
@@ -60,6 +61,7 @@ describe("shared agent handoff compaction", () => {
       instructionUnderReviewText: "existing",
       verificationText: "verification",
       compactionPolicy: {
+        enabled: true,
         warningTokenBudget: 200,
         targetTokenBudget: 350,
         minimumResponseHeadroomTokens: 100,

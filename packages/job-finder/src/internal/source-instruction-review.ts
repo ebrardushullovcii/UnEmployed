@@ -225,7 +225,12 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
         {
           role: "user",
           content: buildSourceInstructionFinalReviewPrompt({
-            ...input,
+            target: input.target,
+            run: input.run,
+            adapterKind: input.adapterKind,
+            verification: input.verification,
+            instructionUnderReview: input.instructionUnderReview,
+            heuristicInstruction: input.heuristicInstruction,
             phaseContexts: compacted.phaseContexts,
             handoffCompaction: compacted.handoffCompaction,
           }),

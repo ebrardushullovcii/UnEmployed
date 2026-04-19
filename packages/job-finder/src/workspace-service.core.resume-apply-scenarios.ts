@@ -880,7 +880,7 @@ describe("createJobFinderWorkspaceService", () => {
     });
   });
 
-  test("rejects revoking an approved single-job auto apply run after the run leaves approval staging", async () => {
+  test("replaces an approved single-job auto apply run with a fresh pending approval when revoked", async () => {
     const { repository, workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
@@ -896,16 +896,32 @@ describe("createJobFinderWorkspaceService", () => {
     expect(runId).toBeTruthy();
 
     await workspaceService.approveApplyRun(runId!);
-    await expect(workspaceService.revokeApplyRunApproval(runId!)).rejects.toThrow(
-      `Cannot revoke approval for run '${runId}' in state 'paused_for_user_review'.`,
-    );
+    const revokedSnapshot = await workspaceService.revokeApplyRunApproval(runId!);
 
     const approvals = await repository.listApplySubmitApprovals();
-    expect(approvals).toHaveLength(1);
-    expect(approvals[0]).toMatchObject({
-      runId,
-      status: "approved",
+    const pendingApproval = approvals.find((approval) => approval.status === 'pending')
+    const revokedApproval = approvals.find((approval) => approval.status === 'revoked')
+
+    expect(revokedSnapshot.applyRuns[0]).toMatchObject({
+      id: runId,
+      state: 'awaiting_submit_approval',
     });
+    expect(approvals).toHaveLength(2);
+    expect(pendingApproval).toMatchObject({
+      runId,
+      status: 'pending',
+    });
+    expect(revokedApproval).toMatchObject({
+      runId,
+      status: 'revoked',
+    });
+    expect(revokedSnapshot.applicationRecords[0]).toMatchObject({
+      jobId: 'job_ready',
+      lastActionLabel: 'Submit approval revoked for this automatic apply run.',
+      nextActionLabel: 'Re-approve this run before any later submit-enabled execution.',
+    });
+    expect(revokedSnapshot.applyRuns[0]?.submitApprovalId).toBe(pendingApproval?.id);
+    expect(revokedApproval?.revokedAt).toBeTruthy();
   });
 
   test("stages a queue auto apply run with one approval record per run", async () => {
