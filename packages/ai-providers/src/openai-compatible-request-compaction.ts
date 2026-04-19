@@ -308,5 +308,11 @@ export function compactOpenAiCompatibleUserPayload(input: {
     }
   }
 
-  return lastCompacted;
+  if (estimateSerializedLength(lastCompacted) <= charBudget) {
+    return lastCompacted;
+  }
+
+  throw new Error(
+    `OpenAI-compatible payload exceeds charBudget after compaction for ${input.operation}.`,
+  );
 }

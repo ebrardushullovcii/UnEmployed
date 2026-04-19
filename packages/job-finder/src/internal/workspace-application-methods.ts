@@ -2094,6 +2094,7 @@ export function createWorkspaceApplicationMethods(
           currentJobId: remainingJobs[0] ?? null,
           pendingJobs: remainingJobs.length,
           skippedJobs: run.skippedJobs + 1,
+          blockedJobs: Math.max(0, run.blockedJobs - 1),
           summary:
             remainingJobs.length > 0
               ? "Consent declined. The queue skipped this job and continued."

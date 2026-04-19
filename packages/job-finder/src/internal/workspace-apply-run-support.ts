@@ -319,6 +319,10 @@ export function buildApplyCopilotArtifacts(input: {
   const persistedAnswerIdByExecutionId = new Map<string, string>();
   const persistedCheckpointIdByExecutionId = new Map<string, string>();
   const checkpointArtifactIdsByExecutionId = new Map<string, string[]>();
+  input.executionResult.questions.forEach((question) => {
+    const persistedQuestionId = createUniqueId("apply_question");
+    persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
+  });
 
   for (const question of input.executionResult.questions) {
     for (const answer of question.suggestedAnswers) {
@@ -371,8 +375,7 @@ export function buildApplyCopilotArtifacts(input: {
     }),
   );
   const questionRecords = input.executionResult.questions.map((question) => {
-    const persistedQuestionId = createUniqueId("apply_question");
-    persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
+    const persistedQuestionId = persistedQuestionIdByExecutionId.get(question.id) ?? question.id;
     const matchingSuggestedAnswer = question.submittedAnswer
       ? question.suggestedAnswers.find(
           (suggestedAnswer) => suggestedAnswer.text === question.submittedAnswer,

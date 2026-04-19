@@ -103,9 +103,10 @@ export const APPLY_COLLECTION_ORDER_BY_SQL = {
   application_consent_requests: 'requested_at DESC, id ASC',
 } as const
 
-const APPLY_FILTER_COLUMN_NAMES: ReadonlySet<string> = new Set(
-  Object.values(APPLY_INDEXED_COLLECTION_CONFIGS).flatMap((config) => config.columnNames),
-)
+const APPLY_FILTER_COLUMN_NAMES: ReadonlySet<string> = new Set([
+  'id',
+  ...Object.values(APPLY_INDEXED_COLLECTION_CONFIGS).flatMap((config) => config.columnNames),
+])
 
 export function buildOptionalSqlFilters(
   filters: ReadonlyArray<readonly [columnName: string, value: string | undefined]>,

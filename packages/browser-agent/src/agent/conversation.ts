@@ -127,7 +127,8 @@ export function getEffectiveCompactionConfig(config: AgentConfig): SharedAgentCo
   const workflowOverride = workflowKey
     ? workflowOverrides[workflowKey] ?? null
     : null
-  const { workflowOverrides: _ignoredWorkflowOverrides, ...configCompactionRest } = configCompaction
+  const configCompactionRest = { ...configCompaction }
+  delete configCompactionRest.workflowOverrides
 
   return SharedAgentCompactionPolicySchema.parse({
     ...DEFAULT_COMPACTION_CONFIG,
@@ -464,7 +465,9 @@ export function shouldFailForContextBudget(
   state: AgentState,
   config: AgentConfig,
 ): boolean {
-  const estimate = estimateConversationTokens(state.conversation, config)
+  const estimate = getModelContextWindowTokens(config)
+    ? estimateConversationTokensWithFallback(state.conversation, config)
+    : estimateConversationTokens(state.conversation, config)
 
   if (!estimate) {
     return false

@@ -281,8 +281,8 @@ export async function createFileJobFinderRepository(
             schema: ApplyJobResultSchema,
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_job_results,
             filters: [
-              ...(options?.runId ? [['runId', options.runId] as const] : []),
-              ...(options?.jobId ? [['jobId', options.jobId] as const] : []),
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
             ],
           }),
         ),
@@ -301,7 +301,7 @@ export async function createFileJobFinderRepository(
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_submit_approvals,
             filters: [
               ...(options?.id ? [['id', options.id] as const] : []),
-              ...(options?.runId ? [['runId', options.runId] as const] : []),
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
             ],
           }),
         ),

@@ -301,6 +301,13 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
               state: 'in_progress',
             },
             {
+              id: `checkpoint_${job.id}_resume_attached`,
+              at: now,
+              label: 'Attached tailored resume',
+              detail: `Attached approved resume export from ${resumeFilePath}.`,
+              state: 'in_progress',
+            },
+            {
               id: `checkpoint_${job.id}_consent_pause`,
               at: now,
               label: 'Paused for consent',

@@ -588,7 +588,6 @@ export function ApplicationsDetailPanel({
                     <li key={result.id} aria-current={isSelected ? 'true' : undefined}>
                       <button
                         aria-label={`Run ${result.runId} updated ${formatTimestamp(result.updatedAt)}`}
-                        aria-pressed={isSelected}
                         className={cn(
                           'grid w-full gap-2 rounded-(--radius-field) border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30',
                           isSelected

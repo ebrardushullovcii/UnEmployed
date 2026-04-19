@@ -441,6 +441,11 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
             weight: 4,
           },
         ],
+        screeningHints: {
+          ...readySavedJob.screeningHints,
+          requiresConsentInterrupt: true,
+          requiresConsentInterruptKind: "existing_account_decision",
+        },
         status: "ready_for_review",
         matchAssessment: {
           score: 93,

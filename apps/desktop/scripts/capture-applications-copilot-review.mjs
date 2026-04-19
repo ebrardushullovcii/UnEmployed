@@ -116,10 +116,14 @@ async function captureApplicationsCopilotReview() {
     })
 
     const window = await app.firstWindow()
-    await window.evaluate(async (theme) => {
-      await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
-    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await window.waitForLoadState('domcontentloaded')
+    await window.evaluate(async (theme) => {
+      if (!window.unemployed?.jobFinder?.test?.setSystemThemeOverride) {
+        throw new Error('Desktop test API theme override is unavailable in the renderer.')
+      }
+
+      await window.unemployed.jobFinder.test.setSystemThemeOverride(theme)
+    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await waitForProfileOrSetupHeading(window)
     await window.setViewportSize({ width, height })
 

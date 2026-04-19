@@ -52,9 +52,20 @@ function getLatestBy(items, getTimestamp) {
     return null
   }
 
+  const indexedItems = items.map((item, index) => ({ item, index }))
+
   return [...items].sort(
-    (left, right) =>
-      new Date(getTimestamp(right)).getTime() - new Date(getTimestamp(left)).getTime(),
+    (left, right) => {
+      const timestampDifference = new Date(getTimestamp(right)).getTime() - new Date(getTimestamp(left)).getTime()
+
+      if (timestampDifference !== 0) {
+        return timestampDifference
+      }
+
+      const leftIndex = indexedItems.find((entry) => entry.item === left)?.index ?? -1
+      const rightIndex = indexedItems.find((entry) => entry.item === right)?.index ?? -1
+      return rightIndex - leftIndex
+    },
   )[0]
 }
 
@@ -184,7 +195,7 @@ async function captureResumeWorkspace() {
     await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '09-applications-after-apply.png') })
 
-    await window.getByText(/Apply copilot run/i).waitFor({ timeout: 10000 })
+    await window.getByText('Apply run review data', { exact: true }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '10-applications-after-copilot.png') })
 
     const workspace = await getWorkspace(window)

@@ -1,3 +1,5 @@
+/* global process, setTimeout, document */
+
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -212,9 +214,12 @@ async function captureApplicationsRecovery() {
       .filter((run) => run.mode === 'copilot' && run.jobIds.includes('job_ready'))
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0]
     const runHistorySection = window.getByText('Run history', { exact: true }).locator('xpath=ancestor::section[1]')
+    if (!latestCopilotRun) {
+      throw new Error('Expected the retained copilot run in Applications recovery history.')
+    }
     const olderRunButton = runHistorySection.getByRole('button', {
-      name: /copilot/i,
-    }).filter({ hasNotText: latestCopilotRun?.id ?? '' }).first()
+      name: new RegExp(`Run ${latestCopilotRun.id} updated`, 'i'),
+    })
     await olderRunButton.click()
     await expectRunIdVisible(window, initialCopilotRun.id)
     await waitForCondition(
