@@ -363,13 +363,19 @@ export function sanitizeResumeDraft(input: {
 
     const nextBullets = sanitizeBullets(section.bullets, nextText);
     const hasVisibleContent = Boolean(nextText) || nextBullets.length > 0 || nextEntries.length > 0;
+    const nextIncluded =
+      section.kind === "keywords"
+        ? false
+        : section.locked
+          ? true
+          : hasVisibleContent && section.included;
 
     return {
       ...section,
       text: nextText,
       bullets: nextBullets,
       entries: nextEntries,
-      included: section.kind === "keywords" ? false : section.locked ? true : hasVisibleContent ? section.included : false,
+      included: nextIncluded,
     };
   });
 

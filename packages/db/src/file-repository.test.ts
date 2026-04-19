@@ -1,7 +1,16 @@
 import { rm } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, test } from 'vitest'
-import { SourceInstructionArtifactSchema } from '@unemployed/contracts'
+import {
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
+  ApplicationConsentRequestSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  SourceInstructionArtifactSchema,
+} from '@unemployed/contracts'
 
 import { createFileJobFinderRepository } from './index'
 import { createSeed } from './test-fixtures'
@@ -136,7 +145,7 @@ describe('createFileJobFinderRepository', () => {
     try {
       firstRepository = await temp.createRepository()
 
-      await firstRepository.upsertApplyRun({
+      await firstRepository.upsertApplyRun(ApplyRunSchema.parse({
         id: 'apply_run_1',
         mode: 'copilot',
         state: 'paused_for_user_review',
@@ -154,8 +163,8 @@ describe('createFileJobFinderRepository', () => {
         skippedJobs: 0,
         blockedJobs: 0,
         failedJobs: 0,
-      })
-      await firstRepository.upsertApplyJobResult({
+      }))
+      await firstRepository.upsertApplyJobResult(ApplyJobResultSchema.parse({
         id: 'apply_result_1',
         runId: 'apply_run_1',
         jobId: 'job_1',
@@ -173,8 +182,8 @@ describe('createFileJobFinderRepository', () => {
         pendingConsentRequestCount: 1,
         artifactCount: 1,
         latestCheckpointId: 'checkpoint_1',
-      })
-      await firstRepository.upsertApplicationQuestionRecord({
+      }))
+      await firstRepository.upsertApplicationQuestionRecord(ApplicationQuestionRecordSchema.parse({
         id: 'question_1',
         runId: 'apply_run_1',
         jobId: 'job_1',
@@ -189,8 +198,8 @@ describe('createFileJobFinderRepository', () => {
         submittedAnswer: null,
         status: 'detected',
         pageUrl: 'https://jobs.example.com/apply',
-      })
-      await firstRepository.upsertApplicationAnswerRecord({
+      }))
+      await firstRepository.upsertApplicationAnswerRecord(ApplicationAnswerRecordSchema.parse({
         id: 'answer_1',
         runId: 'apply_run_1',
         jobId: 'job_1',
@@ -212,8 +221,8 @@ describe('createFileJobFinderRepository', () => {
         ],
         createdAt: '2026-04-18T10:00:31.000Z',
         submittedAt: null,
-      })
-      await firstRepository.upsertApplicationArtifactRef({
+      }))
+      await firstRepository.upsertApplicationArtifactRef(ApplicationArtifactRefSchema.parse({
         id: 'artifact_1',
         runId: 'apply_run_1',
         jobId: 'job_1',
@@ -225,8 +234,8 @@ describe('createFileJobFinderRepository', () => {
         storagePath: null,
         url: 'https://jobs.example.com/apply',
         textSnippet: 'Upload your resume',
-      })
-      await firstRepository.upsertApplicationReplayCheckpoint({
+      }))
+      await firstRepository.upsertApplicationReplayCheckpoint(ApplicationReplayCheckpointSchema.parse({
         id: 'checkpoint_1',
         runId: 'apply_run_1',
         jobId: 'job_1',
@@ -237,8 +246,8 @@ describe('createFileJobFinderRepository', () => {
         url: 'https://jobs.example.com/apply',
         jobState: 'awaiting_review',
         artifactRefIds: ['artifact_1'],
-      })
-      await firstRepository.upsertApplicationConsentRequest({
+      }))
+      await firstRepository.upsertApplicationConsentRequest(ApplicationConsentRequestSchema.parse({
         id: 'consent_1',
         runId: 'apply_run_1',
         jobId: 'job_1',
@@ -251,7 +260,7 @@ describe('createFileJobFinderRepository', () => {
         requestedAt: '2026-04-18T10:00:20.000Z',
         decidedAt: '2026-04-18T10:00:25.000Z',
         expiresAt: null,
-      })
+      }))
 
       await firstRepository.close()
       firstRepository = null

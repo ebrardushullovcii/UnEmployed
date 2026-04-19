@@ -205,6 +205,24 @@ export function createPrimaryPageActions(
     )
   }
 
+  const startAutoFlow = (
+    runner: () => Promise<unknown>,
+    successMessage: string,
+  ) => {
+    if (!confirmLeaveDirtyResumeWorkspace()) {
+      return
+    }
+
+    void runAction(
+      runner,
+      () => {
+        setResumeWorkspaceDirty(false)
+        navigate('/job-finder/applications')
+      },
+      successMessage,
+    )
+  }
+
   return {
     onAnalyzeProfileFromResume: () => {
       if (!canImportResume) {
@@ -277,44 +295,20 @@ export function createPrimaryPageActions(
           : 'Consent declined. The run skipped that job and stayed non-submitting.',
       ),
     onStartAutoApplyQueue: (jobIds: string[]) => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return
-      }
-
-      void runAction(
+      startAutoFlow(
         () => actions.startAutoApplyQueueRun(jobIds),
-        () => {
-          setResumeWorkspaceDirty(false)
-          navigate('/job-finder/applications')
-        },
         'Automatic apply queue staged. Review and approve it in Applications before any later execution step.',
       )
     },
     onStartAutoApply: (jobId: string) => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return
-      }
-
-      void runAction(
+      startAutoFlow(
         () => actions.startAutoApplyRun(jobId),
-        () => {
-          setResumeWorkspaceDirty(false)
-          navigate('/job-finder/applications')
-        },
         'Automatic submit run staged. Review and approve it in Applications before any later execution step.',
       )
     },
     onStartApplyCopilot: (jobId: string) => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return
-      }
-
-      void runAction(
+      startAutoFlow(
         () => actions.startApplyCopilotRun(jobId),
-        () => {
-          setResumeWorkspaceDirty(false)
-          navigate('/job-finder/applications')
-        },
         'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
       )
     },

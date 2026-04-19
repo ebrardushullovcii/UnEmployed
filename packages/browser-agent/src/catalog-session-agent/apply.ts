@@ -555,7 +555,7 @@ export function buildApplyReplay(job: SavedJob, recoveryContext?: ApplyRecoveryC
     sourceDebugEvidenceRefIds: [],
     lastUrl:
       recoveryContext?.latestCheckpoint?.url ??
-      recoveryContext?.checkpointUrls[0] ??
+      recoveryContext?.checkpointUrls?.[0] ??
       lastUrl,
     checkpointUrls,
   }

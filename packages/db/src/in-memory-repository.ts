@@ -514,24 +514,48 @@ export function createInMemoryJobFinderRepository(
       );
       return Promise.resolve();
     },
-    listApplyRuns() {
-      return Promise.resolve(sortApplyRuns(cloneValue(state.applyRuns)));
+    listApplyRuns(options) {
+      return Promise.resolve(
+        sortApplyRuns(
+          cloneValue(state.applyRuns).filter((run) =>
+            matchesOptionalStringFilters(run, [["id", options?.id]]),
+          ),
+        ),
+      );
     },
     upsertApplyRun(run) {
       const normalizedRun = ApplyRunSchema.parse(cloneValue(run));
       state.applyRuns = upsertById(state.applyRuns, normalizedRun);
       return Promise.resolve();
     },
-    listApplyJobResults() {
-      return Promise.resolve(sortApplyJobResults(cloneValue(state.applyJobResults)));
+    listApplyJobResults(options) {
+      return Promise.resolve(
+        sortApplyJobResults(
+          cloneValue(state.applyJobResults).filter((result) =>
+            matchesOptionalStringFilters(result, [
+              ["runId", options?.runId],
+              ["jobId", options?.jobId],
+            ]),
+          ),
+        ),
+      );
     },
     upsertApplyJobResult(result) {
       const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result));
       state.applyJobResults = upsertById(state.applyJobResults, normalizedResult);
       return Promise.resolve();
     },
-    listApplySubmitApprovals() {
-      return Promise.resolve(sortApplySubmitApprovals(cloneValue(state.applySubmitApprovals)));
+    listApplySubmitApprovals(options) {
+      return Promise.resolve(
+        sortApplySubmitApprovals(
+          cloneValue(state.applySubmitApprovals).filter((approval) =>
+            matchesOptionalStringFilters(approval, [
+              ["id", options?.id],
+              ["runId", options?.runId],
+            ]),
+          ),
+        ),
+      );
     },
     upsertApplySubmitApproval(approval) {
       const normalizedApproval = ApplySubmitApprovalSchema.parse(cloneValue(approval));

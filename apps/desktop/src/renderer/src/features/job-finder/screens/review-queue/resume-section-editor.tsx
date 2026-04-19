@@ -13,8 +13,11 @@ import { StatusBadge } from "../../components/status-badge";
 import { SourceRefsList } from "./source-refs-list";
 
 function normalizeNullableText(value: string | null | undefined): string | null {
-  const trimmed = value?.trim() ?? "";
-  return trimmed === "" ? null : trimmed;
+  if (value == null || value.trim() === "") {
+    return null;
+  }
+
+  return value;
 }
 
 export function ResumeSectionEditor(props: {

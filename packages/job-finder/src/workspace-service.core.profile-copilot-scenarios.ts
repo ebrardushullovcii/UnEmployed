@@ -360,4 +360,69 @@ describe("createJobFinderWorkspaceService", () => {
       }),
     );
   });
+
+  test("profile copilot persists repeated oversized requests and keeps applying grounded edits", async () => {
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        profile: {
+          ...createSeed().profile,
+          yearsExperience: 6,
+        },
+        profileSetupState: {
+          ...createSeed().profileSetupState,
+          status: "in_progress",
+          currentStep: "essentials",
+          reviewItems: [
+            {
+              id: "review_years_experience",
+              step: "essentials",
+              target: {
+                domain: "identity",
+                key: "yearsExperience",
+                recordId: null,
+              },
+              label: "Years of experience",
+              reason: "Confirm the imported years of experience before setup is complete.",
+              severity: "recommended",
+              status: "pending",
+              proposedValue: "9",
+              sourceSnippet: "9 years of experience",
+              sourceCandidateId: "candidate_years_experience",
+              sourceRunId: "run_1",
+              createdAt: "2026-04-14T10:00:00.000Z",
+              resolvedAt: null,
+            },
+          ],
+        },
+      },
+    });
+    const filler = "context detail ".repeat(4_000);
+    const requests = [
+      `${filler} change my years of experience from 6 to 7`,
+      `${filler} change my years of experience from 7 to 8`,
+      `${filler} change my years of experience from 8 to 9`,
+    ];
+
+    for (const request of requests) {
+      await workspaceService.sendProfileCopilotMessage(request, {
+        surface: "setup",
+        step: "essentials",
+      });
+    }
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot();
+    const messages = await repository.listProfileCopilotMessages();
+
+    expect(snapshot.profile.yearsExperience).toBe(9);
+    expect(
+      snapshot.profileSetupState.reviewItems.find((item) => item.id === "review_years_experience")?.status,
+    ).toBe("edited");
+    expect(snapshot.profileRevisions).toHaveLength(3);
+    expect(messages).toHaveLength(6);
+    expect(messages.filter((message) => message.role === "user").map((message) => message.content)).toEqual(
+      requests,
+    );
+    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(3);
+  });
 });

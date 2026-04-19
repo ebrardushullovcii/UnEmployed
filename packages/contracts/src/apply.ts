@@ -301,6 +301,8 @@ export const ApplyRunSchema = z.object({
 });
 export type ApplyRun = z.infer<typeof ApplyRunSchema>;
 
+// Summary aliases intentionally mirror the full schemas for now so consumers can
+// depend on stable names before we split lighter list/detail projections later.
 export const ApplyRunSummarySchema = ApplyRunSchema;
 export type ApplyRunSummary = z.infer<typeof ApplyRunSummarySchema>;
 

@@ -440,14 +440,13 @@ export function createWorkspaceApplicationMethods(
           sourceDebugEvidenceRefIds,
           fallbackUrl: job.applicationUrl ?? job.canonicalUrl,
         });
-        const normalizedExecutionResult = {
+        const normalizedExecutionResult: ApplyExecutionResult = {
           ...executionResult,
           blocker,
           replay,
-        } as ApplyExecutionResult;
+        };
         const runArtifacts = buildApplyCopilotArtifacts({
           job,
-          resumeExport: approvedExport,
           executionResult: normalizedExecutionResult,
           detectedAt,
         });
@@ -1698,12 +1697,11 @@ export function createWorkspaceApplicationMethods(
       });
       const runArtifacts = buildApplyCopilotArtifacts({
         job,
-        resumeExport: approvedExport,
         executionResult: {
           ...executionResult,
           blocker,
           replay,
-        } as ApplyExecutionResult,
+        },
         detectedAt,
       });
 
@@ -2094,7 +2092,7 @@ export function createWorkspaceApplicationMethods(
           updatedAt: now,
           completedAt: remainingJobs.length > 0 ? null : now,
           currentJobId: remainingJobs[0] ?? null,
-            pendingJobs: remainingJobs.length,
+          pendingJobs: remainingJobs.length,
           skippedJobs: run.skippedJobs + 1,
           summary:
             remainingJobs.length > 0
@@ -2250,10 +2248,7 @@ export function createWorkspaceApplicationMethods(
         throw new Error(`Apply run '${runId}' is not waiting on submit approval.`);
       }
 
-      if (
-        run.state !== "awaiting_submit_approval" &&
-        run.state !== "paused_for_user_review"
-      ) {
+      if (run.state !== "awaiting_submit_approval") {
         throw new Error(`Cannot revoke approval for run '${runId}' in state '${run.state}'.`);
       }
 

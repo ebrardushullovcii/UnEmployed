@@ -264,54 +264,38 @@ export function writeState(
     saveSingletonValue(database, "discovery_state", state.discovery);
     replaceCollection(database, "saved_jobs", state.savedJobs);
     replaceCollection(database, "tailored_assets", state.tailoredAssets);
-    replaceIndexedCollection(database, "apply_runs", state.applyRuns, {
-      ...APPLY_INDEXED_COLLECTION_CONFIGS.apply_runs,
-    });
-    replaceIndexedCollection(database, "apply_job_results", state.applyJobResults, {
-      ...APPLY_INDEXED_COLLECTION_CONFIGS.apply_job_results,
-    });
-    replaceIndexedCollection(database, "apply_submit_approvals", state.applySubmitApprovals, {
-      ...APPLY_INDEXED_COLLECTION_CONFIGS.apply_submit_approvals,
-    });
+    replaceIndexedCollection(database, "apply_runs", state.applyRuns, APPLY_INDEXED_COLLECTION_CONFIGS.apply_runs);
+    replaceIndexedCollection(database, "apply_job_results", state.applyJobResults, APPLY_INDEXED_COLLECTION_CONFIGS.apply_job_results);
+    replaceIndexedCollection(database, "apply_submit_approvals", state.applySubmitApprovals, APPLY_INDEXED_COLLECTION_CONFIGS.apply_submit_approvals);
     replaceIndexedCollection(
       database,
       "application_question_records",
       state.applicationQuestionRecords,
-      {
-        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_question_records,
-      },
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_question_records,
     );
     replaceIndexedCollection(
       database,
       "application_answer_records",
       state.applicationAnswerRecords,
-      {
-        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_answer_records,
-      },
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_answer_records,
     );
     replaceIndexedCollection(
       database,
       "application_artifact_refs",
       state.applicationArtifactRefs,
-      {
-        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_artifact_refs,
-      },
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_artifact_refs,
     );
     replaceIndexedCollection(
       database,
       "application_replay_checkpoints",
       state.applicationReplayCheckpoints,
-      {
-        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_replay_checkpoints,
-      },
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_replay_checkpoints,
     );
     replaceIndexedCollection(
       database,
       "application_consent_requests",
       state.applicationConsentRequests,
-      {
-        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_consent_requests,
-      },
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_consent_requests,
     );
     replaceIndexedCollection(database, "resume_drafts", state.resumeDrafts, {
       columnNames: ["job_id", "created_at", "updated_at"],

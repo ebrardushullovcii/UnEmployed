@@ -15,18 +15,18 @@ import {
 
 export type SourceDebugPhaseMap<TValue> = Partial<Record<SourceDebugPhase, TValue>>;
 
-export function createSavedJob(input: unknown): SavedJob {
+export function createSavedJob(input: typeof SavedJobSchema["_input"]): SavedJob {
   return SavedJobSchema.parse(input);
 }
 
 export function createSavedJobDiscoveryProvenance(
-  input: unknown,
+  input: typeof SavedJobDiscoveryProvenanceSchema["_input"],
 ): SavedJobDiscoveryProvenance {
   return SavedJobDiscoveryProvenanceSchema.parse(input);
 }
 
 export function createSourceInstructionArtifact(
-  input: unknown,
+  input: typeof SourceInstructionArtifactSchema["_input"],
 ): SourceInstructionArtifact {
   return SourceInstructionArtifactSchema.parse(input);
 }

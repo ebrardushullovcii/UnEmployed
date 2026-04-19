@@ -41,6 +41,9 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
       }
     }
 
+    // This predicate intentionally treats only user-visible string content as meaningful.
+    // Numeric or boolean fields do not currently count here, so revisit this block if
+    // TEntry or TailoredResumeDraftSchema starts relying on non-string visible fields.
     const hasMeaningfulContent = Object.entries(normalizedEntry).some(([fieldKey, fieldValue]) => {
       if (REFERENCE_ONLY_KEYS.has(fieldKey)) {
         return false;

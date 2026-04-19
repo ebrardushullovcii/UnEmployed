@@ -420,9 +420,7 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
   return JobFinderRepositoryStateSchema.parse({
     ...resumeDemoState,
     savedJobs: [
-      {
-        ...readySavedJob,
-      },
+      readySavedJob,
       {
         ...readySavedJob,
         id: "job_consent_queue",

@@ -229,12 +229,14 @@ function enrichDiscoveredPosting(
         ...screeningHints.remoteGeographies,
       ]),
       requiresConsentInterrupt:
-        screeningHints.requiresConsentInterrupt ??
+        posting.screeningHints?.requiresConsentInterrupt ??
         existingJob?.screeningHints.requiresConsentInterrupt ??
+        screeningHints.requiresConsentInterrupt ??
         null,
       requiresConsentInterruptKind:
-        screeningHints.requiresConsentInterruptKind ??
+        posting.screeningHints?.requiresConsentInterruptKind ??
         existingJob?.screeningHints.requiresConsentInterruptKind ??
+        screeningHints.requiresConsentInterruptKind ??
         null,
     },
     keywordSignals: mergeKeywordSignals(
@@ -556,4 +558,3 @@ export function uniqueProvenance(
     return [parsed];
   });
 }
-

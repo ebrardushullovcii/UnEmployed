@@ -347,7 +347,10 @@ export async function getLlmResponse(
     }
 
     try {
-      llmResponse = await llmClient.chatWithTools(state.conversation, tools, signal, options)
+      llmResponse = await llmClient.chatWithTools(state.conversation, tools, {
+        ...options,
+        ...(signal ? { signal } : {}),
+      })
       break
     } catch (llmError) {
       if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {

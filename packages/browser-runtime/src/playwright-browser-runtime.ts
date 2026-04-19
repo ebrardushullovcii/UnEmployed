@@ -46,8 +46,7 @@ export function createAgentChatWithToolsBridge(
   chatWithTools: NonNullable<JobFinderAiClient["chatWithTools"]>,
 ): LLMClient {
   return {
-    chatWithTools: async (messages, tools, signal, options) =>
-      chatWithTools(messages, tools, signal, options),
+    chatWithTools: async (messages, tools, options) => chatWithTools(messages, tools, options),
   };
 }
 

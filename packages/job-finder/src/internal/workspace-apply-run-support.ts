@@ -11,7 +11,6 @@ import {
   type ApplyJobResult,
   type ApplyRun,
   type JobFinderWorkspaceSnapshot,
-  type ResumeExportArtifact,
   type SavedJob,
 } from "@unemployed/contracts";
 
@@ -302,7 +301,6 @@ export function mapExecutionResultToApplyRunState(input: {
 
 export function buildApplyCopilotArtifacts(input: {
   job: SavedJob;
-  resumeExport: ResumeExportArtifact;
   executionResult: ApplyExecutionResult;
   detectedAt: string;
 }): {
@@ -322,34 +320,35 @@ export function buildApplyCopilotArtifacts(input: {
   const persistedCheckpointIdByExecutionId = new Map<string, string>();
   const checkpointArtifactIdsByExecutionId = new Map<string, string[]>();
 
-  const questionRecords = input.executionResult.questions.map((question) => {
-    const persistedQuestionId = createUniqueId("apply_question");
-    persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
+  for (const question of input.executionResult.questions) {
+    for (const answer of question.suggestedAnswers) {
+      persistedAnswerIdByExecutionId.set(answer.id, createUniqueId("apply_answer"));
+    }
+  }
 
-    return ApplicationQuestionRecordSchema.parse({
-      id: persistedQuestionId,
-      runId,
-      jobId: input.job.id,
-      resultId,
-      prompt: question.prompt,
-      kind: question.kind,
-      isRequired: question.isRequired,
-      detectedAt: question.detectedAt,
-      answerOptions: question.answerOptions,
-      suggestedAnswers: question.suggestedAnswers,
-      selectedAnswerId: null,
-      submittedAnswer: question.submittedAnswer,
-      status: question.status,
-      pageUrl: canonicalApplyUrl,
-    });
-  });
+  function mapCheckpointStateToJobState(
+    checkpoint: ApplyExecutionResult["checkpoints"][number],
+  ): ReturnType<typeof ApplicationReplayCheckpointSchema.parse>["jobState"] {
+    switch (checkpoint.state) {
+      case 'submitted':
+        return 'submitted'
+      case 'failed':
+        return 'failed'
+      case 'paused':
+        return 'awaiting_review'
+      case 'unsupported':
+        return 'blocked'
+      default:
+        return checkpoint.label.toLowerCase().includes('question')
+          ? 'question_capture'
+          : 'filling'
+    }
+  }
+
   const answerRecords = input.executionResult.questions.flatMap((question) =>
     question.suggestedAnswers.map((answer) => {
-      const persistedAnswerId = createUniqueId("apply_answer");
-      persistedAnswerIdByExecutionId.set(answer.id, persistedAnswerId);
-
       return ApplicationAnswerRecordSchema.parse({
-        id: persistedAnswerId,
+        id: persistedAnswerIdByExecutionId.get(answer.id) ?? createUniqueId("apply_answer"),
         runId,
         jobId: input.job.id,
         resultId,
@@ -371,19 +370,35 @@ export function buildApplyCopilotArtifacts(input: {
       });
     }),
   );
-  for (const questionRecord of questionRecords) {
-    const executionQuestionId = [...persistedQuestionIdByExecutionId.entries()].find(
-      ([, persistedId]) => persistedId === questionRecord.id,
-    )?.[0];
-    const executionQuestion = executionQuestionId
-      ? input.executionResult.questions.find((question) => question.id === executionQuestionId)
+  const questionRecords = input.executionResult.questions.map((question) => {
+    const persistedQuestionId = createUniqueId("apply_question");
+    persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
+    const matchingSuggestedAnswer = question.submittedAnswer
+      ? question.suggestedAnswers.find(
+          (suggestedAnswer) => suggestedAnswer.text === question.submittedAnswer,
+        ) ?? null
       : null;
-    const selectedAnswerId = executionQuestion?.suggestedAnswers[0]?.id
-      ? persistedAnswerIdByExecutionId.get(executionQuestion.suggestedAnswers[0].id) ?? null
+    const selectedAnswerId = matchingSuggestedAnswer?.id
+      ? persistedAnswerIdByExecutionId.get(matchingSuggestedAnswer.id) ?? null
       : null;
 
-    questionRecord.selectedAnswerId = selectedAnswerId;
-  }
+    return ApplicationQuestionRecordSchema.parse({
+      id: persistedQuestionId,
+      runId,
+      jobId: input.job.id,
+      resultId,
+      prompt: question.prompt,
+      kind: question.kind,
+      isRequired: question.isRequired,
+      detectedAt: question.detectedAt,
+      answerOptions: question.answerOptions,
+      suggestedAnswers: question.suggestedAnswers,
+      selectedAnswerId,
+      submittedAnswer: question.submittedAnswer,
+      status: question.status,
+      pageUrl: canonicalApplyUrl,
+    });
+  });
   const blockerQuestionIds = input.executionResult.blocker?.questionIds ?? [];
   const artifactRefs = [
     ...questionRecords
@@ -441,18 +456,7 @@ export function buildApplyCopilotArtifacts(input: {
       label: checkpoint.label,
       detail: checkpoint.detail,
       url: canonicalApplyUrl,
-      jobState:
-        checkpoint.state === 'submitted'
-          ? 'submitted'
-          : checkpoint.state === 'failed'
-            ? 'failed'
-            : checkpoint.state === 'paused'
-              ? 'awaiting_review'
-              : checkpoint.state === 'unsupported'
-                ? 'blocked'
-                : checkpoint.label.toLowerCase().includes('question')
-                  ? 'question_capture'
-                  : 'filling',
+      jobState: mapCheckpointStateToJobState(checkpoint),
       artifactRefIds: checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [],
     });
   });

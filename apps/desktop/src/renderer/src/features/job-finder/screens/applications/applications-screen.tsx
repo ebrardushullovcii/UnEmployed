@@ -252,21 +252,6 @@ export function ApplicationsScreen(props: {
   }, [applyResultsForSelectedRecord, effectiveSelectedRecord, selectedApplyRunId])
 
   useEffect(() => {
-    if (!applyRunDetails || applyRunDetails.run.id !== effectiveSelectedRunId) {
-      return
-    }
-
-    if (applyRunDetails.result?.jobId === effectiveSelectedJobId) {
-      return
-    }
-
-    setApplyRunDetails({
-      ...applyRunDetails,
-      result: effectiveSelectedApplyResult,
-    })
-  }, [applyRunDetails, effectiveSelectedApplyResult, effectiveSelectedJobId, effectiveSelectedRunId])
-
-  useEffect(() => {
     if (!effectiveSelectedRecord || effectiveSelectedRecord.id === selectedRecord?.id) {
       return
     }

@@ -29,7 +29,19 @@ export type SharedAgentCompactionTriggerKind = z.infer<
 
 export const SharedAgentCompactionPolicyOverrideSchema = z.object(
   sharedAgentCompactionPolicyOverrideShape,
-).superRefine((value, ctx) => {
+).superRefine(validateCompactionPolicyIssues);
+
+type CompactionPolicyValidationInput = {
+  warningTokenBudget?: number | undefined;
+  targetTokenBudget?: number | undefined;
+  preserveRecentMessages?: number | undefined;
+  minimumPreserveRecentMessages?: number | undefined;
+};
+
+function validateCompactionPolicyIssues(
+  value: CompactionPolicyValidationInput,
+  ctx: z.RefinementCtx,
+) {
   if (
     value.warningTokenBudget !== undefined &&
     value.targetTokenBudget !== undefined &&
@@ -54,7 +66,7 @@ export const SharedAgentCompactionPolicyOverrideSchema = z.object(
       path: ["minimumPreserveRecentMessages"],
     });
   }
-});
+}
 export type SharedAgentCompactionPolicyOverride = z.infer<
   typeof SharedAgentCompactionPolicyOverrideSchema
 >;
@@ -73,24 +85,7 @@ export const SharedAgentCompactionPolicySchema =
     workflowOverrides: z
       .record(NonEmptyStringSchema, SharedAgentCompactionPolicyOverrideSchema)
       .default({}),
-  }).superRefine((value, ctx) => {
-    if (value.warningTokenBudget > value.targetTokenBudget) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "warningTokenBudget cannot exceed targetTokenBudget.",
-        path: ["warningTokenBudget"],
-      });
-    }
-
-    if (value.minimumPreserveRecentMessages > value.preserveRecentMessages) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "minimumPreserveRecentMessages cannot exceed preserveRecentMessages.",
-        path: ["minimumPreserveRecentMessages"],
-      });
-    }
-  });
+  }).superRefine(validateCompactionPolicyIssues);
 export type SharedAgentCompactionPolicy = z.infer<
   typeof SharedAgentCompactionPolicySchema
 >;

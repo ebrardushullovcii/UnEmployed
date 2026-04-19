@@ -144,8 +144,7 @@ export async function runAgentDiscovery(
       role: 'user',
       content: buildForcedFinishPrompt(state, config),
     })
-    maybeCompactConversation(state, config, createUserPrompt)
-    return true
+    return maybeCompactConversation(state, config, createUserPrompt)
   }
   const recordExtractionPassSummary = (summary: ExtractionPassSummary) => {
     if (summary.extractionPasses === 0) {
@@ -314,7 +313,13 @@ export async function runAgentDiscovery(
           role: 'user',
           content: buildForcedFinishPrompt(state, config),
         })
-        maybeCompactConversation(state, config, createUserPrompt)
+        if (!maybeCompactConversation(state, config, createUserPrompt)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
       }
 
       emitProgress({
@@ -407,6 +412,14 @@ export async function runAgentDiscovery(
 
         recordEvidenceProgress()
         const earlyForcedFinishTriggered = maybeTriggerEarlyForcedFinish()
+
+        if (requiresExplicitFinish && !earlyForcedFinishTriggered && shouldFailForContextBudget(state, config)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
 
         if (!requiresExplicitFinish) {
           const stagnantResult = await maybeStopForStagnation()
@@ -558,7 +571,15 @@ export async function runAgentDiscovery(
         continue
       }
 
-      maybeTriggerEarlyForcedFinish()
+      const earlyForcedFinishTriggered = maybeTriggerEarlyForcedFinish()
+
+      if (!earlyForcedFinishTriggered && shouldFailForContextBudget(state, config)) {
+        return buildContextBudgetFailureResult(
+          state,
+          requiresExplicitFinish,
+          pendingDebugFindings,
+        )
+      }
 
       if (forcedFinishPromptSent) {
         continue

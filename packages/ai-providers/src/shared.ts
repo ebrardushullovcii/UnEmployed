@@ -314,14 +314,16 @@ export interface JobFinderAiClient {
   chatWithTools?: AgentCapableJobFinderAiClient["chatWithTools"];
 }
 
+export interface ChatWithToolsOptions {
+  signal?: AbortSignal;
+  maxOutputTokens?: number;
+}
+
 export interface AgentCapableJobFinderAiClient extends JobFinderAiClient {
   chatWithTools(
     messages: AgentMessage[],
     tools: Tool[],
-    signal?: AbortSignal,
-    options?: {
-      maxOutputTokens?: number;
-    },
+    options?: ChatWithToolsOptions,
   ): Promise<{
     content?: string;
     toolCalls?: ToolCall[];

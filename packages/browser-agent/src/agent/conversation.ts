@@ -132,7 +132,7 @@ export function getEffectiveCompactionConfig(config: AgentConfig): SharedAgentCo
   return SharedAgentCompactionPolicySchema.parse({
     ...DEFAULT_COMPACTION_CONFIG,
     workflowOverrides,
-    ...configCompaction,
+    ...configCompactionRest,
     ...(workflowOverride ?? {}),
   })
 }

@@ -12,6 +12,18 @@ import {
   createSeed,
 } from "./workspace-service.test-support";
 
+function buildRecordQuery(input: {
+  jobId: string;
+  runId?: string | undefined;
+  resultId?: string | undefined;
+}) {
+  return {
+    jobId: input.jobId,
+    ...(input.runId ? { runId: input.runId } : {}),
+    ...(input.resultId ? { resultId: input.resultId } : {}),
+  };
+}
+
 describe("createJobFinderWorkspaceService", () => {
   test("generates a tailored resume and submits a supported Easy Apply attempt", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
@@ -56,31 +68,11 @@ describe("createJobFinderWorkspaceService", () => {
     const snapshot = await workspaceService.startApplyCopilotRun("job_ready");
     const runs = await repository.listApplyRuns();
     const results = await repository.listApplyJobResults();
-    const questionQuery: {
-      runId?: string;
-      jobId?: string;
-      resultId?: string;
-    } = {
-      jobId: "job_ready",
-    };
-    if (runs[0]?.id) {
-      questionQuery.runId = runs[0].id;
-    }
-    const consentQuery: {
-      runId?: string;
-      jobId?: string;
-      resultId?: string;
-    } = {
-      jobId: "job_ready",
-    };
-    if (runs[0]?.id) {
-      consentQuery.runId = runs[0].id;
-    }
     const questions = await repository.listApplicationQuestionRecords(
-      questionQuery,
+      buildRecordQuery({ jobId: "job_ready", runId: runs[0]?.id }),
     );
     const consentRequests = await repository.listApplicationConsentRequests(
-      consentQuery,
+      buildRecordQuery({ jobId: "job_ready", runId: runs[0]?.id }),
     );
 
     expect(snapshot.applyRuns).toHaveLength(1);
@@ -258,38 +250,16 @@ describe("createJobFinderWorkspaceService", () => {
     const snapshot = await workspaceService.startApplyCopilotRun("job_pause_case");
     const runId = snapshot.applyRuns[0]?.id;
     const resultId = snapshot.applyJobResults[0]?.id;
-    const recordQuery: {
-      runId?: string;
-      jobId?: string;
-      resultId?: string;
-    } = {
+    const recordQuery = buildRecordQuery({
       jobId: "job_pause_case",
-    };
-    if (runId) {
-      recordQuery.runId = runId;
-    }
-    if (resultId) {
-      recordQuery.resultId = resultId;
-    }
-    const answerQuery: {
-      runId?: string;
-      jobId?: string;
-      resultId?: string;
-      questionId?: string;
-    } = {
-      jobId: "job_pause_case",
-    };
-    if (runId) {
-      answerQuery.runId = runId;
-    }
-    if (resultId) {
-      answerQuery.resultId = resultId;
-    }
+      runId,
+      resultId,
+    });
     const questions = await repository.listApplicationQuestionRecords(
       recordQuery,
     );
     const answers = await repository.listApplicationAnswerRecords(
-      answerQuery,
+      recordQuery,
     );
     const artifacts = await repository.listApplicationArtifactRefs(
       recordQuery,
@@ -898,7 +868,7 @@ describe("createJobFinderWorkspaceService", () => {
     });
   });
 
-  test("can revoke an approved single-job auto apply run", async () => {
+  test("rejects revoking an approved single-job auto apply run after the run leaves approval staging", async () => {
     const { repository, workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
@@ -914,28 +884,15 @@ describe("createJobFinderWorkspaceService", () => {
     expect(runId).toBeTruthy();
 
     await workspaceService.approveApplyRun(runId!);
-    const revokedSnapshot = await workspaceService.revokeApplyRunApproval(runId!);
-    const approvals = await repository.listApplySubmitApprovals();
-    const currentApproval = approvals.find(
-      (approval) => approval.id === revokedSnapshot.applyRuns[0]?.submitApprovalId,
-    );
-    const revokedApproval = approvals.find(
-      (approval) => approval.runId === runId && approval.status === "revoked",
+    await expect(workspaceService.revokeApplyRunApproval(runId!)).rejects.toThrow(
+      `Cannot revoke approval for run '${runId}' in state 'paused_for_user_review'.`,
     );
 
-    expect(revokedSnapshot.applyRuns[0]).toMatchObject({
-      id: runId,
-      state: "awaiting_submit_approval",
-    });
-    expect(currentApproval).toBeDefined();
-    expect(revokedApproval).toBeDefined();
-    expect(currentApproval).toMatchObject({
+    const approvals = await repository.listApplySubmitApprovals();
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({
       runId,
-      status: "pending",
-    });
-    expect(revokedApproval).toMatchObject({
-      runId,
-      status: "revoked",
+      status: "approved",
     });
   });
 

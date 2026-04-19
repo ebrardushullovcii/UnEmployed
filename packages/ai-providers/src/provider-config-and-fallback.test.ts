@@ -9,6 +9,7 @@ import {
   createPreferences,
   createProfile,
   createSettings,
+  mockCapturingJsonFetch,
   mockJsonFetch,
   mockRejectedFetch,
   mockTextFetch
@@ -334,6 +335,100 @@ describe('ai provider config and fallback behavior', () => {
       expect(reply.content).toContain('I need visa sponsorship')
     } finally {
       restoreFetch()
+    }
+  })
+
+  test('falls back cleanly for very large profile copilot requests when the primary model call fails', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const restoreFetch = mockRejectedFetch(new Error('upstream profile failure'))
+    const longRequest = `change my experience to only 5 years ${'background detail '.repeat(5000)}`
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      const reply = await client.reviseCandidateProfile({
+        profile: {
+          ...createProfile(),
+          yearsExperience: 6,
+        },
+        searchPreferences: createPreferences(),
+        context: { surface: 'setup', step: 'essentials' },
+        relevantReviewItems: [],
+        request: longRequest,
+      })
+
+      expect(reply.content.trim().length).toBeGreaterThan(0)
+      expect(Array.isArray(reply.patchGroups)).toBe(true)
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[AI Provider] reviseCandidateProfile failed; falling back to deterministic client. upstream profile failure'
+      )
+    } finally {
+      restoreFetch()
+      errorSpy.mockRestore()
+    }
+  })
+
+  test('compacts oversized resume import stage payloads before sending them to the model', async () => {
+    const capture = mockCapturingJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              candidates: [],
+              notes: []
+            })
+          }
+        }
+      ]
+    })
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+
+      await client.extractResumeImportStage({
+        stage: 'experience',
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle: {
+          id: 'bundle_1',
+          runId: 'run_1',
+          sourceResumeId: 'resume_1',
+          sourceFileKind: 'pdf',
+          primaryParserKind: 'pdfjs_text',
+          parserKinds: ['pdfjs_text'],
+          createdAt: '2026-03-20T10:00:00.000Z',
+          languageHints: [],
+          warnings: Array.from({ length: 20 }, (_, index) => `Warning ${index + 1} ${'detail '.repeat(40)}`),
+          pages: [],
+          blocks: Array.from({ length: 80 }, (_, index) => ({
+            id: `block_${index + 1}`,
+            pageNumber: 1 + Math.floor(index / 20),
+            readingOrder: index,
+            text: `Experience block ${index + 1} ${'resume evidence '.repeat(200)}`,
+            kind: 'paragraph',
+            sectionHint: 'experience',
+            bbox: {
+              left: 0,
+              top: index * 10,
+              width: 100,
+              height: 10,
+            },
+            sourceParserKinds: ['pdfjs_text'],
+            sourceConfidence: 0.9,
+          })),
+          fullText: null,
+        },
+      })
+
+      const body = JSON.parse(capture.getCapturedBody()) as { messages?: Array<{ content?: string }> }
+      const userPayload = JSON.parse(body.messages?.[1]?.content ?? '{}') as {
+        documentBundle?: { blocks?: Array<{ text?: string }> }
+      }
+
+      expect((userPayload.documentBundle?.blocks?.length ?? 0)).toBeLessThanOrEqual(32)
+      expect(userPayload.documentBundle?.blocks?.[0]?.text).toContain('[truncated')
+    } finally {
+      capture.restore()
     }
   })
 })

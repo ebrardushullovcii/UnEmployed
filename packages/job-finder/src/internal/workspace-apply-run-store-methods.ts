@@ -9,7 +9,7 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
   return {
     async getApplyRunDetails(runId: string, jobId: string): Promise<ApplyRunDetails> {
       const [
-        runs,
+        runMatches,
         results,
         approvals,
         questionRecords,
@@ -18,16 +18,16 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
         checkpoints,
         consentRequests,
       ] = await Promise.all([
-        ctx.repository.listApplyRuns(),
-        ctx.repository.listApplyJobResults(),
-        ctx.repository.listApplySubmitApprovals(),
+        ctx.repository.listApplyRuns({ id: runId }),
+        ctx.repository.listApplyJobResults({ runId, jobId }),
+        ctx.repository.listApplySubmitApprovals({ runId }),
         ctx.repository.listApplicationQuestionRecords({ runId, jobId }),
         ctx.repository.listApplicationAnswerRecords({ runId, jobId }),
         ctx.repository.listApplicationArtifactRefs({ runId, jobId }),
         ctx.repository.listApplicationReplayCheckpoints({ runId, jobId }),
         ctx.repository.listApplicationConsentRequests({ runId, jobId }),
       ]);
-      const run = runs.find((entry) => entry.id === runId);
+      const run = runMatches[0];
 
       if (!run) {
         throw new Error(`Unknown apply run '${runId}'.`);
@@ -37,46 +37,44 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
         throw new Error(`Apply run '${runId}' does not include job '${jobId}'.`);
       }
 
-      const jobResults = results.filter(
-        (entry) => entry.runId === runId && entry.jobId === jobId,
-      );
+      const jobResults = results;
       const latestResult = jobResults[0] ?? null;
       const latestApproval =
         approvals.find((entry) => entry.id === run.submitApprovalId) ??
-        approvals.find((entry) => entry.runId === runId) ??
+        approvals[0] ??
         null;
+
+      const sortByTimestamp = <TValue>(
+        values: readonly TValue[],
+        getTimestamp: (value: TValue) => string,
+        tieBreak?: (left: TValue, right: TValue) => number,
+      ) =>
+        values
+          .map((value) => ({
+            value,
+            timestamp: new Date(getTimestamp(value)).getTime(),
+          }))
+          .sort(
+            (left, right) =>
+              left.timestamp - right.timestamp ||
+              (tieBreak ? tieBreak(left.value, right.value) : 0),
+          )
+          .map(({ value }) => value);
 
       return ApplyRunDetailsSchema.parse({
         run: ApplyRunSchema.parse(run),
         result: latestResult,
         results: jobResults,
         submitApproval: latestApproval,
-        questionRecords: [...questionRecords].sort(
-          (left, right) =>
-            new Date(left.detectedAt).getTime() -
-            new Date(right.detectedAt).getTime(),
+        questionRecords: sortByTimestamp(questionRecords, (record) => record.detectedAt),
+        answerRecords: sortByTimestamp(answerRecords, (record) => record.createdAt),
+        artifactRefs: sortByTimestamp(artifactRefs, (record) => record.createdAt),
+        checkpoints: sortByTimestamp(
+          checkpoints,
+          (record) => record.createdAt,
+          (left, right) => left.id.localeCompare(right.id),
         ),
-        answerRecords: [...answerRecords].sort(
-          (left, right) =>
-            new Date(left.createdAt).getTime() -
-            new Date(right.createdAt).getTime(),
-        ),
-        artifactRefs: [...artifactRefs].sort(
-          (left, right) =>
-            new Date(left.createdAt).getTime() -
-            new Date(right.createdAt).getTime(),
-        ),
-        checkpoints: [...checkpoints].sort(
-          (left, right) =>
-            new Date(left.createdAt).getTime() -
-              new Date(right.createdAt).getTime() ||
-            left.id.localeCompare(right.id),
-        ),
-        consentRequests: [...consentRequests].sort(
-          (left, right) =>
-            new Date(left.requestedAt).getTime() -
-            new Date(right.requestedAt).getTime(),
-        ),
+        consentRequests: sortByTimestamp(consentRequests, (record) => record.requestedAt),
       });
     },
   };

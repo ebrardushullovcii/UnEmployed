@@ -1,4 +1,5 @@
 /* eslint-env node, browser */
+/* global process, setTimeout, document */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -95,10 +96,14 @@ async function captureApplicationsQueueRecovery() {
     })
 
     const window = await app.firstWindow()
-    await window.evaluate(async (theme) => {
-      await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
-    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await window.waitForLoadState('domcontentloaded')
+    await window.evaluate(async (theme) => {
+      if (!window.unemployed.jobFinder.test) {
+        throw new Error('Desktop test API is unavailable in the renderer.')
+      }
+
+      await window.unemployed.jobFinder.test.setSystemThemeOverride(theme)
+    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await waitForProfileOrSetupHeading(window)
     await window.setViewportSize({ width, height })
 
@@ -138,8 +143,9 @@ async function captureApplicationsQueueRecovery() {
 
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '01-applications-queue-recovery-source-run.png') })
     const sourceWorkspace = await getWorkspace(window)
-    const queueRuns = sourceWorkspace.applyRuns.filter((run) => run.mode === 'queue_auto')
-    const latestQueueRun = queueRuns[0]
+    const latestQueueRun = [...sourceWorkspace.applyRuns]
+      .filter((run) => run.mode === 'queue_auto')
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0]
     if (!latestQueueRun) {
       throw new Error('Expected a queue run before testing Applications queue recovery.')
     }
@@ -201,4 +207,8 @@ async function captureApplicationsQueueRecovery() {
   process.stdout.write(`Saved Applications queue recovery artifacts to ${outputDir}\n`)
 }
 
-void captureApplicationsQueueRecovery()
+void captureApplicationsQueueRecovery().catch((error) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error)
+  process.stderr.write(`${message}\n`)
+  process.exitCode = 1
+})

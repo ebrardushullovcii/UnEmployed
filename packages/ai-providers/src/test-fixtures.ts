@@ -69,6 +69,85 @@ export function mockRejectedFetch(error: Error) {
   }
 }
 
+interface CapturingFetchMock {
+  getCapturedBody(): string
+  restore(): void
+}
+
+function serializeCapturedBody(body: BodyInit | null | undefined): string {
+  if (typeof body === 'string') {
+    return body
+  }
+
+  if (body instanceof URLSearchParams) {
+    return body.toString()
+  }
+
+  if (body instanceof FormData) {
+    return JSON.stringify(
+      Array.from(body.entries()).map(([key, value]) => [key, typeof value === 'string' ? value : value.name])
+    )
+  }
+
+  if (body instanceof Blob) {
+    return `[blob size=${body.size} type=${body.type || 'application/octet-stream'}]`
+  }
+
+  if (body instanceof ArrayBuffer) {
+    return `[arraybuffer byteLength=${body.byteLength}]`
+  }
+
+  if (body && typeof body === 'object' && 'byteLength' in body && typeof body.byteLength === 'number') {
+    return `[arraybuffer-view byteLength=${body.byteLength}]`
+  }
+
+  if (body && typeof body === 'object' && 'getReader' in body) {
+    return '[readablestream]'
+  }
+
+  if (body == null) {
+    return ''
+  }
+
+  try {
+    return JSON.stringify(body)
+  } catch {
+    console.warn('[mockCapturingJsonFetch] Unsupported request body type; captured as empty string')
+    return ''
+  }
+}
+
+export function mockCapturingJsonFetch(
+  payload: unknown,
+  init: ResponseInit = {}
+): CapturingFetchMock {
+  const originalFetch = globalThis.fetch
+  let capturedBody = ''
+
+  globalThis.fetch = ((_, requestInit) => {
+    capturedBody = serializeCapturedBody(requestInit?.body)
+
+    return Promise.resolve(
+      new Response(JSON.stringify(payload), {
+        status: init.status ?? 200,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(init.headers ?? {})
+        }
+      })
+    )
+  }) as typeof fetch
+
+  return {
+    getCapturedBody() {
+      return capturedBody
+    },
+    restore() {
+      globalThis.fetch = originalFetch
+    }
+  }
+}
+
 export function createProfile(): CandidateProfile {
   return {
     id: 'candidate_1',

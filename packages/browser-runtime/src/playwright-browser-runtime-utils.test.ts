@@ -62,8 +62,8 @@ describe('playwright browser runtime utils', () => {
     const tools: [] = []
     const options = { maxOutputTokens: 321 }
 
-    await bridge.chatWithTools(messages, tools, undefined, options)
+    await bridge.chatWithTools(messages, tools, options)
 
-    expect(chatWithTools).toHaveBeenCalledWith(messages, tools, undefined, options)
+    expect(chatWithTools).toHaveBeenCalledWith(messages, tools, options)
   })
 })

@@ -3,6 +3,7 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderApplyQueueActionInput,
   JobFinderApplyConsentActionInput,
   ProfileCopilotContext,
   JobFinderResumeWorkspace,
@@ -43,7 +44,7 @@ export interface JobFinderPageContext {
     action: JobFinderApplyConsentActionInput['action']
   ) => void
   onStartAutoApply: (jobId: string) => void
-  onStartAutoApplyQueue: (jobIds: string[]) => void
+  onStartAutoApplyQueue: (jobIds: JobFinderApplyQueueActionInput['jobIds']) => void
   onStartApplyCopilot: (jobId: string) => void
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
   onApplyProfileSetupReviewAction: (

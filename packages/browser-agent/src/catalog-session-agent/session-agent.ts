@@ -49,6 +49,30 @@ export interface CatalogSessionApplicationFlowInput extends CatalogSessionEasyAp
   recoveryContext?: ApplyRecoveryContext
 }
 
+function inferConsentInterruptKind(
+  description: string,
+): 'signup' | 'existing_account_decision' | 'manual_verification' | null {
+  const normalizedDescription = description.toLowerCase()
+
+  if (
+    normalizedDescription.includes('sign up') ||
+    normalizedDescription.includes('signup') ||
+    normalizedDescription.includes('create an account')
+  ) {
+    return 'signup'
+  }
+
+  if (normalizedDescription.includes('already have an account')) {
+    return 'existing_account_decision'
+  }
+
+  if (normalizedDescription.includes('manual verification')) {
+    return 'manual_verification'
+  }
+
+  return null
+}
+
 function buildSessionBlockedResult(session: BrowserSessionState): Error {
   const detail = session.detail ? ` ${session.detail}` : ''
   return new Error(`Browser session is not ready for automation.${detail}`)
@@ -104,18 +128,8 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
           state: 'in_progress' as const,
         }
       : null
-    const normalizedDescription = job.description.toLowerCase()
     const consentInterruptKind =
-      job.screeningHints.requiresConsentInterruptKind ??
-      (normalizedDescription.includes('sign up') ||
-      normalizedDescription.includes('signup') ||
-      normalizedDescription.includes('create an account')
-        ? 'signup'
-        : normalizedDescription.includes('already have an account')
-          ? 'existing_account_decision'
-          : normalizedDescription.includes('manual verification')
-            ? 'manual_verification'
-            : null)
+      job.screeningHints.requiresConsentInterruptKind ?? inferConsentInterruptKind(job.description)
     const requiresConsentInterrupt =
       job.screeningHints.requiresConsentInterrupt ?? consentInterruptKind !== null
 
@@ -187,6 +201,42 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
 
     const capturedQuestions = [resumeQuestion, ...questions]
 
+    if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
+      return Promise.resolve(
+        ApplyExecutionResultSchema.parse({
+          state: 'unsupported',
+          summary: 'Easy Apply path is unsupported',
+          detail: `${job.title} at ${job.company} no longer exposes a supported Easy Apply path for this slice.`,
+          submittedAt: null,
+          outcome: null,
+          questions: [],
+          blocker: {
+            code: 'unsupported_apply_path',
+            summary: 'The saved job no longer exposes a supported Easy Apply path.',
+            detail:
+              'The deterministic adapter stopped before entering an unsupported or external branch.',
+            questionIds: [],
+            sourceDebugEvidenceRefIds: [],
+            url: job.applicationUrl ?? job.canonicalUrl,
+          },
+          consentDecisions: [],
+          replay,
+          nextActionLabel: 'Inspect the listing manually',
+          checkpoints: [
+            ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+            {
+              id: `checkpoint_${job.id}_unsupported`,
+              at: now,
+              label: 'Unsupported apply path',
+              detail:
+                'The adapter stopped before entering an unsupported or external branch.',
+              state: 'unsupported',
+            },
+          ],
+        }),
+      )
+    }
+
     if (requiresConsentInterrupt) {
       const consentDecisionLabel =
         consentInterruptKind === 'signup'
@@ -257,42 +307,6 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
               detail:
                 'The run reached a consent-gated step and stopped before any consent-required branch continued.',
               state: 'paused',
-            },
-          ],
-        }),
-      )
-    }
-
-    if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
-      return Promise.resolve(
-        ApplyExecutionResultSchema.parse({
-          state: 'unsupported',
-          summary: 'Easy Apply path is unsupported',
-          detail: `${job.title} at ${job.company} no longer exposes a supported Easy Apply path for this slice.`,
-          submittedAt: null,
-          outcome: null,
-          questions: [],
-          blocker: {
-            code: 'unsupported_apply_path',
-            summary: 'The saved job no longer exposes a supported Easy Apply path.',
-            detail:
-              'The deterministic adapter stopped before entering an unsupported or external branch.',
-            questionIds: [],
-            sourceDebugEvidenceRefIds: [],
-            url: job.applicationUrl ?? job.canonicalUrl,
-          },
-          consentDecisions: [],
-          replay,
-          nextActionLabel: 'Inspect the listing manually',
-            checkpoints: [
-              ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
-              {
-                id: `checkpoint_${job.id}_unsupported`,
-                at: now,
-              label: 'Unsupported apply path',
-              detail:
-                'The adapter stopped before entering an unsupported or external branch.',
-              state: 'unsupported',
             },
           ],
         }),
@@ -396,7 +410,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             summary: 'Extra application questions need manual review.',
             detail:
               'The deterministic adapter detected unsupported questions before submission.',
-            questionIds: capturedQuestions.map((question) => question.id),
+            questionIds: questions.map((question) => question.id),
             sourceDebugEvidenceRefIds: [],
             url: job.applicationUrl ?? job.canonicalUrl,
           },
@@ -429,6 +443,13 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
               label: 'Opened Easy Apply',
               detail:
                 'The adapter validated the listing and started the Easy Apply flow.',
+              state: 'in_progress',
+            },
+            {
+              id: `checkpoint_${job.id}_resume_attached`,
+              at: now,
+              label: 'Attached tailored resume',
+              detail: `Attached approved resume export from ${resumeFilePath}.`,
               state: 'in_progress',
             },
             {

@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import type {
   ApplicationAttempt,
   ApplicationRecord,
@@ -51,6 +52,13 @@ interface ApplicationsDetailPanelProps {
   selectedRecord: ApplicationRecord | null;
 }
 
+type QueueEntry = {
+  jobId: string
+  label: string
+  runResult: JobFinderWorkspaceSnapshot['applyJobResults'][number] | null
+  includeInRecovery: boolean
+}
+
 function getApplyDetailsStatusBadge(status: ApplicationsDetailPanelProps['applyRunDetailsStatus']) {
   switch (status) {
     case 'loading':
@@ -61,6 +69,105 @@ function getApplyDetailsStatusBadge(status: ApplicationsDetailPanelProps['applyR
       return { tone: 'positive' as const, label: 'Details ready' }
     default:
       return { tone: 'muted' as const, label: 'Details idle' }
+  }
+}
+
+function getQueueRecoveryTone(
+  state: JobFinderWorkspaceSnapshot['applyJobResults'][number]['state'] | null,
+) {
+  if (state === 'awaiting_review' || state === 'submitted') {
+    return 'positive' as const
+  }
+
+  if (state === 'blocked' || state === 'failed' || state === 'skipped') {
+    return 'critical' as const
+  }
+
+  if (state === 'planned') {
+    return 'muted' as const
+  }
+
+  return 'active' as const
+}
+
+function getQueueStateExplanation(
+  input:
+    | {
+        runState: JobFinderWorkspaceSnapshot['applyRuns'][number]['state']
+        selectedJobCount: number
+        blockedJobCount: number
+        skippedJobCount: number
+        failedJobCount: number
+        completedJobCount: number
+      }
+    | null,
+) {
+  if (!input) {
+    return null
+  }
+
+  if (input.runState === 'paused_for_consent') {
+    return 'This queue is paused on a live consent decision. Resolve the consent request to continue, or restage only the blocked jobs into a fresh safe queue.'
+  }
+
+  if (input.runState === 'awaiting_submit_approval') {
+    return 'This queue is staged but has not started yet. Record submit approval to let the safe fill-only queue begin, or restage a narrower queue if the job list changed.'
+  }
+
+  if (input.runState === 'cancelled') {
+    return 'This historical queue was cancelled before it finished. Remaining planned, blocked, failed, or skipped jobs can be restaged into a fresh safe queue.'
+  }
+
+  if (input.failedJobCount > 0) {
+    return 'Some jobs in this queue failed before the flow could reach a stable review-safe state. Review the per-job outcomes below before restaging only the unfinished jobs.'
+  }
+
+  if (input.blockedJobCount > 0 || input.skippedJobCount > 0) {
+    return 'This historical queue hit blocked or skipped jobs. Applications keeps those outcomes and can restage only the unfinished jobs without re-adding completed work.'
+  }
+
+  if (input.completedJobCount === input.selectedJobCount) {
+    return 'Every job in this historical queue already reached a review-ready or terminal outcome. Recovery is available only if you want to start a completely fresh run another way.'
+  }
+
+  return 'This queue still has unfinished jobs. Review the per-job outcomes below before deciding whether to restage the remaining work.'
+}
+
+function getAnswerTone(status: ApplyRunDetails['answerRecords'][number]['status']) {
+  switch (status) {
+    case 'filled':
+    case 'submitted':
+      return 'positive' as const
+    case 'rejected':
+    case 'skipped':
+      return 'critical' as const
+    default:
+      return 'active' as const
+  }
+}
+
+function getConsentTone(status: ApplyRunDetails['consentRequests'][number]['status']) {
+  switch (status) {
+    case 'approved':
+      return 'positive' as const
+    case 'declined':
+    case 'expired':
+      return 'critical' as const
+    default:
+      return 'active' as const
+  }
+}
+
+function getApprovalTone(status: ApplySubmitApproval['status']) {
+  switch (status) {
+    case 'approved':
+      return 'positive' as const
+    case 'declined':
+    case 'revoked':
+    case 'expired':
+      return 'critical' as const
+    default:
+      return 'active' as const
   }
 }
 
@@ -101,164 +208,50 @@ export function ApplicationsDetailPanel({
     applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ?? null;
   const selectedRun = applyRunDetails?.run ?? selectedRunHistoryEntry?.run ?? null;
   const applyDetailsStatusBadge = getApplyDetailsStatusBadge(applyRunDetailsStatus)
-  const selectedQueueRecoveryEntries = selectedRun
-    ? selectedRun.jobIds.map((jobId) => {
-        const runResult =
-          applyJobResults.find(
-            (result) => result.runId === selectedRun.id && result.jobId === jobId,
-          ) ?? null;
-        const relatedRecord =
-          applicationRecords.find((record) => record.jobId === jobId) ?? null;
-        const relatedSavedJob =
-          discoveryJobs.find((job) => job.id === jobId) ?? null;
-        const includeInRecovery =
-          !runResult ||
-          runResult.state === 'planned' ||
-          runResult.state === 'blocked' ||
-          runResult.state === 'failed' ||
-          runResult.state === 'skipped';
+  const selectedQueueEntries = useMemo<QueueEntry[]>(() => {
+    if (!selectedRun) {
+      return []
+    }
 
-        return {
-          jobId,
-          label: relatedRecord
-            ? `${relatedRecord.title} at ${relatedRecord.company}`
-            : relatedSavedJob
-              ? `${relatedSavedJob.title} at ${relatedSavedJob.company}`
-              : jobId,
-          runResult,
-          includeInRecovery,
-        };
-      })
-    : [];
+    return selectedRun.jobIds.map((jobId) => {
+      const runResult =
+        applyJobResults.find(
+          (result) => result.runId === selectedRun.id && result.jobId === jobId,
+        ) ?? null
+      const relatedRecord =
+        applicationRecords.find((record) => record.jobId === jobId) ?? null
+      const relatedSavedJob = discoveryJobs.find((job) => job.id === jobId) ?? null
+      const includeInRecovery =
+        !runResult ||
+        runResult.state === 'planned' ||
+        runResult.state === 'blocked' ||
+        runResult.state === 'failed' ||
+        runResult.state === 'skipped'
+
+      return {
+        jobId,
+        label: relatedRecord
+          ? `${relatedRecord.title} at ${relatedRecord.company}`
+          : relatedSavedJob
+            ? `${relatedSavedJob.title} at ${relatedSavedJob.company}`
+            : jobId,
+        runResult,
+        includeInRecovery,
+      }
+    })
+  }, [selectedRun, applyJobResults, applicationRecords, discoveryJobs])
+  const selectedQueueRecoveryEntries = selectedQueueEntries.filter(
+    (entry: QueueEntry) => entry.includeInRecovery,
+  )
   const selectedQueueRecoveryJobIds = selectedQueueRecoveryEntries
-    .filter((entry) => entry.includeInRecovery)
-    .map((entry) => entry.jobId);
-  const excludedQueueRecoveryEntries = selectedQueueRecoveryEntries.filter(
-    (entry) => !entry.includeInRecovery,
+    .filter((entry: QueueEntry) => entry.includeInRecovery)
+    .map((entry: QueueEntry) => entry.jobId);
+  const excludedQueueRecoveryEntries = selectedQueueEntries.filter(
+    (entry: QueueEntry) => !entry.includeInRecovery,
   );
   const canRestageQueueRun =
     selectedRun?.mode === 'queue_auto' && selectedQueueRecoveryJobIds.length > 0;
-  const selectedQueueOutcomeEntries = selectedRun
-    ? selectedRun.jobIds.map((jobId) => {
-        const runResult =
-          applyJobResults.find(
-            (result) => result.runId === selectedRun.id && result.jobId === jobId,
-          ) ?? null;
-        const relatedRecord =
-          applicationRecords.find((record) => record.jobId === jobId) ?? null;
-        const relatedSavedJob =
-          discoveryJobs.find((job) => job.id === jobId) ?? null;
-
-        return {
-          jobId,
-          label: relatedRecord
-            ? `${relatedRecord.title} at ${relatedRecord.company}`
-            : relatedSavedJob
-              ? `${relatedSavedJob.title} at ${relatedSavedJob.company}`
-              : jobId,
-          runResult,
-        };
-      })
-    : [];
-
-  function getQueueRecoveryTone(
-    state: JobFinderWorkspaceSnapshot['applyJobResults'][number]['state'] | null,
-  ) {
-    if (state === 'awaiting_review' || state === 'submitted') {
-      return 'positive' as const
-    }
-
-    if (state === 'blocked' || state === 'failed' || state === 'skipped') {
-      return 'critical' as const
-    }
-
-    if (state === 'planned') {
-      return 'muted' as const
-    }
-
-    return 'active' as const
-  }
-
-  function getQueueStateExplanation(
-    input:
-      | {
-          runState: JobFinderWorkspaceSnapshot['applyRuns'][number]['state']
-          selectedJobCount: number
-          blockedJobCount: number
-          skippedJobCount: number
-          failedJobCount: number
-          completedJobCount: number
-        }
-      | null,
-  ) {
-    if (!input) {
-      return null
-    }
-
-    if (input.runState === 'paused_for_consent') {
-      return 'This queue is paused on a live consent decision. Resolve the consent request to continue, or restage only the blocked jobs into a fresh safe queue.'
-    }
-
-    if (input.runState === 'awaiting_submit_approval') {
-      return 'This queue is staged but has not started yet. Record submit approval to let the safe fill-only queue begin, or restage a narrower queue if the job list changed.'
-    }
-
-    if (input.runState === 'cancelled') {
-      return 'This historical queue was cancelled before it finished. Remaining planned, blocked, failed, or skipped jobs can be restaged into a fresh safe queue.'
-    }
-
-    if (input.failedJobCount > 0) {
-      return 'Some jobs in this queue failed before the flow could reach a stable review-safe state. Review the per-job outcomes below before restaging only the unfinished jobs.'
-    }
-
-    if (input.blockedJobCount > 0 || input.skippedJobCount > 0) {
-      return 'This historical queue hit blocked or skipped jobs. Applications keeps those outcomes and can restage only the unfinished jobs without re-adding completed work.'
-    }
-
-    if (input.completedJobCount === input.selectedJobCount) {
-      return 'Every job in this historical queue already reached a review-ready or terminal outcome. Recovery is available only if you want to start a completely fresh run another way.'
-    }
-
-    return 'This queue still has unfinished jobs. Review the per-job outcomes below before deciding whether to restage the remaining work.'
-  }
-
-  function getAnswerTone(status: ApplyRunDetails['answerRecords'][number]['status']) {
-    switch (status) {
-      case 'filled':
-      case 'submitted':
-        return 'positive' as const
-      case 'rejected':
-      case 'skipped':
-        return 'critical' as const
-      default:
-        return 'active' as const
-    }
-  }
-
-  function getConsentTone(status: ApplyRunDetails['consentRequests'][number]['status']) {
-    switch (status) {
-      case 'approved':
-        return 'positive' as const
-      case 'declined':
-      case 'expired':
-        return 'critical' as const
-      default:
-        return 'active' as const
-    }
-  }
-
-  function getApprovalTone(status: ApplySubmitApproval['status']) {
-    switch (status) {
-      case 'approved':
-        return 'positive' as const
-      case 'declined':
-      case 'revoked':
-      case 'expired':
-        return 'critical' as const
-      default:
-        return 'active' as const
-    }
-  }
+  const selectedQueueOutcomeEntries = selectedQueueEntries;
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
@@ -587,56 +580,61 @@ export function ApplicationsDetailPanel({
                   Review older safe runs, blockers, consent pauses, and queue outcomes for this job.
                 </p>
               </div>
-              <div className="grid gap-2">
+              <ul className="grid gap-2">
                 {applyRunHistory.map(({ result, run }) => {
                   const isSelected = selectedApplyRunId === result.runId;
 
                   return (
-                    <button
-                      key={result.id}
-                      aria-pressed={isSelected}
-                      className={cn(
-                        'grid gap-2 rounded-(--radius-field) border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30',
-                        isSelected
-                          ? 'border-primary bg-primary/8'
-                          : 'border-(--surface-panel-border) bg-background/40 hover:bg-background/60',
-                      )}
-                      onClick={() => onSelectApplyRun(result.runId)}
-                      type="button"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <strong className="text-foreground">
-                          {run ? formatStatusLabel(run.mode) : 'Apply run'}
-                        </strong>
-                        <StatusBadge
-                          tone={
-                            result.state === 'submitted'
-                              ? 'positive'
-                              : result.state === 'blocked' ||
-                                  result.state === 'failed' ||
-                                  result.state === 'skipped'
-                                ? 'critical'
-                                : 'active'
-                          }
-                        >
-                          {formatStatusLabel(result.state)}
-                        </StatusBadge>
-                      </div>
-                      <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                        {result.summary}
-                      </p>
-                      <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                        {formatTimestamp(result.updatedAt)}
-                        {run ? ` • ${formatStatusLabel(run.state)}` : ''}
-                        {result.blockerSummary ? ` • ${result.blockerSummary}` : ''}
-                      </p>
-                    </button>
+                    <li key={result.id} aria-current={isSelected ? 'true' : undefined}>
+                      <button
+                        aria-label={`Run ${result.runId} updated ${formatTimestamp(result.updatedAt)}`}
+                        aria-pressed={isSelected}
+                        className={cn(
+                          'grid w-full gap-2 rounded-(--radius-field) border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30',
+                          isSelected
+                            ? 'border-primary bg-primary/8'
+                            : 'border-(--surface-panel-border) bg-background/40 hover:bg-background/60',
+                        )}
+                        onClick={() => onSelectApplyRun(result.runId)}
+                        type="button"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <strong className="text-foreground">
+                            {run ? formatStatusLabel(run.mode) : 'Apply run'}
+                          </strong>
+                          <StatusBadge
+                            tone={
+                              result.state === 'submitted'
+                                ? 'positive'
+                                : result.state === 'blocked' ||
+                                    result.state === 'failed' ||
+                                    result.state === 'skipped'
+                                  ? 'critical'
+                                  : 'active'
+                            }
+                          >
+                            {formatStatusLabel(result.state)}
+                          </StatusBadge>
+                        </div>
+                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                          {result.summary}
+                        </p>
+                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                          {formatTimestamp(result.updatedAt)}
+                          {run ? ` • ${formatStatusLabel(run.state)}` : ''}
+                          {result.blockerSummary ? ` • ${result.blockerSummary}` : ''}
+                        </p>
+                      </button>
+                    </li>
                   )
                 })}
-              </div>
+              </ul>
             </section>
           ) : null}
-          {applyRunDetails?.submitApproval ? (
+          {applyRunDetails?.submitApproval ? (() => {
+            const submitApproval = applyRunDetails.submitApproval
+
+            return (
             <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="grid gap-1">
@@ -645,47 +643,48 @@ export function ApplicationsDetailPanel({
                     This run records explicit approval for later submit-enabled execution, but the current safe build still stops before any final submit click.
                   </p>
                 </div>
-                <StatusBadge tone={getApprovalTone(applyRunDetails.submitApproval.status)}>
-                  {formatStatusLabel(applyRunDetails.submitApproval.status)}
+                <StatusBadge tone={getApprovalTone(submitApproval.status)}>
+                  {formatStatusLabel(submitApproval.status)}
                 </StatusBadge>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
                   <p className="label-mono-xs">Scope</p>
                   <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
-                    {applyRunDetails.submitApproval.jobIds.length} job
-                    {applyRunDetails.submitApproval.jobIds.length === 1 ? '' : 's'}
+                    {submitApproval.jobIds.length} job
+                    {submitApproval.jobIds.length === 1 ? '' : 's'}
                   </strong>
                   <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                    Run mode: {formatStatusLabel(applyRunDetails.submitApproval.mode)}
+                    Run mode: {formatStatusLabel(submitApproval.mode)}
                   </p>
                 </div>
                 <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
                   <p className="label-mono-xs">Recorded</p>
                   <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
-                    {formatTimestamp(applyRunDetails.submitApproval.createdAt)}
+                    {formatTimestamp(submitApproval.createdAt)}
                   </strong>
-                  {applyRunDetails.submitApproval.approvedAt ? (
+                  {submitApproval.approvedAt ? (
                     <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                      Approved: {formatTimestamp(applyRunDetails.submitApproval.approvedAt)}
+                      Approved: {formatTimestamp(submitApproval.approvedAt)}
                     </p>
                   ) : null}
-                  {applyRunDetails.submitApproval.revokedAt ? (
+                  {submitApproval.revokedAt ? (
                     <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                      Revoked: {formatTimestamp(applyRunDetails.submitApproval.revokedAt)}
+                      Revoked: {formatTimestamp(submitApproval.revokedAt)}
                     </p>
                   ) : null}
                 </div>
               </div>
-              {applyRunDetails.submitApproval.detail ? (
+              {submitApproval.detail ? (
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                  {applyRunDetails.submitApproval.detail}
+                  {submitApproval.detail}
                 </p>
               ) : null}
               <div className="flex flex-wrap gap-2">
-                {applyRunDetails.submitApproval.status === 'pending' ? (
+                {submitApproval.status === 'pending' &&
+                applyRunDetails.run.state === 'awaiting_submit_approval' ? (
                   <Button
-                    onClick={() => onApproveApplyRun(applyRunDetails.submitApproval!.runId)}
+                    onClick={() => onApproveApplyRun(submitApproval.runId)}
                     type="button"
                     variant="secondary"
                     disabled={busy}
@@ -693,9 +692,10 @@ export function ApplicationsDetailPanel({
                     Record submit approval
                   </Button>
                 ) : null}
-                {applyRunDetails.submitApproval.status === 'approved' ? (
+                {submitApproval.status === 'approved' &&
+                applyRunDetails.run.state === 'awaiting_submit_approval' ? (
                   <Button
-                    onClick={() => onRevokeApplyRunApproval(applyRunDetails.submitApproval!.runId)}
+                    onClick={() => onRevokeApplyRunApproval(submitApproval.runId)}
                     type="button"
                     variant="ghost"
                     disabled={busy}
@@ -716,7 +716,8 @@ export function ApplicationsDetailPanel({
                 ) : null}
               </div>
             </section>
-          ) : null}
+            )
+          })() : null}
           {visibleApplyResult ? (
             <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -869,7 +870,8 @@ export function ApplicationsDetailPanel({
                           </div>
                           <p className="mt-2">{formatStatusLabel(request.kind)}</p>
                           {request.detail ? <p className="mt-2">{request.detail}</p> : null}
-                          {request.status === 'pending' ? (
+                          {request.status === 'pending' &&
+                          applyRunDetails.run.state === 'paused_for_consent' ? (
                             <div className="mt-3 flex flex-wrap gap-2">
                               <Button
                                 onClick={() => onResolveApplyConsentRequest(request.id, 'approve')}

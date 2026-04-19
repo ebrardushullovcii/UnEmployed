@@ -1,4 +1,5 @@
 /* eslint-env node, browser */
+/* global process, setTimeout, document */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -157,10 +158,14 @@ async function captureApplyQueueControls() {
     })
 
     const window = await app.firstWindow()
-    await window.evaluate(async (theme) => {
-      await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
-    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await window.waitForLoadState('domcontentloaded')
+    await window.evaluate(async (theme) => {
+      if (!window.unemployed.jobFinder.test) {
+        throw new Error('Desktop test API is unavailable in the renderer.')
+      }
+
+      await window.unemployed.jobFinder.test.setSystemThemeOverride(theme)
+    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await waitForProfileOrSetupHeading(window)
     await window.setViewportSize({ width, height })
 
@@ -192,8 +197,6 @@ async function captureApplyQueueControls() {
       async () => {
         const workspace = await getWorkspace(window)
         return workspace.applyJobResults.some(
-          (result) => result.jobId === 'job_ready' && result.state === 'planned',
-        ) || workspace.applyJobResults.some(
           (result) => result.jobId === 'job_ready' && result.state === 'awaiting_review',
         )
       },
@@ -305,4 +308,8 @@ async function captureApplyQueueControls() {
   process.stdout.write(`Saved apply queue control artifacts to ${outputDir}\n`)
 }
 
-void captureApplyQueueControls()
+void captureApplyQueueControls().catch((error) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error)
+  process.stderr.write(`${message}\n`)
+  process.exitCode = 1
+})

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { LockedScreenLayout } from '../../components/locked-screen-layout'
 import { PageHeader } from '../../components/page-header'
@@ -59,6 +59,9 @@ export function ReviewQueueScreen(props: {
       return current.filter((entry) => entry !== jobId)
     })
   }
+  const handleClearQueueSelection = useCallback(() => {
+    setQueueSelection([])
+  }, [])
 
   return (
     <LockedScreenLayout
@@ -85,7 +88,7 @@ export function ReviewQueueScreen(props: {
           actionMessage={actionState.message}
           browserSession={browserSession}
           busy={busy}
-          onClearQueueSelection={() => setQueueSelection([])}
+          onClearQueueSelection={handleClearQueueSelection}
           onApproveApply={onApproveApply}
           onStartAutoApply={onStartAutoApply}
           onStartAutoApplyQueue={onStartAutoApplyQueue}

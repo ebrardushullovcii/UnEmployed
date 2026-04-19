@@ -70,7 +70,6 @@ describe("shared agent handoff compaction", () => {
     expect(result.handoffCompaction.mode).toBe("summary_first");
     expect(result.handoffCompaction.droppedTranscriptLineCount).toBe(120);
     expect(result.phaseContexts[0]?.reviewTranscript).toEqual([]);
-    expect(result.handoffCompaction.compaction?.summary).toBeTruthy();
     expect(result.handoffCompaction.compaction?.summary.length).toBeGreaterThan(0);
   });
 });

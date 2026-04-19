@@ -313,7 +313,7 @@ export function runMigrations(database: DatabaseSync): void {
         if (needsApplyFoundationIndexMigration) {
           database
             .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
-            .run(7, "job_finder_apply_foundation_indexes");
+            .run(7, "job_finder_apply_foundation_dedupe");
         }
 
         database.exec("COMMIT");
@@ -489,13 +489,13 @@ export function runMigrations(database: DatabaseSync): void {
     }
 
     if (currentVersion < 7) {
-      if (currentVersion >= 6) {
+      if (currentVersion === 6) {
         dedupeApplyJobResultsByRunAndJob();
       }
 
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
-        .run(7, "job_finder_apply_foundation_indexes");
+        .run(7, "job_finder_apply_foundation_dedupe");
     }
 
     database.exec("COMMIT");

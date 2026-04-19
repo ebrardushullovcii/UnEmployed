@@ -105,6 +105,15 @@ function getNextChecklistItem(checklist: readonly ApplyChecklistItem[]) {
   return checklist.find((item) => item.state !== 'complete') ?? null
 }
 
+function summarizeSelectedQueueTitles(items: readonly ReviewQueueItem[]): string {
+  const visibleTitles = items.slice(0, 3).map((item) => item.title)
+  const remainingCount = items.length - visibleTitles.length
+
+  return remainingCount > 0
+    ? `${visibleTitles.join(' • ')} +${remainingCount} more`
+    : visibleTitles.join(' • ')
+}
+
 function getReadinessDescription(input: {
   selectedItem: ReviewQueueItem | null
   selectedJob: SavedJob | null
@@ -389,7 +398,7 @@ export function ReviewQueueMissionPanel({
               </p>
               {selectedQueueReadyItems.length > 0 ? (
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                  {selectedQueueReadyItems.map((item) => item.title).join(' • ')}
+                  {summarizeSelectedQueueTitles(selectedQueueReadyItems)}
                 </p>
               ) : null}
             </div>

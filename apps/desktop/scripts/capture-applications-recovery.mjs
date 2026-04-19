@@ -96,6 +96,10 @@ async function loadResumeWorkspaceDemo(window) {
   await window.waitForLoadState('domcontentloaded')
 }
 
+async function expectRunIdVisible(window, runId) {
+  await window.getByText(`Run ${runId}`, { exact: true }).waitFor({ timeout: 10000 })
+}
+
 async function approveResumeForReadyJob(window) {
   await window.getByRole('button', { name: /^Shortlisted/ }).click()
   await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
@@ -151,10 +155,14 @@ async function captureApplicationsRecovery() {
     })
 
     const window = await app.firstWindow()
-    await window.evaluate(async (theme) => {
-      await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
-    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await window.waitForLoadState('domcontentloaded')
+    await window.evaluate(async (theme) => {
+      if (!window.unemployed.jobFinder.test) {
+        throw new Error('Desktop test API is unavailable in the renderer.')
+      }
+
+      await window.unemployed.jobFinder.test.setSystemThemeOverride(theme)
+    }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await waitForProfileOrSetupHeading(window)
     await window.setViewportSize({ width, height })
 
@@ -200,12 +208,17 @@ async function captureApplicationsRecovery() {
     await window.getByText('Recovery', { exact: true }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-applications-recovery-auto-restaged.png') })
 
+    const latestCopilotRun = [...afterAutoRestage.applyRuns]
+      .filter((run) => run.mode === 'copilot' && run.jobIds.includes('job_ready'))
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0]
     const runHistorySection = window.getByText('Run history', { exact: true }).locator('xpath=ancestor::section[1]')
-    const runHistoryButtons = runHistorySection.getByRole('button')
-    await runHistoryButtons.nth(1).click()
+    const olderRunButton = runHistorySection.getByRole('button', {
+      name: /copilot/i,
+    }).filter({ hasNotText: latestCopilotRun?.id ?? '' }).first()
+    await olderRunButton.click()
     await expectRunIdVisible(window, initialCopilotRun.id)
     await waitForCondition(
-      async () => (await runHistoryButtons.nth(1).getAttribute('aria-pressed')) === 'true',
+      async () => (await olderRunButton.locator('xpath=ancestor::li[1]').getAttribute('aria-current')) === 'true',
       'older run selection in Applications run history',
     )
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-applications-recovery-history-selected.png') })
@@ -222,14 +235,14 @@ async function captureApplicationsRecovery() {
     )
 
     const afterCopilotRerun = await getWorkspace(window)
-    const latestCopilotRun = [...afterCopilotRerun.applyRuns]
+    const latestRerunCopilot = [...afterCopilotRerun.applyRuns]
       .filter((run) => run.mode === 'copilot' && run.jobIds.includes('job_ready'))
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0]
-    if (!latestCopilotRun || latestCopilotRun.id === initialCopilotRun.id) {
+    if (!latestRerunCopilot || latestRerunCopilot.id === initialCopilotRun.id) {
       throw new Error('Expected the recovery action to create a fresh copilot run.')
     }
 
-    await expectRunIdVisible(window, latestCopilotRun.id)
+    await expectRunIdVisible(window, latestRerunCopilot.id)
     await window.getByText('3 runs saved', { exact: true }).waitFor({ timeout: 10000 })
     const rerunReviewData = await getSelectedApplyReviewData(window)
     if (!rerunReviewData) {
@@ -247,7 +260,7 @@ async function captureApplicationsRecovery() {
     await writeJson('run-history-summary.json', {
       initialCopilotRunId: initialCopilotRun.id,
       autoRunId: autoRun.id,
-      latestCopilotRunId: latestCopilotRun.id,
+      latestCopilotRunId: latestRerunCopilot.id,
     })
   } finally {
     if (app) {
@@ -263,8 +276,8 @@ async function captureApplicationsRecovery() {
   process.stdout.write(`Saved Applications recovery artifacts to ${outputDir}\n`)
 }
 
-async function expectRunIdVisible(window, runId) {
-  await window.getByText(`Run ${runId}`, { exact: true }).waitFor({ timeout: 10000 })
-}
-
-void captureApplicationsRecovery()
+void captureApplicationsRecovery().catch((error) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error)
+  process.stderr.write(`${message}\n`)
+  process.exitCode = 1
+})

@@ -157,12 +157,8 @@ export function createEntry(input: {
 }
 
 export function safeSnippet(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  return trimmed.slice(0, 220);
+  const normalized = normalizeNullableText(value);
+  return normalized ? normalized.slice(0, 220) : null;
 }
 
 export function buildJobContextText(job: SavedJob): string {

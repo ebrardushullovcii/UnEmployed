@@ -55,7 +55,7 @@ function getLatestBy(items, getTimestamp) {
   return [...items].sort(
     (left, right) =>
       new Date(getTimestamp(right)).getTime() - new Date(getTimestamp(left)).getTime(),
-  )[0] ?? null
+  )[0]
 }
 
 async function waitForProfileOrSetupHeading(window) {
@@ -189,13 +189,9 @@ async function captureResumeWorkspace() {
 
     const workspace = await getWorkspace(window)
     const latestAttempt = getLatestBy(workspace.applicationAttempts, (attempt) => attempt.updatedAt)
-    const latestRun = getLatestBy(workspace.applyRuns, (run) => run.updatedAt)
-    const latestResult = getLatestBy(workspace.applyJobResults, (result) => result.updatedAt)
     const applicationSummary = {
       latestAttemptState: latestAttempt?.state ?? null,
       latestAttemptOutcome: latestAttempt?.outcome ?? null,
-      latestRunState: latestRun?.state ?? null,
-      latestResultState: latestResult?.state ?? null,
     }
 
     if (applicationSummary.latestAttemptState !== 'paused') {

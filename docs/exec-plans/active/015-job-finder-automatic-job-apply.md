@@ -579,7 +579,7 @@ Owns:
 - add live progress, current-step, and per-job outcome UI
 - add question-review and skipped-job blocker review surfaces
 - add deterministic and live QA harnesses
-- update the queued-product docs and testing guidance in the same task
+- update `docs/STATUS.md`, `docs/TRACKS.md`, the relevant module docs, and testing guidance in the same task
 
 ## Milestones
 

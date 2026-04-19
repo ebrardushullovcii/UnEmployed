@@ -133,11 +133,11 @@ export interface JobFinderRepository {
   ): Promise<void>;
   listProfileRevisions(): Promise<readonly ProfileRevision[]>;
   upsertProfileRevision(revision: ProfileRevision): Promise<void>;
-  listApplyRuns(): Promise<readonly ApplyRun[]>;
+  listApplyRuns(options?: { id?: string }): Promise<readonly ApplyRun[]>;
   upsertApplyRun(run: ApplyRun): Promise<void>;
-  listApplyJobResults(): Promise<readonly ApplyJobResult[]>;
+  listApplyJobResults(options?: { runId?: string; jobId?: string }): Promise<readonly ApplyJobResult[]>;
   upsertApplyJobResult(result: ApplyJobResult): Promise<void>;
-  listApplySubmitApprovals(): Promise<readonly ApplySubmitApproval[]>;
+  listApplySubmitApprovals(options?: { id?: string; runId?: string }): Promise<readonly ApplySubmitApproval[]>;
   upsertApplySubmitApproval(approval: ApplySubmitApproval): Promise<void>;
   listApplicationQuestionRecords(options?: {
     runId?: string;

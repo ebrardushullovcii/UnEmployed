@@ -257,13 +257,14 @@ export async function createFileJobFinderRepository(
 
       return secureDatabaseFile(options.filePath)
     },
-    listApplyRuns() {
+    listApplyRuns(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
             tableName: 'apply_runs',
             schema: ApplyRunSchema,
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_runs,
+            filters: options?.id ? [['id', options.id]] : [],
           }),
         ),
       )
@@ -272,13 +273,17 @@ export async function createFileJobFinderRepository(
       const normalizedRun = ApplyRunSchema.parse(cloneValue(run))
       return context.upsertPersistedValue('apply_runs', normalizedRun)
     },
-    listApplyJobResults() {
+    listApplyJobResults(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
             tableName: 'apply_job_results',
             schema: ApplyJobResultSchema,
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_job_results,
+            filters: [
+              ...(options?.runId ? [['runId', options.runId] as const] : []),
+              ...(options?.jobId ? [['jobId', options.jobId] as const] : []),
+            ],
           }),
         ),
       )
@@ -287,13 +292,17 @@ export async function createFileJobFinderRepository(
       const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result))
       return context.upsertPersistedValue('apply_job_results', normalizedResult)
     },
-    listApplySubmitApprovals() {
+    listApplySubmitApprovals(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
             tableName: 'apply_submit_approvals',
             schema: ApplySubmitApprovalSchema,
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_submit_approvals,
+            filters: [
+              ...(options?.id ? [['id', options.id] as const] : []),
+              ...(options?.runId ? [['runId', options.runId] as const] : []),
+            ],
           }),
         ),
       )

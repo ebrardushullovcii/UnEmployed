@@ -1009,7 +1009,7 @@ export function createWorkspaceDiscoveryMethods(
       ),
     );
 
-    if (caughtError && terminalStatus === "failed") {
+    if (terminalStatus === "failed") {
       throw caughtError instanceof Error
         ? caughtError
         : new Error(

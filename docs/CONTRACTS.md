@@ -43,6 +43,7 @@
 - Tailored assets and apply attempt checkpoints should be validated before persistence
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them
+- Non-agent AI requests should be budgeted and compacted inside provider adapters before model submission so oversized profile, resume, or import payloads degrade by trimming lower-priority context instead of relying on provider-side context-limit failures
 
 ## Discovery And Source-Debug Progress
 

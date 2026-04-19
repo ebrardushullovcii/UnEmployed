@@ -232,8 +232,8 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
         },
       ],
       [],
-      input.signal,
       {
+        ...(input.signal ? { signal: input.signal } : {}),
         maxOutputTokens: effectiveCompactionPolicy.minimumResponseHeadroomTokens,
       },
     );
