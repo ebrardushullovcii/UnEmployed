@@ -542,7 +542,24 @@ export function createInMemoryJobFinderRepository(
     },
     upsertApplyJobResult(result) {
       const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result));
-      state.applyJobResults = upsertById(state.applyJobResults, normalizedResult);
+      const existingIndex = state.applyJobResults.findIndex(
+        (entry) =>
+          entry.runId === normalizedResult.runId && entry.jobId === normalizedResult.jobId,
+      );
+
+      if (existingIndex >= 0) {
+        state.applyJobResults = state.applyJobResults.map((entry, index) =>
+          index === existingIndex
+            ? ApplyJobResultSchema.parse({
+                ...normalizedResult,
+                id: state.applyJobResults[existingIndex]?.id ?? normalizedResult.id,
+              })
+            : entry,
+        );
+      } else {
+        state.applyJobResults = [...state.applyJobResults, normalizedResult];
+      }
+
       return Promise.resolve();
     },
     listApplySubmitApprovals(options) {

@@ -1,5 +1,6 @@
 import {
   ApplicationAnswerRecordSchema,
+  ApplicationRecordSchema,
   ApplyJobResultSchema,
   ApplyRunSchema,
   ApplySubmitApprovalSchema,
@@ -22,6 +23,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
 }): {
   run: ApplyRun;
   result: ApplyJobResult;
+  applicationRecord: ReturnType<typeof ApplicationRecordSchema.parse>;
   questionRecord: ReturnType<typeof ApplicationQuestionRecordSchema.parse>;
   artifactRef: ReturnType<typeof ApplicationArtifactRefSchema.parse>;
   checkpoint: ReturnType<typeof ApplicationReplayCheckpointSchema.parse>;
@@ -94,6 +96,47 @@ export function buildMissingResumeCopilotArtifacts(input: {
     pageUrl: canonicalApplyUrl,
   });
 
+  const applicationRecord = ApplicationRecordSchema.parse({
+    id: `application_${input.job.id}`,
+    jobId: input.job.id,
+    title: input.job.title,
+    company: input.job.company,
+    status: input.job.status,
+    lastActionLabel: result.summary,
+    nextActionLabel: "Export and approve a tailored resume before retrying apply copilot.",
+    lastUpdatedAt: input.detectedAt,
+    lastAttemptState: null,
+    questionSummary: {
+      total: 1,
+      required: 1,
+      answered: 0,
+      unansweredRequired: 1,
+    },
+    latestBlocker: {
+      code: "missing_resume",
+      summary: result.blockerSummary,
+    },
+    consentSummary: {
+      status: "requested",
+      pendingCount: 1,
+    },
+    replaySummary: {
+      lastUrl: canonicalApplyUrl,
+      checkpointCount: 1,
+      evidenceCount: 1,
+      sourceInstructionArtifactId: null,
+    },
+    events: [
+      {
+        id: `event_${runId}_missing_resume_blocker`,
+        at: input.detectedAt,
+        title: "Apply copilot blocked before launch",
+        detail: result.detail,
+        emphasis: "critical",
+      },
+    ],
+  });
+
   const artifactRef = ApplicationArtifactRefSchema.parse({
     id: artifactId,
     runId,
@@ -141,6 +184,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
   return {
     run,
     result,
+    applicationRecord,
     questionRecord,
     artifactRef,
     checkpoint,
@@ -321,6 +365,10 @@ export function mapExecutionResultToApplyRunState(input: {
 
   if (input.executionResult.state === "failed") {
     return "failed";
+  }
+
+  if (input.executionResult.state === "unsupported") {
+    return "completed";
   }
 
   if (input.consentRequests.length > 0) {
@@ -570,7 +618,7 @@ export function buildApplyCopilotArtifacts(input: {
     summary: input.executionResult.summary,
     detail: input.executionResult.detail,
     totalJobs: 1,
-    pendingJobs: 0,
+    pendingJobs: result.state === 'awaiting_review' ? 1 : 0,
     submittedJobs: result.state === 'submitted' ? 1 : 0,
     skippedJobs: 0,
     blockedJobs: result.state === 'blocked' ? 1 : 0,

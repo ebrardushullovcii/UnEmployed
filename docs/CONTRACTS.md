@@ -43,7 +43,7 @@
 - Tailored assets and apply attempt checkpoints should be validated before persistence
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them
-- Non-agent AI requests (direct LLM calls for parsing, profile analysis, resume/import trimming, or other one-off operations outside agent orchestration such as browser-agent or discovery workers) should be budgeted and compacted inside provider adapters before model submission so oversized profile, resume, or import payloads degrade by trimming lower-priority context instead of relying on provider-side context-limit failures
+- Non-agent AI requests (direct LLM calls for parsing, profile analysis, resume/import trimming, or other one-off operations outside agent orchestration and explicitly not browser-agent or discovery-worker flows) should be budgeted and compacted inside provider adapters before model submission so oversized profile, resume, or import payloads degrade by trimming lower-priority context instead of relying on provider-side context-limit failures. When agent orchestration is in play, deterministic catalog workflow policy such as filtering, eligibility gates, checkpoint shaping, and resume-usage rules belongs in `packages/browser-agent` instead.
 
 ## Discovery And Source-Debug Progress
 
@@ -116,8 +116,8 @@
 - `ApplyRun`, `ApplyJobResult`, `ApplicationQuestionRecord`, `ApplicationAnswerRecord`, `ApplicationArtifactRef`, `ApplicationReplayCheckpoint`, and `ApplicationConsentRequest` (defined in `packages/contracts/src/apply.ts`) now form the stage-015 non-submitting apply-copilot memory root; they keep run-scoped review-ready artifacts separate from the older high-level `ApplicationAttempt` summary.
 - `ApplyRunDetails` plus the narrow `JobFinderApplyRunDetailsQuery` IPC payload (from `packages/contracts/src/apply.ts`) are the typed read path for raw apply-run review data; desktop uses them to fetch persisted questions, grounded answers, retained artifacts, checkpoints, consent requests, and any run-scoped submit approval record for the selected run/job pair.
 - `JobFinderApplyRunActionInput` (from `packages/contracts/src/apply.ts`) is the shared narrow IPC payload for run-scoped approval actions such as approve or revoke; it keeps later submit-approval controls capability-based instead of overloading job-only actions.
-- `BrowserSessionRuntime.executeApplicationFlow(...)` is the widened runtime seam for staged apply work. It accepts a typed execution mode (`prepare_only` or `submit_when_ready`) so Milestone 2 can prepare a real application and stop before final submit without overloading the older submit-oriented `executeEasyApply()` path.
-- `ExecuteApplicationFlowInput.recoveryContext` is the bounded retry-context seam for safe reruns. `packages/job-finder` may pass the latest saved checkpoint label/detail/URL, prior run identity, checkpoint URL history, and blocker summary for the same job so a fresh non-submitting rerun can retain auditable replay context without leaking renderer state into the runtime contract.
+- `BrowserSessionRuntime.executeApplicationFlow(...)` is the widened runtime seam for staged apply work. It accepts a typed execution mode (`prepare_only` or `submit_when_ready`), but the current PR stage still keeps the actual submit boundary guarded and disabled, so `submit_when_ready` is not active yet.
+- `ExecuteApplicationFlowInput.recoveryContext` is the bounded retry-context seam for safe reruns. `packages/job-finder` may pass the latest saved checkpoint label/detail/URL, prior run identity, checkpoint URL history, and blocker summary for the same job so a fresh non-submitting `prepare_only` rerun can retain auditable replay context without leaking renderer state into the runtime contract.
 
 ## Review Queue Resume Review State
 

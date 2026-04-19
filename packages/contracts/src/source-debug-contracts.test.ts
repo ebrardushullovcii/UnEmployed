@@ -94,8 +94,8 @@ describe("contracts source-debug schemas", () => {
     expect(discovery.agentMetadata?.compactionState?.triggerKind).toBe(
       "token_budget",
     );
-    expect(discovery.agentMetadata?.compactionState?.estimatedTokensBefore).toBeDefined();
-    expect(discovery.agentMetadata?.compactionState?.estimatedTokensAfter).toBeDefined();
+    expect(discovery.agentMetadata?.compactionState?.estimatedTokensBefore).toBe(130000);
+    expect(discovery.agentMetadata?.compactionState?.estimatedTokensAfter).toBe(82000);
     expect(discovery.agentMetadata?.compactionUsedFallbackTrigger).toBe(false);
     expect(
       discovery.agentMetadata?.debugFindings?.reliableControls[0],

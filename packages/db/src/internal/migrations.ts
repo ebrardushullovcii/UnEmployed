@@ -167,6 +167,9 @@ export function runMigrations(database: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS application_answer_records_question_idx
         ON application_answer_records(question_id, created_at ASC, id ASC);
 
+      CREATE INDEX IF NOT EXISTS application_answer_records_run_job_idx
+        ON application_answer_records(run_id, job_id, created_at ASC, id ASC);
+
       CREATE INDEX IF NOT EXISTS application_answer_records_result_idx
         ON application_answer_records(result_id, created_at ASC, id ASC);
 
@@ -183,6 +186,9 @@ export function runMigrations(database: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS application_artifact_refs_result_idx
         ON application_artifact_refs(result_id, created_at DESC, id ASC);
 
+      CREATE INDEX IF NOT EXISTS application_artifact_refs_run_job_idx
+        ON application_artifact_refs(run_id, job_id, created_at DESC, id ASC);
+
       CREATE TABLE IF NOT EXISTS application_replay_checkpoints (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
@@ -194,6 +200,9 @@ export function runMigrations(database: DatabaseSync): void {
 
       CREATE INDEX IF NOT EXISTS application_replay_checkpoints_result_idx
         ON application_replay_checkpoints(result_id, created_at DESC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS application_replay_checkpoints_run_job_idx
+        ON application_replay_checkpoints(run_id, job_id, created_at DESC, id ASC);
 
       CREATE TABLE IF NOT EXISTS application_consent_requests (
         id TEXT PRIMARY KEY,
@@ -207,6 +216,9 @@ export function runMigrations(database: DatabaseSync): void {
 
       CREATE INDEX IF NOT EXISTS application_consent_requests_result_idx
         ON application_consent_requests(result_id, requested_at DESC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS application_consent_requests_run_job_idx
+        ON application_consent_requests(run_id, job_id, requested_at DESC, id ASC);
     `);
   }
 

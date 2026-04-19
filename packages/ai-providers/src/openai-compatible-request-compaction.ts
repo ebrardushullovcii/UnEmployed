@@ -311,6 +311,12 @@ export function compactOpenAiCompatibleUserPayload(input: {
   }
 
   const charBudget = computeUserPayloadCharBudget(input);
+  const originalSize = estimateSerializedLength(parsedPayload.data);
+
+  if (input.operation === "extractJobsFromPage" && originalSize <= charBudget) {
+    return parsedPayload.data;
+  }
+
   const levelOneCompacted = compactValue(parsedPayload.data, [], 1);
   const levelOneSize = estimateSerializedLength(levelOneCompacted);
 

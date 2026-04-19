@@ -1597,6 +1597,7 @@ export function createWorkspaceApplicationMethods(
             ctx.repository.upsertApplicationArtifactRef(artifacts.artifactRef),
             ctx.repository.upsertApplicationReplayCheckpoint(artifacts.checkpoint),
             ctx.repository.upsertApplicationConsentRequest(artifacts.consentRequest),
+            ctx.repository.upsertApplicationRecord(artifacts.applicationRecord),
           ]);
 
           return ctx.getWorkspaceSnapshot();
@@ -1614,6 +1615,7 @@ export function createWorkspaceApplicationMethods(
           ctx.repository.upsertApplicationArtifactRef(artifacts.artifactRef),
           ctx.repository.upsertApplicationReplayCheckpoint(artifacts.checkpoint),
           ctx.repository.upsertApplicationConsentRequest(artifacts.consentRequest),
+          ctx.repository.upsertApplicationRecord(artifacts.applicationRecord),
         ]);
 
         return ctx.getWorkspaceSnapshot();
@@ -1974,7 +1976,7 @@ export function createWorkspaceApplicationMethods(
         throw new Error(`Unknown apply run '${runId}'.`);
       }
 
-      if (run.state === "completed" || run.state === "cancelled") {
+      if (run.state === "completed" || run.state === "cancelled" || run.state === "failed") {
         throw new Error(`Apply run '${runId}' can no longer be cancelled.`);
       }
 

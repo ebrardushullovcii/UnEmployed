@@ -56,11 +56,15 @@ const MAX_PROGRESS_EVENTS = 1000;
 
 function buildSourceDebugCompactionPolicy(modelContextWindowTokens: number | null) {
   const baseline = modelContextWindowTokens ?? 196_000;
+  const minimumResponseHeadroomTokens = Math.max(2_048, Math.floor(baseline * 0.06));
+  const maxTargetBudget = Math.max(1, baseline - minimumResponseHeadroomTokens);
+  const targetTokenBudget = Math.min(Math.floor(baseline * 0.94), maxTargetBudget);
+  const warningTokenBudget = Math.min(Math.floor(baseline * 0.9), targetTokenBudget);
 
   return SharedAgentCompactionPolicySchema.parse({
-    warningTokenBudget: Math.floor(baseline * 0.9),
-    targetTokenBudget: Math.floor(baseline * 0.94),
-    minimumResponseHeadroomTokens: Math.max(2_048, Math.floor(baseline * 0.06)),
+    warningTokenBudget,
+    targetTokenBudget,
+    minimumResponseHeadroomTokens,
     preserveRecentMessages: 6,
     minimumPreserveRecentMessages: 3,
     maxToolPayloadChars: 180,
@@ -89,6 +93,8 @@ export async function runSourceDebugWorkflow(
   const onExternalAbort = () => executionController.abort();
   signal?.addEventListener("abort", onExternalAbort);
   const executionSignal = executionController.signal;
+  const modelContextWindowTokensSnapshot =
+    ctx.aiClient.getStatus().modelContextWindowTokens;
   const [profile, searchPreferences] = await Promise.all([
     ctx.repository.getProfile(),
     ctx.repository.getSearchPreferences(),
@@ -97,7 +103,7 @@ export async function runSourceDebugWorkflow(
     (entry) => entry.id === targetId,
   );
   const sourceDebugCompactionPolicy = buildSourceDebugCompactionPolicy(
-    ctx.aiClient.getStatus().modelContextWindowTokens,
+    modelContextWindowTokensSnapshot,
   );
 
   if (!target) {

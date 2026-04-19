@@ -162,6 +162,22 @@ export const JobScreeningHintsSchema = z.object({
   remoteGeographies: z.array(NonEmptyStringSchema).default([]),
   requiresConsentInterrupt: z.boolean().nullable().default(null),
   requiresConsentInterruptKind: ConsentInterruptKindSchema.nullable().default(null),
+}).superRefine((value, ctx) => {
+  if (value.requiresConsentInterrupt === true && value.requiresConsentInterruptKind == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "requiresConsentInterruptKind is required when requiresConsentInterrupt is true.",
+      path: ["requiresConsentInterruptKind"],
+    })
+  }
+
+  if (value.requiresConsentInterrupt === false && value.requiresConsentInterruptKind != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "requiresConsentInterruptKind must be null when requiresConsentInterrupt is false.",
+      path: ["requiresConsentInterruptKind"],
+    })
+  }
 });
 export type JobScreeningHints = z.infer<typeof JobScreeningHintsSchema>;
 

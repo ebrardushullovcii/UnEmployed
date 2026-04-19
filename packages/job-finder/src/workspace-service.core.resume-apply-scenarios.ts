@@ -102,7 +102,19 @@ describe("createJobFinderWorkspaceService", () => {
       status: "pending",
     });
     expect(snapshot.applicationAttempts).toHaveLength(0);
-    expect(snapshot.applicationRecords).toHaveLength(0);
+    expect(snapshot.applicationRecords).toHaveLength(1);
+    expect(snapshot.applicationRecords[0]).toMatchObject({
+      jobId: "job_ready",
+      lastActionLabel: "Apply copilot blocked before launch.",
+      nextActionLabel: "Export and approve a tailored resume before retrying apply copilot.",
+      latestBlocker: {
+        code: "missing_resume",
+      },
+      consentSummary: {
+        status: "requested",
+        pendingCount: 1,
+      },
+    });
   });
 
   test("starts a non-submitting apply copilot run when the job has an approved resume", async () => {

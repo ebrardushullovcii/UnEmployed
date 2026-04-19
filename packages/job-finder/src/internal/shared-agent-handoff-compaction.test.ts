@@ -73,4 +73,29 @@ describe("shared agent handoff compaction", () => {
     expect(result.handoffCompaction.compaction).toBeDefined();
     expect(result.handoffCompaction.compaction?.summary.length).toBeGreaterThan(0);
   });
+
+  test("keeps transcripts intact when compaction is disabled", () => {
+    const result = compactSourceInstructionReviewPhaseContexts({
+      phaseContexts: [
+        createPhaseContext({
+          reviewTranscript: ["assistant: line 1", "assistant: line 2"],
+        }),
+      ],
+      heuristicInstructionText: "heuristic",
+      instructionUnderReviewText: "existing",
+      verificationText: "verification",
+      compactionPolicy: {
+        enabled: false,
+        warningTokenBudget: 200,
+        targetTokenBudget: 350,
+        minimumResponseHeadroomTokens: 100,
+      },
+      modelContextWindowTokens: 500,
+    });
+
+    expect(result.handoffCompaction.mode).toBe("full_context");
+    expect(result.handoffCompaction.droppedTranscriptLineCount).toBe(0);
+    expect(result.handoffCompaction.compaction).toBeNull();
+    expect(result.phaseContexts[0]?.reviewTranscript).toHaveLength(2);
+  });
 });
