@@ -235,4 +235,8 @@ async function captureApplicationsCopilotReview() {
   process.stdout.write(`Saved applications copilot review artifacts to ${outputDir}\n`)
 }
 
-void captureApplicationsCopilotReview()
+void captureApplicationsCopilotReview().catch((error) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error)
+  process.stderr.write(`${message}\n`)
+  process.exitCode = 1
+})

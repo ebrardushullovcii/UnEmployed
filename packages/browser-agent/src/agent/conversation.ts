@@ -301,7 +301,7 @@ function rebuildConversationFromSummary(input: {
   triggerKind: SharedAgentCompactionTriggerKind
   estimatedTokensBefore: number | null
   baseSnapshot: SharedAgentCompactionSnapshot
-}): ConversationTokenEstimate | null {
+}): ConversationTokenEstimate {
   const preservedMessages = preserveCoherentRecentMessages(
     input.state.conversation,
     input.preserveRecentMessages,
@@ -337,7 +337,7 @@ function rebuildConversationFromSummary(input: {
     input.config,
     input.triggerKind,
     input.estimatedTokensBefore,
-    estimateAfter?.estimatedTotalTokens ?? null,
+    estimateAfter.estimatedTotalTokens,
     input.baseSnapshot.compactionCount,
   )
 
@@ -422,10 +422,6 @@ export function maybeCompactConversation(
   })
 
   const finalEstimate = (() => {
-    if (!firstPassEstimate) {
-      return null
-    }
-
     if (firstPassEstimate.estimatedTotalTokens <= budgetSnapshot.effectiveBudget.warningTokenBudget) {
       return firstPassEstimate
     }
@@ -449,12 +445,9 @@ export function maybeCompactConversation(
   state.compactionStatus.usedMessageCountFallback =
     budgetSnapshot.triggerKind === 'message_count_fallback'
   state.compactionStatus.lastEstimatedTokensBefore = estimatedTokensBefore
-  state.compactionStatus.lastEstimatedTokensAfter = finalEstimate?.estimatedTotalTokens ?? null
+  state.compactionStatus.lastEstimatedTokensAfter = finalEstimate.estimatedTotalTokens
 
-  if (
-    finalEstimate &&
-    finalEstimate.estimatedTotalTokens > budgetSnapshot.effectiveBudget.targetTokenBudget
-  ) {
+  if (finalEstimate.estimatedTotalTokens > budgetSnapshot.effectiveBudget.targetTokenBudget) {
     return false
   }
 

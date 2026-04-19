@@ -243,9 +243,9 @@ export function ApplicationsDetailPanel({
   const selectedQueueRecoveryEntries = selectedQueueEntries.filter(
     (entry: QueueEntry) => entry.includeInRecovery,
   )
-  const selectedQueueRecoveryJobIds = selectedQueueRecoveryEntries
-    .filter((entry: QueueEntry) => entry.includeInRecovery)
-    .map((entry: QueueEntry) => entry.jobId);
+  const selectedQueueRecoveryJobIds = selectedQueueRecoveryEntries.map(
+    (entry: QueueEntry) => entry.jobId,
+  );
   const excludedQueueRecoveryEntries = selectedQueueEntries.filter(
     (entry: QueueEntry) => !entry.includeInRecovery,
   );
@@ -475,17 +475,15 @@ export function ApplicationsDetailPanel({
                   <div className="grid gap-2 md:grid-cols-2">
                     <div className="grid gap-2">
                       <p className="label-mono-xs">Will restage</p>
-                      {selectedQueueRecoveryEntries.filter((entry) => entry.includeInRecovery).length ? (
-                        selectedQueueRecoveryEntries
-                          .filter((entry) => entry.includeInRecovery)
-                          .map((entry) => (
-                            <div key={`restage-${entry.jobId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/50 px-3 py-2">
-                              <span className="text-foreground">{entry.label}</span>
-                              <StatusBadge tone={getQueueRecoveryTone(entry.runResult?.state ?? null)}>
-                                {formatStatusLabel(entry.runResult?.state ?? 'planned')}
-                              </StatusBadge>
-                            </div>
-                          ))
+                      {selectedQueueRecoveryEntries.length ? (
+                        selectedQueueRecoveryEntries.map((entry) => (
+                          <div key={`restage-${entry.jobId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/50 px-3 py-2">
+                            <span className="text-foreground">{entry.label}</span>
+                            <StatusBadge tone={getQueueRecoveryTone(entry.runResult?.state ?? null)}>
+                              {formatStatusLabel(entry.runResult?.state ?? 'planned')}
+                            </StatusBadge>
+                          </div>
+                        ))
                       ) : (
                         <p>No jobs from this queue still need restaging.</p>
                       )}

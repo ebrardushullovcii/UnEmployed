@@ -507,7 +507,9 @@ export function buildApplyCopilotArtifacts(input: {
     startedAt: input.executionResult.checkpoints[0]?.at ?? input.detectedAt,
     updatedAt: input.detectedAt,
     completedAt:
-      input.executionResult.state === 'submitted' || input.executionResult.state === 'failed'
+      input.executionResult.state === 'submitted' ||
+      input.executionResult.state === 'failed' ||
+      input.executionResult.state === 'unsupported'
         ? input.detectedAt
         : null,
     blockerReason: mapExecutionResultToApplyBlockerReason(

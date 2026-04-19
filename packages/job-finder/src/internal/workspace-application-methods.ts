@@ -1306,22 +1306,22 @@ export function createWorkspaceApplicationMethods(
       }
 
       if (normalizedPatches.length > 0) {
-        const updatedAt = createMonotonicTimestamp(workspaceState.draft.updatedAt);
+        const finalUpdatedAt = createMonotonicTimestamp(candidateDraft.updatedAt);
         const sanitizedDraft = sanitizeResumeDraft({
           draft: candidateDraft,
           job: workspaceState.job,
           profile: workspaceState.profile,
         });
         const revision = buildResumeDraftRevision({
-          draft: workspaceState.draft,
-          createdAt: updatedAt,
+          draft: candidateDraft,
+          createdAt: finalUpdatedAt,
           reason: `Assistant request: ${content}`,
         });
         const validation = validateResumeDraft({
           draft: sanitizedDraft,
           job: workspaceState.job,
           profile: workspaceState.profile,
-          validatedAt: updatedAt,
+          validatedAt: finalUpdatedAt,
         });
         const nextAsset = buildTailoredAssetBridge({
           draft: sanitizedDraft,
@@ -2072,6 +2072,7 @@ export function createWorkspaceApplicationMethods(
               completedAt: now,
               blockerReason: "signup_consent_required",
               blockerSummary: "Consent was declined for this job.",
+              pendingConsentRequestCount: 0,
             }),
           );
         }

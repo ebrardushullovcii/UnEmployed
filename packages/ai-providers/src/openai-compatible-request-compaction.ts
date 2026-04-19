@@ -3,6 +3,11 @@ const APPROX_CHARS_PER_TOKEN = 3;
 const INPUT_BUDGET_RATIO = 0.72;
 const MIN_USER_PAYLOAD_CHARS = 8_000;
 
+import {
+  ResumeImportJsonValueSchema,
+  type ResumeImportJsonValue,
+} from "@unemployed/contracts";
+
 export type OpenAiCompatibleJsonOperation =
   | "extractProfileFromResume"
   | "extractResumeImportStage"
@@ -218,7 +223,11 @@ function shouldDropKey(path: readonly string[], level: number): boolean {
   return false;
 }
 
-function compactValue(value: unknown, path: readonly string[], level: number): unknown {
+function compactValue(
+  value: ResumeImportJsonValue,
+  path: readonly string[],
+  level: number,
+): ResumeImportJsonValue {
   if (typeof value === "string") {
     return truncateMiddle(value, stringLimitForPath(path, level));
   }
@@ -232,8 +241,8 @@ function compactValue(value: unknown, path: readonly string[], level: number): u
     return value;
   }
 
-  const record = value as Record<string, unknown>;
-  const nextRecord: Record<string, unknown> = {};
+  const record = value as Record<string, ResumeImportJsonValue>;
+  const nextRecord: Record<string, ResumeImportJsonValue> = {};
 
   for (const [key, nestedValue] of Object.entries(record)) {
     const nextPath = [...path, key];
@@ -275,12 +284,16 @@ function computeUserPayloadCharBudget(input: {
     input.modelContextWindowTokens ?? DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS;
   const reservedOutputTokens = responseHeadroomTokensForOperation(input.operation);
   const promptTokens = Math.ceil(input.systemPrompt.length / APPROX_CHARS_PER_TOKEN);
-  const inputTokenBudget = Math.max(
-    2_000,
-    Math.floor(modelContextWindowTokens * INPUT_BUDGET_RATIO) - reservedOutputTokens - promptTokens,
-  );
+  const availableInputTokens =
+    Math.floor(modelContextWindowTokens * INPUT_BUDGET_RATIO) - reservedOutputTokens - promptTokens;
 
-  return Math.max(MIN_USER_PAYLOAD_CHARS, inputTokenBudget * APPROX_CHARS_PER_TOKEN);
+  if (availableInputTokens * APPROX_CHARS_PER_TOKEN < MIN_USER_PAYLOAD_CHARS) {
+    throw new Error(
+      `OpenAI-compatible request budget is too small for ${input.operation} after reserving prompt and response tokens.`,
+    );
+  }
+
+  return Math.max(MIN_USER_PAYLOAD_CHARS, availableInputTokens * APPROX_CHARS_PER_TOKEN);
 }
 
 export function compactOpenAiCompatibleUserPayload(input: {
@@ -288,19 +301,27 @@ export function compactOpenAiCompatibleUserPayload(input: {
   modelContextWindowTokens: number | null;
   systemPrompt: string;
   userPayload: unknown;
-}): unknown {
+}): ResumeImportJsonValue {
+  const parsedPayload = ResumeImportJsonValueSchema.safeParse(input.userPayload);
+
+  if (!parsedPayload.success) {
+    throw new Error(
+      `OpenAI-compatible payload for ${input.operation} must be JSON-serializable before compaction.`,
+    );
+  }
+
   const charBudget = computeUserPayloadCharBudget(input);
-  const levelOneCompacted = compactValue(input.userPayload, [], 1);
+  const levelOneCompacted = compactValue(parsedPayload.data, [], 1);
   const levelOneSize = estimateSerializedLength(levelOneCompacted);
 
   if (levelOneSize <= charBudget) {
     return levelOneCompacted;
   }
 
-  let lastCompacted: unknown = levelOneCompacted;
+  let lastCompacted: ResumeImportJsonValue = levelOneCompacted;
 
   for (const level of [2, 3]) {
-    const compacted = compactValue(input.userPayload, [], level);
+    const compacted = compactValue(parsedPayload.data, [], level);
     lastCompacted = compacted;
 
     if (estimateSerializedLength(compacted) <= charBudget) {
