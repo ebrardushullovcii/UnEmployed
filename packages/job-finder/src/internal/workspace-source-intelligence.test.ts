@@ -45,6 +45,23 @@ function createLeverTarget(): JobDiscoveryTarget {
   };
 }
 
+function createUnknownCareersTarget(): JobDiscoveryTarget {
+  return {
+    id: "unknown_careers",
+    label: "Unknown Careers",
+    startingUrl: "https://example.com/careers",
+    enabled: true,
+    adapterKind: "auto",
+    customInstructions: null,
+    instructionStatus: "missing",
+    validatedInstructionId: null,
+    draftInstructionId: null,
+    lastDebugRunId: null,
+    lastVerifiedAt: null,
+    staleReason: null,
+  };
+}
+
 async function collectGreenhouseJobs(updatedAt: string | null) {
   const target = createGreenhouseTarget();
   const intelligence = inferSourceIntelligenceFromTarget({
@@ -91,6 +108,41 @@ describe("collectPublicProviderJobs", () => {
     expect(result.warning).toBeNull();
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0]?.postedAt).toBeNull();
+  });
+
+  test("normalizes stringified numeric provider timestamps", async () => {
+    const target = createLeverTarget();
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target,
+      currentArtifact: null,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([
+        {
+          id: "lever_job_1",
+          text: "Senior Engineer",
+          createdAt: "1721851681000",
+          hostedUrl: "https://jobs.lever.co/aircall/lever_job_1",
+          applyUrl: null,
+          descriptionPlain: "Build platform features.",
+          categories: {
+            location: "Remote",
+          },
+        },
+      ]),
+    } as Response);
+
+    const result = await collectPublicProviderJobs({
+      target,
+      artifact: { intelligence },
+      source: "target_site",
+    });
+
+    expect(result.warning).toBeNull();
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]?.postedAt).toBe("2024-07-24T20:08:01.000Z");
   });
 
   test("returns a clear timeout warning when the Greenhouse API hangs", async () => {
@@ -170,5 +222,14 @@ describe("collectPublicProviderJobs", () => {
     expect(result.warning).toBeNull();
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0]?.postedAt).toBe("2024-07-24T20:08:01.000Z");
+  });
+
+  test("infers a route-backed no-artifact collection method from the target URL", () => {
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target: createUnknownCareersTarget(),
+      currentArtifact: null,
+    });
+
+    expect(intelligence.collection.preferredMethod).toBe("careers_page");
   });
 });

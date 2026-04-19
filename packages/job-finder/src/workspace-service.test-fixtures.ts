@@ -1,30 +1,32 @@
 import type { ResumeProfileExtraction } from "@unemployed/ai-providers";
 import type { JobFinderRepositorySeed } from "@unemployed/db";
+import type {
+  SavedJob,
+  SavedJobDiscoveryProvenance,
+  SourceDebugPhase,
+  SourceInstructionArtifact,
+} from "@unemployed/contracts";
 import {
   JobFinderDiscoveryStateSchema,
   SavedJobDiscoveryProvenanceSchema,
   SavedJobSchema,
   SourceInstructionArtifactSchema,
-  type SavedJob,
-  type SavedJobDiscoveryProvenance,
-  type SourceDebugPhase,
-  type SourceInstructionArtifact,
 } from "@unemployed/contracts";
 
 export type SourceDebugPhaseMap<TValue> = Partial<Record<SourceDebugPhase, TValue>>;
 
-export function createSavedJob(input: Record<string, unknown>): SavedJob {
+export function createSavedJob(input: unknown): SavedJob {
   return SavedJobSchema.parse(input);
 }
 
 export function createSavedJobDiscoveryProvenance(
-  input: Record<string, unknown>,
+  input: unknown,
 ): SavedJobDiscoveryProvenance {
   return SavedJobDiscoveryProvenanceSchema.parse(input);
 }
 
 export function createSourceInstructionArtifact(
-  input: Record<string, unknown>,
+  input: unknown,
 ): SourceInstructionArtifact {
   return SourceInstructionArtifactSchema.parse(input);
 }
@@ -311,6 +313,8 @@ export function createSeed(): JobFinderRepositorySeed {
           relocationText: null,
           travelText: null,
           remoteGeographies: ["Europe"],
+          requiresConsentInterrupt: null,
+          requiresConsentInterruptKind: null,
         },
         keywordSignals: [
           {
@@ -384,6 +388,8 @@ export function createSeed(): JobFinderRepositorySeed {
           relocationText: null,
           travelText: null,
           remoteGeographies: [],
+          requiresConsentInterrupt: null,
+          requiresConsentInterruptKind: null,
         },
         keywordSignals: [
           {

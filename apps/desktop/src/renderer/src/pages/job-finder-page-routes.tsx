@@ -3,6 +3,7 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderApplyConsentActionInput,
   ProfileCopilotContext,
   JobFinderResumeWorkspace,
   JobFinderSettings,
@@ -39,7 +40,7 @@ export interface JobFinderPageContext {
   onRevokeApplyRunApproval: (runId: string) => void
   onResolveApplyConsentRequest: (
     requestId: string,
-    action: 'approve' | 'decline'
+    action: JobFinderApplyConsentActionInput['action']
   ) => void
   onStartAutoApply: (jobId: string) => void
   onStartAutoApplyQueue: (jobIds: string[]) => void

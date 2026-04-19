@@ -39,7 +39,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
   const run = ApplyRunSchema.parse({
     id: runId,
     mode: "copilot",
-    state: "paused_for_user_review",
+    state: "paused_for_consent",
     jobIds: [input.job.id],
     currentJobId: input.job.id,
     submitApprovalId: null,
@@ -317,9 +317,17 @@ export function buildApplyCopilotArtifacts(input: {
   const runId = createUniqueId("apply_run");
   const resultId = createUniqueId("apply_result");
   const canonicalApplyUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
-  const questionRecords = input.executionResult.questions.map((question) =>
-    ApplicationQuestionRecordSchema.parse({
-      id: question.id,
+  const persistedQuestionIdByExecutionId = new Map<string, string>();
+  const persistedAnswerIdByExecutionId = new Map<string, string>();
+  const persistedCheckpointIdByExecutionId = new Map<string, string>();
+  const checkpointArtifactIdsByExecutionId = new Map<string, string[]>();
+
+  const questionRecords = input.executionResult.questions.map((question) => {
+    const persistedQuestionId = createUniqueId("apply_question");
+    persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
+
+    return ApplicationQuestionRecordSchema.parse({
+      id: persistedQuestionId,
       runId,
       jobId: input.job.id,
       resultId,
@@ -329,20 +337,23 @@ export function buildApplyCopilotArtifacts(input: {
       detectedAt: question.detectedAt,
       answerOptions: question.answerOptions,
       suggestedAnswers: question.suggestedAnswers,
-      selectedAnswerId: question.suggestedAnswers[0]?.id ?? null,
+      selectedAnswerId: null,
       submittedAnswer: question.submittedAnswer,
       status: question.status,
       pageUrl: canonicalApplyUrl,
-    }),
-  );
+    });
+  });
   const answerRecords = input.executionResult.questions.flatMap((question) =>
-    question.suggestedAnswers.map((answer) =>
-      ApplicationAnswerRecordSchema.parse({
-        id: answer.id,
+    question.suggestedAnswers.map((answer) => {
+      const persistedAnswerId = createUniqueId("apply_answer");
+      persistedAnswerIdByExecutionId.set(answer.id, persistedAnswerId);
+
+      return ApplicationAnswerRecordSchema.parse({
+        id: persistedAnswerId,
         runId,
         jobId: input.job.id,
         resultId,
-        questionId: question.id,
+        questionId: persistedQuestionIdByExecutionId.get(question.id) ?? question.id,
         status:
           question.submittedAnswer && question.submittedAnswer === answer.text
             ? 'filled'
@@ -357,13 +368,31 @@ export function buildApplyCopilotArtifacts(input: {
           question.submittedAnswer && question.submittedAnswer === answer.text
             ? input.detectedAt
             : null,
-      }),
-    ),
+      });
+    }),
   );
+  for (const questionRecord of questionRecords) {
+    const executionQuestionId = [...persistedQuestionIdByExecutionId.entries()].find(
+      ([, persistedId]) => persistedId === questionRecord.id,
+    )?.[0];
+    const executionQuestion = executionQuestionId
+      ? input.executionResult.questions.find((question) => question.id === executionQuestionId)
+      : null;
+    const selectedAnswerId = executionQuestion?.suggestedAnswers[0]?.id
+      ? persistedAnswerIdByExecutionId.get(executionQuestion.suggestedAnswers[0].id) ?? null
+      : null;
+
+    questionRecord.selectedAnswerId = selectedAnswerId;
+  }
   const blockerQuestionIds = input.executionResult.blocker?.questionIds ?? [];
   const artifactRefs = [
     ...questionRecords
-      .filter((record) => blockerQuestionIds.includes(record.id))
+      .filter((record) => {
+        const executionQuestionId = [...persistedQuestionIdByExecutionId.entries()].find(
+          ([, persistedId]) => persistedId === record.id,
+        )?.[0];
+        return executionQuestionId ? blockerQuestionIds.includes(executionQuestionId) : false;
+      })
       .map((record) =>
         ApplicationArtifactRefSchema.parse({
           id: createUniqueId("apply_artifact"),
@@ -379,9 +408,13 @@ export function buildApplyCopilotArtifacts(input: {
           textSnippet: record.prompt,
         }),
       ),
-    ...input.executionResult.checkpoints.map((checkpoint) =>
-      ApplicationArtifactRefSchema.parse({
-        id: createUniqueId("apply_artifact"),
+    ...input.executionResult.checkpoints.map((checkpoint) => {
+      const artifactId = createUniqueId("apply_artifact");
+      const existingArtifactIds = checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [];
+      checkpointArtifactIdsByExecutionId.set(checkpoint.id, [...existingArtifactIds, artifactId]);
+
+      return ApplicationArtifactRefSchema.parse({
+        id: artifactId,
         runId,
         jobId: input.job.id,
         resultId,
@@ -392,12 +425,15 @@ export function buildApplyCopilotArtifacts(input: {
         storagePath: null,
         url: canonicalApplyUrl,
         textSnippet: checkpoint.detail,
-      }),
-    ),
+      });
+    }),
   ];
-  const checkpoints = input.executionResult.checkpoints.map((checkpoint) =>
-    ApplicationReplayCheckpointSchema.parse({
-      id: checkpoint.id,
+  const checkpoints = input.executionResult.checkpoints.map((checkpoint) => {
+    const persistedCheckpointId = createUniqueId("apply_checkpoint");
+    persistedCheckpointIdByExecutionId.set(checkpoint.id, persistedCheckpointId);
+
+    return ApplicationReplayCheckpointSchema.parse({
+      id: persistedCheckpointId,
       runId,
       jobId: input.job.id,
       resultId,
@@ -417,21 +453,14 @@ export function buildApplyCopilotArtifacts(input: {
                 : checkpoint.label.toLowerCase().includes('question')
                   ? 'question_capture'
                   : 'filling',
-      artifactRefIds: artifactRefs
-        .filter(
-          (ref) =>
-            ref.kind === 'checkpoint' &&
-            ref.createdAt === checkpoint.at &&
-            ref.label === checkpoint.label,
-        )
-        .map((ref) => ref.id),
-    }),
-  );
+      artifactRefIds: checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [],
+    });
+  });
   const consentRequests = input.executionResult.consentDecisions
     .filter((decision) => decision.status === 'requested')
     .map((decision) =>
       ApplicationConsentRequestSchema.parse({
-        id: decision.id,
+        id: createUniqueId("apply_consent_request"),
         runId,
         jobId: input.job.id,
         resultId,

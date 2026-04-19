@@ -1,5 +1,8 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
-import { JobPostingSchema, SavedJobSchema } from "@unemployed/contracts";
+import {
+  JobPostingSchema,
+  SavedJobSchema,
+} from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
 import { createAiClient } from "./workspace-service.test-runtimes";
 import {
@@ -8,36 +11,6 @@ import {
   createWorkspaceServiceHarness,
   createSeed,
 } from "./workspace-service.test-support";
-
-function withApplicationRecordScope(input: {
-  runId: string | undefined;
-  jobId: string | undefined;
-  resultId: string | undefined;
-}) {
-  return Object.fromEntries(
-    Object.entries(input).filter(([, value]) => value !== undefined),
-  ) as {
-    runId?: string;
-    jobId?: string;
-    resultId?: string;
-  };
-}
-
-function withApplicationAnswerScope(input: {
-  runId: string | undefined;
-  jobId: string | undefined;
-  resultId: string | undefined;
-  questionId: string | undefined;
-}) {
-  return Object.fromEntries(
-    Object.entries(input).filter(([, value]) => value !== undefined),
-  ) as {
-    runId?: string;
-    jobId?: string;
-    resultId?: string;
-    questionId?: string;
-  };
-}
 
 describe("createJobFinderWorkspaceService", () => {
   test("generates a tailored resume and submits a supported Easy Apply attempt", async () => {
@@ -83,26 +56,38 @@ describe("createJobFinderWorkspaceService", () => {
     const snapshot = await workspaceService.startApplyCopilotRun("job_ready");
     const runs = await repository.listApplyRuns();
     const results = await repository.listApplyJobResults();
+    const questionQuery: {
+      runId?: string;
+      jobId?: string;
+      resultId?: string;
+    } = {
+      jobId: "job_ready",
+    };
+    if (runs[0]?.id) {
+      questionQuery.runId = runs[0].id;
+    }
+    const consentQuery: {
+      runId?: string;
+      jobId?: string;
+      resultId?: string;
+    } = {
+      jobId: "job_ready",
+    };
+    if (runs[0]?.id) {
+      consentQuery.runId = runs[0].id;
+    }
     const questions = await repository.listApplicationQuestionRecords(
-      withApplicationRecordScope({
-        runId: runs[0]?.id,
-        jobId: "job_ready",
-        resultId: undefined,
-      }),
+      questionQuery,
     );
     const consentRequests = await repository.listApplicationConsentRequests(
-      withApplicationRecordScope({
-        runId: runs[0]?.id,
-        jobId: "job_ready",
-        resultId: undefined,
-      }),
+      consentQuery,
     );
 
     expect(snapshot.applyRuns).toHaveLength(1);
     expect(snapshot.selectedApplyRunId).toBe(snapshot.applyRuns[0]?.id ?? null);
     expect(snapshot.applyRuns[0]).toMatchObject({
       mode: "copilot",
-      state: "paused_for_user_review",
+      state: "paused_for_consent",
       currentJobId: "job_ready",
       blockedJobs: 1,
     });
@@ -273,25 +258,47 @@ describe("createJobFinderWorkspaceService", () => {
     const snapshot = await workspaceService.startApplyCopilotRun("job_pause_case");
     const runId = snapshot.applyRuns[0]?.id;
     const resultId = snapshot.applyJobResults[0]?.id;
+    const recordQuery: {
+      runId?: string;
+      jobId?: string;
+      resultId?: string;
+    } = {
+      jobId: "job_pause_case",
+    };
+    if (runId) {
+      recordQuery.runId = runId;
+    }
+    if (resultId) {
+      recordQuery.resultId = resultId;
+    }
+    const answerQuery: {
+      runId?: string;
+      jobId?: string;
+      resultId?: string;
+      questionId?: string;
+    } = {
+      jobId: "job_pause_case",
+    };
+    if (runId) {
+      answerQuery.runId = runId;
+    }
+    if (resultId) {
+      answerQuery.resultId = resultId;
+    }
     const questions = await repository.listApplicationQuestionRecords(
-      withApplicationRecordScope({ runId, jobId: "job_pause_case", resultId }),
+      recordQuery,
     );
     const answers = await repository.listApplicationAnswerRecords(
-      withApplicationAnswerScope({
-        runId,
-        jobId: "job_pause_case",
-        resultId,
-        questionId: undefined,
-      }),
+      answerQuery,
     );
     const artifacts = await repository.listApplicationArtifactRefs(
-      withApplicationRecordScope({ runId, jobId: "job_pause_case", resultId }),
+      recordQuery,
     );
     const checkpoints = await repository.listApplicationReplayCheckpoints(
-      withApplicationRecordScope({ runId, jobId: "job_pause_case", resultId }),
+      recordQuery,
     );
     const consentRequests = await repository.listApplicationConsentRequests(
-      withApplicationRecordScope({ runId, jobId: "job_pause_case", resultId }),
+      recordQuery,
     );
 
     expect(snapshot.applyRuns[0]?.state).toBe("paused_for_user_review");
@@ -308,7 +315,7 @@ describe("createJobFinderWorkspaceService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           status: "filled",
-          questionId: expect.stringMatching(/resume_upload/) as string,
+          sourceKind: "resume",
         }),
       ]),
     );

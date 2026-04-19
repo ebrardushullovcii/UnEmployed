@@ -284,6 +284,8 @@ describe('createFileJobFinderRepository', () => {
       ).resolves.toEqual([
         expect.objectContaining({
           id: 'answer_1',
+          runId: 'apply_run_1',
+          resultId: 'apply_result_1',
           questionId: 'question_1',
         }),
       ])
@@ -292,6 +294,8 @@ describe('createFileJobFinderRepository', () => {
       ).resolves.toEqual([
         expect.objectContaining({
           id: 'artifact_1',
+          runId: 'apply_run_1',
+          resultId: 'apply_result_1',
           questionId: 'question_1',
         }),
       ])
@@ -300,6 +304,8 @@ describe('createFileJobFinderRepository', () => {
       ).resolves.toEqual([
         expect.objectContaining({
           id: 'checkpoint_1',
+          runId: 'apply_run_1',
+          resultId: 'apply_result_1',
           artifactRefIds: ['artifact_1'],
         }),
       ])
@@ -308,6 +314,8 @@ describe('createFileJobFinderRepository', () => {
       ).resolves.toEqual([
         expect.objectContaining({
           id: 'consent_1',
+          runId: 'apply_run_1',
+          resultId: 'apply_result_1',
           status: 'approved',
         }),
       ])

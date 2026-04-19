@@ -12,6 +12,11 @@ import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
 import { SourceRefsList } from "./source-refs-list";
 
+function normalizeNullableText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed === "" ? null : trimmed;
+}
+
 export function ResumeSectionEditor(props: {
   section: ResumeDraftSection;
   disabled: boolean;
@@ -22,10 +27,6 @@ export function ResumeSectionEditor(props: {
   const textId = useId();
   const controlIdPrefix = useId();
   const hasEntries = props.section.entries.length > 0;
-  const toNullableText = (value: string) => {
-    const trimmed = value.trim();
-    return trimmed === "" ? null : trimmed;
-  };
 
   return (
     <article className="surface-card-tint grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
@@ -131,7 +132,7 @@ export function ResumeSectionEditor(props: {
             onChange={(event) =>
               props.onChange({
                 ...props.section,
-                text: toNullableText(event.currentTarget.value),
+                text: normalizeNullableText(event.currentTarget.value),
               })
             }
           />
@@ -189,7 +190,7 @@ export function ResumeSectionEditor(props: {
                       `${entry.included ? "Hidden" : "Shown"} entry`,
                     )
                   }
-                  aria-pressed={entry.included}
+                  aria-pressed={!entry.included}
                   type="button"
                   variant="secondary"
                 >
@@ -240,7 +241,7 @@ export function ResumeSectionEditor(props: {
                       ...props.section,
                       entries: props.section.entries.map((currentEntry) =>
                         currentEntry.id === entry.id
-                          ? { ...currentEntry, title: toNullableText(event.currentTarget.value) }
+                            ? { ...currentEntry, title: normalizeNullableText(event.currentTarget.value) }
                           : currentEntry,
                       ),
                     })
@@ -260,7 +261,7 @@ export function ResumeSectionEditor(props: {
                         ...props.section,
                         entries: props.section.entries.map((currentEntry) =>
                           currentEntry.id === entry.id
-                            ? { ...currentEntry, subtitle: toNullableText(event.currentTarget.value) }
+                            ? { ...currentEntry, subtitle: normalizeNullableText(event.currentTarget.value) }
                             : currentEntry,
                         ),
                       })
@@ -278,7 +279,7 @@ export function ResumeSectionEditor(props: {
                         ...props.section,
                         entries: props.section.entries.map((currentEntry) =>
                           currentEntry.id === entry.id
-                            ? { ...currentEntry, dateRange: toNullableText(event.currentTarget.value) }
+                            ? { ...currentEntry, dateRange: normalizeNullableText(event.currentTarget.value) }
                             : currentEntry,
                         ),
                       })
@@ -298,7 +299,7 @@ export function ResumeSectionEditor(props: {
                       ...props.section,
                       entries: props.section.entries.map((currentEntry) =>
                         currentEntry.id === entry.id
-                          ? { ...currentEntry, location: toNullableText(event.currentTarget.value) }
+                            ? { ...currentEntry, location: normalizeNullableText(event.currentTarget.value) }
                           : currentEntry,
                       ),
                     })
@@ -318,7 +319,7 @@ export function ResumeSectionEditor(props: {
                       ...props.section,
                       entries: props.section.entries.map((currentEntry) =>
                         currentEntry.id === entry.id
-                          ? { ...currentEntry, summary: toNullableText(event.currentTarget.value) }
+                            ? { ...currentEntry, summary: normalizeNullableText(event.currentTarget.value) }
                           : currentEntry,
                       ),
                     })
@@ -359,7 +360,7 @@ export function ResumeSectionEditor(props: {
                             `${bullet.included ? "Hidden" : "Shown"} bullet`,
                           )
                         }
-                        aria-pressed={bullet.included}
+                        aria-pressed={!bullet.included}
                         type="button"
                         variant="secondary"
                       >
@@ -539,7 +540,7 @@ export function ResumeSectionEditor(props: {
                       `${bullet.included ? "Hidden" : "Shown"} bullet`,
                     )
                   }
-                  aria-pressed={bullet.included}
+                  aria-pressed={!bullet.included}
                   type="button"
                   variant="secondary"
                 >

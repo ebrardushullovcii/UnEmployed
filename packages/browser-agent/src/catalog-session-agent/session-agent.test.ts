@@ -82,6 +82,8 @@ function createCatalogJob(overrides: Partial<JobPosting> = {}): JobPosting {
       relocationText: null,
       travelText: null,
       remoteGeographies: [],
+      requiresConsentInterrupt: null,
+      requiresConsentInterruptKind: null,
     },
     keywordSignals: [],
     benefits: [],
@@ -232,12 +234,19 @@ describe('createCatalogSessionAgent', () => {
 
     expect(result.state).toBe('paused')
     expect(result.blocker?.code).toBe('requires_manual_review')
-    expect(result.questions).toEqual([
-      expect.objectContaining({
-        kind: 'relocation',
-        status: 'detected',
-      }),
-    ])
+    expect(result.questions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'resume',
+          status: 'submitted',
+          submittedAnswer: '/tmp/resume.pdf',
+        }),
+        expect.objectContaining({
+          kind: 'relocation',
+          status: 'detected',
+        }),
+      ]),
+    )
     expect(result.nextActionLabel).toMatch(/finish the unsupported fields manually/i)
   })
 

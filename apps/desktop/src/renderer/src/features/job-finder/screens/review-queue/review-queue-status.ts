@@ -44,10 +44,17 @@ export function getReviewQueueWorkflowStatus(
     }
   }
 
-  if (item.resumeReview.status === 'approved' && item.resumeAssetId) {
+  if (isQueueStageReady(item)) {
     return {
       label: 'Ready to apply',
       tone: 'positive'
+    }
+  }
+
+  if (item.resumeReview.status === 'approved' && !item.resumeAssetId) {
+    return {
+      label: 'Resume unavailable',
+      tone: 'critical'
     }
   }
 

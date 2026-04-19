@@ -568,20 +568,21 @@ describe("createJobFinderWorkspaceService", () => {
     ];
 
     let capturedInstructions: readonly string[] = [];
+    const fallbackRuntime = createWorkspaceServiceHarness().browserRuntime;
     const { workspaceService } = createWorkspaceServiceHarness({
       seed,
       browserRuntime: {
-        ...createWorkspaceServiceHarness().browserRuntime,
+        ...fallbackRuntime,
         async executeEasyApply(source, input) {
           capturedInstructions = input.instructions ?? [];
-          return createWorkspaceServiceHarness().browserRuntime.executeEasyApply(
+          return fallbackRuntime.executeEasyApply(
             source,
             input,
           );
         },
         async executeApplicationFlow(source, input) {
           capturedInstructions = input.instructions ?? [];
-          return createWorkspaceServiceHarness().browserRuntime.executeApplicationFlow(
+          return fallbackRuntime.executeApplicationFlow(
             source,
             input,
           );
@@ -667,20 +668,21 @@ describe("createJobFinderWorkspaceService", () => {
     ];
 
     let capturedInstructions: readonly string[] = [];
+    const fallbackRuntime = createWorkspaceServiceHarness().browserRuntime;
     const { workspaceService } = createWorkspaceServiceHarness({
       seed,
       browserRuntime: {
-        ...createWorkspaceServiceHarness().browserRuntime,
+        ...fallbackRuntime,
         async executeEasyApply(source, input) {
           capturedInstructions = input.instructions ?? [];
-          return createWorkspaceServiceHarness().browserRuntime.executeEasyApply(
+          return fallbackRuntime.executeEasyApply(
             source,
             input,
           );
         },
         async executeApplicationFlow(source, input) {
           capturedInstructions = input.instructions ?? [];
-          return createWorkspaceServiceHarness().browserRuntime.executeApplicationFlow(
+          return fallbackRuntime.executeApplicationFlow(
             source,
             input,
           );

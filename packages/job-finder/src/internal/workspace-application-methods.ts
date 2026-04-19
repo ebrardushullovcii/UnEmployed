@@ -611,6 +611,10 @@ export function createWorkspaceApplicationMethods(
       });
 
       const pendingJobs = run.jobIds.length - (index + 1);
+      const nextRunState = mapExecutionResultToApplyRunState({
+        consentRequests: runArtifacts.consentRequests,
+        executionResult: normalizedExecutionResult,
+      });
       currentRunState = ApplyRunSchema.parse({
         ...currentRunState,
         currentJobId: jobId,
@@ -622,10 +626,7 @@ export function createWorkspaceApplicationMethods(
               : pendingJobs > 0
                 ? "running"
                 : "completed"
-            : mapExecutionResultToApplyRunState({
-                consentRequests: runArtifacts.consentRequests,
-                executionResult: normalizedExecutionResult,
-              }),
+            : nextRunState,
         summary:
           runArtifacts.consentRequests.length > 0
             ? `Automatic apply paused for consent on '${job.title}'.`
@@ -641,7 +642,9 @@ export function createWorkspaceApplicationMethods(
             ? runArtifacts.consentRequests.length > 0 || pendingJobs > 0
               ? null
               : detectedAt
-            : null,
+            : nextRunState === "completed" || nextRunState === "failed"
+              ? detectedAt
+              : null,
         pendingJobs,
         submittedJobs,
         skippedJobs,
@@ -1279,10 +1282,11 @@ export function createWorkspaceApplicationMethods(
       let candidateDraft = workspaceState.draft;
       try {
         for (const patch of normalizedPatches) {
+          const updatedAt = createMonotonicTimestamp(candidateDraft.updatedAt);
           candidateDraft = applyPatchToResumeDraft({
             draft: candidateDraft,
             patch,
-            updatedAt: new Date().toISOString(),
+            updatedAt,
           });
         }
       } catch (error) {
@@ -2090,7 +2094,7 @@ export function createWorkspaceApplicationMethods(
           updatedAt: now,
           completedAt: remainingJobs.length > 0 ? null : now,
           currentJobId: remainingJobs[0] ?? null,
-          pendingJobs: Math.max(0, run.pendingJobs - 1),
+            pendingJobs: remainingJobs.length,
           skippedJobs: run.skippedJobs + 1,
           summary:
             remainingJobs.length > 0
@@ -2244,6 +2248,13 @@ export function createWorkspaceApplicationMethods(
 
       if (run.mode !== "single_job_auto" && run.mode !== "queue_auto") {
         throw new Error(`Apply run '${runId}' is not waiting on submit approval.`);
+      }
+
+      if (
+        run.state !== "awaiting_submit_approval" &&
+        run.state !== "paused_for_user_review"
+      ) {
+        throw new Error(`Cannot revoke approval for run '${runId}' in state '${run.state}'.`);
       }
 
       if (!run.submitApprovalId) {

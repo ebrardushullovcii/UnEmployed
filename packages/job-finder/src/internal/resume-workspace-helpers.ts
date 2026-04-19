@@ -8,9 +8,10 @@ import {
   type CandidateProfile,
   type JobFinderSettings,
   type ResumeAssistantMessage,
-  type ResumeDraft,
-  type ResumeDraftPatch,
-  type ResumeDraftRevision,
+    type ResumeDraft,
+    type ResumeDraftBullet,
+    type ResumeDraftPatch,
+    type ResumeDraftRevision,
   type ResumeExportArtifact,
   type ResumeResearchArtifact,
   type ResumeValidationIssue,
@@ -330,10 +331,6 @@ export function sanitizeResumeDraft(input: {
             return null;
           }
           const normalized = normalizeText(entry.summary);
-          if (entry.locked) {
-            seenLines.add(normalized);
-            return entry.summary;
-          }
           if (seenLines.has(normalized)) {
             return null;
           }
@@ -405,6 +402,68 @@ export function validateResumeDraft(input: {
         )),
   );
 
+  function pushBulletIssues(input: {
+    bullet: ResumeDraftBullet;
+    sectionId: string;
+    entryId?: string | null;
+  }) {
+    const normalizedBullet = normalizeText(input.bullet.text);
+    const existing = seenBullets.get(normalizedBullet);
+
+    if (existing) {
+      issues.push({
+        id: `issue_duplicate_${input.bullet.id}`,
+        severity: "warning",
+        category: "duplicate_bullet",
+        sectionId: input.sectionId,
+        entryId: input.entryId ?? null,
+        bulletId: input.bullet.id,
+        message: "This bullet duplicates another included bullet.",
+      });
+    } else {
+      seenBullets.set(normalizedBullet, {
+        sectionId: input.sectionId,
+        bulletId: input.bullet.id,
+      });
+    }
+
+    if (isJobDescriptionBleed(input.bullet.text, jobPhraseBank, profileSupportBank)) {
+      issues.push({
+        id: `issue_job_bleed_${input.bullet.id}`,
+        severity: "warning",
+        category: "job_description_bleed",
+        sectionId: input.sectionId,
+        entryId: input.entryId ?? null,
+        bulletId: input.bullet.id,
+        message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
+      });
+    }
+
+    if (looksLikeKeywordStuffing(input.bullet.text)) {
+      issues.push({
+        id: `issue_keyword_stuffing_${input.bullet.id}`,
+        severity: "warning",
+        category: "keyword_stuffing",
+        sectionId: input.sectionId,
+        entryId: input.entryId ?? null,
+        bulletId: input.bullet.id,
+        message: "This line reads like keyword packing instead of resume content.",
+      });
+    }
+
+    if (looksLikeVagueFiller(input.bullet.text)) {
+      issues.push({
+        id: `issue_filler_${input.bullet.id}`,
+        severity: "info",
+        category: "vague_filler",
+        sectionId: input.sectionId,
+        entryId: input.entryId ?? null,
+        bulletId: input.bullet.id,
+        message: "Replace generic filler language with a grounded accomplishment or skill example.",
+      });
+    }
+  }
+
   for (const section of includedSections) {
     const includedBullets = section.bullets.filter((bullet) => bullet.included);
     const includedEntries = section.entries.filter((entry) => entry.included);
@@ -425,61 +484,7 @@ export function validateResumeDraft(input: {
     }
 
     for (const bullet of includedBullets) {
-      const normalizedBullet = normalizeText(bullet.text);
-      const existing = seenBullets.get(normalizedBullet);
-
-      if (existing) {
-        issues.push({
-          id: `issue_duplicate_${bullet.id}`,
-          severity: "warning",
-          category: "duplicate_bullet",
-          sectionId: section.id,
-          entryId: null,
-          bulletId: bullet.id,
-          message: "This bullet duplicates another included bullet.",
-        });
-      } else {
-        seenBullets.set(normalizedBullet, {
-          sectionId: section.id,
-          bulletId: bullet.id,
-        });
-      }
-
-      if (isJobDescriptionBleed(bullet.text, jobPhraseBank, profileSupportBank)) {
-        issues.push({
-          id: `issue_job_bleed_${bullet.id}`,
-          severity: "warning",
-          category: "job_description_bleed",
-          sectionId: section.id,
-          entryId: null,
-          bulletId: bullet.id,
-          message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
-        });
-      }
-
-      if (looksLikeKeywordStuffing(bullet.text)) {
-        issues.push({
-          id: `issue_keyword_stuffing_${bullet.id}`,
-          severity: "warning",
-          category: "keyword_stuffing",
-          sectionId: section.id,
-          entryId: null,
-          bulletId: bullet.id,
-          message: "This line reads like keyword packing instead of resume content.",
-        });
-      }
-
-      if (looksLikeVagueFiller(bullet.text)) {
-        issues.push({
-          id: `issue_filler_${bullet.id}`,
-          severity: "info",
-          category: "vague_filler",
-          sectionId: section.id,
-          entryId: null,
-          bulletId: bullet.id,
-          message: "Replace generic filler language with a grounded accomplishment or skill example.",
-        });
-      }
+      pushBulletIssues({ bullet, sectionId: section.id });
     }
 
     const seenEntryContent = new Set<string>();
@@ -526,57 +531,7 @@ export function validateResumeDraft(input: {
       }
 
       for (const bullet of entry.bullets.filter((bullet) => bullet.included)) {
-        const normalizedBullet = normalizeText(bullet.text);
-        const existing = seenBullets.get(normalizedBullet);
-        if (existing) {
-          issues.push({
-            id: `issue_duplicate_${bullet.id}`,
-            severity: "warning",
-            category: "duplicate_bullet",
-            sectionId: section.id,
-            entryId: entry.id,
-            bulletId: bullet.id,
-            message: "This bullet duplicates another included bullet.",
-          });
-        } else {
-          seenBullets.set(normalizedBullet, { sectionId: section.id, bulletId: bullet.id });
-        }
-
-        if (isJobDescriptionBleed(bullet.text, jobPhraseBank, profileSupportBank)) {
-          issues.push({
-            id: `issue_job_bleed_${bullet.id}`,
-            severity: "warning",
-            category: "job_description_bleed",
-            sectionId: section.id,
-            entryId: entry.id,
-            bulletId: bullet.id,
-            message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
-          });
-        }
-
-        if (looksLikeKeywordStuffing(bullet.text)) {
-          issues.push({
-            id: `issue_keyword_stuffing_${bullet.id}`,
-            severity: "warning",
-            category: "keyword_stuffing",
-            sectionId: section.id,
-            entryId: entry.id,
-            bulletId: bullet.id,
-            message: "This line reads like keyword packing instead of resume content.",
-          });
-        }
-
-        if (looksLikeVagueFiller(bullet.text)) {
-          issues.push({
-            id: `issue_filler_${bullet.id}`,
-            severity: "info",
-            category: "vague_filler",
-            sectionId: section.id,
-            entryId: entry.id,
-            bulletId: bullet.id,
-            message: "Replace generic filler language with a grounded accomplishment or skill example.",
-          });
-        }
+        pushBulletIssues({ bullet, sectionId: section.id, entryId: entry.id });
       }
     }
   }

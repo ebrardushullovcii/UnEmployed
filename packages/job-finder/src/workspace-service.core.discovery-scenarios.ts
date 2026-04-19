@@ -1,5 +1,4 @@
 import type {
-  AgentDiscoveryOptions,
   BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
 import {
@@ -115,8 +114,7 @@ describe("createJobFinderWorkspaceService", () => {
           agentMetadata: null,
         });
       },
-      runAgentDiscovery(source, _unusedOptions: AgentDiscoveryOptions) {
-        void _unusedOptions;
+      runAgentDiscovery(source) {
         runAgentDiscoveryCalls += 1;
         return Promise.resolve({
           source,

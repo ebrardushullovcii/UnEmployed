@@ -51,6 +51,19 @@ interface ApplicationsDetailPanelProps {
   selectedRecord: ApplicationRecord | null;
 }
 
+function getApplyDetailsStatusBadge(status: ApplicationsDetailPanelProps['applyRunDetailsStatus']) {
+  switch (status) {
+    case 'loading':
+      return { tone: 'active' as const, label: 'Loading details' }
+    case 'error':
+      return { tone: 'critical' as const, label: 'Details unavailable' }
+    case 'ready':
+      return { tone: 'positive' as const, label: 'Details ready' }
+    default:
+      return { tone: 'muted' as const, label: 'Details idle' }
+  }
+}
+
 export function ApplicationsDetailPanel({
   activeFilter,
   applyRunDetails,
@@ -87,17 +100,7 @@ export function ApplicationsDetailPanel({
   const selectedRunHistoryEntry =
     applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ?? null;
   const selectedRun = applyRunDetails?.run ?? selectedRunHistoryEntry?.run ?? null;
-  const selectedResultState = applyRunDetails?.result?.state ?? visibleApplyResult?.state ?? null;
-  const selectedResultTone =
-    selectedResultState === 'submitted'
-      ? 'positive'
-      : selectedResultState === 'blocked' ||
-          selectedResultState === 'failed' ||
-          selectedResultState === 'skipped'
-        ? 'critical'
-        : selectedResultState
-          ? 'active'
-          : 'muted';
+  const applyDetailsStatusBadge = getApplyDetailsStatusBadge(applyRunDetailsStatus)
   const selectedQueueRecoveryEntries = selectedRun
     ? selectedRun.jobIds.map((jobId) => {
         const runResult =
@@ -718,12 +721,8 @@ export function ApplicationsDetailPanel({
             <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="label-mono-xs text-primary">Apply run review data</h3>
-                <StatusBadge tone={selectedResultTone}>
-                  {applyRunDetailsStatus === 'loading'
-                    ? 'Loading details'
-                    : applyRunDetailsStatus === 'error'
-                      ? 'Details unavailable'
-                      : 'Details ready'}
+                <StatusBadge tone={applyDetailsStatusBadge.tone}>
+                  {applyDetailsStatusBadge.label}
                 </StatusBadge>
               </div>
               {applyRunDetailsStatus === 'loading' ? (

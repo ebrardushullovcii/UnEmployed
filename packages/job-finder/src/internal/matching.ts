@@ -154,6 +154,8 @@ function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
           ),
         )
       : [],
+    requiresConsentInterrupt: null,
+    requiresConsentInterruptKind: null,
   };
 }
 
@@ -226,6 +228,14 @@ function enrichDiscoveredPosting(
         ...(existingJob?.screeningHints.remoteGeographies ?? []),
         ...screeningHints.remoteGeographies,
       ]),
+      requiresConsentInterrupt:
+        screeningHints.requiresConsentInterrupt ??
+        existingJob?.screeningHints.requiresConsentInterrupt ??
+        null,
+      requiresConsentInterruptKind:
+        screeningHints.requiresConsentInterruptKind ??
+        existingJob?.screeningHints.requiresConsentInterruptKind ??
+        null,
     },
     keywordSignals: mergeKeywordSignals(
       existingJob?.keywordSignals ?? [],

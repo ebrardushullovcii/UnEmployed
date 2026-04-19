@@ -504,6 +504,13 @@ export async function runSourceDebugWorkflow(
                 )
               : null;
 
+            if (parsedCompactionState && !parsedCompactionState.success) {
+              console.warn(
+                "[Source Debug] Ignoring invalid compaction state from browser runtime.",
+                parsedCompactionState.error,
+              );
+            }
+
             return parsedCompactionState?.success ? parsedCompactionState.data : null;
           })(),
           timing: phaseTiming,

@@ -152,6 +152,11 @@ export const JobScreeningHintsSchema = z.object({
   relocationText: NonEmptyStringSchema.nullable().default(null),
   travelText: NonEmptyStringSchema.nullable().default(null),
   remoteGeographies: z.array(NonEmptyStringSchema).default([]),
+  requiresConsentInterrupt: z.boolean().nullable().default(null),
+  requiresConsentInterruptKind: z
+    .enum(["signup", "existing_account_decision", "manual_verification"])
+    .nullable()
+    .default(null),
 });
 export type JobScreeningHints = z.infer<typeof JobScreeningHintsSchema>;
 

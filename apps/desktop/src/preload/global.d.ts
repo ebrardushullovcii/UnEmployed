@@ -1,7 +1,7 @@
 import type {
   ApplyRunDetails,
-  type JobFinderApplyConsentActionInput,
-  type JobFinderApplyQueueActionInput,
+  JobFinderApplyConsentActionInput,
+  JobFinderApplyQueueActionInput,
   CandidateProfile,
   DesktopPlatformPing,
   EditableSourceInstructionArtifact,

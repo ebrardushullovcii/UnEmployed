@@ -217,9 +217,16 @@ describe("runAgentDiscovery compaction", () => {
       preserveRecentMessages: 1,
       minimumPreserveRecentMessages: 1,
       maxToolPayloadChars: 48,
-      warningTokenBudget: 500,
-      targetTokenBudget: 700,
+      warningTokenBudget: 5000,
+      targetTokenBudget: 6000,
       minimumResponseHeadroomTokens: 100,
+      workflowOverrides: {
+        browser_agent_live_discovery: {
+          warningTokenBudget: 5000,
+          targetTokenBudget: 6000,
+          minimumResponseHeadroomTokens: 100,
+        },
+      },
     };
     config.compactionCapability = {
       modelContextWindowTokens: null,

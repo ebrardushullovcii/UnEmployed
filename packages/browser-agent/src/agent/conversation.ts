@@ -132,8 +132,8 @@ export function getEffectiveCompactionConfig(config: AgentConfig): SharedAgentCo
   return SharedAgentCompactionPolicySchema.parse({
     ...DEFAULT_COMPACTION_CONFIG,
     workflowOverrides,
+    ...configCompaction,
     ...(workflowOverride ?? {}),
-    ...configCompactionRest,
   })
 }
 
@@ -327,12 +327,10 @@ function rebuildConversationFromSummary(input: {
     ...preservedMessages,
   ]
 
-  const estimateAfter = input.config.compactionCapability?.tokenEstimator
-    ? estimateConversationTokensWithFallback(
-        input.state.conversation,
-        input.config,
-      )
-    : null
+  const estimateAfter = estimateConversationTokensWithFallback(
+    input.state.conversation,
+    input.config,
+  )
   input.state.compactionState = buildCompactionSummary(
     input.state,
     input.config,

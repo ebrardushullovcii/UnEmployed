@@ -105,19 +105,19 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
         }
       : null
     const normalizedDescription = job.description.toLowerCase()
-    const requiresConsentInterrupt =
-      normalizedDescription.includes('sign up') ||
-      normalizedDescription.includes('signup') ||
-      normalizedDescription.includes('create an account') ||
-      normalizedDescription.includes('already have an account') ||
-      normalizedDescription.includes('manual verification')
-    const consentInterruptKind = normalizedDescription.includes('sign up') ||
+    const consentInterruptKind =
+      job.screeningHints.requiresConsentInterruptKind ??
+      (normalizedDescription.includes('sign up') ||
       normalizedDescription.includes('signup') ||
       normalizedDescription.includes('create an account')
-      ? 'signup'
-      : normalizedDescription.includes('already have an account')
-        ? 'existing_account_decision'
-        : 'manual_verification'
+        ? 'signup'
+        : normalizedDescription.includes('already have an account')
+          ? 'existing_account_decision'
+          : normalizedDescription.includes('manual verification')
+            ? 'manual_verification'
+            : null)
+    const requiresConsentInterrupt =
+      job.screeningHints.requiresConsentInterrupt ?? consentInterruptKind !== null
 
     if (!resumeFilePath.trim()) {
       return Promise.resolve(
@@ -390,13 +390,13 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
           detail: `${job.company} asks for additional information that the safe automation path will not guess.`,
           submittedAt: null,
           outcome: null,
-          questions,
+          questions: capturedQuestions,
           blocker: {
             code: 'requires_manual_review',
             summary: 'Extra application questions need manual review.',
             detail:
               'The deterministic adapter detected unsupported questions before submission.',
-            questionIds: questions.map((question) => question.id),
+            questionIds: capturedQuestions.map((question) => question.id),
             sourceDebugEvidenceRefIds: [],
             url: job.applicationUrl ?? job.canonicalUrl,
           },

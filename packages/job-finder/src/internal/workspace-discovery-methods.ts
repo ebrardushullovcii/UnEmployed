@@ -114,6 +114,12 @@ function describeCloseoutMode(keptAlive: boolean) {
       };
 }
 
+function getSourceIntelligenceProviderKey(
+  intelligence: NonNullable<JobPosting["sourceIntelligence"]>,
+) {
+  return intelligence.provider?.key ?? null;
+}
+
 function createInitialRunRecord(input: {
   id: string;
   targets: readonly JobDiscoveryTarget[];
@@ -266,6 +272,7 @@ async function collectTargetJobs(input: {
   const discoveryMethod = selectDiscoveryMethod(collectionMethod);
   const startingUrls = buildDiscoveryStartingUrls(target, activeInstruction);
   const providerLabel = intelligence.provider?.label ?? "Unknown provider";
+  const sourceIntelligenceProvider = getSourceIntelligenceProviderKey(intelligence);
 
   if (discoveryMethod === "public_api") {
     const startedAt = new Date().toISOString();
@@ -279,6 +286,8 @@ async function collectTargetJobs(input: {
         targetId: target.id,
         adapterKind: target.adapterKind,
         resolvedAdapterKind: adapterKind,
+        collectionMethod,
+        sourceIntelligenceProvider,
         message: `Using ${providerLabel} public API for ${target.label}`,
         url: startingUrls[0] ?? target.startingUrl,
         jobsFound: 0,
@@ -333,6 +342,8 @@ async function collectTargetJobs(input: {
         targetId: target.id,
         adapterKind: target.adapterKind,
         resolvedAdapterKind: adapterKind,
+        collectionMethod,
+        sourceIntelligenceProvider,
         message: `Starting or attaching the browser profile for ${target.label}`,
         url: target.startingUrl,
         jobsFound: 0,
@@ -393,6 +404,8 @@ async function collectTargetJobs(input: {
             targetId: target.id,
             adapterKind: target.adapterKind,
             resolvedAdapterKind: adapterKind,
+            collectionMethod,
+            sourceIntelligenceProvider,
             message: summary.message,
             url: progress.currentUrl,
             jobsFound: progress.jobsFound,
@@ -534,6 +547,18 @@ export function createWorkspaceDiscoveryMethods(
     try {
       for (const [index, target] of targets.entries()) {
         if (activeRun.summary.validJobsFound >= DEFAULT_TARGET_JOB_COUNT) {
+          const targetArtifact = resolveActiveSourceInstructionArtifact(
+            target,
+            sourceInstructionArtifacts,
+          );
+          const targetIntelligence = inferSourceIntelligenceFromTarget({
+            target,
+            currentArtifact: targetArtifact,
+          });
+          const targetCollectionMethod = selectDiscoveryCollectionMethod(
+            target,
+            targetArtifact,
+          );
           const skippedAt = new Date().toISOString();
           activeRun = completeTargetExecution(activeRun, target.id, skippedAt, {
             state: "skipped",
@@ -552,6 +577,10 @@ export function createWorkspaceDiscoveryMethods(
               targetId: target.id,
               adapterKind: target.adapterKind,
               resolvedAdapterKind: resolveAdapterKind(target),
+              collectionMethod: targetCollectionMethod,
+              sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
+                targetIntelligence,
+              ),
               terminalState: "skipped",
               message: `Skipping ${target.label} because the run already has enough jobs.`,
               url: target.startingUrl,
@@ -570,6 +599,18 @@ export function createWorkspaceDiscoveryMethods(
         }
 
         const targetStartedAt = new Date().toISOString();
+        const targetArtifact = resolveActiveSourceInstructionArtifact(
+          target,
+          sourceInstructionArtifacts,
+        );
+        const targetIntelligence = inferSourceIntelligenceFromTarget({
+          target,
+          currentArtifact: targetArtifact,
+        });
+        const targetCollectionMethod = selectDiscoveryCollectionMethod(
+          target,
+          targetArtifact,
+        );
         activeRun = updateTargetExecution(activeRun, target.id, (entry) => ({
           ...entry,
           state: "running",
@@ -585,6 +626,10 @@ export function createWorkspaceDiscoveryMethods(
             targetId: target.id,
             adapterKind: target.adapterKind,
             resolvedAdapterKind: resolveAdapterKind(target),
+            collectionMethod: targetCollectionMethod,
+            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
+              targetIntelligence,
+            ),
             message: `Starting target ${target.label}`,
             url: target.startingUrl,
             jobsFound: 0,
@@ -633,6 +678,10 @@ export function createWorkspaceDiscoveryMethods(
             targetId: target.id,
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
+            collectionMethod: collected.collectionMethod,
+            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
+              collected.intelligence,
+            ),
             message: collected.result.warning
               ? `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}. ${collected.result.warning}`
               : `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}`,
@@ -715,6 +764,10 @@ export function createWorkspaceDiscoveryMethods(
             targetId: target.id,
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
+            collectionMethod: collected.collectionMethod,
+            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
+              collected.intelligence,
+            ),
             message: `Reviewing ${triagedPostings.length} promising jobs from ${target.label}`,
             url: target.startingUrl,
             jobsFound: triagedPostings.length,
@@ -805,6 +858,10 @@ export function createWorkspaceDiscoveryMethods(
             targetId: target.id,
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
+            collectionMethod: collected.collectionMethod,
+            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
+              collected.intelligence,
+            ),
             message: `Saving the kept jobs and updated discovery ledger for ${target.label}`,
             url: target.startingUrl,
             jobsFound: mergeResult.validatedCount,
@@ -846,6 +903,10 @@ export function createWorkspaceDiscoveryMethods(
             targetId: target.id,
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
+            collectionMethod: collected.collectionMethod,
+            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
+              collected.intelligence,
+            ),
             terminalState: "completed",
             message: `Finished ${target.label} (${index + 1}/${targets.length})`,
             url: target.startingUrl,

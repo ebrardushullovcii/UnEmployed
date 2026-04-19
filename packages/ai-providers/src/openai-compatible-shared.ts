@@ -5,6 +5,14 @@ import {
   uniqueStrings,
 } from "./deterministic";
 
+const REFERENCE_ONLY_KEYS = new Set([
+  "profileRecordId",
+  "sourceId",
+  "id",
+  "draftId",
+  "recordId",
+]);
+
 function sanitizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
@@ -25,13 +33,6 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
     }
 
     const normalizedEntry = entry as Record<string, unknown>;
-    const referenceOnlyKeys = new Set([
-      "profileRecordId",
-      "sourceId",
-      "id",
-      "draftId",
-      "recordId",
-    ]);
 
     if (requiredArrayKey) {
       const candidate = normalizedEntry[String(requiredArrayKey)];
@@ -41,7 +42,7 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
     }
 
     const hasMeaningfulContent = Object.entries(normalizedEntry).some(([fieldKey, fieldValue]) => {
-      if (referenceOnlyKeys.has(fieldKey)) {
+      if (REFERENCE_ONLY_KEYS.has(fieldKey)) {
         return false;
       }
 

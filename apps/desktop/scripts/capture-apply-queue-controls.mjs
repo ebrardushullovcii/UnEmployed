@@ -1,3 +1,5 @@
+/* eslint-env node, browser */
+
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -251,6 +253,14 @@ async function captureApplyQueueControls() {
 
     if (!consentPaused || !cancelledRun) {
       throw new Error('Expected queue review data to be available for the staged queue scenarios.')
+    }
+
+    if (!consentApprovedWorkspace?.applyJobResults) {
+      throw new Error('Expected a workspace snapshot with apply job results after approving queue consent.')
+    }
+
+    if (!consentDeclinedWorkspace?.applyJobResults) {
+      throw new Error('Expected a workspace snapshot with apply job results after declining queue consent.')
     }
 
     if (consentPaused.details.run.state !== 'paused_for_consent') {
