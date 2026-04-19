@@ -560,6 +560,9 @@ export function inferSourceIntelligenceFromTarget(input: {
         startingRoute.kind === "search"
           ? "listing_route"
           : null,
+        startingRoute.kind === "listing" || startingRoute.kind === "collection"
+          ? "careers_page"
+          : null,
         "careers_page",
         "fallback_search",
       ].filter((value): value is JobDiscoveryCollectionMethod => value !== null)),

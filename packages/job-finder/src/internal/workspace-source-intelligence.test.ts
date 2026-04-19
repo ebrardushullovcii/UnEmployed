@@ -70,12 +70,12 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
   });
   const source: JobSource = "target_site";
 
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        jobs: [
-          {
-            id: 4622190,
+  vi.spyOn(globalThis, "fetch").mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({
+      jobs: [
+        {
+          id: 4622190,
           title: "SEI Instructor Lead",
           absolute_url: "https://job-boards.greenhouse.io/remote/jobs/4622190",
           location: { name: "New York, NY" },

@@ -164,7 +164,12 @@ export function recordDiscoveredPostingInLedger(input: {
       inactiveAt: input.status === "inactive" ? input.seenAt : null,
       latestStatus: input.status,
       titleTriageOutcome: input.posting.titleTriageOutcome,
-      skipReason: input.skipReason ?? existingEntry?.skipReason ?? null,
+      skipReason:
+        input.status === "seen" ||
+        input.status === "enriched" ||
+        input.status === "applied"
+          ? null
+          : input.skipReason ?? existingEntry?.skipReason ?? null,
     }),
   );
 }

@@ -31,7 +31,7 @@ This doc explains how agent-facing guidance is layered in the repo. Use it when 
 - `docs/exec-plans/completed/`: historical plans that still matter
 - `docs/HISTORY.md`: completed milestones
 - `docs/decisions/`: durable governance and architecture decisions
-- root quality commands: `pnpm format`, `pnpm format:check`, `pnpm verify:quick`, `pnpm verify:affected`, and `pnpm knip`
+- root quality commands: `pnpm format`, `pnpm format:check`, `pnpm verify`, `pnpm verify:quick`, `pnpm verify:affected`, and `pnpm knip`
 
 ## Rules
 
