@@ -384,6 +384,7 @@ export function createWorkspaceApplicationMethods(
     let blockedJobs = 0;
     let failedJobs = 0;
     let skippedJobs = 0;
+    let awaitingReviewJobs = 0;
     let activeSource: JobSource | null = null;
     try {
       for (let index = 0; index < run.jobIds.length; index += 1) {
@@ -395,6 +396,8 @@ export function createWorkspaceApplicationMethods(
         if (jobResult?.state && jobResult.state !== "planned") {
           if (jobResult.state === "submitted") {
             submittedJobs += 1;
+          } else if (jobResult.state === "awaiting_review") {
+            awaitingReviewJobs += 1;
           } else if (jobResult.state === "blocked") {
             blockedJobs += 1;
           } else if (jobResult.state === "failed") {
@@ -598,6 +601,8 @@ export function createWorkspaceApplicationMethods(
       const jobState = updatedResult.state;
       if (jobState === "submitted") {
         submittedJobs += 1;
+      } else if (jobState === "awaiting_review") {
+        awaitingReviewJobs += 1;
       } else if (jobState === "blocked") {
         blockedJobs += 1;
       } else if (jobState === "failed") {
@@ -631,7 +636,8 @@ export function createWorkspaceApplicationMethods(
         updatedAt: detectedAt,
       });
 
-      const pendingJobs = run.jobIds.length - (index + 1);
+      const remainingJobs = run.jobIds.length - (index + 1);
+      const pendingJobs = remainingJobs + awaitingReviewJobs;
       const nextRunState = mapExecutionResultToApplyRunState({
         consentRequests: runArtifacts.consentRequests,
         executionResult: normalizedExecutionResult,
@@ -644,7 +650,7 @@ export function createWorkspaceApplicationMethods(
           input.mode === "queue_auto"
             ? runArtifacts.consentRequests.length > 0
               ? "paused_for_consent"
-              : pendingJobs > 0
+              : remainingJobs > 0
                 ? "running"
                 : "completed"
             : nextRunState,
