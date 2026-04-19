@@ -289,6 +289,10 @@ export function mapExecutionResultToApplyRunState(input: {
     return "completed";
   }
 
+  if (input.executionResult.state === "failed") {
+    return "failed";
+  }
+
   if (input.consentRequests.length > 0) {
     return "paused_for_consent";
   }
@@ -414,7 +418,12 @@ export function buildApplyCopilotArtifacts(input: {
                   ? 'question_capture'
                   : 'filling',
       artifactRefIds: artifactRefs
-        .filter((ref) => ref.createdAt === checkpoint.at || ref.label === checkpoint.label)
+        .filter(
+          (ref) =>
+            ref.kind === 'checkpoint' &&
+            ref.createdAt === checkpoint.at &&
+            ref.label === checkpoint.label,
+        )
         .map((ref) => ref.id),
     }),
   );
@@ -461,7 +470,10 @@ export function buildApplyCopilotArtifacts(input: {
     detail: input.executionResult.detail,
     startedAt: input.executionResult.checkpoints[0]?.at ?? input.detectedAt,
     updatedAt: input.detectedAt,
-    completedAt: input.executionResult.state === 'submitted' ? input.detectedAt : null,
+    completedAt:
+      input.executionResult.state === 'submitted' || input.executionResult.state === 'failed'
+        ? input.detectedAt
+        : null,
     blockerReason: mapExecutionResultToApplyBlockerReason(
       input.executionResult.blocker,
     ),
@@ -482,7 +494,10 @@ export function buildApplyCopilotArtifacts(input: {
     submitApprovalId: null,
     createdAt: input.detectedAt,
     updatedAt: input.detectedAt,
-    completedAt: input.executionResult.state === 'submitted' ? input.detectedAt : null,
+    completedAt:
+      input.executionResult.state === 'submitted' || input.executionResult.state === 'failed'
+        ? input.detectedAt
+        : null,
     summary: input.executionResult.summary,
     detail: input.executionResult.detail,
     totalJobs: 1,

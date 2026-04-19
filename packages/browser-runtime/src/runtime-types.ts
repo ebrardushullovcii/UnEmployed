@@ -43,7 +43,7 @@ export interface BrowserSessionRuntime {
     source: JobSource,
     input: ExecuteEasyApplyInput,
   ): Promise<ApplyExecutionResult>;
-  executeApplicationFlow?(
+  executeApplicationFlow(
     source: JobSource,
     input: ExecuteApplicationFlowInput,
   ): Promise<ApplyExecutionResult>;

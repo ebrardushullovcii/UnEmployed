@@ -5,6 +5,17 @@ import { IsoDateTimeSchema, NonEmptyStringSchema } from "./base";
 const PositiveIntSchema = z.number().int().positive();
 const NonNegativeIntSchema = z.number().int().nonnegative();
 
+const sharedAgentCompactionPolicyOverrideShape = {
+  enabled: z.boolean().optional(),
+  warningTokenBudget: PositiveIntSchema.optional(),
+  targetTokenBudget: PositiveIntSchema.optional(),
+  minimumResponseHeadroomTokens: PositiveIntSchema.optional(),
+  preserveRecentMessages: NonNegativeIntSchema.optional(),
+  minimumPreserveRecentMessages: NonNegativeIntSchema.optional(),
+  maxToolPayloadChars: PositiveIntSchema.optional(),
+  messageCountFallbackThreshold: PositiveIntSchema.optional(),
+} satisfies z.ZodRawShape;
+
 export const sharedAgentCompactionTriggerKindValues = [
   "token_budget",
   "message_count_fallback",
@@ -16,22 +27,41 @@ export type SharedAgentCompactionTriggerKind = z.infer<
   typeof SharedAgentCompactionTriggerKindSchema
 >;
 
-export const SharedAgentCompactionPolicyOverrideSchema = z.object({
-  enabled: z.boolean().optional(),
-  warningTokenBudget: PositiveIntSchema.optional(),
-  targetTokenBudget: PositiveIntSchema.optional(),
-  minimumResponseHeadroomTokens: PositiveIntSchema.optional(),
-  preserveRecentMessages: NonNegativeIntSchema.optional(),
-  minimumPreserveRecentMessages: NonNegativeIntSchema.optional(),
-  maxToolPayloadChars: PositiveIntSchema.optional(),
-  messageCountFallbackThreshold: PositiveIntSchema.optional(),
+export const SharedAgentCompactionPolicyOverrideSchema = z.object(
+  sharedAgentCompactionPolicyOverrideShape,
+).superRefine((value, ctx) => {
+  if (
+    value.warningTokenBudget !== undefined &&
+    value.targetTokenBudget !== undefined &&
+    value.warningTokenBudget > value.targetTokenBudget
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "warningTokenBudget cannot exceed targetTokenBudget.",
+      path: ["warningTokenBudget"],
+    });
+  }
+
+  if (
+    value.minimumPreserveRecentMessages !== undefined &&
+    value.preserveRecentMessages !== undefined &&
+    value.minimumPreserveRecentMessages > value.preserveRecentMessages
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "minimumPreserveRecentMessages cannot exceed preserveRecentMessages.",
+      path: ["minimumPreserveRecentMessages"],
+    });
+  }
 });
 export type SharedAgentCompactionPolicyOverride = z.infer<
   typeof SharedAgentCompactionPolicyOverrideSchema
 >;
 
 export const SharedAgentCompactionPolicySchema =
-  SharedAgentCompactionPolicyOverrideSchema.extend({
+  z.object({
+    ...sharedAgentCompactionPolicyOverrideShape,
     enabled: z.boolean().default(true),
     warningTokenBudget: PositiveIntSchema.default(176_000),
     targetTokenBudget: PositiveIntSchema.default(184_000),

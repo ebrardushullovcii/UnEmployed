@@ -109,6 +109,11 @@ export function createSourceRef(
   };
 }
 
+export function normalizeNullableText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed === "" ? null : trimmed;
+}
+
 export function createEntry(input: {
   id: string;
   entryType: ResumeDraftEntry["entryType"];
@@ -124,11 +129,6 @@ export function createEntry(input: {
   profileRecordId?: string | null;
   sourceRefs?: readonly ResumeDraftSourceRef[];
 }): ResumeDraftEntry {
-  const normalizeNullableText = (value: string | null | undefined) => {
-    const trimmed = value?.trim() ?? "";
-    return trimmed === "" ? null : trimmed;
-  };
-
   return {
     id: input.id,
     entryType: input.entryType,

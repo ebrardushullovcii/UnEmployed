@@ -1,5 +1,7 @@
 import type {
   ApplyRunDetails,
+  type JobFinderApplyConsentActionInput,
+  type JobFinderApplyQueueActionInput,
   CandidateProfile,
   DesktopPlatformPing,
   EditableSourceInstructionArtifact,
@@ -158,13 +160,13 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyQueueRun: (
-          jobIds: string[],
+          jobIds: JobFinderApplyQueueActionInput['jobIds'],
         ) => Promise<JobFinderWorkspaceSnapshot>;
         approveApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
         cancelApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
         resolveApplyConsentRequest: (
           requestId: string,
-          action: 'approve' | 'decline',
+          action: JobFinderApplyConsentActionInput['action'],
         ) => Promise<JobFinderWorkspaceSnapshot>;
         revokeApplyRunApproval: (
           runId: string,

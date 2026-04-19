@@ -434,5 +434,15 @@ describe("contracts workspace snapshot schema", () => {
       requestId: "consent_1",
       action: "approve",
     });
+
+    expect(
+      JobFinderApplyConsentActionInputSchema.parse({
+        requestId: "consent_1",
+        action: "decline",
+      }),
+    ).toEqual({
+      requestId: "consent_1",
+      action: "decline",
+    });
   });
 });

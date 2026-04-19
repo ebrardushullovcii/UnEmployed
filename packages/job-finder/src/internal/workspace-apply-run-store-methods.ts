@@ -37,14 +37,20 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
         throw new Error(`Apply run '${runId}' does not include job '${jobId}'.`);
       }
 
+      const jobResults = results.filter(
+        (entry) => entry.runId === runId && entry.jobId === jobId,
+      );
+      const latestResult = jobResults[0] ?? null;
+      const latestApproval =
+        approvals.find((entry) => entry.id === run.submitApprovalId) ??
+        approvals.find((entry) => entry.runId === runId) ??
+        null;
+
       return ApplyRunDetailsSchema.parse({
         run: ApplyRunSchema.parse(run),
-        result:
-          results.find(
-            (entry) => entry.runId === runId && entry.jobId === jobId,
-          ) ?? null,
-        submitApproval:
-          approvals.find((entry) => entry.runId === runId) ?? null,
+        result: latestResult,
+        results: jobResults,
+        submitApproval: latestApproval,
         questionRecords: [...questionRecords].sort(
           (left, right) =>
             new Date(left.detectedAt).getTime() -

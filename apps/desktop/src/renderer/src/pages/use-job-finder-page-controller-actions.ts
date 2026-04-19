@@ -236,19 +236,13 @@ export function createPrimaryPageActions(
     onApproveApplyRun: (runId: string) =>
       void runAction(
         () => actions.approveApplyRun(runId),
-        () => {
-          setResumeWorkspaceDirty(false)
-          navigate('/job-finder/applications')
-        },
+        () => undefined,
         'Submit approval recorded. This safe build still stops before final submit.',
       ),
     onCancelApplyRun: (runId: string) =>
       void runAction(
         () => actions.cancelApplyRun(runId),
-        () => {
-          setResumeWorkspaceDirty(false)
-          navigate('/job-finder/applications')
-        },
+        () => undefined,
         'Automatic apply run cancelled.',
       ),
     onApproveApply: (jobId: string) => {
@@ -268,10 +262,7 @@ export function createPrimaryPageActions(
     onRevokeApplyRunApproval: (runId: string) =>
       void runAction(
         () => actions.revokeApplyRunApproval(runId),
-        () => {
-          setResumeWorkspaceDirty(false)
-          navigate('/job-finder/applications')
-        },
+        () => undefined,
         'Submit approval revoked. The run is back to pending approval.',
       ),
     onResolveApplyConsentRequest: (
@@ -280,10 +271,7 @@ export function createPrimaryPageActions(
     ) =>
       void runAction(
         () => actions.resolveApplyConsentRequest(requestId, action),
-        () => {
-          setResumeWorkspaceDirty(false)
-          navigate('/job-finder/applications')
-        },
+        () => undefined,
         action === 'approve'
           ? 'Consent approved. The safe run resumed without final submit.'
           : 'Consent declined. The run skipped that job and stayed non-submitting.',

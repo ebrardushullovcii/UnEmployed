@@ -696,7 +696,7 @@ export const DiscoveryTargetExecutionSchema = z.object({
   jobsPersisted: z.number().int().nonnegative().default(0),
   jobsStaged: z.number().int().nonnegative().default(0),
   warning: NonEmptyStringSchema.nullable().default(null),
-  compaction: SharedAgentCompactionSnapshotSchema.nullable().default(null),
+  compactionState: SharedAgentCompactionSnapshotSchema.nullable().default(null),
   compactionUsedFallbackTrigger: z.boolean().default(false),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
 });

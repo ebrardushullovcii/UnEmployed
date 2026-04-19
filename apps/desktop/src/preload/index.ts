@@ -6,6 +6,8 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderApplyConsentActionInput,
+  JobFinderApplyQueueActionInput,
   ProfileCopilotContext,
   JobFinderPerformanceSnapshot,
   ResumeImportBenchmarkReport,
@@ -389,7 +391,9 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:start-auto-apply-run", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    startAutoApplyQueueRun: (jobIds: string[]) =>
+    startAutoApplyQueueRun: (
+      jobIds: JobFinderApplyQueueActionInput['jobIds'],
+    ) =>
       ipcRenderer.invoke("job-finder:start-auto-apply-queue-run", {
         jobIds,
       }) as Promise<JobFinderWorkspaceSnapshot>,
@@ -403,7 +407,7 @@ const desktopApi = {
       }) as Promise<JobFinderWorkspaceSnapshot>,
     resolveApplyConsentRequest: (
       requestId: string,
-      action: "approve" | "decline",
+      action: JobFinderApplyConsentActionInput['action'],
     ) =>
       ipcRenderer.invoke("job-finder:resolve-apply-consent-request", {
         requestId,

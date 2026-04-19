@@ -75,6 +75,7 @@ export function ApplicationsScreen(props: {
   applicationRecords: readonly ApplicationRecord[]
   applyRuns: JobFinderWorkspaceSnapshot['applyRuns']
   applyJobResults: JobFinderWorkspaceSnapshot['applyJobResults']
+  busy: boolean
   discoveryJobs: JobFinderWorkspaceSnapshot['discoveryJobs']
   onApproveApplyRun: (runId: string) => void
   onCancelApplyRun: (runId: string) => void
@@ -97,6 +98,7 @@ export function ApplicationsScreen(props: {
     applicationRecords,
     applyRuns,
     applyJobResults,
+    busy,
     discoveryJobs,
     onApproveApplyRun,
     onCancelApplyRun,
@@ -205,6 +207,8 @@ export function ApplicationsScreen(props: {
     [applyResultsForSelectedRecord, applyRunsById],
   )
   const latestApplyRunIdForSelectedRecord = applyResultsForSelectedRecord[0]?.runId ?? null
+  const effectiveSelectedJobId = effectiveSelectedRecord?.jobId ?? null
+  const effectiveSelectedRunId = effectiveSelectedApplyResult?.runId ?? null
   const showLatestAttemptDetails =
     !effectiveSelectedApplyRunId ||
     !latestApplyRunIdForSelectedRecord ||
@@ -248,11 +252,11 @@ export function ApplicationsScreen(props: {
   }, [applyResultsForSelectedRecord, effectiveSelectedRecord, selectedApplyRunId])
 
   useEffect(() => {
-    if (!applyRunDetails || applyRunDetails.run.id !== effectiveSelectedApplyRunId) {
+    if (!applyRunDetails || applyRunDetails.run.id !== effectiveSelectedRunId) {
       return
     }
 
-    if (applyRunDetails.result === effectiveSelectedApplyResult) {
+    if (applyRunDetails.result?.jobId === effectiveSelectedJobId) {
       return
     }
 
@@ -260,7 +264,7 @@ export function ApplicationsScreen(props: {
       ...applyRunDetails,
       result: effectiveSelectedApplyResult,
     })
-  }, [applyRunDetails, effectiveSelectedApplyResult, effectiveSelectedApplyRunId])
+  }, [applyRunDetails, effectiveSelectedApplyResult, effectiveSelectedJobId, effectiveSelectedRunId])
 
   useEffect(() => {
     if (!effectiveSelectedRecord || effectiveSelectedRecord.id === selectedRecord?.id) {
@@ -273,7 +277,7 @@ export function ApplicationsScreen(props: {
   useEffect(() => {
     let cancelled = false
 
-    if (!effectiveSelectedRecord || !effectiveSelectedApplyResult) {
+    if (!effectiveSelectedJobId || !effectiveSelectedRunId) {
       setApplyRunDetails(null)
       setApplyRunDetailsStatus('idle')
       setApplyRunDetailsError(null)
@@ -286,10 +290,7 @@ export function ApplicationsScreen(props: {
     setApplyRunDetailsStatus('loading')
     setApplyRunDetailsError(null)
 
-    void onGetApplyRunDetails(
-      effectiveSelectedApplyResult.runId,
-      effectiveSelectedRecord.jobId,
-    )
+    void onGetApplyRunDetails(effectiveSelectedRunId, effectiveSelectedJobId)
       .then((details) => {
         if (cancelled) {
           return
@@ -315,7 +316,7 @@ export function ApplicationsScreen(props: {
     return () => {
       cancelled = true
     }
-  }, [effectiveSelectedApplyResult, effectiveSelectedRecord, onGetApplyRunDetails])
+  }, [effectiveSelectedJobId, effectiveSelectedRunId, onGetApplyRunDetails])
 
   return (
     <LockedScreenLayout
@@ -346,6 +347,7 @@ export function ApplicationsScreen(props: {
           applyRunDetailsStatus={applyRunDetailsStatus}
           applicationRecords={applicationRecords}
           applyJobResults={applyJobResults}
+          busy={busy}
           discoveryJobs={discoveryJobs}
           applyRunHistory={applyRunHistory}
           effectiveSelectedApplyResult={effectiveSelectedApplyResult}

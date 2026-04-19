@@ -1,12 +1,4 @@
 import {
-  ApplyJobResultSchema,
-  ApplyRunSchema,
-  ApplySubmitApprovalSchema,
-  ApplicationAnswerRecordSchema,
-  ApplicationArtifactRefSchema,
-  ApplicationConsentRequestSchema,
-  ApplicationQuestionRecordSchema,
-  ApplicationReplayCheckpointSchema,
   ProfileCopilotMessageSchema,
   ProfileRevisionSchema,
   ResumeAssistantMessageSchema,
@@ -33,6 +25,7 @@ import {
   upsertCollectionValue,
   upsertIndexedCollectionValue,
 } from './internal/state'
+import { APPLY_INDEXED_COLLECTION_CONFIGS } from './apply-collection-support'
 
 export function runImmediateTransaction<TValue>(
   database: DatabaseSync,
@@ -85,85 +78,7 @@ export function resolveApprovedExportId(
 }
 
 export const INDEXED_COLLECTION_CONFIGS = {
-  apply_runs: {
-    columnNames: ['created_at', 'updated_at', 'mode', 'state'],
-    getColumns: (value: unknown) => {
-      const run = ApplyRunSchema.parse(cloneValue(value))
-      return [run.createdAt, run.updatedAt, run.mode, run.state]
-    },
-  },
-  apply_job_results: {
-    columnNames: ['run_id', 'job_id', 'queue_position', 'updated_at', 'state'],
-    getColumns: (value: unknown) => {
-      const result = ApplyJobResultSchema.parse(cloneValue(value))
-      return [
-        result.runId,
-        result.jobId,
-        result.queuePosition,
-        result.updatedAt,
-        result.state,
-      ]
-    },
-  },
-  apply_submit_approvals: {
-    columnNames: ['run_id', 'created_at', 'status'],
-    getColumns: (value: unknown) => {
-      const approval = ApplySubmitApprovalSchema.parse(cloneValue(value))
-      return [approval.runId, approval.createdAt, approval.status]
-    },
-  },
-  application_question_records: {
-    columnNames: ['run_id', 'job_id', 'result_id', 'detected_at'],
-    getColumns: (value: unknown) => {
-      const record = ApplicationQuestionRecordSchema.parse(cloneValue(value))
-      return [record.runId, record.jobId, record.resultId, record.detectedAt]
-    },
-  },
-  application_answer_records: {
-    columnNames: ['run_id', 'job_id', 'result_id', 'question_id', 'created_at'],
-    getColumns: (value: unknown) => {
-      const record = ApplicationAnswerRecordSchema.parse(cloneValue(value))
-      return [
-        record.runId,
-        record.jobId,
-        record.resultId,
-        record.questionId,
-        record.createdAt,
-      ]
-    },
-  },
-  application_artifact_refs: {
-    columnNames: ['run_id', 'job_id', 'result_id', 'created_at', 'kind'],
-    getColumns: (value: unknown) => {
-      const ref = ApplicationArtifactRefSchema.parse(cloneValue(value))
-      return [ref.runId, ref.jobId, ref.resultId, ref.createdAt, ref.kind]
-    },
-  },
-  application_replay_checkpoints: {
-    columnNames: ['run_id', 'job_id', 'result_id', 'created_at'],
-    getColumns: (value: unknown) => {
-      const checkpoint = ApplicationReplayCheckpointSchema.parse(cloneValue(value))
-      return [
-        checkpoint.runId,
-        checkpoint.jobId,
-        checkpoint.resultId,
-        checkpoint.createdAt,
-      ]
-    },
-  },
-  application_consent_requests: {
-    columnNames: ['run_id', 'job_id', 'result_id', 'requested_at', 'status'],
-    getColumns: (value: unknown) => {
-      const request = ApplicationConsentRequestSchema.parse(cloneValue(value))
-      return [
-        request.runId,
-        request.jobId,
-        request.resultId,
-        request.requestedAt,
-        request.status,
-      ]
-    },
-  },
+  ...APPLY_INDEXED_COLLECTION_CONFIGS,
   profile_copilot_messages: {
     columnNames: ['created_at'],
     getColumns: (value: unknown) => {
@@ -339,6 +254,60 @@ export function createFileRepositoryContext(input: {
       replaceIndexedCollection(database, 'profile_revisions', state.profileRevisions, {
         ...INDEXED_COLLECTION_CONFIGS.profile_revisions,
       })
+      replaceIndexedCollection(database, 'apply_runs', state.applyRuns, {
+        ...INDEXED_COLLECTION_CONFIGS.apply_runs,
+      })
+      replaceIndexedCollection(database, 'apply_job_results', state.applyJobResults, {
+        ...INDEXED_COLLECTION_CONFIGS.apply_job_results,
+      })
+      replaceIndexedCollection(
+        database,
+        'apply_submit_approvals',
+        state.applySubmitApprovals,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.apply_submit_approvals,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_question_records',
+        state.applicationQuestionRecords,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_question_records,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_answer_records',
+        state.applicationAnswerRecords,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_answer_records,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_artifact_refs',
+        state.applicationArtifactRefs,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_artifact_refs,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_replay_checkpoints',
+        state.applicationReplayCheckpoints,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_replay_checkpoints,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_consent_requests',
+        state.applicationConsentRequests,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_consent_requests,
+        },
+      )
       replaceCollection(database, 'application_records', state.applicationRecords)
       replaceCollection(database, 'application_attempts', state.applicationAttempts)
       replaceCollection(database, 'source_debug_runs', state.sourceDebugRuns)

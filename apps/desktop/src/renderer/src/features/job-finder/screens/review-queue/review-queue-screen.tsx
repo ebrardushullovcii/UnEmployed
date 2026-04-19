@@ -43,7 +43,11 @@ export function ReviewQueueScreen(props: {
   const queueJobIds = useMemo(() => queue.map((item) => item.jobId), [queue])
 
   useEffect(() => {
-    setQueueSelection((current) => current.filter((jobId) => queueJobIds.includes(jobId)))
+    setQueueSelection((current) => {
+      const nextSelection = current.filter((jobId) => queueJobIds.includes(jobId))
+
+      return nextSelection.length === current.length ? current : nextSelection
+    })
   }, [queueJobIds])
 
   const handleToggleQueueSelection = (jobId: string, checked: boolean) => {

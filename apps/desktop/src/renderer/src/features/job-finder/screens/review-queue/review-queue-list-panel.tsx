@@ -2,6 +2,7 @@ import type { ReviewQueueItem } from '@unemployed/contracts'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { Badge, ProgressBar } from '@renderer/components/ui'
 import { cn } from '@renderer/lib/cn'
+import { useId } from 'react'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
 import { formatCountLabel } from '../../lib/job-finder-utils'
@@ -26,6 +27,8 @@ export function ReviewQueueListPanel({
   queueSelection,
   selectedItem,
 }: ReviewQueueListPanelProps) {
+  const queueCheckboxIdPrefix = useId()
+
   return (
       <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
         <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-2 pt-5">
@@ -48,6 +51,7 @@ export function ReviewQueueListPanel({
             const showProgress = isResumeGenerationInProgress(item)
             const queueReady = isQueueStageReady(item)
             const selectedForQueue = queueSelection.includes(item.jobId)
+            const queueCheckboxId = `${queueCheckboxIdPrefix}-${item.jobId}`
 
             return (
             <div
@@ -59,12 +63,14 @@ export function ReviewQueueListPanel({
             >
               <div className="flex w-full items-start justify-between gap-3">
                 <label
+                  htmlFor={queueCheckboxId}
                   className={cn(
                     'inline-flex items-center gap-2 text-[0.72rem] uppercase tracking-(--tracking-badge)',
                     queueReady ? 'text-foreground-soft' : 'text-muted-foreground'
                   )}
                 >
                   <Checkbox
+                    id={queueCheckboxId}
                     aria-label={`Select ${item.title} for queue automation`}
                     checked={selectedForQueue}
                     disabled={!queueReady}

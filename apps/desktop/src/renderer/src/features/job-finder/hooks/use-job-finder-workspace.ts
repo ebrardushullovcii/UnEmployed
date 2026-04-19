@@ -3,6 +3,8 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderApplyConsentActionInput,
+  JobFinderApplyQueueActionInput,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
@@ -113,7 +115,9 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.startAutoApplyRun(jobId),
         ),
-      startAutoApplyQueueRun: (jobIds: string[]) =>
+      startAutoApplyQueueRun: (
+        jobIds: JobFinderApplyQueueActionInput['jobIds'],
+      ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.startAutoApplyQueueRun(jobIds),
         ),
@@ -125,7 +129,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.cancelApplyRun(runId),
         ),
-      resolveApplyConsentRequest: (requestId: string, action: 'approve' | 'decline') =>
+      resolveApplyConsentRequest: (
+        requestId: string,
+        action: JobFinderApplyConsentActionInput['action'],
+      ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.resolveApplyConsentRequest(requestId, action),
         ),

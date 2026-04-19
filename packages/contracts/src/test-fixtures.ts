@@ -1,4 +1,4 @@
-import type { ApplicationAttempt } from "./index";
+import { ApplyRunSchema, type ApplicationAttempt } from "./index";
 
 export const sourceDebugVersionInfo = {
   promptProfileVersion: "source-debug-v1",
@@ -41,7 +41,7 @@ export function createSubmittedAttempt(): ApplicationAttempt {
 }
 
 export function createApplyRunFixture() {
-  return {
+  return ApplyRunSchema.parse({
     id: "apply_run_1",
     mode: "copilot" as const,
     state: "paused_for_user_review" as const,
@@ -59,5 +59,5 @@ export function createApplyRunFixture() {
     skippedJobs: 0,
     blockedJobs: 0,
     failedJobs: 0,
-  };
+  });
 }

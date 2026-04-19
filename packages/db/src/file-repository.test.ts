@@ -155,6 +155,25 @@ describe('createFileJobFinderRepository', () => {
         blockedJobs: 0,
         failedJobs: 0,
       })
+      await firstRepository.upsertApplyJobResult({
+        id: 'apply_result_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        queuePosition: 0,
+        state: 'awaiting_review',
+        summary: 'Application prepared for review.',
+        detail: 'Captured the staged application state without submitting.',
+        startedAt: '2026-04-18T10:00:10.000Z',
+        updatedAt: '2026-04-18T10:00:40.000Z',
+        completedAt: null,
+        blockerReason: null,
+        blockerSummary: null,
+        latestQuestionCount: 1,
+        latestAnswerCount: 1,
+        pendingConsentRequestCount: 1,
+        artifactCount: 1,
+        latestCheckpointId: 'checkpoint_1',
+      })
       await firstRepository.upsertApplicationQuestionRecord({
         id: 'question_1',
         runId: 'apply_run_1',
@@ -170,6 +189,54 @@ describe('createFileJobFinderRepository', () => {
         submittedAnswer: null,
         status: 'detected',
         pageUrl: 'https://jobs.example.com/apply',
+      })
+      await firstRepository.upsertApplicationAnswerRecord({
+        id: 'answer_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        questionId: 'question_1',
+        status: 'suggested',
+        text: '/tmp/tailored-resume.pdf',
+        sourceKind: 'resume',
+        sourceId: 'resume_export_1',
+        confidenceLabel: 'grounded',
+        provenance: [
+          {
+            id: 'answer_provenance_1',
+            sourceKind: 'resume',
+            sourceId: 'resume_export_1',
+            label: 'Approved tailored resume export',
+            snippet: '/tmp/tailored-resume.pdf',
+          },
+        ],
+        createdAt: '2026-04-18T10:00:31.000Z',
+        submittedAt: null,
+      })
+      await firstRepository.upsertApplicationArtifactRef({
+        id: 'artifact_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        questionId: 'question_1',
+        kind: 'field_snapshot',
+        label: 'Resume upload prompt',
+        createdAt: '2026-04-18T10:00:32.000Z',
+        storagePath: null,
+        url: 'https://jobs.example.com/apply',
+        textSnippet: 'Upload your resume',
+      })
+      await firstRepository.upsertApplicationReplayCheckpoint({
+        id: 'checkpoint_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        createdAt: '2026-04-18T10:00:33.000Z',
+        label: 'Prepared application for review',
+        detail: 'The flow paused before final submit.',
+        url: 'https://jobs.example.com/apply',
+        jobState: 'awaiting_review',
+        artifactRefIds: ['artifact_1'],
       })
       await firstRepository.upsertApplicationConsentRequest({
         id: 'consent_1',
@@ -197,12 +264,43 @@ describe('createFileJobFinderRepository', () => {
           state: 'paused_for_user_review',
         }),
       ])
+      await expect(secondRepository.listApplyJobResults()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'apply_result_1',
+          runId: 'apply_run_1',
+          jobId: 'job_1',
+        }),
+      ])
       await expect(
         secondRepository.listApplicationQuestionRecords({ runId: 'apply_run_1' }),
       ).resolves.toEqual([
         expect.objectContaining({
           id: 'question_1',
           prompt: 'Upload your resume',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationAnswerRecords({ resultId: 'apply_result_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'answer_1',
+          questionId: 'question_1',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationArtifactRefs({ resultId: 'apply_result_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'artifact_1',
+          questionId: 'question_1',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationReplayCheckpoints({ resultId: 'apply_result_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'checkpoint_1',
+          artifactRefIds: ['artifact_1'],
         }),
       ])
       await expect(

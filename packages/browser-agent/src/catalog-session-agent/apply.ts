@@ -544,6 +544,7 @@ export function buildApplyReplay(job: SavedJob, recoveryContext?: ApplyRecoveryC
   const lastUrl = job.applicationUrl ?? job.canonicalUrl
   const checkpointUrls = Array.from(
     new Set([
+      ...(recoveryContext?.latestCheckpoint?.url ? [recoveryContext.latestCheckpoint.url] : []),
       ...(recoveryContext?.checkpointUrls ?? []),
       ...(lastUrl ? [lastUrl] : []),
     ]),

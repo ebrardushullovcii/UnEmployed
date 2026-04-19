@@ -43,6 +43,21 @@ async function getResumeAssistantMessages(window, jobId) {
   )
 }
 
+async function getWorkspace(window) {
+  return window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
+}
+
+function getLatestBy(items, getTimestamp) {
+  if (!items?.length) {
+    return null
+  }
+
+  return [...items].sort(
+    (left, right) =>
+      new Date(getTimestamp(right)).getTime() - new Date(getTimestamp(left)).getTime(),
+  )[0] ?? null
+}
+
 async function waitForProfileOrSetupHeading(window) {
   await window
     .locator('h1')
@@ -172,15 +187,16 @@ async function captureResumeWorkspace() {
     await window.getByText(/Apply copilot run/i).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '10-applications-after-copilot.png') })
 
-    const applicationSummary = await window.evaluate(() => {
-      const workspace = window.unemployed.jobFinder.getWorkspace()
-      return workspace.then((snapshot) => ({
-        latestAttemptState: snapshot.applicationAttempts[0]?.state ?? null,
-        latestAttemptOutcome: snapshot.applicationAttempts[0]?.outcome ?? null,
-        latestRunState: snapshot.applyRuns[0]?.state ?? null,
-        latestResultState: snapshot.applyJobResults[0]?.state ?? null,
-      }))
-    })
+    const workspace = await getWorkspace(window)
+    const latestAttempt = getLatestBy(workspace.applicationAttempts, (attempt) => attempt.updatedAt)
+    const latestRun = getLatestBy(workspace.applyRuns, (run) => run.updatedAt)
+    const latestResult = getLatestBy(workspace.applyJobResults, (result) => result.updatedAt)
+    const applicationSummary = {
+      latestAttemptState: latestAttempt?.state ?? null,
+      latestAttemptOutcome: latestAttempt?.outcome ?? null,
+      latestRunState: latestRun?.state ?? null,
+      latestResultState: latestResult?.state ?? null,
+    }
 
     if (applicationSummary.latestAttemptState !== 'paused') {
       throw new Error(`Apply copilot should pause before submit, got '${applicationSummary.latestAttemptState ?? 'null'}'.`)
@@ -190,7 +206,6 @@ async function captureResumeWorkspace() {
       throw new Error('Apply copilot should not record a submitted outcome.')
     }
 
-    const workspace = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
     await writeJson('workspace-after-demo.json', workspace)
   } finally {
     if (app) {

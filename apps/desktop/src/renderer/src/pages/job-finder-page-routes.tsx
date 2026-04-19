@@ -402,6 +402,7 @@ export function JobFinderApplicationsRoute() {
       applicationRecords={context.workspace.applicationRecords}
       applyRuns={context.workspace.applyRuns}
       applyJobResults={context.workspace.applyJobResults}
+      busy={context.busy}
       discoveryJobs={context.workspace.discoveryJobs}
       onApproveApplyRun={context.onApproveApplyRun}
       onCancelApplyRun={context.onCancelApplyRun}

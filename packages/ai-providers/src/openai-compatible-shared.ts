@@ -25,6 +25,13 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
     }
 
     const normalizedEntry = entry as Record<string, unknown>;
+    const referenceOnlyKeys = new Set([
+      "profileRecordId",
+      "sourceId",
+      "id",
+      "draftId",
+      "recordId",
+    ]);
 
     if (requiredArrayKey) {
       const candidate = normalizedEntry[String(requiredArrayKey)];
@@ -33,7 +40,11 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
       }
     }
 
-    const hasMeaningfulContent = Object.values(normalizedEntry).some((fieldValue) => {
+    const hasMeaningfulContent = Object.entries(normalizedEntry).some(([fieldKey, fieldValue]) => {
+      if (referenceOnlyKeys.has(fieldKey)) {
+        return false;
+      }
+
       if (typeof fieldValue === "string") {
         return fieldValue.trim().length > 0;
       }

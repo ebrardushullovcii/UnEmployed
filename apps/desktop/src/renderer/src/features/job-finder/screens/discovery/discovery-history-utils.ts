@@ -27,7 +27,7 @@ function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetE
     jobsPersisted: 0,
     jobsStaged: 0,
     warning: null,
-    compaction: null,
+    compactionState: null,
     compactionUsedFallbackTrigger: false,
     timing: null
   }
@@ -47,7 +47,7 @@ function createSyntheticExecution(event: DiscoveryActivityEvent): DiscoveryTarge
     jobsPersisted: 0,
     jobsStaged: 0,
     warning: null,
-    compaction: null,
+    compactionState: null,
     compactionUsedFallbackTrigger: false,
     timing: null
   }

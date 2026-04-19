@@ -84,6 +84,13 @@ function buildRecoveryInstructions(input: {
   );
 }
 
+function createMonotonicTimestamp(previousIso: string | null | undefined): string {
+  const now = Date.now();
+  const parsedPrevious = previousIso ? new Date(previousIso).getTime() : Number.NaN;
+  const previous = Number.isNaN(parsedPrevious) ? now : parsedPrevious + 1;
+  return new Date(Math.max(now, previous)).toISOString();
+}
+
 export function createWorkspaceApplicationMethods(
   ctx: WorkspaceServiceContext,
 ): Pick<
@@ -332,11 +339,11 @@ export function createWorkspaceApplicationMethods(
       throw new Error(`Apply run '${input.runId}' must be approved before it can execute.`);
     }
 
-      if (!ctx.browserRuntime.executeApplicationFlow) {
-        throw new Error(
-          "The current browser runtime does not support staged apply execution.",
-        );
-      }
+    if (!ctx.browserRuntime.executeApplicationFlow) {
+      throw new Error(
+        "The current browser runtime does not support staged apply execution.",
+      );
+    }
 
     let currentRunState: ReturnType<typeof ApplyRunSchema.parse> = ApplyRunSchema.parse({
       ...run,
@@ -356,153 +363,153 @@ export function createWorkspaceApplicationMethods(
     let failedJobs = 0;
     let skippedJobs = 0;
     let activeSource: JobSource | null = null;
+    try {
+      for (let index = 0; index < run.jobIds.length; index += 1) {
+        const jobId = run.jobIds[index]!;
+        const jobResult = results.find(
+          (entry) => entry.runId === run.id && entry.jobId === jobId,
+        );
 
-    for (let index = 0; index < run.jobIds.length; index += 1) {
-      const jobId = run.jobIds[index]!;
-      const jobResult = results.find(
-        (entry) => entry.runId === run.id && entry.jobId === jobId,
-      );
-
-      if (jobResult?.state && jobResult.state !== "planned") {
-        if (jobResult.state === "submitted") {
-          submittedJobs += 1;
-        } else if (jobResult.state === "blocked") {
-          blockedJobs += 1;
-        } else if (jobResult.state === "failed") {
-          failedJobs += 1;
-        } else if (jobResult.state === "skipped") {
-          skippedJobs += 1;
+        if (jobResult?.state && jobResult.state !== "planned") {
+          if (jobResult.state === "submitted") {
+            submittedJobs += 1;
+          } else if (jobResult.state === "blocked") {
+            blockedJobs += 1;
+          } else if (jobResult.state === "failed") {
+            failedJobs += 1;
+          } else if (jobResult.state === "skipped") {
+            skippedJobs += 1;
+          }
+          continue;
         }
-        continue;
-      }
 
-      const { approvedExport, job } = await resolveJobApplyPrerequisites(jobId);
-      const recoverySeed = await buildApplyRecoveryContext(jobId);
-      if (activeSource !== job.source) {
-        if (activeSource) {
-          await ctx.closeRunBrowserSession(activeSource);
+        const { approvedExport, job } = await resolveJobApplyPrerequisites(jobId);
+        const recoverySeed = await buildApplyRecoveryContext(jobId);
+        if (activeSource !== job.source) {
+          if (activeSource) {
+            await ctx.closeRunBrowserSession(activeSource);
+          }
+          await ctx.openRunBrowserSession(job.source);
+          activeSource = job.source;
         }
-        await ctx.openRunBrowserSession(job.source);
-        activeSource = job.source;
-      }
-      const provenanceTargetId =
-        job.provenance[job.provenance.length - 1]?.targetId ??
-        job.provenance[0]?.targetId ??
-        null;
-      const provenanceTarget = provenanceTargetId
-        ? (searchPreferences.discovery.targets.find(
-            (target) => target.id === provenanceTargetId,
-          ) ?? null)
-        : null;
-      const activeInstruction = provenanceTarget
-        ? resolveActiveSourceInstructionArtifact(
-            provenanceTarget,
-            sourceInstructionArtifacts,
-          )
-        : null;
-      const applyInstructions = uniqueStrings([
-        ...buildInstructionGuidance(activeInstruction),
-        ...recoverySeed.recoveryInstructions,
-      ]);
+        const provenanceTargetId =
+          job.provenance[job.provenance.length - 1]?.targetId ??
+          job.provenance[0]?.targetId ??
+          null;
+        const provenanceTarget = provenanceTargetId
+          ? (searchPreferences.discovery.targets.find(
+              (target) => target.id === provenanceTargetId,
+            ) ?? null)
+          : null;
+        const activeInstruction = provenanceTarget
+          ? resolveActiveSourceInstructionArtifact(
+              provenanceTarget,
+              sourceInstructionArtifacts,
+            )
+          : null;
+        const applyInstructions = uniqueStrings([
+          ...buildInstructionGuidance(activeInstruction),
+          ...recoverySeed.recoveryInstructions,
+        ]);
 
-          const executionResult = await ctx.browserRuntime.executeApplicationFlow(job.source, {
-        job,
-        resumeExport: approvedExport,
-        resumeFilePath: approvedExport.filePath,
-        profile,
-        settings,
-        mode: "prepare_only",
-        ...(recoverySeed.recoveryContext
-          ? { recoveryContext: recoverySeed.recoveryContext }
-          : {}),
-        ...(applyInstructions.length > 0 ? { instructions: applyInstructions } : {}),
-      });
-      const detectedAt = new Date().toISOString();
-      const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
-        activeInstruction,
-        sourceDebugAttempts,
-      });
-      const blocker = mergeAttemptBlocker({
-        blocker: executionResult.blocker,
-        sourceDebugEvidenceRefIds,
-        defaultUrl: job.applicationUrl ?? job.canonicalUrl,
-      });
-      const replay = mergeAttemptReplay({
-        replay: executionResult.replay,
-        activeInstruction,
-        sourceDebugEvidenceRefIds,
-        fallbackUrl: job.applicationUrl ?? job.canonicalUrl,
-      });
-      const normalizedExecutionResult = {
-        ...executionResult,
-        blocker,
-        replay,
-      } as ApplyExecutionResult;
-      const runArtifacts = buildApplyCopilotArtifacts({
-        job,
-        resumeExport: approvedExport,
-        executionResult: normalizedExecutionResult,
-        detectedAt,
-      });
-      const existingQuestionIds = new Set(
-        questionRecords
-          .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-          .map((entry) => entry.id),
-      );
-      const existingAnswerIds = new Set(
-        answerRecords
-          .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-          .map((entry) => entry.id),
-      );
-      const existingArtifactIds = new Set(
-        artifactRefs
-          .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-          .map((entry) => entry.id),
-      );
-      const existingCheckpointIds = new Set(
-        checkpoints
-          .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-          .map((entry) => entry.id),
-      );
-      const existingConsentIds = new Set(
-        consentRequests
-          .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
-          .map((entry) => entry.id),
-      );
-      const updatedResult = ApplyJobResultSchema.parse({
-        ...(jobResult ?? runArtifacts.result),
-        id: jobResult?.id ?? runArtifacts.result.id,
-        runId: run.id,
-        jobId,
-        queuePosition: index,
-        state: mapExecutionResultToApplyJobState({
-          consentRequests: runArtifacts.consentRequests,
+        const executionResult = await ctx.browserRuntime.executeApplicationFlow(job.source, {
+          job,
+          resumeExport: approvedExport,
+          resumeFilePath: approvedExport.filePath,
+          profile,
+          settings,
+          mode: "prepare_only",
+          ...(recoverySeed.recoveryContext
+            ? { recoveryContext: recoverySeed.recoveryContext }
+            : {}),
+          ...(applyInstructions.length > 0 ? { instructions: applyInstructions } : {}),
+        });
+        const detectedAt = new Date().toISOString();
+        const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
+          activeInstruction,
+          sourceDebugAttempts,
+        });
+        const blocker = mergeAttemptBlocker({
+          blocker: executionResult.blocker,
+          sourceDebugEvidenceRefIds,
+          defaultUrl: job.applicationUrl ?? job.canonicalUrl,
+        });
+        const replay = mergeAttemptReplay({
+          replay: executionResult.replay,
+          activeInstruction,
+          sourceDebugEvidenceRefIds,
+          fallbackUrl: job.applicationUrl ?? job.canonicalUrl,
+        });
+        const normalizedExecutionResult = {
+          ...executionResult,
+          blocker,
+          replay,
+        } as ApplyExecutionResult;
+        const runArtifacts = buildApplyCopilotArtifacts({
+          job,
+          resumeExport: approvedExport,
           executionResult: normalizedExecutionResult,
-        }),
-        summary: normalizedExecutionResult.summary,
-        detail: normalizedExecutionResult.detail,
-        startedAt: jobResult?.startedAt ?? detectedAt,
-        updatedAt: detectedAt,
-        completedAt:
-          normalizedExecutionResult.state === "submitted"
-            ? detectedAt
-            : runArtifacts.consentRequests.length > 0 ||
-                normalizedExecutionResult.state === "paused"
-              ? null
-              : normalizedExecutionResult.state === "failed" ||
-                  normalizedExecutionResult.state === "unsupported"
-                ? detectedAt
-                : null,
-        blockerReason: mapExecutionResultToApplyBlockerReason(
-          normalizedExecutionResult.blocker,
-        ),
-        blockerSummary: normalizedExecutionResult.blocker?.summary ?? null,
-        latestQuestionCount: runArtifacts.questionRecords.length,
-        latestAnswerCount: runArtifacts.answerRecords.length,
-        pendingConsentRequestCount: runArtifacts.consentRequests.length,
-        artifactCount: runArtifacts.artifactRefs.length,
-        latestCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
-      });
+          detectedAt,
+        });
+        const existingQuestionIds = new Set(
+          questionRecords
+            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
+            .map((entry) => entry.id),
+        );
+        const existingAnswerIds = new Set(
+          answerRecords
+            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
+            .map((entry) => entry.id),
+        );
+        const existingArtifactIds = new Set(
+          artifactRefs
+            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
+            .map((entry) => entry.id),
+        );
+        const existingCheckpointIds = new Set(
+          checkpoints
+            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
+            .map((entry) => entry.id),
+        );
+        const existingConsentIds = new Set(
+          consentRequests
+            .filter((entry) => entry.runId === run.id && entry.jobId === jobId)
+            .map((entry) => entry.id),
+        );
+        const updatedResult = ApplyJobResultSchema.parse({
+          ...(jobResult ?? runArtifacts.result),
+          id: jobResult?.id ?? runArtifacts.result.id,
+          runId: run.id,
+          jobId,
+          queuePosition: index,
+          state: mapExecutionResultToApplyJobState({
+            consentRequests: runArtifacts.consentRequests,
+            executionResult: normalizedExecutionResult,
+          }),
+          summary: normalizedExecutionResult.summary,
+          detail: normalizedExecutionResult.detail,
+          startedAt: jobResult?.startedAt ?? detectedAt,
+          updatedAt: detectedAt,
+          completedAt:
+            normalizedExecutionResult.state === "submitted"
+              ? detectedAt
+              : runArtifacts.consentRequests.length > 0 ||
+                  normalizedExecutionResult.state === "paused"
+                ? null
+                : normalizedExecutionResult.state === "failed" ||
+                    normalizedExecutionResult.state === "unsupported"
+                  ? detectedAt
+                  : null,
+          blockerReason: mapExecutionResultToApplyBlockerReason(
+            normalizedExecutionResult.blocker,
+          ),
+          blockerSummary: normalizedExecutionResult.blocker?.summary ?? null,
+          latestQuestionCount: runArtifacts.questionRecords.length,
+          latestAnswerCount: runArtifacts.answerRecords.length,
+          pendingConsentRequestCount: runArtifacts.consentRequests.length,
+          artifactCount: runArtifacts.artifactRefs.length,
+          latestCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
+        });
 
       await Promise.all([
         ctx.repository.upsertApplyJobResult(updatedResult),
@@ -643,17 +650,39 @@ export function createWorkspaceApplicationMethods(
       });
       await ctx.repository.upsertApplyRun(currentRunState);
 
-      if (runArtifacts.consentRequests.length > 0) {
-        break;
-      }
+        if (runArtifacts.consentRequests.length > 0) {
+          break;
+        }
 
-      if (input.mode === "single_job_auto") {
-        break;
+        if (input.mode === "single_job_auto") {
+          break;
+        }
       }
-    }
-
-    if (activeSource) {
-      await ctx.closeRunBrowserSession(activeSource);
+    } catch (error) {
+      const failedAt = new Date().toISOString();
+      currentRunState = ApplyRunSchema.parse({
+        ...currentRunState,
+        state: "failed",
+        updatedAt: failedAt,
+        completedAt: failedAt,
+        pendingJobs: currentRunState.pendingJobs,
+        submittedJobs,
+        skippedJobs,
+        blockedJobs,
+        failedJobs: failedJobs + 1,
+        summary: "Automatic apply run failed before safe review completed.",
+        detail: error instanceof Error ? error.message : "Unknown automatic apply failure.",
+      });
+      await ctx.repository.upsertApplyRun(currentRunState);
+      throw error;
+    } finally {
+      if (activeSource) {
+        try {
+          await ctx.closeRunBrowserSession(activeSource);
+        } catch (cleanupError) {
+          console.error("Failed to close apply browser session.", cleanupError);
+        }
+      }
     }
   }
 
@@ -1170,7 +1199,7 @@ export function createWorkspaceApplicationMethods(
 
       const state = await ensureResumeDraft(ctx, currentDraft.jobId);
 
-      const updatedAt = new Date().toISOString();
+      const updatedAt = createMonotonicTimestamp(currentDraft.updatedAt);
       const nextDraft = applyPatchToResumeDraft({
         draft: currentDraft,
         patch: parsedPatch,
@@ -1274,7 +1303,7 @@ export function createWorkspaceApplicationMethods(
       }
 
       if (normalizedPatches.length > 0) {
-        const updatedAt = new Date().toISOString();
+        const updatedAt = createMonotonicTimestamp(workspaceState.draft.updatedAt);
         const sanitizedDraft = sanitizeResumeDraft({
           draft: candidateDraft,
           job: workspaceState.job,
@@ -1882,6 +1911,10 @@ export function createWorkspaceApplicationMethods(
         throw new Error(`Apply run '${runId}' is not waiting on submit approval.`);
       }
 
+      if (run.state !== "awaiting_submit_approval") {
+        throw new Error(`Apply run '${runId}' is not currently awaiting submit approval.`);
+      }
+
       if (!run.submitApprovalId) {
         throw new Error(`Apply run '${runId}' does not have a submit approval record.`);
       }
@@ -2041,7 +2074,16 @@ export function createWorkspaceApplicationMethods(
           );
         }
 
-        const remainingJobs = run.jobIds.filter((jobId) => jobId !== request.jobId);
+        const remainingJobs = run.jobIds.filter((jobId) => {
+          if (jobId === request.jobId) {
+            return false;
+          }
+
+          const result = results.find(
+            (entry) => entry.runId === run.id && entry.jobId === jobId,
+          );
+          return !result || result.state === "planned";
+        });
         const updatedRun = ApplyRunSchema.parse({
           ...run,
           state: remainingJobs.length > 0 ? "running" : "completed",
@@ -2221,16 +2263,30 @@ export function createWorkspaceApplicationMethods(
       }
 
       const now = new Date().toISOString();
-      const updatedApproval = ApplySubmitApprovalSchema.parse({
+      const revokedApproval = ApplySubmitApprovalSchema.parse({
         ...approval,
         status: "revoked",
         revokedAt: now,
         detail:
           "Submit approval was revoked before any submit-enabled execution started.",
       });
+      const replacementApproval = ApplySubmitApprovalSchema.parse({
+        id: createUniqueId("apply_submit_approval"),
+        runId: run.id,
+        mode: run.mode,
+        jobIds: approval.jobIds,
+        status: "pending",
+        createdAt: now,
+        approvedAt: null,
+        revokedAt: null,
+        expiresAt: null,
+        detail:
+          "Submit approval must be re-granted before any later submit-enabled execution can continue.",
+      });
       const updatedRun = ApplyRunSchema.parse({
         ...run,
         state: "awaiting_submit_approval",
+        submitApprovalId: replacementApproval.id,
         updatedAt: now,
         summary: "Submit approval revoked for this automatic apply run.",
         detail:
@@ -2238,7 +2294,8 @@ export function createWorkspaceApplicationMethods(
       });
 
       await Promise.all([
-        ctx.repository.upsertApplySubmitApproval(updatedApproval),
+        ctx.repository.upsertApplySubmitApproval(revokedApproval),
+        ctx.repository.upsertApplySubmitApproval(replacementApproval),
         ctx.repository.upsertApplyRun(updatedRun),
       ]);
 

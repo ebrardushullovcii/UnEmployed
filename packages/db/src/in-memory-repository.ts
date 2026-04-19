@@ -36,6 +36,17 @@ import {
 
 import { cloneValue } from "./internal/state";
 import {
+  matchesOptionalStringFilters,
+  sortApplicationAnswerRecords,
+  sortApplicationArtifactRefs,
+  sortApplicationConsentRequests,
+  sortApplicationQuestionRecords,
+  sortApplicationReplayCheckpoints,
+  sortApplyJobResults,
+  sortApplyRuns,
+  sortApplySubmitApprovals,
+} from "./apply-collection-support";
+import {
   clearApprovedResumeExportsForJob,
   replaceArtifactsForRun,
   resolveApprovedExportId,
@@ -504,7 +515,7 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     listApplyRuns() {
-      return Promise.resolve(sortResumeDrafts(cloneValue(state.applyRuns)));
+      return Promise.resolve(sortApplyRuns(cloneValue(state.applyRuns)));
     },
     upsertApplyRun(run) {
       const normalizedRun = ApplyRunSchema.parse(cloneValue(run));
@@ -512,15 +523,7 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     listApplyJobResults() {
-      return Promise.resolve(
-        [...cloneValue(state.applyJobResults)].sort((left, right) => {
-          const difference =
-            new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-          return difference !== 0
-            ? difference
-            : left.queuePosition - right.queuePosition || left.id.localeCompare(right.id);
-        }),
-      );
+      return Promise.resolve(sortApplyJobResults(cloneValue(state.applyJobResults)));
     },
     upsertApplyJobResult(result) {
       const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result));
@@ -528,7 +531,7 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     listApplySubmitApprovals() {
-      return Promise.resolve(sortNewestFirst(cloneValue(state.applySubmitApprovals)));
+      return Promise.resolve(sortApplySubmitApprovals(cloneValue(state.applySubmitApprovals)));
     },
     upsertApplySubmitApproval(approval) {
       const normalizedApproval = ApplySubmitApprovalSchema.parse(cloneValue(approval));
@@ -540,16 +543,15 @@ export function createInMemoryJobFinderRepository(
     },
     listApplicationQuestionRecords(options) {
       return Promise.resolve(
-        cloneValue(state.applicationQuestionRecords)
-          .filter((record) =>
-            (!options?.runId || record.runId === options.runId) &&
-            (!options?.jobId || record.jobId === options.jobId) &&
-            (!options?.resultId || record.resultId === options.resultId),
-          )
-          .sort((left, right) =>
-            new Date(left.detectedAt).getTime() - new Date(right.detectedAt).getTime() ||
-            left.id.localeCompare(right.id),
+        sortApplicationQuestionRecords(
+          cloneValue(state.applicationQuestionRecords).filter((record) =>
+            matchesOptionalStringFilters(record, [
+              ["runId", options?.runId],
+              ["jobId", options?.jobId],
+              ["resultId", options?.resultId],
+            ]),
           ),
+        ),
       );
     },
     upsertApplicationQuestionRecord(record) {
@@ -562,17 +564,16 @@ export function createInMemoryJobFinderRepository(
     },
     listApplicationAnswerRecords(options) {
       return Promise.resolve(
-        cloneValue(state.applicationAnswerRecords)
-          .filter((record) =>
-            (!options?.runId || record.runId === options.runId) &&
-            (!options?.jobId || record.jobId === options.jobId) &&
-            (!options?.resultId || record.resultId === options.resultId) &&
-            (!options?.questionId || record.questionId === options.questionId),
-          )
-          .sort((left, right) =>
-            new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
-            left.id.localeCompare(right.id),
+        sortApplicationAnswerRecords(
+          cloneValue(state.applicationAnswerRecords).filter((record) =>
+            matchesOptionalStringFilters(record, [
+              ["runId", options?.runId],
+              ["jobId", options?.jobId],
+              ["resultId", options?.resultId],
+              ["questionId", options?.questionId],
+            ]),
           ),
+        ),
       );
     },
     upsertApplicationAnswerRecord(record) {
@@ -585,16 +586,15 @@ export function createInMemoryJobFinderRepository(
     },
     listApplicationArtifactRefs(options) {
       return Promise.resolve(
-        cloneValue(state.applicationArtifactRefs)
-          .filter((ref) =>
-            (!options?.runId || ref.runId === options.runId) &&
-            (!options?.jobId || ref.jobId === options.jobId) &&
-            (!options?.resultId || ref.resultId === options.resultId),
-          )
-          .sort((left, right) =>
-            new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
-            left.id.localeCompare(right.id),
+        sortApplicationArtifactRefs(
+          cloneValue(state.applicationArtifactRefs).filter((ref) =>
+            matchesOptionalStringFilters(ref, [
+              ["runId", options?.runId],
+              ["jobId", options?.jobId],
+              ["resultId", options?.resultId],
+            ]),
           ),
+        ),
       );
     },
     upsertApplicationArtifactRef(ref) {
@@ -604,16 +604,15 @@ export function createInMemoryJobFinderRepository(
     },
     listApplicationReplayCheckpoints(options) {
       return Promise.resolve(
-        cloneValue(state.applicationReplayCheckpoints)
-          .filter((checkpoint) =>
-            (!options?.runId || checkpoint.runId === options.runId) &&
-            (!options?.jobId || checkpoint.jobId === options.jobId) &&
-            (!options?.resultId || checkpoint.resultId === options.resultId),
-          )
-          .sort((left, right) =>
-            new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
-            left.id.localeCompare(right.id),
+        sortApplicationReplayCheckpoints(
+          cloneValue(state.applicationReplayCheckpoints).filter((checkpoint) =>
+            matchesOptionalStringFilters(checkpoint, [
+              ["runId", options?.runId],
+              ["jobId", options?.jobId],
+              ["resultId", options?.resultId],
+            ]),
           ),
+        ),
       );
     },
     upsertApplicationReplayCheckpoint(checkpoint) {
@@ -628,16 +627,15 @@ export function createInMemoryJobFinderRepository(
     },
     listApplicationConsentRequests(options) {
       return Promise.resolve(
-        cloneValue(state.applicationConsentRequests)
-          .filter((request) =>
-            (!options?.runId || request.runId === options.runId) &&
-            (!options?.jobId || request.jobId === options.jobId) &&
-            (!options?.resultId || request.resultId === options.resultId),
-          )
-          .sort((left, right) =>
-            new Date(right.requestedAt).getTime() - new Date(left.requestedAt).getTime() ||
-            left.id.localeCompare(right.id),
+        sortApplicationConsentRequests(
+          cloneValue(state.applicationConsentRequests).filter((request) =>
+            matchesOptionalStringFilters(request, [
+              ["runId", options?.runId],
+              ["jobId", options?.jobId],
+              ["resultId", options?.resultId],
+            ]),
           ),
+        ),
       );
     },
     upsertApplicationConsentRequest(request) {

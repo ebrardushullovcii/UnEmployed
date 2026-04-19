@@ -44,7 +44,7 @@ export function getReviewQueueWorkflowStatus(
     }
   }
 
-  if (item.resumeReview.status === 'approved') {
+  if (item.resumeReview.status === 'approved' && item.resumeAssetId) {
     return {
       label: 'Ready to apply',
       tone: 'positive'

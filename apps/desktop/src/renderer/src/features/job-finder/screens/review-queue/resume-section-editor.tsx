@@ -131,9 +131,7 @@ export function ResumeSectionEditor(props: {
             onChange={(event) =>
               props.onChange({
                 ...props.section,
-                text: event.currentTarget.value.trim()
-                  ? event.currentTarget.value
-                  : null,
+                text: toNullableText(event.currentTarget.value),
               })
             }
           />

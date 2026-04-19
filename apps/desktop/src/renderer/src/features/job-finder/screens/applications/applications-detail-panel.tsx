@@ -26,6 +26,7 @@ interface ApplicationsDetailPanelProps {
   applyRunDetailsStatus: 'idle' | 'loading' | 'ready' | 'error';
   applicationRecords: readonly ApplicationRecord[];
   applyJobResults: JobFinderWorkspaceSnapshot['applyJobResults'];
+  busy: boolean;
   discoveryJobs: JobFinderWorkspaceSnapshot['discoveryJobs'];
   applyRunHistory: Array<{
     result: JobFinderWorkspaceSnapshot['applyJobResults'][number];
@@ -57,6 +58,7 @@ export function ApplicationsDetailPanel({
   applyRunDetailsStatus,
   applicationRecords,
   applyJobResults,
+  busy,
   discoveryJobs,
   applyRunHistory,
   effectiveSelectedApplyResult,
@@ -85,6 +87,17 @@ export function ApplicationsDetailPanel({
   const selectedRunHistoryEntry =
     applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ?? null;
   const selectedRun = applyRunDetails?.run ?? selectedRunHistoryEntry?.run ?? null;
+  const selectedResultState = applyRunDetails?.result?.state ?? visibleApplyResult?.state ?? null;
+  const selectedResultTone =
+    selectedResultState === 'submitted'
+      ? 'positive'
+      : selectedResultState === 'blocked' ||
+          selectedResultState === 'failed' ||
+          selectedResultState === 'skipped'
+        ? 'critical'
+        : selectedResultState
+          ? 'active'
+          : 'muted';
   const selectedQueueRecoveryEntries = selectedRun
     ? selectedRun.jobIds.map((jobId) => {
         const runResult =
@@ -426,7 +439,7 @@ export function ApplicationsDetailPanel({
                 }}
                 type="button"
                 variant="secondary"
-                disabled={!canRerunCopilot}
+                disabled={busy || !canRerunCopilot}
               >
                 Rerun apply copilot
               </Button>
@@ -438,7 +451,7 @@ export function ApplicationsDetailPanel({
                 }}
                 type="button"
                 variant="ghost"
-                disabled={!canRestageAutoRun}
+                disabled={busy || !canRestageAutoRun}
               >
                 Restage auto run
               </Button>
@@ -446,7 +459,7 @@ export function ApplicationsDetailPanel({
                 onClick={() => onStartAutoApplyQueue(selectedQueueRecoveryJobIds)}
                 type="button"
                 variant="ghost"
-                disabled={!canRestageQueueRun}
+                disabled={busy || !canRestageQueueRun}
               >
                 Restage remaining queue
               </Button>
@@ -672,6 +685,7 @@ export function ApplicationsDetailPanel({
                     onClick={() => onApproveApplyRun(applyRunDetails.submitApproval!.runId)}
                     type="button"
                     variant="secondary"
+                    disabled={busy}
                   >
                     Record submit approval
                   </Button>
@@ -681,6 +695,7 @@ export function ApplicationsDetailPanel({
                     onClick={() => onRevokeApplyRunApproval(applyRunDetails.submitApproval!.runId)}
                     type="button"
                     variant="ghost"
+                    disabled={busy}
                   >
                     Revoke approval
                   </Button>
@@ -691,6 +706,7 @@ export function ApplicationsDetailPanel({
                     onClick={() => onCancelApplyRun(applyRunDetails.run.id)}
                     type="button"
                     variant="ghost"
+                    disabled={busy}
                   >
                     Cancel run
                   </Button>
@@ -702,7 +718,7 @@ export function ApplicationsDetailPanel({
             <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="label-mono-xs text-primary">Apply run review data</h3>
-                <StatusBadge tone={getAttemptTone(selectedAttempt?.state ?? selectedRecord.lastAttemptState)}>
+                <StatusBadge tone={selectedResultTone}>
                   {applyRunDetailsStatus === 'loading'
                     ? 'Loading details'
                     : applyRunDetailsStatus === 'error'
@@ -860,6 +876,7 @@ export function ApplicationsDetailPanel({
                                 onClick={() => onResolveApplyConsentRequest(request.id, 'approve')}
                                 type="button"
                                 variant="secondary"
+                                disabled={busy}
                               >
                                 Continue safely
                               </Button>
@@ -867,6 +884,7 @@ export function ApplicationsDetailPanel({
                                 onClick={() => onResolveApplyConsentRequest(request.id, 'decline')}
                                 type="button"
                                 variant="ghost"
+                                disabled={busy}
                               >
                                 Skip this job
                               </Button>

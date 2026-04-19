@@ -2,9 +2,9 @@ import {
   ApplyJobResultSchema,
   ApplyRunSchema,
   ApplySubmitApprovalSchema,
+  ApplicationAttemptSchema,
   ApplicationAnswerRecordSchema,
   ApplicationArtifactRefSchema,
-  ApplicationAttemptSchema,
   ApplicationConsentRequestSchema,
   ApplicationRecordSchema,
   ApplicationQuestionRecordSchema,
@@ -33,6 +33,10 @@ import {
   type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import {
+  APPLY_COLLECTION_ORDER_BY_SQL,
+  APPLY_INDEXED_COLLECTION_CONFIGS,
+} from "../apply-collection-support";
 
 import {
   normalizeLegacyDiscoveryState,
@@ -261,47 +265,20 @@ export function writeState(
     replaceCollection(database, "saved_jobs", state.savedJobs);
     replaceCollection(database, "tailored_assets", state.tailoredAssets);
     replaceIndexedCollection(database, "apply_runs", state.applyRuns, {
-      columnNames: ["created_at", "updated_at", "mode", "state"],
-      getColumns: (value) => {
-        const run = ApplyRunSchema.parse(value);
-        return [run.createdAt, run.updatedAt, run.mode, run.state];
-      },
+      ...APPLY_INDEXED_COLLECTION_CONFIGS.apply_runs,
     });
     replaceIndexedCollection(database, "apply_job_results", state.applyJobResults, {
-      columnNames: ["run_id", "job_id", "queue_position", "updated_at", "state"],
-      getColumns: (value) => {
-        const result = ApplyJobResultSchema.parse(value);
-        return [
-          result.runId,
-          result.jobId,
-          result.queuePosition,
-          result.updatedAt,
-          result.state,
-        ];
-      },
+      ...APPLY_INDEXED_COLLECTION_CONFIGS.apply_job_results,
     });
-    replaceIndexedCollection(
-      database,
-      "apply_submit_approvals",
-      state.applySubmitApprovals,
-      {
-        columnNames: ["run_id", "created_at", "status"],
-        getColumns: (value) => {
-          const approval = ApplySubmitApprovalSchema.parse(value);
-          return [approval.runId, approval.createdAt, approval.status];
-        },
-      },
-    );
+    replaceIndexedCollection(database, "apply_submit_approvals", state.applySubmitApprovals, {
+      ...APPLY_INDEXED_COLLECTION_CONFIGS.apply_submit_approvals,
+    });
     replaceIndexedCollection(
       database,
       "application_question_records",
       state.applicationQuestionRecords,
       {
-        columnNames: ["run_id", "job_id", "result_id", "detected_at"],
-        getColumns: (value) => {
-          const record = ApplicationQuestionRecordSchema.parse(value);
-          return [record.runId, record.jobId, record.resultId, record.detectedAt];
-        },
+        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_question_records,
       },
     );
     replaceIndexedCollection(
@@ -309,17 +286,7 @@ export function writeState(
       "application_answer_records",
       state.applicationAnswerRecords,
       {
-        columnNames: ["run_id", "job_id", "result_id", "question_id", "created_at"],
-        getColumns: (value) => {
-          const record = ApplicationAnswerRecordSchema.parse(value);
-          return [
-            record.runId,
-            record.jobId,
-            record.resultId,
-            record.questionId,
-            record.createdAt,
-          ];
-        },
+        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_answer_records,
       },
     );
     replaceIndexedCollection(
@@ -327,11 +294,7 @@ export function writeState(
       "application_artifact_refs",
       state.applicationArtifactRefs,
       {
-        columnNames: ["run_id", "job_id", "result_id", "created_at", "kind"],
-        getColumns: (value) => {
-          const ref = ApplicationArtifactRefSchema.parse(value);
-          return [ref.runId, ref.jobId, ref.resultId, ref.createdAt, ref.kind];
-        },
+        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_artifact_refs,
       },
     );
     replaceIndexedCollection(
@@ -339,16 +302,7 @@ export function writeState(
       "application_replay_checkpoints",
       state.applicationReplayCheckpoints,
       {
-        columnNames: ["run_id", "job_id", "result_id", "created_at"],
-        getColumns: (value) => {
-          const checkpoint = ApplicationReplayCheckpointSchema.parse(value);
-          return [
-            checkpoint.runId,
-            checkpoint.jobId,
-            checkpoint.resultId,
-            checkpoint.createdAt,
-          ];
-        },
+        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_replay_checkpoints,
       },
     );
     replaceIndexedCollection(
@@ -356,17 +310,7 @@ export function writeState(
       "application_consent_requests",
       state.applicationConsentRequests,
       {
-        columnNames: ["run_id", "job_id", "result_id", "requested_at", "status"],
-        getColumns: (value) => {
-          const request = ApplicationConsentRequestSchema.parse(value);
-          return [
-            request.runId,
-            request.jobId,
-            request.resultId,
-            request.requestedAt,
-            request.status,
-          ];
-        },
+        ...APPLY_INDEXED_COLLECTION_CONFIGS.application_consent_requests,
       },
     );
     replaceIndexedCollection(database, "resume_drafts", state.resumeDrafts, {
@@ -668,14 +612,14 @@ export function readState(
       },
     ),
     applyRuns: listCollectionValues(database, "apply_runs", ApplyRunSchema, {
-      orderBySql: "updated_at DESC, id ASC",
+      orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_runs,
     }),
     applyJobResults: listCollectionValues(
       database,
       "apply_job_results",
       ApplyJobResultSchema,
       {
-        orderBySql: "updated_at DESC, queue_position ASC, id ASC",
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_job_results,
       },
     ),
     applySubmitApprovals: listCollectionValues(
@@ -683,7 +627,7 @@ export function readState(
       "apply_submit_approvals",
       ApplySubmitApprovalSchema,
       {
-        orderBySql: "created_at DESC, id ASC",
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_submit_approvals,
       },
     ),
     applicationQuestionRecords: listCollectionValues(
@@ -691,7 +635,7 @@ export function readState(
       "application_question_records",
       ApplicationQuestionRecordSchema,
       {
-        orderBySql: "detected_at ASC, id ASC",
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_question_records,
       },
     ),
     applicationAnswerRecords: listCollectionValues(
@@ -699,7 +643,7 @@ export function readState(
       "application_answer_records",
       ApplicationAnswerRecordSchema,
       {
-        orderBySql: "created_at ASC, id ASC",
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_answer_records,
       },
     ),
     applicationArtifactRefs: listCollectionValues(
@@ -707,7 +651,7 @@ export function readState(
       "application_artifact_refs",
       ApplicationArtifactRefSchema,
       {
-        orderBySql: "created_at DESC, id ASC",
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_artifact_refs,
       },
     ),
     applicationReplayCheckpoints: listCollectionValues(
@@ -715,7 +659,7 @@ export function readState(
       "application_replay_checkpoints",
       ApplicationReplayCheckpointSchema,
       {
-        orderBySql: "created_at DESC, id ASC",
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_replay_checkpoints,
       },
     ),
     applicationConsentRequests: listCollectionValues(
@@ -723,7 +667,7 @@ export function readState(
       "application_consent_requests",
       ApplicationConsentRequestSchema,
       {
-        orderBySql: "requested_at DESC, id ASC",
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_consent_requests,
       },
     ),
     applicationRecords: listValues(

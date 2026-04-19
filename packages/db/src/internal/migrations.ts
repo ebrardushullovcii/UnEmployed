@@ -125,6 +125,9 @@ export function runMigrations(database: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS apply_job_results_job_id_idx
         ON apply_job_results(job_id, updated_at DESC, id ASC);
 
+      CREATE UNIQUE INDEX IF NOT EXISTS apply_job_results_run_job_unique_idx
+        ON apply_job_results(run_id, job_id);
+
       CREATE TABLE IF NOT EXISTS apply_submit_approvals (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
@@ -148,6 +151,9 @@ export function runMigrations(database: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS application_question_records_run_job_idx
         ON application_question_records(run_id, job_id, detected_at ASC, id ASC);
 
+      CREATE INDEX IF NOT EXISTS application_question_records_result_idx
+        ON application_question_records(result_id, detected_at ASC, id ASC);
+
       CREATE TABLE IF NOT EXISTS application_answer_records (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
@@ -161,6 +167,9 @@ export function runMigrations(database: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS application_answer_records_question_idx
         ON application_answer_records(question_id, created_at ASC, id ASC);
 
+      CREATE INDEX IF NOT EXISTS application_answer_records_result_idx
+        ON application_answer_records(result_id, created_at ASC, id ASC);
+
       CREATE TABLE IF NOT EXISTS application_artifact_refs (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
@@ -172,7 +181,7 @@ export function runMigrations(database: DatabaseSync): void {
       );
 
       CREATE INDEX IF NOT EXISTS application_artifact_refs_result_idx
-        ON application_artifact_refs(run_id, job_id, created_at DESC, id ASC);
+        ON application_artifact_refs(result_id, created_at DESC, id ASC);
 
       CREATE TABLE IF NOT EXISTS application_replay_checkpoints (
         id TEXT PRIMARY KEY,
@@ -184,7 +193,7 @@ export function runMigrations(database: DatabaseSync): void {
       );
 
       CREATE INDEX IF NOT EXISTS application_replay_checkpoints_result_idx
-        ON application_replay_checkpoints(run_id, job_id, created_at DESC, id ASC);
+        ON application_replay_checkpoints(result_id, created_at DESC, id ASC);
 
       CREATE TABLE IF NOT EXISTS application_consent_requests (
         id TEXT PRIMARY KEY,
@@ -197,7 +206,25 @@ export function runMigrations(database: DatabaseSync): void {
       );
 
       CREATE INDEX IF NOT EXISTS application_consent_requests_result_idx
-        ON application_consent_requests(run_id, job_id, requested_at DESC, id ASC);
+        ON application_consent_requests(result_id, requested_at DESC, id ASC);
+    `);
+  }
+
+  function dedupeApplyJobResultsByRunAndJob(): void {
+    database.exec(`
+      DELETE FROM apply_job_results
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT
+            id,
+            ROW_NUMBER() OVER (
+              PARTITION BY run_id, job_id
+              ORDER BY updated_at DESC, queue_position ASC, id ASC
+            ) AS row_number
+          FROM apply_job_results
+        ) duplicates
+        WHERE duplicates.row_number > 1
+      );
     `);
   }
 
@@ -239,13 +266,15 @@ export function runMigrations(database: DatabaseSync): void {
       !hasTable("application_consent_requests");
     const needsProfileCopilotMigration = currentVersion < 5;
     const needsApplyFoundationMigration = currentVersion < 6;
+    const needsApplyFoundationIndexMigration = currentVersion < 7;
 
     if (
       resumeImportTablesMissing ||
       profileCopilotTablesMissing ||
       applyFoundationTablesMissing ||
       needsProfileCopilotMigration ||
-      needsApplyFoundationMigration
+      needsApplyFoundationMigration ||
+      needsApplyFoundationIndexMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -257,7 +286,15 @@ export function runMigrations(database: DatabaseSync): void {
           ensureProfileCopilotTables();
         }
 
-        if (applyFoundationTablesMissing || needsApplyFoundationMigration) {
+        if (
+          applyFoundationTablesMissing ||
+          needsApplyFoundationMigration ||
+          needsApplyFoundationIndexMigration
+        ) {
+          if (!applyFoundationTablesMissing && needsApplyFoundationIndexMigration) {
+            dedupeApplyJobResultsByRunAndJob();
+          }
+
           ensureApplyFoundationTables();
         }
 
@@ -271,6 +308,12 @@ export function runMigrations(database: DatabaseSync): void {
           database
             .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
             .run(6, "job_finder_apply_foundation");
+        }
+
+        if (needsApplyFoundationIndexMigration) {
+          database
+            .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .run(7, "job_finder_apply_foundation_indexes");
         }
 
         database.exec("COMMIT");
@@ -443,6 +486,16 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(6, "job_finder_apply_foundation");
+    }
+
+    if (currentVersion < 7) {
+      if (currentVersion >= 6) {
+        dedupeApplyJobResultsByRunAndJob();
+      }
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(7, "job_finder_apply_foundation_indexes");
     }
 
     database.exec("COMMIT");

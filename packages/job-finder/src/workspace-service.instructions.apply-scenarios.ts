@@ -581,7 +581,7 @@ describe("createJobFinderWorkspaceService", () => {
         },
         async executeApplicationFlow(source, input) {
           capturedInstructions = input.instructions ?? [];
-          return createWorkspaceServiceHarness().browserRuntime.executeApplicationFlow!(
+          return createWorkspaceServiceHarness().browserRuntime.executeApplicationFlow(
             source,
             input,
           );
@@ -680,7 +680,7 @@ describe("createJobFinderWorkspaceService", () => {
         },
         async executeApplicationFlow(source, input) {
           capturedInstructions = input.instructions ?? [];
-          return createWorkspaceServiceHarness().browserRuntime.executeApplicationFlow!(
+          return createWorkspaceServiceHarness().browserRuntime.executeApplicationFlow(
             source,
             input,
           );

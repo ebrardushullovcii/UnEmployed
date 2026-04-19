@@ -71,6 +71,27 @@ export function compactSourceInstructionReviewPhaseContexts(input: {
   handoffCompaction: SharedAgentHandoffCompaction;
 } {
   const policy = SharedAgentCompactionPolicySchema.parse(input.compactionPolicy);
+
+  if (!policy.enabled) {
+    return {
+      phaseContexts: input.phaseContexts.map((context) => ({
+        ...context,
+        reviewTranscript: [...context.reviewTranscript],
+      })),
+      handoffCompaction: SharedAgentHandoffCompactionSchema.parse({
+        mode: "full_context",
+        keptTranscriptLineCount: input.phaseContexts.reduce(
+          (sum, context) => sum + context.reviewTranscript.length,
+          0,
+        ),
+        droppedTranscriptLineCount: 0,
+        compactedPhaseContextCount: 0,
+        compaction: null,
+        normalizedFailureReason: null,
+      }),
+    };
+  }
+
   const budgets = getEffectiveBudgets({
     policy,
     modelContextWindowTokens: input.modelContextWindowTokens,

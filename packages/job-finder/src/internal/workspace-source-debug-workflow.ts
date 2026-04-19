@@ -497,11 +497,15 @@ export async function runSourceDebugWorkflow(
           avoidStrategyFingerprints: [strategyFingerprint],
           evidenceRefIds: evidenceRefs.map((evidenceRef) => evidenceRef.id),
           phaseEvidence: completion.phaseEvidence,
-          compactionState: debugResult.agentMetadata?.compactionState
-            ? SourceDebugCompactionStateSchema.parse(
-                debugResult.agentMetadata.compactionState,
-              )
-            : null,
+          compactionState: (() => {
+            const parsedCompactionState = debugResult.agentMetadata?.compactionState
+              ? SourceDebugCompactionStateSchema.safeParse(
+                  debugResult.agentMetadata.compactionState,
+                )
+              : null;
+
+            return parsedCompactionState?.success ? parsedCompactionState.data : null;
+          })(),
           timing: phaseTiming,
         });
 

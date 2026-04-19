@@ -4,6 +4,67 @@ import {
 } from "@unemployed/contracts";
 import { createEmptyJobFinderRepositoryState } from "./job-finder-initial-state";
 
+const demoResumeDraftSections = [
+  {
+    id: "section_summary",
+    kind: "summary",
+    label: "Summary",
+    text: "Systems-focused product designer with deep workflow automation and design-systems experience.",
+    bullets: [],
+    entries: [],
+    origin: "deterministic_fallback",
+    locked: false,
+    included: true,
+    sortOrder: 0,
+    profileRecordId: null,
+    sourceRefs: [],
+    updatedAt: "2026-03-20T10:04:00.000Z",
+  },
+  {
+    id: "section_experience",
+    kind: "experience",
+    label: "Experience",
+    text: null,
+    bullets: [],
+    entries: [
+      {
+        id: "entry_signal_systems",
+        entryType: "experience",
+        title: "Senior systems designer",
+        subtitle: "Signal Systems",
+        location: "London, UK",
+        dateRange: "2020 - Present",
+        summary: "Leads design systems and workflow platform improvements.",
+        bullets: [
+          {
+            id: "bullet_signal_rollout",
+            text: "Led design-system rollout across core workflow surfaces used by design and operations teams.",
+            origin: "deterministic_fallback",
+            locked: false,
+            included: true,
+            sourceRefs: [],
+            updatedAt: "2026-03-20T10:04:00.000Z",
+          },
+        ],
+        origin: "deterministic_fallback",
+        locked: false,
+        included: true,
+        sortOrder: 0,
+        profileRecordId: "experience_1",
+        sourceRefs: [],
+        updatedAt: "2026-03-20T10:04:00.000Z",
+      },
+    ],
+    origin: "deterministic_fallback",
+    locked: false,
+    included: true,
+    sortOrder: 1,
+    profileRecordId: null,
+    sourceRefs: [],
+    updatedAt: "2026-03-20T10:04:00.000Z",
+  },
+] as const;
+
 export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
   const emptyState = createEmptyJobFinderRepositoryState();
 
@@ -347,13 +408,23 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
 
 export function createApplyQueueDemoState(): JobFinderRepositoryState {
   const resumeDemoState = createResumeWorkspaceDemoState();
+  const readySavedJob = resumeDemoState.savedJobs.find((job) => job.id === "job_ready");
+  const generatingSavedJob = resumeDemoState.savedJobs.find(
+    (job) => job.id === "job_generating",
+  );
+
+  if (!readySavedJob || !generatingSavedJob) {
+    throw new Error("Resume workspace demo state is missing required saved jobs.");
+  }
 
   return JobFinderRepositoryStateSchema.parse({
     ...resumeDemoState,
     savedJobs: [
-      resumeDemoState.savedJobs[0],
       {
-        ...resumeDemoState.savedJobs[0],
+        ...readySavedJob,
+      },
+      {
+        ...readySavedJob,
         id: "job_consent_queue",
         sourceJobId: "linkedin_consent_queue",
         canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
@@ -372,9 +443,15 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
             weight: 4,
           },
         ],
+        status: "ready_for_review",
+        matchAssessment: {
+          score: 93,
+          reasons: ["Strong workflow automation overlap"],
+          gaps: [],
+        },
       },
       {
-        ...resumeDemoState.savedJobs[1],
+        ...generatingSavedJob,
         id: "job_not_ready_queue",
         sourceJobId: "linkedin_not_ready_queue",
         canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue",
@@ -427,7 +504,7 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         jobId: "job_ready",
         status: "approved",
         templateId: "classic_ats",
-        sections: [],
+        sections: demoResumeDraftSections,
         targetPageCount: 2,
         generationMethod: "deterministic",
         approvedAt: "2026-03-20T10:04:00.000Z",
@@ -441,7 +518,7 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         jobId: "job_consent_queue",
         status: "approved",
         templateId: "classic_ats",
-        sections: [],
+        sections: demoResumeDraftSections,
         targetPageCount: 2,
         generationMethod: "deterministic",
         approvedAt: "2026-03-20T10:04:00.000Z",

@@ -118,15 +118,22 @@ function getModelContextWindowTokens(config: AgentConfig): number | null {
 }
 
 export function getEffectiveCompactionConfig(config: AgentConfig): SharedAgentCompactionPolicy {
+  const configCompaction = config.compaction ?? {}
   const workflowKey = config.compactionCapability?.compactionWorkflowKey ?? null
+  const workflowOverrides = {
+    ...DEFAULT_COMPACTION_CONFIG.workflowOverrides,
+    ...(configCompaction.workflowOverrides ?? {}),
+  }
   const workflowOverride = workflowKey
-    ? DEFAULT_COMPACTION_CONFIG.workflowOverrides[workflowKey] ?? null
+    ? workflowOverrides[workflowKey] ?? null
     : null
+  const { workflowOverrides: _ignoredWorkflowOverrides, ...configCompactionRest } = configCompaction
 
   return SharedAgentCompactionPolicySchema.parse({
     ...DEFAULT_COMPACTION_CONFIG,
+    workflowOverrides,
     ...(workflowOverride ?? {}),
-    ...config.compaction,
+    ...configCompactionRest,
   })
 }
 
@@ -320,7 +327,12 @@ function rebuildConversationFromSummary(input: {
     ...preservedMessages,
   ]
 
-  const estimateAfter = estimateConversationTokens(input.state.conversation, input.config)
+  const estimateAfter = input.config.compactionCapability?.tokenEstimator
+    ? estimateConversationTokensWithFallback(
+        input.state.conversation,
+        input.config,
+      )
+    : null
   input.state.compactionState = buildCompactionSummary(
     input.state,
     input.config,
@@ -475,5 +487,11 @@ export function estimateConversationTokensWithFallback(
   messages: readonly AgentMessage[],
   config: AgentConfig,
 ): ConversationTokenEstimate {
-  return estimateConversationTokens(messages, config) ?? estimateConversationTokensFallback(messages)
+  const estimate = estimateConversationTokens(messages, config)
+
+  if (estimate) {
+    return estimate
+  }
+
+  return estimateConversationTokensFallback(messages)
 }

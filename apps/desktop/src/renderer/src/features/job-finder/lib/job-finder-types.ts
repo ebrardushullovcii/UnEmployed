@@ -5,6 +5,8 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderApplyConsentActionInput,
+  JobFinderApplyQueueActionInput,
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobSearchPreferences,
@@ -119,12 +121,14 @@ export interface JobFinderShellActions {
   generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   startApplyCopilotRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
-  startAutoApplyQueueRun: (jobIds: string[]) => Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyQueueRun: (
+    jobIds: JobFinderApplyQueueActionInput['jobIds'],
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   approveApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
   cancelApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
   resolveApplyConsentRequest: (
     requestId: string,
-    action: 'approve' | 'decline',
+    action: JobFinderApplyConsentActionInput['action'],
   ) => Promise<JobFinderWorkspaceSnapshot>;
   revokeApplyRunApproval: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
   approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;

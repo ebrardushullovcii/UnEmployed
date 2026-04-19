@@ -234,6 +234,24 @@ function looksLikeVagueFiller(content: string): boolean {
   );
 }
 
+function hasVisibleEntryContent(input: {
+  title?: string | null;
+  subtitle?: string | null;
+  location?: string | null;
+  dateRange?: string | null;
+  summary?: string | null;
+  bullets: readonly { included: boolean }[];
+}): boolean {
+  return (
+    Boolean(input.title) ||
+    Boolean(input.subtitle) ||
+    Boolean(input.location) ||
+    Boolean(input.dateRange) ||
+    Boolean(input.summary) ||
+    input.bullets.some((bullet) => bullet.included)
+  );
+}
+
 export function sanitizeResumeDraft(input: {
   draft: ResumeDraft;
   job: SavedJob;
@@ -294,6 +312,19 @@ export function sanitizeResumeDraft(input: {
 
     const nextEntries = section.entries
       .map((entry) => {
+        if (entry.locked) {
+          if (entry.summary) {
+            seenLines.add(normalizeText(entry.summary));
+          }
+          for (const bullet of entry.bullets) {
+            const normalizedBullet = normalizeText(bullet.text);
+            if (normalizedBullet) {
+              seenLines.add(normalizedBullet);
+            }
+          }
+          return entry;
+        }
+
         const nextSummary = (() => {
           if (!entry.summary?.trim()) {
             return null;
@@ -314,9 +345,14 @@ export function sanitizeResumeDraft(input: {
         })();
 
         const nextBullets = sanitizeBullets(entry.bullets, nextSummary);
-        const hasHeading = Boolean(entry.title || entry.subtitle || entry.location || entry.dateRange);
 
-        if (!hasHeading && !nextSummary && nextBullets.length === 0) {
+        if (
+          !hasVisibleEntryContent({
+            ...entry,
+            summary: nextSummary,
+            bullets: nextBullets,
+          })
+        ) {
           return null;
         }
 
@@ -373,13 +409,7 @@ export function validateResumeDraft(input: {
     const includedBullets = section.bullets.filter((bullet) => bullet.included);
     const includedEntries = section.entries.filter((entry) => entry.included);
     const includedEntriesWithVisibleContent = includedEntries.filter(
-      (entry) =>
-        Boolean(entry.title) ||
-        Boolean(entry.subtitle) ||
-        Boolean(entry.location) ||
-        Boolean(entry.dateRange) ||
-        Boolean(entry.summary) ||
-        entry.bullets.some((bullet) => bullet.included),
+      (entry) => hasVisibleEntryContent(entry),
     );
 
     if (!section.text && includedBullets.length === 0 && includedEntriesWithVisibleContent.length === 0) {
@@ -454,7 +484,7 @@ export function validateResumeDraft(input: {
 
     const seenEntryContent = new Set<string>();
     for (const entry of includedEntries) {
-      if (!entry.title && !entry.subtitle && !entry.summary && entry.bullets.filter((bullet) => bullet.included).length === 0) {
+      if (!hasVisibleEntryContent(entry)) {
         issues.push({
           id: `issue_empty_entry_${entry.id}`,
           severity: "warning",

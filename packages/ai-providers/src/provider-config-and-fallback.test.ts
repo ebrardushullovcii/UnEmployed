@@ -71,6 +71,8 @@ describe('ai provider config and fallback behavior', () => {
 
     expect(client.getStatus()).toMatchObject({
       kind: 'openai_compatible',
+      model: 'test-model',
+      label: 'AI resume agent',
       ready: true,
       modelContextWindowTokens: 128_000,
     })

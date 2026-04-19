@@ -119,42 +119,6 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
         ? 'existing_account_decision'
         : 'manual_verification'
 
-    if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
-      return Promise.resolve(
-        ApplyExecutionResultSchema.parse({
-          state: 'unsupported',
-          summary: 'Easy Apply path is unsupported',
-          detail: `${job.title} at ${job.company} no longer exposes a supported Easy Apply path for this slice.`,
-          submittedAt: null,
-          outcome: null,
-          questions: [],
-          blocker: {
-            code: 'unsupported_apply_path',
-            summary: 'The saved job no longer exposes a supported Easy Apply path.',
-            detail:
-              'The deterministic adapter stopped before entering an unsupported or external branch.',
-            questionIds: [],
-            sourceDebugEvidenceRefIds: [],
-            url: job.applicationUrl ?? job.canonicalUrl,
-          },
-          consentDecisions: [],
-          replay,
-          nextActionLabel: 'Inspect the listing manually',
-            checkpoints: [
-              ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
-              {
-                id: `checkpoint_${job.id}_unsupported`,
-                at: now,
-              label: 'Unsupported apply path',
-              detail:
-                'The adapter stopped before entering an unsupported or external branch.',
-              state: 'unsupported',
-            },
-          ],
-        }),
-      )
-    }
-
     if (!resumeFilePath.trim()) {
       return Promise.resolve(
         ApplyExecutionResultSchema.parse({
@@ -177,11 +141,11 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
           consentDecisions: [],
           replay,
           nextActionLabel: 'Re-export and approve the tailored resume',
-            checkpoints: [
-              ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
-              {
-                id: `checkpoint_${job.id}_asset_missing`,
-                at: now,
+          checkpoints: [
+            ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+            {
+              id: `checkpoint_${job.id}_asset_missing`,
+              at: now,
               label: 'Resume export missing',
               detail:
                 'The adapter refused to continue without an approved resume export file path.',
@@ -222,81 +186,122 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
     }
 
     const capturedQuestions = [resumeQuestion, ...questions]
-    const requiresHumanPause = questions.length > 0
 
-    if (input.mode === 'prepare_only') {
-      if (requiresConsentInterrupt) {
-        return Promise.resolve(
-          ApplyExecutionResultSchema.parse({
-            state: 'paused',
-            summary: 'Apply run paused for live consent',
+    if (requiresConsentInterrupt) {
+      const consentDecisionLabel =
+        consentInterruptKind === 'signup'
+          ? 'Continue into a sign-up step for this application'
+          : consentInterruptKind === 'existing_account_decision'
+            ? 'Choose whether to continue through an existing-account path'
+            : 'Continue through the manual verification step for this application'
+      const consentDecisionDetail =
+        consentInterruptKind === 'signup'
+          ? 'The page indicates that a sign-up step is required before the application can continue.'
+          : consentInterruptKind === 'existing_account_decision'
+            ? 'The page asks whether you already have an account, and the run cannot assume that answer.'
+            : 'The page requires a manual verification step before the application can continue.'
+
+      return Promise.resolve(
+        ApplyExecutionResultSchema.parse({
+          state: 'paused',
+          summary: 'Apply run paused for live consent',
+          detail:
+            'The application flow reached a consent-gated step that requires an explicit user decision before the run can continue.',
+          submittedAt: null,
+          outcome: null,
+          questions: capturedQuestions,
+          blocker: {
+            code: 'missing_consent',
+            summary: 'A consent-gated step needs a live user decision.',
             detail:
-              'The application flow reached a consent-gated step that requires an explicit user decision before the run can continue.',
-            submittedAt: null,
-            outcome: null,
-            questions: capturedQuestions,
-            blocker: {
-              code: 'missing_consent',
-              summary: 'A consent-gated step needs a live user decision.',
-              detail:
-                'The deterministic adapter stopped before any consent-gated branch such as sign-up, account-choice, or manual verification.',
-              questionIds: [],
-              sourceDebugEvidenceRefIds: [],
-              url: job.applicationUrl ?? job.canonicalUrl,
+              'The deterministic adapter stopped before any consent-gated branch such as sign-up, account-choice, or manual verification.',
+            questionIds: [],
+            sourceDebugEvidenceRefIds: [],
+            url: job.applicationUrl ?? job.canonicalUrl,
+          },
+          consentDecisions: [
+            {
+              id: `consent_${job.id}_resume_use`,
+              kind: 'resume_use',
+              label: 'Use the approved tailored resume for this apply flow',
+              status: 'approved',
+              decidedAt: now,
+              detail: `Approved export ${resumeExport.id} stayed selected for this run.`,
             },
-            consentDecisions: [
-              {
-                id: `consent_${job.id}_resume_use`,
-                kind: 'resume_use',
-                label: 'Use the approved tailored resume for this apply flow',
-                status: 'approved',
-                decidedAt: now,
-                detail: `Approved export ${resumeExport.id} stayed selected for this copilot run.`,
-              },
-              {
-                id: `consent_${job.id}_consent_interrupt`,
-                kind: 'manual_follow_up',
-                label:
-                  consentInterruptKind === 'signup'
-                    ? 'Continue into a sign-up step for this application'
-                    : consentInterruptKind === 'existing_account_decision'
-                      ? 'Choose whether to continue through an existing-account path'
-                      : 'Continue through the manual verification step for this application',
-                status: 'requested',
-                decidedAt: null,
-                detail:
-                  consentInterruptKind === 'signup'
-                    ? 'The page indicates that a sign-up step is required before the application can continue.'
-                    : consentInterruptKind === 'existing_account_decision'
-                      ? 'The page asks whether you already have an account, and the run cannot assume that answer.'
-                      : 'The page requires a manual verification step before the application can continue.',
-              },
-            ],
-            replay,
-            nextActionLabel: 'Review the consent request and decide whether to continue or skip this job',
+            {
+              id: `consent_${job.id}_consent_interrupt`,
+              kind: 'manual_follow_up',
+              label: consentDecisionLabel,
+              status: 'requested',
+              decidedAt: null,
+              detail: consentDecisionDetail,
+            },
+          ],
+          replay,
+          nextActionLabel:
+            'Review the consent request and decide whether to continue or skip this job',
+          checkpoints: [
+            ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+            {
+              id: `checkpoint_${job.id}_open_listing`,
+              at: now,
+              label: 'Opened Easy Apply',
+              detail:
+                'The adapter validated the listing and started the Easy Apply flow.',
+              state: 'in_progress',
+            },
+            {
+              id: `checkpoint_${job.id}_consent_pause`,
+              at: now,
+              label: 'Paused for consent',
+              detail:
+                'The run reached a consent-gated step and stopped before any consent-required branch continued.',
+              state: 'paused',
+            },
+          ],
+        }),
+      )
+    }
+
+    if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
+      return Promise.resolve(
+        ApplyExecutionResultSchema.parse({
+          state: 'unsupported',
+          summary: 'Easy Apply path is unsupported',
+          detail: `${job.title} at ${job.company} no longer exposes a supported Easy Apply path for this slice.`,
+          submittedAt: null,
+          outcome: null,
+          questions: [],
+          blocker: {
+            code: 'unsupported_apply_path',
+            summary: 'The saved job no longer exposes a supported Easy Apply path.',
+            detail:
+              'The deterministic adapter stopped before entering an unsupported or external branch.',
+            questionIds: [],
+            sourceDebugEvidenceRefIds: [],
+            url: job.applicationUrl ?? job.canonicalUrl,
+          },
+          consentDecisions: [],
+          replay,
+          nextActionLabel: 'Inspect the listing manually',
             checkpoints: [
               ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
               {
-                id: `checkpoint_${job.id}_open_listing`,
+                id: `checkpoint_${job.id}_unsupported`,
                 at: now,
-                label: 'Opened Easy Apply',
-                detail:
-                  'The adapter validated the listing and started the Easy Apply flow.',
-                state: 'in_progress',
-              },
-              {
-                id: `checkpoint_${job.id}_consent_pause`,
-                at: now,
-                label: 'Paused for consent',
-                detail:
-                  'The run reached a consent-gated step and stopped before any consent-required branch continued.',
-                state: 'paused',
-              },
-            ],
-          }),
-        )
-      }
+              label: 'Unsupported apply path',
+              detail:
+                'The adapter stopped before entering an unsupported or external branch.',
+              state: 'unsupported',
+            },
+          ],
+        }),
+      )
+    }
 
+    const requiresHumanPause = questions.length > 0
+
+    if (input.mode === 'prepare_only') {
       return Promise.resolve(
         ApplyExecutionResultSchema.parse({
           state: 'paused',

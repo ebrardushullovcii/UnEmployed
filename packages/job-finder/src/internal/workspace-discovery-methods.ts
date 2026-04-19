@@ -139,7 +139,7 @@ function createInitialRunRecord(input: {
         jobsPersisted: 0,
         jobsStaged: 0,
         warning: null,
-        compaction: null,
+        compactionState: null,
         compactionUsedFallbackTrigger: false,
         timing: null,
       })),
@@ -618,7 +618,7 @@ export function createWorkspaceDiscoveryMethods(
           ...entry,
           collectionMethod: collected.collectionMethod,
           sourceIntelligenceProvider: collected.intelligence.provider?.key ?? null,
-          compaction: collected.result.agentMetadata?.compactionState ?? null,
+          compactionState: collected.result.agentMetadata?.compactionState ?? null,
           compactionUsedFallbackTrigger:
             collected.result.agentMetadata?.compactionUsedFallbackTrigger ?? false,
         }));

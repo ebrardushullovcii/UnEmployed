@@ -310,6 +310,7 @@ export type ApplyJobResultSummary = z.infer<typeof ApplyJobResultSummarySchema>;
 export const ApplyRunDetailsSchema = z.object({
   run: ApplyRunSchema,
   result: ApplyJobResultSchema.nullable().default(null),
+  results: z.array(ApplyJobResultSchema).default([]),
   submitApproval: ApplySubmitApprovalSchema.nullable().default(null),
   questionRecords: z.array(ApplicationQuestionRecordSchema).default([]),
   answerRecords: z.array(ApplicationAnswerRecordSchema).default([]),

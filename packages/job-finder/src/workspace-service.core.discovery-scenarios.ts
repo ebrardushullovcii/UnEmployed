@@ -292,8 +292,8 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     const targetExecution = snapshot.recentDiscoveryRuns[0]?.targetExecutions[0];
-    expect(targetExecution?.compaction?.compactionCount).toBe(1);
-    expect(targetExecution?.compaction?.triggerKind).toBe("token_budget");
+    expect(targetExecution?.compactionState?.compactionCount).toBe(1);
+    expect(targetExecution?.compactionState?.triggerKind).toBe("token_budget");
     expect(targetExecution?.compactionUsedFallbackTrigger).toBe(false);
     expect(JSON.stringify(targetExecution)).not.toContain(
       "hidden raw transcript line",

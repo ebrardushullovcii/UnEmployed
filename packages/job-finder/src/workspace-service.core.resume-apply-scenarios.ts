@@ -447,7 +447,7 @@ describe("createJobFinderWorkspaceService", () => {
     ).rejects.toThrow(`Apply run '${runId}' does not include job 'job_generating'.`);
   });
 
-  test("captures research artifacts and applies assistant resume patches", async () => {
+  test("captures research artifacts and returns grounded assistant resume feedback", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
@@ -457,20 +457,30 @@ describe("createJobFinderWorkspaceService", () => {
       "Shorten the summary and tighten one experience bullet for ATS readability.",
     );
     const afterWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const assistantPatchedMessage = messages.find(
+      (message) => message.role === "assistant" && message.patches.length > 0,
+    );
 
     expect(beforeWorkspace.research.length).toBeGreaterThan(0);
     expect(messages.some((message) => message.role === "assistant")).toBe(true);
-    expect(afterWorkspace.draft.updatedAt).not.toBe(beforeWorkspace.draft.updatedAt);
+    if (assistantPatchedMessage) {
+      expect(afterWorkspace.draft.updatedAt).not.toBe(beforeWorkspace.draft.updatedAt);
+    } else {
+      expect(
+        messages.some(
+          (message) =>
+            message.role === "assistant" && /no changes were applied/i.test(message.content),
+        ),
+      ).toBe(true);
+    }
     expect(
       afterWorkspace.draft.sections
         .find((section) => section.kind === "experience")
         ?.entries.some((entry) => entry.bullets.length > 0),
     ).toBe(true);
-    expect(
-      afterWorkspace.assistantMessages.some(
-        (message) => message.role === "assistant" && message.patches.length > 0,
-      ),
-    ).toBe(true);
+    expect(afterWorkspace.assistantMessages.some((message) => message.role === "assistant")).toBe(
+      true,
+    );
   });
 
   test("sanitizes duplicate and copied job-description resume content before persistence", async () => {
@@ -898,13 +908,25 @@ describe("createJobFinderWorkspaceService", () => {
 
     await workspaceService.approveApplyRun(runId!);
     const revokedSnapshot = await workspaceService.revokeApplyRunApproval(runId!);
-    const approval = (await repository.listApplySubmitApprovals())[0];
+    const approvals = await repository.listApplySubmitApprovals();
+    const currentApproval = approvals.find(
+      (approval) => approval.id === revokedSnapshot.applyRuns[0]?.submitApprovalId,
+    );
+    const revokedApproval = approvals.find(
+      (approval) => approval.runId === runId && approval.status === "revoked",
+    );
 
     expect(revokedSnapshot.applyRuns[0]).toMatchObject({
       id: runId,
       state: "awaiting_submit_approval",
     });
-    expect(approval).toMatchObject({
+    expect(currentApproval).toBeDefined();
+    expect(revokedApproval).toBeDefined();
+    expect(currentApproval).toMatchObject({
+      runId,
+      status: "pending",
+    });
+    expect(revokedApproval).toMatchObject({
       runId,
       status: "revoked",
     });

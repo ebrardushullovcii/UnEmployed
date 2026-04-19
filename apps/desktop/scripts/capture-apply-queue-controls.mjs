@@ -40,6 +40,17 @@ async function getWorkspace(window) {
   return window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
 }
 
+function getApplyResultForJob(workspace, jobId) {
+  return (
+    workspace.applyJobResults
+      .filter((result) => result.jobId === jobId)
+      .sort(
+        (left, right) =>
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+      )[0] ?? null
+  )
+}
+
 async function getSelectedApplyReviewData(window) {
   return window.evaluate(async () => {
     const snapshot = await window.unemployed.jobFinder.getWorkspace()
@@ -250,15 +261,15 @@ async function captureApplyQueueControls() {
       throw new Error('Expected a pending consent request in the paused queue run.')
     }
 
-    if (!consentApprovedWorkspace.applyJobResults.some((result) => result.jobId === 'job_ready' && result.state === 'awaiting_review')) {
+    if (getApplyResultForJob(consentApprovedWorkspace, 'job_ready')?.state !== 'awaiting_review') {
       throw new Error('Expected consent approval to let the next queued job reach awaiting_review.')
     }
 
-    if (!consentDeclinedWorkspace.applyJobResults.some((result) => result.jobId === 'job_consent_queue' && result.state === 'skipped')) {
+    if (getApplyResultForJob(consentDeclinedWorkspace, 'job_consent_queue')?.state !== 'skipped') {
       throw new Error('Expected declined consent to skip the blocked job.')
     }
 
-    if (!consentDeclinedWorkspace.applyJobResults.some((result) => result.jobId === 'job_ready' && result.state === 'awaiting_review')) {
+    if (getApplyResultForJob(consentDeclinedWorkspace, 'job_ready')?.state !== 'awaiting_review') {
       throw new Error('Expected declined consent to continue the queue to the next job.')
     }
 

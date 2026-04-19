@@ -29,6 +29,10 @@ import { DatabaseSync } from 'node:sqlite'
 
 import { createFileRepositoryResumeMethods } from './file-repository-resume-methods'
 import {
+  APPLY_COLLECTION_ORDER_BY_SQL,
+  buildOptionalSqlFilters,
+} from './apply-collection-support'
+import {
   createFileRepositoryContext,
   runImmediateTransaction,
   syncApprovedResumeExportsForJob,
@@ -71,6 +75,26 @@ export async function createFileJobFinderRepository(
     filePath: options.filePath,
     normalizedSeed,
   })
+
+  function listApplyCollection<TValue>(input: {
+    tableName:
+      | 'apply_runs'
+      | 'apply_job_results'
+      | 'apply_submit_approvals'
+      | 'application_question_records'
+      | 'application_answer_records'
+      | 'application_artifact_refs'
+      | 'application_replay_checkpoints'
+      | 'application_consent_requests'
+    schema: { parse: (value: unknown) => TValue }
+    orderBySql: string
+    filters?: ReadonlyArray<readonly [columnName: string, value: string | undefined]>
+  }): TValue[] {
+    return listCollectionValues(database, input.tableName, input.schema, {
+      ...buildOptionalSqlFilters(input.filters ?? []),
+      orderBySql: input.orderBySql,
+    })
+  }
 
   return {
     ...createFileRepositoryResumeMethods(context),
@@ -235,9 +259,13 @@ export async function createFileJobFinderRepository(
     },
     listApplyRuns() {
       return Promise.resolve(
-        cloneValue(listCollectionValues(database, 'apply_runs', ApplyRunSchema, {
-          orderBySql: 'updated_at DESC, id ASC',
-        })),
+        cloneValue(
+          listApplyCollection({
+            tableName: 'apply_runs',
+            schema: ApplyRunSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_runs,
+          }),
+        ),
       )
     },
     upsertApplyRun(run) {
@@ -247,8 +275,10 @@ export async function createFileJobFinderRepository(
     listApplyJobResults() {
       return Promise.resolve(
         cloneValue(
-          listCollectionValues(database, 'apply_job_results', ApplyJobResultSchema, {
-            orderBySql: 'updated_at DESC, queue_position ASC, id ASC',
+          listApplyCollection({
+            tableName: 'apply_job_results',
+            schema: ApplyJobResultSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_job_results,
           }),
         ),
       )
@@ -260,8 +290,10 @@ export async function createFileJobFinderRepository(
     listApplySubmitApprovals() {
       return Promise.resolve(
         cloneValue(
-          listCollectionValues(database, 'apply_submit_approvals', ApplySubmitApprovalSchema, {
-            orderBySql: 'created_at DESC, id ASC',
+          listApplyCollection({
+            tableName: 'apply_submit_approvals',
+            schema: ApplySubmitApprovalSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_submit_approvals,
           }),
         ),
       )
@@ -271,27 +303,17 @@ export async function createFileJobFinderRepository(
       return context.upsertPersistedValue('apply_submit_approvals', normalizedApproval)
     },
     listApplicationQuestionRecords(options) {
-      const params: string[] = []
-      const filters: string[] = []
-      if (options?.runId) {
-        filters.push('run_id = ?')
-        params.push(options.runId)
-      }
-      if (options?.jobId) {
-        filters.push('job_id = ?')
-        params.push(options.jobId)
-      }
-      if (options?.resultId) {
-        filters.push('result_id = ?')
-        params.push(options.resultId)
-      }
-      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
       return Promise.resolve(
         cloneValue(
-          listCollectionValues(database, 'application_question_records', ApplicationQuestionRecordSchema, {
-            ...(whereSql ? { whereSql } : {}),
-            ...(params.length > 0 ? { params } : {}),
-            orderBySql: 'detected_at ASC, id ASC',
+          listApplyCollection({
+            tableName: 'application_question_records',
+            schema: ApplicationQuestionRecordSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_question_records,
+            filters: [
+              ['run_id', options?.runId],
+              ['job_id', options?.jobId],
+              ['result_id', options?.resultId],
+            ],
           }),
         ),
       )
@@ -301,31 +323,18 @@ export async function createFileJobFinderRepository(
       return context.upsertPersistedValue('application_question_records', normalizedRecord)
     },
     listApplicationAnswerRecords(options) {
-      const params: string[] = []
-      const filters: string[] = []
-      if (options?.runId) {
-        filters.push('run_id = ?')
-        params.push(options.runId)
-      }
-      if (options?.jobId) {
-        filters.push('job_id = ?')
-        params.push(options.jobId)
-      }
-      if (options?.resultId) {
-        filters.push('result_id = ?')
-        params.push(options.resultId)
-      }
-      if (options?.questionId) {
-        filters.push('question_id = ?')
-        params.push(options.questionId)
-      }
-      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
       return Promise.resolve(
         cloneValue(
-          listCollectionValues(database, 'application_answer_records', ApplicationAnswerRecordSchema, {
-            ...(whereSql ? { whereSql } : {}),
-            ...(params.length > 0 ? { params } : {}),
-            orderBySql: 'created_at ASC, id ASC',
+          listApplyCollection({
+            tableName: 'application_answer_records',
+            schema: ApplicationAnswerRecordSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_answer_records,
+            filters: [
+              ['run_id', options?.runId],
+              ['job_id', options?.jobId],
+              ['result_id', options?.resultId],
+              ['question_id', options?.questionId],
+            ],
           }),
         ),
       )
@@ -335,27 +344,17 @@ export async function createFileJobFinderRepository(
       return context.upsertPersistedValue('application_answer_records', normalizedRecord)
     },
     listApplicationArtifactRefs(options) {
-      const params: string[] = []
-      const filters: string[] = []
-      if (options?.runId) {
-        filters.push('run_id = ?')
-        params.push(options.runId)
-      }
-      if (options?.jobId) {
-        filters.push('job_id = ?')
-        params.push(options.jobId)
-      }
-      if (options?.resultId) {
-        filters.push('result_id = ?')
-        params.push(options.resultId)
-      }
-      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
       return Promise.resolve(
         cloneValue(
-          listCollectionValues(database, 'application_artifact_refs', ApplicationArtifactRefSchema, {
-            ...(whereSql ? { whereSql } : {}),
-            ...(params.length > 0 ? { params } : {}),
-            orderBySql: 'created_at DESC, id ASC',
+          listApplyCollection({
+            tableName: 'application_artifact_refs',
+            schema: ApplicationArtifactRefSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_artifact_refs,
+            filters: [
+              ['run_id', options?.runId],
+              ['job_id', options?.jobId],
+              ['result_id', options?.resultId],
+            ],
           }),
         ),
       )
@@ -365,27 +364,17 @@ export async function createFileJobFinderRepository(
       return context.upsertPersistedValue('application_artifact_refs', normalizedRef)
     },
     listApplicationReplayCheckpoints(options) {
-      const params: string[] = []
-      const filters: string[] = []
-      if (options?.runId) {
-        filters.push('run_id = ?')
-        params.push(options.runId)
-      }
-      if (options?.jobId) {
-        filters.push('job_id = ?')
-        params.push(options.jobId)
-      }
-      if (options?.resultId) {
-        filters.push('result_id = ?')
-        params.push(options.resultId)
-      }
-      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
       return Promise.resolve(
         cloneValue(
-          listCollectionValues(database, 'application_replay_checkpoints', ApplicationReplayCheckpointSchema, {
-            ...(whereSql ? { whereSql } : {}),
-            ...(params.length > 0 ? { params } : {}),
-            orderBySql: 'created_at DESC, id ASC',
+          listApplyCollection({
+            tableName: 'application_replay_checkpoints',
+            schema: ApplicationReplayCheckpointSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_replay_checkpoints,
+            filters: [
+              ['run_id', options?.runId],
+              ['job_id', options?.jobId],
+              ['result_id', options?.resultId],
+            ],
           }),
         ),
       )
@@ -395,27 +384,17 @@ export async function createFileJobFinderRepository(
       return context.upsertPersistedValue('application_replay_checkpoints', normalizedCheckpoint)
     },
     listApplicationConsentRequests(options) {
-      const params: string[] = []
-      const filters: string[] = []
-      if (options?.runId) {
-        filters.push('run_id = ?')
-        params.push(options.runId)
-      }
-      if (options?.jobId) {
-        filters.push('job_id = ?')
-        params.push(options.jobId)
-      }
-      if (options?.resultId) {
-        filters.push('result_id = ?')
-        params.push(options.resultId)
-      }
-      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
       return Promise.resolve(
         cloneValue(
-          listCollectionValues(database, 'application_consent_requests', ApplicationConsentRequestSchema, {
-            ...(whereSql ? { whereSql } : {}),
-            ...(params.length > 0 ? { params } : {}),
-            orderBySql: 'requested_at DESC, id ASC',
+          listApplyCollection({
+            tableName: 'application_consent_requests',
+            schema: ApplicationConsentRequestSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_consent_requests,
+            filters: [
+              ['run_id', options?.runId],
+              ['job_id', options?.jobId],
+              ['result_id', options?.resultId],
+            ],
           }),
         ),
       )
