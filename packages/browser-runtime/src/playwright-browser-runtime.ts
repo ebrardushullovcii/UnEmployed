@@ -16,6 +16,7 @@ import {
   runAgentDiscovery,
   type AgentConfig,
   type AgentExtractorPageType,
+  type LLMClient,
 } from "@unemployed/browser-agent";
 import type {
   AgentDiscoveryOptions,
@@ -40,6 +41,15 @@ export interface JobPageExtractionInput {
 export type JobPageExtractor = (
   input: JobPageExtractionInput,
 ) => Promise<JobPosting[]>;
+
+export function createAgentChatWithToolsBridge(
+  chatWithTools: NonNullable<JobFinderAiClient["chatWithTools"]>,
+): LLMClient {
+  return {
+    chatWithTools: async (messages, tools, signal, options) =>
+      chatWithTools(messages, tools, signal, options),
+  };
+}
 
 export interface BrowserAgentRuntimeOptions {
   userDataDir: string;
@@ -636,6 +646,33 @@ export function createBrowserAgentRuntime(
           ...(agentOptions.compaction
             ? { compaction: agentOptions.compaction }
             : {}),
+          compactionCapability: {
+            tokenEstimator: ({ messages, maxOutputTokens }) => {
+              const estimatedInputTokens = messages.reduce((sum, message) => {
+                const messageContent = message.content ?? ""
+                const contentTokens = Math.ceil(messageContent.length / 4)
+                if (message.role === "assistant" && message.toolCalls) {
+                  return sum + contentTokens + Math.ceil(JSON.stringify(message.toolCalls).length / 4)
+                }
+                if (message.role === "tool") {
+                  return sum + contentTokens + Math.ceil((message.toolCallId ?? "").length / 4)
+                }
+                return sum + contentTokens
+              }, 0)
+
+              return {
+                estimatedInputTokens,
+                estimatedTotalTokens: estimatedInputTokens + Math.max(0, maxOutputTokens),
+              }
+            },
+            modelContextWindowTokens:
+              agentOptions.modelContextWindowTokens ??
+              ensuredAiClient.getStatus().modelContextWindowTokens ??
+              null,
+            compactionWorkflowKey: agentOptions.taskPacket
+              ? "source_debug_worker"
+              : "browser_agent_live_discovery",
+          },
           ...(agentOptions.relevantUrlSubstrings
             ? {
                 extractionContext: {
@@ -648,10 +685,7 @@ export function createBrowserAgentRuntime(
         const result = await runAgentDiscovery(
           page,
           agentConfig,
-          {
-            chatWithTools: async (messages, tools, signal) =>
-              ensuredAiClient.chatWithTools!(messages, tools, signal),
-          },
+          createAgentChatWithToolsBridge(ensuredAiClient.chatWithTools!),
           {
             extractJobsFromPage: async (input: {
               pageText: string;
@@ -728,6 +762,8 @@ export function createBrowserAgentRuntime(
             transcriptMessageCount: result.transcriptMessageCount,
             reviewTranscript: result.reviewTranscript ?? [],
             compactionState: result.compactionState ?? null,
+            compactionUsedFallbackTrigger:
+              result.compactionUsedFallbackTrigger ?? false,
             phaseCompletionMode: result.phaseCompletionMode ?? null,
             phaseCompletionReason: result.phaseCompletionReason ?? null,
             phaseEvidence: result.phaseEvidence ?? null,

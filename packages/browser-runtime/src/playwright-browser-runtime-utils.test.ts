@@ -1,8 +1,10 @@
-import { describe, expect, test } from 'vitest'
+import type { JobFinderAiClient } from '@unemployed/ai-providers'
+import { describe, expect, test, vi } from 'vitest'
 import {
   buildChromeExecutableCandidates,
   validateJobPostings,
 } from './playwright-browser-runtime-utils'
+import { createAgentChatWithToolsBridge } from './playwright-browser-runtime'
 
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
 
@@ -44,5 +46,24 @@ describe('playwright browser runtime utils', () => {
         process.env.LOCALAPPDATA = originalLocalAppData
       }
     }
+  })
+
+  test('forwards maxOutputTokens to the AI client during agent discovery', async () => {
+    type ChatWithTools = NonNullable<JobFinderAiClient['chatWithTools']>
+
+    const chatWithTools = vi.fn<ChatWithTools>(() =>
+      Promise.resolve({
+        content: 'ok',
+        toolCalls: [],
+      }),
+    )
+    const bridge = createAgentChatWithToolsBridge(chatWithTools)
+    const messages = [{ role: 'user' as const, content: 'hello' }]
+    const tools: [] = []
+    const options = { maxOutputTokens: 321 }
+
+    await bridge.chatWithTools(messages, tools, undefined, options)
+
+    expect(chatWithTools).toHaveBeenCalledWith(messages, tools, undefined, options)
   })
 })

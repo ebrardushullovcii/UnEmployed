@@ -730,6 +730,7 @@ export function buildAssistantReplyMessage(input: {
   jobId: string;
   content: string;
   patches: readonly ResumeDraftPatch[];
+  createdAt?: string;
 }): ResumeAssistantMessage {
   return ResumeAssistantMessageSchema.parse({
     id: createUniqueId(`resume_message_assistant_${input.jobId}`),
@@ -737,7 +738,7 @@ export function buildAssistantReplyMessage(input: {
     role: "assistant",
     content: input.content,
     patches: [...input.patches],
-    createdAt: new Date().toISOString(),
+    createdAt: input.createdAt ?? new Date().toISOString(),
   });
 }
 

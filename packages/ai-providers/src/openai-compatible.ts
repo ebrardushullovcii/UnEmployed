@@ -43,6 +43,11 @@ const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
 const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
 const SEARCH_RESULTS_MAX_MODEL_JOBS = 4;
+const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 196_000;
+
+type ChatWithToolsOptions = {
+  maxOutputTokens?: number;
+};
 
 function parseConfiguredTimeoutMs(
   value: string | undefined,
@@ -100,6 +105,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
     label: validatedOptions?.label ?? "AI resume agent",
     model: validatedOptions?.model ?? null,
     baseUrl: validatedOptions?.baseUrl ?? null,
+    modelContextWindowTokens: configuredOptions.success
+      ? (validatedOptions?.contextWindowTokens ?? DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS)
+      : null,
     detail:
       configuredOptions.success
         ? "The configured AI provider handles resume extraction and tailoring. Structured JSON outputs are validated locally before they affect Job Finder state."
@@ -381,7 +389,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
         effectiveMaxJobs,
       });
     },
-    async chatWithTools(messages, tools, signal) {
+    async chatWithTools(
+      messages,
+      tools,
+      signal,
+      options?: ChatWithToolsOptions,
+    ) {
       if (!validatedOptions) {
         throw new Error(
           "The configured AI provider settings are invalid. Check the model and base URL before making model requests.",
@@ -450,6 +463,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
               },
             })),
             tool_choice: "auto",
+            ...(typeof options?.maxOutputTokens === "number"
+              ? { max_tokens: options.maxOutputTokens }
+              : {}),
           }),
         });
 
@@ -689,8 +705,13 @@ export function createJobFinderAiClientFromEnvironment(
         return fallbackClient.extractJobsFromPage(input);
       }
     },
-    async chatWithTools(messages, tools, signal) {
-      return primaryClient.chatWithTools(messages, tools, signal);
+    async chatWithTools(
+      messages,
+      tools,
+      signal,
+      options?: ChatWithToolsOptions,
+    ) {
+      return primaryClient.chatWithTools(messages, tools, signal, options);
     },
   };
 }

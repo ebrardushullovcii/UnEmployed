@@ -9,7 +9,10 @@ export interface LLMClient {
   chatWithTools(
     messages: AgentMessage[],
     tools: ReturnType<typeof getToolDefinitions>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: {
+      maxOutputTokens?: number
+    }
   ): Promise<{
     content?: string
     toolCalls?: ToolCall[]

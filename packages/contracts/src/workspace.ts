@@ -247,6 +247,7 @@ export const AgentProviderStatusSchema = z.object({
   label: NonEmptyStringSchema,
   model: NonEmptyStringSchema.nullable().default(null),
   baseUrl: NonEmptyStringSchema.nullable().default(null),
+  modelContextWindowTokens: z.number().int().positive().nullable().default(null),
   detail: NonEmptyStringSchema.nullable().default(null),
 });
 export type AgentProviderStatus = z.infer<typeof AgentProviderStatusSchema>;

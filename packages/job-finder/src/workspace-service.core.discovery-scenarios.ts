@@ -1,4 +1,7 @@
-import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
+import type {
+  AgentDiscoveryOptions,
+  BrowserSessionRuntime,
+} from "@unemployed/browser-runtime";
 import {
   JobPostingSchema,
   type DiscoveryActivityEvent,
@@ -112,7 +115,8 @@ describe("createJobFinderWorkspaceService", () => {
           agentMetadata: null,
         });
       },
-      runAgentDiscovery(source, options) {
+      runAgentDiscovery(source, _unusedOptions: AgentDiscoveryOptions) {
+        void _unusedOptions;
         runAgentDiscoveryCalls += 1;
         return Promise.resolve({
           source,
@@ -127,6 +131,7 @@ describe("createJobFinderWorkspaceService", () => {
             transcriptMessageCount: 0,
             reviewTranscript: [],
             compactionState: null,
+            compactionUsedFallbackTrigger: false,
             phaseCompletionMode: null,
             phaseCompletionReason: null,
             phaseEvidence: null,
@@ -232,6 +237,67 @@ describe("createJobFinderWorkspaceService", () => {
     expect(
       snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.timing?.eventCount,
     ).toBeGreaterThan(0);
+  });
+
+  test("agent discovery persists lightweight compaction metadata without persisting raw transcripts on target executions", async () => {
+    const seed = createDiscoveryOnlySeed();
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      runAgentDiscovery(source) {
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Compaction metadata discovery run",
+          warning: null,
+          jobs: [],
+          agentMetadata: {
+            steps: 6,
+            incomplete: false,
+            transcriptMessageCount: 5,
+            reviewTranscript: ["assistant: hidden raw transcript line"],
+            compactionState: {
+              compactedAt: "2026-03-20T10:00:03.000Z",
+              compactionCount: 1,
+              triggerKind: "token_budget",
+              estimatedTokensBefore: 132000,
+              estimatedTokensAfter: 76000,
+              summary: "Compacted worker transcript before budget exhaustion.",
+              confirmedFacts: ["Visited 4 pages."],
+              blockerNotes: [],
+              avoidStrategyFingerprints: [
+                "search_filter_probe:target_site:search filter probe",
+              ],
+              preservedContext: ["Principal Designer at Acme"],
+              stickyWorkflowState: ["Phase goal: Find jobs"],
+            },
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+
+    const targetExecution = snapshot.recentDiscoveryRuns[0]?.targetExecutions[0];
+    expect(targetExecution?.compaction?.compactionCount).toBe(1);
+    expect(targetExecution?.compaction?.triggerKind).toBe("token_budget");
+    expect(targetExecution?.compactionUsedFallbackTrigger).toBe(false);
+    expect(JSON.stringify(targetExecution)).not.toContain(
+      "hidden raw transcript line",
+    );
   });
 
   test("agent discovery abort keeps streamed activity and avoids persistence", async () => {
@@ -379,6 +445,7 @@ describe("createJobFinderWorkspaceService", () => {
             transcriptMessageCount: 4,
             reviewTranscript: [],
             compactionState: null,
+            compactionUsedFallbackTrigger: false,
             phaseCompletionMode: null,
             phaseCompletionReason: null,
             phaseEvidence: null,
@@ -537,6 +604,7 @@ describe("createJobFinderWorkspaceService", () => {
             transcriptMessageCount: 4,
             reviewTranscript: [],
             compactionState: null,
+            compactionUsedFallbackTrigger: false,
             phaseCompletionMode: null,
             phaseCompletionReason: null,
             phaseEvidence: null,

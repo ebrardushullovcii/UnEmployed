@@ -55,7 +55,9 @@ describe('openai-compatible chat and draft behavior', () => {
               }
             }
           }
-        ]
+        ],
+        undefined,
+        { maxOutputTokens: 42 }
       )
 
       expect(result.toolCalls).toBeUndefined()

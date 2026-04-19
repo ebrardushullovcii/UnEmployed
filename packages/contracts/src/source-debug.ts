@@ -16,6 +16,10 @@ import {
   SourceInstructionVerificationOutcomeSchema,
   UrlStringSchema,
 } from "./base";
+import {
+  SharedAgentCompactionSnapshotSchema,
+  type SharedAgentCompactionSnapshot,
+} from "./agent-compaction";
 
 export const SourceInstructionVersionInfoSchema = z.object({
   promptProfileVersion: NonEmptyStringSchema,
@@ -27,18 +31,9 @@ export type SourceInstructionVersionInfo = z.infer<
   typeof SourceInstructionVersionInfoSchema
 >;
 
-export const SourceDebugCompactionStateSchema = z.object({
-  compactedAt: IsoDateTimeSchema,
-  compactionCount: z.number().int().nonnegative().default(0),
-  summary: NonEmptyStringSchema,
-  confirmedFacts: z.array(NonEmptyStringSchema).default([]),
-  blockerNotes: z.array(NonEmptyStringSchema).default([]),
-  avoidStrategyFingerprints: z.array(NonEmptyStringSchema).default([]),
-  preservedContext: z.array(NonEmptyStringSchema).default([]),
-});
-export type SourceDebugCompactionState = z.infer<
-  typeof SourceDebugCompactionStateSchema
->;
+export const SourceDebugCompactionStateSchema =
+  SharedAgentCompactionSnapshotSchema;
+export type SourceDebugCompactionState = SharedAgentCompactionSnapshot;
 
 export const SourceDebugPhaseEvidenceSchema = z.object({
   visibleControls: z.array(NonEmptyStringSchema).default([]),

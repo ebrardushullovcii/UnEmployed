@@ -20,7 +20,13 @@ function createState(): AgentState {
       attemptedControls: [],
       warnings: []
     },
-    compactionState: null
+    compactionState: null,
+    compactionStatus: {
+      lastTriggerKind: null,
+      usedMessageCountFallback: false,
+      lastEstimatedTokensBefore: null,
+      lastEstimatedTokensAfter: null,
+    }
   }
 }
 

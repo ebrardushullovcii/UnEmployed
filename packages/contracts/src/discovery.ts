@@ -42,6 +42,9 @@ import {
   SourceInstructionArtifactSchema,
 } from "./source-debug";
 import {
+  SharedAgentCompactionSnapshotSchema,
+} from "./agent-compaction";
+import {
   ResumeExportFormatSchema,
 } from "./resume";
 
@@ -620,6 +623,7 @@ export const DiscoveryAgentMetadataSchema = z.object({
   transcriptMessageCount: z.number().int().nonnegative().default(0),
   reviewTranscript: z.array(NonEmptyStringSchema).default([]),
   compactionState: SourceDebugCompactionStateSchema.nullable().default(null),
+  compactionUsedFallbackTrigger: z.boolean().default(false),
   phaseCompletionMode:
     SourceDebugPhaseCompletionModeSchema.nullable().default(null),
   phaseCompletionReason: NonEmptyStringSchema.nullable().default(null),
@@ -692,6 +696,8 @@ export const DiscoveryTargetExecutionSchema = z.object({
   jobsPersisted: z.number().int().nonnegative().default(0),
   jobsStaged: z.number().int().nonnegative().default(0),
   warning: NonEmptyStringSchema.nullable().default(null),
+  compaction: SharedAgentCompactionSnapshotSchema.nullable().default(null),
+  compactionUsedFallbackTrigger: z.boolean().default(false),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
 });
 export type DiscoveryTargetExecution = z.infer<

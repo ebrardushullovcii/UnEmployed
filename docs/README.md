@@ -55,7 +55,7 @@ This repo keeps a small set of canonical docs so a new agent can recover context
 - Completed 013 companion benchmark report and evidence: [exec-plans/completed/013-benchmark-results.md](exec-plans/completed/013-benchmark-results.md)
 - Completed resume output and template quality plan: [exec-plans/completed/014-job-finder-resume-output-and-template-quality.md](exec-plans/completed/014-job-finder-resume-output-and-template-quality.md)
 - Active automatic job apply plan: [exec-plans/active/015-job-finder-automatic-job-apply.md](exec-plans/active/015-job-finder-automatic-job-apply.md)
-- Queued shared agent auto compaction plan: [exec-plans/queued/016-shared-agent-auto-compaction.md](exec-plans/queued/016-shared-agent-auto-compaction.md)
+- Completed shared agent auto compaction plan: [exec-plans/completed/016-shared-agent-auto-compaction.md](exec-plans/completed/016-shared-agent-auto-compaction.md)
 - Completed full-app copy pass: [exec-plans/completed/009-full-app-production-copy-pass.md](exec-plans/completed/009-full-app-production-copy-pass.md)
 - Completed browser efficiency and speed: [exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md](exec-plans/completed/010-job-finder-browser-efficiency-and-speed.md)
 - Queued browser substrate evaluation and direction plan: [exec-plans/queued/017-browser-substrate-evaluation-and-direction.md](exec-plans/queued/017-browser-substrate-evaluation-and-direction.md)

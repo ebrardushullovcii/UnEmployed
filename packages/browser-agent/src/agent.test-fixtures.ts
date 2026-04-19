@@ -117,7 +117,7 @@ export function createConfig(): AgentConfig {
     },
     promptContext: {
       siteLabel: "Primary target",
-      taskPacket: {
+    taskPacket: {
         phaseGoal: "Verify job discovery routes.",
         knownFacts: ["Start from the search route."],
         priorPhaseSummary: null,
@@ -131,8 +131,9 @@ export function createConfig(): AgentConfig {
       },
     },
     compaction: {
-      maxTranscriptMessages: 5,
+      messageCountFallbackThreshold: 5,
       preserveRecentMessages: 2,
+      minimumPreserveRecentMessages: 1,
       maxToolPayloadChars: 48,
     },
   };

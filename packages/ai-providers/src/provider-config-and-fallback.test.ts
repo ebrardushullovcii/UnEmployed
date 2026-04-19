@@ -55,7 +55,24 @@ describe('ai provider config and fallback behavior', () => {
     expect(client.getStatus()).toMatchObject({
       kind: 'openai_compatible',
       model: 'test-model',
-      label: 'AI resume agent'
+      label: 'AI resume agent',
+      modelContextWindowTokens: 196_000
+    })
+  })
+
+  test('allows a direct OpenAI-compatible client to override the model context window', () => {
+    const client = createOpenAiCompatibleJobFinderAiClient({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'test-model',
+      label: 'AI resume agent',
+      contextWindowTokens: 128_000,
+    })
+
+    expect(client.getStatus()).toMatchObject({
+      kind: 'openai_compatible',
+      ready: true,
+      modelContextWindowTokens: 128_000,
     })
   })
 

@@ -10,6 +10,7 @@ import type {
   JobSearchPreferences,
   JobSource,
   ResumeExportArtifact,
+  SharedAgentCompactionPolicy,
   SavedJob,
 } from '@unemployed/contracts'
 import type { JobFinderAiClient } from '@unemployed/ai-providers'
@@ -75,11 +76,8 @@ export interface AgentDiscoveryOptions {
     manualPrerequisiteState?: string | null;
     strategyLabel?: string | null;
   };
-  compaction?: {
-    maxTranscriptMessages?: number;
-    preserveRecentMessages?: number;
-    maxToolPayloadChars?: number;
-  };
+  compaction?: Partial<SharedAgentCompactionPolicy>;
+  modelContextWindowTokens?: number | null;
   relevantUrlSubstrings?: string[];
   experimental?: boolean;
   skipSessionValidation?: boolean;

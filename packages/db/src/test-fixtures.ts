@@ -186,6 +186,7 @@ export function createSeed(): JobFinderRepositorySeed {
       recentRuns: [],
       activeSourceDebugRun: null,
       recentSourceDebugRuns: [],
+      discoveryLedger: [],
       pendingDiscoveryJobs: [],
     },
   };

@@ -1,7 +1,6 @@
 import {
   CandidateProfileSchema,
   JobFinderDiscoveryStateSchema,
-  JobFinderSettingsSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
   ProfileSetupStateSchema,

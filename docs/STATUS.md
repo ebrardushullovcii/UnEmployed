@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Plans `007`, `010`, `011`, `012`, `013`, `014`, `018`, and `019` are completed. The near-term product sequence now continues with active `015` staged apply automation, then `016` shared agent auto compaction, and `017` browser substrate evaluation and direction.
+Plans `007`, `010`, `011`, `012`, `013`, `014`, `016`, `018`, and `019` are completed. The near-term product sequence now continues with active `015` staged apply automation, then `017` browser substrate evaluation and direction.
 
 ## Snapshot
 
@@ -48,7 +48,7 @@ Plans `007`, `010`, `011`, `012`, `013`, `014`, `018`, and `019` are completed. 
 - The latest hardening pass tightened `Shortlisted` truthfulness by separating resume/browser readiness from supported apply-path readiness, synced `Applications` filtered selection back to controller state, and fixed the resume-import harness heading selector for strict-mode Playwright runs.
 - Plan `015` now directly absorbs the comparative-review findings: richer answer and blocker domains, stronger provider and source-debug intelligence inputs, a one-job apply-copilot milestone before broad auto-submit, and the explicit rule that provider APIs may improve question modeling but are not a universal direct-submit path without employer credentials.
 - Plans `012`, `013`, `014`, and `015` should be treated as one end-to-end product sequence rather than unrelated options. Completed `011` supplies the durable shared roots, completed `018` now populates them through a reviewable import substrate, `012` collects and reviews the unresolved or missing details, `013` reuses the stronger shared data for source intelligence and discovery, `014` consumes it for better resume quality, and `015` uses it for apply automation.
-- The repo already has partial browser-agent transcript compaction, and queued plan `016` is now an execution-ready pull-forward enabler for the longest-running discovery, source-debug, and future apply agents rather than a mandatory queue item ahead of visible product work.
+- Plan `016` is now completed in repo state: shared compaction contracts, token-budget-first browser-agent live compaction, message-count fallback, runtime model-window budgeting, source-debug worker adoption, summary-first final-review handoff compaction, lightweight discovery compaction telemetry, and an apply-ready reusable handoff seam are all landed without turning current deterministic apply execution into a fake agent loop; the shared defaults are now tuned to start compaction near the current 196k model window instead of the earlier conservative legacy thresholds.
 - Plan `017` is now a proper benchmark-and-decision plan for the later browser-substrate choice. It should still run only after representative post-`013` and post-`015` flows exist, but it is no longer just an undeveloped direction note.
 - Older milestone detail lives in `docs/HISTORY.md`.
 
@@ -70,7 +70,7 @@ Plans `007`, `010`, `011`, `012`, `013`, `014`, `018`, and `019` are completed. 
 - Keep the completed `014` ATS-first resume baseline paired with the stronger `019` import quality pass so later apply work does not reopen resume quality regressions caused by weaker upstream inputs.
 - Treat `014` as complete and use the retained `apps/desktop/test-artifacts/ui/resume-workspace/workspace-after-demo.json` plus `resume-workspace-dirty/dirty-state-results.json` artifacts as the release-bar evidence set for the ATS-first resume path; later follow-up should only reopen resume templates if a future plan explicitly widens beyond the current single-layout product decision.
 - Treat `015` as the active next implementation track now that the stronger data, setup, source-intelligence, discovery, and resume foundations are in place, but keep the current slice non-submitting and deterministic until live application QA is explicitly re-authorized; the remaining work is now mostly limited to later submit-enabled boundaries rather than missing safe-slice recovery or queue-review surfaces.
-- Pull `016` forward only if the longer-running discovery or apply agents start degrading because conversation growth becomes the next concrete blocker.
+- Reuse the completed `016` compaction baseline when later `015` apply workers become transcript-heavy; keep the current deterministic apply surface unchanged until those workers actually need the shared seam.
 - Leave `017` sequenced after the main product work until representative post-`013` and post-`015` flows exist to benchmark against.
 - Use the retained timing snapshot from `010` for ongoing performance baseline comparisons across discovery, source-debug, and later resume-import parser routing.
 
@@ -87,7 +87,7 @@ Plans `007`, `010`, `011`, `012`, `013`, `014`, `018`, and `019` are completed. 
 - `docs/exec-plans/completed/013-job-finder-source-intelligence-and-faster-discovery.md`
 - `docs/exec-plans/completed/013-benchmark-results.md`
 - `docs/exec-plans/completed/014-job-finder-resume-output-and-template-quality.md`
-- `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`
-- `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
+- `docs/exec-plans/active/015-job-finder-automatic-job-apply.md`
+- `docs/exec-plans/completed/016-shared-agent-auto-compaction.md`
 - `docs/exec-plans/queued/017-browser-substrate-evaluation-and-direction.md`
 - `docs/HISTORY.md`

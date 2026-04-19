@@ -1,6 +1,7 @@
 import { rm } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, test } from 'vitest'
+import { SourceInstructionArtifactSchema } from '@unemployed/contracts'
 
 import { createFileJobFinderRepository } from './index'
 import { createSeed } from './test-fixtures'
@@ -41,16 +42,20 @@ describe('createFileJobFinderRepository', () => {
         verification: null,
       }
 
-      await repository.upsertSourceInstructionArtifact({
-        ...baseArtifact,
-        id: 'source_instruction_primary',
-        targetId: 'target_primary',
-      })
-      await repository.upsertSourceInstructionArtifact({
-        ...baseArtifact,
-        id: 'source_instruction_secondary',
-        targetId: 'target_secondary',
-      })
+      await repository.upsertSourceInstructionArtifact(
+        SourceInstructionArtifactSchema.parse({
+          ...baseArtifact,
+          id: 'source_instruction_primary',
+          targetId: 'target_primary',
+        }),
+      )
+      await repository.upsertSourceInstructionArtifact(
+        SourceInstructionArtifactSchema.parse({
+          ...baseArtifact,
+          id: 'source_instruction_secondary',
+          targetId: 'target_secondary',
+        }),
+      )
 
       await repository.deleteSourceInstructionArtifactsForTarget('target_primary')
 
@@ -482,44 +487,46 @@ describe('createFileJobFinderRepository', () => {
         compactionState: null,
         timing: null,
       })
-      await firstRepository.upsertSourceInstructionArtifact({
-        id: 'source_instruction_1',
-        targetId: 'target_primary',
-        status: 'validated',
-        createdAt: '2026-03-20T10:01:00.000Z',
-        updatedAt: '2026-03-20T10:02:00.000Z',
-        acceptedAt: '2026-03-20T10:02:00.000Z',
-        basedOnRunId: 'source_debug_run_1',
-        basedOnAttemptIds: ['source_debug_attempt_1'],
-        notes: 'Validated target-site source guidance.',
-        navigationGuidance: ['Start from https://jobs.example.com/search.'],
-        searchGuidance: ['Use the jobs search route.'],
-        detailGuidance: ['Prefer stable detail URLs.'],
-        applyGuidance: [
-          'Prefer the inline apply entry when it appears on the detail page.',
-        ],
-        warnings: [],
-        versionInfo: {
-          promptProfileVersion: 'source-debug-v1',
-          toolsetVersion: 'browser-tools-v1',
-          adapterVersion: 'target_site',
-          appSchemaVersion: 'job-finder-source-debug-v1',
-        },
-        verification: {
-          id: 'source_instruction_verification_1',
-          replayRunId: 'source_debug_run_1',
-          verifiedAt: '2026-03-20T10:02:00.000Z',
-          outcome: 'passed',
-          proofSummary: 'Replay verification reached jobs again.',
-          reason: null,
+      await firstRepository.upsertSourceInstructionArtifact(
+        SourceInstructionArtifactSchema.parse({
+          id: 'source_instruction_1',
+          targetId: 'target_primary',
+          status: 'validated',
+          createdAt: '2026-03-20T10:01:00.000Z',
+          updatedAt: '2026-03-20T10:02:00.000Z',
+          acceptedAt: '2026-03-20T10:02:00.000Z',
+          basedOnRunId: 'source_debug_run_1',
+          basedOnAttemptIds: ['source_debug_attempt_1'],
+          notes: 'Validated target-site source guidance.',
+          navigationGuidance: ['Start from https://jobs.example.com/search.'],
+          searchGuidance: ['Use the jobs search route.'],
+          detailGuidance: ['Prefer stable detail URLs.'],
+          applyGuidance: [
+            'Prefer the inline apply entry when it appears on the detail page.',
+          ],
+          warnings: [],
           versionInfo: {
             promptProfileVersion: 'source-debug-v1',
             toolsetVersion: 'browser-tools-v1',
             adapterVersion: 'target_site',
             appSchemaVersion: 'job-finder-source-debug-v1',
           },
-        },
-      })
+          verification: {
+            id: 'source_instruction_verification_1',
+            replayRunId: 'source_debug_run_1',
+            verifiedAt: '2026-03-20T10:02:00.000Z',
+            outcome: 'passed',
+            proofSummary: 'Replay verification reached jobs again.',
+            reason: null,
+            versionInfo: {
+              promptProfileVersion: 'source-debug-v1',
+              toolsetVersion: 'browser-tools-v1',
+              adapterVersion: 'target_site',
+              appSchemaVersion: 'job-finder-source-debug-v1',
+            },
+          },
+        }),
+      )
       await firstRepository.upsertSourceDebugEvidenceRef({
         id: 'source_debug_evidence_1',
         runId: 'source_debug_run_1',

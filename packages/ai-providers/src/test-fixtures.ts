@@ -4,6 +4,7 @@ import type {
   JobPosting,
   JobSearchPreferences,
 } from '@unemployed/contracts'
+import { JobPostingSchema } from '@unemployed/contracts'
 import type { JobFinderAiClient } from './shared'
 
 export function createEnvironment(
@@ -221,7 +222,7 @@ export function createSettings(): JobFinderSettings {
 }
 
 export function createJobPosting(): JobPosting {
-  return {
+  return JobPostingSchema.parse({
     source: 'target_site',
     sourceJobId: 'job_1',
     discoveryMethod: 'browser_agent',
@@ -261,6 +262,12 @@ export function createJobPosting(): JobPosting {
     employerWebsiteUrl: null,
     employerDomain: null,
     atsProvider: null,
+    providerKey: null,
+    providerBoardToken: null,
+    providerIdentifier: null,
+    sourceIntelligence: null,
+    collectionMethod: 'fallback_search',
+    titleTriageOutcome: 'pass',
     screeningHints: {
       sponsorshipText: null,
       requiresSecurityClearance: null,
@@ -270,7 +277,7 @@ export function createJobPosting(): JobPosting {
     },
     keywordSignals: [],
     benefits: []
-  }
+  })
 }
 
 export function createExtraction(

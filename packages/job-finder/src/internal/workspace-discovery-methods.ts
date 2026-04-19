@@ -64,6 +64,40 @@ import {
 } from "./workspace-source-intelligence";
 import { createUniqueId } from "./shared";
 
+function describeUnknownThrowable(caughtError: unknown): string {
+  if (typeof caughtError === "string") {
+    return caughtError;
+  }
+
+  if (
+    typeof caughtError === "number" ||
+    typeof caughtError === "boolean" ||
+    typeof caughtError === "bigint" ||
+    typeof caughtError === "symbol"
+  ) {
+    return String(caughtError);
+  }
+
+  if (caughtError && typeof caughtError === "object") {
+    if ("message" in caughtError && typeof caughtError.message === "string") {
+      return caughtError.message;
+    }
+
+    try {
+      const serialized = JSON.stringify(caughtError);
+      if (serialized) {
+        return serialized;
+      }
+    } catch {
+      // Ignore serialization failures and fall back to a generic description.
+    }
+
+    return "non-serializable object throwable";
+  }
+
+  return "unknown throwable";
+}
+
 function describeCloseoutMode(keptAlive: boolean) {
   return keptAlive
     ? {
@@ -92,9 +126,9 @@ function createInitialRunRecord(input: {
     startedAt: new Date().toISOString(),
     completedAt: null,
     targetIds: input.targets.map((target) => target.id),
-    targetExecutions: input.targets.map((target) => ({
-      targetId: target.id,
-      adapterKind: target.adapterKind,
+      targetExecutions: input.targets.map((target) => ({
+        targetId: target.id,
+        adapterKind: target.adapterKind,
       resolvedAdapterKind: resolveAdapterKind(target),
       collectionMethod: null,
       sourceIntelligenceProvider: null,
@@ -102,11 +136,13 @@ function createInitialRunRecord(input: {
       startedAt: null,
       completedAt: null,
       jobsFound: 0,
-      jobsPersisted: 0,
-      jobsStaged: 0,
-      warning: null,
-      timing: null,
-    })),
+        jobsPersisted: 0,
+        jobsStaged: 0,
+        warning: null,
+        compaction: null,
+        compactionUsedFallbackTrigger: false,
+        timing: null,
+      })),
     activity: [],
     summary: {
       targetsPlanned: input.targets.length,
@@ -582,6 +618,9 @@ export function createWorkspaceDiscoveryMethods(
           ...entry,
           collectionMethod: collected.collectionMethod,
           sourceIntelligenceProvider: collected.intelligence.provider?.key ?? null,
+          compaction: collected.result.agentMetadata?.compactionState ?? null,
+          compactionUsedFallbackTrigger:
+            collected.result.agentMetadata?.compactionUsedFallbackTrigger ?? false,
         }));
 
         emitActivity(
@@ -910,7 +949,11 @@ export function createWorkspaceDiscoveryMethods(
     );
 
     if (caughtError && terminalStatus === "failed") {
-      throw caughtError;
+      throw caughtError instanceof Error
+        ? caughtError
+        : new Error(
+            `Discovery pipeline failed with a non-Error throwable: ${describeUnknownThrowable(caughtError)}`,
+          );
     }
 
     return ctx.getWorkspaceSnapshot();

@@ -63,7 +63,8 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
         checkpoints: [...checkpoints].sort(
           (left, right) =>
             new Date(left.createdAt).getTime() -
-            new Date(right.createdAt).getTime(),
+              new Date(right.createdAt).getTime() ||
+            left.id.localeCompare(right.id),
         ),
         consentRequests: [...consentRequests].sort(
           (left, right) =>

@@ -24,14 +24,16 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
       return [];
     }
 
+    const normalizedEntry = entry as Record<string, unknown>;
+
     if (requiredArrayKey) {
-      const candidate = entry[requiredArrayKey];
+      const candidate = normalizedEntry[String(requiredArrayKey)];
       if (candidate !== undefined && !Array.isArray(candidate)) {
         return [];
       }
     }
 
-    const hasMeaningfulContent = Object.values(entry).some((fieldValue) => {
+    const hasMeaningfulContent = Object.values(normalizedEntry).some((fieldValue) => {
       if (typeof fieldValue === "string") {
         return fieldValue.trim().length > 0;
       }
@@ -46,7 +48,9 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
             return false;
           }
 
-          return Object.values(item).some(
+          const normalizedItem = item as Record<string, unknown>;
+
+          return Object.values(normalizedItem).some(
             (nestedValue) => typeof nestedValue === "string" && nestedValue.trim().length > 0,
           );
         });
@@ -59,7 +63,7 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
       return [];
     }
 
-    return [entry as TEntry];
+    return [normalizedEntry as TEntry];
   });
 }
 

@@ -10,6 +10,7 @@ import type {
   ResumeImportRun,
   SavedJob,
 } from '@unemployed/contracts'
+import { SavedJobSchema } from '@unemployed/contracts'
 
 export type FileRepository = Awaited<ReturnType<typeof createFileJobFinderRepository>>
 
@@ -30,7 +31,7 @@ export async function createTempRepository(prefix: string) {
 }
 
 export function createSavedJob(overrides: Partial<SavedJob> = {}): SavedJob {
-  return {
+  return SavedJobSchema.parse({
     id: 'job_1',
     source: 'target_site',
     sourceJobId: 'target_job_1',
@@ -88,7 +89,7 @@ export function createSavedJob(overrides: Partial<SavedJob> = {}): SavedJob {
     },
     provenance: [],
     ...overrides,
-  }
+  })
 }
 
 export function createResumeImportArtifactsFixture(): {

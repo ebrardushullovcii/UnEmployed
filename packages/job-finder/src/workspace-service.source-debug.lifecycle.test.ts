@@ -46,6 +46,9 @@ describe("createJobFinderWorkspaceService", () => {
         compactionState: {
           compactedAt: "2026-03-20T10:00:30.000Z",
           compactionCount: 1,
+          triggerKind: "token_budget",
+          estimatedTokensBefore: 121000,
+          estimatedTokensAfter: 79000,
           summary: "Compacted execution summary.",
           confirmedFacts: ["Visited 3 pages."],
           blockerNotes: [],
@@ -53,6 +56,7 @@ describe("createJobFinderWorkspaceService", () => {
             "site_structure_mapping:target_site:site structure mapping",
           ],
           preservedContext: ["Staff Product Designer at Signal Systems"],
+          stickyWorkflowState: ["Phase goal: Map the site structure"],
         },
         debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
       },

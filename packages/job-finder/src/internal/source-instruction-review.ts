@@ -1,5 +1,8 @@
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import {
+  SharedAgentCompactionPolicySchema,
+  type SharedAgentCompactionPolicy,
+  type SharedAgentHandoffCompaction,
   type SourceIntelligenceArtifact,
   type JobDiscoveryTarget,
   type JobSource,
@@ -13,6 +16,9 @@ import type {
 } from "./source-instruction-types";
 import { parseSourceInstructionReviewOverride } from "./source-instruction-types";
 import { extractJsonObjectString } from "./source-instruction-quality";
+import {
+  compactSourceInstructionReviewPhaseContexts,
+} from "./shared-agent-handoff-compaction";
 
 const SOURCE_DEBUG_PHASES: SourceDebugPhase[] = [
   "access_auth_probe",
@@ -22,6 +28,29 @@ const SOURCE_DEBUG_PHASES: SourceDebugPhase[] = [
   "apply_path_validation",
   "replay_verification",
 ];
+
+function resolveSourceInstructionReviewCompactionPolicy(input: {
+  compactionPolicy: Partial<SharedAgentCompactionPolicy>;
+  modelContextWindowTokens: number | null;
+}): SharedAgentCompactionPolicy {
+  const basePolicy = SharedAgentCompactionPolicySchema.parse(input.compactionPolicy);
+
+  if (
+    typeof input.modelContextWindowTokens !== "number" ||
+    !Number.isFinite(input.modelContextWindowTokens) ||
+    input.modelContextWindowTokens <= 0
+  ) {
+    return basePolicy;
+  }
+
+  return SharedAgentCompactionPolicySchema.parse({
+    ...basePolicy,
+    minimumResponseHeadroomTokens: Math.min(
+      basePolicy.minimumResponseHeadroomTokens,
+      Math.max(64, Math.floor(input.modelContextWindowTokens / 4)),
+    ),
+  });
+}
 
 const SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE = {
   navigationGuidance: [],
@@ -69,6 +98,7 @@ export function buildSourceInstructionFinalReviewPrompt(input: {
   instructionUnderReview: SourceInstructionArtifact | null;
   heuristicInstruction: SourceInstructionArtifact;
   phaseContexts: readonly SourceInstructionFinalReviewPhaseContext[];
+  handoffCompaction?: SharedAgentHandoffCompaction | null;
 }): string {
   const payload = {
     target: {
@@ -107,6 +137,7 @@ export function buildSourceInstructionFinalReviewPrompt(input: {
       intelligence: input.heuristicInstruction.intelligence,
     },
     phaseTests: input.phaseContexts,
+    handoffCompaction: input.handoffCompaction ?? null,
   };
 
   return [
@@ -121,6 +152,7 @@ export function buildSourceInstructionFinalReviewPrompt(input: {
     "Keep uncertainty only when it still matters after reconciling the later evidence.",
     "Do not invent routes, controls, or outcomes that are not supported by the evidence.",
     "Keep the output concise and operator-facing.",
+    "If handoffCompaction.mode is summary_first, do not ask for the missing raw transcript lines; use the typed summaries, confirmed facts, blocker notes, attempted actions, phase evidence, and compaction evidence as the authoritative handoff.",
     "Return JSON only with this shape:",
     JSON.stringify(SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE),
     "Guidance rules:",
@@ -153,9 +185,32 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
   instructionUnderReview: SourceInstructionArtifact | null;
   heuristicInstruction: SourceInstructionArtifact;
   phaseContexts: readonly SourceInstructionFinalReviewPhaseContext[];
+  compactionPolicy: Partial<SharedAgentCompactionPolicy>;
+  modelContextWindowTokens: number | null;
   signal?: AbortSignal;
 }): Promise<SourceInstructionReviewOverride | null> {
   if (!input.aiClient.chatWithTools || input.phaseContexts.length === 0) {
+    return null;
+  }
+
+  const effectiveCompactionPolicy = resolveSourceInstructionReviewCompactionPolicy({
+    compactionPolicy: input.compactionPolicy,
+    modelContextWindowTokens: input.modelContextWindowTokens,
+  });
+
+  const compacted = compactSourceInstructionReviewPhaseContexts({
+    phaseContexts: input.phaseContexts,
+    heuristicInstructionText: JSON.stringify(input.heuristicInstruction),
+    instructionUnderReviewText: JSON.stringify(input.instructionUnderReview),
+    verificationText: JSON.stringify(input.verification),
+    compactionPolicy: effectiveCompactionPolicy,
+    modelContextWindowTokens: input.modelContextWindowTokens,
+  });
+
+  if (compacted.handoffCompaction.normalizedFailureReason) {
+    console.warn(
+      `[Source Instruction Review] Skipping AI final review for run ${input.run.id} target ${input.target.id}: ${compacted.handoffCompaction.normalizedFailureReason}`,
+    );
     return null;
   }
 
@@ -169,11 +224,18 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
         },
         {
           role: "user",
-          content: buildSourceInstructionFinalReviewPrompt(input),
+          content: buildSourceInstructionFinalReviewPrompt({
+            ...input,
+            phaseContexts: compacted.phaseContexts,
+            handoffCompaction: compacted.handoffCompaction,
+          }),
         },
       ],
       [],
       input.signal,
+      {
+        maxOutputTokens: effectiveCompactionPolicy.minimumResponseHeadroomTokens,
+      },
     );
 
     if (!response.content) {
@@ -187,4 +249,3 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
     return null;
   }
 }
-

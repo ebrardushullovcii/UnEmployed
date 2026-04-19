@@ -127,6 +127,7 @@ function buildBenchmarkAiClient(
         label: providerLabel,
         model: null,
         baseUrl: null,
+        modelContextWindowTokens: null,
         detail: "Resume import benchmark harness",
       };
     },

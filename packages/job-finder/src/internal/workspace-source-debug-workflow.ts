@@ -1,4 +1,5 @@
 import {
+  SharedAgentCompactionPolicySchema,
   SourceDebugCompactionStateSchema,
   SourceDebugEvidenceRefSchema,
   SourceDebugRunRecordSchema,
@@ -52,6 +53,20 @@ import {
 } from "./source-debug-timing";
 
 const MAX_PROGRESS_EVENTS = 1000;
+
+const SOURCE_DEBUG_COMPACTION_POLICY = SharedAgentCompactionPolicySchema.parse({
+  // Tuned for the current ~196k context-window provider baseline.
+  // Start warning near 176k so long transcripts compact before the hard limit,
+  // cap target payloads near 184k, and reserve ~12k response headroom for
+  // final reviewer output plus prompt/tool overhead.
+  warningTokenBudget: 176_000,
+  targetTokenBudget: 184_000,
+  minimumResponseHeadroomTokens: 12_000,
+  preserveRecentMessages: 6,
+  minimumPreserveRecentMessages: 3,
+  maxToolPayloadChars: 180,
+  messageCountFallbackThreshold: 16,
+});
 
 export async function runSourceDebugWorkflow(
   ctx: WorkspaceServiceContext,
@@ -302,11 +317,9 @@ export async function runSourceDebugWorkflow(
             "Stop when the phase goal has been proven or blocked.",
           ]),
           taskPacket: phasePacket,
-          compaction: {
-            maxTranscriptMessages: 16,
-            preserveRecentMessages: 6,
-            maxToolPayloadChars: 180,
-          },
+          compaction: SOURCE_DEBUG_COMPACTION_POLICY,
+          modelContextWindowTokens:
+            ctx.aiClient.getStatus().modelContextWindowTokens ?? null,
           relevantUrlSubstrings: adapter.relevantUrlSubstrings,
           experimental: adapter.experimental,
           skipSessionValidation: true,
@@ -660,6 +673,9 @@ export async function runSourceDebugWorkflow(
         const context = finalReviewContextsByAttemptId.get(attempt.id);
         return context ? [context] : [];
       }),
+      compactionPolicy: SOURCE_DEBUG_COMPACTION_POLICY,
+      modelContextWindowTokens:
+        ctx.aiClient.getStatus().modelContextWindowTokens ?? null,
       signal: executionSignal,
     });
     finalReviewMs = Date.now() - finalReviewStartedAtMs;

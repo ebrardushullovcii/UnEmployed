@@ -15,7 +15,6 @@ import {
   TailoredAssetSchema,
   type ApplyExecutionResult,
   type JobSource,
-  type ResumeDraftPatch,
 } from "@unemployed/contracts";
 import {
   buildApplyCopilotArtifacts,
@@ -333,13 +332,11 @@ export function createWorkspaceApplicationMethods(
       throw new Error(`Apply run '${input.runId}' must be approved before it can execute.`);
     }
 
-    const executeApplicationFlow = ctx.browserRuntime.executeApplicationFlow;
-
-    if (!executeApplicationFlow) {
-      throw new Error(
-        "The current browser runtime does not support staged apply execution.",
-      );
-    }
+      if (!ctx.browserRuntime.executeApplicationFlow) {
+        throw new Error(
+          "The current browser runtime does not support staged apply execution.",
+        );
+      }
 
     let currentRunState: ReturnType<typeof ApplyRunSchema.parse> = ApplyRunSchema.parse({
       ...run,
@@ -408,7 +405,7 @@ export function createWorkspaceApplicationMethods(
         ...recoverySeed.recoveryInstructions,
       ]);
 
-      const executionResult = await executeApplicationFlow(job.source, {
+          const executionResult = await ctx.browserRuntime.executeApplicationFlow(job.source, {
         job,
         resumeExport: approvedExport,
         resumeFilePath: approvedExport.filePath,
@@ -1218,13 +1215,14 @@ export function createWorkspaceApplicationMethods(
     },
     async sendResumeAssistantMessage(jobId, content) {
       const workspaceState = await ensureResumeDraft(ctx, jobId);
+      const messageTimestamp = new Date().toISOString();
       const userMessage = ResumeAssistantMessageSchema.parse({
         id: createUniqueId(`resume_message_user_${jobId}`),
         jobId,
         role: "user",
         content,
         patches: [],
-        createdAt: new Date().toISOString(),
+        createdAt: messageTimestamp,
       });
       const validations = await ctx.repository.listResumeValidationResults(workspaceState.draft.id);
       const research = await fetchAndPersistResearch(ctx, workspaceState.job);
@@ -1246,6 +1244,7 @@ export function createWorkspaceApplicationMethods(
         jobId,
         content: assistantReply.content,
         patches: normalizedPatches,
+        createdAt: messageTimestamp,
       });
 
       let candidateDraft = workspaceState.draft;
@@ -1258,10 +1257,15 @@ export function createWorkspaceApplicationMethods(
           });
         }
       } catch (error) {
+        const failureDetail =
+          error instanceof Error
+            ? error.message
+            : "A resume patch could not be applied.";
         const failureMessage = buildAssistantReplyMessage({
           jobId,
-          content: `${assistantReply.content}\n\nNo assistant changes were applied. ${error instanceof Error ? error.message : "A resume patch could not be applied."}`,
+          content: `No assistant changes were applied. ${failureDetail}`,
           patches: [],
+          createdAt: messageTimestamp,
         });
 
         await ctx.repository.upsertResumeAssistantMessage(userMessage);
@@ -1602,15 +1606,13 @@ export function createWorkspaceApplicationMethods(
         ...buildInstructionGuidance(activeInstruction),
         ...recoverySeed.recoveryInstructions,
       ]);
-      const executeApplicationFlow = ctx.browserRuntime.executeApplicationFlow;
-
-      if (!executeApplicationFlow) {
+      if (!ctx.browserRuntime.executeApplicationFlow) {
         throw new Error(
           "The current browser runtime does not support non-submitting apply copilot execution yet.",
         );
       }
 
-      const executionResult = await executeApplicationFlow(job.source, {
+      const executionResult = await ctx.browserRuntime.executeApplicationFlow(job.source, {
         job,
         resumeExport: approvedExport,
         resumeFilePath: approvedExport.filePath,
@@ -1866,10 +1868,9 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async approveApplyRun(runId) {
-      const [runs, approvals, applicationRecords] = await Promise.all([
+      const [runs, approvals] = await Promise.all([
         ctx.repository.listApplyRuns(),
         ctx.repository.listApplySubmitApprovals(),
-        ctx.repository.listApplicationRecords(),
       ]);
       const run = runs.find((entry) => entry.id === runId) ?? null;
 

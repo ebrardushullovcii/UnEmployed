@@ -210,6 +210,7 @@ export const OpenAiCompatibleJobFinderAiClientOptionsSchema = z.object({
   baseUrl: z.string().trim().url(),
   model: NonEmptyStringSchema,
   label: NonEmptyStringSchema.optional(),
+  contextWindowTokens: z.number().int().min(1_000).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
   resumeExtractionTimeoutMs: z.number().int().min(1_000).optional(),
 });
@@ -318,6 +319,9 @@ export interface AgentCapableJobFinderAiClient extends JobFinderAiClient {
     messages: AgentMessage[],
     tools: Tool[],
     signal?: AbortSignal,
+    options?: {
+      maxOutputTokens?: number;
+    },
   ): Promise<{
     content?: string;
     toolCalls?: ToolCall[];

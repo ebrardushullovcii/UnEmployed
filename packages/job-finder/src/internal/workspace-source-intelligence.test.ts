@@ -53,12 +53,12 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
   });
   const source: JobSource = "target_site";
 
-  vi.spyOn(globalThis, "fetch").mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      jobs: [
-        {
-          id: 4622190,
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        jobs: [
+          {
+            id: 4622190,
           title: "SEI Instructor Lead",
           absolute_url: "https://job-boards.greenhouse.io/remote/jobs/4622190",
           location: { name: "New York, NY" },
@@ -66,8 +66,8 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
           content: "<p>Teach software engineering.</p>",
         },
       ],
-    }),
-  } as Response);
+      }),
+    } as Response);
 
   return collectPublicProviderJobs({
     target,
@@ -146,7 +146,7 @@ describe("collectPublicProviderJobs", () => {
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
-      json: async () => [
+      json: () => Promise.resolve([
         {
           id: "lever_job_1",
           text: "Senior Engineer",
@@ -158,7 +158,7 @@ describe("collectPublicProviderJobs", () => {
             location: "Remote",
           },
         },
-      ],
+      ]),
     } as Response);
 
     const result = await collectPublicProviderJobs({

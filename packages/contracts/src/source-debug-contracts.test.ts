@@ -27,6 +27,9 @@ describe("contracts source-debug schemas", () => {
         compactionState: {
           compactedAt: "2026-03-20T10:00:30.000Z",
           compactionCount: 1,
+          triggerKind: "token_budget",
+          estimatedTokensBefore: 130000,
+          estimatedTokensAfter: 82000,
           summary: "Compacted execution summary.",
           confirmedFacts: ["Visited 3 pages."],
           blockerNotes: [],
@@ -34,7 +37,9 @@ describe("contracts source-debug schemas", () => {
             "search_filter_probe:target_site:search filter probe",
           ],
           preservedContext: ["Senior Product Designer at Signal Systems"],
+          stickyWorkflowState: ["Phase goal: Verify search route"],
         },
+        compactionUsedFallbackTrigger: false,
         debugFindings: {
           summary:
             "Keyword search on the jobs route returned stable detail pages.",
@@ -86,6 +91,9 @@ describe("contracts source-debug schemas", () => {
     expect(discovery.jobs[0]?.easyApplyEligible).toBe(true);
     expect(discovery.jobs[0]?.workMode).toEqual(["remote"]);
     expect(discovery.agentMetadata?.compactionState?.compactionCount).toBe(1);
+    expect(discovery.agentMetadata?.compactionState?.triggerKind).toBe(
+      "token_budget",
+    );
     expect(
       discovery.agentMetadata?.debugFindings?.reliableControls[0],
     ).toContain("Keyword search box");

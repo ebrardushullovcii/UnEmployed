@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { SavedJobSchema } from "@unemployed/contracts";
 import {
   createInMemoryJobFinderRepository,
 } from "./index";
@@ -740,7 +741,7 @@ describe("createInMemoryJobFinderRepository", () => {
   test("atomically replaces saved jobs while clearing resume approval", async () => {
     const seed = createSeed();
     seed.savedJobs = [
-      {
+      SavedJobSchema.parse({
         id: "job_ready",
         source: "target_site",
         sourceJobId: "target_job_ready",
@@ -797,7 +798,7 @@ describe("createInMemoryJobFinderRepository", () => {
           gaps: [],
         },
         provenance: [],
-      },
+      }),
     ];
     const repository = createInMemoryJobFinderRepository(seed);
 

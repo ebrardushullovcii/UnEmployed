@@ -9,6 +9,7 @@ const status: AgentProviderStatus = {
   label: "AI resume agent",
   model: "test-model",
   baseUrl: "https://example.com/v1",
+  modelContextWindowTokens: null,
   detail: null,
 };
 

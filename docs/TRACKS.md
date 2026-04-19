@@ -31,7 +31,7 @@ Use one track per meaningful workstream, not per person or per chat.
 - `013 Source Intelligence And Faster Discovery` -> merged source-debug plus discovery workstream; typed source intelligence first, then provider-aware per-target and run-all discovery, richer job persistence, seen/applied dedupe, and browser closeout improvements
 - `014 Resume Content Correctness And Output Quality` -> completed ATS-first resume baseline covering usable content, editability, and output quality rather than template variety
 - `015 Automatic Job Apply` -> final major product workstream after the stronger data, setup, discovery, and resume foundations exist
-- `016 Shared Agent Auto Compaction` -> keep ready, but only pull it forward when long-running discovery or apply agents start failing or degrading because of context growth
+- `016 Shared Agent Auto Compaction` -> completed reusable compaction baseline for long-running discovery, source-debug, and future apply workers so prompt growth no longer has to wait behind later product slices
 - `017 Browser Substrate Evaluation And Direction` -> keep as a later benchmark-driven direction note, not as a main product queue item by itself
 
 ### `Plan 011 Job Finder Shared Data Expansion`
@@ -134,14 +134,14 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `Plan 016 Shared Agent Auto Compaction`
 
-- status: `ready`
-- last updated: `2026-04-09`
-- linked plan: `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
-- plan maturity: `execution_ready`
-- code areas: `packages/browser-agent`, `packages/job-finder`, `packages/contracts`, `apps/desktop`
-- current focus: execution-ready shared infrastructure pass to replace browser-agent-local message-count compaction with a shared token-budget-first policy, cover browser-agent live turns plus source-debug worker and final-review handoff payloads, and leave behind a reusable seam for future `015` apply workers without turning this into a generic chat-history feature
-- next step: start with the shared contracts and browser-agent token-estimation seam, then wire the shared policy through runtime discovery options, source-debug worker overrides, and source-debug final-review summary-first handoff, while leaving the current deterministic apply path untouched
-- blockers: none, but it does not need to displace the higher-value product work in `013`, `014`, or `015`; pull it forward only when long-running discovery, source-debug, or apply agents become the next concrete blocker
+- status: `done`
+- last updated: `2026-04-19`
+- linked plan: `docs/exec-plans/completed/016-shared-agent-auto-compaction.md`
+- plan maturity: `completed`
+- code areas: `packages/browser-agent`, `packages/browser-runtime`, `packages/job-finder`, `packages/contracts`, `apps/desktop`, `docs`
+- current focus: completed shared compaction baseline: reusable contracts and snapshots now drive token-budget-first browser-agent live compaction with message-count fallback, runtime model-window budgeting, source-debug worker overrides, summary-first final-review handoffs, lightweight discovery compaction telemetry, and an apply-ready reusable seam for later `015` workers; the shared defaults are currently tuned around the active 196k model window so compaction starts near the real provider limit instead of firing far too early
+- next step: reuse the completed `016` baseline when later apply workers accumulate long transcripts; keep the current deterministic apply execution unchanged until those future workers actually adopt the seam
+- blockers: none
 
 ### `Plan 017 Browser Substrate Evaluation And Direction`
 

@@ -9,7 +9,6 @@ import {
 import {
   buildResumeRenderDocument,
   buildTailoredAssetBridge,
-  buildTailoredResumeTextFromResumeDraft,
   sanitizeResumeDraft,
   seedResumeDraft,
   validateResumeDraft,
