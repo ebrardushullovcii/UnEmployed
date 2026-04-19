@@ -43,6 +43,13 @@ async function getResumeAssistantMessages(window, jobId) {
   )
 }
 
+async function waitForProfileOrSetupHeading(window) {
+  await window.waitForFunction(() => {
+    const heading = document.querySelector('h1')
+    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
+  }, undefined, { timeout: 15000 })
+}
+
 async function captureResumeWorkspace() {
   await mkdir(outputDir, { recursive: true })
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-workspace-'))
@@ -67,7 +74,7 @@ async function captureResumeWorkspace() {
       await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
     }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
     await window.waitForLoadState('domcontentloaded')
-    await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
+    await waitForProfileOrSetupHeading(window)
     await window.setViewportSize({ width, height })
 
     await window.evaluate(async () => {

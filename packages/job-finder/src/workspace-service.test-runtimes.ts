@@ -548,7 +548,8 @@ export function createDocumentManager() {
         {
           id: "classic_ats" as const,
           label: "Classic ATS",
-          description: "Single-column and ATS-friendly.",
+          description:
+            "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
         },
       ];
     },

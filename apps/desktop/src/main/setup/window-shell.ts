@@ -43,7 +43,7 @@ export function createMainWindow(currentDir: string) {
     frame: !(isMac || isWindows),
     ...(isMac ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
-      preload: path.join(currentDir, '../preload/index.mjs'),
+      preload: path.join(currentDir, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false

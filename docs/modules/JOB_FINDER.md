@@ -25,7 +25,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - `Settings` now concentrates editable defaults in the main column and keeps live status plus destructive reset controls in a smaller side rail.
 - Resume ingestion supports `txt`, `md`, `pdf`, and `docx`, with model-backed extraction plus deterministic fallback.
 - Discovery supports generic configured job sources, retained run history, activity timelines, and reusable source-setup navigation artifacts.
-- The `Resume Workspace` under `/job-finder/review-queue/:jobId/resume` supports structured drafting, assistant patching, `pdf` export, approval, and apply-time safety checks.
+- The `Resume Workspace` under `/job-finder/review-queue/:jobId/resume` supports structured drafting, assistant patching, one ATS-first `Classic ATS` PDF export, approval, and apply-time safety checks.
 
 ## Current And Queued Plans
 
@@ -70,7 +70,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 
 - Input sources: plain text, Markdown, PDF, and DOCX resumes are imported and normalized into stored text before the AI profile/tailoring agent runs
 - Extraction path: `pdfjs-dist` handles PDF text recovery, `mammoth` handles DOCX raw-text extraction, and plain-text sources pass through directly
-- Output path: the AI agent produces the resume text and section content, then Job Finder renders that content into a small fixed template set instead of asking the model to invent document layout from scratch
+- Output path: the AI agent produces the resume text and section content, then Job Finder renders that content into the ATS-first `Classic ATS` layout instead of asking the model to invent document layout from scratch
 - Current artifact shape: the workspace keeps structured `ResumeDraft` data as the editable source of truth, renders through HTML for preview/debug, exports a real local PDF artifact, and records export metadata plus approval state for review/apply flows
 - Follow-up artifact path: keep `html` as the intermediate render/debug layer, keep `pdf` as the required upload artifact, and leave `docx` as a later follow-up once the workspace UX is fully hardened
 
@@ -81,5 +81,4 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Browser control from `packages/browser-runtime`
 - Storage from `packages/db`
 - Shared retrieval from `packages/knowledge-base`
-
 

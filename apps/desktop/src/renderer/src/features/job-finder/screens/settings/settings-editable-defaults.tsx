@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react'
-import type { JobFinderSettings, ResumeTemplateDefinition } from '@unemployed/contracts'
+import type { JobFinderSettings } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
@@ -24,7 +24,6 @@ const fontPresetOptions: ReadonlyArray<{
 
 interface SettingsEditableDefaultsProps {
   actionMessage: string | null
-  availableResumeTemplates: readonly ResumeTemplateDefinition[]
   busy: boolean
   onSaveSettings: (settings: JobFinderSettings) => void
   settings: JobFinderSettings
@@ -32,13 +31,11 @@ interface SettingsEditableDefaultsProps {
 
 export function SettingsEditableDefaults({
   actionMessage,
-  availableResumeTemplates,
   busy,
   onSaveSettings,
   settings
 }: SettingsEditableDefaultsProps) {
   const appearanceId = useId()
-  const resumeTemplateId = useId()
   const fontPresetId = useId()
   const [settingsForm, setSettingsForm] = useState(settings)
   const appearanceThemeOptions: ReadonlyArray<{ label: string; value: JobFinderSettings['appearanceTheme'] }> = [
@@ -50,8 +47,6 @@ export function SettingsEditableDefaults({
     fontPresetOptions.some((fontPreset) => fontPreset.value === value)
   const isAppearanceThemeOption = (value: string): value is JobFinderSettings['appearanceTheme'] =>
     appearanceThemeOptions.some((option) => option.value === value)
-  const isResumeTemplateOption = (value: string): value is JobFinderSettings['resumeTemplateId'] =>
-    availableResumeTemplates.some((template) => template.id === value)
   const updateSettingsForm = (updater: (current: JobFinderSettings) => JobFinderSettings) => {
     if (busy) {
       return
@@ -59,9 +54,6 @@ export function SettingsEditableDefaults({
 
     setSettingsForm(updater)
   }
-  const selectedTemplate = availableResumeTemplates.find(
-    (template) => template.id === settingsForm.resumeTemplateId
-  )
   const selectedFontPreset = fontPresetOptions.find(
     (fontPreset) => fontPreset.value === settingsForm.fontPreset
   )
@@ -82,7 +74,7 @@ export function SettingsEditableDefaults({
         <section className="grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-5">
           <div className="grid gap-1">
             <h2 className="text-(length:--type-body-md) font-semibold text-(--text-headline)">Appearance and resume defaults</h2>
-            <p className="text-(length:--text-description) leading-6 text-foreground-soft">These settings shape how the workspace looks and what each new tailored resume starts from.</p>
+            <p className="text-(length:--text-description) leading-6 text-foreground-soft">These settings shape how the workspace looks and how the ATS-first resume export is rendered.</p>
           </div>
 
           <div className="grid gap-(--gap-content) md:grid-cols-2">
@@ -98,20 +90,6 @@ export function SettingsEditableDefaults({
                 placeholder="Select appearance"
                 triggerId={appearanceId}
                 value={settingsForm.appearanceTheme}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={resumeTemplateId}>Resume template</FieldLabel>
-              <FormSelect
-                disabled={busy}
-                onValueChange={(value) => updateSettingsForm((current) => ({
-                  ...current,
-                  resumeTemplateId: isResumeTemplateOption(value) ? value : current.resumeTemplateId
-                }))}
-                options={availableResumeTemplates.map((template) => ({ label: template.label, value: template.id }))}
-                placeholder="Select template"
-                triggerId={resumeTemplateId}
-                value={settingsForm.resumeTemplateId}
               />
             </Field>
             <Field className="md:col-span-2">
@@ -132,12 +110,12 @@ export function SettingsEditableDefaults({
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-              <span className="label-mono-xs">Selected template</span>
+              <span className="label-mono-xs">Resume layout</span>
               <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
-                {selectedTemplate?.label ?? 'Template not available'}
+                Classic ATS
               </strong>
               <p className="mt-2 text-(length:--text-description) leading-6 text-foreground-soft">
-                {selectedTemplate?.description ?? 'Choose the layout Job Finder should use for new resume exports.'}
+                Job Finder now ships one default single-column export so new resumes stay optimized for parser reliability and recruiter readability.
               </p>
             </div>
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">

@@ -6,6 +6,7 @@ import type {
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
+import { Input } from "@renderer/components/ui/input";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
@@ -19,6 +20,7 @@ export function ResumeSectionEditor(props: {
   onPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void;
 }) {
   const textId = useId();
+  const hasEntries = props.section.entries.length > 0;
 
   return (
     <article className="surface-card-tint grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
@@ -45,6 +47,7 @@ export function ResumeSectionEditor(props: {
                   draftId: "",
                   operation: "toggle_include",
                   targetSectionId: props.section.id,
+                  targetEntryId: null,
                   targetBulletId: null,
                   anchorBulletId: null,
                   position: null,
@@ -74,6 +77,7 @@ export function ResumeSectionEditor(props: {
                   draftId: "",
                   operation: "set_lock",
                   targetSectionId: props.section.id,
+                  targetEntryId: null,
                   targetBulletId: null,
                   anchorBulletId: null,
                   position: null,
@@ -111,23 +115,25 @@ export function ResumeSectionEditor(props: {
         </div>
       </header>
 
-      <Field>
-        <FieldLabel htmlFor={textId}>Section text</FieldLabel>
-        <Textarea
-          id={textId}
-          disabled={props.disabled || props.section.locked}
-          rows={7}
-          value={props.section.text ?? ""}
-          onChange={(event) =>
-            props.onChange({
-              ...props.section,
-              text: event.currentTarget.value.trim()
-                ? event.currentTarget.value
-                : null,
-            })
-          }
-        />
-      </Field>
+      {(!hasEntries || props.section.kind === "summary") ? (
+        <Field>
+          <FieldLabel htmlFor={textId}>Section text</FieldLabel>
+          <Textarea
+            id={textId}
+            disabled={props.disabled || props.section.locked}
+            rows={props.section.kind === "summary" ? 7 : 4}
+            value={props.section.text ?? ""}
+            onChange={(event) =>
+              props.onChange({
+                ...props.section,
+                text: event.currentTarget.value.trim()
+                  ? event.currentTarget.value
+                  : null,
+              })
+            }
+          />
+        </Field>
+      ) : null}
 
       {props.section.sourceRefs.length ? (
         <div className="grid gap-2">
@@ -138,6 +144,355 @@ export function ResumeSectionEditor(props: {
         </div>
       ) : null}
 
+      {hasEntries ? (
+        <div className="grid gap-3">
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+            Structured entries
+          </p>
+          {props.section.entries.map((entry) => (
+            <article
+              key={entry.id}
+              className="surface-card grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-3"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone={entry.included ? "active" : "muted"}>
+                  {entry.included ? "Shown" : "Hidden"}
+                </StatusBadge>
+                <StatusBadge tone={entry.locked ? "muted" : "active"}>
+                  {entry.locked ? "Locked" : "Editable"}
+                </StatusBadge>
+                <Button
+                  className="h-8"
+                  disabled={props.disabled || props.section.locked}
+                  onClick={() =>
+                    props.onPatch(
+                      {
+                        id: `resume_patch_entry_include_${entry.id}_${Date.now()}`,
+                        draftId: "",
+                        operation: "toggle_include",
+                        targetSectionId: props.section.id,
+                        targetEntryId: entry.id,
+                        targetBulletId: null,
+                        anchorBulletId: null,
+                        position: null,
+                        newText: null,
+                        newIncluded: !entry.included,
+                        newLocked: null,
+                        newBullets: null,
+                        appliedAt: new Date().toISOString(),
+                        origin: "user",
+                        conflictReason: null,
+                      },
+                      `${entry.included ? "Hidden" : "Shown"} entry`,
+                    )
+                  }
+                  type="button"
+                  variant="secondary"
+                >
+                  {entry.included ? "Hide entry" : "Show entry"}
+                </Button>
+                <Button
+                  className="h-8"
+                  disabled={props.disabled || props.section.locked}
+                  onClick={() =>
+                    props.onPatch(
+                      {
+                        id: `resume_patch_entry_lock_${entry.id}_${Date.now()}`,
+                        draftId: "",
+                        operation: "set_lock",
+                        targetSectionId: props.section.id,
+                        targetEntryId: entry.id,
+                        targetBulletId: null,
+                        anchorBulletId: null,
+                        position: null,
+                        newText: null,
+                        newIncluded: null,
+                        newLocked: !entry.locked,
+                        newBullets: null,
+                        appliedAt: new Date().toISOString(),
+                        origin: "user",
+                        conflictReason: null,
+                      },
+                      `${entry.locked ? "Unlocked" : "Locked"} entry`,
+                    )
+                  }
+                  type="button"
+                  variant="secondary"
+                >
+                  {entry.locked ? <LockOpen className="size-4" /> : <Lock className="size-4" />}
+                  {entry.locked ? "Unlock" : "Lock"}
+                </Button>
+              </div>
+
+              <Field>
+                <FieldLabel htmlFor={`entry_title_${entry.id}`}>Title</FieldLabel>
+                <Input
+                  id={`entry_title_${entry.id}`}
+                  disabled={props.disabled || props.section.locked || entry.locked}
+                  value={entry.title ?? ""}
+                  onChange={(event) =>
+                    props.onChange({
+                      ...props.section,
+                      entries: props.section.entries.map((currentEntry) =>
+                        currentEntry.id === entry.id
+                          ? { ...currentEntry, title: event.currentTarget.value || null }
+                          : currentEntry,
+                      ),
+                    })
+                  }
+                />
+              </Field>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor={`entry_subtitle_${entry.id}`}>Organization or subtitle</FieldLabel>
+                  <Input
+                    id={`entry_subtitle_${entry.id}`}
+                    disabled={props.disabled || props.section.locked || entry.locked}
+                    value={entry.subtitle ?? ""}
+                    onChange={(event) =>
+                      props.onChange({
+                        ...props.section,
+                        entries: props.section.entries.map((currentEntry) =>
+                          currentEntry.id === entry.id
+                            ? { ...currentEntry, subtitle: event.currentTarget.value || null }
+                            : currentEntry,
+                        ),
+                      })
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`entry_dates_${entry.id}`}>Date range</FieldLabel>
+                  <Input
+                    id={`entry_dates_${entry.id}`}
+                    disabled={props.disabled || props.section.locked || entry.locked}
+                    value={entry.dateRange ?? ""}
+                    onChange={(event) =>
+                      props.onChange({
+                        ...props.section,
+                        entries: props.section.entries.map((currentEntry) =>
+                          currentEntry.id === entry.id
+                            ? { ...currentEntry, dateRange: event.currentTarget.value || null }
+                            : currentEntry,
+                        ),
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+
+              <Field>
+                <FieldLabel htmlFor={`entry_location_${entry.id}`}>Location</FieldLabel>
+                <Input
+                  id={`entry_location_${entry.id}`}
+                  disabled={props.disabled || props.section.locked || entry.locked}
+                  value={entry.location ?? ""}
+                  onChange={(event) =>
+                    props.onChange({
+                      ...props.section,
+                      entries: props.section.entries.map((currentEntry) =>
+                        currentEntry.id === entry.id
+                          ? { ...currentEntry, location: event.currentTarget.value || null }
+                          : currentEntry,
+                      ),
+                    })
+                  }
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor={`entry_summary_${entry.id}`}>Entry summary</FieldLabel>
+                <Textarea
+                  id={`entry_summary_${entry.id}`}
+                  disabled={props.disabled || props.section.locked || entry.locked}
+                  rows={4}
+                  value={entry.summary ?? ""}
+                  onChange={(event) =>
+                    props.onChange({
+                      ...props.section,
+                      entries: props.section.entries.map((currentEntry) =>
+                        currentEntry.id === entry.id
+                          ? { ...currentEntry, summary: event.currentTarget.value || null }
+                          : currentEntry,
+                      ),
+                    })
+                  }
+                />
+              </Field>
+
+              <div className="grid gap-3">
+                <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                  Entry bullets
+                </p>
+                {entry.bullets.map((bullet, bulletIndex) => (
+                  <Field key={bullet.id}>
+                    <FieldLabel htmlFor={`entry_bullet_${bullet.id}`}>Bullet text</FieldLabel>
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      <Button
+                        className="h-8"
+                        disabled={props.disabled || props.section.locked || entry.locked}
+                        onClick={() =>
+                          props.onPatch(
+                            {
+                              id: `resume_patch_entry_bullet_include_${bullet.id}_${Date.now()}`,
+                              draftId: "",
+                              operation: "toggle_include",
+                              targetSectionId: props.section.id,
+                              targetEntryId: entry.id,
+                              targetBulletId: bullet.id,
+                              anchorBulletId: null,
+                              position: null,
+                              newText: null,
+                              newIncluded: !bullet.included,
+                              newLocked: null,
+                              newBullets: null,
+                              appliedAt: new Date().toISOString(),
+                              origin: "user",
+                              conflictReason: null,
+                            },
+                            `${bullet.included ? "Hidden" : "Shown"} bullet`,
+                          )
+                        }
+                        type="button"
+                        variant="secondary"
+                      >
+                        {bullet.included ? "Hide" : "Show"}
+                      </Button>
+                      <Button
+                        className="h-8"
+                        disabled={props.disabled || props.section.locked || entry.locked}
+                        onClick={() =>
+                          props.onPatch(
+                            {
+                              id: `resume_patch_entry_bullet_lock_${bullet.id}_${Date.now()}`,
+                              draftId: "",
+                              operation: "set_lock",
+                              targetSectionId: props.section.id,
+                              targetEntryId: entry.id,
+                              targetBulletId: bullet.id,
+                              anchorBulletId: null,
+                              position: null,
+                              newText: null,
+                              newIncluded: null,
+                              newLocked: !bullet.locked,
+                              newBullets: null,
+                              appliedAt: new Date().toISOString(),
+                              origin: "user",
+                              conflictReason: null,
+                            },
+                            `${bullet.locked ? "Unlocked" : "Locked"} bullet`,
+                          )
+                        }
+                        type="button"
+                        variant="secondary"
+                      >
+                        {bullet.locked ? <LockOpen className="size-4" /> : <Lock className="size-4" />}
+                        {bullet.locked ? "Unlock" : "Lock"}
+                      </Button>
+                      <Button
+                        aria-label="Move bullet up"
+                        className="h-8"
+                        disabled={props.disabled || props.section.locked || entry.locked || bulletIndex <= 0}
+                        onClick={() => {
+                          const anchor = bulletIndex > 0 ? entry.bullets[bulletIndex - 1] : null;
+                          if (!anchor) {
+                            return;
+                          }
+                          props.onPatch(
+                            {
+                              id: `resume_patch_entry_bullet_up_${bullet.id}_${Date.now()}`,
+                              draftId: "",
+                              operation: "move_bullet",
+                              targetSectionId: props.section.id,
+                              targetEntryId: entry.id,
+                              targetBulletId: bullet.id,
+                              anchorBulletId: anchor.id,
+                              position: "before",
+                              newText: null,
+                              newIncluded: null,
+                              newLocked: null,
+                              newBullets: null,
+                              appliedAt: new Date().toISOString(),
+                              origin: "user",
+                              conflictReason: null,
+                            },
+                            "Moved bullet up",
+                          )
+                        }}
+                        type="button"
+                        variant="secondary"
+                      >
+                        <MoveUp className="size-4" />
+                      </Button>
+                      <Button
+                        aria-label="Move bullet down"
+                        className="h-8"
+                        disabled={props.disabled || props.section.locked || entry.locked || bulletIndex >= entry.bullets.length - 1}
+                        onClick={() => {
+                          const anchor = entry.bullets[bulletIndex + 1] ?? null;
+                          if (!anchor) {
+                            return;
+                          }
+                          props.onPatch(
+                            {
+                              id: `resume_patch_entry_bullet_down_${bullet.id}_${Date.now()}`,
+                              draftId: "",
+                              operation: "move_bullet",
+                              targetSectionId: props.section.id,
+                              targetEntryId: entry.id,
+                              targetBulletId: bullet.id,
+                              anchorBulletId: anchor.id,
+                              position: "after",
+                              newText: null,
+                              newIncluded: null,
+                              newLocked: null,
+                              newBullets: null,
+                              appliedAt: new Date().toISOString(),
+                              origin: "user",
+                              conflictReason: null,
+                            },
+                            "Moved bullet down",
+                          )
+                        }}
+                        type="button"
+                        variant="secondary"
+                      >
+                        <MoveDown className="size-4" />
+                      </Button>
+                    </div>
+                    <Textarea
+                      id={`entry_bullet_${bullet.id}`}
+                      disabled={props.disabled || props.section.locked || entry.locked || bullet.locked}
+                      rows={4}
+                      value={bullet.text}
+                      onChange={(event) =>
+                        props.onChange({
+                          ...props.section,
+                          entries: props.section.entries.map((currentEntry) =>
+                            currentEntry.id === entry.id
+                              ? {
+                                  ...currentEntry,
+                                  bullets: currentEntry.bullets.map((currentBullet) =>
+                                    currentBullet.id === bullet.id
+                                      ? { ...currentBullet, text: event.currentTarget.value }
+                                      : currentBullet,
+                                  ),
+                                }
+                              : currentEntry,
+                          ),
+                        })
+                      }
+                    />
+                  </Field>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {!hasEntries || props.section.bullets.length > 0 ? (
       <div className="grid gap-3">
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
           Bullet points
@@ -162,6 +517,7 @@ export function ResumeSectionEditor(props: {
                         draftId: "",
                         operation: "toggle_include",
                         targetSectionId: props.section.id,
+                        targetEntryId: null,
                         targetBulletId: bullet.id,
                         anchorBulletId: null,
                         position: null,
@@ -191,6 +547,7 @@ export function ResumeSectionEditor(props: {
                         draftId: "",
                         operation: "set_lock",
                         targetSectionId: props.section.id,
+                        targetEntryId: null,
                         targetBulletId: bullet.id,
                         anchorBulletId: null,
                         position: null,
@@ -236,6 +593,7 @@ export function ResumeSectionEditor(props: {
                         draftId: "",
                         operation: "move_bullet",
                         targetSectionId: props.section.id,
+                        targetEntryId: null,
                         targetBulletId: bullet.id,
                         anchorBulletId: anchor.id,
                         position: "before",
@@ -276,6 +634,7 @@ export function ResumeSectionEditor(props: {
                         draftId: "",
                         operation: "move_bullet",
                         targetSectionId: props.section.id,
+                        targetEntryId: null,
                         targetBulletId: bullet.id,
                         anchorBulletId: anchor.id,
                         position: "after",
@@ -324,6 +683,7 @@ export function ResumeSectionEditor(props: {
           ))
         )}
       </div>
+      ) : null}
     </article>
   );
 }

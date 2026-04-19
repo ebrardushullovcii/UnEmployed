@@ -1,14 +1,19 @@
 import {
   JobDiscoveryTargetSchema,
+  JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
   JobSourceAdapterKindSchema,
+  ResumeDraftSchema,
   type ApplicationAttempt,
   type ApplicationEvent,
   type ApplicationStatus,
   type CandidateProfile,
   type JobDiscoveryTarget,
+  type JobFinderSettings,
   type JobSearchPreferences,
   type JobSource,
+  type ResumeDraft,
+  type ResumeTemplateDefinition,
   type SavedJob,
   type SourceInstructionArtifact,
   type TailoredAsset,
@@ -98,6 +103,52 @@ export function normalizeSearchPreferences(
         normalizeDiscoveryTarget(target),
       ),
     },
+  });
+}
+
+export function normalizeJobFinderSettings(
+  settings: JobFinderSettings,
+  availableResumeTemplates: readonly ResumeTemplateDefinition[],
+): JobFinderSettings {
+  const fallbackTemplateId = availableResumeTemplates[0]?.id ?? "classic_ats";
+  const selectedTemplateAvailable = availableResumeTemplates.some(
+    (template) => template.id === settings.resumeTemplateId,
+  );
+
+  return JobFinderSettingsSchema.parse({
+    ...settings,
+    resumeFormat: "pdf",
+    resumeTemplateId: selectedTemplateAvailable
+      ? settings.resumeTemplateId
+      : fallbackTemplateId,
+  });
+}
+
+export function normalizeResumeDraftTemplate(
+  draft: ResumeDraft,
+  availableResumeTemplates: readonly ResumeTemplateDefinition[],
+): ResumeDraft {
+  const fallbackTemplateId = availableResumeTemplates[0]?.id ?? "classic_ats";
+  const selectedTemplateAvailable = availableResumeTemplates.some(
+    (template) => template.id === draft.templateId,
+  );
+
+  if (selectedTemplateAvailable) {
+    return draft;
+  }
+
+  const shouldClearApproval =
+    draft.status === "approved" || Boolean(draft.approvedAt || draft.approvedExportId);
+
+  return ResumeDraftSchema.parse({
+    ...draft,
+    templateId: fallbackTemplateId,
+    status: shouldClearApproval ? "stale" : draft.status,
+    approvedAt: shouldClearApproval ? null : draft.approvedAt,
+    approvedExportId: shouldClearApproval ? null : draft.approvedExportId,
+    staleReason: shouldClearApproval
+      ? "This resume used a retired layout. Export a fresh Classic ATS PDF before applying."
+      : draft.staleReason,
   });
 }
 

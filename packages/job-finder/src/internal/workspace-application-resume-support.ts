@@ -7,11 +7,17 @@ import {
   type TailoredAsset,
 } from "@unemployed/contracts";
 import {
+  buildResumeRenderDocument,
   buildTailoredAssetBridge,
   buildTailoredResumeTextFromResumeDraft,
+  sanitizeResumeDraft,
   seedResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
+import {
+  normalizeJobFinderSettings,
+  normalizeResumeDraftTemplate,
+} from "./workspace-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
 function buildResumeWorkspaceSharedProfile(profile: CandidateProfile) {
@@ -60,13 +66,17 @@ export async function loadResumeWorkspaceState(
   ctx: WorkspaceServiceContext,
   jobId: string,
 ): Promise<LoadedResumeWorkspaceState> {
-  const [profile, settings, savedJobs, tailoredAssets, draft] = await Promise.all([
+  const [profile, rawSettings, savedJobs, tailoredAssets, draft] = await Promise.all([
     ctx.repository.getProfile(),
     ctx.repository.getSettings(),
     ctx.repository.listSavedJobs(),
     ctx.repository.listTailoredAssets(),
     ctx.repository.getResumeDraftByJobId(jobId),
   ]);
+  const settings = normalizeJobFinderSettings(
+    rawSettings,
+    ctx.documentManager.listResumeTemplates(),
+  );
   const job = savedJobs.find((entry) => entry.id === jobId);
 
   if (!job) {
@@ -89,9 +99,14 @@ export async function ensureResumeDraft(
   const state = await loadResumeWorkspaceState(ctx, jobId);
 
   if (state.draft) {
+    const normalizedDraft = normalizeResumeDraftTemplate(
+      state.draft,
+      ctx.documentManager.listResumeTemplates(),
+    );
+
     return {
       ...state,
-      draft: state.draft,
+      draft: normalizedDraft,
     };
   }
 
@@ -101,13 +116,19 @@ export async function ensureResumeDraft(
     settings: state.settings,
     tailoredAsset: state.tailoredAsset,
   });
-  const validation = validateResumeDraft({
+  const sanitizedDraft = sanitizeResumeDraft({
     draft: seededDraft,
     job: state.job,
+    profile: state.profile,
+  });
+  const validation = validateResumeDraft({
+    draft: sanitizedDraft,
+    job: state.job,
+    profile: state.profile,
     validatedAt: seededDraft.updatedAt,
   });
   const tailoredAsset = buildTailoredAssetBridge({
-    draft: seededDraft,
+    draft: sanitizedDraft,
     job: state.job,
     profile: state.profile,
     existingAsset: state.tailoredAsset,
@@ -115,15 +136,15 @@ export async function ensureResumeDraft(
   });
 
   await ctx.repository.saveResumeDraftWithValidation({
-    draft: seededDraft,
+    draft: sanitizedDraft,
     validation,
     tailoredAsset,
   });
 
   return {
-    ...state,
-    draft: seededDraft,
-    tailoredAsset,
+      ...state,
+      draft: sanitizedDraft,
+      tailoredAsset,
   };
 }
 
@@ -137,20 +158,26 @@ export async function renderDraftToPdf(
     outputPath?: string | null;
   },
 ) {
-  const previewSections = buildTailoredAssetBridge({
+  const sanitizedDraft = sanitizeResumeDraft({
     draft: input.draft,
+    job: input.job,
+    profile: input.profile,
+  });
+  const previewSections = buildTailoredAssetBridge({
+    draft: sanitizedDraft,
     job: input.job,
     profile: input.profile,
   }).previewSections;
   const textContent = buildTailoredResumeTextFromResumeDraft(
     input.profile,
     input.job,
-    input.draft,
+    sanitizedDraft,
   );
 
   return ctx.documentManager.renderResumeArtifact({
     job: input.job,
     profile: input.profile,
+    renderDocument: buildResumeRenderDocument(input.profile, sanitizedDraft),
     previewSections,
     settings: input.settings,
     textContent,

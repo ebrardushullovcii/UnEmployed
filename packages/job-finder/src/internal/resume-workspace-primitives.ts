@@ -1,5 +1,6 @@
 import type {
   ResumeDraftBullet,
+  ResumeDraftEntry,
   ResumeDraftSection,
   ResumeDraftSourceRef,
   SavedJob,
@@ -61,6 +62,7 @@ export function createSection(
     label: string;
     text?: string | null;
     bullets?: readonly string[];
+    entries?: readonly ResumeDraftEntry[];
     updatedAt: string;
     origin: ResumeDraftSection["origin"];
     sortOrder: number;
@@ -81,6 +83,7 @@ export function createSection(
         input.sourceRefs ?? [],
       ),
     ),
+    entries: [...(input.entries ?? [])],
     origin: input.origin,
     locked: false,
     included: true,
@@ -103,6 +106,48 @@ export function createSourceRef(
     sourceKind,
     sourceId,
     snippet,
+  };
+}
+
+export function createEntry(input: {
+  id: string;
+  entryType: ResumeDraftEntry["entryType"];
+  title?: string | null;
+  subtitle?: string | null;
+  location?: string | null;
+  dateRange?: string | null;
+  summary?: string | null;
+  bullets?: readonly string[];
+  updatedAt: string;
+  origin: ResumeDraftEntry["origin"];
+  sortOrder: number;
+  profileRecordId?: string | null;
+  sourceRefs?: readonly ResumeDraftSourceRef[];
+}): ResumeDraftEntry {
+  return {
+    id: input.id,
+    entryType: input.entryType,
+    title: input.title ?? null,
+    subtitle: input.subtitle ?? null,
+    location: input.location ?? null,
+    dateRange: input.dateRange ?? null,
+    summary: input.summary ?? null,
+    bullets: (input.bullets ?? []).map((bullet, index) =>
+      createBullet(
+        `${input.id}_bullet_${index + 1}`,
+        bullet,
+        input.updatedAt,
+        input.origin,
+        input.sourceRefs ?? [],
+      ),
+    ),
+    origin: input.origin,
+    locked: false,
+    included: true,
+    sortOrder: input.sortOrder,
+    profileRecordId: input.profileRecordId ?? null,
+    sourceRefs: [...(input.sourceRefs ?? [])],
+    updatedAt: input.updatedAt,
   };
 }
 

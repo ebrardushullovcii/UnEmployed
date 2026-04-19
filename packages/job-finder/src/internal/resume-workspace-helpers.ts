@@ -2,7 +2,6 @@ import type { TailoredResumeDraft } from "@unemployed/ai-providers";
 import {
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
-  ResumeDraftSchema,
   ResumeExportArtifactSchema,
   ResumeValidationResultSchema,
   TailoredAssetSchema,
@@ -14,7 +13,6 @@ import {
   type ResumeDraftRevision,
   type ResumeExportArtifact,
   type ResumeResearchArtifact,
-  type ResumeDraftSourceRef,
   type ResumeValidationIssue,
   type ResumeValidationResult,
   type SavedJob,
@@ -25,11 +23,14 @@ import { createUniqueId, normalizeText, tokenize, uniqueStrings } from "./shared
 import {
   buildJobContextText,
   buildPriorityJobTerms,
-  createSection,
-  createSourceRef,
-  safeSnippet,
-  toSectionKind,
 } from "./resume-workspace-primitives";
+import {
+  buildPreviewSectionsFromResumeDraft as buildStructuredPreviewSectionsFromResumeDraft,
+  buildResumeRenderDocument,
+  buildResumeDraftFromTailoredDraft as buildStructuredResumeDraftFromTailoredDraft,
+  buildTailoredResumeTextFromResumeDraft as buildStructuredTailoredResumeTextFromResumeDraft,
+  seedResumeDraft as seedStructuredResumeDraft,
+} from "./resume-workspace-structure";
 
 export interface ResumeWorkspaceEvidence {
   summary: readonly string[];
@@ -47,18 +48,6 @@ export interface ResumeWorkspaceResearchContext {
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function buildSeededSectionId(
-  heading: string,
-  index: number,
-  counts: Map<string, number>,
-): string {
-  const slug = normalizeText(heading).replaceAll(" ", "_") || `${index + 1}`;
-  const nextCount = (counts.get(slug) ?? 0) + 1;
-  counts.set(slug, nextCount);
-
-  return nextCount === 1 ? `section_${slug}` : `section_${slug}_${nextCount}`;
 }
 
 function matchesWholePhrase(candidate: string, phrase: string): boolean {
@@ -82,21 +71,7 @@ function matchesWholePhrase(candidate: string, phrase: string): boolean {
 export function buildPreviewSectionsFromResumeDraft(
   draft: ResumeDraft,
 ): Array<{ heading: string; lines: string[] }> {
-  return [...draft.sections]
-    .filter((section) => section.included)
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map((section) => {
-      const lines = [
-        ...(section.text ? [section.text] : []),
-        ...section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text),
-      ];
-
-      return {
-        heading: section.label,
-        lines,
-      };
-    })
-    .filter((section) => section.lines.length > 0);
+  return buildStructuredPreviewSectionsFromResumeDraft(draft);
 }
 
 export function buildTailoredResumeTextFromResumeDraft(
@@ -104,11 +79,7 @@ export function buildTailoredResumeTextFromResumeDraft(
   job: SavedJob,
   draft: ResumeDraft,
 ): string {
-  const sections = buildPreviewSectionsFromResumeDraft(draft)
-    .map((section) => `${section.heading}\n${section.lines.join("\n")}`)
-    .join("\n\n");
-
-  return `${profile.fullName}\n${profile.headline}\n${profile.currentLocation}\n\nTarget Role: ${job.title} at ${job.company}\n\n${sections}\n`;
+  return buildStructuredTailoredResumeTextFromResumeDraft(profile, job, draft);
 }
 
 export function buildResumeDraftFromTailoredDraft(input: {
@@ -121,77 +92,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   profile?: CandidateProfile;
   research?: readonly ResumeResearchArtifact[];
 }): ResumeDraft {
-  const { createdAt, draft, existingDraftId, generationMethod, job, settings } = input;
-  const jobRef = createSourceRef("job", job.id, safeSnippet(job.description || job.summary || buildJobContextText(job)));
-  const resumeRef = input.profile?.baseResume.textContent
-    ? createSourceRef("resume", input.profile.baseResume.id, safeSnippet(input.profile.baseResume.textContent))
-    : null;
-  const researchRef = input.research?.find((artifact) => artifact.fetchStatus === "success")
-    ? createSourceRef(
-        "research",
-        input.research.find((artifact) => artifact.fetchStatus === "success")?.id ?? null,
-        safeSnippet(input.research.find((artifact) => artifact.fetchStatus === "success")?.companyNotes ?? null),
-      )
-    : null;
-  const sharedRefs = [jobRef, resumeRef, researchRef].filter(
-    (value): value is ResumeDraftSourceRef => value !== null,
-  );
-
-  return ResumeDraftSchema.parse({
-    id: existingDraftId ?? `resume_draft_${job.id}`,
-    jobId: job.id,
-    status: "needs_review",
-    templateId: settings.resumeTemplateId,
-    sections: [
-      createSection({
-        id: "section_summary",
-        kind: "summary",
-        label: "Summary",
-        text: draft.summary,
-        updatedAt: createdAt,
-        origin: generationMethod === "ai" ? "ai_generated" : "deterministic_fallback",
-        sortOrder: 0,
-        sourceRefs: sharedRefs,
-      }),
-      createSection({
-        id: "section_experience",
-        kind: "experience",
-        label: "Experience Highlights",
-        bullets: draft.experienceHighlights,
-        updatedAt: createdAt,
-        origin: generationMethod === "ai" ? "ai_generated" : "deterministic_fallback",
-        sortOrder: 1,
-        sourceRefs: sharedRefs,
-      }),
-      createSection({
-        id: "section_skills",
-        kind: "skills",
-        label: "Core Skills",
-        bullets: draft.coreSkills,
-        updatedAt: createdAt,
-        origin: generationMethod === "ai" ? "ai_generated" : "deterministic_fallback",
-        sortOrder: 2,
-        sourceRefs: sharedRefs,
-      }),
-      createSection({
-        id: "section_keywords",
-        kind: "keywords",
-        label: "Targeted Keywords",
-        bullets: draft.targetedKeywords,
-        updatedAt: createdAt,
-        origin: generationMethod === "ai" ? "ai_generated" : "deterministic_fallback",
-        sortOrder: 3,
-        sourceRefs: sharedRefs,
-      }),
-    ].filter((section) => section.text || section.bullets.length > 0),
-    targetPageCount: 2,
-    generationMethod,
-    approvedAt: null,
-    approvedExportId: null,
-    staleReason: null,
-    createdAt,
-    updatedAt: createdAt,
-  });
+  return buildStructuredResumeDraftFromTailoredDraft(input);
 }
 
 export function seedResumeDraft(input: {
@@ -200,117 +101,244 @@ export function seedResumeDraft(input: {
   settings: JobFinderSettings;
   tailoredAsset?: TailoredAsset | null;
 }): ResumeDraft {
-  const now = input.tailoredAsset?.updatedAt ?? new Date().toISOString();
-  const tailoredAsset = input.tailoredAsset;
+  return seedStructuredResumeDraft(input);
+}
 
-  if (tailoredAsset) {
-    const sectionCounts = new Map<string, number>();
-    const seededSections = tailoredAsset.previewSections
-      .map((section, index) => {
-        const kind = toSectionKind(section.heading);
-        const text = kind === "summary" && section.lines[0] ? section.lines[0] : null;
-        const bullets = kind === "summary" ? section.lines.slice(1) : section.lines;
+function toTokenSet(value: string): Set<string> {
+  return new Set(tokenize(value));
+}
 
-        return createSection({
-          id: buildSeededSectionId(section.heading, index, sectionCounts),
-          kind,
-          label: section.heading,
-          text,
-          bullets,
-          updatedAt: now,
-          origin:
-            tailoredAsset.generationMethod === "ai_assisted"
-              ? "ai_generated"
-              : "deterministic_fallback",
-          sortOrder: index,
-        });
-      })
-      .filter((section) => section.text || section.bullets.length > 0);
+function calculateTokenOverlap(left: string, right: string): number {
+  const leftTokens = [...toTokenSet(left)];
+  const rightTokens = toTokenSet(right);
 
-    if (seededSections.length > 0) {
-      return ResumeDraftSchema.parse({
-        id: `resume_draft_${input.job.id}`,
-        jobId: input.job.id,
-        status: "draft",
-        templateId: input.settings.resumeTemplateId,
-        sections: seededSections,
-        targetPageCount: 2,
-        generationMethod:
-          tailoredAsset.generationMethod === "ai_assisted"
-            ? "ai"
-            : "deterministic",
-        approvedAt: null,
-        approvedExportId: null,
-        staleReason: null,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
+  if (leftTokens.length === 0 || rightTokens.size === 0) {
+    return 0;
   }
 
-  const summaryText =
-    input.profile.professionalSummary.fullSummary ??
-    input.profile.summary ??
-    `${input.profile.headline} targeting ${input.job.title} opportunities.`;
-  const matchingSkills = uniqueStrings([
-    ...input.job.keySkills.filter((skill) =>
-      input.profile.skills.some(
-        (profileSkill) => normalizeText(profileSkill) === normalizeText(skill),
-      ),
-    ),
-    ...input.profile.skills,
-  ]).slice(0, 8);
-  const experienceBullets = input.profile.experiences
-    .flatMap((experience) => experience.achievements)
-    .slice(0, 6);
+  const matched = leftTokens.filter((token) => rightTokens.has(token)).length;
+  return matched / Math.max(Math.min(leftTokens.length, rightTokens.size), 1);
+}
 
-  return ResumeDraftSchema.parse({
-    id: `resume_draft_${input.job.id}`,
-    jobId: input.job.id,
-    status: "draft",
-    templateId: input.settings.resumeTemplateId,
-    sections: [
-      createSection({
-        id: "section_summary",
-        kind: "summary",
-        label: "Summary",
-        text: summaryText,
-        updatedAt: now,
-        origin: "imported",
-        sortOrder: 0,
-      }),
-      createSection({
-        id: "section_experience",
-        kind: "experience",
-        label: "Experience Highlights",
-        bullets: experienceBullets,
-        updatedAt: now,
-        origin: "imported",
-        sortOrder: 1,
-      }),
-      createSection({
-        id: "section_skills",
-        kind: "skills",
-        label: "Core Skills",
-        bullets: matchingSkills,
-        updatedAt: now,
-        origin: "imported",
-        sortOrder: 2,
-      }),
-    ].filter((section) => section.text || section.bullets.length > 0),
-    targetPageCount: 2,
-    generationMethod: "manual",
-    approvedAt: null,
-    approvedExportId: null,
-    staleReason: null,
-    createdAt: now,
-    updatedAt: now,
+function buildJobPhraseBank(job: SavedJob): string[] {
+  return uniqueStrings([
+    job.summary ?? "",
+    ...job.responsibilities,
+    ...job.minimumQualifications,
+    ...job.preferredQualifications,
+    ...job.description
+      .split(/[\n.;!?]+/)
+      .map((entry) => entry.trim())
+      .filter((entry) => tokenize(entry).length >= 5)
+      .slice(0, 12),
+  ]).filter((entry) => tokenize(entry).length >= 5);
+}
+
+function buildProfileSupportBank(profile: CandidateProfile | undefined): string[] {
+  if (!profile) {
+    return [];
+  }
+
+  return uniqueStrings([
+    profile.baseResume.textContent ?? "",
+    profile.summary ?? "",
+    profile.professionalSummary.fullSummary ?? "",
+    profile.professionalSummary.shortValueProposition ?? "",
+    profile.narrative.professionalStory ?? "",
+    profile.narrative.nextChapterSummary ?? "",
+    profile.narrative.careerTransitionSummary ?? "",
+    ...profile.narrative.differentiators,
+    ...profile.skills,
+    ...profile.skillGroups.coreSkills,
+    ...profile.skillGroups.tools,
+    ...profile.skillGroups.languagesAndFrameworks,
+    ...profile.experiences.flatMap((experience) => [
+      experience.title,
+      experience.companyName,
+      experience.summary,
+      ...experience.achievements,
+    ]),
+    ...profile.projects.flatMap((project) => [
+      project.name,
+      project.role,
+      project.summary,
+      project.outcome,
+      ...project.skills,
+    ]),
+    ...profile.education.flatMap((education) => [
+      education.schoolName,
+      education.degree,
+      education.fieldOfStudy,
+      education.summary,
+    ]),
+    ...profile.certifications.flatMap((certification) => [
+      certification.name,
+      certification.issuer,
+    ]),
+    ...profile.proofBank.flatMap((proof) => [
+      proof.title,
+      proof.claim,
+      proof.heroMetric,
+      proof.supportingContext,
+    ]),
+  ].filter((entry): entry is string => Boolean(entry && entry.trim())));
+}
+
+function isSupportedByProfile(content: string, profileSupportBank: readonly string[]): boolean {
+  const normalized = normalizeText(content);
+  if (!normalized) {
+    return false;
+  }
+
+  return profileSupportBank.some((entry) => {
+    const normalizedEntry = normalizeText(entry);
+    return (
+      normalizedEntry.includes(normalized) ||
+      normalized.includes(normalizedEntry) ||
+      calculateTokenOverlap(content, entry) >= 0.72
+    );
   });
+}
+
+function isJobDescriptionBleed(
+  content: string,
+  jobPhraseBank: readonly string[],
+  profileSupportBank: readonly string[],
+): boolean {
+  const tokenCount = tokenize(content).length;
+  if (tokenCount < 5) {
+    return false;
+  }
+
+  const copiedPhrase = jobPhraseBank.find((phrase) => {
+    const normalizedPhrase = normalizeText(phrase);
+    const normalizedContent = normalizeText(content);
+    return (
+      normalizedPhrase === normalizedContent ||
+      normalizedContent.includes(normalizedPhrase) ||
+      calculateTokenOverlap(content, phrase) >= 0.92
+    );
+  });
+
+  return Boolean(copiedPhrase) && !isSupportedByProfile(content, profileSupportBank);
+}
+
+function looksLikeKeywordStuffing(content: string): boolean {
+  const commaCount = (content.match(/,/g) ?? []).length;
+  const tokenCount = tokenize(content).length;
+  return commaCount >= 4 && tokenCount >= 8 && !/\b(led|built|designed|shipped|managed|improved|created|owned|delivered|launched)\b/i.test(content);
+}
+
+function looksLikeVagueFiller(content: string): boolean {
+  return /\b(results[- ]driven|detail[- ]oriented|hardworking|team player|fast[- ]paced|responsible for|go-getter|self-starter)\b/i.test(
+    content,
+  );
+}
+
+export function sanitizeResumeDraft(input: {
+  draft: ResumeDraft;
+  job: SavedJob;
+  profile?: CandidateProfile;
+}): ResumeDraft {
+  const jobPhraseBank = buildJobPhraseBank(input.job);
+  const profileSupportBank = buildProfileSupportBank(input.profile);
+  const seenLines = new Set<string>();
+
+  const nextSections = input.draft.sections.map((section) => {
+    const normalizedSectionText = normalizeText(section.text ?? "");
+    const nextText = (() => {
+      if (!section.text?.trim()) {
+        return null;
+      }
+      if (seenLines.has(normalizedSectionText)) {
+        return null;
+      }
+      if (isJobDescriptionBleed(section.text, jobPhraseBank, profileSupportBank)) {
+        return null;
+      }
+      if (looksLikeKeywordStuffing(section.text)) {
+        return null;
+      }
+      seenLines.add(normalizedSectionText);
+      return section.text;
+    })();
+
+    const sanitizeBullets = (bullets: typeof section.bullets, contextText?: string | null) =>
+      bullets.filter((bullet) => {
+        const normalized = normalizeText(bullet.text);
+        if (!normalized) {
+          return false;
+        }
+        if (contextText && normalizeText(contextText) === normalized) {
+          return false;
+        }
+        if (seenLines.has(normalized)) {
+          return false;
+        }
+        if (isJobDescriptionBleed(bullet.text, jobPhraseBank, profileSupportBank)) {
+          return false;
+        }
+        if (looksLikeKeywordStuffing(bullet.text)) {
+          return false;
+        }
+        seenLines.add(normalized);
+        return true;
+      });
+
+    const nextEntries = section.entries
+      .map((entry) => {
+        const nextSummary = (() => {
+          if (!entry.summary?.trim()) {
+            return null;
+          }
+          const normalized = normalizeText(entry.summary);
+          if (seenLines.has(normalized)) {
+            return null;
+          }
+          if (isJobDescriptionBleed(entry.summary, jobPhraseBank, profileSupportBank)) {
+            return null;
+          }
+          seenLines.add(normalized);
+          return entry.summary;
+        })();
+
+        const nextBullets = sanitizeBullets(entry.bullets, nextSummary);
+        const hasHeading = Boolean(entry.title || entry.subtitle || entry.location || entry.dateRange);
+
+        if (!hasHeading && !nextSummary && nextBullets.length === 0) {
+          return null;
+        }
+
+        return {
+          ...entry,
+          summary: nextSummary,
+          bullets: nextBullets,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    const nextBullets = sanitizeBullets(section.bullets, nextText);
+    const hasVisibleContent = Boolean(nextText) || nextBullets.length > 0 || nextEntries.length > 0;
+
+    return {
+      ...section,
+      text: nextText,
+      bullets: nextBullets,
+      entries: nextEntries,
+      included: section.kind === "keywords" ? false : hasVisibleContent ? section.included : false,
+    };
+  });
+
+  return {
+    ...input.draft,
+    sections: nextSections,
+  };
 }
 
 export function validateResumeDraft(input: {
   draft: ResumeDraft;
   job: SavedJob;
+  profile?: CandidateProfile;
   pageCount?: number | null;
   validatedAt?: string;
 }): ResumeValidationResult {
@@ -318,6 +346,17 @@ export function validateResumeDraft(input: {
   const issues: ResumeValidationIssue[] = [];
   const seenBullets = new Map<string, { sectionId: string; bulletId: string }>();
   const includedSections = input.draft.sections.filter((section) => section.included);
+  const jobPhraseBank = buildJobPhraseBank(input.job);
+  const profileSupportBank = buildProfileSupportBank(input.profile);
+  const includedLineCount = buildPreviewSectionsFromResumeDraft(input.draft).flatMap((section) => section.lines).length;
+  const hasExperienceContent = includedSections.some(
+    (section) =>
+      section.kind === "experience" &&
+      (section.bullets.some((bullet) => bullet.included) ||
+        section.entries.some(
+          (entry) => entry.included && (Boolean(entry.summary) || entry.bullets.some((bullet) => bullet.included)),
+        )),
+  );
 
   for (const section of includedSections) {
     const includedBullets = section.bullets.filter((bullet) => bullet.included);
@@ -352,6 +391,108 @@ export function validateResumeDraft(input: {
           bulletId: bullet.id,
         });
       }
+
+      if (isJobDescriptionBleed(bullet.text, jobPhraseBank, profileSupportBank)) {
+        issues.push({
+          id: `issue_job_bleed_${bullet.id}`,
+          severity: "warning",
+          category: "job_description_bleed",
+          sectionId: section.id,
+          bulletId: bullet.id,
+          message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
+        });
+      }
+
+      if (looksLikeKeywordStuffing(bullet.text)) {
+        issues.push({
+          id: `issue_keyword_stuffing_${bullet.id}`,
+          severity: "warning",
+          category: "keyword_stuffing",
+          sectionId: section.id,
+          bulletId: bullet.id,
+          message: "This line reads like keyword packing instead of resume content.",
+        });
+      }
+
+      if (looksLikeVagueFiller(bullet.text)) {
+        issues.push({
+          id: `issue_filler_${bullet.id}`,
+          severity: "info",
+          category: "vague_filler",
+          sectionId: section.id,
+          bulletId: bullet.id,
+          message: "Replace generic filler language with a grounded accomplishment or skill example.",
+        });
+      }
+    }
+
+    const seenEntryContent = new Set<string>();
+    for (const entry of section.entries.filter((entry) => entry.included)) {
+      if (!entry.title && !entry.subtitle && !entry.summary && entry.bullets.filter((bullet) => bullet.included).length === 0) {
+        issues.push({
+          id: `issue_empty_entry_${entry.id}`,
+          severity: "warning",
+          category: "empty_section",
+          sectionId: section.id,
+          bulletId: null,
+          message: `${section.label} includes an empty entry that should be removed or filled in.`,
+        });
+      }
+
+      if (entry.summary) {
+        const normalizedSummary = normalizeText(entry.summary);
+        if (seenEntryContent.has(normalizedSummary)) {
+          issues.push({
+            id: `issue_duplicate_entry_${entry.id}`,
+            severity: "warning",
+            category: "duplicate_section_content",
+            sectionId: section.id,
+            bulletId: null,
+            message: `${section.label} repeats the same supporting content more than once.`,
+          });
+        } else {
+          seenEntryContent.add(normalizedSummary);
+        }
+
+        if (isJobDescriptionBleed(entry.summary, jobPhraseBank, profileSupportBank)) {
+          issues.push({
+            id: `issue_job_bleed_entry_${entry.id}`,
+            severity: "warning",
+            category: "job_description_bleed",
+            sectionId: section.id,
+            bulletId: null,
+            message: `${section.label} includes summary text that reads like copied job-description language.`,
+          });
+        }
+      }
+
+      for (const bullet of entry.bullets.filter((bullet) => bullet.included)) {
+        const normalizedBullet = normalizeText(bullet.text);
+        const existing = seenBullets.get(normalizedBullet);
+        if (existing) {
+          issues.push({
+            id: `issue_duplicate_${bullet.id}`,
+            severity: "warning",
+            category: "duplicate_bullet",
+            sectionId: section.id,
+            bulletId: bullet.id,
+            message: "This bullet duplicates another included bullet.",
+          });
+        } else {
+          seenBullets.set(normalizedBullet, { sectionId: section.id, bulletId: bullet.id });
+        }
+
+        if (isJobDescriptionBleed(bullet.text, jobPhraseBank, profileSupportBank)) {
+          issues.push({
+            id: `issue_job_bleed_${bullet.id}`,
+            severity: "warning",
+            category: "job_description_bleed",
+            sectionId: section.id,
+            bulletId: bullet.id,
+            message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
+          });
+        }
+      }
     }
   }
 
@@ -373,6 +514,17 @@ export function validateResumeDraft(input: {
       sectionId: null,
       bulletId: null,
       message: "The current draft does not yet echo the saved job keywords.",
+    });
+  }
+
+  if (includedLineCount < 5 || !hasExperienceContent || includedSections.length < 2) {
+    issues.push({
+      id: `issue_thin_${input.draft.id}`,
+      severity: "warning",
+      category: "thin_output",
+      sectionId: null,
+      bulletId: null,
+      message: "The current resume is still too thin to read like a complete submission-ready document.",
     });
   }
 
@@ -500,6 +652,8 @@ export function buildTailoredAssetBridge(input: {
     ]),
   });
 }
+
+export { buildResumeRenderDocument } from "./resume-workspace-structure";
 
 export function buildUnavailableAssistantReply(jobId: string): ResumeAssistantMessage {
   return ResumeAssistantMessageSchema.parse({

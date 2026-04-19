@@ -24,7 +24,12 @@ import { runResumeImportWorkflow } from "./resume-import-workflow";
 import { hasResumeAffectingProfileChange, hasResumeAffectingSettingsChange } from "./resume-workspace-staleness";
 import { createBrowserSessionSnapshot } from "./workspace-service-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
-import { getPreferredSessionAdapter, normalizeSearchPreferences } from "./workspace-helpers";
+import {
+  getPreferredSessionAdapter,
+  normalizeJobFinderSettings,
+  normalizeResumeDraftTemplate,
+  normalizeSearchPreferences,
+} from "./workspace-helpers";
 import { SOURCE_DEBUG_RECENT_HISTORY_LIMIT } from "./workspace-defaults";
 import { createWorkspaceProfileCopilotMethods } from "./workspace-profile-copilot-methods";
 import { createWorkspaceProfileSetupContextHelpers } from "./workspace-profile-setup-context";
@@ -88,11 +93,11 @@ export function createWorkspaceSnapshotProfileMethods(
       }
     }
 
-    const [
-      setupContext,
-      savedJobs,
-      tailoredAssets,
-      resumeDrafts,
+      const [
+        setupContext,
+        savedJobs,
+        tailoredAssets,
+        resumeDrafts,
       resumeExportArtifacts,
       resumeResearchArtifacts,
       applicationRecords,
@@ -100,9 +105,9 @@ export function createWorkspaceSnapshotProfileMethods(
       sourceInstructionArtifacts,
       profileCopilotMessages,
       profileRevisions,
-      settings,
-      discovery,
-    ] = await Promise.all([
+        rawSettings,
+        discovery,
+      ] = await Promise.all([
       getCurrentSetupStateContext(),
       ctx.repository.listSavedJobs(),
       ctx.repository.listTailoredAssets(),
@@ -118,9 +123,18 @@ export function createWorkspaceSnapshotProfileMethods(
       ctx.repository.getDiscoveryState(),
     ]);
 
-    const discoverySessions = await ctx.refreshDiscoverySessions(
-      setupContext.searchPreferences,
-    );
+      const availableResumeTemplates = ctx.documentManager.listResumeTemplates();
+      const settings = normalizeJobFinderSettings(
+        rawSettings,
+        availableResumeTemplates,
+      );
+      const normalizedResumeDrafts = resumeDrafts.map((draft) =>
+        normalizeResumeDraftTemplate(draft, availableResumeTemplates),
+      );
+
+      const discoverySessions = await ctx.refreshDiscoverySessions(
+        setupContext.searchPreferences,
+      );
     const browserSession = createBrowserSessionSnapshot(
       discoverySessions,
       getPreferredSessionAdapter(setupContext.searchPreferences),
@@ -134,19 +148,19 @@ export function createWorkspaceSnapshotProfileMethods(
     const discoveryJobs = [...persistedDiscoveryJobs, ...mergedPendingJobs].sort(
       (left, right) => right.matchAssessment.score - left.matchAssessment.score,
     );
-    const reviewQueue = buildReviewQueue(
-      savedJobs,
-      tailoredAssets,
-      resumeDrafts,
-      resumeExportArtifacts,
-    );
+      const reviewQueue = buildReviewQueue(
+        savedJobs,
+        tailoredAssets,
+        normalizedResumeDrafts,
+        resumeExportArtifacts,
+      );
     const orderedApplicationRecords = buildApplicationRecords(applicationRecords);
 
     return JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
       generatedAt: new Date().toISOString(),
       agentProvider: ctx.aiClient.getStatus(),
-      availableResumeTemplates: ctx.documentManager.listResumeTemplates(),
+        availableResumeTemplates,
       profile: setupContext.profile,
       searchPreferences: setupContext.searchPreferences,
       profileSetupState: setupContext.profileSetupState,
@@ -162,7 +176,7 @@ export function createWorkspaceSnapshotProfileMethods(
       reviewQueue,
       selectedReviewJobId: reviewQueue[0]?.jobId ?? null,
       tailoredAssets,
-      resumeDrafts,
+        resumeDrafts: normalizedResumeDrafts,
       resumeExportArtifacts,
       resumeResearchArtifacts,
       applicationRecords: orderedApplicationRecords,
@@ -393,10 +407,10 @@ export function createWorkspaceSnapshotProfileMethods(
     undoProfileRevision: profileCopilotMethods.undoProfileRevision,
     async saveSettings(settings: JobFinderSettings) {
       const currentSettings = await ctx.repository.getSettings();
-      const nextSettings = JobFinderSettingsSchema.parse({
-        ...settings,
-        resumeFormat: "pdf",
-      });
+      const nextSettings = normalizeJobFinderSettings(
+        settings,
+        ctx.documentManager.listResumeTemplates(),
+      );
 
       if (hasResumeAffectingSettingsChange(currentSettings, nextSettings)) {
         await ctx.staleApprovedResumeDrafts(

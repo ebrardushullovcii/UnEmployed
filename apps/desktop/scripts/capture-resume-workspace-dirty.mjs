@@ -56,9 +56,16 @@ function assistantField(window) {
   return window.getByLabel('Request a resume edit')
 }
 
+async function waitForProfileOrSetupHeading(window) {
+  await window.waitForFunction(() => {
+    const heading = document.querySelector('h1')
+    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
+  }, undefined, { timeout: 15000 })
+}
+
 async function loadDemo(window) {
   await window.waitForLoadState('domcontentloaded')
-  await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 15000 })
+  await waitForProfileOrSetupHeading(window)
   await window.setViewportSize({ width, height })
 
   await window.evaluate(async () => {

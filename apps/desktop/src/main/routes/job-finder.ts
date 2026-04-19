@@ -3,9 +3,8 @@ import {
   app,
   BrowserWindow,
   dialog,
-  type IpcMain,
-  type SaveDialogOptions,
 } from "electron";
+import type { IpcMain, SaveDialogOptions } from "electron";
 import {
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,

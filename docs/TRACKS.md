@@ -108,13 +108,17 @@ Use one track per meaningful workstream, not per person or per chat.
 
 ### `Plan 014 Resume Content Correctness And Output Quality`
 
-- status: `ready`
-- last updated: `2026-04-09`
-- linked plan: `docs/exec-plans/queued/014-job-finder-resume-output-and-template-quality.md`
-- plan maturity: `execution_ready`
+- status: `done`
+- last updated: `2026-04-18`
+- linked plan: `docs/exec-plans/completed/014-job-finder-resume-output-and-template-quality.md`
+- plan maturity: `completed`
 - code areas: `packages/job-finder`, `packages/contracts`, `apps/desktop`, `packages/ai-providers`
-- current focus: queued resume-quality pass is now execution-ready around the real shipped seams: widen the thin provider-to-draft bridge, add deterministic sanitation for duplicate and job-description-bleed content, make assistant patch application reliable, and ship one strong ATS-safe default renderer before any extra template work
-- next step: start Milestone 1 by freezing the current weak output samples and adding duplicate, thin-output, and job-description-bleed fixtures, then widen the draft and render model in contracts and `job-finder` before rebuilding the default desktop export path
+- current focus: completed ATS-first resume-quality pass: the thin provider-to-draft bridge is widened with structured entries, deterministic sanitation and richer validation categories now catch duplicate section content / job-description bleed / thin output / keyword stuffing / filler language, assistant resume edits preflight and apply atomically, desktop export plus editor flows operate on a structured ATS-first resume document, and the shipped layout surface is intentionally narrowed to the single `Classic ATS` template so non-ATS alternates no longer compete with the release bar
+- next step: reuse the completed `014` baseline for later resume polish or any future explicit template-expansion plan instead of treating layout choice as still undecided
+- additional note: required checks now pass for the current slice — `pnpm --filter @unemployed/ai-providers test`, `pnpm --filter @unemployed/contracts test`, `pnpm --filter @unemployed/db test`, `pnpm --filter @unemployed/job-finder test`, `pnpm --filter @unemployed/desktop build`, `pnpm --filter @unemployed/desktop ui:resume-workspace`, `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`, and `pnpm docs:check`
+- additional note: the retained deterministic UI evidence in `apps/desktop/test-artifacts/ui/resume-workspace/` now shows a structured approved resume with Summary, Experience, Core Skills, and Education sections plus apply handoff from the approved PDF, and `resume-workspace-dirty/dirty-state-results.json` still proves the dirty-state safeguards
+- additional note: this pass also fixed the desktop runtime/harness path needed for ongoing QA by forcing Electron main/preload outputs to CommonJS and teaching the resume-workspace captures to accept fresh-workspace startup on `Guided setup`
+- additional note: the final `014` decision now explicitly keeps only the ATS-safe `Classic ATS` layout active in product settings and rendering; unsupported legacy template ids normalize back to `Classic ATS`, and previously approved drafts tied to retired layouts reopen as stale so users must export a fresh ATS-first PDF before apply
 - blockers: best after `011` and `012`, but the first usable-output slice should land before serious `015` automation depends on resume quality
 
 ### `Plan 015 Automatic Job Apply`
