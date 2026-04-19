@@ -1,5 +1,6 @@
 import type {
   ApplyExecutionResult,
+  ApplyRecoveryContext,
   CandidateProfile,
   SavedJob,
 } from '@unemployed/contracts'
@@ -539,13 +540,22 @@ export function buildScreeningQuestions(input: {
   return questions
 }
 
-export function buildApplyReplay(job: SavedJob) {
+export function buildApplyReplay(job: SavedJob, recoveryContext?: ApplyRecoveryContext) {
   const lastUrl = job.applicationUrl ?? job.canonicalUrl
+  const checkpointUrls = Array.from(
+    new Set([
+      ...(recoveryContext?.checkpointUrls ?? []),
+      ...(lastUrl ? [lastUrl] : []),
+    ]),
+  )
 
   return {
     sourceInstructionArtifactId: null,
     sourceDebugEvidenceRefIds: [],
-    lastUrl,
-    checkpointUrls: lastUrl ? [lastUrl] : [],
+    lastUrl:
+      recoveryContext?.latestCheckpoint?.url ??
+      recoveryContext?.checkpointUrls[0] ??
+      lastUrl,
+    checkpointUrls,
   }
 }

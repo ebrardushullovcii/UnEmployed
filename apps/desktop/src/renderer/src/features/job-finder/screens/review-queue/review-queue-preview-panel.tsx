@@ -87,12 +87,12 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
             </div>
             {selectedItem.resumeReview.status === 'approved' ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                Approved on {new Date(selectedItem.resumeReview.approvedAt).toLocaleString()}. This is the PDF used when you start the application.
+                Approved on {new Date(selectedItem.resumeReview.approvedAt).toLocaleString()}. This is the PDF used when you start apply copilot.
               </p>
             ) : null}
             {selectedItem.resumeReview.status === 'needs_review' ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                This is a draft preview. Export and approve a PDF before you start the application.
+                This is a draft preview. Export and approve a PDF before you start apply copilot.
               </p>
             ) : null}
             {selectedItem.resumeReview.status === 'stale' ? (

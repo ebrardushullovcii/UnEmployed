@@ -1,8 +1,8 @@
 # 015 Job Finder Automatic Job Apply
 
-Status: ready
+Status: active
 
-Plan `015` remains queued. Plan `007` completed the `Resume Workspace` hardening. Plan `010` completed the measurement-first browser-efficiency slice. The first implementation slice is now intentionally staged rather than jumping straight from the review-gated apply flow to queue-wide automatic submission.
+Plan `015` is now active. Plan `007` completed the `Resume Workspace` hardening. Plan `010` completed the measurement-first browser-efficiency slice. The first implementation slice remains intentionally staged rather than jumping straight from the review-gated apply flow to queue-wide automatic submission.
 
 ## Goal
 
@@ -18,6 +18,12 @@ The eventual product target still includes true automatic submission, but the pa
 ## Delivery Standard For Implementing Agents
 
 This plan is not complete when the code merely compiles or one happy-path form submits once.
+
+## Operator Safety Note
+
+- User instruction on `2026-04-18`: do **not** run live-site application flows, real employer application submissions, or final-submit QA for this plan until the user explicitly re-authorizes that work.
+- The current Milestone 1 foundation slice must stay non-submitting.
+- Validation for this phase should stay deterministic and local: contracts, repository persistence, service orchestration, IPC wiring, desktop build, and docs checks are allowed; live application execution is not.
 
 Required implementation bar:
 
@@ -668,6 +674,8 @@ Exit signal:
 ## Verification Expectations
 
 Implementation work for this plan should be validated with at least:
+
+- For the current Milestone 1 non-submitting foundation slice, do not exercise live application submission paths even if later milestones eventually require them. Leave live apply QA for a separately authorized follow-up.
 
 - `pnpm --filter @unemployed/contracts test`
 - `pnpm --filter @unemployed/db test`

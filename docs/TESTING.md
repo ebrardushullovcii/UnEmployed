@@ -40,6 +40,10 @@
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`
 - `pnpm --filter @unemployed/desktop ui:profile-setup`
 - `pnpm --filter @unemployed/desktop ui:profile-copilot-preferences`
+- `pnpm --filter @unemployed/desktop ui:applications-copilot-review`
+- `pnpm --filter @unemployed/desktop ui:applications-recovery`
+- `pnpm --filter @unemployed/desktop ui:applications-queue-recovery`
+- `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
 - `pnpm --filter @unemployed/desktop ui:resume-workspace`
 - `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
 
@@ -59,6 +63,17 @@
 - Save screenshot artifacts and any supporting JSON snapshots under `apps/desktop/test-artifacts/ui/` during validation runs; treat them as QA evidence, not committed source files.
 - Resume-workspace safety changes should also prove the non-happy paths they touch, especially stale-after-edit behavior, upstream-change staleness, unsaved-edit navigation guards, and missing-approved-file apply refusal.
 - When the workflow expands, update this file and the relevant active or queued exec plan in the same task so later agents inherit the exact demo path instead of rediscovering it from chat context.
+
+## Apply Automation Safety
+
+- Until the user explicitly re-authorizes it, do not run live-site application flows, real employer submission attempts, or final-submit QA for Plan `015` work.
+- Validate early apply-automation slices with deterministic contract, repository, service, IPC, and desktop-build checks instead.
+- Treat any future live apply QA as an explicit opt-in gate, not the default local validation loop.
+- The current deterministic apply-copilot slice should prove that approved-resume upload memory, grounded answer capture, retained artifacts, and replay checkpoints persist while the run remains `paused` or `awaiting_review`; do not accept tests that report `submitted` for the copilot path.
+- Use `pnpm --filter @unemployed/desktop ui:applications-copilot-review` when Applications review surfaces or apply-copilot detail loading changes; it proves the safe copilot path still pauses before submit and that the raw persisted question, answer, artifact, and checkpoint data renders in the Applications detail panel.
+- Use `pnpm --filter @unemployed/desktop ui:applications-recovery` when Applications run-history selection or safe retry/rerun controls change; it proves older runs can be selected for review, that fresh non-submitting copilot or auto-run recovery actions create new runs from the Applications screen, and that reruns retain a replay checkpoint showing the prior saved apply context.
+- Use `pnpm --filter @unemployed/desktop ui:applications-queue-recovery` when Applications queue recovery controls change; it proves a historical queue run can show which jobs will be restaged versus excluded, render a richer per-job queue outcome summary, then restage only its remaining or skipped jobs into a fresh safe queue run from the Applications screen.
+- Use `pnpm --filter @unemployed/desktop ui:apply-queue-controls` when Review Queue multi-select staging, Applications queue approval controls, consent handling, skip-and-continue behavior, or cancel-run flows change; it proves the safe non-submitting queue path can stage multiple approved jobs, pause on consent, resume after consent approval, skip blocked jobs after consent decline, and cancel a queued run while retaining Applications evidence.
 
 ## Source-Debug QA
 
@@ -129,6 +144,9 @@
 - Use `pnpm --filter @unemployed/desktop ui:profile-setup` to validate the guided-setup route, persisted setup-state redirects, import-driven setup review items, draft-aware queue truth during unsaved essentials edits, explicit-save resolution of matching review items such as portfolio URL, nested background `Edit this` reopen behavior, bounded Profile Copilot edits including a years-of-experience change in Essentials, readiness completion, and the post-setup handoff back into the full Profile editor.
 - Guided setup and full Profile should keep resume import or refresh disabled while user edits are unsaved, and the guard copy should explain that importing now would overwrite the current draft.
 - Use `pnpm --filter @unemployed/desktop ui:profile-copilot-preferences` to validate the full-Profile Preferences copilot flow, including review-gated addition of common job sources like LinkedIn Jobs, Wellfound, and KosovaJob, persisted discovery-target updates in the saved workspace snapshot after explicit apply, bundled multi-edit prompts for work mode and salary alongside source changes when the harness covers them, re-enabling disabled saved sources when requested again, bubble toggle or drag behavior around the save area, proof that the composer remains editable while a reply is pending, proof that unsaved full-Profile edits block copilot send/apply/reject/undo mutations until save, the compact Show/Hide recent-changes tray behavior, and markdown-like transcript rendering for assistant headings, bullets, inline code, blockquotes, and fenced code.
+- Use `pnpm --filter @unemployed/desktop ui:applications-copilot-review` to validate the richer Applications apply-copilot detail surface; it reuses the seeded resume-workspace demo, approves the tailored PDF, launches apply copilot from Shortlisted, then captures the Applications panel once raw persisted review details have loaded and writes `apply-run-details.json` plus `workspace-after-review.json` under `apps/desktop/test-artifacts/ui/<label>/`.
+- Use `pnpm --filter @unemployed/desktop ui:applications-recovery` to validate the Applications recovery surface; it reuses the seeded resume-workspace demo, starts a safe copilot run, restages a safe auto run from Applications, selects an older run from run history, then reruns the safe copilot path and writes run-summary, rerun review-data, and workspace JSON snapshots under `apps/desktop/test-artifacts/ui/<label>/`.
+- Use `pnpm --filter @unemployed/desktop ui:apply-queue-controls` to validate the staged queue-control surface; it hydrates a deterministic approved-resume demo with two queue-eligible jobs plus one blocked job, uses the Shortlisted multi-select checkboxes to stage a queue run, then captures Applications evidence for queue approval, consent pause, consent approve, consent decline skip-and-continue, and cancel-run flows under `apps/desktop/test-artifacts/ui/<label>/`.
 - For floating-copilot layout work, include at least one reduced viewport pass such as `1024x768` so the open rail proves header, transcript, composer, and actions remain reachable instead of slipping under the viewport edge.
 - Resume-workspace changes should also ship with a dedicated capture flow that can open Review Queue, enter `/job-finder/review-queue/:jobId/resume`, trigger or verify resume generation, perform at least one manual edit, send at least one assistant request, export and approve the resume, and capture the resulting UI states.
 - Use `pnpm --filter @unemployed/desktop ui:resume-workspace` for the current scripted demo of the complete resume flow; it forces the deterministic catalog runtime, hydrates a reviewable demo workspace through the test-only preload bridge, and writes screenshots plus `workspace-after-demo.json` under `apps/desktop/test-artifacts/ui/resume-workspace/`.

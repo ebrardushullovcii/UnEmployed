@@ -15,6 +15,7 @@ import { createWorkspaceSnapshotProfileMethods } from "./internal/workspace-snap
 import { createWorkspaceDiscoveryMethods } from "./internal/workspace-discovery-methods";
 import { createWorkspaceSourceDebugMethods } from "./internal/workspace-source-debug-methods";
 import { createWorkspaceApplicationMethods } from "./internal/workspace-application-methods";
+import { createWorkspaceApplyRunStoreMethods } from "./internal/workspace-apply-run-store-methods";
 import { toDiscoverySessionState } from "./internal/discovery-state";
 import { uniqueStrings } from "./internal/shared";
 
@@ -41,6 +42,12 @@ export type {
   ResumeResearchAdapter,
   ResumeResearchAdapterInput,
 } from "./internal/workspace-service-contracts";
+
+export type {
+  ResumeRenderDocument,
+  ResumeRenderSection,
+  ResumeRenderSectionEntry,
+} from "./internal/resume-workspace-structure";
 
 export function createJobFinderWorkspaceService(
   options: CreateJobFinderWorkspaceServiceOptions,
@@ -282,11 +289,13 @@ export function createJobFinderWorkspaceService(
 
   const sourceDebugMethods = createWorkspaceSourceDebugMethods(context);
   context.runSourceDebugWorkflow = sourceDebugMethods.runSourceDebugWorkflow;
+  const applyRunStoreMethods = createWorkspaceApplyRunStoreMethods(context);
 
   return {
     ...snapshotProfileMethods,
     ...createWorkspaceDiscoveryMethods(context),
     ...sourceDebugMethods,
+    ...applyRunStoreMethods,
     ...createWorkspaceApplicationMethods(context),
   };
 }

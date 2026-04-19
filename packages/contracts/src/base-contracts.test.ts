@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  ApplyJobStateSchema,
+  ApplyRunModeSchema,
+  ApplyRunStateSchema,
+  ApplySubmitApprovalStatusSchema,
   ApplicationStatusSchema,
   CandidateProfileSchema,
   DesktopWindowControlsStateSchema,
@@ -12,6 +16,15 @@ describe("contracts base schemas", () => {
   test("supports the full application status list", () => {
     expect(applicationStatusValues).toContain("submitted");
     expect(ApplicationStatusSchema.parse("interview")).toBe("interview");
+  });
+
+  test("parses staged apply foundation enums", () => {
+    expect(ApplyRunModeSchema.parse("copilot")).toBe("copilot");
+    expect(ApplyRunStateSchema.parse("paused_for_user_review")).toBe(
+      "paused_for_user_review",
+    );
+    expect(ApplyJobStateSchema.parse("awaiting_review")).toBe("awaiting_review");
+    expect(ApplySubmitApprovalStatusSchema.parse("approved")).toBe("approved");
   });
 
   test("parses an expanded candidate profile", () => {

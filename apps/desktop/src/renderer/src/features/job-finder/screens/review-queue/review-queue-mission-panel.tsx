@@ -7,6 +7,7 @@ import { StatusBadge } from '../../components/status-badge'
 import {
   getApplyReadinessStatus,
   hasResumeGenerationFailure,
+  isQueueStageReady,
   isResumeGenerationInProgress,
   needsResumeGeneration,
   type ApplySupportState
@@ -16,9 +17,15 @@ interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
   browserSession: BrowserSessionState
   busy: boolean
+  onClearQueueSelection: () => void
   onApproveApply: (jobId: string) => void
+  onStartAutoApply: (jobId: string) => void
+  onStartAutoApplyQueue: (jobIds: string[]) => void
+  onStartApplyCopilot: (jobId: string) => void
   onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
+  queue: readonly ReviewQueueItem[]
+  queueSelection: readonly string[]
   selectedAsset: TailoredAsset | null
   selectedItem: ReviewQueueItem | null
   selectedJob: SavedJob | null
@@ -148,7 +155,7 @@ function getReadinessDescription(input: {
   }
 
   if (applySupportState === 'incomplete') {
-    return 'The approved PDF is ready, but this selection is missing apply-path data. Refresh the job details before starting the application.'
+    return 'The approved PDF is ready, but this selection is missing apply-path data. Refresh the job details before starting apply copilot.'
   }
 
   if (browserActionMessage) {
@@ -156,19 +163,25 @@ function getReadinessDescription(input: {
   }
 
   if (applySupportState === 'manual_follow_up') {
-    return 'The approved PDF is ready, but saved job data does not confirm a supported Easy Apply path. Starting can still stop with a manual-only next step.'
+    return 'The approved PDF is ready, but saved job data does not confirm a supported Easy Apply path. Starting apply copilot can still stop with a manual-only next step.'
   }
 
-  return 'The approved PDF is ready to use. Starting now can still pause if the live form asks for unsupported information.'
+  return 'The approved PDF is ready to use. Apply copilot can prepare the application and pause before final submit if the live form asks for unsupported information.'
 }
 
 export function ReviewQueueMissionPanel({
   actionMessage,
   browserSession,
   busy,
+  onClearQueueSelection,
   onApproveApply,
+  onStartAutoApply,
+  onStartAutoApplyQueue,
+  onStartApplyCopilot,
   onEditResumeWorkspace,
   onGenerateResume,
+  queue,
+  queueSelection,
   selectedAsset,
   selectedItem,
   selectedJob
@@ -199,15 +212,15 @@ export function ReviewQueueMissionPanel({
       ? 'Try again'
     : needsGeneration
       ? 'Create tailored resume'
-      : 'Start application'
+      : 'Start apply copilot'
   const browserActionMessage =
     browserSession.status === 'ready'
       ? null
       : browserSession.status === 'login_required'
-        ? 'Sign in to the browser before you start the application.'
+        ? 'Sign in to the browser before you start apply copilot.'
       : browserSession.status === 'blocked'
-          ? 'Resolve the browser issue before you start the application.'
-          : 'Wait for the browser to finish starting before you start the application.'
+          ? 'Resolve the browser issue before you start apply copilot.'
+          : 'Wait for the browser to finish starting before you start apply copilot.'
   const applyReadinessStatus = getApplyReadinessStatus({
     applySupportState,
     browserSession,
@@ -234,7 +247,7 @@ export function ReviewQueueMissionPanel({
       label: 'Approved PDF ready',
       state: hasReadyApprovedAsset ? 'complete' : 'blocked',
       description: hasReadyApprovedAsset
-        ? 'The current approved PDF will be used when you start the application.'
+        ? 'The current approved PDF will be used when you start apply copilot.'
         : resumeReviewStatus === 'approved'
           ? 'The approved PDF could not be matched to the latest ready export. Reopen the workspace and approve again.'
           : resumeReviewStatus === 'stale'
@@ -245,16 +258,16 @@ export function ReviewQueueMissionPanel({
       label: 'Apply path',
       state: applySupportState === 'incomplete' ? 'blocked' : applySupportState === 'manual_follow_up' ? 'attention' : 'complete',
       description: applySupportState === 'incomplete'
-        ? 'This selection is missing saved apply-path data. Refresh the job details before you start the application.'
+        ? 'This selection is missing saved apply-path data. Refresh the job details before you start apply copilot.'
         : applySupportState === 'manual_follow_up'
         ? 'Saved job data does not confirm a supported Easy Apply path. Starting can still stop with a manual-only next step in Applications.'
-        : 'Saved job data still points to a supported Easy Apply path. Live questions can still pause automation before submission.'
+        : 'Saved job data still points to a supported Easy Apply path. Live questions can still pause copilot before final submission.'
     },
     {
       label: 'Browser ready',
       state: browserSession.status === 'ready' ? 'complete' : browserSession.status === 'unknown' ? 'in_progress' : 'blocked',
       description: browserSession.status === 'ready'
-        ? 'The browser is ready for supported application steps.'
+        ? 'The browser is ready for supported apply-copilot steps.'
         : browserActionMessage ?? 'Open or refresh the browser before continuing.'
     }
   ]
@@ -270,11 +283,23 @@ export function ReviewQueueMissionPanel({
     applySupportState,
     browserActionMessage
   })
+  const selectedQueueItems = queue.filter((item) => queueSelection.includes(item.jobId))
+  const selectedQueueReadyItems = selectedQueueItems.filter((item) => isQueueStageReady(item))
+  const selectedQueueBlockedCount = selectedQueueItems.length - selectedQueueReadyItems.length
+  const queueReadyCount = queue.filter((item) => isQueueStageReady(item)).length
+  const canStageSelectedQueue = selectedQueueReadyItems.length > 0 && selectedQueueBlockedCount === 0
+  const queueSummary = selectedQueueItems.length === 0
+    ? queueReadyCount === 0
+      ? 'No shortlisted jobs currently meet the approved-PDF requirement for queue staging.'
+      : `Select up to ${queueReadyCount} approved jobs from the list to stage one bounded queue run.`
+    : selectedQueueBlockedCount > 0
+      ? 'Only jobs with an approved ready PDF can enter the queue. Remove the blocked selection to continue.'
+      : `${selectedQueueReadyItems.length} selected job${selectedQueueReadyItems.length === 1 ? '' : 's'} will be staged into one safe non-submitting queue run.`
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
-        <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Apply readiness</h3>
+        <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Apply copilot readiness</h3>
       </div>
       <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
         {readinessDescription ? (
@@ -338,6 +363,36 @@ export function ReviewQueueMissionPanel({
             <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} />
             </div>
+            <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <div className="grid gap-1">
+                  <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Queue staging</span>
+                  <strong className="text-(length:--text-body) text-(--text-headline)">
+                    {selectedQueueItems.length > 0
+                      ? `${selectedQueueItems.length} selected`
+                      : `${queueReadyCount} ready for queue`}
+                  </strong>
+                </div>
+                {selectedQueueItems.length > 0 ? (
+                  <Button
+                    onClick={onClearQueueSelection}
+                    size="compact"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Clear selection
+                  </Button>
+                ) : null}
+              </div>
+              <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                {queueSummary}
+              </p>
+              {selectedQueueReadyItems.length > 0 ? (
+                <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                  {selectedQueueReadyItems.map((item) => item.title).join(' • ')}
+                </p>
+              ) : null}
+            </div>
             {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words text-(length:--text-small) leading-6 text-primary" role="status">{actionMessage}</p> : null}
             <div className="grid min-w-0 gap-2.5">
               <Button
@@ -350,7 +405,7 @@ export function ReviewQueueMissionPanel({
                     return
                   }
 
-                  onApproveApply(selectedItem.jobId)
+                  onStartApplyCopilot(selectedItem.jobId)
                 }}
                 type="button"
               >
@@ -358,9 +413,38 @@ export function ReviewQueueMissionPanel({
               </Button>
               <Button
                 className="h-11 w-full"
-                onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                disabled={busy || isGenerating || !canApproveApply}
+                onClick={() => onStartAutoApply(selectedItem.jobId)}
                 type="button"
                 variant="secondary"
+              >
+                Stage automatic submit run
+              </Button>
+              <Button
+                className="h-11 w-full"
+                disabled={busy || !canStageSelectedQueue}
+                onClick={() => onStartAutoApplyQueue(selectedQueueReadyItems.map((item) => item.jobId))}
+                type="button"
+                variant="secondary"
+              >
+                {selectedQueueReadyItems.length > 0
+                  ? `Stage queue for ${selectedQueueReadyItems.length} job${selectedQueueReadyItems.length === 1 ? '' : 's'}`
+                  : 'Stage selected queue'}
+              </Button>
+              <Button
+                className="h-11 w-full"
+                disabled={busy || isGenerating || !canApproveApply}
+                onClick={() => onApproveApply(selectedItem.jobId)}
+                type="button"
+                variant="ghost"
+              >
+                Run legacy submit path
+              </Button>
+              <Button
+                className="h-11 w-full"
+                onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                type="button"
+                variant="ghost"
               >
                 <Pencil aria-hidden="true" className="size-4" focusable="false" />
                 Open resume workspace

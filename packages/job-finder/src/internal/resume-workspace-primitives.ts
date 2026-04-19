@@ -124,14 +124,19 @@ export function createEntry(input: {
   profileRecordId?: string | null;
   sourceRefs?: readonly ResumeDraftSourceRef[];
 }): ResumeDraftEntry {
+  const normalizeNullableText = (value: string | null | undefined) => {
+    const trimmed = value?.trim() ?? "";
+    return trimmed === "" ? null : trimmed;
+  };
+
   return {
     id: input.id,
     entryType: input.entryType,
-    title: input.title ?? null,
-    subtitle: input.subtitle ?? null,
-    location: input.location ?? null,
-    dateRange: input.dateRange ?? null,
-    summary: input.summary ?? null,
+    title: normalizeNullableText(input.title),
+    subtitle: normalizeNullableText(input.subtitle),
+    location: normalizeNullableText(input.location),
+    dateRange: normalizeNullableText(input.dateRange),
+    summary: normalizeNullableText(input.summary),
     bullets: (input.bullets ?? []).map((bullet, index) =>
       createBullet(
         `${input.id}_bullet_${index + 1}`,

@@ -1,8 +1,33 @@
 import type { ResumeProfileExtraction } from "@unemployed/ai-providers";
 import type { JobFinderRepositorySeed } from "@unemployed/db";
-import type { SourceDebugPhase } from "@unemployed/contracts";
+import {
+  JobFinderDiscoveryStateSchema,
+  SavedJobDiscoveryProvenanceSchema,
+  SavedJobSchema,
+  SourceInstructionArtifactSchema,
+  type SavedJob,
+  type SavedJobDiscoveryProvenance,
+  type SourceDebugPhase,
+  type SourceInstructionArtifact,
+} from "@unemployed/contracts";
 
 export type SourceDebugPhaseMap<TValue> = Partial<Record<SourceDebugPhase, TValue>>;
+
+export function createSavedJob(input: Record<string, unknown>): SavedJob {
+  return SavedJobSchema.parse(input);
+}
+
+export function createSavedJobDiscoveryProvenance(
+  input: Record<string, unknown>,
+): SavedJobDiscoveryProvenance {
+  return SavedJobDiscoveryProvenanceSchema.parse(input);
+}
+
+export function createSourceInstructionArtifact(
+  input: Record<string, unknown>,
+): SourceInstructionArtifact {
+  return SourceInstructionArtifactSchema.parse(input);
+}
 
 export function toPhaseId(
   strategyLabel: string | null | undefined,
@@ -237,7 +262,7 @@ export function createSeed(): JobFinderRepositorySeed {
       lastResumedAt: null,
     },
     savedJobs: [
-      {
+      createSavedJob({
         id: "job_ready",
         source: "target_site",
         sourceJobId: "linkedin_signal_ready",
@@ -309,8 +334,8 @@ export function createSeed(): JobFinderRepositorySeed {
           gaps: [],
         },
         provenance: [],
-      },
-      {
+      }),
+      createSavedJob({
         id: "job_generating",
         source: "target_site",
         sourceJobId: "linkedin_northwind_generating",
@@ -376,7 +401,7 @@ export function createSeed(): JobFinderRepositorySeed {
           gaps: ["Accessibility leadership"],
         },
         provenance: [],
-      },
+      }),
     ],
     tailoredAssets: [
       {
@@ -420,6 +445,14 @@ export function createSeed(): JobFinderRepositorySeed {
     resumeResearchArtifacts: [],
     resumeValidationResults: [],
     resumeAssistantMessages: [],
+    applyRuns: [],
+    applyJobResults: [],
+    applySubmitApprovals: [],
+    applicationQuestionRecords: [],
+    applicationAnswerRecords: [],
+    applicationArtifactRefs: [],
+    applicationReplayCheckpoints: [],
+    applicationConsentRequests: [],
     applicationRecords: [],
     applicationAttempts: [],
     sourceDebugRuns: [],
@@ -441,7 +474,7 @@ export function createSeed(): JobFinderRepositorySeed {
       keepSessionAlive: true,
       discoveryOnly: false,
     },
-    discovery: {
+    discovery: JobFinderDiscoveryStateSchema.parse({
       sessions: [],
       runState: "idle",
       activeRun: null,
@@ -449,7 +482,7 @@ export function createSeed(): JobFinderRepositorySeed {
       activeSourceDebugRun: null,
       recentSourceDebugRuns: [],
       pendingDiscoveryJobs: [],
-    },
+    }),
   };
 }
 

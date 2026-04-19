@@ -1,6 +1,14 @@
 import {
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  ApplySubmitApprovalSchema,
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
   ApplicationAttemptSchema,
+  ApplicationConsentRequestSchema,
   ApplicationRecordSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
   CandidateProfileSchema,
   JobFinderDiscoveryStateSchema,
   JobFinderRepositoryStateSchema,
@@ -36,6 +44,7 @@ import {
   cloneValue,
   getSingletonValue,
   hasPersistedState,
+  listCollectionValues,
   listValues,
   replaceCollection,
   saveSingletonValue,
@@ -223,6 +232,197 @@ export async function createFileJobFinderRepository(
       })
 
       return secureDatabaseFile(options.filePath)
+    },
+    listApplyRuns() {
+      return Promise.resolve(
+        cloneValue(listCollectionValues(database, 'apply_runs', ApplyRunSchema, {
+          orderBySql: 'updated_at DESC, id ASC',
+        })),
+      )
+    },
+    upsertApplyRun(run) {
+      const normalizedRun = ApplyRunSchema.parse(cloneValue(run))
+      return context.upsertPersistedValue('apply_runs', normalizedRun)
+    },
+    listApplyJobResults() {
+      return Promise.resolve(
+        cloneValue(
+          listCollectionValues(database, 'apply_job_results', ApplyJobResultSchema, {
+            orderBySql: 'updated_at DESC, queue_position ASC, id ASC',
+          }),
+        ),
+      )
+    },
+    upsertApplyJobResult(result) {
+      const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result))
+      return context.upsertPersistedValue('apply_job_results', normalizedResult)
+    },
+    listApplySubmitApprovals() {
+      return Promise.resolve(
+        cloneValue(
+          listCollectionValues(database, 'apply_submit_approvals', ApplySubmitApprovalSchema, {
+            orderBySql: 'created_at DESC, id ASC',
+          }),
+        ),
+      )
+    },
+    upsertApplySubmitApproval(approval) {
+      const normalizedApproval = ApplySubmitApprovalSchema.parse(cloneValue(approval))
+      return context.upsertPersistedValue('apply_submit_approvals', normalizedApproval)
+    },
+    listApplicationQuestionRecords(options) {
+      const params: string[] = []
+      const filters: string[] = []
+      if (options?.runId) {
+        filters.push('run_id = ?')
+        params.push(options.runId)
+      }
+      if (options?.jobId) {
+        filters.push('job_id = ?')
+        params.push(options.jobId)
+      }
+      if (options?.resultId) {
+        filters.push('result_id = ?')
+        params.push(options.resultId)
+      }
+      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
+      return Promise.resolve(
+        cloneValue(
+          listCollectionValues(database, 'application_question_records', ApplicationQuestionRecordSchema, {
+            ...(whereSql ? { whereSql } : {}),
+            ...(params.length > 0 ? { params } : {}),
+            orderBySql: 'detected_at ASC, id ASC',
+          }),
+        ),
+      )
+    },
+    upsertApplicationQuestionRecord(record) {
+      const normalizedRecord = ApplicationQuestionRecordSchema.parse(cloneValue(record))
+      return context.upsertPersistedValue('application_question_records', normalizedRecord)
+    },
+    listApplicationAnswerRecords(options) {
+      const params: string[] = []
+      const filters: string[] = []
+      if (options?.runId) {
+        filters.push('run_id = ?')
+        params.push(options.runId)
+      }
+      if (options?.jobId) {
+        filters.push('job_id = ?')
+        params.push(options.jobId)
+      }
+      if (options?.resultId) {
+        filters.push('result_id = ?')
+        params.push(options.resultId)
+      }
+      if (options?.questionId) {
+        filters.push('question_id = ?')
+        params.push(options.questionId)
+      }
+      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
+      return Promise.resolve(
+        cloneValue(
+          listCollectionValues(database, 'application_answer_records', ApplicationAnswerRecordSchema, {
+            ...(whereSql ? { whereSql } : {}),
+            ...(params.length > 0 ? { params } : {}),
+            orderBySql: 'created_at ASC, id ASC',
+          }),
+        ),
+      )
+    },
+    upsertApplicationAnswerRecord(record) {
+      const normalizedRecord = ApplicationAnswerRecordSchema.parse(cloneValue(record))
+      return context.upsertPersistedValue('application_answer_records', normalizedRecord)
+    },
+    listApplicationArtifactRefs(options) {
+      const params: string[] = []
+      const filters: string[] = []
+      if (options?.runId) {
+        filters.push('run_id = ?')
+        params.push(options.runId)
+      }
+      if (options?.jobId) {
+        filters.push('job_id = ?')
+        params.push(options.jobId)
+      }
+      if (options?.resultId) {
+        filters.push('result_id = ?')
+        params.push(options.resultId)
+      }
+      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
+      return Promise.resolve(
+        cloneValue(
+          listCollectionValues(database, 'application_artifact_refs', ApplicationArtifactRefSchema, {
+            ...(whereSql ? { whereSql } : {}),
+            ...(params.length > 0 ? { params } : {}),
+            orderBySql: 'created_at DESC, id ASC',
+          }),
+        ),
+      )
+    },
+    upsertApplicationArtifactRef(ref) {
+      const normalizedRef = ApplicationArtifactRefSchema.parse(cloneValue(ref))
+      return context.upsertPersistedValue('application_artifact_refs', normalizedRef)
+    },
+    listApplicationReplayCheckpoints(options) {
+      const params: string[] = []
+      const filters: string[] = []
+      if (options?.runId) {
+        filters.push('run_id = ?')
+        params.push(options.runId)
+      }
+      if (options?.jobId) {
+        filters.push('job_id = ?')
+        params.push(options.jobId)
+      }
+      if (options?.resultId) {
+        filters.push('result_id = ?')
+        params.push(options.resultId)
+      }
+      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
+      return Promise.resolve(
+        cloneValue(
+          listCollectionValues(database, 'application_replay_checkpoints', ApplicationReplayCheckpointSchema, {
+            ...(whereSql ? { whereSql } : {}),
+            ...(params.length > 0 ? { params } : {}),
+            orderBySql: 'created_at DESC, id ASC',
+          }),
+        ),
+      )
+    },
+    upsertApplicationReplayCheckpoint(checkpoint) {
+      const normalizedCheckpoint = ApplicationReplayCheckpointSchema.parse(cloneValue(checkpoint))
+      return context.upsertPersistedValue('application_replay_checkpoints', normalizedCheckpoint)
+    },
+    listApplicationConsentRequests(options) {
+      const params: string[] = []
+      const filters: string[] = []
+      if (options?.runId) {
+        filters.push('run_id = ?')
+        params.push(options.runId)
+      }
+      if (options?.jobId) {
+        filters.push('job_id = ?')
+        params.push(options.jobId)
+      }
+      if (options?.resultId) {
+        filters.push('result_id = ?')
+        params.push(options.resultId)
+      }
+      const whereSql = filters.length > 0 ? filters.join(' AND ') : null
+      return Promise.resolve(
+        cloneValue(
+          listCollectionValues(database, 'application_consent_requests', ApplicationConsentRequestSchema, {
+            ...(whereSql ? { whereSql } : {}),
+            ...(params.length > 0 ? { params } : {}),
+            orderBySql: 'requested_at DESC, id ASC',
+          }),
+        ),
+      )
+    },
+    upsertApplicationConsentRequest(request) {
+      const normalizedRequest = ApplicationConsentRequestSchema.parse(cloneValue(request))
+      return context.upsertPersistedValue('application_consent_requests', normalizedRequest)
     },
     listApplicationRecords() {
       return Promise.resolve(

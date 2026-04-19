@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   JobFinderResumeWorkspaceSchema,
+  ResumeDraftSectionSchema,
   ResumeAssistantMessageSchema,
   ResumeExportArtifactSchema,
   ResumeValidationResultSchema,
@@ -183,6 +184,18 @@ describe("contracts resume workspace schemas", () => {
     });
 
     expect(workspace.draft.sections[0]?.kind).toBe("summary");
+    const parsedExperienceSection = ResumeDraftSectionSchema.parse(
+      workspace.draft.sections[1],
+    );
+    expect(parsedExperienceSection.id).toBe("section_experience");
+    expect(parsedExperienceSection.entries[0]).toMatchObject({
+      entryType: "experience",
+      id: "experience_1",
+      title: "Senior Product Designer",
+      subtitle: "Signal Systems",
+      dateRange: "2023 – Present",
+    });
+    expect(Array.isArray(parsedExperienceSection.entries[0]?.bullets)).toBe(true);
     expect(workspace.validation?.issues[0]?.category).toBe(
       "poor_keyword_coverage",
     );

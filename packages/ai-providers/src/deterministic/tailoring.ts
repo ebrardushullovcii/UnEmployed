@@ -425,8 +425,8 @@ export function buildDeterministicResumeAssistantReply(
       .filter((bullet) => !bullet.locked)
       .map((bullet) => ({ bullet, entryId: null as string | null }));
     const candidateBullets = unlockedEntryBullets.length > 0 ? unlockedEntryBullets : unlockedBullets;
-    const keywordMatchedBullet = unlockedBullets.find((bullet) =>
-      bullet.bullet.text
+    const keywordMatchedBullet = candidateBullets.find((item) =>
+      item.bullet.text
         .toLowerCase()
         .split(/[^a-z0-9]+/)
         .filter((token) => token.length >= 3)

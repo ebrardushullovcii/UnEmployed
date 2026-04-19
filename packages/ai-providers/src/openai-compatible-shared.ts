@@ -31,6 +31,34 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
       }
     }
 
+    const hasMeaningfulContent = Object.values(entry).some((fieldValue) => {
+      if (typeof fieldValue === "string") {
+        return fieldValue.trim().length > 0;
+      }
+
+      if (Array.isArray(fieldValue)) {
+        return fieldValue.some((item) => {
+          if (typeof item === "string") {
+            return item.trim().length > 0;
+          }
+
+          if (!item || typeof item !== "object" || Array.isArray(item)) {
+            return false;
+          }
+
+          return Object.values(item).some(
+            (nestedValue) => typeof nestedValue === "string" && nestedValue.trim().length > 0,
+          );
+        });
+      }
+
+      return false;
+    });
+
+    if (!hasMeaningfulContent) {
+      return [];
+    }
+
     return [entry as TEntry];
   });
 }

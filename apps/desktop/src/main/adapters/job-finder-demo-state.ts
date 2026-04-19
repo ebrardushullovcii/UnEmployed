@@ -1,4 +1,7 @@
-import { JobFinderRepositoryStateSchema, type JobFinderRepositoryState } from "@unemployed/contracts";
+import {
+  JobFinderRepositoryStateSchema,
+  type JobFinderRepositoryState,
+} from "@unemployed/contracts";
 import { createEmptyJobFinderRepositoryState } from "./job-finder-initial-state";
 
 export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
@@ -339,5 +342,138 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
       recentSourceDebugRuns: [],
       pendingDiscoveryJobs: [],
     },
+  });
+}
+
+export function createApplyQueueDemoState(): JobFinderRepositoryState {
+  const resumeDemoState = createResumeWorkspaceDemoState();
+
+  return JobFinderRepositoryStateSchema.parse({
+    ...resumeDemoState,
+    savedJobs: [
+      resumeDemoState.savedJobs[0],
+      {
+        ...resumeDemoState.savedJobs[0],
+        id: "job_consent_queue",
+        sourceJobId: "linkedin_consent_queue",
+        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
+        applicationUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
+        title: "Staff Product Designer",
+        company: "Consent Labs",
+        summary: "Guide a workflow platform that pauses on account-consent questions.",
+        description:
+          "Guide a workflow platform that asks whether you already have an account before continuing the application.",
+        keywordSignals: [
+          {
+            id: "job_consent_queue_consent_gate",
+            label: "Existing account decision",
+            kind: "qualification",
+            weight: 4,
+          },
+        ],
+      },
+      {
+        ...resumeDemoState.savedJobs[1],
+        id: "job_not_ready_queue",
+        sourceJobId: "linkedin_not_ready_queue",
+        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue",
+        applicationUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue/apply",
+        title: "Lead UX Strategist",
+        company: "Northwind Labs",
+        status: "ready_for_review",
+      },
+    ],
+    tailoredAssets: [
+      {
+        id: "asset_job_ready",
+        jobId: "job_ready",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored Resume",
+        version: "v1",
+        templateName: "Classic ATS",
+        compatibilityScore: 96,
+        progressPercent: 100,
+        updatedAt: "2026-03-20T10:04:00.000Z",
+        storagePath: "/tmp/job-ready-resume.pdf",
+        contentText: "Ready tailored resume for job_ready",
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+      },
+      {
+        id: "asset_job_consent_queue",
+        jobId: "job_consent_queue",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored Resume",
+        version: "v1",
+        templateName: "Classic ATS",
+        compatibilityScore: 95,
+        progressPercent: 100,
+        updatedAt: "2026-03-20T10:04:00.000Z",
+        storagePath: "/tmp/job-consent-queue-resume.pdf",
+        contentText: "Ready tailored resume for job_consent_queue",
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+      },
+    ],
+    resumeDrafts: [
+      {
+        id: "resume_draft_job_ready",
+        jobId: "job_ready",
+        status: "approved",
+        templateId: "classic_ats",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        approvedAt: "2026-03-20T10:04:00.000Z",
+        approvedExportId: "resume_export_job_ready",
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+      },
+      {
+        id: "resume_draft_job_consent_queue",
+        jobId: "job_consent_queue",
+        status: "approved",
+        templateId: "classic_ats",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        approvedAt: "2026-03-20T10:04:00.000Z",
+        approvedExportId: "resume_export_job_consent_queue",
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+      },
+    ],
+    resumeExportArtifacts: [
+      {
+        id: "resume_export_job_ready",
+        draftId: "resume_draft_job_ready",
+        jobId: "job_ready",
+        format: "pdf",
+        filePath: "/tmp/job-ready-resume.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:04:00.000Z",
+        isApproved: true,
+      },
+      {
+        id: "resume_export_job_consent_queue",
+        draftId: "resume_draft_job_consent_queue",
+        jobId: "job_consent_queue",
+        format: "pdf",
+        filePath: "/tmp/job-consent-queue-resume.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:04:00.000Z",
+        isApproved: true,
+      },
+    ],
   });
 }

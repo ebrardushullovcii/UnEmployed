@@ -233,6 +233,24 @@ export function createPrimaryPageActions(
             ? 'Review item dismissed for now.'
             : 'Current value cleared and the review item was resolved.',
       ),
+    onApproveApplyRun: (runId: string) =>
+      void runAction(
+        () => actions.approveApplyRun(runId),
+        () => {
+          setResumeWorkspaceDirty(false)
+          navigate('/job-finder/applications')
+        },
+        'Submit approval recorded. This safe build still stops before final submit.',
+      ),
+    onCancelApplyRun: (runId: string) =>
+      void runAction(
+        () => actions.cancelApplyRun(runId),
+        () => {
+          setResumeWorkspaceDirty(false)
+          navigate('/job-finder/applications')
+        },
+        'Automatic apply run cancelled.',
+      ),
     onApproveApply: (jobId: string) => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
         return
@@ -245,6 +263,71 @@ export function createPrimaryPageActions(
           navigate('/job-finder/applications')
         },
         'Applications updated. Check the latest attempt and next step there.',
+      )
+    },
+    onRevokeApplyRunApproval: (runId: string) =>
+      void runAction(
+        () => actions.revokeApplyRunApproval(runId),
+        () => {
+          setResumeWorkspaceDirty(false)
+          navigate('/job-finder/applications')
+        },
+        'Submit approval revoked. The run is back to pending approval.',
+      ),
+    onResolveApplyConsentRequest: (
+      requestId: string,
+      action: 'approve' | 'decline',
+    ) =>
+      void runAction(
+        () => actions.resolveApplyConsentRequest(requestId, action),
+        () => {
+          setResumeWorkspaceDirty(false)
+          navigate('/job-finder/applications')
+        },
+        action === 'approve'
+          ? 'Consent approved. The safe run resumed without final submit.'
+          : 'Consent declined. The run skipped that job and stayed non-submitting.',
+      ),
+    onStartAutoApplyQueue: (jobIds: string[]) => {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
+        return
+      }
+
+      void runAction(
+        () => actions.startAutoApplyQueueRun(jobIds),
+        () => {
+          setResumeWorkspaceDirty(false)
+          navigate('/job-finder/applications')
+        },
+        'Automatic apply queue staged. Review and approve it in Applications before any later execution step.',
+      )
+    },
+    onStartAutoApply: (jobId: string) => {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
+        return
+      }
+
+      void runAction(
+        () => actions.startAutoApplyRun(jobId),
+        () => {
+          setResumeWorkspaceDirty(false)
+          navigate('/job-finder/applications')
+        },
+        'Automatic submit run staged. Review and approve it in Applications before any later execution step.',
+      )
+    },
+    onStartApplyCopilot: (jobId: string) => {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
+        return
+      }
+
+      void runAction(
+        () => actions.startApplyCopilotRun(jobId),
+        () => {
+          setResumeWorkspaceDirty(false)
+          navigate('/job-finder/applications')
+        },
+        'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
       )
     },
     onCheckBrowserSession: () =>

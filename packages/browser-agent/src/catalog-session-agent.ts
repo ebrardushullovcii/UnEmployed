@@ -1,5 +1,6 @@
 export {
   createCatalogSessionAgent,
+  type CatalogSessionApplicationFlowInput,
   type CatalogSessionAgentDiscoveryOptions,
   type CatalogSessionEasyApplyInput,
   type CatalogSessionRuntimePrimitives,

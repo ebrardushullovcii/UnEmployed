@@ -1,4 +1,5 @@
 import type {
+  ApplyRunDetails,
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
@@ -32,7 +33,17 @@ export interface JobFinderPageContext {
   profileCopilotBusy: boolean
   liveDiscoveryEvents: readonly DiscoveryActivityEvent[]
   onAnalyzeProfileFromResume: () => void
+  onApproveApplyRun: (runId: string) => void
   onApproveApply: (jobId: string) => void
+  onCancelApplyRun: (runId: string) => void
+  onRevokeApplyRunApproval: (runId: string) => void
+  onResolveApplyConsentRequest: (
+    requestId: string,
+    action: 'approve' | 'decline'
+  ) => void
+  onStartAutoApply: (jobId: string) => void
+  onStartAutoApplyQueue: (jobIds: string[]) => void
+  onStartApplyCopilot: (jobId: string) => void
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
@@ -45,6 +56,7 @@ export interface JobFinderPageContext {
   onApproveResume: (jobId: string, exportId: string) => void
   onClearResumeApproval: (jobId: string) => void
   onExportResumePdf: (jobId: string) => void
+  onGetApplyRunDetails: (runId: string, jobId: string) => Promise<ApplyRunDetails>
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
   onOpenBrowserSession: () => void
@@ -329,6 +341,9 @@ export function JobFinderReviewQueueRoute() {
       browserSession={context.workspace.browserSession}
       busy={context.busy}
       onApproveApply={context.onApproveApply}
+      onStartAutoApply={context.onStartAutoApply}
+      onStartAutoApplyQueue={context.onStartAutoApplyQueue}
+      onStartApplyCopilot={context.onStartApplyCopilot}
       onEditResumeWorkspace={context.onEditResumeWorkspace}
       onGenerateResume={context.onGenerateResume}
       onSelectItem={context.onSelectReviewItem}
@@ -385,7 +400,19 @@ export function JobFinderApplicationsRoute() {
     <ApplicationsScreen
       applicationAttempts={context.workspace.applicationAttempts}
       applicationRecords={context.workspace.applicationRecords}
+      applyRuns={context.workspace.applyRuns}
+      applyJobResults={context.workspace.applyJobResults}
+      discoveryJobs={context.workspace.discoveryJobs}
+      onApproveApplyRun={context.onApproveApplyRun}
+      onCancelApplyRun={context.onCancelApplyRun}
+      onGetApplyRunDetails={context.onGetApplyRunDetails}
+      onResolveApplyConsentRequest={context.onResolveApplyConsentRequest}
+      onRevokeApplyRunApproval={context.onRevokeApplyRunApproval}
+      onStartAutoApplyQueue={context.onStartAutoApplyQueue}
+      onStartApplyCopilot={context.onStartApplyCopilot}
+      onStartAutoApply={context.onStartAutoApply}
       onSelectRecord={context.onSelectApplicationRecord}
+      selectedApplyRunId={context.workspace.selectedApplyRunId}
       selectedAttempt={context.selectedApplicationAttempt}
       selectedRecord={context.selectedApplicationRecord}
     />

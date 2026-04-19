@@ -76,6 +76,15 @@ export function hasResumeGenerationFailure(item: ReviewQueueItem | null): boolea
   return item?.assetStatus === 'failed'
 }
 
+export function isQueueStageReady(item: ReviewQueueItem | null): boolean {
+  return Boolean(
+    item &&
+      item.assetStatus === 'ready' &&
+      item.resumeAssetId &&
+      item.resumeReview.status === 'approved'
+  )
+}
+
 export function getApplyReadinessStatus(params: {
   applySupportState: ApplySupportState
   browserSession: BrowserSessionState

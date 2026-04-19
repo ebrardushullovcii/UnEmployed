@@ -1,4 +1,5 @@
 import type {
+  ApplyRunDetails,
   CandidateAnswerKind,
   CandidateLinkKind,
   CandidateProfile,
@@ -42,6 +43,7 @@ export interface JobFinderShellActions {
     onProgress?: (event: SourceDebugProgressEvent) => void,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
+  getApplyRunDetails: (runId: string, jobId: string) => Promise<ApplyRunDetails>;
   saveSourceInstructionArtifact: (
     targetId: string,
     artifact: EditableSourceInstructionArtifact,
@@ -115,6 +117,16 @@ export interface JobFinderShellActions {
     content: string,
   ) => Promise<readonly ResumeAssistantMessage[]>;
   generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startApplyCopilotRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyQueueRun: (jobIds: string[]) => Promise<JobFinderWorkspaceSnapshot>;
+  approveApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  cancelApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  resolveApplyConsentRequest: (
+    requestId: string,
+    action: 'approve' | 'decline',
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  revokeApplyRunApproval: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
   approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
 }
 

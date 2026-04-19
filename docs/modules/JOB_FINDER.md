@@ -18,7 +18,7 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Job Finder persists local state in SQLite and exposes typed contracts for profile data, saved jobs, resume workflows, application records, and discovery state.
 - Desktop surfaces for `Profile`, `Find jobs`, `Shortlisted`, `Applications`, and `Settings` are live.
 - `Shortlisted` now frames apply readiness as explicit resume, approval, and browser checks instead of relying only on stacked status cards.
-- `Applications` now supports filtered triage views so the user can focus on needs-action, in-progress, submitted, and manual-only records.
+- `Applications` now supports filtered triage views so the user can focus on needs-action, in-progress, submitted, and manual-only records, the detail panel can fetch raw apply-copilot review memory for the selected job instead of showing only summary counters, and the recovery surface can review older apply runs or start a fresh safe rerun directly from the same screen.
 - `Profile` keeps more optional fields behind secondary disclosure sections so the main editing path stays focused on the details that drive search, resumes, and applications.
 - Fresh workspaces now route through `/job-finder/profile/setup` first, with persisted `profileSetupState` deciding whether the user should start setup, resume it later, or fall through to the full `Profile` editor, unresolved resume-import candidates now widening into durable setup review items that follow the user across reloads, and full-Profile Preferences copilot requests now able to add or re-enable common job sources such as LinkedIn Jobs and Wellfound through typed `searchPreferences.discovery` patch groups that stay review-gated instead of broad auto-apply.
 - Shared data now keeps richer candidate narrative, proof-bank entries, reusable screener answers, application identity defaults, enriched saved-job metadata, and structured apply-memory summaries on durable roots that later workflows can reuse directly.
@@ -36,12 +36,12 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Guided setup and profile copilot plan: `docs/exec-plans/completed/012-job-finder-guided-setup-and-profile-copilot.md`
 - Source intelligence and faster discovery plan: `docs/exec-plans/completed/013-job-finder-source-intelligence-and-faster-discovery.md`
 - 013 live benchmark report: `docs/exec-plans/completed/013-benchmark-results.md`
-- Resume output and template quality plan: `docs/exec-plans/queued/014-job-finder-resume-output-and-template-quality.md`
-- Automatic job apply plan: `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`
+- Resume output and template quality plan: `docs/exec-plans/completed/014-job-finder-resume-output-and-template-quality.md`
+- Automatic job apply plan: `docs/exec-plans/active/015-job-finder-automatic-job-apply.md`
 - Shared agent auto compaction plan: `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
 - Browser substrate evaluation and direction plan: `docs/exec-plans/queued/017-browser-substrate-evaluation-and-direction.md`
-- The recommended forward path now treats completed `011`, `012`, and `013` as the shared-data, setup, and discovery baseline, then starts with queued `014` for resume quality before moving to `015`, with `016` auto compaction and `017` browser-substrate direction treated as deferred cross-cutting follow-ons rather than the main product queue.
-- `015` intentionally defines the queued apply direction as a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission. The current shipped apply flow remains more conservative until that plan lands.
+- The recommended forward path now treats completed `011`, `012`, `013`, and `014` as the shared-data, setup, discovery, and ATS-first resume baseline, then continues with active `015`, while `016` auto compaction and `017` browser-substrate direction remain deferred cross-cutting follow-ons rather than the main product queue.
+- `015` intentionally defines the apply direction as a staged evolution: stronger apply data and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission. The current active slice now includes a deterministic non-submitting one-job apply-copilot path that records question, answer, artifact, and checkpoint memory while stopping before final submit, a safe single-job auto-run staging flow that records run-scoped submit approval state without executing the final submit click, a safe queue-control follow-up that can stage queue runs, pause on typed consent requests, approve or decline consent, cancel runs, and skip blocked jobs while continuing the queue in review mode, and an Applications recovery follow-up that can switch between saved runs for one job and start a fresh safe rerun from the Applications detail panel. The Shortlisted screen now also supports explicit multi-job queue selection for approved jobs instead of staging queues only from the currently focused item. Live-site execution and final-submit QA remain explicitly disallowed until the user re-authorizes them.
 
 ## Completed Background Plans
 
@@ -81,4 +81,3 @@ Owns job discovery, drafting, application review, submission orchestration, and 
 - Browser control from `packages/browser-runtime`
 - Storage from `packages/db`
 - Shared retrieval from `packages/knowledge-base`
-

@@ -105,6 +105,34 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.generateResume(jobId),
         ),
+      startApplyCopilotRun: (jobId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.startApplyCopilotRun(jobId),
+        ),
+      startAutoApplyRun: (jobId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.startAutoApplyRun(jobId),
+        ),
+      startAutoApplyQueueRun: (jobIds: string[]) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.startAutoApplyQueueRun(jobIds),
+        ),
+      approveApplyRun: (runId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.approveApplyRun(runId),
+        ),
+      cancelApplyRun: (runId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.cancelApplyRun(runId),
+        ),
+      resolveApplyConsentRequest: (requestId: string, action: 'approve' | 'decline') =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.resolveApplyConsentRequest(requestId, action),
+        ),
+      revokeApplyRunApproval: (runId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.revokeApplyRunApproval(runId),
+        ),
       importResume: () =>
         runWorkspaceAction(() => window.unemployed.jobFinder.importResume()),
       queueJobForReview: (jobId: string) =>
@@ -131,6 +159,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         ),
       getSourceDebugRunDetails: (runId: string) =>
         window.unemployed.jobFinder.getSourceDebugRunDetails(runId),
+      getApplyRunDetails: (runId: string, jobId: string) =>
+        window.unemployed.jobFinder.getApplyRunDetails(runId, jobId),
       saveSourceInstructionArtifact: (
         targetId: string,
         artifact: EditableSourceInstructionArtifact,

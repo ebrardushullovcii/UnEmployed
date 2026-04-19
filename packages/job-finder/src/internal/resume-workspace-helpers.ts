@@ -26,7 +26,6 @@ import {
 } from "./resume-workspace-primitives";
 import {
   buildPreviewSectionsFromResumeDraft as buildStructuredPreviewSectionsFromResumeDraft,
-  buildResumeRenderDocument,
   buildResumeDraftFromTailoredDraft as buildStructuredResumeDraftFromTailoredDraft,
   buildTailoredResumeTextFromResumeDraft as buildStructuredTailoredResumeTextFromResumeDraft,
   seedResumeDraft as seedStructuredResumeDraft,
@@ -250,6 +249,10 @@ export function sanitizeResumeDraft(input: {
       if (!section.text?.trim()) {
         return null;
       }
+      if (section.locked) {
+        seenLines.add(normalizedSectionText);
+        return section.text;
+      }
       if (seenLines.has(normalizedSectionText)) {
         return null;
       }
@@ -268,6 +271,10 @@ export function sanitizeResumeDraft(input: {
         const normalized = normalizeText(bullet.text);
         if (!normalized) {
           return false;
+        }
+        if (bullet.locked) {
+          seenLines.add(normalized);
+          return true;
         }
         if (contextText && normalizeText(contextText) === normalized) {
           return false;
@@ -292,6 +299,10 @@ export function sanitizeResumeDraft(input: {
             return null;
           }
           const normalized = normalizeText(entry.summary);
+          if (entry.locked) {
+            seenLines.add(normalized);
+            return entry.summary;
+          }
           if (seenLines.has(normalized)) {
             return null;
           }
@@ -325,7 +336,7 @@ export function sanitizeResumeDraft(input: {
       text: nextText,
       bullets: nextBullets,
       entries: nextEntries,
-      included: section.kind === "keywords" ? false : hasVisibleContent ? section.included : false,
+      included: section.kind === "keywords" ? false : section.locked ? true : hasVisibleContent ? section.included : false,
     };
   });
 
@@ -360,13 +371,24 @@ export function validateResumeDraft(input: {
 
   for (const section of includedSections) {
     const includedBullets = section.bullets.filter((bullet) => bullet.included);
+    const includedEntries = section.entries.filter((entry) => entry.included);
+    const includedEntriesWithVisibleContent = includedEntries.filter(
+      (entry) =>
+        Boolean(entry.title) ||
+        Boolean(entry.subtitle) ||
+        Boolean(entry.location) ||
+        Boolean(entry.dateRange) ||
+        Boolean(entry.summary) ||
+        entry.bullets.some((bullet) => bullet.included),
+    );
 
-    if (!section.text && includedBullets.length === 0) {
+    if (!section.text && includedBullets.length === 0 && includedEntriesWithVisibleContent.length === 0) {
       issues.push({
         id: `issue_empty_${section.id}`,
         severity: "warning",
         category: "empty_section",
         sectionId: section.id,
+        entryId: null,
         bulletId: null,
         message: `${section.label} is included but has no content yet.`,
       });
@@ -382,6 +404,7 @@ export function validateResumeDraft(input: {
           severity: "warning",
           category: "duplicate_bullet",
           sectionId: section.id,
+          entryId: null,
           bulletId: bullet.id,
           message: "This bullet duplicates another included bullet.",
         });
@@ -398,6 +421,7 @@ export function validateResumeDraft(input: {
           severity: "warning",
           category: "job_description_bleed",
           sectionId: section.id,
+          entryId: null,
           bulletId: bullet.id,
           message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
         });
@@ -409,6 +433,7 @@ export function validateResumeDraft(input: {
           severity: "warning",
           category: "keyword_stuffing",
           sectionId: section.id,
+          entryId: null,
           bulletId: bullet.id,
           message: "This line reads like keyword packing instead of resume content.",
         });
@@ -420,6 +445,7 @@ export function validateResumeDraft(input: {
           severity: "info",
           category: "vague_filler",
           sectionId: section.id,
+          entryId: null,
           bulletId: bullet.id,
           message: "Replace generic filler language with a grounded accomplishment or skill example.",
         });
@@ -427,13 +453,14 @@ export function validateResumeDraft(input: {
     }
 
     const seenEntryContent = new Set<string>();
-    for (const entry of section.entries.filter((entry) => entry.included)) {
+    for (const entry of includedEntries) {
       if (!entry.title && !entry.subtitle && !entry.summary && entry.bullets.filter((bullet) => bullet.included).length === 0) {
         issues.push({
           id: `issue_empty_entry_${entry.id}`,
           severity: "warning",
           category: "empty_section",
           sectionId: section.id,
+          entryId: entry.id,
           bulletId: null,
           message: `${section.label} includes an empty entry that should be removed or filled in.`,
         });
@@ -447,6 +474,7 @@ export function validateResumeDraft(input: {
             severity: "warning",
             category: "duplicate_section_content",
             sectionId: section.id,
+            entryId: entry.id,
             bulletId: null,
             message: `${section.label} repeats the same supporting content more than once.`,
           });
@@ -460,6 +488,7 @@ export function validateResumeDraft(input: {
             severity: "warning",
             category: "job_description_bleed",
             sectionId: section.id,
+            entryId: entry.id,
             bulletId: null,
             message: `${section.label} includes summary text that reads like copied job-description language.`,
           });
@@ -475,6 +504,7 @@ export function validateResumeDraft(input: {
             severity: "warning",
             category: "duplicate_bullet",
             sectionId: section.id,
+            entryId: entry.id,
             bulletId: bullet.id,
             message: "This bullet duplicates another included bullet.",
           });
@@ -488,8 +518,33 @@ export function validateResumeDraft(input: {
             severity: "warning",
             category: "job_description_bleed",
             sectionId: section.id,
+            entryId: entry.id,
             bulletId: bullet.id,
             message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
+          });
+        }
+
+        if (looksLikeKeywordStuffing(bullet.text)) {
+          issues.push({
+            id: `issue_keyword_stuffing_${bullet.id}`,
+            severity: "warning",
+            category: "keyword_stuffing",
+            sectionId: section.id,
+            entryId: entry.id,
+            bulletId: bullet.id,
+            message: "This line reads like keyword packing instead of resume content.",
+          });
+        }
+
+        if (looksLikeVagueFiller(bullet.text)) {
+          issues.push({
+            id: `issue_filler_${bullet.id}`,
+            severity: "info",
+            category: "vague_filler",
+            sectionId: section.id,
+            entryId: entry.id,
+            bulletId: bullet.id,
+            message: "Replace generic filler language with a grounded accomplishment or skill example.",
           });
         }
       }
@@ -512,6 +567,7 @@ export function validateResumeDraft(input: {
       severity: "info",
       category: "poor_keyword_coverage",
       sectionId: null,
+      entryId: null,
       bulletId: null,
       message: "The current draft does not yet echo the saved job keywords.",
     });
@@ -523,6 +579,7 @@ export function validateResumeDraft(input: {
       severity: "warning",
       category: "thin_output",
       sectionId: null,
+      entryId: null,
       bulletId: null,
       message: "The current resume is still too thin to read like a complete submission-ready document.",
     });
@@ -534,6 +591,7 @@ export function validateResumeDraft(input: {
       severity: input.pageCount >= 3 ? "error" : "warning",
       category: "page_overflow",
       sectionId: null,
+      entryId: null,
       bulletId: null,
       message:
         input.pageCount >= 3
@@ -548,6 +606,7 @@ export function validateResumeDraft(input: {
       severity: "warning",
       category: "stale_approval",
       sectionId: null,
+      entryId: null,
       bulletId: null,
       message: input.draft.staleReason ?? "This approved resume is stale and should be re-reviewed.",
     });

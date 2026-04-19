@@ -95,6 +95,112 @@ export function runMigrations(database: DatabaseSync): void {
     `);
   }
 
+  function ensureApplyFoundationTables(): void {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS apply_runs (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        state TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS apply_runs_updated_at_idx
+        ON apply_runs(updated_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS apply_job_results (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        queue_position INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        state TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS apply_job_results_run_id_idx
+        ON apply_job_results(run_id, queue_position ASC, updated_at DESC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS apply_job_results_job_id_idx
+        ON apply_job_results(job_id, updated_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS apply_submit_approvals (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS apply_submit_approvals_run_id_idx
+        ON apply_submit_approvals(run_id, created_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_question_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        detected_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_question_records_run_job_idx
+        ON application_question_records(run_id, job_id, detected_at ASC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_answer_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        question_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_answer_records_question_idx
+        ON application_answer_records(question_id, created_at ASC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_artifact_refs (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        created_at TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_artifact_refs_result_idx
+        ON application_artifact_refs(run_id, job_id, created_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_replay_checkpoints (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_replay_checkpoints_result_idx
+        ON application_replay_checkpoints(run_id, job_id, created_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_consent_requests (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        requested_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_consent_requests_result_idx
+        ON application_consent_requests(run_id, job_id, requested_at DESC, id ASC);
+    `);
+  }
+
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
@@ -122,12 +228,24 @@ export function runMigrations(database: DatabaseSync): void {
       !hasTable("resume_import_field_candidates");
     const profileCopilotTablesMissing =
       !hasTable("profile_copilot_messages") || !hasTable("profile_revisions");
+    const applyFoundationTablesMissing =
+      !hasTable("apply_runs") ||
+      !hasTable("apply_job_results") ||
+      !hasTable("apply_submit_approvals") ||
+      !hasTable("application_question_records") ||
+      !hasTable("application_answer_records") ||
+      !hasTable("application_artifact_refs") ||
+      !hasTable("application_replay_checkpoints") ||
+      !hasTable("application_consent_requests");
     const needsProfileCopilotMigration = currentVersion < 5;
+    const needsApplyFoundationMigration = currentVersion < 6;
 
     if (
       resumeImportTablesMissing ||
       profileCopilotTablesMissing ||
-      needsProfileCopilotMigration
+      applyFoundationTablesMissing ||
+      needsProfileCopilotMigration ||
+      needsApplyFoundationMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -139,10 +257,20 @@ export function runMigrations(database: DatabaseSync): void {
           ensureProfileCopilotTables();
         }
 
+        if (applyFoundationTablesMissing || needsApplyFoundationMigration) {
+          ensureApplyFoundationTables();
+        }
+
         if (needsProfileCopilotMigration) {
           database
             .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
             .run(5, "job_finder_profile_copilot_history");
+        }
+
+        if (needsApplyFoundationMigration) {
+          database
+            .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .run(6, "job_finder_apply_foundation");
         }
 
         database.exec("COMMIT");
@@ -307,6 +435,14 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(5, "job_finder_profile_copilot_history");
+    }
+
+    if (currentVersion < 6) {
+      ensureApplyFoundationTables();
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(6, "job_finder_apply_foundation");
     }
 
     database.exec("COMMIT");

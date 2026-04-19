@@ -4,6 +4,7 @@ import {
   createAgentAiClient,
   createAgentBrowserRuntime,
   createSeed,
+  createSourceInstructionArtifact,
   createStrongSourceDebugFindingsByPhase,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
@@ -20,7 +21,7 @@ describe("createJobFinderWorkspaceService", () => {
       staleReason: null,
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_existing_validated",
         targetId: "target_linkedin_default",
         status: "validated",
@@ -61,7 +62,7 @@ describe("createJobFinderWorkspaceService", () => {
             appSchemaVersion: "job-finder-source-debug-v1",
           },
         },
-      },
+      }),
     ];
 
     const replayInstructionsByLabel = new Map<string, readonly string[]>();

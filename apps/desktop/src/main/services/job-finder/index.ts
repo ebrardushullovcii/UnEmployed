@@ -8,7 +8,7 @@ export { createJobFinderWorkspaceServiceAsync } from './create-workspace-service
 export { getJobFinderWorkspaceService } from './workspace-service'
 export { importResumeFromSourcePath } from './import-resume'
 export { runDesktopResumeImportBenchmark, defaultBenchmarkCases } from './resume-import-benchmark'
-export { loadResumeWorkspaceDemoState } from './load-demo-state'
+export { loadApplyQueueDemoState, loadResumeWorkspaceDemoState } from './load-demo-state'
 export { resetJobFinderWorkspace } from './reset-workspace'
 export {
   getDesktopTestDelayMs,

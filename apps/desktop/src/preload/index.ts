@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  ApplyRunDetails,
   CandidateProfile,
   DesktopPlatformPing,
   EditableSourceInstructionArtifact,
@@ -284,6 +285,11 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:get-source-debug-run-details", {
         runId,
       }) as Promise<SourceDebugRunDetails>,
+    getApplyRunDetails: (runId: string, jobId: string) =>
+      ipcRenderer.invoke("job-finder:get-apply-run-details", {
+        runId,
+        jobId,
+      }) as Promise<ApplyRunDetails>,
     saveSourceInstructionArtifact: (
       targetId: string,
       artifact: EditableSourceInstructionArtifact,
@@ -375,6 +381,38 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:generate-resume", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
+    startApplyCopilotRun: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:start-apply-copilot-run", {
+        jobId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    startAutoApplyRun: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:start-auto-apply-run", {
+        jobId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    startAutoApplyQueueRun: (jobIds: string[]) =>
+      ipcRenderer.invoke("job-finder:start-auto-apply-queue-run", {
+        jobIds,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    approveApplyRun: (runId: string) =>
+      ipcRenderer.invoke("job-finder:approve-apply-run", {
+        runId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    cancelApplyRun: (runId: string) =>
+      ipcRenderer.invoke("job-finder:cancel-apply-run", {
+        runId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    resolveApplyConsentRequest: (
+      requestId: string,
+      action: "approve" | "decline",
+    ) =>
+      ipcRenderer.invoke("job-finder:resolve-apply-consent-request", {
+        requestId,
+        action,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    revokeApplyRunApproval: (runId: string) =>
+      ipcRenderer.invoke("job-finder:revoke-apply-run-approval", {
+        runId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
     approveApply: (jobId: string) =>
       ipcRenderer.invoke("job-finder:approve-apply", {
         jobId,
@@ -391,6 +429,10 @@ const desktopApi = {
             loadResumeWorkspaceDemo: () =>
               ipcRenderer.invoke(
                 "job-finder:test-load-resume-workspace-demo",
+              ) as Promise<JobFinderWorkspaceSnapshot>,
+            loadApplyQueueDemo: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-load-apply-queue-demo",
               ) as Promise<JobFinderWorkspaceSnapshot>,
             resetWorkspaceState: (state: JobFinderRepositoryState) =>
               ipcRenderer.invoke(

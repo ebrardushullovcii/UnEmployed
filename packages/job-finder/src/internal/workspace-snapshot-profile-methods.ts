@@ -22,6 +22,7 @@ import { resolvePendingReviewItemsAfterExplicitSave } from "./profile-setup-revi
 import { normalizeProfileBeforeSave } from "./profile-merge";
 import { runResumeImportWorkflow } from "./resume-import-workflow";
 import { hasResumeAffectingProfileChange, hasResumeAffectingSettingsChange } from "./resume-workspace-staleness";
+import { selectLatestApplyRunId } from "./workspace-apply-run-support";
 import { createBrowserSessionSnapshot } from "./workspace-service-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import {
@@ -99,9 +100,11 @@ export function createWorkspaceSnapshotProfileMethods(
         tailoredAssets,
         resumeDrafts,
       resumeExportArtifacts,
-      resumeResearchArtifacts,
-      applicationRecords,
-      applicationAttempts,
+        resumeResearchArtifacts,
+        applyRuns,
+        applyJobResults,
+        applicationRecords,
+        applicationAttempts,
       sourceInstructionArtifacts,
       profileCopilotMessages,
       profileRevisions,
@@ -114,6 +117,8 @@ export function createWorkspaceSnapshotProfileMethods(
       ctx.repository.listResumeDrafts(),
       ctx.repository.listResumeExportArtifacts(),
       ctx.repository.listResumeResearchArtifacts(),
+      ctx.repository.listApplyRuns(),
+      ctx.repository.listApplyJobResults(),
       ctx.repository.listApplicationRecords(),
       ctx.repository.listApplicationAttempts(),
       ctx.repository.listSourceInstructionArtifacts(),
@@ -179,6 +184,8 @@ export function createWorkspaceSnapshotProfileMethods(
         resumeDrafts: normalizedResumeDrafts,
       resumeExportArtifacts,
       resumeResearchArtifacts,
+      applyRuns,
+      applyJobResults,
       applicationRecords: orderedApplicationRecords,
       applicationAttempts,
       sourceInstructionArtifacts,
@@ -187,6 +194,7 @@ export function createWorkspaceSnapshotProfileMethods(
         setupContext.latestResumeImportReviewCandidateSummaries,
       profileCopilotMessages,
       profileRevisions,
+      selectedApplyRunId: selectLatestApplyRunId(applyRuns),
       selectedApplicationRecordId: orderedApplicationRecords[0]?.id ?? null,
       settings,
     });

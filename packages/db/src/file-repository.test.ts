@@ -123,6 +123,102 @@ describe('createFileJobFinderRepository', () => {
     }
   })
 
+  test('persists apply foundation records across sqlite reloads', async () => {
+    const temp = await createTempRepository('unemployed-db-apply-foundation-')
+    let firstRepository: FileRepository | null = null
+    let secondRepository: FileRepository | null = null
+
+    try {
+      firstRepository = await temp.createRepository()
+
+      await firstRepository.upsertApplyRun({
+        id: 'apply_run_1',
+        mode: 'copilot',
+        state: 'paused_for_user_review',
+        jobIds: ['job_1'],
+        currentJobId: 'job_1',
+        submitApprovalId: null,
+        createdAt: '2026-04-18T10:00:00.000Z',
+        updatedAt: '2026-04-18T10:03:00.000Z',
+        completedAt: null,
+        summary: 'Apply copilot captured the current application state.',
+        detail: 'Stopped before final submit.',
+        totalJobs: 1,
+        pendingJobs: 0,
+        submittedJobs: 0,
+        skippedJobs: 0,
+        blockedJobs: 0,
+        failedJobs: 0,
+      })
+      await firstRepository.upsertApplicationQuestionRecord({
+        id: 'question_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        prompt: 'Upload your resume',
+        kind: 'resume',
+        isRequired: true,
+        detectedAt: '2026-04-18T10:00:30.000Z',
+        answerOptions: [],
+        suggestedAnswers: [],
+        selectedAnswerId: null,
+        submittedAnswer: null,
+        status: 'detected',
+        pageUrl: 'https://jobs.example.com/apply',
+      })
+      await firstRepository.upsertApplicationConsentRequest({
+        id: 'consent_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        kind: 'resume_use',
+        linkedConsentKind: 'resume_use',
+        label: 'Use the approved tailored resume for this apply run',
+        detail: null,
+        status: 'approved',
+        requestedAt: '2026-04-18T10:00:20.000Z',
+        decidedAt: '2026-04-18T10:00:25.000Z',
+        expiresAt: null,
+      })
+
+      await firstRepository.close()
+      firstRepository = null
+
+      secondRepository = await temp.createRepository()
+
+      await expect(secondRepository.listApplyRuns()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'apply_run_1',
+          state: 'paused_for_user_review',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationQuestionRecords({ runId: 'apply_run_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'question_1',
+          prompt: 'Upload your resume',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationConsentRequests({ runId: 'apply_run_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'consent_1',
+          status: 'approved',
+        }),
+      ])
+    } finally {
+      if (secondRepository) {
+        await secondRepository.close()
+      }
+      if (firstRepository) {
+        await firstRepository.close()
+      }
+      await temp.cleanup()
+    }
+  })
+
   test('persists profile setup state across sqlite reloads', async () => {
     const temp = await createTempRepository('unemployed-db-setup-')
     let firstRepository: FileRepository | null = null

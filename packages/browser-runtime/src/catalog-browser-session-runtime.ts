@@ -87,6 +87,8 @@ export function createCatalogBrowserSessionRuntime(
       catalogSessionAgent.runDiscovery(source, searchPreferences),
     executeEasyApply: (source, input) =>
       catalogSessionAgent.executeEasyApply(source, input),
+    executeApplicationFlow: (source, input) =>
+      catalogSessionAgent.executeApplicationFlow(source, input),
     runAgentDiscovery: (source, options) =>
       catalogSessionAgent.runAgentDiscovery(source, options),
   }

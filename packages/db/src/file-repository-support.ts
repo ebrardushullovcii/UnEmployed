@@ -1,4 +1,12 @@
 import {
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  ApplySubmitApprovalSchema,
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
+  ApplicationConsentRequestSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
   ProfileCopilotMessageSchema,
   ProfileRevisionSchema,
   ResumeAssistantMessageSchema,
@@ -77,6 +85,85 @@ export function resolveApprovedExportId(
 }
 
 export const INDEXED_COLLECTION_CONFIGS = {
+  apply_runs: {
+    columnNames: ['created_at', 'updated_at', 'mode', 'state'],
+    getColumns: (value: unknown) => {
+      const run = ApplyRunSchema.parse(cloneValue(value))
+      return [run.createdAt, run.updatedAt, run.mode, run.state]
+    },
+  },
+  apply_job_results: {
+    columnNames: ['run_id', 'job_id', 'queue_position', 'updated_at', 'state'],
+    getColumns: (value: unknown) => {
+      const result = ApplyJobResultSchema.parse(cloneValue(value))
+      return [
+        result.runId,
+        result.jobId,
+        result.queuePosition,
+        result.updatedAt,
+        result.state,
+      ]
+    },
+  },
+  apply_submit_approvals: {
+    columnNames: ['run_id', 'created_at', 'status'],
+    getColumns: (value: unknown) => {
+      const approval = ApplySubmitApprovalSchema.parse(cloneValue(value))
+      return [approval.runId, approval.createdAt, approval.status]
+    },
+  },
+  application_question_records: {
+    columnNames: ['run_id', 'job_id', 'result_id', 'detected_at'],
+    getColumns: (value: unknown) => {
+      const record = ApplicationQuestionRecordSchema.parse(cloneValue(value))
+      return [record.runId, record.jobId, record.resultId, record.detectedAt]
+    },
+  },
+  application_answer_records: {
+    columnNames: ['run_id', 'job_id', 'result_id', 'question_id', 'created_at'],
+    getColumns: (value: unknown) => {
+      const record = ApplicationAnswerRecordSchema.parse(cloneValue(value))
+      return [
+        record.runId,
+        record.jobId,
+        record.resultId,
+        record.questionId,
+        record.createdAt,
+      ]
+    },
+  },
+  application_artifact_refs: {
+    columnNames: ['run_id', 'job_id', 'result_id', 'created_at', 'kind'],
+    getColumns: (value: unknown) => {
+      const ref = ApplicationArtifactRefSchema.parse(cloneValue(value))
+      return [ref.runId, ref.jobId, ref.resultId, ref.createdAt, ref.kind]
+    },
+  },
+  application_replay_checkpoints: {
+    columnNames: ['run_id', 'job_id', 'result_id', 'created_at'],
+    getColumns: (value: unknown) => {
+      const checkpoint = ApplicationReplayCheckpointSchema.parse(cloneValue(value))
+      return [
+        checkpoint.runId,
+        checkpoint.jobId,
+        checkpoint.resultId,
+        checkpoint.createdAt,
+      ]
+    },
+  },
+  application_consent_requests: {
+    columnNames: ['run_id', 'job_id', 'result_id', 'requested_at', 'status'],
+    getColumns: (value: unknown) => {
+      const request = ApplicationConsentRequestSchema.parse(cloneValue(value))
+      return [
+        request.runId,
+        request.jobId,
+        request.resultId,
+        request.requestedAt,
+        request.status,
+      ]
+    },
+  },
   profile_copilot_messages: {
     columnNames: ['created_at'],
     getColumns: (value: unknown) => {
@@ -162,6 +249,14 @@ export const INDEXED_COLLECTION_CONFIGS = {
 } as const
 
 export type PersistedTableName =
+  | 'apply_runs'
+  | 'apply_job_results'
+  | 'apply_submit_approvals'
+  | 'application_question_records'
+  | 'application_answer_records'
+  | 'application_artifact_refs'
+  | 'application_replay_checkpoints'
+  | 'application_consent_requests'
   | 'tailored_assets'
   | 'resume_drafts'
   | 'resume_draft_revisions'

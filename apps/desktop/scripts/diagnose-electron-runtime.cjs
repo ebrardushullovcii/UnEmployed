@@ -1,3 +1,5 @@
+/* eslint-env node */
+/* eslint-disable import/no-commonjs */
 const electron = require('electron')
 
 console.log('process.versions.electron', process.versions.electron)

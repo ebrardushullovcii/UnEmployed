@@ -16,6 +16,18 @@ import {
   SourceDebugPhaseSchema,
 } from "./base";
 import {
+  ApplyJobResultSchema,
+  ApplyJobResultSummarySchema,
+  ApplyRunSchema,
+  ApplyRunSummarySchema,
+  ApplySubmitApprovalSchema,
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
+  ApplicationConsentRequestSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
+} from "./apply";
+import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   DiscoveryLedgerEntrySchema,
@@ -66,6 +78,13 @@ export const JobFinderJobActionInputSchema = z.object({
 });
 export type JobFinderJobActionInput = z.infer<
   typeof JobFinderJobActionInputSchema
+>;
+
+export const JobFinderApplyQueueActionInputSchema = z.object({
+  jobIds: z.array(NonEmptyStringSchema).min(1),
+});
+export type JobFinderApplyQueueActionInput = z.infer<
+  typeof JobFinderApplyQueueActionInputSchema
 >;
 
 export const JobFinderResumeWorkspaceQuerySchema = z.object({
@@ -173,6 +192,29 @@ export type JobFinderSourceDebugRunQuery = z.infer<
   typeof JobFinderSourceDebugRunQuerySchema
 >;
 
+export const JobFinderApplyRunDetailsQuerySchema = z.object({
+  runId: NonEmptyStringSchema,
+  jobId: NonEmptyStringSchema,
+});
+export type JobFinderApplyRunDetailsQuery = z.infer<
+  typeof JobFinderApplyRunDetailsQuerySchema
+>;
+
+export const JobFinderApplyRunActionInputSchema = z.object({
+  runId: NonEmptyStringSchema,
+});
+export type JobFinderApplyRunActionInput = z.infer<
+  typeof JobFinderApplyRunActionInputSchema
+>;
+
+export const JobFinderApplyConsentActionInputSchema = z.object({
+  requestId: NonEmptyStringSchema,
+  action: z.enum(["approve", "decline"]),
+});
+export type JobFinderApplyConsentActionInput = z.infer<
+  typeof JobFinderApplyConsentActionInputSchema
+>;
+
 export const JobFinderSourceInstructionActionInputSchema = z.object({
   targetId: NonEmptyStringSchema,
   instructionId: NonEmptyStringSchema,
@@ -258,6 +300,16 @@ export const JobFinderRepositoryStateSchema = z.object({
   resumeAssistantMessages: z.array(ResumeAssistantMessageSchema).default([]),
   profileCopilotMessages: z.array(ProfileCopilotMessageSchema).default([]),
   profileRevisions: z.array(ProfileRevisionSchema).default([]),
+  applyRuns: z.array(ApplyRunSchema).default([]),
+  applyJobResults: z.array(ApplyJobResultSchema).default([]),
+  applySubmitApprovals: z.array(ApplySubmitApprovalSchema).default([]),
+  applicationQuestionRecords: z.array(ApplicationQuestionRecordSchema).default([]),
+  applicationAnswerRecords: z.array(ApplicationAnswerRecordSchema).default([]),
+  applicationArtifactRefs: z.array(ApplicationArtifactRefSchema).default([]),
+  applicationReplayCheckpoints: z
+    .array(ApplicationReplayCheckpointSchema)
+    .default([]),
+  applicationConsentRequests: z.array(ApplicationConsentRequestSchema).default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
   applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
   sourceDebugRuns: z.array(SourceDebugRunRecordSchema).default([]),
@@ -344,6 +396,8 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   resumeResearchArtifacts: z
     .array(ResumeResearchArtifactSummarySchema)
     .default([]),
+  applyRuns: z.array(ApplyRunSummarySchema).default([]),
+  applyJobResults: z.array(ApplyJobResultSummarySchema).default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
   applicationAttempts: z.array(ApplicationAttemptSchema).default([]),
   sourceInstructionArtifacts: z
@@ -355,6 +409,7 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
     .default([]),
   profileCopilotMessages: z.array(ProfileCopilotMessageSchema).default([]),
   profileRevisions: z.array(ProfileRevisionSummarySchema).default([]),
+  selectedApplyRunId: NonEmptyStringSchema.nullable().default(null),
   selectedApplicationRecordId: NonEmptyStringSchema.nullable(),
   settings: JobFinderSettingsSchema,
 });

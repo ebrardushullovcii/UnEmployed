@@ -1,6 +1,14 @@
 import {
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  ApplySubmitApprovalSchema,
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
   ApplicationAttemptSchema,
+  ApplicationConsentRequestSchema,
   ApplicationRecordSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
   CandidateProfileSchema,
   JobFinderDiscoveryStateSchema,
   JobFinderRepositoryStateSchema,
@@ -75,6 +83,14 @@ export function createInMemoryJobFinderRepository(
       state.resumeAssistantMessages = normalizedSeed.resumeAssistantMessages;
       state.profileCopilotMessages = normalizedSeed.profileCopilotMessages;
       state.profileRevisions = normalizedSeed.profileRevisions;
+      state.applyRuns = normalizedSeed.applyRuns;
+      state.applyJobResults = normalizedSeed.applyJobResults;
+      state.applySubmitApprovals = normalizedSeed.applySubmitApprovals;
+      state.applicationQuestionRecords = normalizedSeed.applicationQuestionRecords;
+      state.applicationAnswerRecords = normalizedSeed.applicationAnswerRecords;
+      state.applicationArtifactRefs = normalizedSeed.applicationArtifactRefs;
+      state.applicationReplayCheckpoints = normalizedSeed.applicationReplayCheckpoints;
+      state.applicationConsentRequests = normalizedSeed.applicationConsentRequests;
       state.applicationRecords = normalizedSeed.applicationRecords;
       state.applicationAttempts = normalizedSeed.applicationAttempts;
       state.sourceDebugRuns = normalizedSeed.sourceDebugRuns;
@@ -484,6 +500,151 @@ export function createInMemoryJobFinderRepository(
       state.profileRevisions = upsertById(
         state.profileRevisions,
         normalizedRevision,
+      );
+      return Promise.resolve();
+    },
+    listApplyRuns() {
+      return Promise.resolve(sortResumeDrafts(cloneValue(state.applyRuns)));
+    },
+    upsertApplyRun(run) {
+      const normalizedRun = ApplyRunSchema.parse(cloneValue(run));
+      state.applyRuns = upsertById(state.applyRuns, normalizedRun);
+      return Promise.resolve();
+    },
+    listApplyJobResults() {
+      return Promise.resolve(
+        [...cloneValue(state.applyJobResults)].sort((left, right) => {
+          const difference =
+            new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+          return difference !== 0
+            ? difference
+            : left.queuePosition - right.queuePosition || left.id.localeCompare(right.id);
+        }),
+      );
+    },
+    upsertApplyJobResult(result) {
+      const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result));
+      state.applyJobResults = upsertById(state.applyJobResults, normalizedResult);
+      return Promise.resolve();
+    },
+    listApplySubmitApprovals() {
+      return Promise.resolve(sortNewestFirst(cloneValue(state.applySubmitApprovals)));
+    },
+    upsertApplySubmitApproval(approval) {
+      const normalizedApproval = ApplySubmitApprovalSchema.parse(cloneValue(approval));
+      state.applySubmitApprovals = upsertById(
+        state.applySubmitApprovals,
+        normalizedApproval,
+      );
+      return Promise.resolve();
+    },
+    listApplicationQuestionRecords(options) {
+      return Promise.resolve(
+        cloneValue(state.applicationQuestionRecords)
+          .filter((record) =>
+            (!options?.runId || record.runId === options.runId) &&
+            (!options?.jobId || record.jobId === options.jobId) &&
+            (!options?.resultId || record.resultId === options.resultId),
+          )
+          .sort((left, right) =>
+            new Date(left.detectedAt).getTime() - new Date(right.detectedAt).getTime() ||
+            left.id.localeCompare(right.id),
+          ),
+      );
+    },
+    upsertApplicationQuestionRecord(record) {
+      const normalizedRecord = ApplicationQuestionRecordSchema.parse(cloneValue(record));
+      state.applicationQuestionRecords = upsertById(
+        state.applicationQuestionRecords,
+        normalizedRecord,
+      );
+      return Promise.resolve();
+    },
+    listApplicationAnswerRecords(options) {
+      return Promise.resolve(
+        cloneValue(state.applicationAnswerRecords)
+          .filter((record) =>
+            (!options?.runId || record.runId === options.runId) &&
+            (!options?.jobId || record.jobId === options.jobId) &&
+            (!options?.resultId || record.resultId === options.resultId) &&
+            (!options?.questionId || record.questionId === options.questionId),
+          )
+          .sort((left, right) =>
+            new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
+            left.id.localeCompare(right.id),
+          ),
+      );
+    },
+    upsertApplicationAnswerRecord(record) {
+      const normalizedRecord = ApplicationAnswerRecordSchema.parse(cloneValue(record));
+      state.applicationAnswerRecords = upsertById(
+        state.applicationAnswerRecords,
+        normalizedRecord,
+      );
+      return Promise.resolve();
+    },
+    listApplicationArtifactRefs(options) {
+      return Promise.resolve(
+        cloneValue(state.applicationArtifactRefs)
+          .filter((ref) =>
+            (!options?.runId || ref.runId === options.runId) &&
+            (!options?.jobId || ref.jobId === options.jobId) &&
+            (!options?.resultId || ref.resultId === options.resultId),
+          )
+          .sort((left, right) =>
+            new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
+            left.id.localeCompare(right.id),
+          ),
+      );
+    },
+    upsertApplicationArtifactRef(ref) {
+      const normalizedRef = ApplicationArtifactRefSchema.parse(cloneValue(ref));
+      state.applicationArtifactRefs = upsertById(state.applicationArtifactRefs, normalizedRef);
+      return Promise.resolve();
+    },
+    listApplicationReplayCheckpoints(options) {
+      return Promise.resolve(
+        cloneValue(state.applicationReplayCheckpoints)
+          .filter((checkpoint) =>
+            (!options?.runId || checkpoint.runId === options.runId) &&
+            (!options?.jobId || checkpoint.jobId === options.jobId) &&
+            (!options?.resultId || checkpoint.resultId === options.resultId),
+          )
+          .sort((left, right) =>
+            new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
+            left.id.localeCompare(right.id),
+          ),
+      );
+    },
+    upsertApplicationReplayCheckpoint(checkpoint) {
+      const normalizedCheckpoint = ApplicationReplayCheckpointSchema.parse(
+        cloneValue(checkpoint),
+      );
+      state.applicationReplayCheckpoints = upsertById(
+        state.applicationReplayCheckpoints,
+        normalizedCheckpoint,
+      );
+      return Promise.resolve();
+    },
+    listApplicationConsentRequests(options) {
+      return Promise.resolve(
+        cloneValue(state.applicationConsentRequests)
+          .filter((request) =>
+            (!options?.runId || request.runId === options.runId) &&
+            (!options?.jobId || request.jobId === options.jobId) &&
+            (!options?.resultId || request.resultId === options.resultId),
+          )
+          .sort((left, right) =>
+            new Date(right.requestedAt).getTime() - new Date(left.requestedAt).getTime() ||
+            left.id.localeCompare(right.id),
+          ),
+      );
+    },
+    upsertApplicationConsentRequest(request) {
+      const normalizedRequest = ApplicationConsentRequestSchema.parse(cloneValue(request));
+      state.applicationConsentRequests = upsertById(
+        state.applicationConsentRequests,
+        normalizedRequest,
       );
       return Promise.resolve();
     },

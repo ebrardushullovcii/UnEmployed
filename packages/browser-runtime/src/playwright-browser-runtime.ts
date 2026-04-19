@@ -20,6 +20,7 @@ import {
 import type {
   AgentDiscoveryOptions,
   BrowserSessionRuntime,
+  ExecuteApplicationFlowInput,
   ExecuteEasyApplyInput,
  } from "./runtime-types";
 import {
@@ -506,6 +507,55 @@ export function createBrowserAgentRuntime(
             label: "Apply automation unavailable",
             detail:
               "This target uses the generic debugger flow, so submission stays manual until a target-agnostic apply runtime exists.",
+            state: "unsupported",
+          },
+        ],
+      }));
+    },
+    executeApplicationFlow(
+      source,
+      input: ExecuteApplicationFlowInput,
+    ): Promise<ApplyExecutionResult> {
+      const startedAt = new Date().toISOString();
+
+      return Promise.resolve(ApplyExecutionResultSchema.parse({
+        state: "unsupported",
+        summary: "Apply automation is not available for generic target flows",
+        detail: input.mode === "prepare_only"
+          ? `The current runtime does not yet support review-safe apply preparation for '${input.job.title}'. Use the learned target guidance to continue manually.`
+          : `The current runtime does not submit applications automatically for '${input.job.title}'. Use the learned target guidance to continue manually.`,
+        submittedAt: null,
+        outcome: null,
+        questions: [],
+        blocker: {
+          code: "unsupported_apply_path",
+          summary: input.mode === "prepare_only"
+            ? "The generic runtime does not support review-safe apply preparation."
+            : "The generic runtime does not support automated application submission.",
+          detail:
+            "Use the learned target guidance to continue this application manually.",
+          questionIds: [],
+          sourceDebugEvidenceRefIds: [],
+          url: input.job.applicationUrl ?? input.job.canonicalUrl,
+        },
+        consentDecisions: [],
+        replay: {
+          sourceInstructionArtifactId: null,
+          sourceDebugEvidenceRefIds: [],
+          lastUrl: input.job.applicationUrl ?? input.job.canonicalUrl,
+          checkpointUrls:
+            input.job.applicationUrl ?? input.job.canonicalUrl
+              ? [input.job.applicationUrl ?? input.job.canonicalUrl]
+              : [],
+        },
+        nextActionLabel: "Open the listing manually",
+        checkpoints: [
+          {
+            id: `checkpoint_${input.job.id}_generic_apply_unsupported`,
+            at: startedAt,
+            label: "Apply automation unavailable",
+            detail:
+              "This target uses the generic debugger flow, so application preparation and submission stay manual until a target-agnostic runtime exists.",
             state: "unsupported",
           },
         ],

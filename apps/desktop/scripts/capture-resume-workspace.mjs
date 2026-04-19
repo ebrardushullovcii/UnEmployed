@@ -44,10 +44,10 @@ async function getResumeAssistantMessages(window, jobId) {
 }
 
 async function waitForProfileOrSetupHeading(window) {
-  await window.waitForFunction(() => {
-    const heading = document.querySelector('h1')
-    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
-  }, undefined, { timeout: 15000 })
+  await window
+    .locator('h1')
+    .filter({ hasText: /Your profile|Guided setup/ })
+    .waitFor({ timeout: 15000 })
 }
 
 async function captureResumeWorkspace() {
@@ -135,9 +135,9 @@ async function captureResumeWorkspace() {
 
     await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
-    const gatedApproveButton = window.getByRole('button', { name: 'Start application' })
+    const gatedApproveButton = window.getByRole('button', { name: 'Start apply copilot' })
     if (!(await gatedApproveButton.isDisabled())) {
-      throw new Error('Start application should stay disabled before resume approval.')
+      throw new Error('Start apply copilot should stay disabled before resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06-review-queue-gated.png') })
 
@@ -158,9 +158,9 @@ async function captureResumeWorkspace() {
 
     await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
-    const readyApproveButton = window.getByRole('button', { name: 'Start application' })
+    const readyApproveButton = window.getByRole('button', { name: 'Start apply copilot' })
     if (await readyApproveButton.isDisabled()) {
-      throw new Error('Start application should be enabled after resume approval.')
+      throw new Error('Start apply copilot should be enabled after resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '08-review-queue-approved.png') })
 
@@ -168,6 +168,27 @@ async function captureResumeWorkspace() {
     await window.getByRole('button', { name: /^Applications/ }).click()
     await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '09-applications-after-apply.png') })
+
+    await window.getByText(/Apply copilot run/i).waitFor({ timeout: 10000 })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '10-applications-after-copilot.png') })
+
+    const applicationSummary = await window.evaluate(() => {
+      const workspace = window.unemployed.jobFinder.getWorkspace()
+      return workspace.then((snapshot) => ({
+        latestAttemptState: snapshot.applicationAttempts[0]?.state ?? null,
+        latestAttemptOutcome: snapshot.applicationAttempts[0]?.outcome ?? null,
+        latestRunState: snapshot.applyRuns[0]?.state ?? null,
+        latestResultState: snapshot.applyJobResults[0]?.state ?? null,
+      }))
+    })
+
+    if (applicationSummary.latestAttemptState !== 'paused') {
+      throw new Error(`Apply copilot should pause before submit, got '${applicationSummary.latestAttemptState ?? 'null'}'.`)
+    }
+
+    if (applicationSummary.latestAttemptOutcome !== null) {
+      throw new Error('Apply copilot should not record a submitted outcome.')
+    }
 
     const workspace = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
     await writeJson('workspace-after-demo.json', workspace)

@@ -4,6 +4,7 @@ import type {
   JobFinderSettings,
   ResumeDraft,
   ResumeDraftOrigin,
+  ResumeResearchArtifact,
   ResumeDraftSection,
   ResumeDraftSourceRef,
   SavedJob,
@@ -449,7 +450,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   existingDraftId?: string | null;
   generationMethod: ResumeDraft["generationMethod"];
   profile?: CandidateProfile;
-  research?: readonly { id: string; fetchStatus: string; companyNotes: string | null }[];
+  research?: readonly ResumeResearchArtifact[];
 }): ResumeDraft {
   const { createdAt, draft, existingDraftId, generationMethod, job, settings } = input;
   const jobRef = createSourceRef(

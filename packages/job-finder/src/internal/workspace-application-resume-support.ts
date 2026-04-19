@@ -163,24 +163,12 @@ export async function renderDraftToPdf(
     job: input.job,
     profile: input.profile,
   });
-  const previewSections = buildTailoredAssetBridge({
-    draft: sanitizedDraft,
-    job: input.job,
-    profile: input.profile,
-  }).previewSections;
-  const textContent = buildTailoredResumeTextFromResumeDraft(
-    input.profile,
-    input.job,
-    sanitizedDraft,
-  );
 
   return ctx.documentManager.renderResumeArtifact({
     job: input.job,
     profile: input.profile,
     renderDocument: buildResumeRenderDocument(input.profile, sanitizedDraft),
-    previewSections,
     settings: input.settings,
-    textContent,
     targetPath: input.outputPath ?? null,
   });
 }

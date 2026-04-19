@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Plans `007`, `010`, `011`, `012`, `013`, `018`, and `019` are completed. The near-term product sequence now continues with `014` resume correctness and output quality, `015` staged apply automation, `016` shared agent auto compaction, and `017` browser substrate evaluation and direction.
+Plans `007`, `010`, `011`, `012`, `013`, `014`, `018`, and `019` are completed. The near-term product sequence now continues with active `015` staged apply automation, then `016` shared agent auto compaction, and `017` browser substrate evaluation and direction.
 
 ## Snapshot
 
@@ -57,6 +57,7 @@ Plans `007`, `010`, `011`, `012`, `013`, `018`, and `019` are completed. The nea
 - Reuse the completed `019` importer baseline while treating cross-platform packaged-sidecar validation as the main remaining release-prep follow-up, not as an active incomplete exec-plan move.
 - Treat completed `018` as the durable substrate for runs, bundles, and candidates, not as the final parser architecture.
 - Treat the completed `007`, `009`, and `010` passes as the current functional and wording baselines for later UX polish and QA.
+- Plan `015` is now active on the safe deterministic foundation plus early Milestone 2 and Milestone 3-prep slices: shared apply-run domains, repository storage, IPC seams, a non-submitting one-job copilot flow that prepares and records review-ready apply state without clicking the final submit button, a safe single-job auto-run staging flow that creates run-scoped submit approval records without executing any final submit action, and a verified queue-control follow-up that can stage queue runs, pause on consent, approve or decline consent, cancel runs, and resume safe queue processing after approval while still stopping before final submit. Review Queue now also supports true explicit multi-job queue selection instead of staging only the currently focused job, and the deterministic desktop harnesses `ui:apply-queue-controls`, `ui:applications-recovery`, and `ui:applications-queue-recovery` now prove queue controls, Applications run-history selection, fresh safe rerun/restage actions, retained recovery-checkpoint context, explicit included-versus-excluded historical queue recovery summaries, richer per-job queue outcome summaries, and restaging the remaining jobs from a historical queue run end to end in the desktop app. Applications now also fetch and render raw persisted apply-run review details for the selected job, including questions, grounded answers, retained artifacts, checkpoints, consent requests, any run-scoped submit approval state, and per-job historical runs that can be reselected for review. Do not run live application execution or submission QA until the user explicitly re-authorizes it.
 
 ## Immediate Next Steps
 
@@ -66,9 +67,9 @@ Plans `007`, `010`, `011`, `012`, `013`, `018`, and `019` are completed. The nea
 - A final cleanup testing round on 2026-04-15 re-ran `pnpm verify`, desktop build, the resume-import benchmark, dark and light shell captures, scripted TXT and PDF resume-import flows, profile baseline capture, guided setup capture, full-Profile Preferences copilot capture, resume-workspace demo capture, and resume-workspace dirty-state capture. Release QA returned Go-with-risk, with the only remaining release risk being cross-platform native sidecar packaging validation.
 - Treat completed `013` as the new discovery baseline: typed source intelligence, provider-aware method selection, one-target plus run-all execution, title-first triage, durable handled-job dedupe, richer saved-job persistence, and explicit browser closeout are now in repo state for later resume and apply work to reuse.
 - Keep the retained `013` live benchmark report in `docs/exec-plans/completed/013-benchmark-results.md` as the evidence source for the measured Greenhouse and Lever discovery wins, the source-debug quality gains, and the remaining Greenhouse/Kosovajob follow-up gaps.
-- Keep `014` downstream of the stronger `019` import quality pass because resume quality should not absorb import-time structural mistakes.
+- Keep the completed `014` ATS-first resume baseline paired with the stronger `019` import quality pass so later apply work does not reopen resume quality regressions caused by weaker upstream inputs.
 - Treat `014` as complete and use the retained `apps/desktop/test-artifacts/ui/resume-workspace/workspace-after-demo.json` plus `resume-workspace-dirty/dirty-state-results.json` artifacts as the release-bar evidence set for the ATS-first resume path; later follow-up should only reopen resume templates if a future plan explicitly widens beyond the current single-layout product decision.
-- Start `015` only after the stronger data, setup, source-intelligence, discovery, and resume foundations are in place; it remains the final major queued product sequence, not the first follow-on.
+- Treat `015` as the active next implementation track now that the stronger data, setup, source-intelligence, discovery, and resume foundations are in place, but keep the current slice non-submitting and deterministic until live application QA is explicitly re-authorized; the remaining work is now mostly limited to later submit-enabled boundaries rather than missing safe-slice recovery or queue-review surfaces.
 - Pull `016` forward only if the longer-running discovery or apply agents start degrading because conversation growth becomes the next concrete blocker.
 - Leave `017` sequenced after the main product work until representative post-`013` and post-`015` flows exist to benchmark against.
 - Use the retained timing snapshot from `010` for ongoing performance baseline comparisons across discovery, source-debug, and later resume-import parser routing.

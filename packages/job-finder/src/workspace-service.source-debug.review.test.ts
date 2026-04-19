@@ -10,6 +10,7 @@ import {
   createAgentBrowserRuntime,
   createDocumentManager,
   createSeed,
+  createSourceInstructionArtifact,
   createStrongSourceDebugFindingsByPhase,
   extractLatestUserPrompt,
 } from "./workspace-service.test-support";
@@ -415,7 +416,7 @@ describe("createJobFinderWorkspaceService", () => {
       staleReason: "Old verification state",
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_old_validated",
         targetId: "target_linkedin_default",
         status: "validated",
@@ -450,8 +451,8 @@ describe("createJobFinderWorkspaceService", () => {
             appSchemaVersion: "job-finder-source-debug-v1",
           },
         },
-      },
-      {
+      }),
+      createSourceInstructionArtifact({
         id: "instruction_old_draft",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -473,7 +474,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "job-finder-source-debug-v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const repository = createInMemoryJobFinderRepository(seed);

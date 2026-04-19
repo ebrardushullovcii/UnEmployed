@@ -1,6 +1,7 @@
 import type {
   AgentDiscoveryProgress,
   ApplyExecutionResult,
+  ApplyRecoveryContext,
   BrowserSessionState,
   CandidateProfile,
   DiscoveryRunResult,
@@ -22,6 +23,13 @@ export interface ExecuteEasyApplyInput {
   instructions?: readonly string[];
 }
 
+export type ApplicationExecutionMode = 'prepare_only' | 'submit_when_ready';
+
+export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
+  mode: ApplicationExecutionMode;
+  recoveryContext?: ApplyRecoveryContext;
+}
+
 export interface BrowserSessionRuntime {
   getSessionState(source: JobSource): Promise<BrowserSessionState>;
   openSession(source: JobSource): Promise<BrowserSessionState>;
@@ -33,6 +41,10 @@ export interface BrowserSessionRuntime {
   executeEasyApply(
     source: JobSource,
     input: ExecuteEasyApplyInput,
+  ): Promise<ApplyExecutionResult>;
+  executeApplicationFlow?(
+    source: JobSource,
+    input: ExecuteApplicationFlowInput,
   ): Promise<ApplyExecutionResult>;
   runAgentDiscovery?(
     source: JobSource,

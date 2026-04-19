@@ -270,6 +270,7 @@ export const ResumeValidationIssueSchema = z.object({
   severity: ResumeValidationSeveritySchema,
   category: ResumeValidationCategorySchema,
   sectionId: NonEmptyStringSchema.nullable().default(null),
+  entryId: NonEmptyStringSchema.nullable().default(null),
   bulletId: NonEmptyStringSchema.nullable().default(null),
   message: NonEmptyStringSchema,
 });
