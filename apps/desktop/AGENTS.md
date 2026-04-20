@@ -27,6 +27,10 @@ Owns the Electron shell, preload bridge, and renderer entrypoint.
 - `pnpm --filter @unemployed/desktop ui:capture`
 - `pnpm --filter @unemployed/desktop ui:resume-import`
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`
+- `pnpm --filter @unemployed/desktop ui:applications-copilot-review`
+- `pnpm --filter @unemployed/desktop ui:applications-recovery`
+- `pnpm --filter @unemployed/desktop ui:applications-queue-recovery`
+- `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
 - `pnpm --filter @unemployed/desktop ui:resume-workspace`
 - `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
 
@@ -45,6 +49,10 @@ Owns the Electron shell, preload bridge, and renderer entrypoint.
 - `ui:capture`: seeded shell screenshots under `apps/desktop/test-artifacts/ui/`
 - `ui:resume-import`: imports a real resume without the native picker and records screenshots plus workspace JSON
 - `ui:profile-baseline`: captures the historical imported-profile baseline from a saved workspace snapshot
+- `ui:applications-copilot-review`: drives the safe apply-copilot path into Applications and records raw review-data screenshots plus JSON
+- `ui:applications-recovery`: drives Applications run-history selection plus fresh safe rerun/restage actions and records screenshots plus JSON
+- `ui:applications-queue-recovery`: drives Applications queue-history recovery and records screenshots plus JSON for restaging the remaining jobs from an earlier safe queue run
+- `ui:apply-queue-controls`: drives the safe queue stage, consent approve/decline, and cancel flows into Applications and records screenshots plus JSON
 - `ui:resume-workspace`: walks the full resume workspace demo flow and saves screenshots plus final workspace JSON
 - `ui:resume-workspace-dirty`: proves dirty-draft safety across refresh, assistant requests, approval clearing, and navigation
 - Use `UI_CAPTURE_WIDTH`, `UI_CAPTURE_HEIGHT`, and `UI_CAPTURE_LABEL` for alternate desktop sizes or artifact folders.

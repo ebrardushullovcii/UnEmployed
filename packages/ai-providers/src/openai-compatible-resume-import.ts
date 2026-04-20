@@ -12,6 +12,7 @@ import {
   type ResumeImportStageExtractionResult,
 } from "./resume-import";
 import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
+import type { OpenAiCompatibleJsonOperation } from "./openai-compatible-request-compaction";
 
 function toStringArray(value: unknown): string[] {
   if (typeof value === "string") {
@@ -193,6 +194,7 @@ export async function extractOpenAiCompatibleResumeImportStage(input: {
   stageInput: ExtractResumeImportStageInput;
   status: AgentProviderStatus;
   fetchModelJson: (
+    operation: OpenAiCompatibleJsonOperation,
     systemPrompt: string,
     userPayload: unknown,
     options?: { timeoutMs?: number },
@@ -204,6 +206,7 @@ export async function extractOpenAiCompatibleResumeImportStage(input: {
     input.stageInput.stage,
   );
   const payload = await input.fetchModelJson(
+    "extractResumeImportStage",
     [
       "You extract structured resume import candidates from parsed document blocks.",
       "Return JSON only.",

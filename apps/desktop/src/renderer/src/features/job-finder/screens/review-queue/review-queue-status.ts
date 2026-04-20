@@ -44,10 +44,17 @@ export function getReviewQueueWorkflowStatus(
     }
   }
 
-  if (item.resumeReview.status === 'approved') {
+  if (isQueueStageReady(item)) {
     return {
       label: 'Ready to apply',
       tone: 'positive'
+    }
+  }
+
+  if (item.resumeReview.status === 'approved' && !item.resumeAssetId) {
+    return {
+      label: 'Resume unavailable',
+      tone: 'critical'
     }
   }
 
@@ -74,6 +81,15 @@ export function needsResumeGeneration(item: ReviewQueueItem | null): boolean {
 
 export function hasResumeGenerationFailure(item: ReviewQueueItem | null): boolean {
   return item?.assetStatus === 'failed'
+}
+
+export function isQueueStageReady(item: ReviewQueueItem | null): boolean {
+  return Boolean(
+    item &&
+      item.assetStatus === 'ready' &&
+      item.resumeAssetId &&
+      item.resumeReview.status === 'approved'
+  )
 }
 
 export function getApplyReadinessStatus(params: {

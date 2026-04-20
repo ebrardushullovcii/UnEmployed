@@ -66,7 +66,7 @@ export function ResumeWorkspaceHeader({
             ) : null}
           </div>
           <p className="max-w-[72ch] text-(length:--type-body-md) leading-7 text-foreground-soft">
-            Save your draft, export a PDF, and approve the version you want Job Finder to use before starting the application.
+            Save your draft, export a PDF, and approve the version you want Job Finder to use before starting Apply Copilot.
           </p>
         </div>
 

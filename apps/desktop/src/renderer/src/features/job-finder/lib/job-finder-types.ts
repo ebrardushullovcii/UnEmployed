@@ -1,9 +1,12 @@
 import type {
+  ApplyRunDetails,
   CandidateAnswerKind,
   CandidateLinkKind,
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderApplyConsentActionInput,
+  JobFinderApplyQueueActionInput,
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobSearchPreferences,
@@ -42,6 +45,7 @@ export interface JobFinderShellActions {
     onProgress?: (event: SourceDebugProgressEvent) => void,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
+  getApplyRunDetails: (runId: string, jobId: string) => Promise<ApplyRunDetails>;
   saveSourceInstructionArtifact: (
     targetId: string,
     artifact: EditableSourceInstructionArtifact,
@@ -115,6 +119,18 @@ export interface JobFinderShellActions {
     content: string,
   ) => Promise<readonly ResumeAssistantMessage[]>;
   generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startApplyCopilotRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyQueueRun: (
+    jobIds: JobFinderApplyQueueActionInput['jobIds'],
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  approveApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  cancelApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  resolveApplyConsentRequest: (
+    requestId: string,
+    action: JobFinderApplyConsentActionInput['action'],
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  revokeApplyRunApproval: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
   approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
 }
 

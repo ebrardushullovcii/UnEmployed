@@ -205,6 +205,24 @@ export function createPrimaryPageActions(
     )
   }
 
+  const startAutoFlow = (
+    runner: () => Promise<unknown>,
+    successMessage: string,
+  ) => {
+    if (!confirmLeaveDirtyResumeWorkspace()) {
+      return
+    }
+
+    void runAction(
+      runner,
+      () => {
+        setResumeWorkspaceDirty(false)
+        navigate('/job-finder/applications')
+      },
+      successMessage,
+    )
+  }
+
   return {
     onAnalyzeProfileFromResume: () => {
       if (!canImportResume) {
@@ -233,6 +251,18 @@ export function createPrimaryPageActions(
             ? 'Review item dismissed for now.'
             : 'Current value cleared and the review item was resolved.',
       ),
+    onApproveApplyRun: (runId: string) =>
+      void runAction(
+        () => actions.approveApplyRun(runId),
+        () => undefined,
+        'Submit approval recorded. This safe build still stops before final submit.',
+      ),
+    onCancelApplyRun: (runId: string) =>
+      void runAction(
+        () => actions.cancelApplyRun(runId),
+        () => undefined,
+        'Automatic apply run cancelled.',
+      ),
     onApproveApply: (jobId: string) => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
         return
@@ -245,6 +275,46 @@ export function createPrimaryPageActions(
           navigate('/job-finder/applications')
         },
         'Applications updated. Check the latest attempt and next step there.',
+      )
+    },
+    onRevokeApplyRunApproval: (runId: string) =>
+      void runAction(
+        () => actions.revokeApplyRunApproval(runId),
+        () => undefined,
+        'Submit approval revoked. The run is back to pending approval.',
+      ),
+    onResolveApplyConsentRequest: (
+      requestId: string,
+      action: 'approve' | 'decline',
+    ) =>
+      void runAction(
+        () => actions.resolveApplyConsentRequest(requestId, action),
+        () => undefined,
+        action === 'approve'
+          ? 'Consent approved. The safe run resumed without final submit.'
+          : 'Consent declined. The run skipped that job and stayed non-submitting.',
+      ),
+    onStartAutoApplyQueue: (jobIds: string[]) => {
+      if (jobIds.length === 0) {
+        setActionState({ busy: false, message: 'No jobs selected for auto-apply queue.' })
+        return
+      }
+
+      startAutoFlow(
+        () => actions.startAutoApplyQueueRun(jobIds),
+        'Automatic apply queue staged. Review and approve it in Applications before any later execution step.',
+      )
+    },
+    onStartAutoApply: (jobId: string) => {
+      startAutoFlow(
+        () => actions.startAutoApplyRun(jobId),
+        'Automatic submit run staged. Review and approve it in Applications before any later execution step.',
+      )
+    },
+    onStartApplyCopilot: (jobId: string) => {
+      startAutoFlow(
+        () => actions.startApplyCopilotRun(jobId),
+        'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
       )
     },
     onCheckBrowserSession: () =>

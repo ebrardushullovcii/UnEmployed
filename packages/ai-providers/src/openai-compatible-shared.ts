@@ -5,6 +5,17 @@ import {
   uniqueStrings,
 } from "./deterministic";
 
+// Keep this set in sync with the reference-only identifier fields on the
+// structured draft payloads validated through TailoredResumeDraftSchema and the
+// related draft entry contracts in packages/contracts/src/resume.ts.
+const REFERENCE_ONLY_KEYS = new Set([
+  "profileRecordId",
+  "sourceId",
+  "id",
+  "draftId",
+  "recordId",
+]);
+
 function sanitizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
@@ -24,14 +35,53 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
       return [];
     }
 
+    const normalizedEntry = entry as Record<string, unknown>;
+
     if (requiredArrayKey) {
-      const candidate = entry[requiredArrayKey];
+      const candidate = normalizedEntry[String(requiredArrayKey)];
       if (candidate !== undefined && !Array.isArray(candidate)) {
         return [];
       }
     }
 
-    return [entry as TEntry];
+    // This predicate intentionally treats only user-visible string content as meaningful.
+    // Numeric or boolean fields do not currently count here, so revisit this block if
+    // TEntry or TailoredResumeDraftSchema starts relying on non-string visible fields.
+    const hasMeaningfulContent = Object.entries(normalizedEntry).some(([fieldKey, fieldValue]) => {
+      if (REFERENCE_ONLY_KEYS.has(fieldKey)) {
+        return false;
+      }
+
+      if (typeof fieldValue === "string") {
+        return fieldValue.trim().length > 0;
+      }
+
+      if (Array.isArray(fieldValue)) {
+        return fieldValue.some((item) => {
+          if (typeof item === "string") {
+            return item.trim().length > 0;
+          }
+
+          if (!item || typeof item !== "object" || Array.isArray(item)) {
+            return false;
+          }
+
+          const normalizedItem = item as Record<string, unknown>;
+
+          return Object.values(normalizedItem).some(
+            (nestedValue) => typeof nestedValue === "string" && nestedValue.trim().length > 0,
+          );
+        });
+      }
+
+      return false;
+    });
+
+    if (!hasMeaningfulContent) {
+      return [];
+    }
+
+    return [normalizedEntry as TEntry];
   });
 }
 

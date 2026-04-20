@@ -5,10 +5,13 @@ import { createSystemPrompt } from '../prompts'
 import { isAllowedUrl } from '../allowlist'
 import {
   appendConversationMessage,
+  createAgentCompactionStatus,
+  createContextBudgetFailureReason,
   compactToolContent,
-  getCompactionConfig,
+  getEffectiveCompactionConfig,
   maybeCompactConversation,
   renderReviewTranscriptMessage,
+  shouldFailForContextBudget,
 } from './conversation'
 import {
   appendPhaseEvidence,
@@ -41,6 +44,22 @@ const DISCOVERY_STAGNATION_ZERO_YIELD_LIMIT = 3
 const DISCOVERY_STAGNATION_STEP_WINDOW = 8
 const EARLY_FORCED_FINISH_MIN_STEP = 4
 const EARLY_FORCED_FINISH_STALE_STEP_WINDOW = 2
+
+function buildContextBudgetFailureResult(
+  state: AgentState,
+  requiresExplicitFinish: boolean,
+  pendingDebugFindings: NonNullable<AgentResult['debugFindings']> | null,
+): AgentResult {
+  const reason = createContextBudgetFailureReason()
+
+  return buildAgentResult(state, {
+    error: reason,
+    phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
+    phaseCompletionReason: requiresExplicitFinish ? reason : null,
+    phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
+    debugFindings: pendingDebugFindings,
+  })
+}
 
 export async function runAgentDiscovery(
   page: Page,
@@ -75,6 +94,7 @@ export async function runAgentDiscovery(
     isRunning: true,
     phaseEvidence: createEmptyPhaseEvidence(),
     compactionState: null,
+    compactionStatus: createAgentCompactionStatus(),
   }
   let consecutiveZeroYieldExtractionPasses = 0
   let lastJobGainStep = 0
@@ -124,8 +144,7 @@ export async function runAgentDiscovery(
       role: 'user',
       content: buildForcedFinishPrompt(state, config),
     })
-    maybeCompactConversation(state, config, createUserPrompt)
-    return true
+    return maybeCompactConversation(state, config, createUserPrompt)
   }
   const recordExtractionPassSummary = (summary: ExtractionPassSummary) => {
     if (summary.extractionPasses === 0) {
@@ -294,7 +313,13 @@ export async function runAgentDiscovery(
           role: 'user',
           content: buildForcedFinishPrompt(state, config),
         })
-        maybeCompactConversation(state, config, createUserPrompt)
+        if (!maybeCompactConversation(state, config, createUserPrompt)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
       }
 
       emitProgress({
@@ -308,7 +333,25 @@ export async function runAgentDiscovery(
 
       let response: { content?: string; toolCalls?: import('../types').ToolCall[]; reasoning?: string }
       try {
-        response = await getLlmResponse(page, state, tools, llmClient, emitProgress, signal)
+        if (shouldFailForContextBudget(state, config)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
+
+        response = await getLlmResponse(
+          page,
+          state,
+          tools,
+          llmClient,
+          {
+            maxOutputTokens: getEffectiveCompactionConfig(config).minimumResponseHeadroomTokens,
+          },
+          emitProgress,
+          signal,
+        )
       } catch (llmError) {
         if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {
           throw llmError
@@ -331,7 +374,13 @@ export async function runAgentDiscovery(
           role: 'assistant',
           content: response.content || 'No action taken',
         })
-        maybeCompactConversation(state, config, createUserPrompt)
+        if (!maybeCompactConversation(state, config, createUserPrompt)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
 
         if (!requiresExplicitFinish && state.deferredSearchExtractions.size > 0) {
           const flushSummary = await flushDeferredSearchExtractions({
@@ -364,6 +413,14 @@ export async function runAgentDiscovery(
         recordEvidenceProgress()
         const earlyForcedFinishTriggered = maybeTriggerEarlyForcedFinish()
 
+        if (requiresExplicitFinish && !earlyForcedFinishTriggered && shouldFailForContextBudget(state, config)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
+
         if (!requiresExplicitFinish) {
           const stagnantResult = await maybeStopForStagnation()
           if (stagnantResult) {
@@ -393,7 +450,13 @@ export async function runAgentDiscovery(
         content: response.content || '',
         toolCalls: response.toolCalls,
       })
-      maybeCompactConversation(state, config, createUserPrompt)
+      if (!maybeCompactConversation(state, config, createUserPrompt)) {
+        return buildContextBudgetFailureResult(
+          state,
+          requiresExplicitFinish,
+          pendingDebugFindings,
+        )
+      }
 
       for (const toolCall of response.toolCalls) {
         const result = await executeToolCall(
@@ -439,10 +502,16 @@ export async function runAgentDiscovery(
           toolCallId: toolCall.id,
           content: compactToolContent(
             JSON.stringify(compactResult),
-            getCompactionConfig(config).maxToolPayloadChars,
+            getEffectiveCompactionConfig(config).maxToolPayloadChars,
           ),
         })
-        maybeCompactConversation(state, config, createUserPrompt)
+        if (!maybeCompactConversation(state, config, createUserPrompt)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
 
         if (toolCall.function.name === 'finish' && (result as { success?: boolean }).success === true) {
           pendingDebugFindings =
@@ -502,7 +571,15 @@ export async function runAgentDiscovery(
         continue
       }
 
-      maybeTriggerEarlyForcedFinish()
+      const earlyForcedFinishTriggered = maybeTriggerEarlyForcedFinish()
+
+      if (!earlyForcedFinishTriggered && shouldFailForContextBudget(state, config)) {
+        return buildContextBudgetFailureResult(
+          state,
+          requiresExplicitFinish,
+          pendingDebugFindings,
+        )
+      }
 
       if (forcedFinishPromptSent) {
         continue
@@ -515,7 +592,13 @@ export async function runAgentDiscovery(
           content:
             'The evidence sampling budget is already satisfied. Do not stop yet unless the phase goal is complete. Either keep probing the missing route/control/detail evidence or call finish with structured site findings, including any reliable controls, tricky filters, navigation rules, and apply caveats you proved.',
         })
-        maybeCompactConversation(state, config, createUserPrompt)
+        if (!maybeCompactConversation(state, config, createUserPrompt)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
       }
     }
 

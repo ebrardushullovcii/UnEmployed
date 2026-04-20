@@ -7,6 +7,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   resolve: {
     alias: {
+      '@unemployed/ai-providers': path.resolve(currentDir, 'packages/ai-providers/src/index.ts'),
       '@renderer': path.resolve(currentDir, 'apps/desktop/src/renderer/src'),
       '@unemployed/browser-runtime': path.resolve(currentDir, 'packages/browser-runtime/src/index.ts'),
       '@unemployed/contracts': path.resolve(currentDir, 'packages/contracts/src/index.ts'),

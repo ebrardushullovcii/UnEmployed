@@ -38,6 +38,7 @@ describe("createJobFinderWorkspaceService", () => {
             transcriptMessageCount: 3,
             reviewTranscript: [],
             compactionState: null,
+            compactionUsedFallbackTrigger: false,
             phaseCompletionMode: "blocked_auth",
             phaseCompletionReason:
               "Login required: Sign in before source debugging can continue.",
@@ -133,6 +134,7 @@ describe("createJobFinderWorkspaceService", () => {
             transcriptMessageCount: 5,
             reviewTranscript: [],
             compactionState: null,
+            compactionUsedFallbackTrigger: false,
             phaseCompletionMode: "runtime_failed",
             phaseCompletionReason:
               "Discovery encountered an error: LLM call failed after 3 attempts: temporary upstream failure",
@@ -435,6 +437,7 @@ describe("createJobFinderWorkspaceService", () => {
             transcriptMessageCount: 7,
             reviewTranscript: [],
             compactionState: null,
+            compactionUsedFallbackTrigger: false,
             phaseCompletionMode: "timed_out_with_partial_evidence",
             phaseCompletionReason:
               "The phase timed out before the worker returned a structured finish call.",

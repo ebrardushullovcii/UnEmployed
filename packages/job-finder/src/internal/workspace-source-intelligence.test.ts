@@ -72,7 +72,7 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
 
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
     ok: true,
-    json: () => ({
+    json: () => Promise.resolve({
       jobs: [
         {
           id: 4622190,
@@ -83,8 +83,8 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
           content: "<p>Teach software engineering.</p>",
         },
       ],
-    }),
-  } as Response);
+      }),
+    } as Response);
 
   return collectPublicProviderJobs({
     target,
@@ -119,7 +119,7 @@ describe("collectPublicProviderJobs", () => {
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
-      json: () => [
+      json: () => Promise.resolve([
         {
           id: "lever_job_1",
           text: "Senior Engineer",
@@ -131,7 +131,7 @@ describe("collectPublicProviderJobs", () => {
             location: "Remote",
           },
         },
-      ],
+      ]),
     } as Response);
 
     const result = await collectPublicProviderJobs({
@@ -198,7 +198,7 @@ describe("collectPublicProviderJobs", () => {
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
-      json: () => [
+      json: () => Promise.resolve([
         {
           id: "lever_job_1",
           text: "Senior Engineer",
@@ -210,7 +210,7 @@ describe("collectPublicProviderJobs", () => {
             location: "Remote",
           },
         },
-      ],
+      ]),
     } as Response);
 
     const result = await collectPublicProviderJobs({

@@ -1,4 +1,4 @@
-import type { ApplicationAttempt } from "./index";
+import { ApplyRunSchema, type ApplicationAttempt, type ApplyRun } from "./index";
 
 export const sourceDebugVersionInfo = {
   promptProfileVersion: "source-debug-v1",
@@ -38,4 +38,26 @@ export function createSubmittedAttempt(): ApplicationAttempt {
       },
     ],
   };
+}
+
+export function createApplyRunFixture(): ApplyRun {
+  return ApplyRunSchema.parse({
+    id: "apply_run_1",
+    mode: "copilot",
+    state: "paused_for_user_review",
+    jobIds: ["job_1"],
+    currentJobId: "job_1",
+    submitApprovalId: null,
+    createdAt: "2026-03-20T10:00:00.000Z",
+    updatedAt: "2026-03-20T10:02:00.000Z",
+    completedAt: null,
+    summary: "Apply copilot captured the current application state.",
+    detail: "The job is prepared for review and stopped before final submit.",
+    totalJobs: 1,
+    pendingJobs: 0,
+    submittedJobs: 0,
+    skippedJobs: 0,
+    blockedJobs: 0,
+    failedJobs: 0,
+  });
 }

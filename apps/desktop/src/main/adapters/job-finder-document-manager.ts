@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { BrowserWindow } from 'electron'
 import type { ResumeTemplateDefinition } from '@unemployed/contracts'
-import type { JobFinderDocumentManager } from '@unemployed/job-finder'
+import type { JobFinderDocumentManager, ResumeRenderDocument } from '@unemployed/job-finder'
 
 import { getPdfPageCount } from './resume-document'
 
@@ -82,9 +82,11 @@ function renderStructuredSection(input: {
   `
 }
 
-function renderTemplateHtml(input: Parameters<JobFinderDocumentManager['renderResumeArtifact']>[0]): string {
+function renderTemplateHtml(input: {
+  renderDocument: ResumeRenderDocument
+  settings: Parameters<JobFinderDocumentManager['renderResumeArtifact']>[0]['settings']
+}): string {
   const renderDocument = input.renderDocument
-  const templateId = input.settings.resumeTemplateId
   const fontFamily = formatFontFamily(input.settings.fontPreset)
   const contactItems = renderDocument.contactItems
   const summarySection = renderDocument.sections.find((section) => section.kind === 'summary') ?? null
@@ -130,7 +132,7 @@ function renderTemplateHtml(input: Parameters<JobFinderDocumentManager['renderRe
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>${escapeHtml(input.profile.fullName)} Resume</title>
+    <title>${escapeHtml(renderDocument.fullName)} Resume</title>
     <style>
       ${sharedStyles}
       .body-grid { grid-template-columns: 1fr; }
@@ -139,7 +141,7 @@ function renderTemplateHtml(input: Parameters<JobFinderDocumentManager['renderRe
   <body>
     <article class="page">
       <header class="header">
-        <h1>${escapeHtml(input.profile.fullName)}</h1>
+        <h1>${escapeHtml(renderDocument.fullName)}</h1>
         <p class="headline">${escapeHtml(renderDocument.headline ?? '')}</p>
         <div class="meta">
           ${renderDocument.location ? `<span>${escapeHtml(renderDocument.location)}</span>` : ''}

@@ -1,6 +1,14 @@
 import type {
+  ApplyJobResult,
+  ApplyRun,
+  ApplySubmitApproval,
   ApplicationAttempt,
+  ApplicationAnswerRecord,
+  ApplicationArtifactRef,
+  ApplicationConsentRequest,
   ApplicationRecord,
+  ApplicationQuestionRecord,
+  ApplicationReplayCheckpoint,
   CandidateProfile,
   JobFinderDiscoveryState,
   JobFinderRepositoryState,
@@ -125,6 +133,49 @@ export interface JobFinderRepository {
   ): Promise<void>;
   listProfileRevisions(): Promise<readonly ProfileRevision[]>;
   upsertProfileRevision(revision: ProfileRevision): Promise<void>;
+  listApplyRuns(options?: { id?: string }): Promise<readonly ApplyRun[]>;
+  upsertApplyRun(run: ApplyRun): Promise<void>;
+  listApplyJobResults(options?: { runId?: string; jobId?: string }): Promise<readonly ApplyJobResult[]>;
+  upsertApplyJobResult(result: ApplyJobResult): Promise<void>;
+  listApplySubmitApprovals(options?: { id?: string; runId?: string }): Promise<readonly ApplySubmitApproval[]>;
+  upsertApplySubmitApproval(approval: ApplySubmitApproval): Promise<void>;
+  listApplicationQuestionRecords(options?: {
+    runId?: string;
+    jobId?: string;
+    resultId?: string;
+  }): Promise<readonly ApplicationQuestionRecord[]>;
+  upsertApplicationQuestionRecord(
+    record: ApplicationQuestionRecord,
+  ): Promise<void>;
+  listApplicationAnswerRecords(options?: {
+    runId?: string;
+    jobId?: string;
+    resultId?: string;
+    questionId?: string;
+  }): Promise<readonly ApplicationAnswerRecord[]>;
+  upsertApplicationAnswerRecord(record: ApplicationAnswerRecord): Promise<void>;
+  listApplicationArtifactRefs(options?: {
+    runId?: string;
+    jobId?: string;
+    resultId?: string;
+  }): Promise<readonly ApplicationArtifactRef[]>;
+  upsertApplicationArtifactRef(ref: ApplicationArtifactRef): Promise<void>;
+  listApplicationReplayCheckpoints(options?: {
+    runId?: string;
+    jobId?: string;
+    resultId?: string;
+  }): Promise<readonly ApplicationReplayCheckpoint[]>;
+  upsertApplicationReplayCheckpoint(
+    checkpoint: ApplicationReplayCheckpoint,
+  ): Promise<void>;
+  listApplicationConsentRequests(options?: {
+    runId?: string;
+    jobId?: string;
+    resultId?: string;
+  }): Promise<readonly ApplicationConsentRequest[]>;
+  upsertApplicationConsentRequest(
+    request: ApplicationConsentRequest,
+  ): Promise<void>;
   saveResumeDraftWithValidation(input: {
     draft: ResumeDraft;
     validation: ResumeValidationResult;

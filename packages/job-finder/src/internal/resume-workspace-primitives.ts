@@ -73,7 +73,7 @@ export function createSection(
     id: input.id,
     kind: input.kind,
     label: input.label,
-    text: input.text ?? null,
+    text: normalizeNullableText(input.text),
     bullets: (input.bullets ?? []).map((bullet, index) =>
       createBullet(
         `${input.id}_bullet_${index + 1}`,
@@ -109,6 +109,11 @@ export function createSourceRef(
   };
 }
 
+export function normalizeNullableText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed === "" ? null : trimmed;
+}
+
 export function createEntry(input: {
   id: string;
   entryType: ResumeDraftEntry["entryType"];
@@ -127,11 +132,11 @@ export function createEntry(input: {
   return {
     id: input.id,
     entryType: input.entryType,
-    title: input.title ?? null,
-    subtitle: input.subtitle ?? null,
-    location: input.location ?? null,
-    dateRange: input.dateRange ?? null,
-    summary: input.summary ?? null,
+    title: normalizeNullableText(input.title),
+    subtitle: normalizeNullableText(input.subtitle),
+    location: normalizeNullableText(input.location),
+    dateRange: normalizeNullableText(input.dateRange),
+    summary: normalizeNullableText(input.summary),
     bullets: (input.bullets ?? []).map((bullet, index) =>
       createBullet(
         `${input.id}_bullet_${index + 1}`,
@@ -152,12 +157,8 @@ export function createEntry(input: {
 }
 
 export function safeSnippet(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  return trimmed.slice(0, 220);
+  const normalized = normalizeNullableText(value);
+  return normalized ? normalized.slice(0, 220) : null;
 }
 
 export function buildJobContextText(job: SavedJob): string {

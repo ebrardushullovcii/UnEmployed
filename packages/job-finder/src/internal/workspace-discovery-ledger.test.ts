@@ -45,8 +45,6 @@ describe("workspace-discovery-ledger", () => {
         providerKey: null,
         providerBoardToken: null,
         providerIdentifier: null,
-        title: "Software Engineer",
-        company: "Acme",
       },
     );
 

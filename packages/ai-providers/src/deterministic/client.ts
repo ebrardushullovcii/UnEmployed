@@ -16,6 +16,7 @@ function buildDeterministicStatus(detail: string) {
     label: "Built-in deterministic agent fallback",
     model: null,
     baseUrl: null,
+    modelContextWindowTokens: null,
     detail,
   });
 }

@@ -18,6 +18,10 @@
     "ui:resume-import": "pnpm build && node ./scripts/capture-resume-import.mjs",
     "ui:profile-baseline": "pnpm build && node ./scripts/capture-profile-baseline.mjs",
     "ui:profile-setup": "pnpm build && node ./scripts/capture-profile-setup.mjs",
+    "ui:applications-copilot-review": "pnpm build && node ./scripts/capture-applications-copilot-review.mjs",
+    "ui:applications-recovery": "pnpm build && node ./scripts/capture-applications-recovery.mjs",
+    "ui:applications-queue-recovery": "pnpm build && node ./scripts/capture-applications-queue-recovery.mjs",
+    "ui:apply-queue-controls": "pnpm build && node ./scripts/capture-apply-queue-controls.mjs",
     "ui:resume-workspace": "pnpm build && node ./scripts/capture-resume-workspace.mjs",
     "ui:resume-workspace-dirty": "pnpm build && node ./scripts/capture-resume-workspace-dirty.mjs"
   },

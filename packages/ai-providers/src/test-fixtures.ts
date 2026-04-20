@@ -4,6 +4,7 @@ import type {
   JobPosting,
   JobSearchPreferences,
 } from '@unemployed/contracts'
+import { JobPostingSchema } from '@unemployed/contracts'
 import type { JobFinderAiClient } from './shared'
 
 export function createEnvironment(
@@ -65,6 +66,84 @@ export function mockRejectedFetch(error: Error) {
 
   return () => {
     globalThis.fetch = originalFetch
+  }
+}
+
+interface CapturingFetchMock {
+  getCapturedBody(): string
+  restore(): void
+}
+
+function serializeCapturedBody(body: BodyInit | null | undefined): string {
+  if (typeof body === 'string') {
+    return body
+  }
+
+  if (body instanceof URLSearchParams) {
+    return body.toString()
+  }
+
+  if (body instanceof FormData) {
+    return JSON.stringify(
+      Array.from(body.entries()).map(([key, value]) => [key, typeof value === 'string' ? value : value.name])
+    )
+  }
+
+  if (body instanceof Blob) {
+    return `[blob size=${body.size} type=${body.type || 'application/octet-stream'}]`
+  }
+
+  if (body instanceof ArrayBuffer) {
+    return `[arraybuffer byteLength=${body.byteLength}]`
+  }
+
+  if (body && typeof body === 'object' && 'byteLength' in body && typeof body.byteLength === 'number') {
+    return `[arraybuffer-view byteLength=${body.byteLength}]`
+  }
+
+  if (body && typeof body === 'object' && 'getReader' in body) {
+    return '[readablestream]'
+  }
+
+  if (body == null) {
+    return ''
+  }
+
+  try {
+    return JSON.stringify(body)
+  } catch {
+    return ''
+  }
+}
+
+export function mockCapturingJsonFetch(
+  payload: unknown,
+  init: ResponseInit = {}
+): CapturingFetchMock {
+  const originalFetch = globalThis.fetch
+  let capturedBody = ''
+
+  globalThis.fetch = ((_, requestInit) => {
+    capturedBody = serializeCapturedBody(requestInit?.body)
+
+    return Promise.resolve(
+      new Response(JSON.stringify(payload), {
+        status: init.status ?? 200,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(init.headers ?? {})
+        }
+      })
+    )
+  }) as typeof fetch
+
+  return {
+    getCapturedBody() {
+      return capturedBody
+    },
+    restore() {
+      globalThis.fetch = originalFetch
+    }
   }
 }
 
@@ -221,7 +300,7 @@ export function createSettings(): JobFinderSettings {
 }
 
 export function createJobPosting(): JobPosting {
-  return {
+  return JobPostingSchema.parse({
     source: 'target_site',
     sourceJobId: 'job_1',
     discoveryMethod: 'browser_agent',
@@ -261,6 +340,12 @@ export function createJobPosting(): JobPosting {
     employerWebsiteUrl: null,
     employerDomain: null,
     atsProvider: null,
+    providerKey: null,
+    providerBoardToken: null,
+    providerIdentifier: null,
+    sourceIntelligence: null,
+    collectionMethod: 'fallback_search',
+    titleTriageOutcome: 'pass',
     screeningHints: {
       sponsorshipText: null,
       requiresSecurityClearance: null,
@@ -270,7 +355,7 @@ export function createJobPosting(): JobPosting {
     },
     keywordSignals: [],
     benefits: []
-  }
+  })
 }
 
 export function createExtraction(

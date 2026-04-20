@@ -8,9 +8,10 @@ import {
   type CandidateProfile,
   type JobFinderSettings,
   type ResumeAssistantMessage,
-  type ResumeDraft,
-  type ResumeDraftPatch,
-  type ResumeDraftRevision,
+    type ResumeDraft,
+    type ResumeDraftBullet,
+    type ResumeDraftPatch,
+    type ResumeDraftRevision,
   type ResumeExportArtifact,
   type ResumeResearchArtifact,
   type ResumeValidationIssue,
@@ -26,7 +27,6 @@ import {
 } from "./resume-workspace-primitives";
 import {
   buildPreviewSectionsFromResumeDraft as buildStructuredPreviewSectionsFromResumeDraft,
-  buildResumeRenderDocument,
   buildResumeDraftFromTailoredDraft as buildStructuredResumeDraftFromTailoredDraft,
   buildTailoredResumeTextFromResumeDraft as buildStructuredTailoredResumeTextFromResumeDraft,
   seedResumeDraft as seedStructuredResumeDraft,
@@ -235,6 +235,24 @@ function looksLikeVagueFiller(content: string): boolean {
   );
 }
 
+function hasVisibleEntryContent(input: {
+  title?: string | null;
+  subtitle?: string | null;
+  location?: string | null;
+  dateRange?: string | null;
+  summary?: string | null;
+  bullets: readonly { included: boolean }[];
+}): boolean {
+  return (
+    Boolean(input.title) ||
+    Boolean(input.subtitle) ||
+    Boolean(input.location) ||
+    Boolean(input.dateRange) ||
+    Boolean(input.summary) ||
+    input.bullets.some((bullet) => bullet.included)
+  );
+}
+
 export function sanitizeResumeDraft(input: {
   draft: ResumeDraft;
   job: SavedJob;
@@ -249,6 +267,10 @@ export function sanitizeResumeDraft(input: {
     const nextText = (() => {
       if (!section.text?.trim()) {
         return null;
+      }
+      if (section.locked) {
+        seenLines.add(normalizedSectionText);
+        return section.text;
       }
       if (seenLines.has(normalizedSectionText)) {
         return null;
@@ -269,6 +291,10 @@ export function sanitizeResumeDraft(input: {
         if (!normalized) {
           return false;
         }
+        if (bullet.locked) {
+          seenLines.add(normalized);
+          return true;
+        }
         if (contextText && normalizeText(contextText) === normalized) {
           return false;
         }
@@ -287,6 +313,19 @@ export function sanitizeResumeDraft(input: {
 
     const nextEntries = section.entries
       .map((entry) => {
+        if (entry.locked) {
+          if (entry.summary) {
+            seenLines.add(normalizeText(entry.summary));
+          }
+          for (const bullet of entry.bullets) {
+            const normalizedBullet = normalizeText(bullet.text);
+            if (normalizedBullet) {
+              seenLines.add(normalizedBullet);
+            }
+          }
+          return entry;
+        }
+
         const nextSummary = (() => {
           if (!entry.summary?.trim()) {
             return null;
@@ -303,9 +342,14 @@ export function sanitizeResumeDraft(input: {
         })();
 
         const nextBullets = sanitizeBullets(entry.bullets, nextSummary);
-        const hasHeading = Boolean(entry.title || entry.subtitle || entry.location || entry.dateRange);
 
-        if (!hasHeading && !nextSummary && nextBullets.length === 0) {
+        if (
+          !hasVisibleEntryContent({
+            ...entry,
+            summary: nextSummary,
+            bullets: nextBullets,
+          })
+        ) {
           return null;
         }
 
@@ -319,13 +363,19 @@ export function sanitizeResumeDraft(input: {
 
     const nextBullets = sanitizeBullets(section.bullets, nextText);
     const hasVisibleContent = Boolean(nextText) || nextBullets.length > 0 || nextEntries.length > 0;
+    const nextIncluded =
+      section.kind === "keywords"
+        ? false
+        : section.locked
+          ? true
+          : hasVisibleContent && section.included;
 
     return {
       ...section,
       text: nextText,
       bullets: nextBullets,
       entries: nextEntries,
-      included: section.kind === "keywords" ? false : hasVisibleContent ? section.included : false,
+      included: nextIncluded,
     };
   });
 
@@ -358,82 +408,100 @@ export function validateResumeDraft(input: {
         )),
   );
 
+  function pushBulletIssues(input: {
+    bullet: ResumeDraftBullet;
+    sectionId: string;
+    entryId?: string | null;
+  }) {
+    const normalizedBullet = normalizeText(input.bullet.text);
+    const existing = seenBullets.get(normalizedBullet);
+
+    if (existing) {
+      issues.push({
+        id: `issue_duplicate_${input.bullet.id}`,
+        severity: "warning",
+        category: "duplicate_bullet",
+        sectionId: input.sectionId,
+        entryId: input.entryId ?? null,
+        bulletId: input.bullet.id,
+        message: "This bullet duplicates another included bullet.",
+      });
+    } else {
+      seenBullets.set(normalizedBullet, {
+        sectionId: input.sectionId,
+        bulletId: input.bullet.id,
+      });
+    }
+
+    if (isJobDescriptionBleed(input.bullet.text, jobPhraseBank, profileSupportBank)) {
+      issues.push({
+        id: `issue_job_bleed_${input.bullet.id}`,
+        severity: "warning",
+        category: "job_description_bleed",
+        sectionId: input.sectionId,
+        entryId: input.entryId ?? null,
+        bulletId: input.bullet.id,
+        message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
+      });
+    }
+
+    if (looksLikeKeywordStuffing(input.bullet.text)) {
+      issues.push({
+        id: `issue_keyword_stuffing_${input.bullet.id}`,
+        severity: "warning",
+        category: "keyword_stuffing",
+        sectionId: input.sectionId,
+        entryId: input.entryId ?? null,
+        bulletId: input.bullet.id,
+        message: "This line reads like keyword packing instead of resume content.",
+      });
+    }
+
+    if (looksLikeVagueFiller(input.bullet.text)) {
+      issues.push({
+        id: `issue_filler_${input.bullet.id}`,
+        severity: "info",
+        category: "vague_filler",
+        sectionId: input.sectionId,
+        entryId: input.entryId ?? null,
+        bulletId: input.bullet.id,
+        message: "Replace generic filler language with a grounded accomplishment or skill example.",
+      });
+    }
+  }
+
   for (const section of includedSections) {
     const includedBullets = section.bullets.filter((bullet) => bullet.included);
+    const includedEntries = section.entries.filter((entry) => entry.included);
+    const includedEntriesWithVisibleContent = includedEntries.filter(
+      (entry) => hasVisibleEntryContent(entry),
+    );
 
-    if (!section.text && includedBullets.length === 0) {
+    if (!section.text && includedBullets.length === 0 && includedEntriesWithVisibleContent.length === 0) {
       issues.push({
         id: `issue_empty_${section.id}`,
         severity: "warning",
         category: "empty_section",
         sectionId: section.id,
+        entryId: null,
         bulletId: null,
         message: `${section.label} is included but has no content yet.`,
       });
     }
 
     for (const bullet of includedBullets) {
-      const normalizedBullet = normalizeText(bullet.text);
-      const existing = seenBullets.get(normalizedBullet);
-
-      if (existing) {
-        issues.push({
-          id: `issue_duplicate_${bullet.id}`,
-          severity: "warning",
-          category: "duplicate_bullet",
-          sectionId: section.id,
-          bulletId: bullet.id,
-          message: "This bullet duplicates another included bullet.",
-        });
-      } else {
-        seenBullets.set(normalizedBullet, {
-          sectionId: section.id,
-          bulletId: bullet.id,
-        });
-      }
-
-      if (isJobDescriptionBleed(bullet.text, jobPhraseBank, profileSupportBank)) {
-        issues.push({
-          id: `issue_job_bleed_${bullet.id}`,
-          severity: "warning",
-          category: "job_description_bleed",
-          sectionId: section.id,
-          bulletId: bullet.id,
-          message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
-        });
-      }
-
-      if (looksLikeKeywordStuffing(bullet.text)) {
-        issues.push({
-          id: `issue_keyword_stuffing_${bullet.id}`,
-          severity: "warning",
-          category: "keyword_stuffing",
-          sectionId: section.id,
-          bulletId: bullet.id,
-          message: "This line reads like keyword packing instead of resume content.",
-        });
-      }
-
-      if (looksLikeVagueFiller(bullet.text)) {
-        issues.push({
-          id: `issue_filler_${bullet.id}`,
-          severity: "info",
-          category: "vague_filler",
-          sectionId: section.id,
-          bulletId: bullet.id,
-          message: "Replace generic filler language with a grounded accomplishment or skill example.",
-        });
-      }
+      pushBulletIssues({ bullet, sectionId: section.id });
     }
 
     const seenEntryContent = new Set<string>();
-    for (const entry of section.entries.filter((entry) => entry.included)) {
-      if (!entry.title && !entry.subtitle && !entry.summary && entry.bullets.filter((bullet) => bullet.included).length === 0) {
+    for (const entry of includedEntries) {
+      if (!hasVisibleEntryContent(entry)) {
         issues.push({
           id: `issue_empty_entry_${entry.id}`,
           severity: "warning",
           category: "empty_section",
           sectionId: section.id,
+          entryId: entry.id,
           bulletId: null,
           message: `${section.label} includes an empty entry that should be removed or filled in.`,
         });
@@ -447,6 +515,7 @@ export function validateResumeDraft(input: {
             severity: "warning",
             category: "duplicate_section_content",
             sectionId: section.id,
+            entryId: entry.id,
             bulletId: null,
             message: `${section.label} repeats the same supporting content more than once.`,
           });
@@ -460,6 +529,7 @@ export function validateResumeDraft(input: {
             severity: "warning",
             category: "job_description_bleed",
             sectionId: section.id,
+            entryId: entry.id,
             bulletId: null,
             message: `${section.label} includes summary text that reads like copied job-description language.`,
           });
@@ -467,31 +537,7 @@ export function validateResumeDraft(input: {
       }
 
       for (const bullet of entry.bullets.filter((bullet) => bullet.included)) {
-        const normalizedBullet = normalizeText(bullet.text);
-        const existing = seenBullets.get(normalizedBullet);
-        if (existing) {
-          issues.push({
-            id: `issue_duplicate_${bullet.id}`,
-            severity: "warning",
-            category: "duplicate_bullet",
-            sectionId: section.id,
-            bulletId: bullet.id,
-            message: "This bullet duplicates another included bullet.",
-          });
-        } else {
-          seenBullets.set(normalizedBullet, { sectionId: section.id, bulletId: bullet.id });
-        }
-
-        if (isJobDescriptionBleed(bullet.text, jobPhraseBank, profileSupportBank)) {
-          issues.push({
-            id: `issue_job_bleed_${bullet.id}`,
-            severity: "warning",
-            category: "job_description_bleed",
-            sectionId: section.id,
-            bulletId: bullet.id,
-            message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
-          });
-        }
+        pushBulletIssues({ bullet, sectionId: section.id, entryId: entry.id });
       }
     }
   }
@@ -512,6 +558,7 @@ export function validateResumeDraft(input: {
       severity: "info",
       category: "poor_keyword_coverage",
       sectionId: null,
+      entryId: null,
       bulletId: null,
       message: "The current draft does not yet echo the saved job keywords.",
     });
@@ -523,6 +570,7 @@ export function validateResumeDraft(input: {
       severity: "warning",
       category: "thin_output",
       sectionId: null,
+      entryId: null,
       bulletId: null,
       message: "The current resume is still too thin to read like a complete submission-ready document.",
     });
@@ -534,6 +582,7 @@ export function validateResumeDraft(input: {
       severity: input.pageCount >= 3 ? "error" : "warning",
       category: "page_overflow",
       sectionId: null,
+      entryId: null,
       bulletId: null,
       message:
         input.pageCount >= 3
@@ -548,6 +597,7 @@ export function validateResumeDraft(input: {
       severity: "warning",
       category: "stale_approval",
       sectionId: null,
+      entryId: null,
       bulletId: null,
       message: input.draft.staleReason ?? "This approved resume is stale and should be re-reviewed.",
     });
@@ -671,6 +721,7 @@ export function buildAssistantReplyMessage(input: {
   jobId: string;
   content: string;
   patches: readonly ResumeDraftPatch[];
+  createdAt?: string;
 }): ResumeAssistantMessage {
   return ResumeAssistantMessageSchema.parse({
     id: createUniqueId(`resume_message_assistant_${input.jobId}`),
@@ -678,7 +729,7 @@ export function buildAssistantReplyMessage(input: {
     role: "assistant",
     content: input.content,
     patches: [...input.patches],
-    createdAt: new Date().toISOString(),
+    createdAt: input.createdAt ?? new Date().toISOString(),
   });
 }
 

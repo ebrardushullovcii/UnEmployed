@@ -1,6 +1,14 @@
 import {
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  ApplySubmitApprovalSchema,
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
   ApplicationAttemptSchema,
+  ApplicationConsentRequestSchema,
   ApplicationRecordSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
   CandidateProfileSchema,
   JobFinderDiscoveryStateSchema,
   JobFinderRepositoryStateSchema,
@@ -27,6 +35,17 @@ import {
 } from "@unemployed/contracts";
 
 import { cloneValue } from "./internal/state";
+import {
+  matchesOptionalStringFilters,
+  sortApplicationAnswerRecords,
+  sortApplicationArtifactRefs,
+  sortApplicationConsentRequests,
+  sortApplicationQuestionRecords,
+  sortApplicationReplayCheckpoints,
+  sortApplyJobResults,
+  sortApplyRuns,
+  sortApplySubmitApprovals,
+} from "./apply-collection-support";
 import {
   clearApprovedResumeExportsForJob,
   replaceArtifactsForRun,
@@ -75,6 +94,14 @@ export function createInMemoryJobFinderRepository(
       state.resumeAssistantMessages = normalizedSeed.resumeAssistantMessages;
       state.profileCopilotMessages = normalizedSeed.profileCopilotMessages;
       state.profileRevisions = normalizedSeed.profileRevisions;
+      state.applyRuns = normalizedSeed.applyRuns;
+      state.applyJobResults = normalizedSeed.applyJobResults;
+      state.applySubmitApprovals = normalizedSeed.applySubmitApprovals;
+      state.applicationQuestionRecords = normalizedSeed.applicationQuestionRecords;
+      state.applicationAnswerRecords = normalizedSeed.applicationAnswerRecords;
+      state.applicationArtifactRefs = normalizedSeed.applicationArtifactRefs;
+      state.applicationReplayCheckpoints = normalizedSeed.applicationReplayCheckpoints;
+      state.applicationConsentRequests = normalizedSeed.applicationConsentRequests;
       state.applicationRecords = normalizedSeed.applicationRecords;
       state.applicationAttempts = normalizedSeed.applicationAttempts;
       state.sourceDebugRuns = normalizedSeed.sourceDebugRuns;
@@ -484,6 +511,178 @@ export function createInMemoryJobFinderRepository(
       state.profileRevisions = upsertById(
         state.profileRevisions,
         normalizedRevision,
+      );
+      return Promise.resolve();
+    },
+    listApplyRuns(options) {
+      const values = state.applyRuns.filter((run) =>
+        matchesOptionalStringFilters(run, [["id", options?.id]]),
+      );
+
+      return Promise.resolve(
+        sortApplyRuns(cloneValue(values)),
+      );
+    },
+    upsertApplyRun(run) {
+      const normalizedRun = ApplyRunSchema.parse(cloneValue(run));
+      state.applyRuns = upsertById(state.applyRuns, normalizedRun);
+      return Promise.resolve();
+    },
+    listApplyJobResults(options) {
+      const values = state.applyJobResults.filter((result) =>
+        matchesOptionalStringFilters(result, [
+          ["runId", options?.runId],
+          ["jobId", options?.jobId],
+        ]),
+      );
+
+      return Promise.resolve(
+        sortApplyJobResults(cloneValue(values)),
+      );
+    },
+    upsertApplyJobResult(result) {
+      const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result));
+      const existingResult = state.applyJobResults.find(
+        (entry) =>
+          entry.runId === normalizedResult.runId && entry.jobId === normalizedResult.jobId,
+      );
+      const nextResult = ApplyJobResultSchema.parse({
+        ...normalizedResult,
+        id: existingResult?.id ?? normalizedResult.id,
+      });
+
+      state.applyJobResults = [
+        ...state.applyJobResults.filter(
+          (entry) =>
+            entry.runId !== normalizedResult.runId || entry.jobId !== normalizedResult.jobId,
+        ),
+        nextResult,
+      ];
+
+      return Promise.resolve();
+    },
+    listApplySubmitApprovals(options) {
+      const values = state.applySubmitApprovals.filter((approval) =>
+        matchesOptionalStringFilters(approval, [
+          ["id", options?.id],
+          ["runId", options?.runId],
+        ]),
+      );
+
+      return Promise.resolve(
+        sortApplySubmitApprovals(cloneValue(values)),
+      );
+    },
+    upsertApplySubmitApproval(approval) {
+      const normalizedApproval = ApplySubmitApprovalSchema.parse(cloneValue(approval));
+      state.applySubmitApprovals = upsertById(
+        state.applySubmitApprovals,
+        normalizedApproval,
+      );
+      return Promise.resolve();
+    },
+    listApplicationQuestionRecords(options) {
+      const values = state.applicationQuestionRecords.filter((record) =>
+        matchesOptionalStringFilters(record, [
+          ["runId", options?.runId],
+          ["jobId", options?.jobId],
+          ["resultId", options?.resultId],
+        ]),
+      );
+
+      return Promise.resolve(
+        sortApplicationQuestionRecords(cloneValue(values)),
+      );
+    },
+    upsertApplicationQuestionRecord(record) {
+      const normalizedRecord = ApplicationQuestionRecordSchema.parse(cloneValue(record));
+      state.applicationQuestionRecords = upsertById(
+        state.applicationQuestionRecords,
+        normalizedRecord,
+      );
+      return Promise.resolve();
+    },
+    listApplicationAnswerRecords(options) {
+      const values = state.applicationAnswerRecords.filter((record) =>
+        matchesOptionalStringFilters(record, [
+          ["runId", options?.runId],
+          ["jobId", options?.jobId],
+          ["resultId", options?.resultId],
+          ["questionId", options?.questionId],
+        ]),
+      );
+
+      return Promise.resolve(
+        sortApplicationAnswerRecords(cloneValue(values)),
+      );
+    },
+    upsertApplicationAnswerRecord(record) {
+      const normalizedRecord = ApplicationAnswerRecordSchema.parse(cloneValue(record));
+      state.applicationAnswerRecords = upsertById(
+        state.applicationAnswerRecords,
+        normalizedRecord,
+      );
+      return Promise.resolve();
+    },
+    listApplicationArtifactRefs(options) {
+      const values = state.applicationArtifactRefs.filter((ref) =>
+        matchesOptionalStringFilters(ref, [
+          ["runId", options?.runId],
+          ["jobId", options?.jobId],
+          ["resultId", options?.resultId],
+        ]),
+      );
+
+      return Promise.resolve(
+        sortApplicationArtifactRefs(cloneValue(values)),
+      );
+    },
+    upsertApplicationArtifactRef(ref) {
+      const normalizedRef = ApplicationArtifactRefSchema.parse(cloneValue(ref));
+      state.applicationArtifactRefs = upsertById(state.applicationArtifactRefs, normalizedRef);
+      return Promise.resolve();
+    },
+    listApplicationReplayCheckpoints(options) {
+      const values = state.applicationReplayCheckpoints.filter((checkpoint) =>
+        matchesOptionalStringFilters(checkpoint, [
+          ["runId", options?.runId],
+          ["jobId", options?.jobId],
+          ["resultId", options?.resultId],
+        ]),
+      );
+
+      return Promise.resolve(
+        sortApplicationReplayCheckpoints(cloneValue(values)),
+      );
+    },
+    upsertApplicationReplayCheckpoint(checkpoint) {
+      const normalizedCheckpoint = ApplicationReplayCheckpointSchema.parse(
+        cloneValue(checkpoint),
+      );
+      state.applicationReplayCheckpoints = upsertById(
+        state.applicationReplayCheckpoints,
+        normalizedCheckpoint,
+      );
+      return Promise.resolve();
+    },
+    listApplicationConsentRequests(options) {
+      const values = state.applicationConsentRequests.filter((request) =>
+        matchesOptionalStringFilters(request, [
+          ["runId", options?.runId],
+          ["jobId", options?.jobId],
+          ["resultId", options?.resultId],
+        ]),
+      );
+
+      return Promise.resolve(
+        sortApplicationConsentRequests(cloneValue(values)),
+      );
+    },
+    upsertApplicationConsentRequest(request) {
+      const normalizedRequest = ApplicationConsentRequestSchema.parse(cloneValue(request));
+      state.applicationConsentRequests = upsertById(
+        state.applicationConsentRequests,
+        normalizedRequest,
       );
       return Promise.resolve();
     },

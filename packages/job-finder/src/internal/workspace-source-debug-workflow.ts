@@ -1,4 +1,5 @@
 import {
+  SharedAgentCompactionPolicySchema,
   SourceDebugCompactionStateSchema,
   SourceDebugEvidenceRefSchema,
   SourceDebugRunRecordSchema,
@@ -53,6 +54,24 @@ import {
 
 const MAX_PROGRESS_EVENTS = 1000;
 
+function buildSourceDebugCompactionPolicy(modelContextWindowTokens: number | null) {
+  const baseline = modelContextWindowTokens ?? 196_000;
+  const minimumResponseHeadroomTokens = Math.max(2_048, Math.floor(baseline * 0.06));
+  const maxTargetBudget = Math.max(1, baseline - minimumResponseHeadroomTokens);
+  const targetTokenBudget = Math.min(Math.floor(baseline * 0.94), maxTargetBudget);
+  const warningTokenBudget = Math.min(Math.floor(baseline * 0.9), targetTokenBudget);
+
+  return SharedAgentCompactionPolicySchema.parse({
+    warningTokenBudget,
+    targetTokenBudget,
+    minimumResponseHeadroomTokens,
+    preserveRecentMessages: 6,
+    minimumPreserveRecentMessages: 3,
+    maxToolPayloadChars: 180,
+    messageCountFallbackThreshold: 16,
+  });
+}
+
 export async function runSourceDebugWorkflow(
   ctx: WorkspaceServiceContext,
   targetId: string,
@@ -74,12 +93,17 @@ export async function runSourceDebugWorkflow(
   const onExternalAbort = () => executionController.abort();
   signal?.addEventListener("abort", onExternalAbort);
   const executionSignal = executionController.signal;
+  const modelContextWindowTokensSnapshot =
+    ctx.aiClient.getStatus().modelContextWindowTokens;
   const [profile, searchPreferences] = await Promise.all([
     ctx.repository.getProfile(),
     ctx.repository.getSearchPreferences(),
   ]);
   const target = searchPreferences.discovery.targets.find(
     (entry) => entry.id === targetId,
+  );
+  const sourceDebugCompactionPolicy = buildSourceDebugCompactionPolicy(
+    modelContextWindowTokensSnapshot,
   );
 
   if (!target) {
@@ -302,11 +326,8 @@ export async function runSourceDebugWorkflow(
             "Stop when the phase goal has been proven or blocked.",
           ]),
           taskPacket: phasePacket,
-          compaction: {
-            maxTranscriptMessages: 16,
-            preserveRecentMessages: 6,
-            maxToolPayloadChars: 180,
-          },
+          compaction: sourceDebugCompactionPolicy,
+          modelContextWindowTokens: modelContextWindowTokensSnapshot,
           relevantUrlSubstrings: adapter.relevantUrlSubstrings,
           experimental: adapter.experimental,
           skipSessionValidation: true,
@@ -484,11 +505,22 @@ export async function runSourceDebugWorkflow(
           avoidStrategyFingerprints: [strategyFingerprint],
           evidenceRefIds: evidenceRefs.map((evidenceRef) => evidenceRef.id),
           phaseEvidence: completion.phaseEvidence,
-          compactionState: debugResult.agentMetadata?.compactionState
-            ? SourceDebugCompactionStateSchema.parse(
-                debugResult.agentMetadata.compactionState,
-              )
-            : null,
+          compactionState: (() => {
+            const parsedCompactionState = debugResult.agentMetadata?.compactionState
+              ? SourceDebugCompactionStateSchema.safeParse(
+                  debugResult.agentMetadata.compactionState,
+                )
+              : null;
+
+            if (parsedCompactionState && !parsedCompactionState.success) {
+              console.warn(
+                "[Source Debug] Ignoring invalid compaction state from browser runtime.",
+                parsedCompactionState.error,
+              );
+            }
+
+            return parsedCompactionState?.success ? parsedCompactionState.data : null;
+          })(),
           timing: phaseTiming,
         });
 
@@ -660,6 +692,8 @@ export async function runSourceDebugWorkflow(
         const context = finalReviewContextsByAttemptId.get(attempt.id);
         return context ? [context] : [];
       }),
+      compactionPolicy: sourceDebugCompactionPolicy,
+      modelContextWindowTokens: modelContextWindowTokensSnapshot,
       signal: executionSignal,
     });
     finalReviewMs = Date.now() - finalReviewStartedAtMs;

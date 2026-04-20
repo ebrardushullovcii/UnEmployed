@@ -1,14 +1,20 @@
 import { describe, expect, test } from "vitest";
 import {
+  JobFinderApplyConsentActionInputSchema,
+  JobFinderApplyQueueActionInputSchema,
+  ApplyRunSchema,
+  JobFinderApplyRunActionInputSchema,
+  JobFinderApplyRunDetailsQuerySchema,
   JobFinderAgentDiscoveryActionInputSchema,
   ApplicationAttemptSchema,
   JobFinderWorkspaceSnapshotSchema,
 } from "./index";
-import { createSubmittedAttempt } from "./test-fixtures";
+import { createApplyRunFixture, createSubmittedAttempt } from "./test-fixtures";
 
 describe("contracts workspace snapshot schema", () => {
   test("parses a job finder workspace snapshot", () => {
     const attempt = ApplicationAttemptSchema.parse(createSubmittedAttempt());
+    const applyRun = ApplyRunSchema.parse(createApplyRunFixture());
 
     const workspace = JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
@@ -317,6 +323,8 @@ describe("contracts workspace snapshot schema", () => {
           priorityThemes: ["design systems"],
         },
       ],
+      applyRuns: [applyRun],
+      applyJobResults: [],
       applicationRecords: [
         {
           id: "application_1",
@@ -340,6 +348,7 @@ describe("contracts workspace snapshot schema", () => {
         },
       ],
       applicationAttempts: [attempt],
+      selectedApplyRunId: "apply_run_1",
       selectedApplicationRecordId: "application_1",
       settings: {
         resumeFormat: "html",
@@ -357,6 +366,8 @@ describe("contracts workspace snapshot schema", () => {
     expect(workspace.discoveryJobs[0]?.workMode).toEqual(["remote"]);
     expect(workspace.reviewQueue[0]?.assetStatus).toBe("ready");
     expect(workspace.applicationAttempts[0]?.state).toBe("submitted");
+    expect(workspace.applyRuns[0]?.state).toBe("paused_for_user_review");
+    expect(workspace.selectedApplyRunId).toBe("apply_run_1");
     expect(workspace.activeSourceDebugRun?.state).toBe("paused_manual");
   });
 
@@ -378,6 +389,60 @@ describe("contracts workspace snapshot schema", () => {
     ).toEqual({
       requestId: "agent_discovery_2",
       targetId: "target_linkedin_default",
+    });
+  });
+
+  test("parses apply run details query payloads", () => {
+    expect(
+      JobFinderApplyRunDetailsQuerySchema.parse({
+        runId: "apply_run_1",
+        jobId: "job_1",
+      }),
+    ).toEqual({
+      runId: "apply_run_1",
+      jobId: "job_1",
+    });
+  });
+
+  test("parses apply run action payloads", () => {
+    expect(
+      JobFinderApplyRunActionInputSchema.parse({
+        runId: "apply_run_1",
+      }),
+    ).toEqual({
+      runId: "apply_run_1",
+    });
+  });
+
+  test("parses apply queue action payloads", () => {
+    expect(
+      JobFinderApplyQueueActionInputSchema.parse({
+        jobIds: ["job_1", "job_2"],
+      }),
+    ).toEqual({
+      jobIds: ["job_1", "job_2"],
+    });
+  });
+
+  test("parses apply consent action payloads", () => {
+    expect(
+      JobFinderApplyConsentActionInputSchema.parse({
+        requestId: "consent_1",
+        action: "approve",
+      }),
+    ).toEqual({
+      requestId: "consent_1",
+      action: "approve",
+    });
+
+    expect(
+      JobFinderApplyConsentActionInputSchema.parse({
+        requestId: "consent_1",
+        action: "decline",
+      }),
+    ).toEqual({
+      requestId: "consent_1",
+      action: "decline",
     });
   });
 });

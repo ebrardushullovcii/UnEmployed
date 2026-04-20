@@ -25,6 +25,7 @@ import {
   upsertCollectionValue,
   upsertIndexedCollectionValue,
 } from './internal/state'
+import { APPLY_INDEXED_COLLECTION_CONFIGS } from './apply-collection-support'
 
 export function runImmediateTransaction<TValue>(
   database: DatabaseSync,
@@ -77,6 +78,7 @@ export function resolveApprovedExportId(
 }
 
 export const INDEXED_COLLECTION_CONFIGS = {
+  ...APPLY_INDEXED_COLLECTION_CONFIGS,
   profile_copilot_messages: {
     columnNames: ['created_at'],
     getColumns: (value: unknown) => {
@@ -162,6 +164,14 @@ export const INDEXED_COLLECTION_CONFIGS = {
 } as const
 
 export type PersistedTableName =
+  | 'apply_runs'
+  | 'apply_job_results'
+  | 'apply_submit_approvals'
+  | 'application_question_records'
+  | 'application_answer_records'
+  | 'application_artifact_refs'
+  | 'application_replay_checkpoints'
+  | 'application_consent_requests'
   | 'tailored_assets'
   | 'resume_drafts'
   | 'resume_draft_revisions'
@@ -244,6 +254,60 @@ export function createFileRepositoryContext(input: {
       replaceIndexedCollection(database, 'profile_revisions', state.profileRevisions, {
         ...INDEXED_COLLECTION_CONFIGS.profile_revisions,
       })
+      replaceIndexedCollection(database, 'apply_runs', state.applyRuns, {
+        ...INDEXED_COLLECTION_CONFIGS.apply_runs,
+      })
+      replaceIndexedCollection(database, 'apply_job_results', state.applyJobResults, {
+        ...INDEXED_COLLECTION_CONFIGS.apply_job_results,
+      })
+      replaceIndexedCollection(
+        database,
+        'apply_submit_approvals',
+        state.applySubmitApprovals,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.apply_submit_approvals,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_question_records',
+        state.applicationQuestionRecords,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_question_records,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_answer_records',
+        state.applicationAnswerRecords,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_answer_records,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_artifact_refs',
+        state.applicationArtifactRefs,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_artifact_refs,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_replay_checkpoints',
+        state.applicationReplayCheckpoints,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_replay_checkpoints,
+        },
+      )
+      replaceIndexedCollection(
+        database,
+        'application_consent_requests',
+        state.applicationConsentRequests,
+        {
+          ...INDEXED_COLLECTION_CONFIGS.application_consent_requests,
+        },
+      )
       replaceCollection(database, 'application_records', state.applicationRecords)
       replaceCollection(database, 'application_attempts', state.applicationAttempts)
       replaceCollection(database, 'source_debug_runs', state.sourceDebugRuns)

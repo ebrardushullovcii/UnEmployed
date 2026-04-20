@@ -59,10 +59,16 @@ export function cloneDraft(draft: ResumeDraft): ResumeDraft {
     ...draft,
     sections: draft.sections.map((section) => ({
       ...section,
-      bullets: section.bullets.map((bullet) => ({ ...bullet })),
+      bullets: section.bullets.map((bullet) => ({
+        ...bullet,
+        sourceRefs: [...bullet.sourceRefs],
+      })),
       entries: section.entries.map((entry) => ({
         ...entry,
-        bullets: entry.bullets.map((bullet) => ({ ...bullet })),
+        bullets: entry.bullets.map((bullet) => ({
+          ...bullet,
+          sourceRefs: [...bullet.sourceRefs],
+        })),
         sourceRefs: [...entry.sourceRefs],
       })),
       sourceRefs: [...section.sourceRefs],

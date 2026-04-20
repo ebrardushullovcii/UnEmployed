@@ -1,9 +1,11 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import { describe, expect, test } from "vitest";
 import {
+  createSavedJobDiscoveryProvenance,
   createAgentAiClient,
   createAgentBrowserRuntime,
   createSeed,
+  createSourceInstructionArtifact,
   createStrongSourceDebugFindingsByPhase,
   createWorkspaceServiceHarness,
   toEditableSourceInstructionArtifactInput,
@@ -20,7 +22,7 @@ describe("createJobFinderWorkspaceService", () => {
       validatedInstructionId: null,
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_from_to_route",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -46,7 +48,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const capturedPhaseInputs = new Map<
@@ -119,7 +121,7 @@ describe("createJobFinderWorkspaceService", () => {
       validatedInstructionId: null,
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_template_routes",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -148,7 +150,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const capturedPhaseInputs = new Map<
@@ -228,7 +230,7 @@ describe("createJobFinderWorkspaceService", () => {
       validatedInstructionId: null,
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_unstable_job_route",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -254,7 +256,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const capturedPhaseInputs = new Map<
@@ -338,7 +340,7 @@ describe("createJobFinderWorkspaceService", () => {
       validatedInstructionId: null,
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_example_query_detail",
         targetId: "target_example_query_detail",
         status: "draft",
@@ -366,7 +368,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const capturedPhaseInputs = new Map<
@@ -441,7 +443,7 @@ describe("createJobFinderWorkspaceService", () => {
       },
     ];
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_draft_editable",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -463,7 +465,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const { workspaceService } = createWorkspaceServiceHarness({ seed });
@@ -507,19 +509,19 @@ describe("createJobFinderWorkspaceService", () => {
       {
         ...seed.savedJobs[0]!,
         provenance: [
-          {
-            targetId: "target_linkedin_default",
-            adapterKind: "auto",
-            resolvedAdapterKind: "target_site",
-            startingUrl: "https://www.linkedin.com/jobs/search/",
-            discoveredAt: "2026-03-20T10:04:00.000Z",
-          },
-        ],
-      },
+            createSavedJobDiscoveryProvenance({
+              targetId: "target_linkedin_default",
+              adapterKind: "auto",
+              resolvedAdapterKind: "target_site",
+              startingUrl: "https://www.linkedin.com/jobs/search/",
+              discoveredAt: "2026-03-20T10:04:00.000Z",
+            }),
+          ],
+        },
       ...seed.savedJobs.slice(1),
     ];
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_validated",
         targetId: "target_linkedin_default",
         status: "validated",
@@ -562,17 +564,25 @@ describe("createJobFinderWorkspaceService", () => {
             appSchemaVersion: "v1",
           },
         },
-      },
+      }),
     ];
 
     let capturedInstructions: readonly string[] = [];
+    const fallbackRuntime = createWorkspaceServiceHarness().browserRuntime;
     const { workspaceService } = createWorkspaceServiceHarness({
       seed,
       browserRuntime: {
-        ...createWorkspaceServiceHarness().browserRuntime,
+        ...fallbackRuntime,
         async executeEasyApply(source, input) {
           capturedInstructions = input.instructions ?? [];
-          return createWorkspaceServiceHarness().browserRuntime.executeEasyApply(
+          return fallbackRuntime.executeEasyApply(
+            source,
+            input,
+          );
+        },
+        async executeApplicationFlow(source, input) {
+          capturedInstructions = input.instructions ?? [];
+          return fallbackRuntime.executeApplicationFlow(
             source,
             input,
           );
@@ -614,19 +624,19 @@ describe("createJobFinderWorkspaceService", () => {
       {
         ...seed.savedJobs[0]!,
         provenance: [
-          {
-            targetId: "target_linkedin_default",
-            adapterKind: "auto",
-            resolvedAdapterKind: "target_site",
-            startingUrl: "https://www.linkedin.com/jobs/",
-            discoveredAt: "2026-03-20T10:04:00.000Z",
-          },
-        ],
-      },
+            createSavedJobDiscoveryProvenance({
+              targetId: "target_linkedin_default",
+              adapterKind: "auto",
+              resolvedAdapterKind: "target_site",
+              startingUrl: "https://www.linkedin.com/jobs/",
+              discoveredAt: "2026-03-20T10:04:00.000Z",
+            }),
+          ],
+        },
       ...seed.savedJobs.slice(1),
     ];
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_draft_accepted",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -654,17 +664,25 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     let capturedInstructions: readonly string[] = [];
+    const fallbackRuntime = createWorkspaceServiceHarness().browserRuntime;
     const { workspaceService } = createWorkspaceServiceHarness({
       seed,
       browserRuntime: {
-        ...createWorkspaceServiceHarness().browserRuntime,
+        ...fallbackRuntime,
         async executeEasyApply(source, input) {
           capturedInstructions = input.instructions ?? [];
-          return createWorkspaceServiceHarness().browserRuntime.executeEasyApply(
+          return fallbackRuntime.executeEasyApply(
+            source,
+            input,
+          );
+        },
+        async executeApplicationFlow(source, input) {
+          capturedInstructions = input.instructions ?? [];
+          return fallbackRuntime.executeApplicationFlow(
             source,
             input,
           );

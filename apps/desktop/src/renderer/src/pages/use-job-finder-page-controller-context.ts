@@ -158,6 +158,7 @@ export function buildJobFinderPageContext(
     ...primaryActions,
     onProfileSurfaceDirtyChange: setProfileSurfaceDirty,
     profileCopilotPendingContextKey,
+    onGetApplyRunDetails: actions.getApplyRunDetails,
     onGetSourceDebugRunDetails: actions.getSourceDebugRunDetails,
     onSaveSourceInstructionArtifact: (targetId, artifact) =>
       void runAction(

@@ -31,7 +31,13 @@ try {
     title: document.title,
     h1: document.querySelector('h1')?.textContent ?? null,
     bodyText: document.body?.innerText?.slice(0, 1000) ?? null,
+    hasJobFinderBridge: Boolean(window.unemployed?.jobFinder),
   }))
+
+  if (!snapshot.hasJobFinderBridge) {
+    console.error(JSON.stringify(snapshot, null, 2))
+    throw new Error('Preload bridge did not expose window.unemployed.jobFinder.')
+  }
 
   console.log(JSON.stringify(snapshot, null, 2))
 } finally {

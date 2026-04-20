@@ -11,6 +11,7 @@ import {
   ResumeAssistantReplySchema,
   ResumeProfileExtractionSchema,
   type AgentCapableJobFinderAiClient,
+  type ChatWithToolsOptions,
   type JobFinderAiClient,
   type OpenAiCompatibleJobFinderAiClientOptions,
   type StringMap,
@@ -32,6 +33,10 @@ import {
   parseResponsePayload,
 } from "./openai-compatible-transport";
 import {
+  compactOpenAiCompatibleUserPayload,
+  type OpenAiCompatibleJsonOperation,
+} from "./openai-compatible-request-compaction";
+import {
   buildJobsExtractionPrompt,
   normalizeExtractedJobs,
 } from "./openai-compatible-jobs";
@@ -43,6 +48,7 @@ const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
 const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
 const SEARCH_RESULTS_MAX_MODEL_JOBS = 4;
+const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 196_000;
 
 function parseConfiguredTimeoutMs(
   value: string | undefined,
@@ -100,6 +106,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
     label: validatedOptions?.label ?? "AI resume agent",
     model: validatedOptions?.model ?? null,
     baseUrl: validatedOptions?.baseUrl ?? null,
+    modelContextWindowTokens: configuredOptions.success
+      ? (validatedOptions?.contextWindowTokens ?? DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS)
+      : null,
     detail:
       configuredOptions.success
         ? "The configured AI provider handles resume extraction and tailoring. Structured JSON outputs are validated locally before they affect Job Finder state."
@@ -107,6 +116,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
   });
 
   async function fetchModelJson(
+    operation: OpenAiCompatibleJsonOperation,
     systemPrompt: string,
     userPayload: unknown,
     options?: {
@@ -124,6 +134,13 @@ export function createOpenAiCompatibleJobFinderAiClient(
       options?.timeoutMs ??
       validatedOptions.requestTimeoutMs ??
       DEFAULT_MODEL_TIMEOUT_MS;
+    const compactedUserPayload = compactOpenAiCompatibleUserPayload({
+      operation,
+      modelContextWindowTokens:
+        validatedOptions.contextWindowTokens ?? DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+      systemPrompt,
+      userPayload,
+    });
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -142,7 +159,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: JSON.stringify(userPayload),
+              content: JSON.stringify(compactedUserPayload),
             },
           ],
         }),
@@ -162,6 +179,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     },
     async extractProfileFromResume(input) {
       const payload = await fetchModelJson(
+        "extractProfileFromResume",
         [
           "You extract structured candidate details from resume text.",
           "Return JSON only.",
@@ -235,6 +253,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     },
     async createResumeDraft(input) {
       const payload = await fetchModelJson(
+        "createResumeDraft",
         [
           "You create a structured, grounded tailored resume draft for a job.",
           "Return JSON only.",
@@ -248,6 +267,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     },
     async reviseResumeDraft(input) {
       const payload = await fetchModelJson(
+        "reviseResumeDraft",
         [
           "You are a resume editing assistant.",
           "Return JSON only with content and typed patches.",
@@ -279,6 +299,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     },
     async reviseCandidateProfile(input) {
       const payload = await fetchModelJson(
+        "reviseCandidateProfile",
         [
           "You are a profile editing assistant.",
           "Return JSON only with content and typed patchGroups.",
@@ -306,6 +327,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     },
     async tailorResume(input) {
       const payload = await fetchModelJson(
+        "tailorResume",
         [
           "You tailor resumes for specific jobs.",
           "Return JSON only.",
@@ -325,6 +347,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     },
     async assessJobFit(input) {
       const payload = await fetchModelJson(
+        "assessJobFit",
         [
           "You assess how well a job matches a candidate profile.",
           "Return JSON only.",
@@ -366,7 +389,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           ? SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS
           : DEFAULT_MODEL_TIMEOUT_MS;
 
-      const payload = await fetchModelJson(systemPrompt, {
+      const payload = await fetchModelJson("extractJobsFromPage", systemPrompt, {
         pageUrl: input.pageUrl,
         pageText: input.pageText.slice(0, pageTextLimit),
       }, {
@@ -381,7 +404,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
         effectiveMaxJobs,
       });
     },
-    async chatWithTools(messages, tools, signal) {
+    async chatWithTools(
+      messages,
+      tools,
+      options?: ChatWithToolsOptions,
+    ) {
       if (!validatedOptions) {
         throw new Error(
           "The configured AI provider settings are invalid. Check the model and base URL before making model requests.",
@@ -399,15 +426,15 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
       let onCallerAbort: (() => void) | null = null;
 
-      if (signal?.aborted) {
+      if (options?.signal?.aborted) {
         clearTimeout(timeoutId);
         controller.abort();
-      } else if (signal) {
+      } else if (options?.signal) {
         onCallerAbort = () => {
           clearTimeout(timeoutId);
           controller.abort();
         };
-        signal.addEventListener("abort", onCallerAbort, { once: true });
+        options.signal.addEventListener("abort", onCallerAbort, { once: true });
       }
 
       try {
@@ -450,6 +477,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
               },
             })),
             tool_choice: "auto",
+            ...(typeof options?.maxOutputTokens === "number"
+              ? { max_tokens: options.maxOutputTokens }
+              : {}),
           }),
         });
 
@@ -512,8 +542,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
         throw error;
       } finally {
         clearTimeout(timeoutId);
-        if (signal && onCallerAbort) {
-          signal.removeEventListener("abort", onCallerAbort);
+        if (options?.signal && onCallerAbort) {
+          options.signal.removeEventListener("abort", onCallerAbort);
         }
       }
     },
@@ -689,8 +719,17 @@ export function createJobFinderAiClientFromEnvironment(
         return fallbackClient.extractJobsFromPage(input);
       }
     },
-    async chatWithTools(messages, tools, signal) {
-      return primaryClient.chatWithTools(messages, tools, signal);
+    async chatWithTools(
+      messages,
+      tools,
+      options?: ChatWithToolsOptions,
+    ) {
+      try {
+        return await primaryClient.chatWithTools(messages, tools, options);
+      } catch (error) {
+        logFallbackError("chatWithTools", error);
+        throw error;
+      }
     },
   };
 }

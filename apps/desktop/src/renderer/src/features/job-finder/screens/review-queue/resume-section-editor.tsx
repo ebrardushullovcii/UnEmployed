@@ -12,6 +12,14 @@ import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
 import { SourceRefsList } from "./source-refs-list";
 
+function normalizeNullableText(value: string | null | undefined): string | null {
+  if (value == null || value.trim() === "") {
+    return null;
+  }
+
+  return value;
+}
+
 export function ResumeSectionEditor(props: {
   section: ResumeDraftSection;
   disabled: boolean;
@@ -20,6 +28,7 @@ export function ResumeSectionEditor(props: {
   onPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void;
 }) {
   const textId = useId();
+  const controlIdPrefix = useId();
   const hasEntries = props.section.entries.length > 0;
 
   return (
@@ -126,9 +135,7 @@ export function ResumeSectionEditor(props: {
             onChange={(event) =>
               props.onChange({
                 ...props.section,
-                text: event.currentTarget.value.trim()
-                  ? event.currentTarget.value
-                  : null,
+                text: normalizeNullableText(event.currentTarget.value),
               })
             }
           />
@@ -186,6 +193,7 @@ export function ResumeSectionEditor(props: {
                       `${entry.included ? "Hidden" : "Shown"} entry`,
                     )
                   }
+                  aria-pressed={!entry.included}
                   type="button"
                   variant="secondary"
                 >
@@ -216,6 +224,7 @@ export function ResumeSectionEditor(props: {
                       `${entry.locked ? "Unlocked" : "Locked"} entry`,
                     )
                   }
+                  aria-pressed={entry.locked}
                   type="button"
                   variant="secondary"
                 >
@@ -225,9 +234,9 @@ export function ResumeSectionEditor(props: {
               </div>
 
               <Field>
-                <FieldLabel htmlFor={`entry_title_${entry.id}`}>Title</FieldLabel>
+                <FieldLabel htmlFor={`${controlIdPrefix}_entry_title_${entry.id}`}>Title</FieldLabel>
                 <Input
-                  id={`entry_title_${entry.id}`}
+                  id={`${controlIdPrefix}_entry_title_${entry.id}`}
                   disabled={props.disabled || props.section.locked || entry.locked}
                   value={entry.title ?? ""}
                   onChange={(event) =>
@@ -235,7 +244,7 @@ export function ResumeSectionEditor(props: {
                       ...props.section,
                       entries: props.section.entries.map((currentEntry) =>
                         currentEntry.id === entry.id
-                          ? { ...currentEntry, title: event.currentTarget.value || null }
+                            ? { ...currentEntry, title: normalizeNullableText(event.currentTarget.value) }
                           : currentEntry,
                       ),
                     })
@@ -245,9 +254,9 @@ export function ResumeSectionEditor(props: {
 
               <div className="grid gap-3 md:grid-cols-2">
                 <Field>
-                  <FieldLabel htmlFor={`entry_subtitle_${entry.id}`}>Organization or subtitle</FieldLabel>
+                  <FieldLabel htmlFor={`${controlIdPrefix}_entry_subtitle_${entry.id}`}>Organization or subtitle</FieldLabel>
                   <Input
-                    id={`entry_subtitle_${entry.id}`}
+                    id={`${controlIdPrefix}_entry_subtitle_${entry.id}`}
                     disabled={props.disabled || props.section.locked || entry.locked}
                     value={entry.subtitle ?? ""}
                     onChange={(event) =>
@@ -255,7 +264,7 @@ export function ResumeSectionEditor(props: {
                         ...props.section,
                         entries: props.section.entries.map((currentEntry) =>
                           currentEntry.id === entry.id
-                            ? { ...currentEntry, subtitle: event.currentTarget.value || null }
+                            ? { ...currentEntry, subtitle: normalizeNullableText(event.currentTarget.value) }
                             : currentEntry,
                         ),
                       })
@@ -263,9 +272,9 @@ export function ResumeSectionEditor(props: {
                   />
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor={`entry_dates_${entry.id}`}>Date range</FieldLabel>
+                  <FieldLabel htmlFor={`${controlIdPrefix}_entry_dates_${entry.id}`}>Date range</FieldLabel>
                   <Input
-                    id={`entry_dates_${entry.id}`}
+                    id={`${controlIdPrefix}_entry_dates_${entry.id}`}
                     disabled={props.disabled || props.section.locked || entry.locked}
                     value={entry.dateRange ?? ""}
                     onChange={(event) =>
@@ -273,7 +282,7 @@ export function ResumeSectionEditor(props: {
                         ...props.section,
                         entries: props.section.entries.map((currentEntry) =>
                           currentEntry.id === entry.id
-                            ? { ...currentEntry, dateRange: event.currentTarget.value || null }
+                            ? { ...currentEntry, dateRange: normalizeNullableText(event.currentTarget.value) }
                             : currentEntry,
                         ),
                       })
@@ -283,9 +292,9 @@ export function ResumeSectionEditor(props: {
               </div>
 
               <Field>
-                <FieldLabel htmlFor={`entry_location_${entry.id}`}>Location</FieldLabel>
+                <FieldLabel htmlFor={`${controlIdPrefix}_entry_location_${entry.id}`}>Location</FieldLabel>
                 <Input
-                  id={`entry_location_${entry.id}`}
+                  id={`${controlIdPrefix}_entry_location_${entry.id}`}
                   disabled={props.disabled || props.section.locked || entry.locked}
                   value={entry.location ?? ""}
                   onChange={(event) =>
@@ -293,7 +302,7 @@ export function ResumeSectionEditor(props: {
                       ...props.section,
                       entries: props.section.entries.map((currentEntry) =>
                         currentEntry.id === entry.id
-                          ? { ...currentEntry, location: event.currentTarget.value || null }
+                            ? { ...currentEntry, location: normalizeNullableText(event.currentTarget.value) }
                           : currentEntry,
                       ),
                     })
@@ -302,9 +311,9 @@ export function ResumeSectionEditor(props: {
               </Field>
 
               <Field>
-                <FieldLabel htmlFor={`entry_summary_${entry.id}`}>Entry summary</FieldLabel>
+                <FieldLabel htmlFor={`${controlIdPrefix}_entry_summary_${entry.id}`}>Entry summary</FieldLabel>
                 <Textarea
-                  id={`entry_summary_${entry.id}`}
+                  id={`${controlIdPrefix}_entry_summary_${entry.id}`}
                   disabled={props.disabled || props.section.locked || entry.locked}
                   rows={4}
                   value={entry.summary ?? ""}
@@ -313,7 +322,7 @@ export function ResumeSectionEditor(props: {
                       ...props.section,
                       entries: props.section.entries.map((currentEntry) =>
                         currentEntry.id === entry.id
-                          ? { ...currentEntry, summary: event.currentTarget.value || null }
+                            ? { ...currentEntry, summary: normalizeNullableText(event.currentTarget.value) }
                           : currentEntry,
                       ),
                     })
@@ -327,7 +336,7 @@ export function ResumeSectionEditor(props: {
                 </p>
                 {entry.bullets.map((bullet, bulletIndex) => (
                   <Field key={bullet.id}>
-                    <FieldLabel htmlFor={`entry_bullet_${bullet.id}`}>Bullet text</FieldLabel>
+                    <FieldLabel htmlFor={`${controlIdPrefix}_entry_bullet_${bullet.id}`}>Bullet text</FieldLabel>
                     <div className="mb-2 flex flex-wrap gap-2">
                       <Button
                         className="h-8"
@@ -354,6 +363,7 @@ export function ResumeSectionEditor(props: {
                             `${bullet.included ? "Hidden" : "Shown"} bullet`,
                           )
                         }
+                        aria-pressed={!bullet.included}
                         type="button"
                         variant="secondary"
                       >
@@ -384,6 +394,7 @@ export function ResumeSectionEditor(props: {
                             `${bullet.locked ? "Unlocked" : "Locked"} bullet`,
                           )
                         }
+                        aria-pressed={bullet.locked}
                         type="button"
                         variant="secondary"
                       >
@@ -462,7 +473,7 @@ export function ResumeSectionEditor(props: {
                       </Button>
                     </div>
                     <Textarea
-                      id={`entry_bullet_${bullet.id}`}
+                      id={`${controlIdPrefix}_entry_bullet_${bullet.id}`}
                       disabled={props.disabled || props.section.locked || entry.locked || bullet.locked}
                       rows={4}
                       value={bullet.text}
@@ -505,7 +516,7 @@ export function ResumeSectionEditor(props: {
         ) : (
           props.section.bullets.map((bullet, bulletIndex) => (
             <Field key={bullet.id}>
-              <FieldLabel htmlFor={`bullet_${bullet.id}`}>Bullet text</FieldLabel>
+              <FieldLabel htmlFor={`${controlIdPrefix}_bullet_${bullet.id}`}>Bullet text</FieldLabel>
               <div className="mb-2 flex flex-wrap gap-2">
                 <Button
                   className="h-8"
@@ -532,6 +543,7 @@ export function ResumeSectionEditor(props: {
                       `${bullet.included ? "Hidden" : "Shown"} bullet`,
                     )
                   }
+                  aria-pressed={!bullet.included}
                   type="button"
                   variant="secondary"
                 >
@@ -562,6 +574,7 @@ export function ResumeSectionEditor(props: {
                       `${bullet.locked ? "Unlocked" : "Locked"} bullet`,
                     )
                   }
+                  aria-pressed={bullet.locked}
                   type="button"
                   variant="secondary"
                 >
@@ -656,7 +669,7 @@ export function ResumeSectionEditor(props: {
                 </Button>
               </div>
               <Textarea
-                id={`bullet_${bullet.id}`}
+                id={`${controlIdPrefix}_bullet_${bullet.id}`}
                 disabled={props.disabled || props.section.locked || bullet.locked}
                 rows={6}
                 value={bullet.text}

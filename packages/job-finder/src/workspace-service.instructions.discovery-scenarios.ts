@@ -4,6 +4,7 @@ import {
   createAgentAiClient,
   createAgentBrowserRuntime,
   createSeed,
+  createSourceInstructionArtifact,
   createStrongSourceDebugFindingsByPhase,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
@@ -32,7 +33,7 @@ describe("createJobFinderWorkspaceService", () => {
       },
     ];
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_draft_accepted",
         targetId: "target_linkedin_accepted_draft",
         status: "draft",
@@ -56,8 +57,8 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
-      {
+      }),
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_validated",
         targetId: "target_linkedin_validated",
         status: "validated",
@@ -94,7 +95,7 @@ describe("createJobFinderWorkspaceService", () => {
             appSchemaVersion: "v1",
           },
         },
-      },
+      }),
     ];
 
     const catalog = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
@@ -150,7 +151,7 @@ describe("createJobFinderWorkspaceService", () => {
       validatedInstructionId: null,
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_debug_seeded",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -180,7 +181,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const capturedPhaseInputs = new Map<
@@ -287,7 +288,7 @@ describe("createJobFinderWorkspaceService", () => {
       validatedInstructionId: null,
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_example_seeded",
         targetId: "target_example_default",
         status: "draft",
@@ -313,7 +314,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const capturedPhaseInputs = new Map<
@@ -394,7 +395,7 @@ describe("createJobFinderWorkspaceService", () => {
       validatedInstructionId: null,
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_linkedin_collection_only",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -420,7 +421,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const capturedPhaseInputs = new Map<

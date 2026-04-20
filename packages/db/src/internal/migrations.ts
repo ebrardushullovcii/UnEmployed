@@ -95,6 +95,202 @@ export function runMigrations(database: DatabaseSync): void {
     `);
   }
 
+  function ensureApplyFoundationTables(): void {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS apply_runs (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        state TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS apply_runs_updated_at_idx
+        ON apply_runs(updated_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS apply_job_results (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        queue_position INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        state TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS apply_job_results_run_id_idx
+        ON apply_job_results(run_id, queue_position ASC, updated_at DESC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS apply_job_results_job_id_idx
+        ON apply_job_results(job_id, updated_at DESC, id ASC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS apply_job_results_run_job_unique_idx
+        ON apply_job_results(run_id, job_id);
+
+      CREATE TABLE IF NOT EXISTS apply_submit_approvals (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS apply_submit_approvals_run_id_idx
+        ON apply_submit_approvals(run_id, created_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_question_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        detected_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_question_records_run_job_idx
+        ON application_question_records(run_id, job_id, detected_at ASC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS application_question_records_result_idx
+        ON application_question_records(result_id, detected_at ASC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_answer_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        question_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_answer_records_question_idx
+        ON application_answer_records(question_id, created_at ASC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS application_answer_records_run_job_idx
+        ON application_answer_records(run_id, job_id, created_at ASC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS application_answer_records_result_idx
+        ON application_answer_records(result_id, created_at ASC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_artifact_refs (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        created_at TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_artifact_refs_result_idx
+        ON application_artifact_refs(result_id, created_at DESC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS application_artifact_refs_run_job_idx
+        ON application_artifact_refs(run_id, job_id, created_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_replay_checkpoints (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_replay_checkpoints_result_idx
+        ON application_replay_checkpoints(result_id, created_at DESC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS application_replay_checkpoints_run_job_idx
+        ON application_replay_checkpoints(run_id, job_id, created_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS application_consent_requests (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT,
+        requested_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_consent_requests_result_idx
+        ON application_consent_requests(result_id, requested_at DESC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS application_consent_requests_run_job_idx
+        ON application_consent_requests(run_id, job_id, requested_at DESC, id ASC);
+    `);
+  }
+
+  function dedupeApplyJobResultsByRunAndJob(): void {
+    database.exec(`
+      CREATE TEMP TABLE apply_job_result_dedupe_map AS
+      WITH ranked_results AS (
+        SELECT
+          id,
+          run_id,
+          job_id,
+          FIRST_VALUE(id) OVER (
+            PARTITION BY run_id, job_id
+            ORDER BY updated_at DESC, queue_position ASC, id ASC
+          ) AS survivor_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY run_id, job_id
+            ORDER BY updated_at DESC, queue_position ASC, id ASC
+          ) AS row_number
+        FROM apply_job_results
+      )
+      SELECT id AS duplicate_id, survivor_id
+      FROM ranked_results
+      WHERE row_number > 1;
+
+      UPDATE application_question_records
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_question_records.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      UPDATE application_answer_records
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_answer_records.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      UPDATE application_artifact_refs
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_artifact_refs.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      UPDATE application_replay_checkpoints
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_replay_checkpoints.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      UPDATE application_consent_requests
+      SET result_id = (
+        SELECT survivor_id
+        FROM apply_job_result_dedupe_map
+        WHERE duplicate_id = application_consent_requests.result_id
+      )
+      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      DELETE FROM apply_job_results
+      WHERE id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+
+      DROP TABLE apply_job_result_dedupe_map;
+    `);
+  }
+
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
@@ -122,12 +318,26 @@ export function runMigrations(database: DatabaseSync): void {
       !hasTable("resume_import_field_candidates");
     const profileCopilotTablesMissing =
       !hasTable("profile_copilot_messages") || !hasTable("profile_revisions");
+    const applyFoundationTablesMissing =
+      !hasTable("apply_runs") ||
+      !hasTable("apply_job_results") ||
+      !hasTable("apply_submit_approvals") ||
+      !hasTable("application_question_records") ||
+      !hasTable("application_answer_records") ||
+      !hasTable("application_artifact_refs") ||
+      !hasTable("application_replay_checkpoints") ||
+      !hasTable("application_consent_requests");
     const needsProfileCopilotMigration = currentVersion < 5;
+    const needsApplyFoundationMigration = currentVersion < 6;
+    const needsApplyFoundationIndexMigration = currentVersion < 7;
 
     if (
       resumeImportTablesMissing ||
       profileCopilotTablesMissing ||
-      needsProfileCopilotMigration
+      applyFoundationTablesMissing ||
+      needsProfileCopilotMigration ||
+      needsApplyFoundationMigration ||
+      needsApplyFoundationIndexMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -139,10 +349,34 @@ export function runMigrations(database: DatabaseSync): void {
           ensureProfileCopilotTables();
         }
 
+        if (
+          applyFoundationTablesMissing ||
+          needsApplyFoundationMigration ||
+          needsApplyFoundationIndexMigration
+        ) {
+          if (hasTable("apply_job_results") && needsApplyFoundationIndexMigration) {
+            dedupeApplyJobResultsByRunAndJob();
+          }
+
+          ensureApplyFoundationTables();
+        }
+
         if (needsProfileCopilotMigration) {
           database
             .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
             .run(5, "job_finder_profile_copilot_history");
+        }
+
+        if (needsApplyFoundationMigration) {
+          database
+            .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .run(6, "job_finder_apply_foundation");
+        }
+
+        if (needsApplyFoundationIndexMigration) {
+          database
+            .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .run(7, "job_finder_apply_foundation_dedupe");
         }
 
         database.exec("COMMIT");
@@ -307,6 +541,20 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(5, "job_finder_profile_copilot_history");
+    }
+
+    if (currentVersion < 6) {
+      ensureApplyFoundationTables();
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(6, "job_finder_apply_foundation");
+    }
+
+    if (currentVersion < 7) {
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(7, "job_finder_apply_foundation_dedupe");
     }
 
     database.exec("COMMIT");

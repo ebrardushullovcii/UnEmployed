@@ -26,7 +26,12 @@ export function buildAgentResult(
   state: AgentState,
   partial: Omit<
     AgentResult,
-    'jobs' | 'steps' | 'transcriptMessageCount' | 'reviewTranscript' | 'compactionState'
+    | 'jobs'
+    | 'steps'
+    | 'transcriptMessageCount'
+    | 'reviewTranscript'
+    | 'compactionState'
+    | 'compactionUsedFallbackTrigger'
   >,
 ): AgentResult {
   return {
@@ -35,6 +40,7 @@ export function buildAgentResult(
     transcriptMessageCount: state.conversation.length,
     reviewTranscript: state.reviewTranscript,
     compactionState: state.compactionState,
+    compactionUsedFallbackTrigger: state.compactionStatus.usedMessageCountFallback,
     ...partial,
   }
 }
@@ -311,6 +317,9 @@ export async function getLlmResponse(
   state: AgentState,
   tools: ReturnType<typeof getToolDefinitions>,
   llmClient: LLMClient,
+  options?: {
+    maxOutputTokens?: number
+  },
   emitProgress?: (input: {
     currentAction?: string
     waitReason?: AgentProgress['waitReason']
@@ -338,7 +347,10 @@ export async function getLlmResponse(
     }
 
     try {
-      llmResponse = await llmClient.chatWithTools(state.conversation, tools, signal)
+      llmResponse = await llmClient.chatWithTools(state.conversation, tools, {
+        ...options,
+        ...(signal ? { signal } : {}),
+      })
       break
     } catch (llmError) {
       if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {

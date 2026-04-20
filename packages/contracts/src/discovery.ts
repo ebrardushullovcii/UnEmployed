@@ -42,6 +42,9 @@ import {
   SourceInstructionArtifactSchema,
 } from "./source-debug";
 import {
+  SharedAgentCompactionSnapshotSchema,
+} from "./agent-compaction";
+import {
   ResumeExportFormatSchema,
 } from "./resume";
 
@@ -143,12 +146,46 @@ export const JobKeywordSignalSchema = z.object({
 });
 export type JobKeywordSignal = z.infer<typeof JobKeywordSignalSchema>;
 
+export const consentInterruptKindValues = [
+  "signup",
+  "existing_account_decision",
+  "manual_verification",
+] as const;
+export const ConsentInterruptKindSchema = z.enum(consentInterruptKindValues);
+export type ConsentInterruptKind = z.infer<typeof ConsentInterruptKindSchema>;
+
 export const JobScreeningHintsSchema = z.object({
   sponsorshipText: NonEmptyStringSchema.nullable().default(null),
   requiresSecurityClearance: z.boolean().nullable().default(null),
   relocationText: NonEmptyStringSchema.nullable().default(null),
   travelText: NonEmptyStringSchema.nullable().default(null),
   remoteGeographies: z.array(NonEmptyStringSchema).default([]),
+  requiresConsentInterrupt: z.boolean().nullable().default(null),
+  requiresConsentInterruptKind: ConsentInterruptKindSchema.nullable().default(null),
+}).superRefine((value, ctx) => {
+  if (value.requiresConsentInterrupt === true && value.requiresConsentInterruptKind == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "requiresConsentInterruptKind is required when requiresConsentInterrupt is true.",
+      path: ["requiresConsentInterruptKind"],
+    })
+  }
+
+  if (value.requiresConsentInterrupt === false && value.requiresConsentInterruptKind != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "requiresConsentInterruptKind must be null when requiresConsentInterrupt is false.",
+      path: ["requiresConsentInterruptKind"],
+    })
+  }
+
+  if (value.requiresConsentInterrupt == null && value.requiresConsentInterruptKind != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "requiresConsentInterruptKind must be null when requiresConsentInterrupt is null.",
+      path: ["requiresConsentInterruptKind"],
+    })
+  }
 });
 export type JobScreeningHints = z.infer<typeof JobScreeningHintsSchema>;
 
@@ -620,6 +657,7 @@ export const DiscoveryAgentMetadataSchema = z.object({
   transcriptMessageCount: z.number().int().nonnegative().default(0),
   reviewTranscript: z.array(NonEmptyStringSchema).default([]),
   compactionState: SourceDebugCompactionStateSchema.nullable().default(null),
+  compactionUsedFallbackTrigger: z.boolean().default(false),
   phaseCompletionMode:
     SourceDebugPhaseCompletionModeSchema.nullable().default(null),
   phaseCompletionReason: NonEmptyStringSchema.nullable().default(null),
@@ -692,6 +730,8 @@ export const DiscoveryTargetExecutionSchema = z.object({
   jobsPersisted: z.number().int().nonnegative().default(0),
   jobsStaged: z.number().int().nonnegative().default(0),
   warning: NonEmptyStringSchema.nullable().default(null),
+  compactionState: SharedAgentCompactionSnapshotSchema.nullable().default(null),
+  compactionUsedFallbackTrigger: z.boolean().default(false),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
 });
 export type DiscoveryTargetExecution = z.infer<

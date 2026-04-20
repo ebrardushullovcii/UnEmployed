@@ -1,6 +1,14 @@
 import {
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  ApplySubmitApprovalSchema,
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
   ApplicationAttemptSchema,
+  ApplicationConsentRequestSchema,
   ApplicationRecordSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
   CandidateProfileSchema,
   JobFinderDiscoveryStateSchema,
   JobFinderRepositoryStateSchema,
@@ -21,6 +29,10 @@ import { DatabaseSync } from 'node:sqlite'
 
 import { createFileRepositoryResumeMethods } from './file-repository-resume-methods'
 import {
+  APPLY_COLLECTION_ORDER_BY_SQL,
+  buildOptionalSqlFilters,
+} from './apply-collection-support'
+import {
   createFileRepositoryContext,
   runImmediateTransaction,
   syncApprovedResumeExportsForJob,
@@ -36,6 +48,7 @@ import {
   cloneValue,
   getSingletonValue,
   hasPersistedState,
+  listCollectionValues,
   listValues,
   replaceCollection,
   saveSingletonValue,
@@ -62,6 +75,26 @@ export async function createFileJobFinderRepository(
     filePath: options.filePath,
     normalizedSeed,
   })
+
+  function listApplyCollection<TValue>(input: {
+    tableName:
+      | 'apply_runs'
+      | 'apply_job_results'
+      | 'apply_submit_approvals'
+      | 'application_question_records'
+      | 'application_answer_records'
+      | 'application_artifact_refs'
+      | 'application_replay_checkpoints'
+      | 'application_consent_requests'
+    schema: { parse: (value: unknown) => TValue }
+    orderBySql: string
+    filters?: ReadonlyArray<readonly [columnName: string, value: string | undefined]>
+  }): TValue[] {
+    return listCollectionValues(database, input.tableName, input.schema, {
+      ...buildOptionalSqlFilters(input.filters ?? []),
+      orderBySql: input.orderBySql,
+    })
+  }
 
   return {
     ...createFileRepositoryResumeMethods(context),
@@ -223,6 +256,161 @@ export async function createFileJobFinderRepository(
       })
 
       return secureDatabaseFile(options.filePath)
+    },
+    listApplyRuns(options) {
+      return Promise.resolve(
+        cloneValue(
+          listApplyCollection({
+            tableName: 'apply_runs',
+            schema: ApplyRunSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_runs,
+            filters: options?.id ? [['id', options.id]] : [],
+          }),
+        ),
+      )
+    },
+    upsertApplyRun(run) {
+      const normalizedRun = ApplyRunSchema.parse(cloneValue(run))
+      return context.upsertPersistedValue('apply_runs', normalizedRun)
+    },
+    listApplyJobResults(options) {
+      return Promise.resolve(
+        cloneValue(
+          listApplyCollection({
+            tableName: 'apply_job_results',
+            schema: ApplyJobResultSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_job_results,
+            filters: [
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
+            ],
+          }),
+        ),
+      )
+    },
+    upsertApplyJobResult(result) {
+      const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result))
+      return context.upsertPersistedValue('apply_job_results', normalizedResult)
+    },
+    listApplySubmitApprovals(options) {
+      return Promise.resolve(
+        cloneValue(
+          listApplyCollection({
+            tableName: 'apply_submit_approvals',
+            schema: ApplySubmitApprovalSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_submit_approvals,
+            filters: [
+              ...(options?.id ? [['id', options.id] as const] : []),
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+            ],
+          }),
+        ),
+      )
+    },
+    upsertApplySubmitApproval(approval) {
+      const normalizedApproval = ApplySubmitApprovalSchema.parse(cloneValue(approval))
+      return context.upsertPersistedValue('apply_submit_approvals', normalizedApproval)
+    },
+    listApplicationQuestionRecords(options) {
+      return Promise.resolve(
+        cloneValue(
+          listApplyCollection({
+            tableName: 'application_question_records',
+            schema: ApplicationQuestionRecordSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_question_records,
+            filters: [
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
+              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+            ],
+          }),
+        ),
+      )
+    },
+    upsertApplicationQuestionRecord(record) {
+      const normalizedRecord = ApplicationQuestionRecordSchema.parse(cloneValue(record))
+      return context.upsertPersistedValue('application_question_records', normalizedRecord)
+    },
+    listApplicationAnswerRecords(options) {
+      return Promise.resolve(
+        cloneValue(
+          listApplyCollection({
+            tableName: 'application_answer_records',
+            schema: ApplicationAnswerRecordSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_answer_records,
+            filters: [
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
+              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+              ...(options?.questionId ? [['question_id', options.questionId] as const] : []),
+            ],
+          }),
+        ),
+      )
+    },
+    upsertApplicationAnswerRecord(record) {
+      const normalizedRecord = ApplicationAnswerRecordSchema.parse(cloneValue(record))
+      return context.upsertPersistedValue('application_answer_records', normalizedRecord)
+    },
+    listApplicationArtifactRefs(options) {
+      return Promise.resolve(
+        cloneValue(
+          listApplyCollection({
+            tableName: 'application_artifact_refs',
+            schema: ApplicationArtifactRefSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_artifact_refs,
+            filters: [
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
+              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+            ],
+          }),
+        ),
+      )
+    },
+    upsertApplicationArtifactRef(ref) {
+      const normalizedRef = ApplicationArtifactRefSchema.parse(cloneValue(ref))
+      return context.upsertPersistedValue('application_artifact_refs', normalizedRef)
+    },
+    listApplicationReplayCheckpoints(options) {
+      return Promise.resolve(
+        cloneValue(
+          listApplyCollection({
+            tableName: 'application_replay_checkpoints',
+            schema: ApplicationReplayCheckpointSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_replay_checkpoints,
+            filters: [
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
+              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+            ],
+          }),
+        ),
+      )
+    },
+    upsertApplicationReplayCheckpoint(checkpoint) {
+      const normalizedCheckpoint = ApplicationReplayCheckpointSchema.parse(cloneValue(checkpoint))
+      return context.upsertPersistedValue('application_replay_checkpoints', normalizedCheckpoint)
+    },
+    listApplicationConsentRequests(options) {
+      return Promise.resolve(
+        cloneValue(
+          listApplyCollection({
+            tableName: 'application_consent_requests',
+            schema: ApplicationConsentRequestSchema,
+            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_consent_requests,
+            filters: [
+              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
+              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+            ],
+          }),
+        ),
+      )
+    },
+    upsertApplicationConsentRequest(request) {
+      const normalizedRequest = ApplicationConsentRequestSchema.parse(cloneValue(request))
+      return context.upsertPersistedValue('application_consent_requests', normalizedRequest)
     },
     listApplicationRecords() {
       return Promise.resolve(

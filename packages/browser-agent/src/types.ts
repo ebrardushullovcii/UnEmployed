@@ -4,6 +4,9 @@ import type {
   CandidateProfile,
   AgentDiscoveryProgress,
   JobSource,
+  SharedAgentCompactionPolicy,
+  SharedAgentCompactionSnapshot,
+  SharedAgentCompactionTriggerKind,
   SourceDebugCompactionState,
   SourceDebugPhaseCompletionMode,
   SourceDebugPhaseEvidence,
@@ -61,9 +64,39 @@ export interface DeferredSearchExtraction {
 }
 
 export interface AgentCompactionConfig {
-  maxTranscriptMessages: number;
+  enabled: boolean;
+  warningTokenBudget: number;
+  targetTokenBudget: number;
+  minimumResponseHeadroomTokens: number;
   preserveRecentMessages: number;
+  minimumPreserveRecentMessages: number;
   maxToolPayloadChars: number;
+  messageCountFallbackThreshold: number;
+}
+
+export interface AgentTokenEstimatorContext {
+  messages: readonly AgentMessage[];
+  maxOutputTokens: number;
+}
+
+export interface AgentTokenEstimatorResult {
+  estimatedInputTokens: number;
+  estimatedTotalTokens: number;
+}
+
+export interface AgentCompactionCapability {
+  tokenEstimator?: (
+    context: AgentTokenEstimatorContext,
+  ) => AgentTokenEstimatorResult | null;
+  modelContextWindowTokens?: number | null;
+  compactionWorkflowKey?: string;
+}
+
+export interface AgentCompactionStatus {
+  lastTriggerKind: SharedAgentCompactionTriggerKind | null;
+  usedMessageCountFallback: boolean;
+  lastEstimatedTokensBefore: number | null;
+  lastEstimatedTokensAfter: number | null;
 }
 
 export interface AgentConfig {
@@ -76,7 +109,8 @@ export interface AgentConfig {
   navigationPolicy: AgentNavigationPolicy;
   promptContext: AgentPromptContext;
   extractionContext?: AgentExtractionContext;
-  compaction?: Partial<AgentCompactionConfig>;
+  compaction?: Partial<SharedAgentCompactionPolicy>;
+  compactionCapability?: AgentCompactionCapability;
 }
 
 export interface AgentState {
@@ -93,6 +127,7 @@ export interface AgentState {
   isRunning: boolean;
   phaseEvidence: SourceDebugPhaseEvidence;
   compactionState: SourceDebugCompactionState | null;
+  compactionStatus: AgentCompactionStatus;
 }
 
 export interface AgentResult {
@@ -102,7 +137,8 @@ export interface AgentResult {
   error?: string;
   transcriptMessageCount: number;
   reviewTranscript?: string[];
-  compactionState?: SourceDebugCompactionState | null;
+  compactionState?: SharedAgentCompactionSnapshot | null;
+  compactionUsedFallbackTrigger?: boolean;
   phaseCompletionMode?: SourceDebugPhaseCompletionMode | null;
   phaseCompletionReason?: string | null;
   phaseEvidence?: SourceDebugPhaseEvidence | null;

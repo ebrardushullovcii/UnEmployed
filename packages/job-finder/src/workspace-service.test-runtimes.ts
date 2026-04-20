@@ -15,11 +15,11 @@ import type {
   DiscoveryRunResult,
   EditableSourceInstructionArtifact,
   JobPosting,
+  SharedAgentCompactionSnapshot,
   SourceIntelligenceArtifact,
   ResumeDocumentBundle,
   ResumeImportFieldCandidateDraft,
   ResumeResearchArtifact,
-  SourceDebugCompactionState,
   SourceDebugPhaseCompletionMode,
   SourceDebugPhaseEvidence,
 } from "@unemployed/contracts";
@@ -174,7 +174,8 @@ export function createAgentBrowserRuntime(
   runtimeOptions?: {
     sessionStatus?: "ready" | "login_required" | "blocked";
     sessionDetail?: string;
-    compactionState?: SourceDebugCompactionState | null;
+    compactionState?: SharedAgentCompactionSnapshot | null;
+    compactionUsedFallbackTrigger?: boolean;
     debugFindingsByPhase?: SourceDebugPhaseMap<AgentDebugFindings | null>;
     reviewTranscriptByPhase?: SourceDebugPhaseMap<string[]>;
     phaseCompletionModeByPhase?: SourceDebugPhaseMap<SourceDebugPhaseCompletionMode | null>;
@@ -266,6 +267,8 @@ export function createAgentBrowserRuntime(
           transcriptMessageCount: 7,
           reviewTranscript,
           compactionState: runtimeOptions?.compactionState ?? null,
+          compactionUsedFallbackTrigger:
+            runtimeOptions?.compactionUsedFallbackTrigger ?? false,
           phaseCompletionMode,
           phaseCompletionReason,
           phaseEvidence,

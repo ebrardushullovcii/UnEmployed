@@ -1,8 +1,35 @@
 import type { ResumeProfileExtraction } from "@unemployed/ai-providers";
 import type { JobFinderRepositorySeed } from "@unemployed/db";
-import type { SourceDebugPhase } from "@unemployed/contracts";
+import type {
+  SavedJob,
+  SavedJobDiscoveryProvenance,
+  SourceDebugPhase,
+  SourceInstructionArtifact,
+} from "@unemployed/contracts";
+import {
+  JobFinderDiscoveryStateSchema,
+  SavedJobDiscoveryProvenanceSchema,
+  SavedJobSchema,
+  SourceInstructionArtifactSchema,
+} from "@unemployed/contracts";
 
 export type SourceDebugPhaseMap<TValue> = Partial<Record<SourceDebugPhase, TValue>>;
+
+export function createSavedJob(input: typeof SavedJobSchema["_input"]): SavedJob {
+  return SavedJobSchema.parse(input);
+}
+
+export function createSavedJobDiscoveryProvenance(
+  input: typeof SavedJobDiscoveryProvenanceSchema["_input"],
+): SavedJobDiscoveryProvenance {
+  return SavedJobDiscoveryProvenanceSchema.parse(input);
+}
+
+export function createSourceInstructionArtifact(
+  input: typeof SourceInstructionArtifactSchema["_input"],
+): SourceInstructionArtifact {
+  return SourceInstructionArtifactSchema.parse(input);
+}
 
 export function toPhaseId(
   strategyLabel: string | null | undefined,
@@ -237,7 +264,7 @@ export function createSeed(): JobFinderRepositorySeed {
       lastResumedAt: null,
     },
     savedJobs: [
-      {
+      createSavedJob({
         id: "job_ready",
         source: "target_site",
         sourceJobId: "linkedin_signal_ready",
@@ -286,6 +313,8 @@ export function createSeed(): JobFinderRepositorySeed {
           relocationText: null,
           travelText: null,
           remoteGeographies: ["Europe"],
+          requiresConsentInterrupt: null,
+          requiresConsentInterruptKind: null,
         },
         keywordSignals: [
           {
@@ -309,8 +338,8 @@ export function createSeed(): JobFinderRepositorySeed {
           gaps: [],
         },
         provenance: [],
-      },
-      {
+      }),
+      createSavedJob({
         id: "job_generating",
         source: "target_site",
         sourceJobId: "linkedin_northwind_generating",
@@ -359,6 +388,8 @@ export function createSeed(): JobFinderRepositorySeed {
           relocationText: null,
           travelText: null,
           remoteGeographies: [],
+          requiresConsentInterrupt: null,
+          requiresConsentInterruptKind: null,
         },
         keywordSignals: [
           {
@@ -376,7 +407,7 @@ export function createSeed(): JobFinderRepositorySeed {
           gaps: ["Accessibility leadership"],
         },
         provenance: [],
-      },
+      }),
     ],
     tailoredAssets: [
       {
@@ -420,6 +451,14 @@ export function createSeed(): JobFinderRepositorySeed {
     resumeResearchArtifacts: [],
     resumeValidationResults: [],
     resumeAssistantMessages: [],
+    applyRuns: [],
+    applyJobResults: [],
+    applySubmitApprovals: [],
+    applicationQuestionRecords: [],
+    applicationAnswerRecords: [],
+    applicationArtifactRefs: [],
+    applicationReplayCheckpoints: [],
+    applicationConsentRequests: [],
     applicationRecords: [],
     applicationAttempts: [],
     sourceDebugRuns: [],
@@ -441,7 +480,7 @@ export function createSeed(): JobFinderRepositorySeed {
       keepSessionAlive: true,
       discoveryOnly: false,
     },
-    discovery: {
+    discovery: JobFinderDiscoveryStateSchema.parse({
       sessions: [],
       runState: "idle",
       activeRun: null,
@@ -449,7 +488,7 @@ export function createSeed(): JobFinderRepositorySeed {
       activeSourceDebugRun: null,
       recentSourceDebugRuns: [],
       pendingDiscoveryJobs: [],
-    },
+    }),
   };
 }
 

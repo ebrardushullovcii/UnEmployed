@@ -4,6 +4,7 @@ import type {
   ResumeExportArtifact,
   SavedJob,
 } from '@unemployed/contracts'
+import { SavedJobSchema } from '@unemployed/contracts'
 import { describe, expect, test } from 'vitest'
 import { createProfile } from '../agent.test-fixtures'
 import { createCatalogSessionAgent } from './session-agent'
@@ -69,12 +70,20 @@ function createCatalogJob(overrides: Partial<JobPosting> = {}): JobPosting {
     employerWebsiteUrl: null,
     employerDomain: null,
     atsProvider: null,
+    providerKey: null,
+    providerBoardToken: null,
+    providerIdentifier: null,
+    sourceIntelligence: null,
+    collectionMethod: 'fallback_search',
+    titleTriageOutcome: 'pass',
     screeningHints: {
       sponsorshipText: null,
       requiresSecurityClearance: null,
       relocationText: null,
       travelText: null,
       remoteGeographies: [],
+      requiresConsentInterrupt: null,
+      requiresConsentInterruptKind: null,
     },
     keywordSignals: [],
     benefits: [],
@@ -83,7 +92,7 @@ function createCatalogJob(overrides: Partial<JobPosting> = {}): JobPosting {
 }
 
 function createSavedJob(overrides: Partial<SavedJob> = {}): SavedJob {
-  return {
+  return SavedJobSchema.parse({
     id: 'job_1',
     source: 'target_site',
     sourceJobId: 'target_job_1',
@@ -124,6 +133,12 @@ function createSavedJob(overrides: Partial<SavedJob> = {}): SavedJob {
     employerWebsiteUrl: null,
     employerDomain: null,
     atsProvider: null,
+    providerKey: null,
+    providerBoardToken: null,
+    providerIdentifier: null,
+    sourceIntelligence: null,
+    collectionMethod: 'fallback_search',
+    titleTriageOutcome: 'pass',
     screeningHints: {
       sponsorshipText: null,
       requiresSecurityClearance: null,
@@ -141,7 +156,7 @@ function createSavedJob(overrides: Partial<SavedJob> = {}): SavedJob {
     },
     provenance: [],
     ...overrides,
-  }
+  })
 }
 
 function createResumeExportArtifact(): ResumeExportArtifact {
@@ -219,13 +234,201 @@ describe('createCatalogSessionAgent', () => {
 
     expect(result.state).toBe('paused')
     expect(result.blocker?.code).toBe('requires_manual_review')
-    expect(result.questions).toEqual([
-      expect.objectContaining({
-        kind: 'relocation',
-        status: 'detected',
-      }),
-    ])
+    expect(result.questions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'resume',
+          status: 'submitted',
+          submittedAnswer: '/tmp/resume.pdf',
+        }),
+        expect.objectContaining({
+          kind: 'relocation',
+          status: 'detected',
+        }),
+      ]),
+    )
     expect(result.nextActionLabel).toMatch(/finish the unsupported fields manually/i)
+  })
+
+  test('prepare-only application flow attaches resume and pauses before final submit', async () => {
+    const agent = createCatalogSessionAgent({
+      getSessionState: () => createReadySession(),
+      listCatalogJobs: () => [],
+    })
+
+    const result = await agent.executeApplicationFlow('target_site', {
+      job: createSavedJob(),
+      resumeExport: createResumeExportArtifact(),
+      resumeFilePath: '/tmp/resume.pdf',
+      profile: createProfile(),
+      settings: {
+        resumeFormat: 'pdf',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        appearanceTheme: 'system',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: false,
+      },
+      mode: 'prepare_only',
+    })
+
+    expect(result.state).toBe('paused')
+    expect(result.outcome).toBeNull()
+    expect(result.questions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'resume',
+          status: 'submitted',
+          submittedAnswer: '/tmp/resume.pdf',
+        }),
+      ]),
+    )
+    expect(result.checkpoints.at(-1)).toEqual(
+      expect.objectContaining({
+        label: 'Prepared application for final review',
+        state: 'paused',
+      }),
+    )
+    expect(result.summary).toMatch(/paused before final submit/i)
+  })
+
+  test('prepare-only application flow retains review-ready questions without submitting', async () => {
+    const agent = createCatalogSessionAgent({
+      getSessionState: () => createReadySession(),
+      listCatalogJobs: () => [],
+    })
+
+    const result = await agent.executeApplicationFlow('target_site', {
+      job: createSavedJob({
+        description:
+          'Lead product design for operational software. This application asks about relocation support before submission.',
+      }),
+      resumeExport: createResumeExportArtifact(),
+      resumeFilePath: '/tmp/resume.pdf',
+      profile: createProfile(),
+      settings: {
+        resumeFormat: 'pdf',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        appearanceTheme: 'system',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: false,
+      },
+      mode: 'prepare_only',
+    })
+
+    expect(result.state).toBe('paused')
+    expect(result.outcome).toBeNull()
+    expect(result.blocker?.code).toBe('requires_manual_review')
+    expect(result.questions.map((question) => question.kind)).toEqual(
+      expect.arrayContaining(['resume', 'relocation']),
+    )
+    expect(result.nextActionLabel).toMatch(/review the prepared answers/i)
+    expect(result.checkpoints.at(-1)?.label).toBe('Captured review-ready questions')
+  })
+
+  test('prepare-only application flow pauses for consent-gated steps', async () => {
+    const agent = createCatalogSessionAgent({
+      getSessionState: () => createReadySession(),
+      listCatalogJobs: () => [],
+    })
+
+    const result = await agent.executeApplicationFlow('target_site', {
+      job: createSavedJob({
+        description:
+          'Lead product design for operational software. This application asks whether you already have an account before continuing.',
+      }),
+      resumeExport: createResumeExportArtifact(),
+      resumeFilePath: '/tmp/resume.pdf',
+      profile: createProfile(),
+      settings: {
+        resumeFormat: 'pdf',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        appearanceTheme: 'system',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: false,
+      },
+      mode: 'prepare_only',
+    })
+
+    expect(result.state).toBe('paused')
+    expect(result.blocker?.code).toBe('missing_consent')
+    expect(result.consentDecisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'requested',
+          kind: 'manual_follow_up',
+        }),
+      ]),
+    )
+    expect(result.nextActionLabel).toMatch(/consent request/i)
+    expect(result.checkpoints.at(-1)?.label).toBe('Paused for consent')
+  })
+
+  test('prepare-only application flow retains recovery context on retry runs', async () => {
+    const agent = createCatalogSessionAgent({
+      getSessionState: () => createReadySession(),
+      listCatalogJobs: () => [],
+    })
+
+    const result = await agent.executeApplicationFlow('target_site', {
+      job: createSavedJob(),
+      resumeExport: createResumeExportArtifact(),
+      resumeFilePath: '/tmp/resume.pdf',
+      profile: createProfile(),
+      settings: {
+        resumeFormat: 'pdf',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        appearanceTheme: 'system',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: false,
+      },
+      mode: 'prepare_only',
+      recoveryContext: {
+        previousRunId: 'apply_run_previous',
+        previousResultId: 'apply_result_previous',
+        previousRunMode: 'copilot',
+        previousRunState: 'paused_for_user_review',
+        latestCheckpoint: {
+          label: 'Paused for manual review',
+          detail: 'Unsupported questions were detected before submission.',
+          url: 'https://jobs.example.com/roles/target_job_1/apply/review',
+          jobState: 'blocked',
+          createdAt: '2026-04-19T10:00:00.000Z',
+        },
+        checkpointUrls: [
+          'https://jobs.example.com/roles/target_job_1/apply',
+          'https://jobs.example.com/roles/target_job_1/apply/review',
+        ],
+        blockerSummary: 'Additional questions are ready for review before final submit.',
+      },
+    })
+
+    expect(result.replay.lastUrl).toBe(
+      'https://jobs.example.com/roles/target_job_1/apply/review',
+    )
+    expect(result.replay.checkpointUrls).toEqual(
+      expect.arrayContaining([
+        'https://jobs.example.com/roles/target_job_1/apply',
+        'https://jobs.example.com/roles/target_job_1/apply/review',
+      ]),
+    )
+    expect(result.checkpoints[0]).toEqual(
+      expect.objectContaining({
+        label: 'Resumed from retained apply context',
+        state: 'in_progress',
+      }),
+    )
   })
 
   test('rejects easy apply when the session is not ready', async () => {

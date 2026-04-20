@@ -323,11 +323,11 @@ export function applyPatchToResumeDraft(input: {
           }
 
           const destinationIndex = patch.position === "before" ? anchorIndex : anchorIndex + 1;
-          if (destinationIndex === currentIndex || destinationIndex === currentIndex + 1) {
+          if (destinationIndex === currentIndex) {
             return section;
           }
 
-          bullets.splice(patch.position === "before" ? anchorIndex : anchorIndex + 1, 0, {
+          bullets.splice(destinationIndex, 0, {
             ...movingBullet,
             updatedAt,
           });
@@ -552,7 +552,7 @@ export function applyPatchToResumeDraft(input: {
           updatedAt,
         );
       }
-      case "replace_section_bullets":
+      case "replace_section_bullets": {
         if (!Array.isArray(patch.newBullets)) {
           throw new Error("replace_section_bullets requires newBullets.");
         }
@@ -635,6 +635,7 @@ export function applyPatchToResumeDraft(input: {
           patch,
           updatedAt,
         );
+      }
       default: {
         return assertNeverResumePatchOperation(patch.operation)
       }

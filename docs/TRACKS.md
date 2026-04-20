@@ -29,9 +29,9 @@ Use one track per meaningful workstream, not per person or per chat.
 - `019 World-Class Resume Import` -> pulled-forward importer-quality rebuild that preserves the `018` substrate but replaces the text-first parser core with a benchmarked local executor architecture, richer document IR, cross-platform sidecar packaging, and composite confidence before any future remote fallback discussion
 - `012 Guided Setup And Profile Copilot` -> turns the new `011` roots plus `018` extraction candidates into a real first-run experience and captures the discovery/apply details the app is currently missing
 - `013 Source Intelligence And Faster Discovery` -> merged source-debug plus discovery workstream; typed source intelligence first, then provider-aware per-target and run-all discovery, richer job persistence, seen/applied dedupe, and browser closeout improvements
-- `014 Resume Content Correctness And Output Quality` -> after stronger profile and job inputs exist; focus first on usable content, editability, and ATS-safe output, not template variety
+- `014 Resume Content Correctness And Output Quality` -> completed ATS-first resume baseline covering usable content, editability, and output quality rather than template variety
 - `015 Automatic Job Apply` -> final major product workstream after the stronger data, setup, discovery, and resume foundations exist
-- `016 Shared Agent Auto Compaction` -> keep ready, but only pull it forward when long-running discovery or apply agents start failing or degrading because of context growth
+- `016 Shared Agent Auto Compaction` -> completed reusable compaction baseline for long-running discovery, source-debug, and future apply workers so prompt growth no longer has to wait behind later product slices
 - `017 Browser Substrate Evaluation And Direction` -> keep as a later benchmark-driven direction note, not as a main product queue item by itself
 
 ### `Plan 011 Job Finder Shared Data Expansion`
@@ -102,14 +102,14 @@ Use one track per meaningful workstream, not per person or per chat.
 - plan maturity: `completed`
 - code areas: `packages/job-finder`, `packages/browser-agent`, `packages/browser-runtime`, `packages/contracts`, `packages/db`, `apps/desktop`, `docs`
 - current focus: completed merged source-debug plus discovery workstream: typed provider, route, collection, apply, reliability, and override intelligence now flows from source-debug into discovery; discovery now supports provider-aware public-API fast paths, one-target and run-all execution on one target-level pipeline, title-first triage, durable discovery-ledger dedupe, richer saved-job persistence, and explicit browser closeout summaries
-- next step: reuse the completed `013` discovery baseline while starting downstream `014` resume-quality and later `015` apply-automation work instead of rebuilding source intelligence again
+- next step: reuse the completed `013` discovery baseline while carrying its typed source intelligence into the already completed `014` resume-quality baseline and the active `015` apply-automation work instead of rebuilding source intelligence again
 - additional note: retained live benchmark evidence now lives in `docs/exec-plans/completed/013-benchmark-results.md`; it shows strong discovery wins on Greenhouse and Lever, better typed source-debug output on all benchmarked targets, and remaining follow-up risk around Kosovajob browser startup plus source-debug runtime caps; the benchmark-exposed Greenhouse offset-timestamp parsing bug is now fixed in repo state
 - blockers: none
 
 ### `Plan 014 Resume Content Correctness And Output Quality`
 
 - status: `done`
-- last updated: `2026-04-18`
+- last updated: `2026-04-19`
 - linked plan: `docs/exec-plans/completed/014-job-finder-resume-output-and-template-quality.md`
 - plan maturity: `completed`
 - code areas: `packages/job-finder`, `packages/contracts`, `apps/desktop`, `packages/ai-providers`
@@ -119,29 +119,29 @@ Use one track per meaningful workstream, not per person or per chat.
 - additional note: the retained deterministic UI evidence in `apps/desktop/test-artifacts/ui/resume-workspace/` now shows a structured approved resume with Summary, Experience, Core Skills, and Education sections plus apply handoff from the approved PDF, and `resume-workspace-dirty/dirty-state-results.json` still proves the dirty-state safeguards
 - additional note: this pass also fixed the desktop runtime/harness path needed for ongoing QA by forcing Electron main/preload outputs to CommonJS and teaching the resume-workspace captures to accept fresh-workspace startup on `Guided setup`
 - additional note: the final `014` decision now explicitly keeps only the ATS-safe `Classic ATS` layout active in product settings and rendering; unsupported legacy template ids normalize back to `Classic ATS`, and previously approved drafts tied to retired layouts reopen as stale so users must export a fresh ATS-first PDF before apply
-- blockers: best after `011` and `012`, but the first usable-output slice should land before serious `015` automation depends on resume quality
+- blockers: none; `014` is already complete and now serves as the required resume-quality baseline before later submit-enabled `015` work
 
 ### `Plan 015 Automatic Job Apply`
 
-- status: `ready`
-- last updated: `2026-04-09`
-- linked plan: `docs/exec-plans/queued/015-job-finder-automatic-job-apply.md`
-- plan maturity: `execution_ready`
+- status: `in_progress`
+- last updated: `2026-04-19`
+- linked plan: `docs/exec-plans/active/015-job-finder-automatic-job-apply.md`
+- plan maturity: `active`
 - code areas: `packages/contracts`, `packages/db`, `packages/job-finder`, `packages/browser-runtime`, `packages/browser-agent`, `apps/desktop`
-- current focus: queued staged apply evolution: shared apply domains and artifacts first, then one-job apply copilot, then one-job auto-submit, then queue submission with run-scoped multi-submit approval, live consent interrupts, generated profile-grounded answers, skip-with-artifacts recovery, and clear package ownership where browser-agent holds bounded workflow policy while runtime stays generic
-- next step: start only after the stronger shared data from `011`, richer guided setup from `012`, merged source-intelligence and discovery work from `013`, and a usable resume path from `014` are in place enough that the first `015` slice lands on durable foundations instead of inventing one-off apply-only state
-- blockers: depends on `011`, `012`, `013`, and a good enough `014` first slice for the strongest result; current shipped behavior remains more conservative until `015` lands
+- current focus: active safe staged apply evolution now spans completed shared apply-run foundations, the deterministic Milestone 2 copilot slice, an early Milestone 3-prep approval slice, a verified queue-control follow-up, and an Applications recovery pass: one approved job can launch a non-submitting `copilot` run that records structured questions, grounded answers, retained artifacts, replay checkpoints, and application summaries while pausing before final submit; `single_job_auto` runs can now create, approve, revoke, and explicitly re-stage run-scoped submit approval records without executing any final submit action; `queue_auto` runs can now be staged, cancelled, paused on typed consent requests, resumed after consent approval, or skip-and-continue after consent decline while still staying fully non-submitting; and Applications can now switch between saved runs for the selected job, launch a fresh safe rerun from the detail panel, retain a replay checkpoint showing the prior saved apply context on reruns, surface per-job historical results plus the latest approval state, and restage the remaining jobs from a historical queue run into a fresh safe queue with an explicit included-versus-excluded job summary and richer per-job outcome summary first. Review Queue now exposes explicit multi-job queue checkboxes so queue staging no longer depends on the currently selected job only, and the desktop `Applications` detail surface plus `ui:apply-queue-controls`, `ui:applications-recovery`, and `ui:applications-queue-recovery` harnesses now prove queue controls, run-history selection, safe rerun behavior, retained recovery-context behavior, and historical queue restaging from the real renderer flow.
+- next step: keep the final submit boundary disabled until the user explicitly re-authorizes later submit-enabled work; there is no major remaining non-submitting Applications or queue-recovery slice currently blocking `015`.
+- blockers: no external blocker, but live application execution and submission QA are intentionally paused by explicit user instruction until re-authorized
 
 ### `Plan 016 Shared Agent Auto Compaction`
 
-- status: `ready`
-- last updated: `2026-04-09`
-- linked plan: `docs/exec-plans/queued/016-shared-agent-auto-compaction.md`
-- plan maturity: `execution_ready`
-- code areas: `packages/browser-agent`, `packages/job-finder`, `packages/contracts`, `apps/desktop`
-- current focus: execution-ready shared infrastructure pass to replace browser-agent-local message-count compaction with a shared token-budget-first policy, cover browser-agent live turns plus source-debug worker and final-review handoff payloads, and leave behind a reusable seam for future `015` apply workers without turning this into a generic chat-history feature
-- next step: start with the shared contracts and browser-agent token-estimation seam, then wire the shared policy through runtime discovery options, source-debug worker overrides, and source-debug final-review summary-first handoff, while leaving the current deterministic apply path untouched
-- blockers: none, but it does not need to displace the higher-value product work in `013`, `014`, or `015`; pull it forward only when long-running discovery, source-debug, or apply agents become the next concrete blocker
+- status: `done`
+- last updated: `2026-04-19`
+- linked plan: `docs/exec-plans/completed/016-shared-agent-auto-compaction.md`
+- plan maturity: `completed`
+- code areas: `packages/browser-agent`, `packages/browser-runtime`, `packages/job-finder`, `packages/contracts`, `apps/desktop`, `docs`
+- current focus: completed shared compaction baseline: reusable contracts and snapshots now drive token-budget-first browser-agent live compaction with message-count fallback, runtime model-window budgeting, source-debug worker overrides, summary-first final-review handoffs, lightweight discovery compaction telemetry, and an apply-ready reusable seam for later `015` workers; the shared defaults are currently tuned around the active 196k model window so compaction starts near the real provider limit instead of firing far too early
+- next step: reuse the completed `016` baseline when later apply workers accumulate long transcripts; keep the current deterministic apply execution unchanged until those future workers actually adopt the seam
+- blockers: none
 
 ### `Plan 017 Browser Substrate Evaluation And Direction`
 

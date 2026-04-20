@@ -1,6 +1,16 @@
 import { rm } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, test } from 'vitest'
+import {
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
+  ApplicationConsentRequestSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  SourceInstructionArtifactSchema,
+} from '@unemployed/contracts'
 
 import { createFileJobFinderRepository } from './index'
 import { createSeed } from './test-fixtures'
@@ -41,16 +51,20 @@ describe('createFileJobFinderRepository', () => {
         verification: null,
       }
 
-      await repository.upsertSourceInstructionArtifact({
-        ...baseArtifact,
-        id: 'source_instruction_primary',
-        targetId: 'target_primary',
-      })
-      await repository.upsertSourceInstructionArtifact({
-        ...baseArtifact,
-        id: 'source_instruction_secondary',
-        targetId: 'target_secondary',
-      })
+      await repository.upsertSourceInstructionArtifact(
+        SourceInstructionArtifactSchema.parse({
+          ...baseArtifact,
+          id: 'source_instruction_primary',
+          targetId: 'target_primary',
+        }),
+      )
+      await repository.upsertSourceInstructionArtifact(
+        SourceInstructionArtifactSchema.parse({
+          ...baseArtifact,
+          id: 'source_instruction_secondary',
+          targetId: 'target_secondary',
+        }),
+      )
 
       await repository.deleteSourceInstructionArtifactsForTarget('target_primary')
 
@@ -112,6 +126,208 @@ describe('createFileJobFinderRepository', () => {
       expect(savedJobs[0]?.canonicalUrl).toContain('target_job_1')
       expect(attempts).toHaveLength(1)
       expect(attempts[0]?.summary).toBe('Easy Apply submitted')
+    } finally {
+      if (secondRepository) {
+        await secondRepository.close()
+      }
+      if (firstRepository) {
+        await firstRepository.close()
+      }
+      await temp.cleanup()
+    }
+  })
+
+  test('persists apply foundation records across sqlite reloads', async () => {
+    const temp = await createTempRepository('unemployed-db-apply-foundation-')
+    let firstRepository: FileRepository | null = null
+    let secondRepository: FileRepository | null = null
+
+    try {
+      firstRepository = await temp.createRepository()
+
+      await firstRepository.upsertApplyRun(ApplyRunSchema.parse({
+        id: 'apply_run_1',
+        mode: 'copilot',
+        state: 'paused_for_user_review',
+        jobIds: ['job_1'],
+        currentJobId: 'job_1',
+        submitApprovalId: null,
+        createdAt: '2026-04-18T10:00:00.000Z',
+        updatedAt: '2026-04-18T10:03:00.000Z',
+        completedAt: null,
+        summary: 'Apply copilot captured the current application state.',
+        detail: 'Stopped before final submit.',
+        totalJobs: 1,
+        pendingJobs: 0,
+        submittedJobs: 0,
+        skippedJobs: 0,
+        blockedJobs: 0,
+        failedJobs: 0,
+      }))
+      await firstRepository.upsertApplyJobResult(ApplyJobResultSchema.parse({
+        id: 'apply_result_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        queuePosition: 0,
+        state: 'awaiting_review',
+        summary: 'Application prepared for review.',
+        detail: 'Captured the staged application state without submitting.',
+        startedAt: '2026-04-18T10:00:10.000Z',
+        updatedAt: '2026-04-18T10:00:40.000Z',
+        completedAt: null,
+        blockerReason: null,
+        blockerSummary: null,
+        latestQuestionCount: 1,
+        latestAnswerCount: 1,
+        pendingConsentRequestCount: 1,
+        artifactCount: 1,
+        latestCheckpointId: 'checkpoint_1',
+      }))
+      await firstRepository.upsertApplicationQuestionRecord(ApplicationQuestionRecordSchema.parse({
+        id: 'question_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        prompt: 'Upload your resume',
+        kind: 'resume',
+        isRequired: true,
+        detectedAt: '2026-04-18T10:00:30.000Z',
+        answerOptions: [],
+        suggestedAnswers: [],
+        selectedAnswerId: null,
+        submittedAnswer: null,
+        status: 'detected',
+        pageUrl: 'https://jobs.example.com/apply',
+      }))
+      await firstRepository.upsertApplicationAnswerRecord(ApplicationAnswerRecordSchema.parse({
+        id: 'answer_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        questionId: 'question_1',
+        status: 'suggested',
+        text: '/tmp/tailored-resume.pdf',
+        sourceKind: 'resume',
+        sourceId: 'resume_export_1',
+        confidenceLabel: 'grounded',
+        provenance: [
+          {
+            id: 'answer_provenance_1',
+            sourceKind: 'resume',
+            sourceId: 'resume_export_1',
+            label: 'Approved tailored resume export',
+            snippet: '/tmp/tailored-resume.pdf',
+          },
+        ],
+        createdAt: '2026-04-18T10:00:31.000Z',
+        submittedAt: null,
+      }))
+      await firstRepository.upsertApplicationArtifactRef(ApplicationArtifactRefSchema.parse({
+        id: 'artifact_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        questionId: 'question_1',
+        kind: 'field_snapshot',
+        label: 'Resume upload prompt',
+        createdAt: '2026-04-18T10:00:32.000Z',
+        storagePath: null,
+        url: 'https://jobs.example.com/apply',
+        textSnippet: 'Upload your resume',
+      }))
+      await firstRepository.upsertApplicationReplayCheckpoint(ApplicationReplayCheckpointSchema.parse({
+        id: 'checkpoint_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        createdAt: '2026-04-18T10:00:33.000Z',
+        label: 'Prepared application for review',
+        detail: 'The flow paused before final submit.',
+        url: 'https://jobs.example.com/apply',
+        jobState: 'awaiting_review',
+        artifactRefIds: ['artifact_1'],
+      }))
+      await firstRepository.upsertApplicationConsentRequest(ApplicationConsentRequestSchema.parse({
+        id: 'consent_1',
+        runId: 'apply_run_1',
+        jobId: 'job_1',
+        resultId: 'apply_result_1',
+        kind: 'resume_use',
+        linkedConsentKind: 'resume_use',
+        label: 'Use the approved tailored resume for this apply run',
+        detail: null,
+        status: 'approved',
+        requestedAt: '2026-04-18T10:00:20.000Z',
+        decidedAt: '2026-04-18T10:00:25.000Z',
+        expiresAt: null,
+      }))
+
+      await firstRepository.close()
+      firstRepository = null
+
+      secondRepository = await temp.createRepository()
+
+      await expect(secondRepository.listApplyRuns()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'apply_run_1',
+          state: 'paused_for_user_review',
+        }),
+      ])
+      await expect(secondRepository.listApplyJobResults()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'apply_result_1',
+          runId: 'apply_run_1',
+          jobId: 'job_1',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationQuestionRecords({ runId: 'apply_run_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'question_1',
+          prompt: 'Upload your resume',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationAnswerRecords({ resultId: 'apply_result_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'answer_1',
+          runId: 'apply_run_1',
+          resultId: 'apply_result_1',
+          questionId: 'question_1',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationArtifactRefs({ resultId: 'apply_result_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'artifact_1',
+          runId: 'apply_run_1',
+          resultId: 'apply_result_1',
+          questionId: 'question_1',
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationReplayCheckpoints({ resultId: 'apply_result_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'checkpoint_1',
+          runId: 'apply_run_1',
+          resultId: 'apply_result_1',
+          artifactRefIds: ['artifact_1'],
+        }),
+      ])
+      await expect(
+        secondRepository.listApplicationConsentRequests({ runId: 'apply_run_1' }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: 'consent_1',
+          runId: 'apply_run_1',
+          resultId: 'apply_result_1',
+          status: 'approved',
+        }),
+      ])
     } finally {
       if (secondRepository) {
         await secondRepository.close()
@@ -386,44 +602,46 @@ describe('createFileJobFinderRepository', () => {
         compactionState: null,
         timing: null,
       })
-      await firstRepository.upsertSourceInstructionArtifact({
-        id: 'source_instruction_1',
-        targetId: 'target_primary',
-        status: 'validated',
-        createdAt: '2026-03-20T10:01:00.000Z',
-        updatedAt: '2026-03-20T10:02:00.000Z',
-        acceptedAt: '2026-03-20T10:02:00.000Z',
-        basedOnRunId: 'source_debug_run_1',
-        basedOnAttemptIds: ['source_debug_attempt_1'],
-        notes: 'Validated target-site source guidance.',
-        navigationGuidance: ['Start from https://jobs.example.com/search.'],
-        searchGuidance: ['Use the jobs search route.'],
-        detailGuidance: ['Prefer stable detail URLs.'],
-        applyGuidance: [
-          'Prefer the inline apply entry when it appears on the detail page.',
-        ],
-        warnings: [],
-        versionInfo: {
-          promptProfileVersion: 'source-debug-v1',
-          toolsetVersion: 'browser-tools-v1',
-          adapterVersion: 'target_site',
-          appSchemaVersion: 'job-finder-source-debug-v1',
-        },
-        verification: {
-          id: 'source_instruction_verification_1',
-          replayRunId: 'source_debug_run_1',
-          verifiedAt: '2026-03-20T10:02:00.000Z',
-          outcome: 'passed',
-          proofSummary: 'Replay verification reached jobs again.',
-          reason: null,
+      await firstRepository.upsertSourceInstructionArtifact(
+        SourceInstructionArtifactSchema.parse({
+          id: 'source_instruction_1',
+          targetId: 'target_primary',
+          status: 'validated',
+          createdAt: '2026-03-20T10:01:00.000Z',
+          updatedAt: '2026-03-20T10:02:00.000Z',
+          acceptedAt: '2026-03-20T10:02:00.000Z',
+          basedOnRunId: 'source_debug_run_1',
+          basedOnAttemptIds: ['source_debug_attempt_1'],
+          notes: 'Validated target-site source guidance.',
+          navigationGuidance: ['Start from https://jobs.example.com/search.'],
+          searchGuidance: ['Use the jobs search route.'],
+          detailGuidance: ['Prefer stable detail URLs.'],
+          applyGuidance: [
+            'Prefer the inline apply entry when it appears on the detail page.',
+          ],
+          warnings: [],
           versionInfo: {
             promptProfileVersion: 'source-debug-v1',
             toolsetVersion: 'browser-tools-v1',
             adapterVersion: 'target_site',
             appSchemaVersion: 'job-finder-source-debug-v1',
           },
-        },
-      })
+          verification: {
+            id: 'source_instruction_verification_1',
+            replayRunId: 'source_debug_run_1',
+            verifiedAt: '2026-03-20T10:02:00.000Z',
+            outcome: 'passed',
+            proofSummary: 'Replay verification reached jobs again.',
+            reason: null,
+            versionInfo: {
+              promptProfileVersion: 'source-debug-v1',
+              toolsetVersion: 'browser-tools-v1',
+              adapterVersion: 'target_site',
+              appSchemaVersion: 'job-finder-source-debug-v1',
+            },
+          },
+        }),
+      )
       await firstRepository.upsertSourceDebugEvidenceRef({
         id: 'source_debug_evidence_1',
         runId: 'source_debug_run_1',

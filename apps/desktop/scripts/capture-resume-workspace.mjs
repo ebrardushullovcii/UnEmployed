@@ -43,11 +43,36 @@ async function getResumeAssistantMessages(window, jobId) {
   )
 }
 
+async function getWorkspace(window) {
+  return window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
+}
+
+function getLatestBy(items, getTimestamp) {
+  if (!items?.length) {
+    return null
+  }
+
+  return items
+    .map((item, index) => {
+      const parsedTimestamp = Date.parse(getTimestamp(item))
+
+      return {
+        item,
+        index,
+        timestamp: Number.isFinite(parsedTimestamp) ? parsedTimestamp : Number.NEGATIVE_INFINITY,
+      }
+    })
+    .sort((left, right) => {
+      const timestampDifference = right.timestamp - left.timestamp
+      return timestampDifference !== 0 ? timestampDifference : right.index - left.index
+    })[0]?.item ?? null
+}
+
 async function waitForProfileOrSetupHeading(window) {
-  await window.waitForFunction(() => {
-    const heading = document.querySelector('h1')
-    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
-  }, undefined, { timeout: 15000 })
+  await window
+    .locator('h1')
+    .filter({ hasText: /Your profile|Guided setup/ })
+    .waitFor({ timeout: 15000 })
 }
 
 async function captureResumeWorkspace() {
@@ -135,9 +160,9 @@ async function captureResumeWorkspace() {
 
     await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
-    const gatedApproveButton = window.getByRole('button', { name: 'Start application' })
+    const gatedApproveButton = window.getByRole('button', { name: 'Start apply copilot' })
     if (!(await gatedApproveButton.isDisabled())) {
-      throw new Error('Start application should stay disabled before resume approval.')
+      throw new Error('Start apply copilot should stay disabled before resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06-review-queue-gated.png') })
 
@@ -158,9 +183,9 @@ async function captureResumeWorkspace() {
 
     await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
-    const readyApproveButton = window.getByRole('button', { name: 'Start application' })
+    const readyApproveButton = window.getByRole('button', { name: 'Start apply copilot' })
     if (await readyApproveButton.isDisabled()) {
-      throw new Error('Start application should be enabled after resume approval.')
+      throw new Error('Start apply copilot should be enabled after resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '08-review-queue-approved.png') })
 
@@ -169,7 +194,24 @@ async function captureResumeWorkspace() {
     await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '09-applications-after-apply.png') })
 
-    const workspace = await window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
+    await window.getByText('Apply run review data', { exact: true }).waitFor({ timeout: 10000 })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '10-applications-after-copilot.png') })
+
+    const workspace = await getWorkspace(window)
+    const latestAttempt = getLatestBy(workspace.applicationAttempts, (attempt) => attempt.updatedAt)
+    const applicationSummary = {
+      latestAttemptState: latestAttempt?.state ?? null,
+      latestAttemptOutcome: latestAttempt?.outcome ?? null,
+    }
+
+    if (applicationSummary.latestAttemptState !== 'paused') {
+      throw new Error(`Apply copilot should pause before submit, got '${applicationSummary.latestAttemptState ?? 'null'}'.`)
+    }
+
+    if (applicationSummary.latestAttemptOutcome !== null) {
+      throw new Error('Apply copilot should not record a submitted outcome.')
+    }
+
     await writeJson('workspace-after-demo.json', workspace)
   } finally {
     if (app) {

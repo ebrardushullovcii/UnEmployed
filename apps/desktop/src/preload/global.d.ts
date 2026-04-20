@@ -1,4 +1,7 @@
 import type {
+  ApplyRunDetails,
+  JobFinderApplyConsentActionInput,
+  JobFinderApplyQueueActionInput,
   CandidateProfile,
   DesktopPlatformPing,
   EditableSourceInstructionArtifact,
@@ -96,6 +99,10 @@ declare global {
         getSourceDebugRunDetails: (
           runId: string,
         ) => Promise<SourceDebugRunDetails>;
+        getApplyRunDetails: (
+          runId: string,
+          jobId: string,
+        ) => Promise<ApplyRunDetails>;
         saveSourceInstructionArtifact: (
           targetId: string,
           artifact: EditableSourceInstructionArtifact,
@@ -148,11 +155,28 @@ declare global {
           content: string,
         ) => Promise<readonly ResumeAssistantMessage[]>;
         generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+        startApplyCopilotRun: (
+          jobId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+        startAutoApplyQueueRun: (
+          jobIds: JobFinderApplyQueueActionInput['jobIds'],
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        approveApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
+        cancelApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
+        resolveApplyConsentRequest: (
+          requestId: string,
+          action: JobFinderApplyConsentActionInput['action'],
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        revokeApplyRunApproval: (
+          runId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         test?: {
           getSystemThemeOverride: () => 'dark' | 'light' | null;
           setSystemThemeOverride: (theme: 'dark' | 'light' | null) => Promise<{ ok: true }>;
           loadResumeWorkspaceDemo: () => Promise<JobFinderWorkspaceSnapshot>;
+          loadApplyQueueDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           resetWorkspaceState: (
             state: JobFinderRepositoryState,
           ) => Promise<JobFinderWorkspaceSnapshot>;

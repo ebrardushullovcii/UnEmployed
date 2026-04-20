@@ -1,6 +1,14 @@
 import {
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  ApplySubmitApprovalSchema,
   ApplicationAttemptSchema,
+  ApplicationAnswerRecordSchema,
+  ApplicationArtifactRefSchema,
+  ApplicationConsentRequestSchema,
   ApplicationRecordSchema,
+  ApplicationQuestionRecordSchema,
+  ApplicationReplayCheckpointSchema,
   CandidateProfileSchema,
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
@@ -25,6 +33,10 @@ import {
   type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import {
+  APPLY_COLLECTION_ORDER_BY_SQL,
+  APPLY_INDEXED_COLLECTION_CONFIGS,
+} from "../apply-collection-support";
 
 import {
   normalizeLegacyDiscoveryState,
@@ -37,8 +49,16 @@ import type {
 } from "../repository-types";
 
 export const stateTableNames = {
+  application_answer_records: "application_answer_records",
+  application_artifact_refs: "application_artifact_refs",
   application_attempts: "application_attempts",
+  application_consent_requests: "application_consent_requests",
+  application_question_records: "application_question_records",
+  application_replay_checkpoints: "application_replay_checkpoints",
   application_records: "application_records",
+  apply_job_results: "apply_job_results",
+  apply_runs: "apply_runs",
+  apply_submit_approvals: "apply_submit_approvals",
   profile_copilot_messages: "profile_copilot_messages",
   profile_revisions: "profile_revisions",
   saved_jobs: "saved_jobs",
@@ -244,6 +264,39 @@ export function writeState(
     saveSingletonValue(database, "discovery_state", state.discovery);
     replaceCollection(database, "saved_jobs", state.savedJobs);
     replaceCollection(database, "tailored_assets", state.tailoredAssets);
+    replaceIndexedCollection(database, "apply_runs", state.applyRuns, APPLY_INDEXED_COLLECTION_CONFIGS.apply_runs);
+    replaceIndexedCollection(database, "apply_job_results", state.applyJobResults, APPLY_INDEXED_COLLECTION_CONFIGS.apply_job_results);
+    replaceIndexedCollection(database, "apply_submit_approvals", state.applySubmitApprovals, APPLY_INDEXED_COLLECTION_CONFIGS.apply_submit_approvals);
+    replaceIndexedCollection(
+      database,
+      "application_question_records",
+      state.applicationQuestionRecords,
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_question_records,
+    );
+    replaceIndexedCollection(
+      database,
+      "application_answer_records",
+      state.applicationAnswerRecords,
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_answer_records,
+    );
+    replaceIndexedCollection(
+      database,
+      "application_artifact_refs",
+      state.applicationArtifactRefs,
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_artifact_refs,
+    );
+    replaceIndexedCollection(
+      database,
+      "application_replay_checkpoints",
+      state.applicationReplayCheckpoints,
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_replay_checkpoints,
+    );
+    replaceIndexedCollection(
+      database,
+      "application_consent_requests",
+      state.applicationConsentRequests,
+      APPLY_INDEXED_COLLECTION_CONFIGS.application_consent_requests,
+    );
     replaceIndexedCollection(database, "resume_drafts", state.resumeDrafts, {
       columnNames: ["job_id", "created_at", "updated_at"],
       getColumns: (value) => {
@@ -540,6 +593,65 @@ export function readState(
       ProfileRevisionSchema,
       {
         orderBySql: "created_at DESC, id ASC",
+      },
+    ),
+    applyRuns: listCollectionValues(database, "apply_runs", ApplyRunSchema, {
+      orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_runs,
+    }),
+    applyJobResults: listCollectionValues(
+      database,
+      "apply_job_results",
+      ApplyJobResultSchema,
+      {
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_job_results,
+      },
+    ),
+    applySubmitApprovals: listCollectionValues(
+      database,
+      "apply_submit_approvals",
+      ApplySubmitApprovalSchema,
+      {
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_submit_approvals,
+      },
+    ),
+    applicationQuestionRecords: listCollectionValues(
+      database,
+      "application_question_records",
+      ApplicationQuestionRecordSchema,
+      {
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_question_records,
+      },
+    ),
+    applicationAnswerRecords: listCollectionValues(
+      database,
+      "application_answer_records",
+      ApplicationAnswerRecordSchema,
+      {
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_answer_records,
+      },
+    ),
+    applicationArtifactRefs: listCollectionValues(
+      database,
+      "application_artifact_refs",
+      ApplicationArtifactRefSchema,
+      {
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_artifact_refs,
+      },
+    ),
+    applicationReplayCheckpoints: listCollectionValues(
+      database,
+      "application_replay_checkpoints",
+      ApplicationReplayCheckpointSchema,
+      {
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_replay_checkpoints,
+      },
+    ),
+    applicationConsentRequests: listCollectionValues(
+      database,
+      "application_consent_requests",
+      ApplicationConsentRequestSchema,
+      {
+        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_consent_requests,
       },
     ),
     applicationRecords: listValues(

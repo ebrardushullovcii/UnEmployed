@@ -1,6 +1,7 @@
 import type {
   AgentDiscoveryProgress,
   ApplyExecutionResult,
+  ApplyRecoveryContext,
   BrowserSessionState,
   CandidateProfile,
   DiscoveryRunResult,
@@ -9,6 +10,7 @@ import type {
   JobSearchPreferences,
   JobSource,
   ResumeExportArtifact,
+  SharedAgentCompactionPolicy,
   SavedJob,
 } from '@unemployed/contracts'
 import type { JobFinderAiClient } from '@unemployed/ai-providers'
@@ -22,6 +24,13 @@ export interface ExecuteEasyApplyInput {
   instructions?: readonly string[];
 }
 
+export type ApplicationExecutionMode = 'prepare_only' | 'submit_when_ready';
+
+export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
+  mode: ApplicationExecutionMode;
+  recoveryContext?: ApplyRecoveryContext;
+}
+
 export interface BrowserSessionRuntime {
   getSessionState(source: JobSource): Promise<BrowserSessionState>;
   openSession(source: JobSource): Promise<BrowserSessionState>;
@@ -33,6 +42,10 @@ export interface BrowserSessionRuntime {
   executeEasyApply(
     source: JobSource,
     input: ExecuteEasyApplyInput,
+  ): Promise<ApplyExecutionResult>;
+  executeApplicationFlow(
+    source: JobSource,
+    input: ExecuteApplicationFlowInput,
   ): Promise<ApplyExecutionResult>;
   runAgentDiscovery?(
     source: JobSource,
@@ -63,11 +76,8 @@ export interface AgentDiscoveryOptions {
     manualPrerequisiteState?: string | null;
     strategyLabel?: string | null;
   };
-  compaction?: {
-    maxTranscriptMessages?: number;
-    preserveRecentMessages?: number;
-    maxToolPayloadChars?: number;
-  };
+  compaction?: Partial<SharedAgentCompactionPolicy>;
+  modelContextWindowTokens?: number | null;
   relevantUrlSubstrings?: string[];
   experimental?: boolean;
   skipSessionValidation?: boolean;

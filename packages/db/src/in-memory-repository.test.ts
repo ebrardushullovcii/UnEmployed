@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { SavedJobSchema } from "@unemployed/contracts";
 import {
   createInMemoryJobFinderRepository,
 } from "./index";
@@ -215,6 +216,141 @@ describe("createInMemoryJobFinderRepository", () => {
     await expect(repository.listResumeAssistantMessages("job_1")).resolves.toEqual([
       expect.objectContaining({ id: "assistant_message_1" }),
     ]);
+  });
+
+  test("stores apply foundation records with filtering support", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+
+    await repository.upsertApplyRun({
+      id: "apply_run_1",
+      mode: "copilot",
+      state: "paused_for_user_review",
+      jobIds: ["job_1"],
+      currentJobId: "job_1",
+      submitApprovalId: null,
+      createdAt: "2026-04-18T10:00:00.000Z",
+      updatedAt: "2026-04-18T10:03:00.000Z",
+      completedAt: null,
+      summary: "Apply copilot captured the current application state.",
+      detail: "Stopped before final submit.",
+      totalJobs: 1,
+      pendingJobs: 0,
+      submittedJobs: 0,
+      skippedJobs: 0,
+      blockedJobs: 0,
+      failedJobs: 0,
+    });
+    await repository.upsertApplyJobResult({
+      id: "apply_result_1",
+      runId: "apply_run_1",
+      jobId: "job_1",
+      queuePosition: 0,
+      state: "awaiting_review",
+      summary: "Questions captured and answers proposed.",
+      detail: "The run paused for user review before submit.",
+      startedAt: "2026-04-18T10:00:00.000Z",
+      updatedAt: "2026-04-18T10:02:00.000Z",
+      completedAt: null,
+      blockerReason: null,
+      blockerSummary: null,
+      latestQuestionCount: 1,
+      latestAnswerCount: 1,
+      pendingConsentRequestCount: 0,
+      artifactCount: 1,
+      latestCheckpointId: "checkpoint_1",
+    });
+    await repository.upsertApplicationQuestionRecord({
+      id: "question_1",
+      runId: "apply_run_1",
+      jobId: "job_1",
+      resultId: "apply_result_1",
+      prompt: "Upload your resume",
+      kind: "resume",
+      isRequired: true,
+      detectedAt: "2026-04-18T10:00:30.000Z",
+      answerOptions: [],
+      suggestedAnswers: [],
+      selectedAnswerId: "answer_1",
+      submittedAnswer: null,
+      status: "answered",
+      pageUrl: "https://jobs.example.com/apply",
+    });
+    await repository.upsertApplicationAnswerRecord({
+      id: "answer_1",
+      runId: "apply_run_1",
+      jobId: "job_1",
+      resultId: "apply_result_1",
+      questionId: "question_1",
+      status: "filled",
+      text: "Approved tailored resume selected",
+      sourceKind: "resume",
+      sourceId: "resume_export_1",
+      confidenceLabel: "high",
+      provenance: [],
+      createdAt: "2026-04-18T10:00:35.000Z",
+      submittedAt: null,
+    });
+    await repository.upsertApplicationArtifactRef({
+      id: "artifact_1",
+      runId: "apply_run_1",
+      jobId: "job_1",
+      resultId: "apply_result_1",
+      questionId: "question_1",
+      kind: "uploaded_asset",
+      label: "Approved tailored resume export",
+      createdAt: "2026-04-18T10:00:40.000Z",
+      storagePath: "/tmp/job-ready-resume.pdf",
+      url: null,
+      textSnippet: null,
+    });
+    await repository.upsertApplicationReplayCheckpoint({
+      id: "checkpoint_1",
+      runId: "apply_run_1",
+      jobId: "job_1",
+      resultId: "apply_result_1",
+      createdAt: "2026-04-18T10:00:45.000Z",
+      label: "Reached review screen",
+      detail: "The application is ready for user review.",
+      url: "https://jobs.example.com/apply/review",
+      jobState: "awaiting_review",
+      artifactRefIds: ["artifact_1"],
+    });
+    await repository.upsertApplicationConsentRequest({
+      id: "consent_1",
+      runId: "apply_run_1",
+      jobId: "job_1",
+      resultId: "apply_result_1",
+      kind: "resume_use",
+      linkedConsentKind: "resume_use",
+      label: "Use the approved tailored resume for this apply run",
+      detail: null,
+      status: "approved",
+      requestedAt: "2026-04-18T10:00:20.000Z",
+      decidedAt: "2026-04-18T10:00:25.000Z",
+      expiresAt: null,
+    });
+
+    await expect(repository.listApplyRuns()).resolves.toEqual([
+      expect.objectContaining({ id: "apply_run_1" }),
+    ]);
+    await expect(repository.listApplyJobResults()).resolves.toEqual([
+      expect.objectContaining({ id: "apply_result_1" }),
+    ]);
+    await expect(
+      repository.listApplicationQuestionRecords({ runId: "apply_run_1", jobId: "job_1" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "question_1" })]);
+    await expect(
+      repository.listApplicationAnswerRecords({ questionId: "question_1" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "answer_1" })]);
+    await expect(
+      repository.listApplicationArtifactRefs({ resultId: "apply_result_1" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "artifact_1" })]);
+    await expect(
+      repository.listApplicationReplayCheckpoints({ jobId: "job_1" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "checkpoint_1" })]);
+    await expect(
+      repository.listApplicationConsentRequests({ runId: "apply_run_1" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "consent_1" })]);
   });
 
   test("stores profile copilot messages and revisions with the expected ordering", async () => {
@@ -605,7 +741,7 @@ describe("createInMemoryJobFinderRepository", () => {
   test("atomically replaces saved jobs while clearing resume approval", async () => {
     const seed = createSeed();
     seed.savedJobs = [
-      {
+      SavedJobSchema.parse({
         id: "job_ready",
         source: "target_site",
         sourceJobId: "target_job_ready",
@@ -662,7 +798,7 @@ describe("createInMemoryJobFinderRepository", () => {
           gaps: [],
         },
         provenance: [],
-      },
+      }),
     ];
     const repository = createInMemoryJobFinderRepository(seed);
 

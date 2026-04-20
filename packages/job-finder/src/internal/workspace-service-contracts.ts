@@ -1,6 +1,7 @@
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import type {
+  ApplyRunDetails,
   DiscoveryRunScope,
   CandidateProfile,
   DiscoveryActivityEvent,
@@ -29,6 +30,7 @@ import type {
   JobFinderRepositorySeed,
 } from "@unemployed/db";
 import type { ResumeExportFileVerifier } from "./workspace-service-context";
+import type { ResumeRenderDocument } from "./resume-workspace-structure";
 
 export interface JobFinderWorkspaceService {
   getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot>;
@@ -138,6 +140,17 @@ export interface JobFinderWorkspaceService {
     jobId: string,
     content: string,
   ): Promise<readonly ResumeAssistantMessage[]>;
+  getApplyRunDetails(runId: string, jobId: string): Promise<ApplyRunDetails>;
+  startApplyCopilotRun(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyRun(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyQueueRun(jobIds: readonly string[]): Promise<JobFinderWorkspaceSnapshot>;
+  approveApplyRun(runId: string): Promise<JobFinderWorkspaceSnapshot>;
+  cancelApplyRun(runId: string): Promise<JobFinderWorkspaceSnapshot>;
+  resolveApplyConsentRequest(
+    requestId: string,
+    action: "approve" | "decline",
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  revokeApplyRunApproval(runId: string): Promise<JobFinderWorkspaceSnapshot>;
   approveApply(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
 }
 
@@ -168,35 +181,13 @@ export interface RenderedResumeArtifact {
   warnings?: readonly string[];
 }
 
-export interface ResumeRenderDocument {
-  fullName: string;
-  headline: string | null;
-  location: string | null;
-  contactItems: string[];
-  sections: Array<{
-    id: string;
-    kind: ResumeDraft["sections"][number]["kind"];
-    label: string;
-    text: string | null;
-    bullets: string[];
-    entries: Array<{
-      id: string;
-      heading: string | null;
-      summary: string | null;
-      bullets: string[];
-    }>;
-  }>;
-}
-
 export interface JobFinderDocumentManager {
   listResumeTemplates(): readonly ResumeTemplateDefinition[];
   renderResumeArtifact(input: {
     job: SavedJob;
     profile: CandidateProfile;
     renderDocument: ResumeRenderDocument;
-    previewSections: Array<{ heading: string; lines: string[] }>;
     settings: JobFinderSettings;
-    textContent: string;
     targetPath?: string | null;
   }): Promise<RenderedResumeArtifact>;
 }

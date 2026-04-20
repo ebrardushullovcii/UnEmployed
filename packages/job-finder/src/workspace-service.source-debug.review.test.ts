@@ -10,6 +10,7 @@ import {
   createAgentBrowserRuntime,
   createDocumentManager,
   createSeed,
+  createSourceInstructionArtifact,
   createStrongSourceDebugFindingsByPhase,
   extractLatestUserPrompt,
 } from "./workspace-service.test-support";
@@ -120,6 +121,7 @@ describe("createJobFinderWorkspaceService", () => {
       "assistant: inspected the visible keyword search box and location filter",
     );
     expect(reviewPrompts[0]).toContain("tool call finish");
+    expect(reviewPrompts[0]).toContain("handoffCompaction");
     expect(latestArtifact?.navigationGuidance).toContain(
       "Use the curated recommendation collection before broader search.",
     );
@@ -129,6 +131,90 @@ describe("createJobFinderWorkspaceService", () => {
     expect(latestArtifact?.intelligence?.collection).toBeDefined();
     expect(latestArtifact?.intelligence?.collection?.preferredMethod).toBe("listing_route");
     expect(latestArtifact?.intelligence?.collection?.startingRoutes.length).toBeGreaterThan(0);
+  });
+
+  test("skips the AI final reviewer when summary-first handoff still cannot fit the context budget", async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
+    });
+    let reviewCallCount = 0;
+    const fallbackClient = createDeterministicJobFinderAiClient(
+      "Tests use the deterministic fallback agent.",
+    );
+    const aiClient: JobFinderAiClient = {
+      ...fallbackClient,
+      getStatus() {
+        return {
+          ...fallbackClient.getStatus(),
+          modelContextWindowTokens: 200,
+        };
+      },
+      chatWithTools() {
+        reviewCallCount += 1;
+        return Promise.resolve({
+          content: JSON.stringify({
+            navigationGuidance: ["This path should not run."],
+            searchGuidance: [],
+            detailGuidance: [],
+            applyGuidance: [],
+            warnings: [],
+          }),
+          toolCalls: [],
+        });
+      },
+    };
+    const browserRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_review_case_budget_exhausted",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_review_case_budget_exhausted",
+          title: "Frontend Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Reviewer over-budget case.",
+          description: "Reviewer over-budget case.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+        reviewTranscriptByPhase: {
+          search_filter_probe: Array.from({ length: 200 }, (_, index) =>
+            `assistant: oversized transcript line ${index} with repeated evidence payload`,
+          ),
+          replay_verification: Array.from({ length: 200 }, (_, index) =>
+            `assistant: oversized replay line ${index} with repeated verification payload`,
+          ),
+        },
+      },
+    );
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient,
+      documentManager: createDocumentManager(),
+    });
+
+    await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(reviewCallCount).toBe(0);
   });
 
   test("final source-instruction reviewer is told to write future-run instructions and noisy extraction counts are filtered out", async () => {
@@ -404,6 +490,90 @@ describe("createJobFinderWorkspaceService", () => {
     );
   });
 
+  test("final source-debug review switches to summary-first handoff when transcript context is too large", async () => {
+    const repository = createInMemoryJobFinderRepository({
+      ...createSeed(),
+      savedJobs: [],
+      tailoredAssets: [],
+      resumeDrafts: [],
+      resumeDraftRevisions: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      resumeValidationResults: [],
+      resumeAssistantMessages: [],
+    });
+    const reviewPrompts: string[] = [];
+    const fallbackClient = createDeterministicJobFinderAiClient(
+      "Tests use the deterministic fallback agent.",
+    );
+    const aiClient: JobFinderAiClient = {
+      ...fallbackClient,
+      getStatus() {
+        return {
+          ...fallbackClient.getStatus(),
+          modelContextWindowTokens: 196_000,
+        };
+      },
+      chatWithTools(messages) {
+        reviewPrompts.push(extractLatestUserPrompt(messages));
+        return Promise.resolve({
+          content: JSON.stringify({
+            navigationGuidance: ["Use the listing route first."],
+            searchGuidance: [],
+            detailGuidance: [],
+            applyGuidance: [],
+            warnings: [],
+          }),
+          toolCalls: [],
+        });
+      },
+    };
+    const browserRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_review_case_large_transcript",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_review_case_large_transcript",
+          title: "Frontend Engineer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Reviewer summary-first case.",
+          description: "Reviewer summary-first case.",
+          keySkills: ["React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+        reviewTranscriptByPhase: {
+          search_filter_probe: Array.from({ length: 3500 }, (_, index) =>
+            (`assistant: transcript line ${index} showing repeated route evidence with stable listing routes, visible filters, canonical detail confirmations, reusable collection routes, and durable replay notes for the final reviewer. `).repeat(4),
+          ),
+        },
+      },
+    );
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime,
+      aiClient,
+      documentManager: createDocumentManager(),
+    });
+
+    await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(reviewPrompts).toHaveLength(1);
+    expect(reviewPrompts[0]).toContain('"mode": "summary_first"');
+    expect(reviewPrompts[0]).not.toContain("transcript line 3499");
+    expect(reviewPrompts[0]).toContain("do not ask for the missing raw transcript lines");
+  });
+
   test("clears prior learned instructions for the target before a fresh source-debug run", async () => {
     const seed = createSeed();
     seed.searchPreferences.discovery.targets[0] = {
@@ -415,7 +585,7 @@ describe("createJobFinderWorkspaceService", () => {
       staleReason: "Old verification state",
     };
     seed.sourceInstructionArtifacts = [
-      {
+      createSourceInstructionArtifact({
         id: "instruction_old_validated",
         targetId: "target_linkedin_default",
         status: "validated",
@@ -450,8 +620,8 @@ describe("createJobFinderWorkspaceService", () => {
             appSchemaVersion: "job-finder-source-debug-v1",
           },
         },
-      },
-      {
+      }),
+      createSourceInstructionArtifact({
         id: "instruction_old_draft",
         targetId: "target_linkedin_default",
         status: "draft",
@@ -473,7 +643,7 @@ describe("createJobFinderWorkspaceService", () => {
           appSchemaVersion: "job-finder-source-debug-v1",
         },
         verification: null,
-      },
+      }),
     ];
 
     const repository = createInMemoryJobFinderRepository(seed);

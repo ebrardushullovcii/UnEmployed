@@ -1,7 +1,9 @@
 export type {
   AgentDiscoveryOptions,
+  ApplicationExecutionMode,
   BrowserSessionRuntime,
   CatalogBrowserSessionRuntimeSeed,
+  ExecuteApplicationFlowInput,
   ExecuteEasyApplyInput,
   StubBrowserSessionRuntimeSeed,
 } from './runtime-types'

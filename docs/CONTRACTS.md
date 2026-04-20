@@ -16,10 +16,13 @@
 - Candidate contact fields, stored resume text, extraction status, and provider-visible profile state
 - Job search preferences, approval mode, and tailoring mode
 - Job posting, adapter-driven discovery targets, retained discovery runs, activity timeline events, fit assessment, discovery provenance, richer saved-job metadata, and review queue items
+- `ResumeDraftEntry` entry-scoped draft content, `ResumeDraftEntryType`, and typed patch targeting through `targetEntryId` (defined in `packages/contracts/src/resume.ts`)
 - Application attempt question memory, answer provenance, blocker summaries, consent history, replay links, and summary-level application-record rollups
 - Source-debug run and attempt artifacts, per-phase completion metadata, evidence refs, and learned navigation/search/detail/apply guidance artifacts for each target
 - Live discovery and supported apply consume only the active instruction artifact for the exact target: the newest bound `draft`, or `validated` when no newer draft is present
 - Review Queue resume-review state is modeled as a typed discriminated object instead of loosely related approval or stale fields, so renderer and service code can reason about `not_started`, `draft`, `needs_review`, `stale`, and `approved` states consistently
+- `ResumeDraftEntryTypeSchema` (from `packages/contracts/src/resume.ts`) enforces the allowed `resumeDraftEntryTypeValues`: `experience`, `project`, `education`, `certification`, `skill_group`, and `language`. A `ResumeDraftEntry` stores entry-scoped draft content per row with `id`, `entryType`, nullable display fields such as `title`, `subtitle`, `location`, `dateRange`, and `summary`, plus `bullets`, inclusion/lock state, refs, and metadata.
+- `ResumeDraftPatch.targetEntryId` (from `packages/contracts/src/resume.ts`) targets a specific existing `ResumeDraftEntry` inside the selected section. Example: a patch with `targetSectionId = "section_experience"` and `targetEntryId = "experience_1"` updates that existing experience row; a patch with `targetEntryId = null` remains section-scoped instead of targeting any entry.
 - Fixed resume template definitions, selected template settings, and template-driven tailored resume asset metadata
 - Tailored resume asset metadata, stored content, preview sections, generation-method notes, and saved artifact paths
 - Application record, event timeline, attempt checkpoints, and apply execution results
@@ -40,6 +43,7 @@
 - Tailored assets and apply attempt checkpoints should be validated before persistence
 - Document ingestion must validate metadata and content shape
 - AI provider responses should be normalized before module logic uses them
+- Non-agent AI requests (direct LLM calls for parsing, profile analysis, resume/import trimming, or other one-off operations outside agent orchestration and explicitly not browser-agent or discovery-worker flows) should be budgeted and compacted inside provider adapters before model submission so oversized profile, resume, or import payloads degrade by trimming lower-priority context instead of relying on provider-side context-limit failures. When agent orchestration is in play, deterministic catalog workflow policy such as filtering, eligibility gates, checkpoint shaping, and resume-usage rules belongs in `packages/browser-agent` instead.
 
 ## Discovery And Source-Debug Progress
 
@@ -93,7 +97,10 @@
 
 - `DiscoveryRunRecord.scope`: persisted run scope enum (`run_all` or `single_target`) used by renderer history and IPC consumers.
 - `DiscoveryRunRecord.summary.browserCloseout`: nullable closeout summary describing whether the browser was closed or kept alive, plus the observed session status/driver and `occurredAt` timestamp.
+- `AgentProviderStatus.modelContextWindowTokens`: nullable integer representing the model's context window size in tokens; used by workflow orchestrators to compute effective compaction budgets without hard-coding provider context sizes.
 - `DiscoveryTargetExecution`: per-target retained execution summary including nullable `collectionMethod`, nullable `sourceIntelligenceProvider`, nullable singular `warning`, optional timing, and the concrete target-local count fields `jobsFound`, `jobsPersisted`, and `jobsStaged`. `warning` is a non-fatal human-readable summary used for partial collection outcomes such as provider/API fallbacks, empty-result warnings, or target-local issues that did not abort the whole run.
+- `DiscoveryAgentMetadata.compactionState` (nullable object following the shared compaction snapshot schema from `packages/contracts/src/agent-compaction.ts`) plus `compactionUsedFallbackTrigger` (boolean) preserve lightweight worker-level evidence that context was compacted to fit model token limits, without persisting raw hidden transcripts. Here, compaction means execution-time context reduction that trims large worker transcripts into summary metadata while keeping enough evidence for the workflow to continue safely.
+- `DiscoveryTargetExecution.compaction` (nullable object using the same shared compaction snapshot shape) plus `compactionUsedFallbackTrigger` (boolean) preserve target-level visibility into whether a discovery worker compacted context during execution, while `DiscoveryAgentMetadata.compactionState` remains the worker-local evidence surface.
 - `collectionMethod` nullability differs by entity on purpose:
   - Concrete values persisted on records: `JobPosting.collectionMethod`, `SavedJob.provenance[].collectionMethod`, and `DiscoveryLedgerEntry.collectionMethod`.
   - Nullable intermediate values: `DiscoveryTargetExecution.collectionMethod` and `DiscoveryActivityEvent.collectionMethod` because execution- or event-level history may be recorded before the target's final method is known or when no concrete method was resolved.
@@ -106,6 +113,11 @@
 - `ApplicationAttempt.consentDecisions`: bounded consent history for resume use, profile autofill, external redirects, or manual follow-up requests.
 - `ApplicationAttempt.replay`: last apply URL, replay checkpoints, active instruction link, and linked source-debug evidence IDs.
 - `ApplicationRecord.questionSummary`, `latestBlocker`, `consentSummary`, and `replaySummary`: summary-only rollups for renderer list/detail surfaces; keep the full detailed artifacts on `ApplicationAttempt`.
+- `ApplyRun`, `ApplyJobResult`, `ApplicationQuestionRecord`, `ApplicationAnswerRecord`, `ApplicationArtifactRef`, `ApplicationReplayCheckpoint`, and `ApplicationConsentRequest` (defined in `packages/contracts/src/apply.ts`) now form the stage-015 non-submitting apply-copilot memory root; they keep run-scoped review-ready artifacts separate from the older high-level `ApplicationAttempt` summary.
+- `ApplyRunDetails` plus the narrow `JobFinderApplyRunDetailsQuery` IPC payload (from `packages/contracts/src/apply.ts`) are the typed read path for raw apply-run review data; desktop uses them to fetch persisted questions, grounded answers, retained artifacts, checkpoints, consent requests, and any run-scoped submit approval record for the selected run/job pair.
+- `JobFinderApplyRunActionInput` (from `packages/contracts/src/apply.ts`) is the shared narrow IPC payload for run-scoped approval actions such as approve or revoke; it keeps later submit-approval controls capability-based instead of overloading job-only actions.
+- `BrowserSessionRuntime.executeApplicationFlow(...)` is the widened runtime seam for staged apply work. It accepts a typed execution mode (`prepare_only` or `submit_when_ready`), but the current PR stage still keeps the actual submit boundary guarded and disabled, so `submit_when_ready` is not active yet.
+- `ExecuteApplicationFlowInput.recoveryContext` is the bounded retry-context seam for safe reruns. `packages/job-finder` may pass the latest saved checkpoint label/detail/URL, prior run identity, checkpoint URL history, and blocker summary for the same job so a fresh non-submitting `prepare_only` rerun can retain auditable replay context without leaking renderer state into the runtime contract.
 
 ## Review Queue Resume Review State
 

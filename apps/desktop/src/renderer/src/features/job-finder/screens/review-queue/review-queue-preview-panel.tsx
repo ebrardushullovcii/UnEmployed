@@ -87,17 +87,17 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
             </div>
             {selectedItem.resumeReview.status === 'approved' ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                Approved on {new Date(selectedItem.resumeReview.approvedAt).toLocaleString()}. This is the PDF used when you start the application.
+                Approved on {new Date(selectedItem.resumeReview.approvedAt).toLocaleString()}. This is the PDF used when you start using Apply Copilot.
               </p>
             ) : null}
             {selectedItem.resumeReview.status === 'needs_review' ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                This is a draft preview. Export and approve a PDF before you start the application.
+                This is a draft preview. Export and approve a PDF before you start using Apply Copilot.
               </p>
             ) : null}
             {selectedItem.resumeReview.status === 'stale' ? (
               <p className="text-(length:--text-small) text-(--warning-text)">
-                This approved PDF is out of date. Export a new PDF and approve it again before applying.
+                This approved PDF is out of date. Export a new PDF and approve it again before using Apply Copilot.
               </p>
             ) : null}
             {selectedAsset.previewSections.map((section, sectionIndex) => (
