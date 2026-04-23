@@ -9,8 +9,8 @@ describe("navigate", () => {
       .mockRejectedValue(new Error('page.goto: Timeout 7000ms exceeded.'));
     const page = {
       goto,
-      url: vi.fn(() => "https://www.linkedin.com/jobs"),
-      title: vi.fn().mockResolvedValue("Jobs | LinkedIn"),
+      url: vi.fn(() => "https://jobs.example.com/jobs"),
+      title: vi.fn().mockResolvedValue("Jobs"),
       evaluate: vi.fn().mockResolvedValue("interactive"),
     } as unknown as Page;
 
@@ -20,7 +20,7 @@ describe("navigate", () => {
     }
 
     const state = {
-      currentUrl: "https://www.linkedin.com/jobs/search",
+      currentUrl: "https://jobs.example.com/jobs/search",
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
         ["fill::input::search by title skill::0", {
@@ -32,7 +32,7 @@ describe("navigate", () => {
 
     const result = await tool.execute(
       {
-        url: "https://www.linkedin.com/jobs",
+        url: "https://jobs.example.com/jobs",
         waitFor: "networkidle",
         timeout: 30000,
       },
@@ -41,36 +41,37 @@ describe("navigate", () => {
         state: state as never,
         config: {
           navigationPolicy: {
-            allowedHostnames: ["www.linkedin.com"],
+            allowedHostnames: ["jobs.example.com"],
           },
         } as never,
       },
     );
 
-    expect(goto).toHaveBeenCalledWith("https://www.linkedin.com/jobs", {
+    expect(goto).toHaveBeenCalledWith("https://jobs.example.com/jobs", {
       waitUntil: "networkidle",
       timeout: 7000,
     });
     expect(result).toEqual({
       success: true,
       data: expect.objectContaining({
-        url: "https://www.linkedin.com/jobs",
+        url: "https://jobs.example.com/jobs",
         waitState: "networkidle",
         waitStateReached: false,
         partialLoad: true,
         readyState: "interactive",
       }),
     });
-    expect(state.currentUrl).toBe("https://www.linkedin.com/jobs");
-    expect(state.visitedUrls.has("https://www.linkedin.com/jobs")).toBe(true);
+    expect(state.currentUrl).toBe("https://jobs.example.com/jobs");
+    expect(state.visitedUrls.has("https://jobs.example.com/jobs")).toBe(true);
     expect(state.failedInteractionAttempts.size).toBe(0);
   });
 
   test("clears repeated interaction failures after a successful navigation to a new page", async () => {
     const page = {
       goto: vi.fn().mockResolvedValue(undefined),
-      url: vi.fn(() => "https://www.linkedin.com/jobs/collections/recommended"),
-      title: vi.fn().mockResolvedValue("Recommended jobs | LinkedIn"),
+      url: vi.fn(() => "https://jobs.example.com/jobs/collections/recommended"),
+      title: vi.fn().mockResolvedValue("Recommended jobs"),
+      evaluate: vi.fn().mockResolvedValue([]),
     } as unknown as Page;
 
     const tool = navigationTools.find((candidate) => candidate.name === "navigate");
@@ -79,7 +80,7 @@ describe("navigate", () => {
     }
 
     const state = {
-      currentUrl: "https://www.linkedin.com/jobs/search",
+      currentUrl: "https://jobs.example.com/jobs/search",
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
         ["fill::input::search by title skill::0", {
@@ -91,7 +92,7 @@ describe("navigate", () => {
 
     const result = await tool.execute(
       {
-        url: "https://www.linkedin.com/jobs/collections/recommended",
+        url: "https://jobs.example.com/jobs/collections/recommended",
         waitFor: "domcontentloaded",
         timeout: 5000,
       },
@@ -100,7 +101,7 @@ describe("navigate", () => {
         state: state as never,
         config: {
           navigationPolicy: {
-            allowedHostnames: ["www.linkedin.com"],
+            allowedHostnames: ["jobs.example.com"],
           },
         } as never,
       },
@@ -109,9 +110,69 @@ describe("navigate", () => {
     expect(result).toEqual({
       success: true,
       data: expect.objectContaining({
-        url: "https://www.linkedin.com/jobs/collections/recommended",
+        url: "https://jobs.example.com/jobs/collections/recommended",
       }),
     });
     expect(state.failedInteractionAttempts.size).toBe(0);
+  });
+
+  test("dismisses obstructive overlays after successful navigation", async () => {
+    const overlayButton = {
+      count: vi.fn().mockResolvedValue(1),
+      first: vi.fn(),
+      click: vi.fn().mockResolvedValue(undefined),
+    };
+    overlayButton.first.mockReturnValue(overlayButton);
+
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn(() => 'https://example.com/jobs'),
+      title: vi.fn().mockResolvedValue('Jobs'),
+      evaluate: vi.fn().mockResolvedValue([{ label: 'Close', role: 'button' }]),
+      getByRole: vi.fn((role: string, options?: { name?: string; exact?: boolean }) => {
+        if (role === 'button' && String(options?.name ?? '').toLowerCase() === 'close') {
+          return overlayButton;
+        }
+
+        return overlayButton;
+      }),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Page;
+
+    const tool = navigationTools.find((candidate) => candidate.name === 'navigate');
+    if (!tool) {
+      throw new Error('navigate tool is not registered');
+    }
+
+    const state = {
+      currentUrl: 'https://example.com',
+      visitedUrls: new Set<string>(),
+      failedInteractionAttempts: new Map(),
+    };
+
+    const result = await tool.execute(
+      {
+        url: 'https://example.com/jobs',
+        waitFor: 'domcontentloaded',
+        timeout: 5000,
+      },
+      {
+        page,
+        state: state as never,
+        config: {
+          navigationPolicy: {
+            allowedHostnames: ['example.com'],
+          },
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        url: 'https://example.com/jobs',
+      }),
+    });
+    expect(overlayButton.click).toHaveBeenCalled();
   });
 });

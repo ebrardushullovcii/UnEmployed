@@ -1,7 +1,19 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import net from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { JobFinderAiClient } from '@unemployed/ai-providers'
 import { describe, expect, test, vi } from 'vitest'
 import {
   buildChromeExecutableCandidates,
+  findRunningChromeDebugPortInCommandLines,
+  isHttpUrlLike,
+  isLikelyStalePage,
+  isWarmPageReusable,
+  isTcpPortReachable,
+  parseRunningChromeDebugSession,
+  readDevToolsActivePort,
+  selectLiveHttpPage,
   validateJobPostings,
 } from './playwright-browser-runtime-utils'
 import { createAgentChatWithToolsBridge } from './playwright-browser-runtime'
@@ -46,6 +58,193 @@ describe('playwright browser runtime utils', () => {
         process.env.LOCALAPPDATA = originalLocalAppData
       }
     }
+  })
+
+  test('reads the active devtools port from the Chrome profile directory', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'unemployed-devtools-port-'))
+
+    try {
+      await writeFile(join(tempDir, 'DevToolsActivePort'), '9444\n/devtools/browser/test\n')
+
+      await expect(readDevToolsActivePort(tempDir)).resolves.toBe(9444)
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('returns null when the devtools active port file is missing or invalid', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'unemployed-devtools-port-'))
+
+    try {
+      await expect(readDevToolsActivePort(tempDir)).resolves.toBeNull()
+
+      await writeFile(join(tempDir, 'DevToolsActivePort'), 'not-a-port\n')
+
+      await expect(readDevToolsActivePort(tempDir)).resolves.toBeNull()
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('parses running Chrome debug sessions from command lines', () => {
+    expect(
+      parseRunningChromeDebugSession(
+        '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9333 --user-data-dir="C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default" --new-window about:blank',
+      ),
+    ).toEqual({
+      debugPort: 9333,
+      userDataDir: 'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default',
+    })
+
+    expect(
+      parseRunningChromeDebugSession(
+        '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --user-data-dir=/Users/example/browser-agent/default --remote-debugging-port 9444',
+      ),
+    ).toEqual({
+      debugPort: 9444,
+      userDataDir: '/Users/example/browser-agent/default',
+    })
+
+    expect(parseRunningChromeDebugSession('"chrome.exe" --user-data-dir="C:\\temp\\profile"')).toBeNull()
+  })
+
+  test('finds a running Chrome debug port for the same user data dir from command lines', () => {
+    expect(
+      findRunningChromeDebugPortInCommandLines(
+        [
+          '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9333 --user-data-dir="C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default"',
+          '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9555 --user-data-dir="C:\\Users\\ebrar\\AppData\\Local\\Temp\\other-profile"',
+        ],
+        'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default',
+      ),
+    ).toBe(9333)
+
+    expect(
+      findRunningChromeDebugPortInCommandLines(
+        [
+          '"chrome.exe" --remote-debugging-port=9555 --user-data-dir="C:\\Users\\ebrar\\AppData\\Local\\Temp\\other-profile"',
+        ],
+        'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default',
+      ),
+    ).toBeNull()
+  })
+
+  test('detects navigable http urls for warm page reuse checks', () => {
+    expect(isHttpUrlLike('https://example.com/jobs')).toBe(true)
+    expect(isHttpUrlLike('http://example.com/jobs')).toBe(true)
+    expect(isHttpUrlLike('about:blank')).toBe(false)
+    expect(isHttpUrlLike('chrome://newtab/')).toBe(false)
+    expect(isHttpUrlLike(null)).toBe(false)
+  })
+
+  test('treats closed and non-http pages as stale when resolving a live page', () => {
+    expect(
+      isLikelyStalePage({
+        isClosed: () => true,
+        url: () => 'https://example.com/jobs',
+      } as never),
+    ).toBe(true)
+    expect(
+      isLikelyStalePage({
+        isClosed: () => false,
+        url: () => 'about:blank',
+      } as never),
+    ).toBe(true)
+    expect(
+      isLikelyStalePage({
+        isClosed: () => false,
+        url: () => 'https://example.com/jobs',
+      } as never),
+    ).toBe(false)
+  })
+
+  test('selects the most recent live http page when multiple pages exist', () => {
+    const pages = [
+      {
+        id: 'blank',
+        isClosed: () => false,
+        url: () => 'about:blank',
+      },
+      {
+        id: 'closed',
+        isClosed: () => true,
+        url: () => 'https://example.com/jobs/closed',
+      },
+      {
+        id: 'live',
+        isClosed: () => false,
+        url: () => 'https://example.com/jobs/live',
+      },
+    ] as const
+
+    expect(selectLiveHttpPage(pages)).toBe(pages[2])
+  })
+
+  test('does not warm-reuse 404 or detail-only pages for later discovery runs', () => {
+    expect(
+      isWarmPageReusable({
+        pageUrl: 'https://jobs.example.com/404',
+        options: {
+          startingUrls: ['https://jobs.example.com/'],
+          navigationHostnames: ['jobs.example.com'],
+          relevantUrlSubstrings: ['jobs', 'search'],
+        },
+      }),
+    ).toBe(false)
+
+    expect(
+      isWarmPageReusable({
+        pageUrl: 'https://careers.example.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce',
+        options: {
+          startingUrls: ['https://careers.example.com/'],
+          navigationHostnames: ['careers.example.com'],
+          relevantUrlSubstrings: ['jobs', 'search'],
+        },
+      }),
+    ).toBe(false)
+  })
+
+  test('warm-reuses normalized matching starting urls', () => {
+    expect(
+      isWarmPageReusable({
+        pageUrl: 'https://jobs.example.com/search/?keywords=frontend&currentJobId=123#top',
+        options: {
+          startingUrls: ['https://jobs.example.com/search/?keywords=frontend'],
+          navigationHostnames: ['jobs.example.com'],
+          relevantUrlSubstrings: ['search'],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  test('detects whether a local tcp port is actually reachable', async () => {
+    const server = net.createServer()
+
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', () => resolve())
+    })
+
+    const address = server.address()
+    expect(address).not.toBeNull()
+    expect(typeof address).toBe('object')
+    const port = typeof address === 'object' && address ? address.port : null
+
+    expect(port).not.toBeNull()
+    await expect(isTcpPortReachable(port!)).resolves.toBe(true)
+
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        resolve()
+      })
+    })
+
+    await expect(isTcpPortReachable(port!)).resolves.toBe(false)
   })
 
   test('forwards maxOutputTokens to the AI client during agent discovery', async () => {

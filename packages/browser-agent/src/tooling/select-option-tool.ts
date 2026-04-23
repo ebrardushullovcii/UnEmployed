@@ -12,6 +12,7 @@ import {
 import {
   buildComboboxOptionScopes,
   clickMatchingComboboxOption,
+  dismissObstructiveOverlays,
   fillComboboxValue,
   readComboboxSelection,
   recoverFromOffAllowlist,
@@ -76,6 +77,7 @@ You get role, name, and index from get_interactive_elements().`,
     }
 
     try {
+      await dismissObstructiveOverlays(page);
       const locator = await resolveRoleLocator(page, role, name, index);
       const elementHandle = await locator.elementHandle();
       if (!elementHandle) {

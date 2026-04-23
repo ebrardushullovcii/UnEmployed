@@ -7,6 +7,8 @@ export const MAX_NAVIGATION_TIMEOUT = 120_000;
 const MAX_ACCESSIBLE_NAME_PATTERN_LENGTH = 200;
 const BOUNDED_WHITESPACE_PATTERN = "(?:\\s{1,8})";
 const INTERACTIVE_ELEMENT_LIMIT = 30;
+const OVERLAY_CLOSE_TEXT_PATTERN =
+  /^(?:x|close|dismiss|skip|cancel|jo\s*now|not\s*now|maybe\s*later|no\s*thanks?|got\s*it|continue\s*to\s*site|continue)$/i;
 
 export const NavigateSchema = z
   .object({
@@ -132,6 +134,11 @@ export interface InteractiveElementCandidate {
   name: string;
 }
 
+export interface OverlayDismissalResult {
+  dismissedCount: number;
+  dismissedLabels: string[];
+}
+
 const INTERACTIVE_ELEMENT_ROLE_PRIORITY: Record<SupportedInteractiveRole, number> = {
   searchbox: 140,
   textbox: 120,
@@ -171,6 +178,140 @@ const INTERACTIVE_ELEMENT_NOISE_PATTERNS = [
 
 function normalizeInteractiveName(value: string): string {
   return value.replace(/\s+/g, " ").replace(/[→←↗↘↙↖›»]+$/g, "").trim();
+}
+
+function scoreOverlayDismissCandidate(label: string): number {
+  const normalized = normalizeInteractiveName(label);
+  if (!normalized) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  let score = 0;
+  if (OVERLAY_CLOSE_TEXT_PATTERN.test(normalized)) {
+    score += 300;
+  }
+
+  if (/^x$/i.test(normalized)) {
+    score += 80;
+  }
+
+  if (/\b(close|dismiss|skip|cancel)\b/i.test(normalized)) {
+    score += 120;
+  }
+
+  score -= Math.min(normalized.length, 120) / 4;
+  return score;
+}
+
+export async function dismissObstructiveOverlays(page: Page): Promise<OverlayDismissalResult> {
+  const dismissedLabels: string[] = [];
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    const candidates = await page.evaluate(() => {
+      const isVisible = (element: HTMLElement): boolean => {
+        if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
+        const style = window.getComputedStyle(element);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.visibility === "collapse" ||
+          Number(style.opacity || "1") < 0.05 ||
+          style.pointerEvents === "none"
+        ) {
+          return false;
+        }
+
+        const rect = element.getBoundingClientRect();
+        return rect.width >= 16 && rect.height >= 16;
+      };
+
+      const readLabel = (element: HTMLElement): string => {
+        const labelledBy = element.getAttribute("aria-labelledby");
+        const labelledByText = labelledBy
+          ? labelledBy
+              .split(/\s+/)
+              .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+              .filter(Boolean)
+              .join(" ")
+          : "";
+
+        return (
+          element.getAttribute("aria-label")?.trim() ||
+          element.getAttribute("title")?.trim() ||
+          labelledByText ||
+          element.textContent?.replace(/\s+/g, " ").trim() ||
+          ""
+        );
+      };
+
+      const selectors = [
+        '[role="dialog"] button, [role="dialog"] [role="button"], [role="dialog"] a[href]',
+        '[aria-modal="true"] button, [aria-modal="true"] [role="button"], [aria-modal="true"] a[href]',
+        '[class*="modal"] button, [class*="modal"] [role="button"], [class*="modal"] a[href]',
+        '[class*="popup"] button, [class*="popup"] [role="button"], [class*="popup"] a[href]',
+        '[class*="overlay"] button, [class*="overlay"] [role="button"], [class*="overlay"] a[href]',
+        '[class*="interstitial"] button, [class*="interstitial"] [role="button"], [class*="interstitial"] a[href]',
+        '[style*="position: fixed"] button, [style*="position: fixed"] [role="button"], [style*="position: fixed"] a[href]',
+        '[style*="position:fixed"] button, [style*="position:fixed"] [role="button"], [style*="position:fixed"] a[href]',
+      ];
+
+      return Array.from(document.querySelectorAll<HTMLElement>(selectors.join(", ")))
+        .filter((element) => isVisible(element))
+        .map((element) => ({
+          label: readLabel(element),
+          role: element.getAttribute("role")?.trim().toLowerCase() ?? element.tagName.toLowerCase(),
+        }));
+    }).catch(() => [] as Array<{ label: string; role: string }>);
+
+    const bestCandidate = candidates
+      .map((candidate) => ({ ...candidate, score: scoreOverlayDismissCandidate(candidate.label) }))
+      .sort((left, right) => right.score - left.score)[0];
+
+    if (!bestCandidate || bestCandidate.score < 140) {
+      break;
+    }
+
+    const clicked = await (async () => {
+      const exactLabel = normalizeInteractiveName(bestCandidate.label);
+      const exactLocator = exactLabel
+        ? page.getByRole("button", { name: exactLabel, exact: true }).first()
+        : null;
+      if (exactLocator && (await exactLocator.count().catch(() => 0)) > 0) {
+        await exactLocator.click({ timeout: 1500 }).catch(() => undefined);
+        return true;
+      }
+
+      const looseLocator = exactLabel
+        ? page.getByRole("button", { name: buildLooseAccessibleNamePattern(exactLabel) }).first()
+        : null;
+      if (looseLocator && (await looseLocator.count().catch(() => 0)) > 0) {
+        await looseLocator.click({ timeout: 1500 }).catch(() => undefined);
+        return true;
+      }
+
+      const fallbackLocator = exactLabel
+        ? page.locator("button, [role='button'], a[href]").filter({ hasText: buildLooseAccessibleNamePattern(exactLabel) }).first()
+        : null;
+      if (fallbackLocator && (await fallbackLocator.count().catch(() => 0)) > 0) {
+        await fallbackLocator.click({ timeout: 1500 }).catch(() => undefined);
+        return true;
+      }
+
+      return false;
+    })();
+
+    if (!clicked) {
+      break;
+    }
+
+    dismissedLabels.push(bestCandidate.label);
+    await page.waitForTimeout(250).catch(() => undefined);
+  }
+
+  return {
+    dismissedCount: dismissedLabels.length,
+    dismissedLabels,
+  };
 }
 
 function makeInteractiveElementKey(role: string, name: string): string {

@@ -25,10 +25,17 @@ import type {
   ExecuteEasyApplyInput,
  } from "./runtime-types";
 import {
-  buildChromeExecutableCandidates,
-  buildQuerySummary,
-  pathExists,
-  validateJobPostings,
+    buildChromeExecutableCandidates,
+    buildQuerySummary,
+    findRunningChromeDebugPortForUserDataDir,
+    isHttpUrlLike,
+    isWarmPageReusable,
+    isTcpPortReachable,
+    isLikelyStalePage,
+    pathExists,
+    readDevToolsActivePort,
+    selectLiveHttpPage,
+    validateJobPostings,
 } from "./playwright-browser-runtime-utils";
 
 export interface JobPageExtractionInput {
@@ -48,6 +55,57 @@ export function createAgentChatWithToolsBridge(
   return {
     chatWithTools,
   };
+}
+
+function buildUnsupportedApplyResult(input: {
+  job: ExecuteEasyApplyInput["job"];
+  startedAt: string;
+  mode: "easy_apply" | ExecuteApplicationFlowInput["mode"];
+  targetUrl?: string | null;
+}): ApplyExecutionResult {
+  const targetUrl = input.targetUrl ?? input.job.applicationUrl ?? input.job.canonicalUrl;
+  const prepareOnly = input.mode === "prepare_only";
+
+  return ApplyExecutionResultSchema.parse({
+    state: "unsupported",
+    summary: "Apply automation is not available for generic target flows",
+    detail: prepareOnly
+      ? `The current runtime does not yet support review-safe apply preparation for '${input.job.title}'. Use the learned target guidance to continue manually.`
+      : `The current runtime does not submit applications automatically for '${input.job.title}'. Use the learned target guidance to continue manually.`,
+    submittedAt: null,
+    outcome: null,
+    questions: [],
+    blocker: {
+      code: "unsupported_apply_path",
+      summary: prepareOnly
+        ? "The generic runtime does not support review-safe apply preparation."
+        : "The generic runtime does not support automated application submission.",
+      detail:
+        "Use the learned target guidance to continue this application manually.",
+      questionIds: [],
+      sourceDebugEvidenceRefIds: [],
+      url: targetUrl,
+    },
+    consentDecisions: [],
+    replay: {
+      sourceInstructionArtifactId: null,
+      sourceDebugEvidenceRefIds: [],
+      lastUrl: targetUrl,
+      checkpointUrls: targetUrl ? [targetUrl] : [],
+    },
+    nextActionLabel: "Open the listing manually",
+    checkpoints: [
+      {
+        id: `checkpoint_${input.job.id}_generic_apply_unsupported`,
+        at: input.startedAt,
+        label: "Apply automation unavailable",
+        detail: prepareOnly
+          ? "This target uses the generic debugger flow, so application preparation and submission stay manual until a target-agnostic runtime exists."
+          : "This target uses the generic debugger flow, so submission stays manual until a target-agnostic apply runtime exists.",
+        state: "unsupported",
+      },
+    ],
+  });
 }
 
 export interface BrowserAgentRuntimeOptions {
@@ -126,8 +184,43 @@ async function resolveBrowserDebugPort(
   preferredDebugPort: number,
   userDataDir: string,
 ): Promise<number> {
-  if (!(await isDebuggerEndpointReady(preferredDebugPort))) {
+  const runningDebugPortForUserDataDir =
+    await findRunningChromeDebugPortForUserDataDir(userDataDir);
+
+  if (
+    runningDebugPortForUserDataDir !== null &&
+    await isDebuggerEndpointReady(runningDebugPortForUserDataDir)
+  ) {
+    return runningDebugPortForUserDataDir;
+  }
+
+  const activeDebugPortFromProfile = await readDevToolsActivePort(userDataDir);
+
+  if (
+    activeDebugPortFromProfile !== null &&
+    await isDebuggerEndpointReady(activeDebugPortFromProfile)
+  ) {
+    return activeDebugPortFromProfile;
+  }
+
+  if (!(await isTcpPortReachable(preferredDebugPort))) {
     return preferredDebugPort;
+  }
+
+  if (!(await isDebuggerEndpointReady(preferredDebugPort))) {
+    for (
+      let candidatePort = preferredDebugPort + 1;
+      candidatePort < preferredDebugPort + 20;
+      candidatePort += 1
+    ) {
+      if (!(await isTcpPortReachable(candidatePort))) {
+        return candidatePort;
+      }
+    }
+
+    throw new Error(
+      `Remote debugging port ${preferredDebugPort} is occupied by a non-Chrome process. Close that process or set UNEMPLOYED_CHROME_DEBUG_PORT to a free port.`,
+    );
   }
 
   if (
@@ -144,7 +237,7 @@ async function resolveBrowserDebugPort(
     candidatePort < preferredDebugPort + 20;
     candidatePort += 1
   ) {
-    if (!(await isDebuggerEndpointReady(candidatePort))) {
+    if (!(await isTcpPortReachable(candidatePort))) {
       return candidatePort;
     }
   }
@@ -156,6 +249,7 @@ async function resolveBrowserDebugPort(
 
 async function waitForDebuggerEndpoint(
   debugPort: number,
+  chromeProcess?: ChildProcess | null,
   timeoutMs = 20_000,
 ): Promise<void> {
   const startedAt = Date.now();
@@ -165,16 +259,44 @@ async function waitForDebuggerEndpoint(
       return;
     }
 
+    if (chromeProcess && chromeProcess.exitCode !== null) {
+      throw new Error(
+        `Chrome exited before the remote debugging endpoint on port ${debugPort} became ready.`,
+      );
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
   throw new Error(
-    "Chrome started but the remote debugging endpoint did not become ready in time.",
+    `Chrome started but the remote debugging endpoint on port ${debugPort} did not become ready within ${timeoutMs}ms.`,
   );
 }
 
 async function getPrimaryPage(context: BrowserContext): Promise<Page> {
-  return context.pages()[0] ?? context.newPage();
+  const pages = context.pages();
+  return pages[pages.length - 1] ?? context.newPage();
+}
+
+async function resolveLivePageForContext(context: BrowserContext): Promise<Page> {
+  const currentPages = context.pages();
+  const liveHttpPage = selectLiveHttpPage(currentPages);
+  const page = liveHttpPage ?? (await getPrimaryPage(context));
+
+  if (isLikelyStalePage(page)) {
+    const refreshedLiveHttpPage = selectLiveHttpPage(context.pages());
+    if (refreshedLiveHttpPage) {
+      await refreshedLiveHttpPage.bringToFront().catch(() => undefined);
+      return refreshedLiveHttpPage;
+    }
+
+    const freshPage = await context.newPage();
+    await freshPage.bringToFront().catch(() => undefined);
+    return freshPage;
+  }
+
+  await page.bringToFront().catch(() => undefined);
+  return page;
 }
 
 export function createBrowserAgentRuntime(
@@ -239,7 +361,7 @@ export function createBrowserAgentRuntime(
     chromeProcess: ChildProcess,
     timeoutMs: number,
   ): Promise<boolean> {
-    if (chromeProcess.exitCode !== null || chromeProcess.killed) {
+    if (chromeProcess.exitCode !== null) {
       return true;
     }
 
@@ -267,12 +389,10 @@ export function createBrowserAgentRuntime(
     });
   }
 
-  async function terminateLaunchedChromeProcess(): Promise<void> {
-    const chromeProcess = launchedChromeProcess;
-    const shouldTerminate = ownsChromeProcess;
-    launchedChromeProcess = null;
-    ownsChromeProcess = false;
-
+  async function terminateChromeProcess(
+    chromeProcess: ChildProcess | null,
+    shouldTerminate: boolean,
+  ): Promise<void> {
     if (!shouldTerminate || !chromeProcess?.pid) {
       return;
     }
@@ -291,6 +411,7 @@ export function createBrowserAgentRuntime(
           taskkill.once("exit", () => resolve());
           taskkill.once("error", () => resolve());
         });
+        await waitForChromeProcessExit(chromeProcess, 5_000);
         return;
       }
 
@@ -323,11 +444,42 @@ export function createBrowserAgentRuntime(
 
   }
 
+  async function terminateLaunchedChromeProcess(): Promise<void> {
+    const chromeProcess = launchedChromeProcess;
+    const shouldTerminate = ownsChromeProcess;
+    launchedChromeProcess = null;
+    ownsChromeProcess = false;
+
+    await terminateChromeProcess(chromeProcess, shouldTerminate);
+  }
+
   async function connectBrowser(): Promise<Browser> {
     const { chromium } = await import("playwright");
-    return attachBrowserLifecycle(
-      await chromium.connectOverCDP(`http://127.0.0.1:${activeDebugPort}`),
-    );
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        return attachBrowserLifecycle(
+          await chromium.connectOverCDP(`http://127.0.0.1:${activeDebugPort}`),
+        );
+      } catch (error) {
+        lastError = error;
+
+        if (attempt === 4) {
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+
+    throw lastError instanceof Error
+      ? new Error(
+          `Chrome exposed the debugging endpoint on port ${activeDebugPort}, but CDP attach still failed: ${lastError.message}`,
+        )
+      : new Error(
+          `Chrome exposed the debugging endpoint on port ${activeDebugPort}, but CDP attach still failed.`,
+        );
   }
 
   async function ensureBrowser(): Promise<Browser> {
@@ -381,7 +533,7 @@ export function createBrowserAgentRuntime(
         launchedChromeProcess.unref();
 
         try {
-          await waitForDebuggerEndpoint(activeDebugPort);
+          await waitForDebuggerEndpoint(activeDebugPort, launchedChromeProcess);
         } catch (error) {
           await terminateLaunchedChromeProcess().catch(() => undefined);
           throw error;
@@ -413,16 +565,15 @@ export function createBrowserAgentRuntime(
 
   async function getReadyPage(source: JobSource): Promise<Page> {
     const context = await getContext();
-    const page = await getPrimaryPage(context);
-    await page.bringToFront();
+    const page = await resolveLivePageForContext(context);
     setSessionState(
       source,
       "ready",
       "Browser profile ready",
       "The dedicated browser profile is open and ready for target-specific discovery.",
     );
-    return page;
-  }
+      return page;
+    }
 
   return {
     getSessionState(source) {
@@ -439,17 +590,22 @@ export function createBrowserAgentRuntime(
       });
     },
     async closeSession(source) {
+      const chromeProcess = launchedChromeProcess;
+      const shouldTerminateChromeProcess = ownsChromeProcess;
+      launchedChromeProcess = null;
+      ownsChromeProcess = false;
+
       try {
         if (browserPromise) {
           const browser = await browserPromise;
-          if (ownsChromeProcess) {
+          if (shouldTerminateChromeProcess) {
             await browser.close().catch(() => {});
           }
         }
       } catch {
         // Ignore browser close failures and continue process cleanup.
       } finally {
-        await terminateLaunchedChromeProcess().catch(() => {});
+        await terminateChromeProcess(chromeProcess, shouldTerminateChromeProcess).catch(() => {});
         resetBrowserConnection();
       }
 
@@ -482,44 +638,13 @@ export function createBrowserAgentRuntime(
     ): Promise<ApplyExecutionResult> {
       const startedAt = new Date().toISOString();
 
-      return Promise.resolve(ApplyExecutionResultSchema.parse({
-        state: "unsupported",
-        summary: "Apply automation is not available for generic target flows",
-        detail: `The current runtime does not submit applications automatically for '${input.job.title}'. Use the learned target guidance to continue manually.`,
-        submittedAt: null,
-        outcome: null,
-        questions: [],
-        blocker: {
-          code: "unsupported_apply_path",
-          summary: "The generic runtime does not support automated application submission.",
-          detail:
-            "Use the learned target guidance to continue this application manually.",
-          questionIds: [],
-          sourceDebugEvidenceRefIds: [],
-          url: input.job.applicationUrl ?? input.job.canonicalUrl,
-        },
-        consentDecisions: [],
-        replay: {
-          sourceInstructionArtifactId: null,
-          sourceDebugEvidenceRefIds: [],
-          lastUrl: input.job.applicationUrl ?? input.job.canonicalUrl,
-          checkpointUrls:
-            input.job.applicationUrl ?? input.job.canonicalUrl
-              ? [input.job.applicationUrl ?? input.job.canonicalUrl]
-              : [],
-        },
-        nextActionLabel: "Open the listing manually",
-        checkpoints: [
-          {
-            id: `checkpoint_${input.job.id}_generic_apply_unsupported`,
-            at: startedAt,
-            label: "Apply automation unavailable",
-            detail:
-              "This target uses the generic debugger flow, so submission stays manual until a target-agnostic apply runtime exists.",
-            state: "unsupported",
-          },
-        ],
-      }));
+      return Promise.resolve(
+        buildUnsupportedApplyResult({
+          job: input.job,
+          startedAt,
+          mode: "easy_apply",
+        }),
+      );
     },
     executeApplicationFlow(
       source,
@@ -528,45 +653,14 @@ export function createBrowserAgentRuntime(
       const startedAt = new Date().toISOString();
       const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
 
-      return Promise.resolve(ApplyExecutionResultSchema.parse({
-        state: "unsupported",
-        summary: "Apply automation is not available for generic target flows",
-        detail: input.mode === "prepare_only"
-          ? `The current runtime does not yet support review-safe apply preparation for '${input.job.title}'. Use the learned target guidance to continue manually.`
-          : `The current runtime does not submit applications automatically for '${input.job.title}'. Use the learned target guidance to continue manually.`,
-        submittedAt: null,
-        outcome: null,
-        questions: [],
-        blocker: {
-          code: "unsupported_apply_path",
-          summary: input.mode === "prepare_only"
-            ? "The generic runtime does not support review-safe apply preparation."
-            : "The generic runtime does not support automated application submission.",
-          detail:
-            "Use the learned target guidance to continue this application manually.",
-          questionIds: [],
-          sourceDebugEvidenceRefIds: [],
-          url: targetUrl,
-        },
-        consentDecisions: [],
-        replay: {
-          sourceInstructionArtifactId: null,
-          sourceDebugEvidenceRefIds: [],
-          lastUrl: targetUrl,
-          checkpointUrls: targetUrl ? [targetUrl] : [],
-        },
-        nextActionLabel: "Open the listing manually",
-        checkpoints: [
-          {
-            id: `checkpoint_${input.job.id}_generic_apply_unsupported`,
-            at: startedAt,
-            label: "Apply automation unavailable",
-            detail:
-              "This target uses the generic debugger flow, so application preparation and submission stay manual until a target-agnostic runtime exists.",
-            state: "unsupported",
-          },
-        ],
-      }));
+      return Promise.resolve(
+        buildUnsupportedApplyResult({
+          job: input.job,
+          startedAt,
+          mode: input.mode,
+          targetUrl,
+        }),
+      );
     },
     async runAgentDiscovery(
       source: JobSource,
@@ -613,6 +707,17 @@ export function createBrowserAgentRuntime(
       try {
         page = await getReadyPage(source);
 
+        if (!isWarmPageReusable({ pageUrl: page.url(), options: agentOptions })) {
+          const navigationTarget =
+            agentOptions.startingUrls.find((url) => isHttpUrlLike(url)) ??
+            agentOptions.startingUrls[0] ??
+            null;
+
+          if (navigationTarget) {
+            await page.goto(navigationTarget, { waitUntil: "domcontentloaded" });
+          }
+        }
+
         const agentConfig: AgentConfig = {
           source,
           maxSteps: agentOptions.maxSteps,
@@ -640,10 +745,20 @@ export function createBrowserAgentRuntime(
               : {}),
             ...(agentOptions.experimental ? { experimental: true } : {}),
           },
+          resolveLivePage: async () => {
+            const context = await getContext();
+            const livePage = await resolveLivePageForContext(context);
+            setSessionState(
+              source,
+              "ready",
+              "Browser profile ready",
+              "The dedicated browser profile is open and ready for target-specific discovery.",
+            );
+            return livePage;
+          },
           ...(agentOptions.compaction
             ? { compaction: agentOptions.compaction }
             : {}),
-          resolveLivePage: async () => getReadyPage(source),
           compactionCapability: {
             tokenEstimator: ({ messages, maxOutputTokens }) => {
               const estimatedInputTokens = messages.reduce((sum, message) => {

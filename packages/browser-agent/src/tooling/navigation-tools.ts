@@ -1,6 +1,7 @@
 import { isAllowedUrl } from "../allowlist";
 import type { ToolDefinition } from "../types";
 import {
+  dismissObstructiveOverlays,
   GoBackSchema,
   NavigateSchema,
   recoverFromOffAllowlist,
@@ -56,6 +57,7 @@ export const navigationTools: ToolDefinition[] = [
 
       try {
         await page.goto(url, { waitUntil: waitFor, timeout: effectiveTimeout });
+        await dismissObstructiveOverlays(page);
 
         const finalUrl = page.url();
         const loadTime = Date.now() - startTime;
@@ -174,6 +176,7 @@ Returns information about whether new content was loaded so you can decide wheth
       const { page } = context;
 
       try {
+        await dismissObstructiveOverlays(page);
         const beforeInfo = await page.evaluate(() => ({ scrollY: window.scrollY, scrollHeight: document.body.scrollHeight, clientHeight: window.innerHeight }));
         await page.evaluate((scrollAmount) => window.scrollBy(0, scrollAmount), amount);
         await page.waitForTimeout(delayMs);
@@ -208,6 +211,7 @@ Use this when search boxes, filters, or header controls may be above the current
       const { page } = context;
 
       try {
+        await dismissObstructiveOverlays(page);
         const beforeInfo = await page.evaluate(() => ({ scrollY: window.scrollY, scrollHeight: document.body.scrollHeight, clientHeight: window.innerHeight }));
         await page.evaluate(() => window.scrollTo(0, 0));
         await page.waitForTimeout(delayMs);
@@ -236,6 +240,7 @@ Use this after viewing a job detail to return to search results.`,
         const previousUrl = state.currentUrl;
         await page.goBack({ waitUntil: "domcontentloaded", timeout: 10000 });
         await page.waitForTimeout(1000);
+        await dismissObstructiveOverlays(page);
         const newUrl = page.url();
         const urlChanged = previousUrl !== newUrl;
 

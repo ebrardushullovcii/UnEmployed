@@ -11,7 +11,12 @@ import {
   summarizeClickFailure,
   syncFailedInteractionAttemptsWithPageState,
 } from "./interaction-state";
-import { ClickSchema, recoverFromOffAllowlist, resolveRoleLocator } from "./shared";
+import {
+  ClickSchema,
+  dismissObstructiveOverlays,
+  recoverFromOffAllowlist,
+  resolveRoleLocator,
+} from "./shared";
 
 async function clickCheckboxWithLabelFallback(locator: Locator): Promise<boolean> {
   const inputId = await locator.getAttribute("id").catch(() => null);
@@ -106,6 +111,7 @@ If the click fails, you'll get details about why so you can decide whether to re
     }
 
     try {
+      await dismissObstructiveOverlays(page);
       const locator = await resolveRoleLocator(page, role, name, index);
       const isVisible = await locator.isVisible().catch(() => false);
       if (!isVisible && retryIfNotVisible) {

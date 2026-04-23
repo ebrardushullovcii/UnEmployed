@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../types";
 import {
+  dismissObstructiveOverlays,
   mergeInteractiveElementCandidates,
   parseInteractiveElementsFromAriaSnapshot,
   prioritizeInteractiveElements,
@@ -21,6 +22,7 @@ Note: If multiple elements have the same role and name, use the index (0-based) 
     const { page } = context;
 
     try {
+      await dismissObstructiveOverlays(page);
       const snapshot = await page.locator("body").ariaSnapshot().catch(() => "");
       const ariaElements = snapshot ? parseInteractiveElementsFromAriaSnapshot(snapshot) : [];
       const domElements = await page.evaluate(() => {
