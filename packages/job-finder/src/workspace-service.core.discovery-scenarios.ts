@@ -11,8 +11,10 @@ import {
   createAgentBrowserRuntime,
   createAiClient,
   createSeed,
+  createSourceInstructionArtifact,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
+import { vi } from "vitest";
 
 function createDiscoveryOnlySeed() {
   return {
@@ -235,6 +237,136 @@ describe("createJobFinderWorkspaceService", () => {
     expect(
       snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.timing?.eventCount,
     ).toBeGreaterThan(0);
+  });
+
+  test("agent discovery streams sampled title-triage skips when all candidates are rejected", async () => {
+    const seed = {
+      ...createDiscoveryOnlySeed(),
+      profile: {
+        ...createDiscoveryOnlySeed().profile,
+        headline: "Senior Full-Stack Software Engineer",
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
+      },
+      searchPreferences: {
+        ...createDiscoveryOnlySeed().searchPreferences,
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
+      },
+    };
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      runAgentDiscovery(source) {
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "LinkedIn discovery triage sample run",
+          warning: null,
+          jobs: [
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: "frontend_1",
+              discoveryMethod: "browser_agent",
+              collectionMethod: "listing_route",
+              canonicalUrl: "https://www.linkedin.com/jobs/view/frontend_1",
+              title: "Senior Frontend Engineer",
+              company: "Fresha",
+              location: "Prishtina, Kosovo",
+              workMode: ["onsite"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              postedAt: "2026-03-20T09:00:00.000Z",
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:04:00.000Z",
+              salaryText: null,
+              summary: "Frontend role",
+              description: "Frontend role",
+              keySkills: [],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            }),
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: "ai_1",
+              discoveryMethod: "browser_agent",
+              collectionMethod: "listing_route",
+              canonicalUrl: "https://www.linkedin.com/jobs/view/ai_1",
+              title: "Software Engineer - AI products",
+              company: "Quik Hire Staffing",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              postedAt: "2026-03-20T09:00:00.000Z",
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:04:00.000Z",
+              salaryText: null,
+              summary: "AI role",
+              description: "AI role",
+              keySkills: [],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            }),
+          ],
+          agentMetadata: {
+            steps: 4,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+    const streamedEvents: DiscoveryActivityEvent[] = [];
+
+    await workspaceService.runAgentDiscovery(
+      (event) => {
+        streamedEvents.push(event);
+      },
+      new AbortController().signal,
+    );
+
+    const collectionEvent = streamedEvents.find(
+      (event) => event.stage === "extraction" && event.message.includes("Collected 2 candidate jobs"),
+    );
+    const scoringEvent = streamedEvents.find(
+      (event) => event.stage === "scoring" && event.message.includes("Reviewing 0 promising jobs"),
+    );
+
+    expect(collectionEvent?.message).toContain('"Senior Frontend Engineer at Fresha"');
+    expect(collectionEvent?.message).toContain('"Software Engineer - AI products at Quik Hire Staffing"');
+    expect(scoringEvent?.message).toContain("Title triage skipped 2");
+    expect(scoringEvent?.message).toContain(
+      '"Senior Frontend Engineer at Fresha -> Title is outside the current target roles."',
+    );
   });
 
   test("agent discovery persists lightweight compaction metadata without persisting raw transcripts on target executions", async () => {
@@ -467,9 +599,107 @@ describe("createJobFinderWorkspaceService", () => {
     expect(capturedBudgets).toEqual([
       { targetJobCount: 7, maxSteps: 42 },
       { targetJobCount: 7, maxSteps: 42 },
-      { targetJobCount: 6, maxSteps: 36 },
+      { targetJobCount: 6, maxSteps: 20 },
     ]);
     expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(20);
+  });
+
+  test("single-target agent discovery uses a tighter product budget", async () => {
+    const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      runAgentDiscovery(source, options) {
+        capturedBudgets.push({
+          targetJobCount: options.targetJobCount,
+          maxSteps: options.maxSteps,
+        });
+
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Single-target budgeted discovery test run",
+          warning: null,
+          jobs: [],
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        });
+      },
+    };
+
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createDiscoveryOnlySeed(),
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+      "target_linkedin_default",
+    );
+
+    expect(capturedBudgets).toEqual([{ targetJobCount: 8, maxSteps: 24 }]);
+  });
+
+  test("single-target agent discovery passes the provider-aware LinkedIn query-first starting url", async () => {
+    const capturedStartingUrls: string[][] = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      runAgentDiscovery(source, options) {
+        capturedStartingUrls.push([...options.startingUrls]);
+
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Query-first discovery test run",
+          warning: null,
+          jobs: [],
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        });
+      },
+    };
+
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createDiscoveryOnlySeed(),
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+      "target_linkedin_default",
+    );
+
+    expect(capturedStartingUrls).toEqual([
+      [
+        "https://www.linkedin.com/jobs/search/?keywords=Workflow+engineer&location=Remote",
+        "https://www.linkedin.com/jobs/search/",
+      ],
+    ]);
   });
 
   test("agent discovery merge uses deterministic fit scoring without model fit calls", async () => {
@@ -629,6 +859,166 @@ describe("createJobFinderWorkspaceService", () => {
       "skipped",
       "skipped",
     ]);
+  });
+
+  test("agent discovery prioritizes API-backed and better-seeded targets before weaker browser targets", async () => {
+    const seed = createDiscoveryOnlySeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_browser_missing",
+        label: "Missing Browser Target",
+        startingUrl: "https://example.com/careers",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_greenhouse_remote",
+        label: "Greenhouse Target",
+        startingUrl: "https://job-boards.greenhouse.io/remote",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_browser_validated",
+        label: "Validated Browser Target",
+        startingUrl: "https://example.com/jobs/",
+        instructionStatus: "validated",
+        validatedInstructionId: "instruction_browser_validated",
+      },
+    ];
+    seed.sourceInstructionArtifacts = [
+      createSourceInstructionArtifact({
+        id: "instruction_browser_validated",
+        targetId: "target_browser_validated",
+        status: "validated",
+        createdAt: "2026-03-20T10:04:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+        acceptedAt: "2026-03-20T10:06:00.000Z",
+        basedOnRunId: "debug_run_browser_validated",
+        basedOnAttemptIds: ["debug_attempt_browser_validated"],
+        notes: "Use the learned jobs search route before the generic landing page.",
+        navigationGuidance: [],
+        searchGuidance: [],
+        detailGuidance: [],
+        applyGuidance: [],
+        warnings: [],
+        versionInfo: {
+          promptProfileVersion: "v1",
+          toolsetVersion: "v1",
+          adapterVersion: "v1",
+          appSchemaVersion: "v1",
+        },
+        verification: {
+          id: "verification_browser_validated",
+          replayRunId: "debug_run_browser_validated_replay",
+          verifiedAt: "2026-03-20T10:07:00.000Z",
+          outcome: "passed",
+          proofSummary: "Replay succeeded.",
+          reason: null,
+          versionInfo: {
+            promptProfileVersion: "v1",
+            toolsetVersion: "v1",
+            adapterVersion: "v1",
+            appSchemaVersion: "v1",
+          },
+        },
+        intelligence: {
+          provider: null,
+          collection: {
+            preferredMethod: "listing_route",
+            rankedMethods: ["listing_route", "careers_page", "fallback_search"],
+            startingRoutes: [
+              {
+                url: "https://example.com/jobs/",
+                label: "Jobs landing route",
+                kind: "listing",
+                confidence: 0.86,
+              },
+            ],
+            searchRouteTemplates: [
+              {
+                url: "https://example.com/jobs/search",
+                label: "Learned jobs search route",
+                kind: "search",
+                confidence: 0.95,
+              },
+            ],
+            detailRoutePatterns: [],
+            listingMarkers: [],
+          },
+          apply: {
+            applyPath: "unknown",
+            authMarkers: [],
+            consentMarkers: [],
+            questionSurfaceHints: [],
+            resumeUploadHints: [],
+          },
+          reliability: {
+            selectorFingerprints: [],
+            stableControlNames: [],
+            failureFingerprints: [],
+            verifiedAt: null,
+            freshnessNotes: [],
+          },
+          overrides: {
+            forceMethod: null,
+            deniedRoutePatterns: [],
+            extraStartingRoutes: [],
+          },
+        },
+      }),
+    ];
+
+    const baseAgentRuntime = createAgentBrowserRuntime([]);
+    const requestedLabels: string[] = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseAgentRuntime,
+      runAgentDiscovery(source, options) {
+        requestedLabels.push(options.siteLabel);
+        return baseAgentRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          jobs: [
+            {
+              id: 4622190,
+              title: "API-first role",
+              absolute_url: "https://job-boards.greenhouse.io/remote/jobs/4622190",
+              location: { name: "Remote" },
+              updated_at: "2026-03-20T10:00:00.000Z",
+              content: "<p>Collect this through the provider API.</p>",
+            },
+          ],
+        }),
+    } as Response);
+
+    try {
+      const { workspaceService } = createWorkspaceServiceHarness({
+        seed,
+        browserRuntime,
+        aiClient: createAgentAiClient(),
+      });
+
+      const snapshot = await workspaceService.runAgentDiscovery(
+        () => {},
+        new AbortController().signal,
+      );
+
+      expect(snapshot.recentDiscoveryRuns[0]?.targetIds).toEqual([
+        "target_greenhouse_remote",
+        "target_browser_validated",
+        "target_browser_missing",
+      ]);
+      expect(requestedLabels).toEqual([
+        "Validated Browser Target",
+        "Missing Browser Target",
+      ]);
+      expect(fetchSpy).toHaveBeenCalledOnce();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   test("single-target discovery only runs the requested source", async () => {

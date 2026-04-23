@@ -183,10 +183,10 @@ describe('playwright browser runtime utils', () => {
   test('does not warm-reuse 404 or detail-only pages for later discovery runs', () => {
     expect(
       isWarmPageReusable({
-        pageUrl: 'https://jobs.example.com/404',
+        pageUrl: 'https://kosovajob.com/404',
         options: {
-          startingUrls: ['https://jobs.example.com/'],
-          navigationHostnames: ['jobs.example.com'],
+          startingUrls: ['https://kosovajob.com/'],
+          navigationHostnames: ['kosovajob.com'],
           relevantUrlSubstrings: ['jobs', 'search'],
         },
       }),
@@ -194,10 +194,10 @@ describe('playwright browser runtime utils', () => {
 
     expect(
       isWarmPageReusable({
-        pageUrl: 'https://careers.example.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce',
+        pageUrl: 'https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce',
         options: {
-          startingUrls: ['https://careers.example.com/'],
-          navigationHostnames: ['careers.example.com'],
+          startingUrls: ['https://kosovajob.com/'],
+          navigationHostnames: ['kosovajob.com'],
           relevantUrlSubstrings: ['jobs', 'search'],
         },
       }),
@@ -207,11 +207,11 @@ describe('playwright browser runtime utils', () => {
   test('warm-reuses normalized matching starting urls', () => {
     expect(
       isWarmPageReusable({
-        pageUrl: 'https://jobs.example.com/search/?keywords=frontend&currentJobId=123#top',
+        pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=frontend&currentJobId=123#top',
         options: {
-          startingUrls: ['https://jobs.example.com/search/?keywords=frontend'],
-          navigationHostnames: ['jobs.example.com'],
-          relevantUrlSubstrings: ['search'],
+          startingUrls: ['https://www.linkedin.com/jobs/search/?keywords=frontend'],
+          navigationHostnames: ['www.linkedin.com'],
+          relevantUrlSubstrings: ['jobs/search'],
         },
       }),
     ).toBe(true)

@@ -44,19 +44,186 @@ const locationNoiseTokens = new Set([
   "global",
 ]);
 
+function cleanTitleMatchCandidate(value: string): string {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  if (!collapsed) {
+    return "";
+  }
+
+  const dismissMatch = collapsed.match(/\bdismiss\s+(.+?)\s+job\b/i);
+  const candidate = dismissMatch?.[1] ?? collapsed;
+
+  return candidate
+    .replace(/\(verified job\)/gi, " ")
+    .replace(/\bverified job\b/gi, " ")
+    .replace(/\b\d+\s+connection(?:s)?\s+works\s+here\b/gi, " ")
+    .replace(/\b\d+\s+school alumni\b/gi, " ")
+    .replace(/\b(viewed|promoted)\b.*$/i, " ")
+    .replace(/\s*[•·|]\s*$/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getTitleMatchCandidateVariants(value: string): string[] {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  const cleaned = cleanTitleMatchCandidate(value);
+
+  if (!cleaned || cleaned === collapsed) {
+    return collapsed ? [collapsed] : [];
+  }
+
+  return [cleaned, collapsed];
+}
+
+function normalizePhraseMatchInput(value: string, mode: PhraseMatchMode): string {
+  const normalized = value
+    .replace(/\bfullstack\b/gi, "full stack")
+    .replace(/\bfront\s*end\b/gi, "frontend")
+    .replace(/\bback\s*end\b/gi, "backend");
+
+  if (mode !== "location") {
+    return normalized;
+  }
+
+  return normalized
+    .replace(/\bon\s*site\b/gi, "onsite")
+    .replace(/\bwork\s+from\s+home\b/gi, "remote");
+}
+
+function tokenizePhraseMatchValue(
+  value: string,
+  mode: PhraseMatchMode,
+): string[] {
+  const tokens = tokenize(normalizePhraseMatchInput(value, mode)).flatMap((token) => {
+    if (mode === "location" && locationNoiseTokens.has(token)) {
+      return [];
+    }
+
+    if (mode === "title") {
+      return [titleTokenAliases.get(token) ?? token];
+    }
+
+    return [token];
+  });
+
+  return [...new Set(tokens)];
+}
+
+function isRemoteOnlyLocation(value: string): boolean {
+  const normalized = normalizePhraseMatchInput(value, "location");
+  if (!normalized) {
+    return false;
+  }
+
+  const genericTokens = tokenizePhraseMatchValue(value, "generic");
+  const locationTokens = tokenizePhraseMatchValue(value, "location");
+
+  return (
+    locationTokens.length === 0 &&
+    genericTokens.length > 0 &&
+    genericTokens.every((token) => locationNoiseTokens.has(token))
+  );
+}
+
+function isEditDistanceAtMostOne(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftLength = left.length;
+  const rightLength = right.length;
+  if (Math.abs(leftLength - rightLength) > 1) {
+    return false;
+  }
+
+  let leftIndex = 0;
+  let rightIndex = 0;
+  let mismatchCount = 0;
+
+  while (leftIndex < leftLength && rightIndex < rightLength) {
+    if (left[leftIndex] === right[rightIndex]) {
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+
+    mismatchCount += 1;
+    if (mismatchCount > 1) {
+      return false;
+    }
+
+    if (leftLength > rightLength) {
+      leftIndex += 1;
+      continue;
+    }
+
+    if (rightLength > leftLength) {
+      rightIndex += 1;
+      continue;
+    }
+
+    leftIndex += 1;
+    rightIndex += 1;
+  }
+
+  if (leftIndex < leftLength || rightIndex < rightLength) {
+    mismatchCount += 1;
+  }
+
+  return mismatchCount <= 1;
+}
+
+function phraseMatchTokensEqual(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.length < 6 || right.length < 6) {
+    return false;
+  }
+
+  return isEditDistanceAtMostOne(left, right);
+}
+
+function everyPhraseTokenMatches(
+  sourceTokens: readonly string[],
+  targetTokens: readonly string[],
+): boolean {
+  return sourceTokens.every((sourceToken) =>
+    targetTokens.some((targetToken) =>
+      phraseMatchTokensEqual(sourceToken, targetToken),
+    ),
+  );
+}
+
+function countMatchedPhraseTokens(
+  desiredTokens: readonly string[],
+  candidateTokens: readonly string[],
+): number {
+  const remainingCandidateTokens = [...candidateTokens];
+  let matchedCount = 0;
+
+  for (const desiredToken of desiredTokens) {
+    const matchedIndex = remainingCandidateTokens.findIndex((candidateToken) =>
+      phraseMatchTokensEqual(desiredToken, candidateToken),
+    );
+
+    if (matchedIndex === -1) {
+      continue;
+    }
+
+    matchedCount += 1;
+    remainingCandidateTokens.splice(matchedIndex, 1);
+  }
+
+  return matchedCount;
+}
+
 const remoteGeographyHints = [
   { pattern: /\b(united states|u\.s\.|u\.s|us only|usa only)\b/i, label: "United States" },
   { pattern: /\b(united kingdom|uk only|u\.k\.)\b/i, label: "United Kingdom" },
   { pattern: /\b(european union|europe|eu only)\b/i, label: "Europe" },
   { pattern: /\b(canada|canadian)\b/i, label: "Canada" },
-] as const;
-
-const ATS_PROVIDER_URL_PATTERNS = [
-  { label: "Greenhouse", fragments: ["greenhouse.io"] },
-  { label: "Lever", fragments: ["lever.co"] },
-  { label: "Workday", fragments: ["myworkdayjobs.com", "workday"] },
-  { label: "Ashby", fragments: ["ashbyhq.com", "ashby"] },
-  { label: "iCIMS", fragments: ["icims.com"] },
 ] as const;
 
 
@@ -83,10 +250,20 @@ function detectAtsProvider(posting: JobPosting): string | null {
   for (const value of urlCandidates) {
     const normalized = value.toLowerCase();
 
-    for (const provider of ATS_PROVIDER_URL_PATTERNS) {
-      if (provider.fragments.some((fragment) => normalized.includes(fragment))) {
-        return provider.label;
-      }
+    if (normalized.includes("greenhouse.io")) {
+      return "Greenhouse";
+    }
+    if (normalized.includes("lever.co")) {
+      return "Lever";
+    }
+    if (normalized.includes("myworkdayjobs.com") || normalized.includes("workday")) {
+      return "Workday";
+    }
+    if (normalized.includes("ashbyhq.com") || normalized.includes("ashby")) {
+      return "Ashby";
+    }
+    if (normalized.includes("icims.com")) {
+      return "iCIMS";
     }
   }
 
@@ -265,181 +442,6 @@ function enrichDiscoveredPosting(
   };
 }
 
-function cleanTitleMatchCandidate(value: string): string {
-  const collapsed = value.replace(/\s+/g, " ").trim();
-  if (!collapsed) {
-    return "";
-  }
-
-  const dismissMatch = collapsed.match(/\bdismiss\s+(.+?)\s+job\b/i);
-  const candidate = dismissMatch?.[1] ?? collapsed;
-
-  return candidate
-    .replace(/\(verified job\)/gi, " ")
-    .replace(/\bverified job\b/gi, " ")
-    .replace(/\b\d+\s+connection(?:s)?\s+works\s+here\b/gi, " ")
-    .replace(/\b\d+\s+school alumni\b/gi, " ")
-    .replace(/\b(viewed|promoted)\b.*$/i, " ")
-    .replace(/\s*[•·|]\s*$/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getTitleMatchCandidateVariants(value: string): string[] {
-  const collapsed = value.replace(/\s+/g, " ").trim();
-  const cleaned = cleanTitleMatchCandidate(value);
-
-  if (!cleaned || cleaned === collapsed) {
-    return collapsed ? [collapsed] : [];
-  }
-
-  return [cleaned, collapsed];
-}
-
-function normalizePhraseMatchInput(value: string, mode: PhraseMatchMode): string {
-  const normalized = value
-    .replace(/\bfullstack\b/gi, "full stack")
-    .replace(/\bfront\s*end\b/gi, "frontend")
-    .replace(/\bback\s*end\b/gi, "backend");
-
-  if (mode !== "location") {
-    return normalized;
-  }
-
-  return normalized
-    .replace(/\bon\s*site\b/gi, "onsite")
-    .replace(/\bwork\s+from\s+home\b/gi, "remote");
-}
-
-function tokenizePhraseMatchValue(
-  value: string,
-  mode: PhraseMatchMode,
-): string[] {
-  const tokens = tokenize(normalizePhraseMatchInput(value, mode)).flatMap((token) => {
-    if (mode === "location" && locationNoiseTokens.has(token)) {
-      return [];
-    }
-
-    if (mode === "title") {
-      return [titleTokenAliases.get(token) ?? token];
-    }
-
-    return [token];
-  });
-
-  return [...new Set(tokens)];
-}
-
-function isRemoteOnlyLocation(value: string): boolean {
-  const normalized = normalizePhraseMatchInput(value, "location");
-  if (!normalized) {
-    return false;
-  }
-
-  const genericTokens = tokenizePhraseMatchValue(value, "generic");
-  const locationTokens = tokenizePhraseMatchValue(value, "location");
-
-  return (
-    locationTokens.length === 0 &&
-    genericTokens.length > 0 &&
-    genericTokens.every((token) => locationNoiseTokens.has(token))
-  );
-}
-
-function isEditDistanceAtMostOne(left: string, right: string): boolean {
-  if (left === right) {
-    return true;
-  }
-
-  const leftLength = left.length;
-  const rightLength = right.length;
-  if (Math.abs(leftLength - rightLength) > 1) {
-    return false;
-  }
-
-  let leftIndex = 0;
-  let rightIndex = 0;
-  let mismatchCount = 0;
-
-  while (leftIndex < leftLength && rightIndex < rightLength) {
-    if (left[leftIndex] === right[rightIndex]) {
-      leftIndex += 1;
-      rightIndex += 1;
-      continue;
-    }
-
-    mismatchCount += 1;
-    if (mismatchCount > 1) {
-      return false;
-    }
-
-    if (leftLength > rightLength) {
-      leftIndex += 1;
-      continue;
-    }
-
-    if (rightLength > leftLength) {
-      rightIndex += 1;
-      continue;
-    }
-
-    leftIndex += 1;
-    rightIndex += 1;
-  }
-
-  if (leftIndex < leftLength || rightIndex < rightLength) {
-    mismatchCount += 1;
-  }
-
-  return mismatchCount <= 1;
-}
-
-function phraseMatchTokensEqual(left: string, right: string): boolean {
-  if (left === right) {
-    return true;
-  }
-
-  if (left.length < 6 || right.length < 6) {
-    return false;
-  }
-
-  return isEditDistanceAtMostOne(left, right);
-}
-
-function everyPhraseTokenMatches(
-  sourceTokens: readonly string[],
-  targetTokens: readonly string[],
-): boolean {
-  return sourceTokens.every((sourceToken) =>
-    targetTokens.some((targetToken) =>
-      phraseMatchTokensEqual(sourceToken, targetToken),
-    ),
-  );
-}
-
-function countMatchedPhraseTokens(
-  desiredTokens: readonly string[],
-  candidateTokens: readonly string[],
-): number {
-  const remainingCandidateTokens = [...candidateTokens];
-  let matchedCount = 0;
-
-  for (const desiredToken of desiredTokens) {
-    const matchedIndex = remainingCandidateTokens.findIndex((candidateToken) =>
-      phraseMatchTokensEqual(desiredToken, candidateToken),
-    );
-
-    if (matchedIndex === -1) {
-      continue;
-    }
-
-    matchedCount += 1;
-    remainingCandidateTokens.splice(matchedIndex, 1);
-  }
-
-  return matchedCount;
-}
-
 export function matchesAnyPhrase(
   candidate: string,
   desiredValues: readonly string[],
@@ -478,9 +480,9 @@ export function matchesAnyPhrase(
 
 export function matchesTitlePreference(
   candidate: string,
-  targetRoles: readonly string[],
+  desiredValues: readonly string[],
 ): boolean {
-  if (targetRoles.length === 0) {
+  if (desiredValues.length === 0) {
     return true;
   }
 
@@ -488,8 +490,8 @@ export function matchesTitlePreference(
     const candidateTokens = tokenizePhraseMatchValue(candidateVariant, "title");
     const normalizedCandidate = candidateTokens.join(" ");
 
-    return targetRoles.some((targetRole) => {
-      const desiredTokens = tokenizePhraseMatchValue(targetRole, "title");
+    return desiredValues.some((desiredValue) => {
+      const desiredTokens = tokenizePhraseMatchValue(desiredValue, "title");
 
       if (desiredTokens.length === 0) {
         return false;
@@ -532,9 +534,9 @@ export function matchesTitlePreference(
 
 export function matchesLocationPreference(
   candidate: string,
-  locations: readonly string[],
+  desiredValues: readonly string[],
 ): boolean {
-  if (locations.length === 0) {
+  if (desiredValues.length === 0) {
     return true;
   }
 
@@ -546,9 +548,9 @@ export function matchesLocationPreference(
     return true;
   }
 
-  return locations.some((location) => {
-    const desiredTokens = tokenizePhraseMatchValue(location, "location");
-    const fallbackDesiredTokens = tokenizePhraseMatchValue(location, "generic");
+  return desiredValues.some((desiredValue) => {
+    const desiredTokens = tokenizePhraseMatchValue(desiredValue, "location");
+    const fallbackDesiredTokens = tokenizePhraseMatchValue(desiredValue, "generic");
 
     if (desiredTokens.length === 0) {
       if (fallbackDesiredTokens.length === 0) {

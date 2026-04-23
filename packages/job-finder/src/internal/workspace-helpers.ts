@@ -18,7 +18,11 @@ import {
   type SourceInstructionArtifact,
   type TailoredAsset,
 } from "@unemployed/contracts";
-import { filterSourceInstructionLines, prefixedLines } from "./source-instructions";
+import {
+  filterDiscoveryInstructionLines,
+  filterSourceInstructionLines,
+  prefixedLines,
+} from "./source-instructions";
 import { uniqueStrings } from "./shared";
 import {
   DEFAULT_MAX_TARGET_ROLES,
@@ -268,7 +272,34 @@ export function buildInstructionGuidance(
 export function buildDiscoveryInstructionGuidance(
   artifact: SourceInstructionArtifact | null,
 ): string[] {
-  return buildInstructionGuidance(artifact);
+  if (!artifact) {
+    return [];
+  }
+
+  const artifactProviderKey = artifact.intelligence.provider?.key ?? null;
+  const navigationLines = filterDiscoveryInstructionLines({
+    values: artifact.navigationGuidance,
+    artifactProviderKey,
+  });
+  const searchLines = filterDiscoveryInstructionLines({
+    values: artifact.searchGuidance,
+    artifactProviderKey,
+  });
+  const detailLines = filterDiscoveryInstructionLines({
+    values: artifact.detailGuidance,
+    artifactProviderKey,
+  });
+  const applyLines = filterDiscoveryInstructionLines({
+    values: artifact.applyGuidance,
+    artifactProviderKey,
+  });
+
+  return uniqueStrings([
+    ...prefixedLines("[Navigation] ", navigationLines),
+    ...prefixedLines("[Search] ", searchLines),
+    ...prefixedLines("[Detail] ", detailLines),
+    ...prefixedLines("[Apply] ", applyLines),
+  ]);
 }
 
 export function resolveActiveSourceInstructionArtifact(

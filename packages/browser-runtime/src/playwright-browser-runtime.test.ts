@@ -3,17 +3,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type * as ChildProcessModule from "node:child_process";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const spawnMock = vi.fn();
 const execFileMock = vi.fn();
 const connectOverCDPMock = vi.fn();
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
-type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
 vi.mock("node:child_process", async () => {
-  const actual = await vi.importActual<typeof ChildProcessModule>("node:child_process");
+  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
   return {
     ...actual,
     execFile: execFileMock,
@@ -155,10 +153,9 @@ describe("playwright browser runtime", () => {
         pages: () => [fakePage],
       };
       const fakeBrowser = {
-        close: vi.fn(() => {
+        close: vi.fn(async () => {
           disconnectedHandler?.();
           launchedChromeProcess.kill();
-          return Promise.resolve();
         }),
         contexts: () => [fakeContext],
         isConnected: () => true,
@@ -173,23 +170,23 @@ describe("playwright browser runtime", () => {
       let debuggerReadyChecks = 0;
       vi.stubGlobal(
         "fetch",
-        vi.fn(() => {
+        vi.fn(async () => {
           debuggerReadyChecks += 1;
           if (debuggerReadyChecks === 1) {
             throw new Error("debugger not ready yet");
           }
 
-          return Promise.resolve({
+          return {
             ok: true,
-            json: () => Promise.resolve({}),
-          } as Response);
+            json: async () => ({}),
+          } as Response;
         }),
       );
 
       execFileMock.mockImplementation((...args: unknown[]) => {
         const callback = args[args.length - 1];
         if (typeof callback === "function") {
-          (callback as ExecFileCallback)(null, "[]", "");
+          callback(null, "[]", "");
         }
       });
 
@@ -254,10 +251,9 @@ describe("playwright browser runtime", () => {
         pages: () => [fakePage],
       };
       const fakeBrowser = {
-        close: vi.fn(() => {
+        close: vi.fn(async () => {
           disconnectedHandler?.();
           launchedChromeProcess.kill();
-          return Promise.resolve();
         }),
         contexts: () => [fakeContext],
         isConnected: () => true,
@@ -272,23 +268,23 @@ describe("playwright browser runtime", () => {
       let debuggerReadyChecks = 0;
       vi.stubGlobal(
         "fetch",
-        vi.fn(() => {
+        vi.fn(async () => {
           debuggerReadyChecks += 1;
           if (debuggerReadyChecks === 1) {
             throw new Error("debugger not ready yet");
           }
 
-          return Promise.resolve({
+          return {
             ok: true,
-            json: () => Promise.resolve({}),
-          } as Response);
+            json: async () => ({}),
+          } as Response;
         }),
       );
 
       execFileMock.mockImplementation((...args: unknown[]) => {
         const callback = args[args.length - 1];
         if (typeof callback === "function") {
-          (callback as ExecFileCallback)(null, "[]", "");
+          callback(null, "[]", "");
         }
       });
 

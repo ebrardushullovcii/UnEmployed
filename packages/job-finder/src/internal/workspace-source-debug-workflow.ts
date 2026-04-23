@@ -39,8 +39,9 @@ import {
   deriveSourceDebugStartingUrls,
   getSourceDebugMaxSteps,
   getSourceDebugTargetJobCount,
-  resolveSourceDebugPhases,
   resolveSourceDebugCompletion,
+  resolveSourceDebugPhases,
+  shouldFinishSourceDebugEarly,
   synthesizeSourceInstructionArtifact,
 } from "./workspace-service-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
@@ -166,13 +167,12 @@ export async function runSourceDebugWorkflow(
     );
   }
 
+  const adapterKind = resolveAdapterKind(normalizedTarget);
+  const adapter = discoveryAdapters[adapterKind];
   const sourceDebugPhases = resolveSourceDebugPhases({
     target: normalizedTarget,
     instructionArtifact: reviewInstructionArtifact ?? preservedRouteHintArtifact,
   });
-  const firstSourceDebugPhase = sourceDebugPhases[0] ?? "access_auth_probe";
-  const adapterKind = resolveAdapterKind(normalizedTarget);
-  const adapter = discoveryAdapters[adapterKind];
   const runId = `source_debug_${normalizedTarget.id}_${Date.now()}`;
   const progressEvents: SourceDebugProgressEvent[] = [];
   const emitProgress = buildSourceDebugProgressEmitter({
@@ -195,7 +195,7 @@ export async function runSourceDebugWorkflow(
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     completedAt: null,
-    activePhase: firstSourceDebugPhase,
+    activePhase: sourceDebugPhases[0] ?? null,
     phases: sourceDebugPhases,
     targetLabel: normalizedTarget.label,
     targetUrl: normalizedTarget.startingUrl,
@@ -230,6 +230,8 @@ export async function runSourceDebugWorkflow(
   let browserSetupMs: number | null = null;
   let finalReviewMs: number | null = null;
   let finalizationMs: number | null = null;
+  let shouldKeepBrowserSessionOpen = false;
+  let finishedEarlyAfterUsefulDraft = false;
 
   try {
     const browserSetupStartedAtMs = Date.now();
@@ -286,6 +288,7 @@ export async function runSourceDebugWorkflow(
           normalizedTarget,
           phaseStartingUrlArtifact,
           phase,
+          searchPreferences,
         );
         const currentRunHasDistinctRouteHint = currentRouteHintStartingUrls.some(
           (url) => url !== normalizedTarget.startingUrl,
@@ -296,6 +299,7 @@ export async function runSourceDebugWorkflow(
                 normalizedTarget,
                 preservedRouteHintArtifact,
                 phase,
+                searchPreferences,
               )
             : [];
         const phaseStartingUrls = uniqueStrings(
@@ -305,6 +309,20 @@ export async function runSourceDebugWorkflow(
         ).filter(Boolean);
         const phasePrimaryStartingUrl =
           phaseStartingUrls[0] ?? normalizedTarget.startingUrl;
+        const phaseHasLearnedRouteHints = phaseStartingUrls.some(
+          (url) => url !== normalizedTarget.startingUrl,
+        );
+        const phaseHasExistingInstructionArtifact = Boolean(
+          phaseInstructionArtifact ??
+            phaseStartingUrlArtifact ??
+            preservedRouteHintArtifact,
+        );
+        const phaseMaxSteps = getSourceDebugMaxSteps(phase, {
+          hasLearnedRouteHints: phaseHasLearnedRouteHints,
+          hasPriorPhaseSummary:
+            phasePacket.priorPhaseSummary !== null || phasePacket.knownFacts.length > 0,
+          hasExistingInstructionArtifact: phaseHasExistingInstructionArtifact,
+        });
         const debugResult = await ctx.browserRuntime.runAgentDiscovery?.(adapterKind, {
           userProfile: profile,
           searchPreferences: {
@@ -315,15 +333,7 @@ export async function runSourceDebugWorkflow(
             locations: searchPreferences.locations,
           },
           targetJobCount: getSourceDebugTargetJobCount(phase),
-          maxSteps: getSourceDebugMaxSteps(phase, {
-            hasLearnedRouteHints: phaseStartingUrls.some(
-              (url) => url !== normalizedTarget.startingUrl,
-            ),
-            hasPriorPhaseSummary: run.phaseSummaries.length > 0,
-            hasExistingInstructionArtifact: Boolean(
-              reviewInstructionArtifact ?? preservedRouteHintArtifact,
-            ),
-          }),
+          maxSteps: phaseMaxSteps,
           startingUrls: phaseStartingUrls,
           siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
           navigationHostnames: [targetUrl.hostname],
@@ -342,6 +352,7 @@ export async function runSourceDebugWorkflow(
           taskPacket: phasePacket,
           compaction: sourceDebugCompactionPolicy,
           modelContextWindowTokens: modelContextWindowTokensSnapshot,
+          compactionWorkflowKey: "source_debug_worker",
           relevantUrlSubstrings: adapter.relevantUrlSubstrings,
           experimental: adapter.experimental,
           skipSessionValidation: true,
@@ -408,9 +419,7 @@ export async function runSourceDebugWorkflow(
           ),
         ];
 
-        for (const evidenceRef of evidenceRefs) {
-          await ctx.repository.upsertSourceDebugEvidenceRef(evidenceRef);
-        }
+        await ctx.repository.upsertSourceDebugEvidenceRefs(evidenceRefs);
 
         const applyReadyCount = debugResult.jobs.filter(
           (job) => job.applyPath !== "unknown" || job.easyApplyEligible,
@@ -558,9 +567,21 @@ export async function runSourceDebugWorkflow(
           reviewTranscript: [...(debugResult.agentMetadata?.reviewTranscript ?? [])],
         });
 
+        const shouldStopEarly = shouldFinishSourceDebugEarly({
+          attempts: [...attempts, artifact],
+          currentPhase: phase,
+        });
+
+        if (shouldStopEarly) {
+          finishedEarlyAfterUsefulDraft = true;
+        }
+
         return {
           artifact,
-          stop: outcome === "blocked_auth" || outcome === "blocked_manual_step",
+          stop:
+            outcome === "blocked_auth" ||
+            outcome === "blocked_manual_step" ||
+            shouldStopEarly,
         };
       },
       afterPhase: async (phase, _index, attempt) => {
@@ -576,6 +597,7 @@ export async function runSourceDebugWorkflow(
           attempt.outcome === "blocked_auth" ||
           attempt.outcome === "blocked_manual_step"
         ) {
+          shouldKeepBrowserSessionOpen = true;
           emitProgress({
             phase,
             waitReason: "manual_prerequisite",
@@ -658,6 +680,9 @@ export async function runSourceDebugWorkflow(
       return ctx.getWorkspaceSnapshot();
     }
 
+    const settings = await ctx.repository.getSettings();
+    shouldKeepBrowserSessionOpen = settings.keepSessionAlive;
+
     const verification = SourceInstructionVerificationSchema.parse({
       id: `source_instruction_verification_${run.id}`,
       replayRunId: run.id,
@@ -686,31 +711,41 @@ export async function runSourceDebugWorkflow(
       undefined,
       reviewInstructionArtifact ?? synthesizedInstruction ?? preservedRouteHintArtifact,
     );
-    emitProgress({
-      waitReason: "waiting_on_ai",
-      message:
-        "Reviewing the collected evidence and organizing the final source instructions.",
-      currentUrl: normalizedTarget.startingUrl,
-      jobsFound: attempts.filter((attempt) => attempt.outcome === "succeeded").length,
-    });
-    const finalReviewStartedAtMs = Date.now();
-    const reviewOverride = await reviewSourceInstructionArtifactWithAi({
-      aiClient: ctx.aiClient,
-      target: normalizedTarget,
-      run,
-      adapterKind,
-      verification,
-      instructionUnderReview: reviewInstructionArtifact,
-      heuristicInstruction: heuristicFinalizedInstruction,
-      phaseContexts: attempts.flatMap((attempt) => {
-        const context = finalReviewContextsByAttemptId.get(attempt.id);
-        return context ? [context] : [];
-      }),
-      compactionPolicy: sourceDebugCompactionPolicy,
-      modelContextWindowTokens: modelContextWindowTokensSnapshot,
-      signal: executionSignal,
-    });
-    finalReviewMs = Date.now() - finalReviewStartedAtMs;
+    const shouldRunAiFinalReview =
+      !finishedEarlyAfterUsefulDraft &&
+      (verification.outcome === "passed" || Boolean(reviewInstructionArtifact));
+    const reviewOverride = shouldRunAiFinalReview
+      ? await (async () => {
+          emitProgress({
+            waitReason: "waiting_on_ai",
+            message:
+              "Reviewing the collected evidence and organizing the final source instructions.",
+            currentUrl: normalizedTarget.startingUrl,
+            jobsFound: attempts.filter((attempt) => attempt.outcome === "succeeded").length,
+          });
+          const finalReviewStartedAtMs = Date.now();
+          try {
+            return await reviewSourceInstructionArtifactWithAi({
+              aiClient: ctx.aiClient,
+              target: normalizedTarget,
+              run,
+              adapterKind,
+              verification,
+              instructionUnderReview: reviewInstructionArtifact,
+              heuristicInstruction: heuristicFinalizedInstruction,
+              phaseContexts: attempts.flatMap((attempt) => {
+                const context = finalReviewContextsByAttemptId.get(attempt.id);
+                return context ? [context] : [];
+              }),
+              compactionPolicy: sourceDebugCompactionPolicy,
+              modelContextWindowTokens: modelContextWindowTokensSnapshot,
+              signal: executionSignal,
+            });
+          } finally {
+            finalReviewMs = Date.now() - finalReviewStartedAtMs;
+          }
+        })()
+      : null;
     const finalizedInstruction = reviewOverride
       ? synthesizeSourceInstructionArtifact(
           normalizedTarget,
@@ -771,11 +806,20 @@ export async function runSourceDebugWorkflow(
     const completedAt = new Date().toISOString();
     run = SourceDebugRunRecordSchema.parse({
       ...run,
-      state: verification.outcome === "passed" ? "completed" : "failed",
+      state:
+        verification.outcome === "passed"
+          ? "completed"
+          : finishedEarlyAfterUsefulDraft
+            ? "completed"
+            : "failed",
       updatedAt: completedAt,
       completedAt,
       activePhase: null,
-      finalSummary: verification.proofSummary ?? "Source debug workflow completed.",
+      finalSummary:
+        verification.proofSummary ??
+        (finishedEarlyAfterUsefulDraft
+          ? "Source debug stopped after proving a useful draft route on an auth-limited surface."
+          : "Source debug workflow completed."),
       instructionArtifactId: instructionToPersist.id,
       timing: buildSourceDebugRunTimingSummary({
         events: progressEvents,
@@ -813,7 +857,7 @@ export async function runSourceDebugWorkflow(
       throw error;
     }
   } finally {
-    if (browserSessionOpened) {
+    if (browserSessionOpened && !shouldKeepBrowserSessionOpen) {
       await ctx.closeRunBrowserSession(adapterKind).catch(() => {});
     }
     signal?.removeEventListener("abort", onExternalAbort);

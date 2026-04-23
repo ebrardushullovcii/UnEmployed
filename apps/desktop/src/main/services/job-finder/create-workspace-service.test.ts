@@ -20,4 +20,17 @@ describe('createDesktopJobFinderAiClient', () => {
     expect(client.chatWithTools).toBeUndefined()
     expect(client.getStatus().kind).toBe('deterministic')
   })
+
+  test('allows live AI when the test API explicitly requests it', () => {
+    const client = createDesktopJobFinderAiClient({
+      UNEMPLOYED_ENABLE_TEST_API: '1',
+      UNEMPLOYED_TEST_API_USE_LIVE_AI: '1',
+      UNEMPLOYED_AI_API_KEY: 'test-api-key',
+      UNEMPLOYED_AI_BASE_URL: 'https://example.invalid/v1',
+      UNEMPLOYED_AI_MODEL: 'test-model'
+    })
+
+    expect(client.chatWithTools).toBeTypeOf('function')
+    expect(client.getStatus().kind).toBe('openai_compatible')
+  })
 })

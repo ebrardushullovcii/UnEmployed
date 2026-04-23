@@ -15,7 +15,13 @@ import { isBrowserAgentEnabled, isBrowserHeadlessEnabled, isDesktopTestApiEnable
 const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
 
 export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.env) {
-  if (env.UNEMPLOYED_ENABLE_TEST_API === '1' || env.UNEMPLOYED_ENABLE_TEST_API === 'true') {
+  const desktopTestApiEnabled =
+    env.UNEMPLOYED_ENABLE_TEST_API === '1' || env.UNEMPLOYED_ENABLE_TEST_API === 'true'
+  const forceLiveAiDuringTestApi =
+    env.UNEMPLOYED_TEST_API_USE_LIVE_AI === '1' ||
+    env.UNEMPLOYED_TEST_API_USE_LIVE_AI === 'true'
+
+  if (desktopTestApiEnabled && !forceLiveAiDuringTestApi) {
     return createDeterministicJobFinderAiClient(
       'Desktop test API forces deterministic AI runtime so scripted UI flows stay stable even when local model credentials exist.',
     )

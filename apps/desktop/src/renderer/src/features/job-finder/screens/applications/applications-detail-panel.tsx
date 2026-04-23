@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import type {
   ApplicationAttempt,
   ApplicationRecord,
@@ -203,11 +203,14 @@ export function ApplicationsDetailPanel({
   const visibleApplyResult = effectiveSelectedApplyResult;
   const canRestageAutoRun =
     selectedRecord?.status === 'approved' || selectedRecord?.status === 'ready_for_review';
-  const canRerunCopilot = Boolean(selectedRecord);
   const selectedRunHistoryEntry =
     applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ?? null;
-  const selectedRun = applyRunDetails?.run ?? selectedRunHistoryEntry?.run ?? null;
+  const selectedRun =
+    applyRunDetailsStatus !== 'loading' && applyRunDetails?.run?.id === selectedApplyRunId
+      ? applyRunDetails.run
+      : selectedRunHistoryEntry?.run ?? null;
   const applyDetailsStatusBadge = getApplyDetailsStatusBadge(applyRunDetailsStatus)
+  const runHistoryDescriptionPrefix = useId()
   const selectedQueueEntries = useMemo<QueueEntry[]>(() => {
     if (!selectedRun) {
       return []
@@ -435,7 +438,7 @@ export function ApplicationsDetailPanel({
                 }}
                 type="button"
                 variant="secondary"
-                disabled={busy || !canRerunCopilot}
+                disabled={busy}
               >
                 Rerun apply copilot
               </Button>
@@ -581,11 +584,13 @@ export function ApplicationsDetailPanel({
               <ul className="grid gap-2">
                 {applyRunHistory.map(({ result, run }) => {
                   const isSelected = selectedApplyRunId === result.runId;
+                  const summaryId = `${runHistoryDescriptionPrefix}-${result.id}-summary`
+                  const metaId = `${runHistoryDescriptionPrefix}-${result.id}-meta`
 
                   return (
                     <li key={result.id} aria-current={isSelected ? 'true' : undefined}>
                       <button
-                        aria-label={`Run ${result.runId} updated ${formatTimestamp(result.updatedAt)}`}
+                        aria-describedby={`${summaryId} ${metaId}`}
                         className={cn(
                           'grid w-full gap-2 rounded-(--radius-field) border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30',
                           isSelected
@@ -613,10 +618,10 @@ export function ApplicationsDetailPanel({
                             {formatStatusLabel(result.state)}
                           </StatusBadge>
                         </div>
-                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                        <p id={summaryId} className="text-(length:--text-small) leading-6 text-foreground-soft">
                           {result.summary}
                         </p>
-                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                        <p id={metaId} className="text-(length:--text-small) leading-6 text-foreground-soft">
                           {formatTimestamp(result.updatedAt)}
                           {run ? ` • ${formatStatusLabel(run.state)}` : ''}
                           {result.blockerSummary ? ` • ${result.blockerSummary}` : ''}

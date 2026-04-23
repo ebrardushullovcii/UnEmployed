@@ -77,6 +77,83 @@ describe("createJobFinderWorkspaceService", () => {
     );
   });
 
+  test("keeps the browser session open when source debug pauses for a manual prerequisite", async () => {
+    const baseRuntime = createCatalogBrowserSessionRuntime({
+      sessions: [],
+      catalog: [],
+    });
+    let openSessionCalls = 0;
+    let closeSessionCalls = 0;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      openSession(source) {
+        openSessionCalls += 1;
+        return Promise.resolve({
+          source,
+          status: "ready",
+          driver: "catalog_seed",
+          label: "Browser session ready",
+          detail: "Opened for source debug.",
+          lastCheckedAt: "2026-03-20T10:05:00.000Z",
+        });
+      },
+      closeSession(source) {
+        closeSessionCalls += 1;
+        return Promise.resolve({
+          source,
+          status: "unknown",
+          driver: "catalog_seed",
+          label: "Browser session closed",
+          detail: "Closed after source debug.",
+          lastCheckedAt: "2026-03-20T10:06:00.000Z",
+        });
+      },
+      runAgentDiscovery(source) {
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:01:00.000Z",
+          querySummary: "Agent discovery test run",
+          warning:
+            "Login required: Sign in before source debugging can continue.",
+          jobs: [],
+          agentMetadata: {
+            steps: 1,
+            incomplete: false,
+            transcriptMessageCount: 3,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: "blocked_auth",
+            phaseCompletionReason:
+              "Login required: Sign in before source debugging can continue.",
+            phaseEvidence: null,
+            debugFindings: {
+              summary:
+                "Login wall blocks further source debugging until the user signs in.",
+              reliableControls: [],
+              trickyFilters: [],
+              navigationTips: [],
+              applyTips: [],
+              warnings: ["Sign in before continuing the source-debug run."],
+            },
+          },
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createSeed(),
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(snapshot.activeSourceDebugRun?.state).toBe("paused_manual");
+    expect(openSessionCalls).toBe(1);
+    expect(closeSessionCalls).toBe(0);
+  });
+
   test("source debug skips session preflight, passes skipSessionValidation to the runtime, and keeps internal agent failures out of learned guidance", async () => {
     const baseRuntime = createCatalogBrowserSessionRuntime({
       sessions: [
@@ -165,7 +242,7 @@ describe("createJobFinderWorkspaceService", () => {
     ].join("\n");
 
     expect(openSessionCalls).toBe(1);
-    expect(closeSessionCalls).toBe(1);
+    expect(closeSessionCalls).toBe(0);
     expect(skipSessionValidationFlags.length).toBeGreaterThan(0);
     expect(skipSessionValidationFlags.every(Boolean)).toBe(true);
     expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("failed");
@@ -174,6 +251,74 @@ describe("createJobFinderWorkspaceService", () => {
     expect(learnedLines.toLowerCase()).not.toContain(
       "discovery encountered an error",
     );
+  });
+
+  test("keeps the browser session open after a successful source-debug run when keepSessionAlive is enabled", async () => {
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_source_debug_keepalive",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_source_debug_keepalive",
+          title: "Senior Product Designer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: "$180k - $220k",
+          summary: "Validate keepalive on a successful source-debug run.",
+          description: "Validate keepalive on a successful source-debug run.",
+          keySkills: ["Figma", "React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    let openSessionCalls = 0;
+    let closeSessionCalls = 0;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      openSession(source) {
+        openSessionCalls += 1;
+
+        return Promise.resolve({
+          source,
+          status: "ready",
+          driver: "catalog_seed",
+          label: "Browser session ready",
+          detail: "Opened for source debug.",
+          lastCheckedAt: "2026-03-20T10:05:00.000Z",
+        });
+      },
+      closeSession(source) {
+        closeSessionCalls += 1;
+        return Promise.resolve({
+          source,
+          status: "unknown",
+          driver: "catalog_seed",
+          label: "Browser session closed",
+          detail: "Closed after source debug.",
+          lastCheckedAt: "2026-03-20T10:06:00.000Z",
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createSeed(),
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
+    expect(openSessionCalls).toBe(1);
+    expect(closeSessionCalls).toBe(0);
   });
 
   test("streams named progress states while source debug is running", async () => {
@@ -248,20 +393,29 @@ describe("createJobFinderWorkspaceService", () => {
     expect(streamedEvents.some((event) => event.waitReason === "finalizing")).toBe(
       true,
     );
-    expect(
-      streamedEvents.some((event) =>
-        event.message.includes("Reviewing the collected evidence"),
-      ),
-    ).toBe(true);
     const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
 
     expect(latestRunId).toBeTruthy();
 
     const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
 
+    expect(
+      streamedEvents.some((event) =>
+        event.message.includes("Reviewing the collected evidence"),
+      ),
+    ).toBe(latestRun.run.timing?.finalReviewMs != null);
+
     expect(latestRun.run.timing?.browserSetupMs).not.toBeNull();
-    expect(latestRun.run.timing?.finalReviewMs).not.toBeNull();
     expect(latestRun.run.timing?.finalizationMs).not.toBeNull();
+    if (
+      streamedEvents.some((event) =>
+        event.message.includes("Reviewing the collected evidence"),
+      )
+    ) {
+      expect(latestRun.run.timing?.finalReviewMs).not.toBeNull();
+    } else {
+      expect(latestRun.run.timing?.finalReviewMs).toBeNull();
+    }
     expect(
       latestRun.run.timing?.waitReasonDurations.some(
         (entry) => entry.waitReason === "waiting_on_ai",
@@ -279,6 +433,473 @@ describe("createJobFinderWorkspaceService", () => {
         (summary) => summary.timing !== null,
       ),
     ).toBe(true);
+  });
+
+  test("skips late source-debug phases and AI final review after enough auth-limited draft evidence is proven", async () => {
+    const baseRuntime = createCatalogBrowserSessionRuntime({
+      sessions: [],
+      catalog: [],
+    });
+    const phaseCalls: string[] = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        const siteLabel = options.siteLabel.toLowerCase();
+        const phase = siteLabel.includes("access auth probe")
+          ? "access_auth_probe"
+          : siteLabel.includes("site structure mapping")
+            ? "site_structure_mapping"
+            : siteLabel.includes("search filter probe")
+              ? "search_filter_probe"
+              : siteLabel.includes("job detail validation")
+                ? "job_detail_validation"
+                : siteLabel.includes("apply path validation")
+                  ? "apply_path_validation"
+                  : "replay_verification";
+        phaseCalls.push(phase);
+
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:10.000Z",
+          querySummary: `Phase ${phase}`,
+          warning:
+            phase === "access_auth_probe"
+              ? "Auth restriction: guest session has limited visibility and sign in is needed for broader access."
+              : null,
+          jobs: [
+            JobPostingSchema.parse({
+              source,
+              sourceJobId: `job_${phase}`,
+              discoveryMethod: "browser_agent",
+              canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
+              title: "Senior Full Stack Engineer",
+              company: "Signal Systems",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              postedAt: "2026-03-20T09:00:00.000Z",
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:04:00.000Z",
+              salaryText: null,
+              summary: `Evidence from ${phase}`,
+              description: `Evidence from ${phase}`,
+              keySkills: ["TypeScript"],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            }),
+          ],
+          agentMetadata: {
+            steps: 3,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: "forced_finish",
+            phaseCompletionReason:
+              phase === "access_auth_probe"
+                ? "Phase goal satisfied: auth-limited guest surface was proven."
+                : `Phase ${phase} proved enough reusable evidence.`,
+            phaseEvidence: null,
+            debugFindings: {
+              summary:
+                phase === "access_auth_probe"
+                  ? "Guest session reaches jobs but broader access is restricted by sign-in prompts."
+                  : `Summary for ${phase}`,
+              reliableControls:
+                phase === "search_filter_probe"
+                  ? ["Search by title control works on the listing route."]
+                  : [],
+              trickyFilters: [],
+              navigationTips:
+                phase === "site_structure_mapping"
+                  ? ["Use the recommended jobs collection route first."]
+                  : [],
+              applyTips: [],
+              warnings:
+                phase === "access_auth_probe"
+                  ? ["Sign in is needed for broader visibility."]
+                  : [],
+            },
+          },
+        });
+      },
+    };
+
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
+    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1);
+
+    expect(phaseCalls).toEqual([
+      "access_auth_probe",
+      "site_structure_mapping",
+      "search_filter_probe",
+      "job_detail_validation",
+    ]);
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
+    expect(snapshot.recentSourceDebugRuns[0]?.finalSummary).toContain(
+      "useful draft route",
+    );
+    expect(latestArtifact?.status).toBe("draft");
+    expect(latestRunId).toBeTruthy();
+
+    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+
+    expect(latestRun.run.timing?.finalReviewMs).toBeNull();
+    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(phaseCalls);
+  });
+
+  test("skips replay verification and AI final review after enough non-auth evidence is proven", async () => {
+    const baseRuntime = createCatalogBrowserSessionRuntime({
+      sessions: [],
+      catalog: [],
+    });
+    const phaseCalls: string[] = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        const siteLabel = options.siteLabel.toLowerCase();
+        const phase = siteLabel.includes("access auth probe")
+          ? "access_auth_probe"
+          : siteLabel.includes("site structure mapping")
+            ? "site_structure_mapping"
+            : siteLabel.includes("search filter probe")
+              ? "search_filter_probe"
+              : siteLabel.includes("job detail validation")
+                ? "job_detail_validation"
+                : siteLabel.includes("apply path validation")
+                  ? "apply_path_validation"
+                  : "replay_verification";
+        phaseCalls.push(phase);
+
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:10.000Z",
+          querySummary: `Phase ${phase}`,
+          warning: null,
+          jobs: [
+            JobPostingSchema.parse({
+              source,
+              sourceJobId: `job_${phase}`,
+              discoveryMethod: "browser_agent",
+              canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
+              title: "Senior Full Stack Engineer",
+              company: "Signal Systems",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: phase === "apply_path_validation" ? "external_redirect" : "unknown",
+              easyApplyEligible: false,
+              postedAt: "2026-03-20T09:00:00.000Z",
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:04:00.000Z",
+              salaryText: null,
+              summary: `Evidence from ${phase}`,
+              description: `Evidence from ${phase}`,
+              keySkills: ["TypeScript"],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            }),
+          ],
+          agentMetadata: {
+            steps: 3,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: "forced_finish",
+            phaseCompletionReason: `Phase ${phase} proved enough reusable evidence.`,
+            phaseEvidence: null,
+            debugFindings: {
+              summary: `Summary for ${phase}`,
+              reliableControls:
+                phase === "search_filter_probe"
+                  ? ["Search by title control works on the listing route."]
+                  : [],
+              trickyFilters: [],
+              navigationTips:
+                phase === "site_structure_mapping"
+                  ? ["Use the recommended jobs collection route first."]
+                  : [],
+              applyTips: [],
+              warnings: [],
+            },
+          },
+        });
+      },
+    };
+
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
+    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1);
+
+    expect(phaseCalls).toEqual([
+      "access_auth_probe",
+      "site_structure_mapping",
+      "search_filter_probe",
+      "job_detail_validation",
+      "apply_path_validation",
+    ]);
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
+    expect(latestArtifact?.status).toBe("draft");
+    expect(latestRunId).toBeTruthy();
+
+    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+
+    expect(latestRun.run.timing?.finalReviewMs).toBeNull();
+    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(phaseCalls);
+  });
+
+  test("skips AI final review for fresh draft instructions when replay verification does not pass", async () => {
+    const baseRuntime = createCatalogBrowserSessionRuntime({
+      sessions: [],
+      catalog: [],
+    });
+    const phaseCalls: string[] = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        const siteLabel = options.siteLabel.toLowerCase();
+        const phase = siteLabel.includes("access auth probe")
+          ? "access_auth_probe"
+          : siteLabel.includes("site structure mapping")
+            ? "site_structure_mapping"
+            : siteLabel.includes("search filter probe")
+              ? "search_filter_probe"
+              : siteLabel.includes("job detail validation")
+                ? "job_detail_validation"
+                : siteLabel.includes("apply path validation")
+                  ? "apply_path_validation"
+                  : "replay_verification";
+        phaseCalls.push(phase);
+
+        if (phase === "apply_path_validation") {
+          return Promise.resolve({
+            source,
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:10.000Z",
+            querySummary: `Phase ${phase}`,
+            warning: "Apply path was visible but not stable enough to prove yet.",
+            jobs: [
+              JobPostingSchema.parse({
+                source,
+                sourceJobId: `job_${phase}`,
+                discoveryMethod: "browser_agent",
+                canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
+                title: "Senior Full Stack Engineer",
+                company: "Signal Systems",
+                location: "Remote",
+                workMode: ["remote"],
+                applyPath: "unknown",
+                easyApplyEligible: false,
+                postedAt: "2026-03-20T09:00:00.000Z",
+                postedAtText: null,
+                discoveredAt: "2026-03-20T10:04:00.000Z",
+                salaryText: null,
+                summary: `Evidence from ${phase}`,
+                description: `Evidence from ${phase}`,
+                keySkills: ["TypeScript"],
+                responsibilities: [],
+                minimumQualifications: [],
+                preferredQualifications: [],
+                seniority: null,
+                employmentType: null,
+                department: null,
+                team: null,
+                employerWebsiteUrl: null,
+                employerDomain: null,
+                benefits: [],
+              }),
+            ],
+            agentMetadata: {
+              steps: 3,
+              incomplete: false,
+              transcriptMessageCount: 4,
+              reviewTranscript: [],
+              compactionState: null,
+              compactionUsedFallbackTrigger: false,
+              phaseCompletionMode: "timed_out_with_partial_evidence",
+              phaseCompletionReason:
+                "Apply path was visible but not stable enough to prove yet.",
+              phaseEvidence: null,
+              debugFindings: {
+                summary: "Apply entry still needs replay verification.",
+                reliableControls: [],
+                trickyFilters: [],
+                navigationTips: [],
+                applyTips: [],
+                warnings: ["Apply path was visible but not stable enough to prove yet."],
+              },
+            },
+          });
+        }
+
+        if (phase === "replay_verification") {
+          return Promise.resolve({
+            source,
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:10.000Z",
+            querySummary: `Phase ${phase}`,
+            warning: "Replay verification could not prove the route from scratch.",
+            jobs: [],
+            agentMetadata: {
+              steps: 3,
+              incomplete: true,
+              transcriptMessageCount: 4,
+              reviewTranscript: [],
+              compactionState: null,
+              compactionUsedFallbackTrigger: false,
+              phaseCompletionMode: "timed_out_with_partial_evidence",
+              phaseCompletionReason:
+                "Replay verification could not prove the route from scratch.",
+              phaseEvidence: null,
+              debugFindings: {
+                summary: "Replay could not reproduce the earlier path cleanly.",
+                reliableControls: [],
+                trickyFilters: [],
+                navigationTips: [],
+                applyTips: [],
+                warnings: ["Replay verification could not prove the route from scratch."],
+              },
+            },
+          });
+        }
+
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:10.000Z",
+          querySummary: `Phase ${phase}`,
+          warning: null,
+          jobs: [
+            JobPostingSchema.parse({
+              source,
+              sourceJobId: `job_${phase}`,
+              discoveryMethod: "browser_agent",
+              canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
+              title: "Senior Full Stack Engineer",
+              company: "Signal Systems",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              postedAt: "2026-03-20T09:00:00.000Z",
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:04:00.000Z",
+              salaryText: null,
+              summary: `Evidence from ${phase}`,
+              description: `Evidence from ${phase}`,
+              keySkills: ["TypeScript"],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            }),
+          ],
+          agentMetadata: {
+            steps: 3,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: "forced_finish",
+            phaseCompletionReason: `Phase ${phase} proved enough reusable evidence.`,
+            phaseEvidence: null,
+            debugFindings: {
+              summary: `Summary for ${phase}`,
+              reliableControls:
+                phase === "search_filter_probe"
+                  ? ["Search by title control works on the listing route."]
+                  : [],
+              trickyFilters: [],
+              navigationTips:
+                phase === "site_structure_mapping"
+                  ? ["Use the recommended jobs collection route first."]
+                  : [],
+              applyTips: [],
+              warnings: [],
+            },
+          },
+        });
+      },
+    };
+
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
+    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1);
+
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("failed");
+    expect(latestArtifact?.status).toBe("draft");
+    expect(latestRunId).toBeTruthy();
+
+    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+
+    expect(phaseCalls).toEqual([
+      "access_auth_probe",
+      "site_structure_mapping",
+      "search_filter_probe",
+      "job_detail_validation",
+      "apply_path_validation",
+      "replay_verification",
+    ]);
+    expect(latestRun.run.timing?.finalReviewMs).toBeNull();
+    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(phaseCalls);
   });
 
   test("rejects starting a second source-debug run while one is already active", async () => {

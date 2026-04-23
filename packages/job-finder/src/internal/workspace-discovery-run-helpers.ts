@@ -145,11 +145,32 @@ export function finalizeDiscoveryRun(
 }
 
 const MIN_DISCOVERY_TARGET_MAX_STEPS = 20;
+const SINGLE_TARGET_DISCOVERY_JOB_COUNT = 8;
+const SINGLE_TARGET_DISCOVERY_MAX_STEPS = 24;
 
 export function resolveDiscoveryTargetBudget(input: {
   targetsRemaining: number;
   validJobsFoundSoFar: number;
 }) {
+  if (input.targetsRemaining <= 1) {
+    const remainingJobs = Math.max(
+      1,
+      DEFAULT_TARGET_JOB_COUNT - input.validJobsFoundSoFar,
+    );
+    const targetJobCount = Math.min(
+      SINGLE_TARGET_DISCOVERY_JOB_COUNT,
+      remainingJobs,
+    );
+
+    return {
+      targetJobCount,
+      maxSteps: Math.min(
+        SINGLE_TARGET_DISCOVERY_MAX_STEPS,
+        Math.max(MIN_DISCOVERY_TARGET_MAX_STEPS, targetJobCount * 3),
+      ),
+    };
+  }
+
   const remainingJobs = Math.max(
     1,
     DEFAULT_TARGET_JOB_COUNT - input.validJobsFoundSoFar,

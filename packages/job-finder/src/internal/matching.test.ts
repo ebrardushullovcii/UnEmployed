@@ -30,22 +30,22 @@ describe("matching helpers", () => {
     ).toBe(false);
   });
 
-  test("matches noisy dismiss-title strings without letting adjacent roles through", () => {
+  test("matches linkedin noisy dismiss-title strings without letting adjacent frontend roles through", () => {
     expect(
       matchesTitlePreference(
-        "Full Circle Agency - Remote Dismiss Full Stack Developer (AI-First) job Viewed - Posted 1 month ago",
+        "Full Circle Agency • Pristina (Remote) Dismiss Full Stack Developer (AI-First) job Viewed · Posted 1 month ago",
         ["Senior Full-Stack Software Engineer"],
       ),
     ).toBe(true);
     expect(
       matchesTitlePreference(
-        "Senior Full Stack Engineer (Typescript) (Verified job) Example Co - On-site Dismiss Senior Full Stack Engineer (Typescript) job Viewed - Promoted",
+        "Senior Full Stack Engineer (Typescript) (Verified job) Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted",
         ["Senior Full-Stack Software Engineer"],
       ),
     ).toBe(true);
     expect(
       matchesTitlePreference(
-        "Senior Frontend Engineer (Verified job) Example Co - On-site Dismiss Senior Frontend Engineer job Viewed - Promoted",
+        "Senior Frontend Engineer (Verified job) Fresha • Pristina (On-site) Dismiss Senior Frontend Engineer job 1 connection works here Viewed · Promoted",
         ["Senior Full-Stack Software Engineer"],
       ),
     ).toBe(false);

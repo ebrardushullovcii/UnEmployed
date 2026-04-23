@@ -1,10 +1,9 @@
-# Testing Package
+# Testing
 
-Owns fake providers, fixtures, and integration harnesses as they are introduced.
+Owns reusable fixtures, fakes, and harness helpers.
 
 ## Rules
 
-- Prefer deterministic fixtures over live external dependencies.
-- Add reusable fakes here instead of burying them in module tests.
-- Keep test utilities typed and importable from one public surface.
-
+- Prefer deterministic fixtures over live dependencies
+- Put reusable fakes here instead of burying them in feature tests
+- Keep helpers typed and exported from one public surface

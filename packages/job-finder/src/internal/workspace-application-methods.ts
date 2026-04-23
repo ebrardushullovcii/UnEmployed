@@ -386,6 +386,7 @@ export function createWorkspaceApplicationMethods(
     let skippedJobs = 0;
     let awaitingReviewJobs = 0;
     let activeSource: JobSource | null = null;
+    const keepSessionAlive = settings.keepSessionAlive;
     try {
       for (let index = 0; index < run.jobIds.length; index += 1) {
         const jobId = run.jobIds[index]!;
@@ -411,7 +412,7 @@ export function createWorkspaceApplicationMethods(
         const { approvedExport, job } = await resolveJobApplyPrerequisites(jobId);
         const recoverySeed = await buildApplyRecoveryContext(jobId);
         if (activeSource !== job.source) {
-          if (activeSource) {
+          if (activeSource && !keepSessionAlive) {
             await ctx.closeRunBrowserSession(activeSource);
           }
           await ctx.openRunBrowserSession(job.source);
@@ -652,7 +653,9 @@ export function createWorkspaceApplicationMethods(
               ? "paused_for_consent"
               : remainingJobs > 0
                 ? "running"
-                : "completed"
+                : pendingJobs > 0
+                  ? "paused_for_user_review"
+                  : "completed"
             : nextRunState,
         summary:
           runArtifacts.consentRequests.length > 0
@@ -706,7 +709,7 @@ export function createWorkspaceApplicationMethods(
       await ctx.repository.upsertApplyRun(currentRunState);
       throw error;
     } finally {
-      if (activeSource) {
+      if (activeSource && !keepSessionAlive) {
         try {
           await ctx.closeRunBrowserSession(activeSource);
         } catch (cleanupError) {
@@ -2301,7 +2304,9 @@ export function createWorkspaceApplicationMethods(
       if (
         run.state === "completed" ||
         run.state === "cancelled" ||
-        run.state === "failed"
+        run.state === "failed" ||
+        run.state === "running" ||
+        run.state === "paused_for_consent"
       ) {
         throw new Error(`Cannot revoke approval for run '${runId}' in state '${run.state}'.`);
       }

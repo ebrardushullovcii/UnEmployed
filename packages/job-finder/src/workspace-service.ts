@@ -291,7 +291,15 @@ export function createJobFinderWorkspaceService(
   context.runSourceDebugWorkflow = sourceDebugMethods.runSourceDebugWorkflow;
   const applyRunStoreMethods = createWorkspaceApplyRunStoreMethods(context);
 
+  async function shutdown() {
+    await Promise.allSettled([
+      browserRuntime.closeSession("target_site"),
+      repository.close(),
+    ]);
+  }
+
   return {
+    shutdown,
     ...snapshotProfileMethods,
     ...createWorkspaceDiscoveryMethods(context),
     ...sourceDebugMethods,

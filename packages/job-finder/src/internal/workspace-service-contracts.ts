@@ -33,6 +33,7 @@ import type { ResumeExportFileVerifier } from "./workspace-service-context";
 import type { ResumeRenderDocument } from "./resume-workspace-structure";
 
 export interface JobFinderWorkspaceService {
+  shutdown(): Promise<void>;
   getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot>;
   openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
   checkBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;

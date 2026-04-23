@@ -24,5 +24,6 @@ export {
   getSourceDebugTargetJobCount,
   resolveSourceDebugPhases,
   resolveSourceDebugCompletion,
+  shouldFinishSourceDebugEarly,
 } from "./workspace-source-debug-helpers";
 export { synthesizeSourceInstructionArtifact } from "./workspace-source-instruction-synthesis";

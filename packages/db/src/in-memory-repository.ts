@@ -967,6 +967,20 @@ export function createInMemoryJobFinderRepository(
       );
       return Promise.resolve();
     },
+    upsertSourceDebugEvidenceRefs(evidenceRefs) {
+      const normalizedEvidenceRefs = SourceDebugEvidenceRefSchema.array().parse(
+        cloneValue([...evidenceRefs]),
+      );
+
+      for (const normalizedEvidenceRef of normalizedEvidenceRefs) {
+        state.sourceDebugEvidenceRefs = upsertById(
+          state.sourceDebugEvidenceRefs,
+          normalizedEvidenceRef,
+        );
+      }
+
+      return Promise.resolve();
+    },
     getSettings() {
       return Promise.resolve(cloneValue(state.settings));
     },

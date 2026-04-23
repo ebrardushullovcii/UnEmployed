@@ -4,6 +4,7 @@ import {
   buildGenericJobId,
   buildInvalidJobSample,
   describeInvalidFieldCounts,
+  titleCaseWords,
 } from "./deterministic";
 
 const jobBoardHostFragments = [
@@ -15,6 +16,42 @@ const jobBoardHostFragments = [
   "ashbyhq.com",
   "smartrecruiters.com",
 ];
+const COMPOSITE_POSTED_SUFFIX_PATTERN =
+  /(?:posted\s+)?(?:\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?)(?:\s+ago)?|today|yesterday|just posted|sot|dje)$/iu;
+const ROLE_TOKEN_PATTERN =
+  /^(?:engineer|developer|manager|designer|analyst|specialist|support|sales|marketing|data|software|product|qa|frontend|backend|react|category|customer|experience|work)$/i;
+const LOCATION_HINT_PATTERN =
+  /\b(remote|hybrid|on[- ]site|onsite|work from home|home office|worldwide|global|anywhere)\b/i;
+const GENERIC_JOB_PATH_SEGMENTS = new Set([
+  "job",
+  "jobs",
+  "jobs-view",
+  "view",
+  "career",
+  "careers",
+  "position",
+  "positions",
+  "opening",
+  "openings",
+  "search",
+  "apply",
+  "company",
+  "companies",
+  "category",
+  "categories",
+  "vacancy",
+  "vacancies",
+  "role",
+  "roles",
+  "pune",
+  "punes",
+  "punesim",
+  "pozita",
+  "pozite",
+  "konkurs",
+  "karriere",
+  "karrier",
+]);
 
 function trimToNull(value: unknown): string | null {
   if (typeof value === "string") {
@@ -111,6 +148,120 @@ function isLikelyJobBoardHost(hostname: string | null): boolean {
   return jobBoardHostFragments.some(
     (fragment) => hostname === fragment || hostname.endsWith(`.${fragment}`),
   );
+}
+
+function isLocationLike(value: string): boolean {
+  const normalized = trimToNull(value);
+  if (!normalized || normalized.length > 80) {
+    return false;
+  }
+
+  if (LOCATION_HINT_PATTERN.test(normalized)) {
+    return true;
+  }
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  if (normalized.includes(",") && tokens.length <= 8) {
+    return true;
+  }
+
+  if (tokens.length <= 3) {
+    return tokens.every((token) => /^[A-Z][\p{L}\p{N}.'’-]*$/u.test(token));
+  }
+
+  return false;
+}
+
+function stripTrailingPostedAtText(value: string): {
+  content: string;
+  postedAtText: string | null;
+} {
+  const normalized = value.trim();
+  const match = normalized.match(COMPOSITE_POSTED_SUFFIX_PATTERN);
+
+  if (!match || typeof match.index !== "number") {
+    return { content: normalized, postedAtText: null };
+  }
+
+  return {
+    content: normalized.slice(0, match.index).trim(),
+    postedAtText: match[0].trim(),
+  };
+}
+
+function inferTrailingCompositeLocation(value: string): string | null {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+
+  for (let width = 1; width <= Math.min(3, tokens.length - 1); width += 1) {
+    const candidate = tokens.slice(-width).join(" ");
+    if (
+      width === 1 &&
+      !LOCATION_HINT_PATTERN.test(candidate) &&
+      (tokens.length < 3 || ROLE_TOKEN_PATTERN.test(candidate))
+    ) {
+      continue;
+    }
+
+    if (isLocationLike(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function normalizeCompositeTitle(value: string): {
+  title: string;
+  location: string | null;
+  postedAtText: string | null;
+} {
+  const normalized = trimToNull(value) ?? "";
+  const { content, postedAtText } = stripTrailingPostedAtText(normalized);
+  const location = inferTrailingCompositeLocation(content);
+  const title = location
+    ? content
+        .slice(0, Math.max(0, content.length - location.length))
+        .replace(/[\s–—-]+$/, "")
+        .trim()
+    : content;
+
+  return {
+    title: title || content,
+    location,
+    postedAtText,
+  };
+}
+
+function inferCompanyFromCanonicalUrl(url: string): string | null {
+  const canonicalUrl = trimToNull(url);
+  if (!canonicalUrl) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(canonicalUrl);
+    const pathSegments = parsed.pathname
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+
+    if (pathSegments.length < 2) {
+      return null;
+    }
+
+    const companySegment = pathSegments[0]?.toLowerCase() ?? "";
+    if (
+      !companySegment ||
+      GENERIC_JOB_PATH_SEGMENTS.has(companySegment) ||
+      !/[a-z\p{L}]/iu.test(companySegment)
+    ) {
+      return null;
+    }
+
+    return titleCaseWords(companySegment.replace(/[-_]+/g, " "));
+  } catch {
+    return null;
+  }
 }
 
 export function buildJobsExtractionPrompt(input: {
@@ -226,6 +377,7 @@ const toWorkModeArray = (value: unknown): string[] => {
     const rawSourceJobId = toStr(raw.sourceJobId);
     const rawCanonicalUrl =
       toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link);
+    const normalizedCompositeTitle = normalizeCompositeTitle(toStr(raw.title));
 
     const fallbackUrl =
       input.pageType === "job_detail" ? input.pageUrl : "";
@@ -271,14 +423,21 @@ const rawDescription = trimToNull(toStr(raw.description));
       (input.pageType === "search_results"
         ? (summary ?? `${toStr(raw.title)} opportunity at ${toStr(raw.company)}`)
         : summary ?? "");
+    const normalizedCompany =
+      trimToNull(raw.company) ?? inferCompanyFromCanonicalUrl(derivedCanonicalUrl);
+    const normalizedLocation =
+      trimToNull(raw.location) ?? normalizedCompositeTitle.location;
+    const normalizedPostedAtText =
+      trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative) ??
+      normalizedCompositeTitle.postedAtText;
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,
       discoveryMethod: "browser_agent" as const,
       canonicalUrl: derivedCanonicalUrl,
-      title: toStr(raw.title),
-      company: toStr(raw.company),
-      location: toStr(raw.location),
+      title: normalizedCompositeTitle.title || toStr(raw.title),
+      company: normalizedCompany ?? "",
+      location: normalizedLocation ?? "",
       workMode: toWorkModeArray(raw.workMode),
       applyPath:
         raw.applyPath === "easy_apply" ||
@@ -288,7 +447,7 @@ const rawDescription = trimToNull(toStr(raw.description));
           : "unknown",
       easyApplyEligible: raw.easyApplyEligible === true,
       postedAt: toIsoDateTimeOrNull(raw.postedAt),
-      postedAtText: trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative),
+      postedAtText: normalizedPostedAtText,
       discoveredAt: new Date().toISOString(),
       salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
       summary,

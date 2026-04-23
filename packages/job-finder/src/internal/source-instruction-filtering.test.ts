@@ -32,13 +32,14 @@ describe("source instruction filtering", () => {
     ]);
   });
 
-  test("drops broad query templates from discovery guidance", () => {
+  test("drops LinkedIn broad query templates from discovery guidance only", () => {
     expect(
       filterDiscoveryInstructionLines({
+        artifactProviderKey: "linkedin",
         values: [
           "URL-based search: /jobs/search/?keywords=...&location=... reliably returns filtered results",
           "Use URL parameters for direct search: keywords and location",
-          "Jobs hub shows recommendation rows with Show all available jobs links.",
+          "LinkedIn jobs surface is fully accessible. Best entry path is /jobs/search/?keywords=...&location=... URL parameters. Jobs hub at /jobs/ shows recommendation rows with \"Show all available jobs\" and \"Show all top job picks for you\" links.",
           "Job listings are clickable and open detail panels inline",
           "Apply button appears on job detail side panels",
         ],
@@ -49,17 +50,17 @@ describe("source instruction filtering", () => {
     ]);
   });
 
-  test("keeps stable query guidance for reusable source instructions", () => {
+  test("keeps the same LinkedIn lines for non-discovery reusable guidance", () => {
     expect(
       filterSourceInstructionLines([
-        "Best repeatable entry path is /jobs/search.",
-        "Filter controls appear in an inline panel.",
-        "Job listings open detail panels.",
+        "URL-based search: /jobs/search/?keywords=...&location=... reliably returns filtered results",
+        "Use URL parameters for direct search: keywords and location",
+        "LinkedIn jobs surface is fully accessible. Best entry path is /jobs/search/?keywords=...&location=... URL parameters. Jobs hub at /jobs/ shows recommendation rows with \"Show all available jobs\" and \"Show all top job picks for you\" links.",
       ]),
     ).toEqual([
-      "Best repeatable entry path is /jobs/search.",
-      "Filter controls appear in an inline panel.",
-      "Job listings open detail panels.",
+      "URL-based search: /jobs/search/?keywords=...&location=... reliably returns filtered results",
+      "Use URL parameters for direct search: keywords and location",
+      "LinkedIn jobs surface is fully accessible. Best entry path is /jobs/search/?keywords=...&location=... URL parameters. Jobs hub at /jobs/ shows recommendation rows with \"Show all available jobs\" and \"Show all top job picks for you\" links.",
     ]);
   });
 });

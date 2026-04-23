@@ -79,7 +79,7 @@ function buildSessionBlockedResult(session: BrowserSessionState): Error {
 }
 
 function getStartingUrl(options: CatalogSessionAgentDiscoveryOptions): string {
-  const startingUrl = options.startingUrls[0]?.trim()
+  const startingUrl = options.startingUrls.find((url) => url.trim().length > 0)?.trim()
 
   if (!startingUrl) {
     throw new Error(

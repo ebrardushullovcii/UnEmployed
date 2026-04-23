@@ -245,7 +245,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/collections/recommended/",
         "https://www.linkedin.com/jobs/",
       ],
-      maxSteps: 18,
+      maxSteps: 10,
     });
     expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
       startingUrls: [
@@ -253,11 +253,11 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/",
         "https://www.linkedin.com/jobs/collections/recommended/",
       ],
-      maxSteps: 22,
+      maxSteps: 10,
     });
-    expect(capturedPhaseInputs.get("Job Detail Validation")?.maxSteps).toBe(18);
-    expect(capturedPhaseInputs.get("Apply Path Validation")?.maxSteps).toBe(18);
-    expect(capturedPhaseInputs.get("Replay Verification")?.maxSteps).toBe(18);
+    expect(capturedPhaseInputs.get("Job Detail Validation")?.maxSteps).toBe(12);
+    expect(capturedPhaseInputs.get("Apply Path Validation")?.maxSteps).toBe(12);
+    expect(capturedPhaseInputs.get("Replay Verification")?.maxSteps).toBe(10);
 
     const latestRun = (await repository.listSourceDebugRuns())[0];
     const siteStructureAttempt = (await repository.listSourceDebugAttempts()).find(
@@ -373,7 +373,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://example.com/careers/open-roles/",
         "https://example.com/",
       ],
-      maxSteps: 18,
+      maxSteps: 13,
     });
     expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
       startingUrls: [
@@ -381,8 +381,90 @@ describe("createJobFinderWorkspaceService", () => {
         "https://example.com/",
         "https://example.com/careers/open-roles/",
       ],
-      maxSteps: 22,
+      maxSteps: 14,
     });
+  });
+
+  test("provider-backed targets skip low-value mapping phases during source debug", async () => {
+    const seed = createSeed();
+    seed.searchPreferences.discovery.targets[0] = {
+      ...seed.searchPreferences.discovery.targets[0]!,
+      id: "target_greenhouse_remote",
+      label: "Remote Greenhouse",
+      startingUrl: "https://job-boards.greenhouse.io/remote",
+      instructionStatus: "missing",
+      draftInstructionId: null,
+      validatedInstructionId: null,
+    };
+
+    const capturedPhaseInputs = new Map<
+      string,
+      { startingUrls: readonly string[]; maxSteps: number }
+    >();
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "greenhouse_source_debug_seeded",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl: "https://job-boards.greenhouse.io/remote/jobs/4622190",
+          title: "Software Engineer",
+          company: "Remote",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "external_redirect",
+          easyApplyEligible: false,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: null,
+          summary: "Validate provider-backed source-debug fast path.",
+          description: "Validate provider-backed source-debug fast path.",
+          keySkills: ["TypeScript"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery(source, options) {
+        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
+          startingUrls: [...options.startingUrls],
+          maxSteps: options.maxSteps,
+        });
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        savedJobs: [],
+        tailoredAssets: [],
+      },
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await workspaceService.runSourceDebug("target_greenhouse_remote");
+
+    expect(capturedPhaseInputs.get("Access Auth Probe")).toEqual({
+      startingUrls: ["https://job-boards.greenhouse.io/remote"],
+      maxSteps: 16,
+    });
+    expect(capturedPhaseInputs.has("Site Structure Mapping")).toBe(false);
+    expect(capturedPhaseInputs.has("Search Filter Probe")).toBe(false);
+    expect(capturedPhaseInputs.get("Job Detail Validation")?.maxSteps).toBe(15);
+    expect(capturedPhaseInputs.get("Apply Path Validation")?.maxSteps).toBe(15);
+    expect(capturedPhaseInputs.get("Replay Verification")?.maxSteps).toBe(13);
+
+    const latestRun = (await repository.listSourceDebugRuns())[0];
+    expect(latestRun?.phases).toEqual([
+      "access_auth_probe",
+      "job_detail_validation",
+      "apply_path_validation",
+      "replay_verification",
+    ]);
   });
 
   test("search filter probe prefers proven collection routes when no search route hint exists", async () => {
@@ -481,7 +563,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/collections/recommended/",
         "https://www.linkedin.com/jobs/",
       ],
-      maxSteps: 22,
+      maxSteps: 14,
     });
   });
 });

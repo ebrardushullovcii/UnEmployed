@@ -606,4 +606,163 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
     expect(result.jobs).toHaveLength(4)
     expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(0)
   })
+
+  test('search-results fast path keeps the stronger full-stack LinkedIn card when saved preferences differ from earlier frontend cards', async () => {
+    const page = {
+      async goto() {
+        return null as never
+      },
+      async waitForTimeout() {
+        return undefined
+      },
+      url() {
+        return 'https://www.linkedin.com/jobs/search/?currentJobId=4404057151&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo'
+      },
+      async title() {
+        return 'Primary target'
+      },
+      locator(selector: string) {
+        if (selector === 'body') {
+          return {
+            async innerText() {
+              return [
+                'Search by title, skill, or company',
+                'Frontend Engineer',
+                'Odiin',
+                'Prishtina, Kosovo',
+                'Full Stack Developer (AI-First)',
+                'Full Circle Agency',
+                'Prishtina (Remote)',
+                'Apply',
+              ]
+                .join('\n')
+                .repeat(20)
+            },
+          } as never
+        }
+
+        return {
+          async innerText() {
+            return ''
+          },
+        } as never
+      },
+      async evaluate(fn: unknown) {
+        const serialized = String(fn)
+
+        if (serialized.includes('querySelectorAll("a[href]")')) {
+          return [
+            'https://www.linkedin.com/jobs/view/role_frontend_1',
+            'https://www.linkedin.com/jobs/view/role_fullstack_1',
+          ]
+        }
+
+        if (serialized.includes('cardCandidates') || serialized.includes('application/ld+json')) {
+          return {
+            structuredDataCandidates: [],
+            cardCandidates: [
+              {
+                canonicalUrl: 'https://www.linkedin.com/jobs/view/role_frontend_1',
+                anchorText: 'Frontend Engineer',
+                headingText: 'Frontend Engineer',
+                lines: [
+                  'Frontend Engineer',
+                  'Odiin',
+                  'Prishtina, Kosovo',
+                  'Dismiss Frontend Engineer job',
+                ],
+                captureMeta: {
+                  domOrder: 0,
+                  rootTagName: 'li',
+                  rootRole: 'listitem',
+                  rootClassName: 'jobs-search-results__list-item job-card-container',
+                  hasJobDataset: true,
+                  sameRootJobAnchorCount: 1,
+                  inLikelyResultsList: true,
+                  inAside: false,
+                  inHeader: false,
+                  inNavigation: false,
+                  inDetailPane: false,
+                  hasDismissLabel: true,
+                },
+              },
+              {
+                canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack_1',
+                anchorText: 'Full Stack Developer (AI-First)',
+                headingText: 'Full Stack Developer (AI-First)',
+                lines: [
+                  'Full Stack Developer (AI-First)',
+                  'Full Circle Agency',
+                  'Prishtina (Remote)',
+                  'Dismiss Full Stack Developer (AI-First) job',
+                ],
+                captureMeta: {
+                  domOrder: 1,
+                  rootTagName: 'li',
+                  rootRole: 'listitem',
+                  rootClassName: 'jobs-search-results__list-item job-card-container',
+                  hasJobDataset: true,
+                  sameRootJobAnchorCount: 1,
+                  inLikelyResultsList: true,
+                  inAside: false,
+                  inHeader: false,
+                  inNavigation: false,
+                  inDetailPane: false,
+                  hasDismissLabel: true,
+                },
+              },
+            ],
+          }
+        }
+
+        return []
+      },
+    } as unknown as Page
+    const llmClient: LLMClient = {
+      chatWithTools: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: 'extract the visible results page',
+          toolCalls: [
+            createToolCall(
+              'extract_jobs',
+              { pageType: 'search_results', maxJobs: 1 },
+              'tool_extract_preference_ranked_fast_path',
+            ),
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: 'No action taken',
+          toolCalls: [],
+        }),
+    }
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () => []),
+    }
+
+    const result = await runAgentDiscovery(
+      page,
+      {
+        ...createConfig(),
+        targetJobCount: 1,
+        promptContext: {
+          siteLabel: 'Primary target',
+        },
+        searchPreferences: {
+          targetRoles: ['Senior Full-Stack Software Engineer'],
+          locations: ['Prishtina, Kosovo'],
+        },
+      },
+      llmClient,
+      jobExtractor,
+    )
+
+    expect(result.jobs).toHaveLength(1)
+    expect(result.jobs[0]).toEqual(
+      expect.objectContaining({
+        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack_1',
+        title: 'Full Stack Developer (AI-First)',
+      }),
+    )
+  })
 })

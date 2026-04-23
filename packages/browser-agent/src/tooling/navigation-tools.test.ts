@@ -9,8 +9,8 @@ describe("navigate", () => {
       .mockRejectedValue(new Error('page.goto: Timeout 7000ms exceeded.'));
     const page = {
       goto,
-      url: vi.fn(() => "https://jobs.example.com/jobs"),
-      title: vi.fn().mockResolvedValue("Jobs"),
+      url: vi.fn(() => "https://www.linkedin.com/jobs"),
+      title: vi.fn().mockResolvedValue("Jobs | LinkedIn"),
       evaluate: vi.fn().mockResolvedValue("interactive"),
     } as unknown as Page;
 
@@ -20,7 +20,7 @@ describe("navigate", () => {
     }
 
     const state = {
-      currentUrl: "https://jobs.example.com/jobs/search",
+      currentUrl: "https://www.linkedin.com/jobs/search",
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
         ["fill::input::search by title skill::0", {
@@ -32,7 +32,7 @@ describe("navigate", () => {
 
     const result = await tool.execute(
       {
-        url: "https://jobs.example.com/jobs",
+        url: "https://www.linkedin.com/jobs",
         waitFor: "networkidle",
         timeout: 30000,
       },
@@ -41,36 +41,36 @@ describe("navigate", () => {
         state: state as never,
         config: {
           navigationPolicy: {
-            allowedHostnames: ["jobs.example.com"],
+            allowedHostnames: ["www.linkedin.com"],
           },
         } as never,
       },
     );
 
-    expect(goto).toHaveBeenCalledWith("https://jobs.example.com/jobs", {
+    expect(goto).toHaveBeenCalledWith("https://www.linkedin.com/jobs", {
       waitUntil: "networkidle",
       timeout: 7000,
     });
     expect(result).toEqual({
       success: true,
       data: expect.objectContaining({
-        url: "https://jobs.example.com/jobs",
+        url: "https://www.linkedin.com/jobs",
         waitState: "networkidle",
         waitStateReached: false,
         partialLoad: true,
         readyState: "interactive",
       }),
     });
-    expect(state.currentUrl).toBe("https://jobs.example.com/jobs");
-    expect(state.visitedUrls.has("https://jobs.example.com/jobs")).toBe(true);
+    expect(state.currentUrl).toBe("https://www.linkedin.com/jobs");
+    expect(state.visitedUrls.has("https://www.linkedin.com/jobs")).toBe(true);
     expect(state.failedInteractionAttempts.size).toBe(0);
   });
 
   test("clears repeated interaction failures after a successful navigation to a new page", async () => {
     const page = {
       goto: vi.fn().mockResolvedValue(undefined),
-      url: vi.fn(() => "https://jobs.example.com/jobs/collections/recommended"),
-      title: vi.fn().mockResolvedValue("Recommended jobs"),
+      url: vi.fn(() => "https://www.linkedin.com/jobs/collections/recommended"),
+      title: vi.fn().mockResolvedValue("Recommended jobs | LinkedIn"),
       evaluate: vi.fn().mockResolvedValue([]),
     } as unknown as Page;
 
@@ -80,7 +80,7 @@ describe("navigate", () => {
     }
 
     const state = {
-      currentUrl: "https://jobs.example.com/jobs/search",
+      currentUrl: "https://www.linkedin.com/jobs/search",
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
         ["fill::input::search by title skill::0", {
@@ -92,7 +92,7 @@ describe("navigate", () => {
 
     const result = await tool.execute(
       {
-        url: "https://jobs.example.com/jobs/collections/recommended",
+        url: "https://www.linkedin.com/jobs/collections/recommended",
         waitFor: "domcontentloaded",
         timeout: 5000,
       },
@@ -101,7 +101,7 @@ describe("navigate", () => {
         state: state as never,
         config: {
           navigationPolicy: {
-            allowedHostnames: ["jobs.example.com"],
+            allowedHostnames: ["www.linkedin.com"],
           },
         } as never,
       },
@@ -110,7 +110,7 @@ describe("navigate", () => {
     expect(result).toEqual({
       success: true,
       data: expect.objectContaining({
-        url: "https://jobs.example.com/jobs/collections/recommended",
+        url: "https://www.linkedin.com/jobs/collections/recommended",
       }),
     });
     expect(state.failedInteractionAttempts.size).toBe(0);

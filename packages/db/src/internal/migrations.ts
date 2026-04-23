@@ -223,6 +223,14 @@ export function runMigrations(database: DatabaseSync): void {
   }
 
   function dedupeApplyJobResultsByRunAndJob(): void {
+    const evidenceTables = [
+      'application_question_records',
+      'application_answer_records',
+      'application_artifact_refs',
+      'application_replay_checkpoints',
+      'application_consent_requests',
+    ] as const
+
     database.exec(`
       CREATE TEMP TABLE apply_job_result_dedupe_map AS
       WITH ranked_results AS (
@@ -243,52 +251,40 @@ export function runMigrations(database: DatabaseSync): void {
       SELECT id AS duplicate_id, survivor_id
       FROM ranked_results
       WHERE row_number > 1;
+    `)
 
-      UPDATE application_question_records
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_question_records.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+    for (const tableName of evidenceTables) {
+      if (!hasTable(tableName)) {
+        continue
+      }
 
-      UPDATE application_answer_records
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_answer_records.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+      database.exec(`
+        UPDATE ${tableName}
+        SET
+          value = REPLACE(
+            value,
+            json_quote(result_id),
+            json_quote((
+              SELECT survivor_id
+              FROM apply_job_result_dedupe_map
+              WHERE duplicate_id = ${tableName}.result_id
+            ))
+          ),
+          result_id = (
+            SELECT survivor_id
+            FROM apply_job_result_dedupe_map
+            WHERE duplicate_id = ${tableName}.result_id
+          )
+        WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+      `)
+    }
 
-      UPDATE application_artifact_refs
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_artifact_refs.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
-
-      UPDATE application_replay_checkpoints
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_replay_checkpoints.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
-
-      UPDATE application_consent_requests
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_consent_requests.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
-
+    database.exec(`
       DELETE FROM apply_job_results
       WHERE id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
 
       DROP TABLE apply_job_result_dedupe_map;
-    `);
+    `)
   }
 
   database.exec(`

@@ -8,6 +8,7 @@ import {
   ApplicationQuestionRecordSchema,
   ApplicationReplayCheckpointSchema,
   ApplyJobResultSchema,
+  SourceDebugEvidenceRefSchema,
   ApplyRunSchema,
   SourceInstructionArtifactSchema,
 } from '@unemployed/contracts'
@@ -642,19 +643,34 @@ describe('createFileJobFinderRepository', () => {
           },
         }),
       )
-      await firstRepository.upsertSourceDebugEvidenceRef({
-        id: 'source_debug_evidence_1',
-        runId: 'source_debug_run_1',
-        attemptId: 'source_debug_attempt_1',
-        targetId: 'target_primary',
-        phase: 'job_detail_validation',
-        kind: 'url',
-        label: 'Validated job detail',
-        capturedAt: '2026-03-20T10:01:15.000Z',
-        url: 'https://jobs.example.com/roles/1',
-        storagePath: null,
-        excerpt: 'Stable target-site job detail URL.',
-      })
+      await firstRepository.upsertSourceDebugEvidenceRefs([
+        SourceDebugEvidenceRefSchema.parse({
+          id: 'source_debug_evidence_1',
+          runId: 'source_debug_run_1',
+          attemptId: 'source_debug_attempt_1',
+          targetId: 'target_primary',
+          phase: 'job_detail_validation',
+          kind: 'url',
+          label: 'Validated job detail',
+          capturedAt: '2026-03-20T10:01:15.000Z',
+          url: 'https://jobs.example.com/roles/1',
+          storagePath: null,
+          excerpt: 'Stable target-site job detail URL.',
+        }),
+        SourceDebugEvidenceRefSchema.parse({
+          id: 'source_debug_evidence_2',
+          runId: 'source_debug_run_1',
+          attemptId: 'source_debug_attempt_1',
+          targetId: 'target_primary',
+          phase: 'apply_path_validation',
+          kind: 'url',
+          label: 'Apply entry point',
+          capturedAt: '2026-03-20T10:01:30.000Z',
+          url: 'https://jobs.example.com/roles/1/apply',
+          storagePath: null,
+          excerpt: 'Inline apply button is visible on the detail page.',
+        }),
+      ])
 
       await firstRepository.close()
       firstRepository = null
@@ -672,7 +688,7 @@ describe('createFileJobFinderRepository', () => {
       expect(runs).toHaveLength(1)
       expect(attempts).toHaveLength(1)
       expect(artifacts).toHaveLength(1)
-      expect(evidenceRefs).toHaveLength(1)
+      expect(evidenceRefs).toHaveLength(2)
       expect(discoveryState.activeSourceDebugRun).toBeNull()
       expect(discoveryState.recentSourceDebugRuns).toEqual([])
     } finally {

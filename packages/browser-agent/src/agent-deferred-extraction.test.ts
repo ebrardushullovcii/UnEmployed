@@ -202,4 +202,61 @@ describe('runAgentDiscovery deferred extraction behavior', () => {
     expect(result.jobs).toHaveLength(1)
     expect(result.steps).toBe(2)
   })
+
+  test('discovery stops near the step limit after deferred extraction already produced a useful candidate set', async () => {
+    const page = createPage() as Page
+    const llmClient: LLMClient = {
+      chatWithTools: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: 'capture the visible results page first',
+          toolCalls: [
+            createToolCall(
+              'extract_jobs',
+              { pageType: 'search_results', maxJobs: 4 },
+              'tool_extract_late_stop_1',
+            ),
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: 'No action taken',
+          toolCalls: [],
+        }),
+    }
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () =>
+        Array.from({ length: 3 }, (_, index) => ({
+          sourceJobId: `job_late_stop_${index}`,
+          canonicalUrl: `https://www.linkedin.com/jobs/view/job_late_stop_${index}`,
+          title: `Workflow Engineer ${index}`,
+          company: 'Signal Systems',
+          location: 'Remote',
+          workMode: ['remote' as const],
+          applyPath: 'unknown' as const,
+          postedAt: '2026-03-20T09:00:00.000Z',
+          salaryText: null,
+          summary: 'Useful deferred candidate set near the step limit.',
+          description: 'Useful deferred candidate set near the step limit.',
+          easyApplyEligible: false,
+          keySkills: ['React'],
+          responsibilities: [],
+        })),
+      ),
+    }
+
+    const config = createConfig()
+    config.maxSteps = 6
+    config.targetJobCount = 4
+    config.promptContext = {
+      siteLabel: 'Primary target',
+    }
+
+    const result = await runAgentDiscovery(page, config, llmClient, jobExtractor)
+
+    expect(llmClient.chatWithTools).toHaveBeenCalledTimes(2)
+    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1)
+    expect(result.jobs).toHaveLength(3)
+    expect(result.incomplete).toBe(true)
+    expect(result.steps).toBe(2)
+  })
 })

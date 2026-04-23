@@ -302,10 +302,18 @@ function rebuildConversationFromSummary(input: {
   estimatedTokensBefore: number | null
   baseSnapshot: SharedAgentCompactionSnapshot
 }): ConversationTokenEstimate {
+  const bootstrapSystemPrompt = createSystemPrompt(input.config)
+  const bootstrapUserPrompt = input.createUserPrompt(input.config)
   const preservedMessages = preserveCoherentRecentMessages(
     input.state.conversation,
     input.preserveRecentMessages,
-  )
+  ).filter((message) => {
+    if (message.role === 'system') {
+      return false
+    }
+
+    return message.content !== bootstrapSystemPrompt && message.content !== bootstrapUserPrompt
+  })
   const stickyMessages = extractStickyUserMessages(input.state.conversation).filter(
     (stickyMessage) => !preservedMessages.some(
       (message) => message.role === stickyMessage.role && message.content === stickyMessage.content,

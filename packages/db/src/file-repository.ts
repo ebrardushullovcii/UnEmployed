@@ -487,6 +487,19 @@ export async function createFileJobFinderRepository(
       const normalizedEvidenceRef = SourceDebugEvidenceRefSchema.parse(cloneValue(evidenceRef))
       return context.upsertPersistedValue('source_debug_evidence_refs', normalizedEvidenceRef)
     },
+    upsertSourceDebugEvidenceRefs(evidenceRefs) {
+      const normalizedEvidenceRefs = SourceDebugEvidenceRefSchema.array().parse(
+        cloneValue([...evidenceRefs]),
+      )
+
+      runImmediateTransaction(database, () => {
+        for (const normalizedEvidenceRef of normalizedEvidenceRefs) {
+          context.writePersistedValue('source_debug_evidence_refs', normalizedEvidenceRef)
+        }
+      })
+
+      return secureDatabaseFile(options.filePath)
+    },
     getSettings() {
       return Promise.resolve(
         cloneValue(

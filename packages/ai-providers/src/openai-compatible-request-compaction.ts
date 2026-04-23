@@ -293,7 +293,7 @@ function computeUserPayloadCharBudget(input: {
     );
   }
 
-  return Math.max(MIN_USER_PAYLOAD_CHARS, availableInputTokens * APPROX_CHARS_PER_TOKEN);
+  return availableInputTokens * APPROX_CHARS_PER_TOKEN;
 }
 
 export function compactOpenAiCompatibleUserPayload(input: {

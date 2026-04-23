@@ -15,5 +15,6 @@ export {
   buildInvalidJobSample,
   clampScore,
   describeInvalidFieldCounts,
+  titleCaseWords,
   uniqueStrings,
 } from "./deterministic/utils";

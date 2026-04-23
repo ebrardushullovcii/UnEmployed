@@ -219,6 +219,9 @@ export interface JobFinderRepository {
   upsertSourceDebugEvidenceRef(
     evidenceRef: SourceDebugEvidenceRef,
   ): Promise<void>;
+  upsertSourceDebugEvidenceRefs(
+    evidenceRefs: readonly SourceDebugEvidenceRef[],
+  ): Promise<void>;
   getSettings(): Promise<JobFinderSettings>;
   saveSettings(settings: JobFinderSettings): Promise<void>;
   getDiscoveryState(): Promise<JobFinderDiscoveryState>;
