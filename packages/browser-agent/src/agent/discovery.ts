@@ -13,6 +13,7 @@ import {
   renderReviewTranscriptMessage,
   shouldFailForContextBudget,
 } from './conversation'
+import { isJobPreferenceAligned } from './job-extraction'
 import {
   appendPhaseEvidence,
   createEmptyPhaseEvidence,
@@ -22,7 +23,7 @@ import {
   synthesizeFallbackDebugFindings,
 } from './evidence'
 import { recoverFrom404LikeSurface } from './navigation-recovery'
-import { executeToolCall } from './tool-execution'
+import { executeToolCall, restoreSeededQuerySurfaceIfNeeded } from './tool-execution'
 import { buildForcedFinishPrompt, createUserPrompt } from './user-prompts'
 import type { JobExtractor, LLMClient } from './contracts'
 import {
@@ -33,6 +34,7 @@ import {
   getLlmResponse,
   getNonRouteEvidenceSignalCount,
   hasSufficientEarlyForcedFinishEvidence,
+  isClosedPageError,
   summarizeExtractionPassResult,
   waitForInitialPageReady,
   type ExtractionPassSummary,
@@ -42,6 +44,9 @@ const DEFERRED_SEARCH_EXTRACTION_BATCH_SIZE = 3
 const DEFERRED_SEARCH_EXTRACTION_FLUSH_STEP_INTERVAL = 10
 const DISCOVERY_STAGNATION_ZERO_YIELD_LIMIT = 3
 const DISCOVERY_STAGNATION_STEP_WINDOW = 8
+const DISCOVERY_CANDIDATE_HOLD_STEP_WINDOW = 4
+const DISCOVERY_CANDIDATE_HOLD_MIN_JOBS = 2
+const DISCOVERY_LATE_STEP_STOP_BUFFER = 3
 const EARLY_FORCED_FINISH_MIN_STEP = 4
 const EARLY_FORCED_FINISH_STALE_STEP_WINDOW = 2
 
@@ -73,7 +78,10 @@ export async function runAgentDiscovery(
   let pendingDebugFindings: NonNullable<AgentResult['debugFindings']> | null = null
   let awaitingStructuredFinish = false
   let forcedFinishPromptSent = false
+  let recoveredClosedPageForLlm = false
   const requiresExplicitFinish = Boolean(config.promptContext.taskPacket)
+  const startingUrlCandidates = [...new Set(config.startingUrls.map((url) => url.trim()).filter(Boolean))]
+  const pageRef: { current: Page } = { current: page }
 
   const state: AgentState = {
     conversation: [
@@ -100,6 +108,12 @@ export async function runAgentDiscovery(
   let lastJobGainStep = 0
   let lastEvidenceSignalCount = getEvidenceSignalCount(state)
   let lastEvidenceGrowthStep = 0
+  const getAlignedCollectedJobCount = (): number => state.collectedJobs.filter((job) =>
+    isJobPreferenceAligned({
+      job,
+      searchPreferences: config.searchPreferences,
+    }),
+  ).length
 
   const tools = getToolDefinitions()
   const emitProgress = createProgressEmitter(state, config, onProgress)
@@ -217,10 +231,84 @@ export async function runAgentDiscovery(
       debugFindings: pendingDebugFindings,
     })
   }
+  const maybeStopAfterCandidateHold = async (): Promise<AgentResult | null> => {
+    const alignedCollectedJobCount = getAlignedCollectedJobCount()
+    const usefulCandidateThreshold = Math.min(
+      config.targetJobCount,
+      Math.max(
+        DISCOVERY_CANDIDATE_HOLD_MIN_JOBS,
+        Math.ceil(config.targetJobCount * 0.75),
+      ),
+    )
+    const nearStepLimit = state.stepCount >= Math.max(1, config.maxSteps - DISCOVERY_LATE_STEP_STOP_BUFFER)
+    const hasGeneralCandidateHold =
+      alignedCollectedJobCount >= DISCOVERY_CANDIDATE_HOLD_MIN_JOBS &&
+      state.stepCount - lastJobGainStep >= DISCOVERY_CANDIDATE_HOLD_STEP_WINDOW
+    const hasLateUsefulCandidateHold =
+      nearStepLimit && alignedCollectedJobCount >= usefulCandidateThreshold
+
+    if (
+      requiresExplicitFinish ||
+      state.collectedJobs.length >= config.targetJobCount ||
+      state.deferredSearchExtractions.size > 0 ||
+      (!hasGeneralCandidateHold && !hasLateUsefulCandidateHold)
+    ) {
+      return null
+    }
+
+    emitProgress({
+      currentAction: 'stop_after_candidate_hold',
+      currentUrl: state.currentUrl,
+      jobsFound: state.collectedJobs.length,
+      stepCount: state.stepCount,
+      waitReason: 'finalizing',
+      message:
+        nearStepLimit
+          ? 'Stopping this discovery run near the step limit because it already has a useful candidate set and another planning turn is unlikely to improve it enough.'
+          : 'Stopping this discovery run early because it already has a useful candidate set and recent steps did not keep improving it.',
+    })
+    console.log(
+      `[Agent] Stopping after holding ${alignedCollectedJobCount} aligned candidate job${alignedCollectedJobCount === 1 ? '' : 's'} for ${state.stepCount - lastJobGainStep} stale steps${nearStepLimit ? ' near the step limit' : ''}`,
+    )
+
+    return buildDiscoveryResult({
+      incomplete: state.collectedJobs.length < config.targetJobCount,
+      phaseCompletionMode: null,
+      phaseCompletionReason: null,
+      phaseEvidence: null,
+      debugFindings: pendingDebugFindings,
+    })
+  }
+  const recoverLivePage = async (reason: string): Promise<boolean> => {
+    if (!config.resolveLivePage) {
+      return false
+    }
+
+    const livePage = await config.resolveLivePage()
+    pageRef.current = livePage
+    const recoveredUrl = livePage.url()
+    if (recoveredUrl) {
+      state.currentUrl = recoveredUrl
+      if (recoveredUrl !== 'about:blank') {
+        state.lastStableUrl = recoveredUrl
+        state.visitedUrls.add(recoveredUrl)
+      }
+    }
+
+    emitProgress({
+      ...(state.currentUrl ? { currentUrl: state.currentUrl } : {}),
+      jobsFound: state.collectedJobs.length,
+      stepCount: state.stepCount,
+      currentAction: `recover_page:${reason}`,
+      message: 'Recovered to a live browser page after the previous tab or page closed.',
+      waitReason: 'waiting_on_page',
+    })
+
+    return true
+  }
 
   try {
-    const firstUrl = config.startingUrls[0]
-    if (!firstUrl) {
+    if (startingUrlCandidates.length === 0) {
       return buildAgentResult(state, {
         error: 'No starting URLs provided',
         phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
@@ -230,46 +318,105 @@ export async function runAgentDiscovery(
       })
     }
 
-    if (!isAllowedUrl(firstUrl, config.navigationPolicy).valid) {
-      console.error(`[Agent] Starting URL not allowed: ${firstUrl}`)
-      return buildAgentResult(state, {
-        error: `Starting URL not in allowlist: ${firstUrl}`,
-        phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
-        phaseCompletionReason: requiresExplicitFinish
-          ? `Starting URL not in allowlist: ${firstUrl}`
-          : null,
-        phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
-        debugFindings: pendingDebugFindings,
-      })
+    let landedUrl: string | null = null
+    let selectedStartingUrl: string | null = null
+    const startingUrlFailures: string[] = []
+
+    startingUrlLoop: for (const [index, candidateUrl] of startingUrlCandidates.entries()) {
+      const candidateValidation = isAllowedUrl(candidateUrl, config.navigationPolicy)
+      if (!candidateValidation.valid) {
+        const detail = candidateValidation.error ?? 'Starting URL not in allowlist.'
+        console.error(`[Agent] Starting URL not allowed: ${candidateUrl}`)
+        startingUrlFailures.push(`${candidateUrl} (${detail})`)
+        continue
+      }
+
+      const usingFallbackCandidate = index > 0
+      let recoveredClosedPageForCandidate = false
+
+      while (true) {
+        emitProgress({
+          currentAction: 'navigate',
+          waitReason: 'waiting_on_page',
+          message: usingFallbackCandidate
+            ? `Trying fallback starting page ${index + 1}/${startingUrlCandidates.length}.`
+            : 'Opening the starting page for this run.',
+          currentUrl: candidateUrl,
+          stepCount: 0,
+          jobsFound: 0,
+        })
+
+        try {
+          const activePage = pageRef.current
+          await activePage.goto(candidateUrl, { waitUntil: 'domcontentloaded' })
+          emitProgress({
+            currentAction: 'page_settle',
+            waitReason: 'waiting_on_page',
+            message: usingFallbackCandidate
+              ? 'Waiting for the fallback starting page to settle before the first action.'
+              : 'Waiting for the starting page to settle before the first action.',
+            currentUrl: activePage.url() || candidateUrl,
+            stepCount: 0,
+            jobsFound: 0,
+          })
+          await waitForInitialPageReady(activePage)
+
+          const candidateLandedUrl = activePage.url() || candidateUrl
+          const landedUrlValidation = isAllowedUrl(candidateLandedUrl, config.navigationPolicy)
+          if (!landedUrlValidation.valid) {
+            console.error(`[Agent] Starting URL redirected off-allowlist: ${candidateLandedUrl}`)
+            startingUrlFailures.push(
+              `${candidateUrl} redirected to ${candidateLandedUrl} (${landedUrlValidation.error ?? 'redirected off allowlist'})`,
+            )
+            break
+          }
+
+          landedUrl = candidateLandedUrl
+          selectedStartingUrl = candidateUrl
+          break startingUrlLoop
+        } catch (error) {
+          let effectiveError: unknown = error
+
+          if (
+            isClosedPageError(effectiveError) &&
+            !recoveredClosedPageForCandidate
+          ) {
+            try {
+              if (await recoverLivePage('starting_url')) {
+                recoveredClosedPageForCandidate = true
+                continue
+              }
+            } catch (resolveError) {
+              effectiveError = resolveError
+            }
+          }
+
+          if (
+            (effectiveError instanceof DOMException && effectiveError.name === 'AbortError') ||
+            signal?.aborted
+          ) {
+            throw effectiveError
+          }
+
+          const detail =
+            effectiveError instanceof Error ? effectiveError.message : 'Unknown navigation error'
+          console.error(`[Agent] Starting URL failed: ${candidateUrl} | ${detail}`)
+          startingUrlFailures.push(`${candidateUrl} (${detail})`)
+          break
+        }
+      }
     }
 
-    emitProgress({
-      currentAction: 'navigate',
-      waitReason: 'waiting_on_page',
-      message: 'Opening the starting page for this run.',
-      currentUrl: firstUrl,
-      stepCount: 0,
-      jobsFound: 0,
-    })
-    await page.goto(firstUrl, { waitUntil: 'domcontentloaded' })
-    emitProgress({
-      currentAction: 'page_settle',
-      waitReason: 'waiting_on_page',
-      message: 'Waiting for the starting page to settle before the first action.',
-      currentUrl: page.url() || firstUrl,
-      stepCount: 0,
-      jobsFound: 0,
-    })
-    await waitForInitialPageReady(page)
-    const landedUrl = page.url()
-    const landedUrlValidation = isAllowedUrl(landedUrl, config.navigationPolicy)
-    if (!landedUrlValidation.valid) {
-      console.error(`[Agent] Starting URL redirected off-allowlist: ${landedUrl}`)
+    if (!landedUrl || !selectedStartingUrl) {
+      const detail =
+        startingUrlFailures.length > 0
+          ? ` Tried: ${startingUrlFailures.join('; ')}`
+          : ''
       return buildAgentResult(state, {
-        error: landedUrlValidation.error,
+        error: `Unable to open a usable starting URL.${detail}`,
         phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
         phaseCompletionReason: requiresExplicitFinish
-          ? landedUrlValidation.error ?? 'Starting URL redirected off-allowlist.'
+          ? `Unable to open a usable starting URL.${detail}`
           : null,
         phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
         debugFindings: pendingDebugFindings,
@@ -280,7 +427,14 @@ export async function runAgentDiscovery(
     state.lastStableUrl = landedUrl
     state.visitedUrls.add(state.currentUrl)
     appendPhaseEvidence(state, 'routeSignals', [
-      sanitizeUrl(landedUrl) ? `Started on ${sanitizeUrl(landedUrl)}` : null,
+      sanitizeUrl(landedUrl)
+        ? selectedStartingUrl === landedUrl
+          ? `Started on ${sanitizeUrl(landedUrl)}`
+          : `Started from ${sanitizeUrl(selectedStartingUrl)} and landed on ${sanitizeUrl(landedUrl)}`
+        : null,
+      startingUrlFailures.length > 0
+        ? `Starting URL fallback skipped ${startingUrlFailures.length} earlier candidate${startingUrlFailures.length === 1 ? '' : 's'}.`
+        : null,
     ])
     console.log(`[Agent] Started at: ${state.currentUrl}`)
 
@@ -301,6 +455,60 @@ export async function runAgentDiscovery(
 
       if (state.stepCount % 10 === 0) {
         console.log(`[Agent] Step ${state.stepCount}/${config.maxSteps} | Jobs: ${state.collectedJobs.length}`)
+      }
+
+      const seededQueryRecovery = await restoreSeededQuerySurfaceIfNeeded({
+        pageRef,
+        state,
+        config,
+      })
+      if (seededQueryRecovery) {
+        const blockedUrl = sanitizeUrl(seededQueryRecovery.blockedUrl)
+        const restoredUrl = sanitizeUrl(seededQueryRecovery.restoredUrl)
+        appendPhaseEvidence(state, 'routeSignals', [
+          seededQueryRecovery.restoredUrl
+            ? blockedUrl && restoredUrl
+              ? `Restored the seeded search surface from ${blockedUrl} back to ${restoredUrl} before the next planning turn.`
+              : restoredUrl
+                ? `Restored the seeded search surface before the next planning turn: ${restoredUrl}`
+                : null
+            : blockedUrl
+              ? `Detected a blocked seeded query route before planning but automatic restore failed: ${blockedUrl}`
+              : 'Detected a blocked seeded query route before planning but automatic restore failed.',
+        ])
+        appendConversationMessage(state, {
+          role: 'user',
+          content: seededQueryRecovery.restoredUrl
+            ? `${seededQueryRecovery.guardMessage} The browser was automatically restored to the seeded search surface before planning continued. Stay on that seeded search route unless it is clearly broken.`
+            : `${seededQueryRecovery.guardMessage} Automatic restore did not succeed yet, so the next action must restore the seeded search surface before any broader exploration.`,
+        })
+        emitProgress({
+          currentUrl: seededQueryRecovery.restoredUrl ?? seededQueryRecovery.blockedUrl,
+          jobsFound: state.collectedJobs.length,
+          stepCount: state.stepCount,
+          currentAction: seededQueryRecovery.restoredUrl
+            ? 'restore_seeded_query_surface'
+            : 'restore_seeded_query_surface_failed',
+          message: seededQueryRecovery.restoredUrl
+            ? 'Restored the seeded search surface before the next planning turn.'
+            : 'Detected a blocked seeded query route before planning, but automatic restore failed.',
+          waitReason: 'waiting_on_page',
+        })
+        if (!maybeCompactConversation(state, config, createUserPrompt)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          )
+        }
+        recordEvidenceProgress()
+      }
+
+      if (!requiresExplicitFinish) {
+        const candidateHoldResult = await maybeStopAfterCandidateHold()
+        if (candidateHoldResult) {
+          return candidateHoldResult
+        }
       }
 
       if (
@@ -332,33 +540,48 @@ export async function runAgentDiscovery(
       })
 
       let response: { content?: string; toolCalls?: import('../types').ToolCall[]; reasoning?: string }
-      try {
-        if (shouldFailForContextBudget(state, config)) {
+        try {
+          if (shouldFailForContextBudget(state, config)) {
           return buildContextBudgetFailureResult(
             state,
             requiresExplicitFinish,
             pendingDebugFindings,
           )
-        }
+          }
 
-        response = await getLlmResponse(
-          page,
-          state,
-          tools,
-          llmClient,
+          response = await getLlmResponse(
+            state,
+            tools,
+            llmClient,
           {
             maxOutputTokens: getEffectiveCompactionConfig(config).minimumResponseHeadroomTokens,
           },
-          emitProgress,
-          signal,
-        )
-      } catch (llmError) {
-        if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {
-          throw llmError
-        }
-        const errorMessage = llmError instanceof Error ? llmError.message : 'Unknown'
-        console.error('[Agent] LLM call failed:', errorMessage)
-        return buildAgentResult(state, {
+            emitProgress,
+            signal,
+          )
+        } catch (llmError) {
+          let effectiveLlmError: unknown = llmError
+
+          if (isClosedPageError(effectiveLlmError) && !recoveredClosedPageForLlm) {
+            try {
+              if (await recoverLivePage('thinking')) {
+                recoveredClosedPageForLlm = true
+                continue
+              }
+            } catch (resolveError) {
+              effectiveLlmError = resolveError
+            }
+          }
+
+          if (
+            (effectiveLlmError instanceof DOMException && effectiveLlmError.name === 'AbortError') ||
+            signal?.aborted
+          ) {
+            throw effectiveLlmError
+          }
+          const errorMessage = effectiveLlmError instanceof Error ? effectiveLlmError.message : 'Unknown'
+          console.error('[Agent] LLM call failed:', errorMessage)
+          return buildAgentResult(state, {
           error: `LLM call failed after 3 attempts: ${errorMessage}`,
           phaseCompletionMode: requiresExplicitFinish ? 'runtime_failed' : null,
           phaseCompletionReason: requiresExplicitFinish
@@ -408,6 +631,11 @@ export async function runAgentDiscovery(
           if (stagnantResult) {
             return stagnantResult
           }
+
+          const candidateHoldResult = await maybeStopAfterCandidateHold()
+          if (candidateHoldResult) {
+            return candidateHoldResult
+          }
         }
 
         recordEvidenceProgress()
@@ -425,6 +653,11 @@ export async function runAgentDiscovery(
           const stagnantResult = await maybeStopForStagnation()
           if (stagnantResult) {
             return stagnantResult
+          }
+
+          const candidateHoldResult = await maybeStopAfterCandidateHold()
+          if (candidateHoldResult) {
+            return candidateHoldResult
           }
         }
 
@@ -461,7 +694,7 @@ export async function runAgentDiscovery(
       for (const toolCall of response.toolCalls) {
         const result = await executeToolCall(
           toolCall,
-          page,
+          pageRef,
           state,
           config,
           jobExtractor,
@@ -484,7 +717,7 @@ export async function runAgentDiscovery(
         recordEvidenceProgress()
 
         if (['navigate', 'click', 'fill', 'select_option', 'go_back'].includes(toolCall.function.name)) {
-          await recoverFrom404LikeSurface(page, state)
+          await recoverFrom404LikeSurface(pageRef.current, state)
         }
 
         const compactResult =
@@ -566,6 +799,11 @@ export async function runAgentDiscovery(
         const stagnantResult = await maybeStopForStagnation()
         if (stagnantResult) {
           return stagnantResult
+        }
+
+        const candidateHoldResult = await maybeStopAfterCandidateHold()
+        if (candidateHoldResult) {
+          return candidateHoldResult
         }
 
         continue

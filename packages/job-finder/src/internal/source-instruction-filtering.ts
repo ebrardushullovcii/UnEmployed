@@ -27,7 +27,7 @@ export function splitCustomDiscoveryInstructions(value: string | null): string[]
 }
 
 export function normalizeInstructionLine(value: string): string {
-  return value
+  return scrubBrokenInstructionRouteExamples(value)
     .replace(
       /([?&])(currentJobId|selectedJobId)=[^&#)\s]+(?=(?:[).,;!?\s]|$))/gi,
       (_match, prefix: string) => (prefix === "?" ? "?" : ""),
@@ -43,6 +43,51 @@ export function normalizeInstructionLine(value: string): string {
     .replace(/\s+at index\s+\d+\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function trimInstructionRouteToken(value: string): string {
+  return value.replace(/[.,;:!?]+$/g, "");
+}
+
+function isBrokenInstructionRouteToken(value: string): boolean {
+  const trimmedValue = trimInstructionRouteToken(value);
+
+  if (!trimmedValue) {
+    return false;
+  }
+
+  try {
+    const parsed = trimmedValue.startsWith("/")
+      ? new URL(trimmedValue, "https://example.com")
+      : new URL(trimmedValue);
+    const pathname = (() => {
+      try {
+        return decodeURIComponent(parsed.pathname).toLowerCase();
+      } catch {
+        return parsed.pathname.toLowerCase();
+      }
+    })();
+    const routeText = `${pathname}${parsed.search.toLowerCase()}`;
+
+    return (
+      /(^|\/)404($|\/)/.test(pathname) ||
+      routeText.includes("not-found") ||
+      /(^|\/)\{[^/]+\}($|\/)/.test(pathname) ||
+      /(^|\/):[a-z0-9_-]+($|\/)/i.test(pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function scrubBrokenInstructionRouteExamples(value: string): string {
+  return value
+    .replace(/https?:\/\/[^\s)\]>",]+/gi, (match) =>
+      isBrokenInstructionRouteToken(match) ? "that route" : match,
+    )
+    .replace(/(^|[\s(])(\/[^\s)\]>",]+)/g, (match, prefix: string, route: string) =>
+      isBrokenInstructionRouteToken(route) ? `${prefix}that route` : match,
+    );
 }
 
 export function lineMentionsAnyKeyword(
@@ -299,7 +344,61 @@ export function filterSourceInstructionLines(values: readonly string[]): string[
   );
 }
 
+function isLowSignalSearchTemplateLine(value: string): boolean {
+  const raw = value.toLowerCase();
+  const normalized = normalizeText(value);
+
+  return (
+    (
+      raw.includes("/jobs/search/?keywords=") ||
+      raw.includes("keywords=...") ||
+      raw.includes("location=...") ||
+      raw.includes("geoid=") ||
+      normalized.includes("url based search") ||
+      normalized.includes("use url parameters") ||
+      normalized.includes("direct search") ||
+      normalized.includes("keywords location") ||
+      normalized.includes("jobs search keywords") ||
+      normalized.includes("jobs search location") ||
+      normalized.includes("jobs search keywords location") ||
+      normalized.includes("keywords job title") ||
+      normalized.includes("location geo id") ||
+      normalized.includes("location location")
+    )
+  );
+}
+
+function isLowSignalCollectionHintLine(value: string): boolean {
+  const normalized = normalizeText(value);
+
+  return (
+    normalized.includes("feed page") ||
+    normalized.includes("job hub") ||
+    normalized.includes("show all available jobs") ||
+    normalized.includes("show all top job picks for you") ||
+    normalized.includes("recommendation rows") ||
+    normalized.includes("recommendation collections") ||
+    normalized.includes("top job picks") ||
+    normalized.includes("jobs hub at jobs")
+  );
+}
+
+function shouldKeepDiscoveryInstructionLine(value: string): boolean {
+  return (
+    !isLowSignalSearchTemplateLine(value) &&
+    !isLowSignalCollectionHintLine(value)
+  );
+}
+
+export function filterDiscoveryInstructionLines(input: {
+  values: readonly string[];
+  artifactProviderKey?: string | null;
+}): string[] {
+  return filterSourceInstructionLines(input.values).filter((value) =>
+    shouldKeepDiscoveryInstructionLine(value),
+  );
+}
+
 export function prefixedLines(prefix: string, values: readonly string[]): string[] {
   return values.map((value) => `${prefix}${normalizeInstructionLine(value)}`);
 }
-

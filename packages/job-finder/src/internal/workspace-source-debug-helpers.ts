@@ -1,7 +1,9 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   SourceDebugPhaseSummarySchema,
+  SourceIntelligenceArtifactSchema,
   type JobDiscoveryTarget,
+  type JobSearchPreferences,
   type SourceDebugPhase,
   type SourceDebugPhaseCompletionMode,
   type SourceDebugPhaseEvidence,
@@ -14,7 +16,15 @@ import {
   isExplicitSearchProbeDisproof,
   splitCustomDiscoveryInstructions,
 } from "./source-instructions";
+import { warningSuggestsAuthRestriction } from "./source-instruction-evidence";
 import { normalizeText, uniqueStrings } from "./shared";
+import {
+  buildEvidenceDrivenDiscoverySearchUrl,
+  canonicalizeRouteForReuse,
+  inferSourceIntelligenceFromTarget,
+  resolveRouteKindForReuse,
+  shouldKeepRouteForReuse,
+} from "./workspace-source-intelligence";
 import type { ResolvedDiscoveryAdapter } from "./workspace-defaults";
 import { buildInstructionGuidance } from "./workspace-helpers";
 
@@ -26,6 +36,18 @@ function canonicalizeSourceDebugRouteHint(candidateUrl: URL): string {
 
   normalized.hash = "";
   return normalized.toString();
+}
+
+function classifySourceDebugHintUrl(
+  url: string,
+): "collection" | "search" | "listing" | "other" {
+  const kind = resolveRouteKindForReuse(url);
+
+  if (kind === "collection" || kind === "search" || kind === "listing") {
+    return kind;
+  }
+
+  return "other";
 }
 
 function shouldReadRouteHintSection(
@@ -182,6 +204,7 @@ export function deriveSourceDebugStartingUrls(
   target: JobDiscoveryTarget,
   instructionArtifact: SourceInstructionArtifact | null,
   phase: SourceDebugPhase,
+  searchPreferences?: JobSearchPreferences | null,
 ): string[] {
   if (phase === "access_auth_probe") {
     return [target.startingUrl];
@@ -193,7 +216,12 @@ export function deriveSourceDebugStartingUrls(
   } catch {
     return [target.startingUrl];
   }
+  const synthesizedSearchUrl =
+    phase === "search_filter_probe"
+      ? buildEvidenceDrivenDiscoverySearchUrl(target, instructionArtifact, searchPreferences)
+      : null;
   const routeHints = buildInstructionGuidance(instructionArtifact);
+  const normalizeRouteHint = (value: string) => canonicalizeRouteForReuse(value, targetUrl);
   const collectionUrls: string[] = [];
   const searchUrls: string[] = [];
   const landingUrls: string[] = [];
@@ -267,34 +295,45 @@ export function deriveSourceDebugStartingUrls(
       normalizedLine.includes("no search filter ui");
 
     for (const candidateUrl of parsedCandidates) {
-      const candidate = canonicalizeSourceDebugRouteHint(candidateUrl);
-      const normalizedCandidateUrl = new URL(candidate);
-      const normalizedPath = normalizeText(
-        `${normalizedCandidateUrl.pathname} ${normalizedCandidateUrl.search}`,
-      );
-      const candidateLooksCollection =
-        normalizedPath.includes("collection") ||
-        normalizedPath.includes("recommended");
-      const candidateLooksSearch =
-        normalizedPath.includes("search") ||
-        normalizedPath.includes("results");
-      const candidateLooksLanding =
-        normalizedPath.includes("jobs") || normalizedPath.includes("careers");
+      const candidate = normalizeRouteHint(canonicalizeSourceDebugRouteHint(candidateUrl));
+      if (!candidate) {
+        continue;
+      }
 
-      if (candidateLooksCollection || (hasSingleCandidate && lineHasCollectionSignal)) {
+      const candidateKind = resolveRouteKindForReuse(candidate);
+      if (!shouldKeepRouteForReuse({
+        url: candidate,
+        kind: candidateKind,
+        targetStartingUrl: target.startingUrl,
+      })) {
+        continue;
+      }
+
+      const candidateClassification = classifySourceDebugHintUrl(candidate);
+
+      if (
+        candidateClassification === "collection" ||
+        (hasSingleCandidate && lineHasCollectionSignal && candidateClassification !== "other")
+      ) {
         collectionUrls.push(candidate);
         continue;
       }
 
       if (
         !lineHasSearchDisproof &&
-        (candidateLooksSearch || (hasSingleCandidate && lineHasSearchSignal))
+        (
+          candidateClassification === "search" ||
+          (hasSingleCandidate && lineHasSearchSignal && candidateClassification !== "other")
+        )
       ) {
         searchUrls.push(candidate);
         continue;
       }
 
-      if (candidateLooksLanding || (hasSingleCandidate && lineHasLandingSignal)) {
+      if (
+        candidateClassification === "listing" ||
+        (hasSingleCandidate && lineHasLandingSignal && candidateClassification !== "other")
+      ) {
         landingUrls.push(candidate);
         continue;
       }
@@ -305,7 +344,16 @@ export function deriveSourceDebugStartingUrls(
 
   const preferredUrls =
     phase === "search_filter_probe"
-      ? searchUrls.length > 0
+      ? synthesizedSearchUrl
+        ? [
+            synthesizedSearchUrl,
+            ...searchUrls,
+            ...landingUrls,
+            target.startingUrl,
+            ...collectionUrls,
+            ...otherUrls,
+          ]
+        : searchUrls.length > 0
         ? [
             ...searchUrls,
             ...landingUrls,
@@ -458,7 +506,7 @@ export function getSourceDebugTargetJobCount(phase: SourceDebugPhase): number {
       return 1;
     case "site_structure_mapping":
     case "search_filter_probe":
-      return 2;
+      return 1;
     case "job_detail_validation":
     case "apply_path_validation":
     case "replay_verification":
@@ -468,19 +516,131 @@ export function getSourceDebugTargetJobCount(phase: SourceDebugPhase): number {
   }
 }
 
-export function getSourceDebugMaxSteps(phase: SourceDebugPhase): number {
-  switch (phase) {
-    case "access_auth_probe":
-      return 16;
-    case "site_structure_mapping":
-      return 18;
-    case "search_filter_probe":
-      return 22;
-    case "job_detail_validation":
-    case "apply_path_validation":
-    case "replay_verification":
-      return 18;
-    default:
-      return 18;
+export function resolveSourceDebugPhases(input: {
+  target: JobDiscoveryTarget;
+  instructionArtifact: SourceInstructionArtifact | null;
+}): SourceDebugPhase[] {
+  const intelligence = input.instructionArtifact?.intelligence
+    ? SourceIntelligenceArtifactSchema.parse(input.instructionArtifact.intelligence)
+    : inferSourceIntelligenceFromTarget({
+        target: input.target,
+        currentArtifact: input.instructionArtifact,
+      });
+
+  if (intelligence.provider?.apiAvailability === "available") {
+    return [
+      "access_auth_probe",
+      "job_detail_validation",
+      "apply_path_validation",
+      "replay_verification",
+    ];
   }
+
+  return [
+    "access_auth_probe",
+    "site_structure_mapping",
+    "search_filter_probe",
+    "job_detail_validation",
+    "apply_path_validation",
+    "replay_verification",
+  ];
+}
+
+export function getSourceDebugMaxSteps(
+  phase: SourceDebugPhase,
+  input?: {
+    hasLearnedRouteHints?: boolean;
+    hasPriorPhaseSummary?: boolean;
+    hasExistingInstructionArtifact?: boolean;
+  },
+): number {
+  const baseStepsByPhase: Record<SourceDebugPhase, number> = {
+    access_auth_probe: 16,
+    site_structure_mapping: 15,
+    search_filter_probe: 18,
+    job_detail_validation: 18,
+    apply_path_validation: 18,
+    replay_verification: 18,
+  };
+  const minimumStepsByPhase: Record<SourceDebugPhase, number> = {
+    access_auth_probe: 16,
+    site_structure_mapping: 10,
+    search_filter_probe: 10,
+    job_detail_validation: 12,
+    apply_path_validation: 12,
+    replay_verification: 10,
+  };
+
+  let maxSteps = baseStepsByPhase[phase];
+
+  if (phase !== "access_auth_probe" && input?.hasLearnedRouteHints) {
+    maxSteps -= phase === "search_filter_probe" ? 6 : 4;
+  }
+
+  if (phase !== "access_auth_probe" && input?.hasPriorPhaseSummary) {
+    maxSteps -= phase === "search_filter_probe" ? 2 : 1;
+  }
+
+  if (input?.hasExistingInstructionArtifact) {
+    if (phase === "replay_verification") {
+      maxSteps -= 4;
+    }
+
+    if (phase === "job_detail_validation" || phase === "apply_path_validation") {
+      maxSteps -= 2;
+    }
+  }
+
+  return Math.max(minimumStepsByPhase[phase], maxSteps);
+}
+
+export function shouldFinishSourceDebugEarly(input: {
+  attempts: readonly SourceDebugWorkerAttempt[];
+  currentPhase: SourceDebugPhase;
+}): boolean {
+  if (
+    input.currentPhase !== "job_detail_validation" &&
+    input.currentPhase !== "apply_path_validation"
+  ) {
+    return false;
+  }
+
+  const byPhase = new Map(input.attempts.map((attempt) => [attempt.phase, attempt]));
+  const accessAttempt = byPhase.get("access_auth_probe");
+  const structureAttempt = byPhase.get("site_structure_mapping");
+  const searchAttempt = byPhase.get("search_filter_probe");
+  const detailAttempt = byPhase.get("job_detail_validation");
+
+  const structureProven =
+    structureAttempt?.outcome === "succeeded" ||
+    structureAttempt?.completionMode === "forced_finish";
+  const searchProven =
+    searchAttempt?.outcome === "succeeded" ||
+    searchAttempt?.completionMode === "forced_finish";
+  const detailProven =
+    detailAttempt?.outcome === "succeeded" ||
+    detailAttempt?.completionMode === "forced_finish";
+
+  if (input.currentPhase === "job_detail_validation") {
+    if (!accessAttempt || !warningSuggestsAuthRestriction(accessAttempt.blockerSummary)) {
+      return false;
+    }
+
+    return (
+      structureProven &&
+      searchProven &&
+      detailProven
+    );
+  }
+
+  const applyAttempt = byPhase.get("apply_path_validation");
+  const applyProven =
+    applyAttempt?.outcome === "succeeded" ||
+    applyAttempt?.completionMode === "forced_finish";
+
+  if (!accessAttempt || accessAttempt.outcome !== "succeeded") {
+    return false;
+  }
+
+  return structureProven && searchProven && detailProven && applyProven;
 }

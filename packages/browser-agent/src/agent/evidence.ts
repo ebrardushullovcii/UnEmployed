@@ -63,6 +63,117 @@ function summarizeJobInput(job: ExtractedJobInput): string {
   return (firstSentence ?? description).slice(0, 280)
 }
 
+function findRepeatedLeadingPhrase(value: string): string | null {
+  const words = trimToNull(value)?.split(/\s+/).filter(Boolean) ?? []
+  for (let width = Math.floor(words.length / 2); width >= 2; width -= 1) {
+    const left = words.slice(0, width).join(' ')
+    const right = words.slice(width, width * 2).join(' ')
+    if (left && left.toLowerCase() === right.toLowerCase()) {
+      return left
+    }
+  }
+
+  return null
+}
+
+function scoreCollectedJobQuality(job: ExtractedJobInput | JobPosting): number {
+  const title = trimToNull(job.title) ?? ''
+  const company = trimToNull(job.company) ?? ''
+  const location = trimToNull(job.location) ?? ''
+  const summary = trimToNull(job.summary) ?? ''
+  const description = trimToNull(job.description) ?? ''
+  const titleLower = title.toLowerCase()
+  const companyLower = company.toLowerCase()
+  const repeatedTitlePrefix = findRepeatedLeadingPhrase(title)
+  let score = 0
+
+  score += Math.min(title.length, 120) * 6
+  score += Math.min(company.length, 120) * 4
+  score += Math.min(location.length, 80) * 2
+  score += Math.min(summary.length, 280)
+  score += Math.min(description.length, 500) / 2
+  score += (job.keySkills?.length ?? 0) * 8
+  score += (job.responsibilities?.length ?? 0) * 6
+  score += (job.minimumQualifications?.length ?? 0) * 6
+  score += (job.preferredQualifications?.length ?? 0) * 4
+
+  if (job.easyApplyEligible) {
+    score += 10
+  }
+
+  if (/\bdismiss\b|\bviewed\b|\bpromoted\b|\bwith verification\b/i.test(title)) {
+    score -= 180
+  }
+
+  if (repeatedTitlePrefix) {
+    score -= 360
+  }
+
+  if (/\bdismiss\b|\bviewed\b|\bpromoted\b|\bwith verification\b/i.test(company)) {
+    score -= 220
+  }
+
+  if (companyLower && titleLower && companyLower !== titleLower && companyLower.includes(titleLower)) {
+    score -= 260
+  }
+
+  if (titleLower && companyLower && titleLower.includes(companyLower) && companyLower.length >= 6) {
+    score -= 120
+  }
+
+  if (title.split(/\s+/).filter(Boolean).length <= 1) {
+    score -= 120
+  }
+
+  return Math.round(score)
+}
+
+function buildCollectedJob(
+  job: ExtractedJobInput,
+  source: JobPosting['source'],
+  discoveredAt: string,
+): JobPosting | null {
+  const jobToAdd = {
+    source,
+    sourceJobId: job.sourceJobId,
+    discoveryMethod: 'browser_agent' as const,
+    canonicalUrl: job.canonicalUrl,
+    title: job.title,
+    company: job.company,
+    location: job.location,
+    workMode: normalizeJobWorkMode(job),
+    applyPath: ['easy_apply', 'external_redirect', 'unknown'].includes(job.applyPath as string)
+      ? job.applyPath
+      : 'unknown',
+    easyApplyEligible: job.easyApplyEligible ?? false,
+    postedAt: job.postedAt ?? null,
+    postedAtText: trimToNull(job.postedAtText),
+    discoveredAt,
+    salaryText: job.salaryText || null,
+    summary: trimToNull(job.summary) ?? summarizeJobInput(job),
+    description: job.description,
+    keySkills: job.keySkills ?? [],
+    responsibilities: job.responsibilities ?? [],
+    minimumQualifications: job.minimumQualifications ?? [],
+    preferredQualifications: job.preferredQualifications ?? [],
+    seniority: trimToNull(job.seniority),
+    employmentType: trimToNull(job.employmentType),
+    department: trimToNull(job.department),
+    team: trimToNull(job.team),
+    employerWebsiteUrl: trimToNull(job.employerWebsiteUrl),
+    employerDomain: trimToNull(job.employerDomain),
+    benefits: job.benefits ?? []
+  }
+
+  const validation = JobPostingSchema.safeParse(jobToAdd)
+  if (!validation.success) {
+    console.warn(`[Agent] Skipping invalid job ${job.sourceJobId}:`, validation.error)
+    return null
+  }
+
+  return validation.data
+}
+
 function isToolResult(value: unknown): value is ToolExecutionResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false
@@ -349,6 +460,31 @@ function normalizeJobWorkMode(job: Pick<JobPosting, 'workMode'>): JobPosting['wo
   return validWorkModes.length > 0 ? validWorkModes : ['flexible']
 }
 
+function shouldDeduplicateByCanonicalUrl(value: string | null | undefined): boolean {
+  const canonicalUrl = value?.trim()
+  if (!canonicalUrl) {
+    return false
+  }
+
+  try {
+    const parsed = new URL(canonicalUrl)
+    const pathname = parsed.pathname.toLowerCase()
+    if (
+      pathname === '/jobs' ||
+      pathname === '/jobs/' ||
+      pathname.includes('/jobs/search') ||
+      pathname.includes('/jobs/search-results') ||
+      pathname.includes('/jobs/collections')
+    ) {
+      return false
+    }
+
+    return true
+  } catch {
+    return true
+  }
+}
+
 export function addExtractedJobsToState(
   extractedJobs: readonly ExtractedJobInput[],
   state: AgentState,
@@ -357,53 +493,34 @@ export function addExtractedJobsToState(
   let addedCount = 0
 
   for (const job of extractedJobs) {
-    const exists = state.collectedJobs.some((existingJob) =>
+    const existingIndex = state.collectedJobs.findIndex((existingJob) =>
       existingJob.sourceJobId === job.sourceJobId ||
-      (Boolean(existingJob.canonicalUrl) && Boolean(job.canonicalUrl) && existingJob.canonicalUrl === job.canonicalUrl)
+      (
+        shouldDeduplicateByCanonicalUrl(existingJob.canonicalUrl) &&
+        shouldDeduplicateByCanonicalUrl(job.canonicalUrl) &&
+        Boolean(existingJob.canonicalUrl) &&
+        Boolean(job.canonicalUrl) &&
+        existingJob.canonicalUrl === job.canonicalUrl
+      )
     )
-    if (exists) {
+
+    const validatedJob = buildCollectedJob(job, source, new Date().toISOString())
+    if (!validatedJob) {
       continue
     }
 
-    const jobToAdd = {
-      source,
-      sourceJobId: job.sourceJobId,
-      discoveryMethod: 'browser_agent' as const,
-      canonicalUrl: job.canonicalUrl,
-      title: job.title,
-      company: job.company,
-      location: job.location,
-      workMode: normalizeJobWorkMode(job),
-      applyPath: ['easy_apply', 'external_redirect', 'unknown'].includes(job.applyPath as string)
-        ? job.applyPath
-        : 'unknown',
-      easyApplyEligible: job.easyApplyEligible ?? false,
-      postedAt: job.postedAt ?? null,
-      postedAtText: trimToNull(job.postedAtText),
-      discoveredAt: new Date().toISOString(),
-      salaryText: job.salaryText || null,
-      summary: trimToNull(job.summary) ?? summarizeJobInput(job),
-      description: job.description,
-      keySkills: job.keySkills ?? [],
-      responsibilities: job.responsibilities ?? [],
-      minimumQualifications: job.minimumQualifications ?? [],
-      preferredQualifications: job.preferredQualifications ?? [],
-      seniority: trimToNull(job.seniority),
-      employmentType: trimToNull(job.employmentType),
-      department: trimToNull(job.department),
-      team: trimToNull(job.team),
-      employerWebsiteUrl: trimToNull(job.employerWebsiteUrl),
-      employerDomain: trimToNull(job.employerDomain),
-      benefits: job.benefits ?? []
-    }
-
-    const validation = JobPostingSchema.safeParse(jobToAdd)
-    if (!validation.success) {
-      console.warn(`[Agent] Skipping invalid job ${job.sourceJobId}:`, validation.error)
+    if (existingIndex !== -1) {
+      const existingJob = state.collectedJobs[existingIndex]!
+      if (scoreCollectedJobQuality(validatedJob) > scoreCollectedJobQuality(existingJob)) {
+        state.collectedJobs[existingIndex] = {
+          ...validatedJob,
+          discoveredAt: existingJob.discoveredAt,
+        }
+      }
       continue
     }
 
-    state.collectedJobs.push(validation.data)
+    state.collectedJobs.push(validatedJob)
     addedCount += 1
   }
 

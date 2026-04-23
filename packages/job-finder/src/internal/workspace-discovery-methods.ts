@@ -1,6 +1,7 @@
 import {
   DiscoveryRunRecordSchema,
   JobPostingSchema,
+  type CandidateProfile,
   type DiscoveryActivityEvent,
   type DiscoveryLedgerEntry,
   type DiscoveryRunRecord,
@@ -10,6 +11,7 @@ import {
   type JobPosting,
   type JobSearchPreferences,
   type JobSource,
+  type SourceIntelligenceProviderKey,
 } from "@unemployed/contracts";
 import {
   appendDiscoveryEvent,
@@ -20,7 +22,7 @@ import {
 } from "./discovery-state";
 import { mergeDiscoveredPostings } from "./matching";
 import {
-  buildInstructionGuidance,
+  buildDiscoveryInstructionGuidance,
   enrichSearchPreferencesFromProfile,
   getActiveDiscoveryTargets,
   resolveActiveSourceInstructionArtifact,
@@ -59,10 +61,14 @@ import {
   buildDiscoveryStartingUrls,
   collectPublicProviderJobs,
   inferSourceIntelligenceFromTarget,
+  selectLowYieldTechnicalFallbackPostings,
   selectDiscoveryCollectionMethod,
   selectDiscoveryMethod,
 } from "./workspace-source-intelligence";
-import { createUniqueId } from "./shared";
+import { createUniqueId, uniqueStrings } from "./shared";
+
+const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
+const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
 
 function describeUnknownThrowable(caughtError: unknown): string {
   if (typeof caughtError === "string") {
@@ -114,10 +120,67 @@ function describeCloseoutMode(keptAlive: boolean) {
       };
 }
 
+function formatDiscoveryPostingLabel(input: {
+  title: string;
+  company: string;
+}): string {
+  const title = input.title.trim();
+  const company = input.company.trim();
+
+  return company ? `${title} at ${company}` : title;
+}
+
+function formatDiscoveryPostingSamples(
+  postings: readonly Pick<JobPosting, "title" | "company">[],
+): string | null {
+  const labels = uniqueStrings(
+    postings
+      .map((posting) => formatDiscoveryPostingLabel(posting))
+      .filter(Boolean),
+  ).slice(0, DISCOVERY_ACTIVITY_SAMPLE_LIMIT);
+
+  return labels.length > 0
+    ? labels.map((label) => `"${label}"`).join("; ")
+    : null;
+}
+
+function formatDiscoverySkipSamples(
+  samples: {
+    title: string;
+    company: string;
+    reason: string | null;
+  }[],
+): string | null {
+  const labels = uniqueStrings(
+    samples.map((sample) => {
+      const label = formatDiscoveryPostingLabel(sample);
+      return sample.reason ? `${label} -> ${sample.reason}` : label;
+    }),
+  ).slice(0, DISCOVERY_ACTIVITY_SAMPLE_LIMIT);
+
+  return labels.length > 0
+    ? labels.map((label) => `"${label}"`).join("; ")
+    : null;
+}
+
 function getSourceIntelligenceProviderKey(
   intelligence: NonNullable<JobPosting["sourceIntelligence"]>,
-) {
+): SourceIntelligenceProviderKey | null {
   return intelligence.provider?.key ?? null;
+}
+
+function getDiscoveryProviderKey(input: {
+  target: JobDiscoveryTarget;
+  intelligence: NonNullable<JobPosting["sourceIntelligence"]>;
+}): SourceIntelligenceProviderKey | null {
+  return (
+    getSourceIntelligenceProviderKey(input.intelligence) ??
+    inferSourceIntelligenceFromTarget({
+      target: input.target,
+      currentArtifact: null,
+    }).provider?.key ??
+    null
+  );
 }
 
 function createInitialRunRecord(input: {
@@ -194,21 +257,105 @@ function selectTargets(
   return activeTargets.filter((target) => target.id === options.targetId);
 }
 
+function getDiscoveryCollectionMethodPriority(method: string): number {
+  switch (method) {
+    case "api":
+      return 0;
+    case "listing_route":
+      return 1;
+    case "careers_page":
+      return 2;
+    case "fallback_search":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function getSourceInstructionPriority(
+  status: JobDiscoveryTarget["instructionStatus"] | null,
+): number {
+  switch (status) {
+    case "validated":
+      return 0;
+    case "draft":
+      return 1;
+    case "missing":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function prioritizeDiscoveryTargets(
+  targets: readonly JobDiscoveryTarget[],
+  sourceInstructionArtifacts: Awaited<
+    ReturnType<WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]>
+  >,
+  searchPreferences: JobSearchPreferences,
+): JobDiscoveryTarget[] {
+  return [...targets]
+    .map((target, index) => {
+      const activeInstruction = resolveActiveSourceInstructionArtifact(
+        target,
+        sourceInstructionArtifacts,
+      );
+      const collectionMethod = selectDiscoveryCollectionMethod(
+        target,
+        activeInstruction,
+      );
+      const startingUrls = buildDiscoveryStartingUrls(
+        target,
+        activeInstruction,
+        searchPreferences,
+      );
+
+      return {
+        target,
+        index,
+        collectionMethodPriority:
+          getDiscoveryCollectionMethodPriority(collectionMethod),
+        instructionPriority: getSourceInstructionPriority(
+          activeInstruction?.status ?? target.instructionStatus,
+        ),
+        learnedRoutePriority:
+          startingUrls[0] != null && startingUrls[0] !== target.startingUrl ? 0 : 1,
+      };
+    })
+    .sort((left, right) => {
+      if (left.collectionMethodPriority !== right.collectionMethodPriority) {
+        return left.collectionMethodPriority - right.collectionMethodPriority;
+      }
+
+      if (left.instructionPriority !== right.instructionPriority) {
+        return left.instructionPriority - right.instructionPriority;
+      }
+
+      if (left.learnedRoutePriority !== right.learnedRoutePriority) {
+        return left.learnedRoutePriority - right.learnedRoutePriority;
+      }
+
+      return left.index - right.index;
+    })
+    .map((entry) => entry.target);
+}
+
 function createPostingWithTriage(
   posting: JobPosting,
   searchPreferences: JobSearchPreferences,
+  profile: CandidateProfile,
 ): {
   posting: JobPosting;
   triageReason: string | null;
 } {
-  const triage = applyDiscoveryTitleTriage({ posting, searchPreferences });
+  const triage = applyDiscoveryTitleTriage({ posting, searchPreferences, profile });
 
   return {
     posting: JobPostingSchema.parse({
       ...posting,
       titleTriageOutcome: triage.outcome,
     }),
-    triageReason: triage.reason,
+    triageReason: triage.outcome === "pass" ? null : triage.reason,
   };
 }
 
@@ -270,9 +417,16 @@ async function collectTargetJobs(input: {
   });
   const collectionMethod = selectDiscoveryCollectionMethod(target, activeInstruction);
   const discoveryMethod = selectDiscoveryMethod(collectionMethod);
-  const startingUrls = buildDiscoveryStartingUrls(target, activeInstruction);
+  const startingUrls = buildDiscoveryStartingUrls(
+    target,
+    activeInstruction,
+    input.searchPreferences,
+  );
   const providerLabel = intelligence.provider?.label ?? "Unknown provider";
-  const sourceIntelligenceProvider = getSourceIntelligenceProviderKey(intelligence);
+  const sourceIntelligenceProvider = getDiscoveryProviderKey({
+    target,
+    intelligence,
+  });
 
   if (discoveryMethod === "public_api") {
     const startedAt = new Date().toISOString();
@@ -365,7 +519,7 @@ async function collectTargetJobs(input: {
     }
   })();
   const adapter = discoveryAdapters[adapterKind];
-  const instructionLines = buildInstructionGuidance(activeInstruction);
+  const instructionLines = buildDiscoveryInstructionGuidance(activeInstruction);
 
   if (input.useAgentRuntime && ctx.browserRuntime.runAgentDiscovery) {
     const result = await ctx.browserRuntime.runAgentDiscovery(adapterKind, {
@@ -384,6 +538,7 @@ async function collectTargetJobs(input: {
       navigationHostnames: targetUrl ? [targetUrl.hostname] : [],
       siteInstructions: [...adapter.siteInstructions, ...instructionLines],
       toolUsageNotes: adapter.toolUsageNotes,
+      compactionWorkflowKey: "browser_agent_live_discovery",
       relevantUrlSubstrings: adapter.relevantUrlSubstrings,
       experimental: adapter.experimental,
       aiClient: ctx.aiClient,
@@ -482,9 +637,9 @@ export function createWorkspaceDiscoveryMethods(
       searchPreferences,
       profile,
     );
-    const targets = selectTargets(enrichedPreferences, options);
+    const selectedTargets = selectTargets(enrichedPreferences, options);
 
-    if (targets.length === 0) {
+    if (selectedTargets.length === 0) {
       if (options.scope === "single_target") {
         throw new Error("single_target: target not found or unavailable");
       }
@@ -499,6 +654,14 @@ export function createWorkspaceDiscoveryMethods(
     const touchedPendingJobIds = new Set<string>();
     const openedSessionSources = new Set<JobSource>();
     const sourceInstructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
+    const targets =
+      options.scope === "run_all"
+        ? prioritizeDiscoveryTargets(
+            selectedTargets,
+            sourceInstructionArtifacts,
+            enrichedPreferences,
+          )
+        : selectedTargets;
     const runId = createUniqueId("discovery_run");
     const keepSessionAlive = settings.keepSessionAlive;
     let activeRun = createInitialRunRecord({
@@ -578,9 +741,10 @@ export function createWorkspaceDiscoveryMethods(
               adapterKind: target.adapterKind,
               resolvedAdapterKind: resolveAdapterKind(target),
               collectionMethod: targetCollectionMethod,
-              sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-                targetIntelligence,
-              ),
+              sourceIntelligenceProvider: getDiscoveryProviderKey({
+                target,
+                intelligence: targetIntelligence,
+              }),
               terminalState: "skipped",
               message: `Skipping ${target.label} because the run already has enough jobs.`,
               url: target.startingUrl,
@@ -627,9 +791,10 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: resolveAdapterKind(target),
             collectionMethod: targetCollectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              targetIntelligence,
-            ),
+            sourceIntelligenceProvider: getDiscoveryProviderKey({
+              target,
+              intelligence: targetIntelligence,
+            }),
             message: `Starting target ${target.label}`,
             url: target.startingUrl,
             jobsFound: 0,
@@ -658,11 +823,15 @@ export function createWorkspaceDiscoveryMethods(
           openedSessionSources,
           useAgentRuntime: options.useAgentRuntime ?? false,
         });
+        const collectedProviderKey = getDiscoveryProviderKey({
+          target,
+          intelligence: collected.intelligence,
+        });
 
         activeRun = updateTargetExecution(activeRun, target.id, (entry) => ({
           ...entry,
           collectionMethod: collected.collectionMethod,
-          sourceIntelligenceProvider: collected.intelligence.provider?.key ?? null,
+          sourceIntelligenceProvider: collectedProviderKey,
           compactionState: collected.result.agentMetadata?.compactionState ?? null,
           compactionUsedFallbackTrigger:
             collected.result.agentMetadata?.compactionUsedFallbackTrigger ?? false,
@@ -679,12 +848,10 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
             collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              collected.intelligence,
-            ),
+            sourceIntelligenceProvider: collectedProviderKey,
             message: collected.result.warning
-              ? `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}. ${collected.result.warning}`
-              : `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}`,
+              ? `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(collected.result.jobs) ?? "none"}. ${collected.result.warning}`
+              : `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(collected.result.jobs) ?? "none"}`,
             url: target.startingUrl,
             jobsFound: collected.result.jobs.length,
             jobsPersisted: activeRun.summary.jobsPersisted,
@@ -696,8 +863,14 @@ export function createWorkspaceDiscoveryMethods(
 
         const targetSeenUrls: string[] = [];
         const triagedPostings: JobPosting[] = [];
+        const triageSkippedPostings: JobPosting[] = [];
         let skippedByTitleTriage = 0;
         let skippedByLedger = 0;
+        const titleTriageSkipSamples: Array<{
+          title: string;
+          company: string;
+          reason: string | null;
+        }> = [];
         const collectionSucceeded = collected.result.warning == null;
 
         for (const rawPosting of collected.result.jobs) {
@@ -706,10 +879,19 @@ export function createWorkspaceDiscoveryMethods(
           const { posting: triagedPosting, triageReason } = createPostingWithTriage(
             posting,
             enrichedPreferences,
+            profile,
           );
 
           if (triagedPosting.titleTriageOutcome !== "pass") {
             skippedByTitleTriage += 1;
+            triageSkippedPostings.push(triagedPosting);
+            if (titleTriageSkipSamples.length < DISCOVERY_ACTIVITY_SAMPLE_LIMIT) {
+              titleTriageSkipSamples.push({
+                title: triagedPosting.title,
+                company: triagedPosting.company,
+                reason: triageReason,
+              });
+            }
             workingLedger = recordDiscoveredPostingInLedger({
               ledger: workingLedger,
               posting: triagedPosting,
@@ -754,6 +936,50 @@ export function createWorkspaceDiscoveryMethods(
           triagedPostings.push(triagedPosting);
         }
 
+        const technicalFallbackLimit = Math.max(
+          0,
+          LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR - triagedPostings.length,
+        );
+        const rescuedPostings =
+          technicalFallbackLimit > 0
+            ? selectLowYieldTechnicalFallbackPostings({
+                skippedPostings: triageSkippedPostings,
+                searchPreferences: enrichedPreferences,
+                profile,
+                limit: technicalFallbackLimit,
+              })
+            : [];
+
+        if (rescuedPostings.length > 0) {
+          for (const posting of rescuedPostings) {
+            workingLedger = recordDiscoveredPostingInLedger({
+              ledger: workingLedger,
+              posting,
+              targetId: target.id,
+              seenAt: posting.discoveredAt,
+              status: "seen",
+            });
+            triagedPostings.push(posting);
+          }
+
+          skippedByTitleTriage = Math.max(
+            0,
+            skippedByTitleTriage - rescuedPostings.length,
+          );
+          for (let index = titleTriageSkipSamples.length - 1; index >= 0; index -= 1) {
+            const sample = titleTriageSkipSamples[index];
+            const rescuedPosting = sample
+              ? rescuedPostings.find(
+                  (posting) =>
+                    posting.title === sample.title && posting.company === sample.company,
+                )
+              : null;
+            if (rescuedPosting) {
+              titleTriageSkipSamples.splice(index, 1);
+            }
+          }
+        }
+
         emitActivity(
           createDiscoveryEvent({
             runId,
@@ -765,10 +991,11 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
             collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              collected.intelligence,
-            ),
-            message: `Reviewing ${triagedPostings.length} promising jobs from ${target.label}`,
+            sourceIntelligenceProvider: collectedProviderKey,
+            message:
+              triagedPostings.length > 0
+                ? `Reviewing ${triagedPostings.length} promising jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(triagedPostings) ?? "none"}${rescuedPostings.length > 0 ? ` Technical low-yield fallback kept ${rescuedPostings.length} additional job${rescuedPostings.length === 1 ? "" : "s"}.` : ""}`
+                : `Reviewing 0 promising jobs from ${target.label}. Title triage skipped ${skippedByTitleTriage}. Sample skips: ${formatDiscoverySkipSamples(titleTriageSkipSamples) ?? "none"}`,
             url: target.startingUrl,
             jobsFound: triagedPostings.length,
             jobsPersisted: activeRun.summary.jobsPersisted,
@@ -859,9 +1086,7 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
             collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              collected.intelligence,
-            ),
+            sourceIntelligenceProvider: collectedProviderKey,
             message: `Saving the kept jobs and updated discovery ledger for ${target.label}`,
             url: target.startingUrl,
             jobsFound: mergeResult.validatedCount,
@@ -904,9 +1129,7 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
             collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              collected.intelligence,
-            ),
+            sourceIntelligenceProvider: collectedProviderKey,
             terminalState: "completed",
             message: `Finished ${target.label} (${index + 1}/${targets.length})`,
             url: target.startingUrl,

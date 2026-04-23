@@ -10,10 +10,55 @@ import type {
 import { getToolDefinitions } from '../tools'
 import { addExtractedJobsToState } from './evidence'
 import { buildStructuredCandidateJobs } from './job-extraction'
+import {
+  DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET,
+  getSearchResultsExtractionReviewBudget,
+} from './search-results-budget'
 import type { JobExtractor, LLMClient } from './contracts'
 
 const MAX_LLM_RETRY_ATTEMPTS = 3
-const MAX_SEARCH_RESULTS_EXTRACTION_JOBS = 4
+const CLOSED_PAGE_ERROR_PATTERN =
+  /\b(target closed|target page, context or browser has been closed|page closed|context closed|browser has been closed)\b/i
+
+export function isClosedPageErrorMessage(message: string | null | undefined): boolean {
+  return typeof message === 'string' && CLOSED_PAGE_ERROR_PATTERN.test(message)
+}
+
+export function isClosedPageError(error: unknown): boolean {
+  return error instanceof Error && isClosedPageErrorMessage(error.message)
+}
+
+export async function waitForRetryDelay(
+  delayMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (delayMs <= 0) {
+    return
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, delayMs)
+
+    const handleAbort = () => {
+      cleanup()
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+
+    const cleanup = () => {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', handleAbort)
+    }
+
+    signal?.addEventListener('abort', handleAbort, { once: true })
+  })
+}
 
 export interface ExtractionPassSummary {
   extractionPasses: number
@@ -75,15 +120,14 @@ export function summarizeExtractionPassResult(result: unknown): ExtractionPassSu
 
   const data = candidate.data as Record<string, unknown>
 
-  if (
-    data.deferredExtraction === true ||
-    typeof data.jobsExtracted !== 'number' ||
-    !Number.isFinite(data.jobsExtracted)
-  ) {
+  if (typeof data.jobsExtracted !== 'number' || !Number.isFinite(data.jobsExtracted)) {
     return createEmptyExtractionPassSummary()
   }
 
   const newJobsAdded = Math.max(0, Math.floor(data.jobsExtracted))
+  if (data.deferredExtraction === true && newJobsAdded === 0) {
+    return createEmptyExtractionPassSummary()
+  }
 
   return {
     extractionPasses: 1,
@@ -160,10 +204,11 @@ export async function flushDeferredSearchExtractions(input: {
     }
 
     const deferredSearchPage = deferredSearchPages[index]!
-    const maxJobs = Math.min(
-      Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length),
-      MAX_SEARCH_RESULTS_EXTRACTION_JOBS,
-    )
+    const remainingJobs = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
+    const expandedSearchResultsBudget = getSearchResultsExtractionReviewBudget(input.config)
+    const maxJobs = expandedSearchResultsBudget == null
+      ? Math.min(remainingJobs, DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET)
+      : Math.max(remainingJobs, expandedSearchResultsBudget)
 
     if (maxJobs === 0) {
       break
@@ -189,20 +234,17 @@ export async function flushDeferredSearchExtractions(input: {
       maxJobs,
       structuredDataCandidates: deferredSearchPage.structuredDataCandidates ?? [],
       cardCandidates: deferredSearchPage.cardCandidates ?? [],
+      searchPreferences: input.config.searchPreferences,
     })
     const fastPathAddedCount = addExtractedJobsToState(
       fastPathJobs,
       input.state,
       input.config.source,
     )
-    const remainingJobsAfterFastPath = Math.max(
-      0,
-      input.config.targetJobCount - input.state.collectedJobs.length,
-    )
-    const remainingSearchResultsBudget = Math.min(
-      remainingJobsAfterFastPath,
-      Math.max(0, maxJobs - fastPathAddedCount),
-    )
+    const remainingJobsAfterFastPath = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
+    const remainingSearchResultsBudget = expandedSearchResultsBudget == null
+      ? Math.min(remainingJobsAfterFastPath, Math.max(0, maxJobs - fastPathAddedCount))
+      : Math.max(0, maxJobs - fastPathAddedCount)
     const extractedJobs =
       remainingSearchResultsBudget === 0
         ? []
@@ -262,6 +304,8 @@ export function createProgressEmitter(
   onProgress?: OnProgressCallback,
 ) {
   const startedAtMs = Date.now()
+  const defaultStartingUrl =
+    config.startingUrls.find((url) => url.trim().length > 0) ?? 'about:blank'
 
   return (input: {
     currentAction?: string
@@ -276,7 +320,7 @@ export function createProgressEmitter(
       input.currentUrl ||
       state.currentUrl ||
       state.lastStableUrl ||
-      config.startingUrls[0] ||
+      defaultStartingUrl ||
       'about:blank'
 
     onProgress?.({
@@ -313,7 +357,6 @@ export async function waitForInitialPageReady(page: Page): Promise<void> {
 }
 
 export async function getLlmResponse(
-  page: Page,
   state: AgentState,
   tools: ReturnType<typeof getToolDefinitions>,
   llmClient: LLMClient,
@@ -365,7 +408,7 @@ export async function getLlmResponse(
           waitReason: 'retrying_ai',
           message: `Retrying AI planning after a temporary model error (${attempt + 2}/${MAX_LLM_RETRY_ATTEMPTS}).`,
         })
-        await page.waitForTimeout(500 * (attempt + 1))
+        await waitForRetryDelay(500 * (attempt + 1), signal)
       }
     } finally {
       if (heartbeat !== null) clearInterval(heartbeat)
