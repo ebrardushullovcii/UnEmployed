@@ -23,6 +23,27 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+type PhraseMatchMode = "generic" | "title" | "location";
+
+const titleTokenAliases = new Map<string, string>([
+  ["developer", "engineer"],
+  ["developers", "engineer"],
+  ["dev", "engineer"],
+]);
+
+const locationNoiseTokens = new Set([
+  "remote",
+  "hybrid",
+  "onsite",
+  "on",
+  "site",
+  "office",
+  "home",
+  "anywhere",
+  "worldwide",
+  "global",
+]);
+
 const remoteGeographyHints = [
   { pattern: /\b(united states|u\.s\.|u\.s|us only|usa only)\b/i, label: "United States" },
   { pattern: /\b(united kingdom|uk only|u\.k\.)\b/i, label: "United Kingdom" },
@@ -244,6 +265,181 @@ function enrichDiscoveredPosting(
   };
 }
 
+function cleanTitleMatchCandidate(value: string): string {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  if (!collapsed) {
+    return "";
+  }
+
+  const dismissMatch = collapsed.match(/\bdismiss\s+(.+?)\s+job\b/i);
+  const candidate = dismissMatch?.[1] ?? collapsed;
+
+  return candidate
+    .replace(/\(verified job\)/gi, " ")
+    .replace(/\bverified job\b/gi, " ")
+    .replace(/\b\d+\s+connection(?:s)?\s+works\s+here\b/gi, " ")
+    .replace(/\b\d+\s+school alumni\b/gi, " ")
+    .replace(/\b(viewed|promoted)\b.*$/i, " ")
+    .replace(/\s*[•·|]\s*$/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getTitleMatchCandidateVariants(value: string): string[] {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  const cleaned = cleanTitleMatchCandidate(value);
+
+  if (!cleaned || cleaned === collapsed) {
+    return collapsed ? [collapsed] : [];
+  }
+
+  return [cleaned, collapsed];
+}
+
+function normalizePhraseMatchInput(value: string, mode: PhraseMatchMode): string {
+  const normalized = value
+    .replace(/\bfullstack\b/gi, "full stack")
+    .replace(/\bfront\s*end\b/gi, "frontend")
+    .replace(/\bback\s*end\b/gi, "backend");
+
+  if (mode !== "location") {
+    return normalized;
+  }
+
+  return normalized
+    .replace(/\bon\s*site\b/gi, "onsite")
+    .replace(/\bwork\s+from\s+home\b/gi, "remote");
+}
+
+function tokenizePhraseMatchValue(
+  value: string,
+  mode: PhraseMatchMode,
+): string[] {
+  const tokens = tokenize(normalizePhraseMatchInput(value, mode)).flatMap((token) => {
+    if (mode === "location" && locationNoiseTokens.has(token)) {
+      return [];
+    }
+
+    if (mode === "title") {
+      return [titleTokenAliases.get(token) ?? token];
+    }
+
+    return [token];
+  });
+
+  return [...new Set(tokens)];
+}
+
+function isRemoteOnlyLocation(value: string): boolean {
+  const normalized = normalizePhraseMatchInput(value, "location");
+  if (!normalized) {
+    return false;
+  }
+
+  const genericTokens = tokenizePhraseMatchValue(value, "generic");
+  const locationTokens = tokenizePhraseMatchValue(value, "location");
+
+  return (
+    locationTokens.length === 0 &&
+    genericTokens.length > 0 &&
+    genericTokens.every((token) => locationNoiseTokens.has(token))
+  );
+}
+
+function isEditDistanceAtMostOne(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftLength = left.length;
+  const rightLength = right.length;
+  if (Math.abs(leftLength - rightLength) > 1) {
+    return false;
+  }
+
+  let leftIndex = 0;
+  let rightIndex = 0;
+  let mismatchCount = 0;
+
+  while (leftIndex < leftLength && rightIndex < rightLength) {
+    if (left[leftIndex] === right[rightIndex]) {
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+
+    mismatchCount += 1;
+    if (mismatchCount > 1) {
+      return false;
+    }
+
+    if (leftLength > rightLength) {
+      leftIndex += 1;
+      continue;
+    }
+
+    if (rightLength > leftLength) {
+      rightIndex += 1;
+      continue;
+    }
+
+    leftIndex += 1;
+    rightIndex += 1;
+  }
+
+  if (leftIndex < leftLength || rightIndex < rightLength) {
+    mismatchCount += 1;
+  }
+
+  return mismatchCount <= 1;
+}
+
+function phraseMatchTokensEqual(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left.length < 6 || right.length < 6) {
+    return false;
+  }
+
+  return isEditDistanceAtMostOne(left, right);
+}
+
+function everyPhraseTokenMatches(
+  sourceTokens: readonly string[],
+  targetTokens: readonly string[],
+): boolean {
+  return sourceTokens.every((sourceToken) =>
+    targetTokens.some((targetToken) =>
+      phraseMatchTokensEqual(sourceToken, targetToken),
+    ),
+  );
+}
+
+function countMatchedPhraseTokens(
+  desiredTokens: readonly string[],
+  candidateTokens: readonly string[],
+): number {
+  const remainingCandidateTokens = [...candidateTokens];
+  let matchedCount = 0;
+
+  for (const desiredToken of desiredTokens) {
+    const matchedIndex = remainingCandidateTokens.findIndex((candidateToken) =>
+      phraseMatchTokensEqual(desiredToken, candidateToken),
+    );
+
+    if (matchedIndex === -1) {
+      continue;
+    }
+
+    matchedCount += 1;
+    remainingCandidateTokens.splice(matchedIndex, 1);
+  }
+
+  return matchedCount;
+}
+
 export function matchesAnyPhrase(
   candidate: string,
   desiredValues: readonly string[],
@@ -284,14 +480,110 @@ export function matchesTitlePreference(
   candidate: string,
   targetRoles: readonly string[],
 ): boolean {
-  return matchesAnyPhrase(candidate, targetRoles);
+  if (targetRoles.length === 0) {
+    return true;
+  }
+
+  return getTitleMatchCandidateVariants(candidate).some((candidateVariant) => {
+    const candidateTokens = tokenizePhraseMatchValue(candidateVariant, "title");
+    const normalizedCandidate = candidateTokens.join(" ");
+
+    return targetRoles.some((targetRole) => {
+      const desiredTokens = tokenizePhraseMatchValue(targetRole, "title");
+
+      if (desiredTokens.length === 0) {
+        return false;
+      }
+
+      if (desiredTokens.length === 1) {
+        return candidateTokens.some((candidateToken) =>
+          phraseMatchTokensEqual(candidateToken, desiredTokens[0]!),
+        );
+      }
+
+      const normalizedDesired = desiredTokens.join(" ");
+      if (
+        new RegExp(`(^|\\s)${escapeRegex(normalizedDesired)}($|\\s)`).test(
+          normalizedCandidate,
+        )
+      ) {
+        return true;
+      }
+
+      if (everyPhraseTokenMatches(desiredTokens, candidateTokens)) {
+        return true;
+      }
+
+      const matchedCount = countMatchedPhraseTokens(desiredTokens, candidateTokens);
+      const matchRatio = matchedCount / desiredTokens.length;
+
+      if (desiredTokens.length === 2) {
+        return matchedCount === 2;
+      }
+
+      if (desiredTokens.length === 3) {
+        return matchedCount >= 2 && matchRatio >= 2 / 3;
+      }
+
+      return matchedCount >= 3 && matchRatio >= 0.6;
+    });
+  });
 }
 
 export function matchesLocationPreference(
   candidate: string,
   locations: readonly string[],
 ): boolean {
-  return matchesAnyPhrase(candidate, locations);
+  if (locations.length === 0) {
+    return true;
+  }
+
+  const candidateTokens = tokenizePhraseMatchValue(candidate, "location");
+  const fallbackCandidateTokens = tokenizePhraseMatchValue(candidate, "generic");
+  const normalizedCandidate = candidateTokens.join(" ");
+
+  if (isRemoteOnlyLocation(candidate)) {
+    return true;
+  }
+
+  return locations.some((location) => {
+    const desiredTokens = tokenizePhraseMatchValue(location, "location");
+    const fallbackDesiredTokens = tokenizePhraseMatchValue(location, "generic");
+
+    if (desiredTokens.length === 0) {
+      if (fallbackDesiredTokens.length === 0) {
+        return false;
+      }
+
+      if (fallbackDesiredTokens.length === 1) {
+        return fallbackCandidateTokens.some((candidateToken) =>
+          phraseMatchTokensEqual(candidateToken, fallbackDesiredTokens[0]!),
+        );
+      }
+
+      return everyPhraseTokenMatches(fallbackDesiredTokens, fallbackCandidateTokens);
+    }
+
+    if (desiredTokens.length === 1) {
+      return candidateTokens.some((candidateToken) =>
+        phraseMatchTokensEqual(candidateToken, desiredTokens[0]!),
+      );
+    }
+
+    const normalizedDesired = desiredTokens.join(" ");
+    if (
+      new RegExp(`(^|\\s)${escapeRegex(normalizedDesired)}($|\\s)`).test(
+        normalizedCandidate,
+      )
+    ) {
+      return true;
+    }
+
+    return (
+      everyPhraseTokenMatches(desiredTokens, candidateTokens) ||
+      everyPhraseTokenMatches(candidateTokens, desiredTokens)
+    );
+  });
 }
 
 export function toSavedJobId(posting: JobPosting): string {
@@ -308,11 +600,11 @@ export function createMatchAssessment(
   const reasons: string[] = [];
   const gaps: string[] = [];
 
-  const matchesRole = matchesAnyPhrase(
+  const matchesRole = matchesTitlePreference(
     posting.title,
     searchPreferences.targetRoles,
   );
-  const matchesLocation = matchesAnyPhrase(
+  const matchesLocation = matchesLocationPreference(
     posting.location,
     searchPreferences.locations,
   );
