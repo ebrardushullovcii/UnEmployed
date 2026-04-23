@@ -6,7 +6,6 @@ import {
   type SourceIntelligenceArtifact,
   type JobDiscoveryTarget,
   type JobSource,
-  type SourceDebugPhase,
   type SourceDebugRunRecord,
   type SourceInstructionArtifact,
 } from "@unemployed/contracts";
@@ -19,15 +18,7 @@ import { extractJsonObjectString } from "./source-instruction-quality";
 import {
   compactSourceInstructionReviewPhaseContexts,
 } from "./shared-agent-handoff-compaction";
-
-const SOURCE_DEBUG_PHASES: SourceDebugPhase[] = [
-  "access_auth_probe",
-  "site_structure_mapping",
-  "search_filter_probe",
-  "job_detail_validation",
-  "apply_path_validation",
-  "replay_verification",
-];
+import { SOURCE_DEBUG_PHASES } from "./workspace-defaults";
 
 function resolveSourceInstructionReviewCompactionPolicy(input: {
   compactionPolicy: Partial<SharedAgentCompactionPolicy>;

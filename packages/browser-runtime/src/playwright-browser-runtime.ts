@@ -643,6 +643,7 @@ export function createBrowserAgentRuntime(
           ...(agentOptions.compaction
             ? { compaction: agentOptions.compaction }
             : {}),
+          resolveLivePage: async () => getReadyPage(source),
           compactionCapability: {
             tokenEstimator: ({ messages, maxOutputTokens }) => {
               const estimatedInputTokens = messages.reduce((sum, message) => {
@@ -666,9 +667,11 @@ export function createBrowserAgentRuntime(
               agentOptions.modelContextWindowTokens ??
               ensuredAiClient.getStatus().modelContextWindowTokens ??
               null,
-            compactionWorkflowKey: agentOptions.taskPacket
-              ? "source_debug_worker"
-              : "browser_agent_live_discovery",
+            compactionWorkflowKey:
+              agentOptions.compactionWorkflowKey ??
+              (agentOptions.taskPacket
+                ? "source_debug_worker"
+                : "browser_agent_live_discovery"),
           },
           ...(agentOptions.relevantUrlSubstrings
             ? {

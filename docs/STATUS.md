@@ -25,11 +25,14 @@
 
 - LinkedIn query-first starts, route hygiene, Chrome attach reuse, and several extraction fixes are landed
 - A focused browser-agent fix now correctly parses polluted reversed LinkedIn cards such as `Crossing Hurdles ... at Software Engineer (Fullstack)` and is covered by regression tests
-- cleanup is underway to remove source-specific core discovery policy:
+- cleanup now keeps shared discovery policy source-generic:
   - LinkedIn-only direct-pass behavior was removed from shared triage flow
   - low-yield technical rescue is now source-generic instead of LinkedIn-only
   - seeded-query preservation and search-surface extraction helpers in `browser-agent` now use generic naming and behavior instead of source-branded helper APIs
   - public provider parsing in `job-finder` now uses generic adapter tables instead of separate per-source parser functions
+  - browser-agent search-surface route handling is centralized as adapter data instead of duplicated source-only helper branches
+  - browser-agent search-result review now stops deferred or slower extraction once fast structured extraction has already filled the target job count
+  - source-debug now uses generic phase selection and step-budget reduction when public provider APIs, route hints, prior phase summaries, or existing instructions make full exploration lower value
 - Non-app validation after the cleanup passed for the touched packages and docs:
   - `pnpm agents:sync`
   - `pnpm agents:check`
@@ -55,7 +58,7 @@
 ## Next Step
 
 - Work from `docs/TRACKS.md` and `docs/exec-plans/active/017-browser-substrate-evaluation-and-direction.md`
-- Prioritize `Check source` speed, remaining cleanup of source-specific core discovery policy, LinkedIn title/company cleanup, and the separate Kosovajob route/extraction problem
+- Prioritize `Check source` speed, continued source-generic regression checks, LinkedIn title/company cleanup, and the separate Kosovajob route/extraction problem
 
 ## Key References
 

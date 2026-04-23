@@ -78,6 +78,7 @@ export interface AgentDiscoveryOptions {
   };
   compaction?: Partial<SharedAgentCompactionPolicy>;
   modelContextWindowTokens?: number | null;
+  compactionWorkflowKey?: string;
   relevantUrlSubstrings?: string[];
   experimental?: boolean;
   skipSessionValidation?: boolean;

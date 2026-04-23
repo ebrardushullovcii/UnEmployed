@@ -35,11 +35,14 @@ Primary user-facing bar:
 
 - Query-first LinkedIn starts, route hygiene, Chrome attach reuse, and several extraction fixes are landed
 - LinkedIn polluted `... at ...` card parsing is improved enough for the rebuilt real app to recover cleaner titles like `.NET Software Developer`, `Frontend Engineer`, and `Back-End Engineer`
-- cleanup is underway to remove LinkedIn-specific core discovery policy:
+- cleanup now keeps shared discovery policy source-generic:
   - shared triage no longer has a LinkedIn-only direct pass
   - low-yield technical rescue is now source-generic instead of LinkedIn-only
   - seeded-query preservation in `browser-agent` now uses generic search-surface language and behavior
-  - public provider parsing and search-surface extraction helpers are being collapsed into generic adapter tables and generic helper names instead of source-branded helper functions
+  - public provider parsing and search-surface extraction helpers now use generic adapter tables and generic helper names instead of source-branded helper functions
+  - browser-agent search-surface route handling is centralized as adapter data instead of duplicated source-only helper branches
+- Browser-agent deferred search-result review now stops once fast structured extraction has already filled the configured target count, avoiding unnecessary slower extractor work without adding source-specific policy
+- Source-debug now uses generic phase selection and step-budget reduction when public provider APIs, route hints, prior phase summaries, or existing instructions make full exploration lower value
 - A truthful rebuilt desktop benchmark moved LinkedIn from the old `0`/`1 persisted` ceiling to `6 persisted` in single-target `Search now` and `7 persisted` in LinkedIn-only `run_all`
 - Kosovajob remains the weakest real target for both speed and quality
 - Full app-triggered flows are the benchmark source of truth, not narrower service slices
@@ -106,8 +109,8 @@ Primary user-facing bar:
 
 ## Next Steps
 
-1. Cut real `Check source` latency by removing more low-value first-run work
-2. Finish removing remaining source-named helper debt and replace the remaining exceptions with source-generic orchestration rules
+1. Rebuild and rerun truthful `Check source` flows to measure the generic phase-selection and step-budget changes before adding more latency work
+2. Keep auditing source-named helper debt; remaining source labels should stay limited to provider metadata, profile fields, fixtures, or reusable adapter data
 3. Clean remaining LinkedIn title/company pollution now that multiple candidates survive into persistence
 4. Keep Kosovajob on a separate path from LinkedIn: reduce source-debug and discovery over-exploration, then improve technical-role survival on the homepage query/detail pattern that the real app actually observes
 5. Fix the `browser-runtime` -> `browser-agent` catalog seam if it blocks clearer ownership or further optimization

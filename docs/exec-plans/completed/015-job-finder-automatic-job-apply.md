@@ -1,8 +1,8 @@
 # 015 Job Finder Automatic Job Apply
 
-Status: active
+Status: completed
 
-Plan `015` is now active. Plan `007` completed the `Resume Workspace` hardening. Plan `010` completed the measurement-first browser-efficiency slice. The first implementation slice remains intentionally staged rather than jumping straight from the review-gated apply flow to queue-wide automatic submission.
+Plan `015` completed the safe non-submitting automatic apply baseline. Plan `007` completed the `Resume Workspace` hardening. Plan `010` completed the measurement-first browser-efficiency slice. The first implementation slice remains intentionally staged rather than jumping straight from the review-gated apply flow to queue-wide automatic submission.
 
 ## Goal
 

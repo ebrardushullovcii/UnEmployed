@@ -790,6 +790,7 @@ export async function executeToolCall(
       const shouldDeferSearchExtraction =
         normalizedPageType === 'search_results' &&
         !config.promptContext.taskPacket &&
+        remainingJobsAfterFastPath > 0 &&
         remainingSearchResultsBudget > 0
 
       if (shouldDeferSearchExtraction) {
@@ -858,7 +859,11 @@ export async function executeToolCall(
         targetId: null,
         adapterKind: config.source
       })
-      const extractedJobs = remainingSearchResultsBudget === 0 || shouldSkipSlowSearchResultsExtraction
+      const shouldRunSlowExtraction =
+        remainingJobsAfterFastPath > 0 &&
+        remainingSearchResultsBudget > 0 &&
+        !shouldSkipSlowSearchResultsExtraction
+      const extractedJobs = !shouldRunSlowExtraction
         ? []
         : await jobExtractor.extractJobsFromPage({
             pageText: extractData.pageText,

@@ -111,6 +111,7 @@ export interface AgentConfig {
   extractionContext?: AgentExtractionContext;
   compaction?: Partial<SharedAgentCompactionPolicy>;
   compactionCapability?: AgentCompactionCapability;
+  resolveLivePage?: () => Promise<Page>;
 }
 
 export interface AgentState {

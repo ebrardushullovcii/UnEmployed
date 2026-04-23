@@ -7,6 +7,11 @@ import {
   shouldCanonicalizeSearchSurfaceDetailRoute,
   type ExtractionSearchPreferences,
 } from "../agent/job-extraction";
+import {
+  SEARCH_SURFACE_ROUTE_RULES,
+  getSearchSurfaceRouteRuleForUrl,
+  readEmbeddedSearchSurfaceJobId,
+} from "../agent/search-surface-routes";
 
 interface StructuredDataJobCandidate {
   canonicalUrl?: string | null;
@@ -161,30 +166,16 @@ function isSearchSurfaceRouteWithEmbeddedJobId(pageUrl: string, candidateUrl: st
 
   try {
     const parsed = new URL(normalizedUrl, pageUrl);
-    if (!/(^|\.)linkedin\.com$/i.test(parsed.hostname)) {
+    if (!isSearchResultsSurfaceRoute(parsed.toString(), pageUrl)) {
       return false;
     }
 
-    const pathname = parsed.pathname.toLowerCase();
-    if (
-      !(
-        pathname === '/jobs' ||
-        pathname === '/jobs/' ||
-        pathname.includes('/jobs/search') ||
-        pathname.includes('/jobs/search-results') ||
-        pathname.includes('/jobs/collections')
-      )
-    ) {
-      return false;
-    }
+    const routeRule = getSearchSurfaceRouteRuleForUrl(parsed);
+    const embeddedJobId = routeRule
+      ? readEmbeddedSearchSurfaceJobId(parsed, routeRule)
+      : '';
 
-    const currentJobId = cleanCardText(
-      parsed.searchParams.get('currentJobId') ??
-        parsed.searchParams.get('selectedJobId') ??
-        parsed.searchParams.get('jobId'),
-    );
-
-    return /^\d+$/.test(currentJobId);
+    return /^\d+$/.test(embeddedJobId);
   } catch {
     return false;
   }
@@ -395,15 +386,7 @@ export function dedupeExtractedCardCandidates(
 }
 
 export function shouldUseSearchSurfaceJobViewCardCapture(pageUrl: string): boolean {
-  try {
-    const url = new URL(pageUrl);
-    const pathname = url.pathname.toLowerCase();
-
-    return /(^|\.)linkedin\.com$/i.test(url.hostname) &&
-      (pathname === '/jobs' || pathname === '/jobs/' || pathname.includes('/jobs/search') || pathname.includes('/jobs/search-results') || pathname.includes('/jobs/collections'));
-  } catch {
-    return false;
-  }
+  return isSearchResultsSurfaceRoute(pageUrl, pageUrl);
 }
 
 function includesClassHint(value: string | null | undefined, hints: readonly string[]): boolean {
@@ -591,6 +574,14 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             relevantUrlSubstrings: string[];
             allowSubdomains: boolean;
             preferSearchSurfaceJobViewCardCapture: boolean;
+            searchSurfaceRouteRules: Array<{
+              hostSuffixes: string[];
+              resultExactPaths: string[];
+              resultPathPrefixes: string[];
+              detailPathPrefix: string;
+              detailPathTemplate: string;
+              embeddedJobIdParams: string[];
+            }>;
           }) => {
             const toText = (value: unknown): string =>
               typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -609,8 +600,52 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 return [normalized];
               });
             };
+            const findSearchSurfaceRouteRuleForHostname = (hostname: string) =>
+              input.searchSurfaceRouteRules.find((rule) => {
+                const normalizedHostname = hostname.toLowerCase();
+                return rule.hostSuffixes.some(
+                  (hostSuffix) =>
+                    normalizedHostname === hostSuffix ||
+                    normalizedHostname.endsWith(`.${hostSuffix}`),
+                );
+              }) ?? null;
+            const findSearchSurfaceRouteRuleForUrl = (value: string) => {
+              try {
+                const parsed = new URL(value, window.location.href);
+                return findSearchSurfaceRouteRuleForHostname(parsed.hostname);
+              } catch {
+                return null;
+              }
+            };
+            const isSearchSurfaceResultPath = (
+              rule: NonNullable<ReturnType<typeof findSearchSurfaceRouteRuleForHostname>>,
+              pathname: string,
+            ): boolean =>
+              rule.resultExactPaths.includes(pathname) ||
+              rule.resultPathPrefixes.some((prefix) => pathname.startsWith(prefix));
+            const readEmbeddedSearchSurfaceJobId = (
+              url: URL,
+              rule: NonNullable<ReturnType<typeof findSearchSurfaceRouteRuleForHostname>>,
+            ): string =>
+              toText(
+                rule.embeddedJobIdParams
+                  .map((paramName) => url.searchParams.get(paramName))
+                  .find((value) => toText(value)) ?? null,
+              );
+            const buildSearchSurfaceDetailUrl = (
+              rule: NonNullable<ReturnType<typeof findSearchSurfaceRouteRuleForHostname>>,
+              sourceJobId: string,
+            ): string =>
+              `${window.location.origin}${rule.detailPathTemplate.replace('{sourceJobId}', sourceJobId)}`;
+            const buildSearchSurfaceAnchorSelector = (): string =>
+              uniqueStrings(
+                input.searchSurfaceRouteRules.flatMap((rule) => [
+                  `a[href*="${rule.detailPathPrefix}"]`,
+                  ...rule.embeddedJobIdParams.map((paramName) => `a[href*="${paramName}="]`),
+                ]),
+              ).join(', ');
             const collectAccessibleCardLabels = (element: HTMLElement): string[] => {
-              if (!/(^|\.)linkedin\.com$/i.test(window.location.hostname)) {
+              if (!findSearchSurfaceRouteRuleForHostname(window.location.hostname)) {
                 return [];
               }
 
@@ -910,18 +945,13 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             const isSearchSurfaceRoute = (value: string): boolean => {
               try {
                 const parsed = new URL(value, window.location.href);
-                if (!/(^|\.)linkedin\.com$/i.test(parsed.hostname)) {
+                const routeRule = findSearchSurfaceRouteRuleForHostname(parsed.hostname);
+                if (!routeRule) {
                   return false;
                 }
 
                 const pathname = parsed.pathname.toLowerCase();
-                return (
-                  pathname === '/jobs' ||
-                  pathname === '/jobs/' ||
-                  pathname.includes('/jobs/search') ||
-                  pathname.includes('/jobs/search-results') ||
-                  pathname.includes('/jobs/collections')
-                );
+                return isSearchSurfaceResultPath(routeRule, pathname);
               } catch {
                 return false;
               }
@@ -938,12 +968,11 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   return candidate.canonicalUrl;
                 }
 
-                const currentJobId = toText(
-                  parsed.searchParams.get('currentJobId') ??
-                    parsed.searchParams.get('selectedJobId') ??
-                    parsed.searchParams.get('jobId'),
-                );
-                if (/^\d+$/.test(currentJobId)) {
+                const routeRule = findSearchSurfaceRouteRuleForUrl(parsed.toString());
+                const embeddedJobId = routeRule
+                  ? readEmbeddedSearchSurfaceJobId(parsed, routeRule)
+                  : '';
+                if (/^\d+$/.test(embeddedJobId)) {
                   const fingerprint = uniqueStrings(
                     [candidate.anchorText, candidate.headingText, ...candidate.lines]
                       .filter((value): value is string => Boolean(value))
@@ -992,7 +1021,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               return collectAccessibleCardLabels(element).length > 0;
             };
             const addCardCandidate = (element: HTMLElement, anchor: HTMLAnchorElement | null) => {
-              const isSearchSurfaceHostname = /(^|\.)linkedin\.com$/i.test(window.location.hostname);
+              const searchSurfaceRouteRule = findSearchSurfaceRouteRuleForHostname(window.location.hostname);
               const readJobIdHint = (candidate: HTMLElement | null): string =>
                 toText(
                   candidate?.getAttribute('data-job-id') ??
@@ -1020,8 +1049,8 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
               const sourceJobIdHint = findScopedJobIdHint();
               const scopedSearchSurfaceJobViewUrl =
-                /^(?:\d+)$/.test(sourceJobIdHint ?? '') && isSearchSurfaceHostname
-                  ? `${window.location.origin}/jobs/view/${sourceJobIdHint}/`
+                /^(?:\d+)$/.test(sourceJobIdHint ?? '') && searchSurfaceRouteRule
+                  ? buildSearchSurfaceDetailUrl(searchSurfaceRouteRule, sourceJobIdHint ?? '')
                   : null;
               const anchorCanonicalUrl = isAllowedInScopeUrl(anchor?.getAttribute("href") ?? null);
               const anchorLabel = getSearchSurfaceAnchorLabel(anchor);
@@ -1032,32 +1061,26 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
                 try {
                   const parsedAnchorUrl = new URL(anchorCanonicalUrl, window.location.href);
-                  if (!/(^|\.)linkedin\.com$/i.test(parsedAnchorUrl.hostname)) {
+                  const anchorRouteRule = findSearchSurfaceRouteRuleForHostname(parsedAnchorUrl.hostname);
+                  if (!anchorRouteRule) {
                     return false;
                   }
 
                   const pathname = parsedAnchorUrl.pathname.toLowerCase();
                   const anchorJobViewId =
-                    pathname.includes('/jobs/view/')
-                      ? pathname.match(/\/jobs\/view\/(\d+)/)?.[1] ?? null
+                    pathname.startsWith(anchorRouteRule.detailPathPrefix)
+                      ? pathname.match(new RegExp(`${anchorRouteRule.detailPathPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)`))?.[1] ?? null
                       : null;
-                  const anchorCurrentJobId = toText(
-                    parsedAnchorUrl.searchParams.get('currentJobId') ??
-                      parsedAnchorUrl.searchParams.get('selectedJobId') ??
-                      parsedAnchorUrl.searchParams.get('jobId'),
+                  const anchorCurrentJobId = readEmbeddedSearchSurfaceJobId(
+                    parsedAnchorUrl,
+                    anchorRouteRule,
                   );
 
                   if (anchorJobViewId && anchorJobViewId === sourceJobIdHint) {
                     return false;
                   }
 
-                  if (
-                    pathname === '/jobs' ||
-                    pathname === '/jobs/' ||
-                    pathname.includes('/jobs/search') ||
-                    pathname.includes('/jobs/search-results') ||
-                    pathname.includes('/jobs/collections')
-                  ) {
+                  if (isSearchSurfaceResultPath(anchorRouteRule, pathname)) {
                     return true;
                   }
 
@@ -1119,7 +1142,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 (shouldPreferScopedSearchSurfaceJobViewUrl ? scopedSearchSurfaceJobViewUrl : null) ??
                 anchorCanonicalUrl ??
                 scopedSearchSurfaceJobViewUrl ??
-                (isSearchSurfaceHostname &&
+                (searchSurfaceRouteRule &&
                 looksLikeSearchSurfaceResultCard(element) &&
                 (hasDismissLabel || lines.length >= 3)
                   ? isAllowedInScopeUrl(window.location.href)
@@ -1132,9 +1155,10 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               }
 
               const rootClassName = toText(element.getAttribute("class"));
-              const jobLinkCount = element.querySelectorAll(
-                'a[href*="/jobs/view/"], a[href*="currentJobId="]',
-              ).length;
+              const searchSurfaceAnchorSelector = buildSearchSurfaceAnchorSelector();
+              const jobLinkCount = searchSurfaceAnchorSelector
+                ? element.querySelectorAll(searchSurfaceAnchorSelector).length
+                : 0;
               const anchorElement = anchor;
 
               const nextCandidate = {
@@ -1207,12 +1231,21 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 const accessibleLabels = collectAccessibleCardLabels(element);
                 let score = 0;
 
-                if (href.includes('/jobs/view/')) {
-                  score += 40;
-                }
+                try {
+                  const parsedHref = new URL(href, window.location.href);
+                  const routeRule = findSearchSurfaceRouteRuleForHostname(parsedHref.hostname);
+                  if (routeRule && parsedHref.pathname.toLowerCase().startsWith(routeRule.detailPathPrefix)) {
+                    score += 40;
+                  }
 
-                if (href.includes('currentJobId=')) {
-                  score += 20;
+                  if (
+                    routeRule &&
+                    routeRule.embeddedJobIdParams.some((paramName) => parsedHref.searchParams.has(paramName))
+                  ) {
+                    score += 20;
+                  }
+                } catch {
+                  // Ignore invalid anchor hrefs while scoring candidates.
                 }
 
                 if (/\bdismiss\b.*\bjob\b/i.test(label)) {
@@ -1271,9 +1304,12 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
                 return bestScore > 0 ? bestAnchor : null;
               };
-              const jobAnchors = Array.from(
-                document.querySelectorAll<HTMLAnchorElement>('a[href*="/jobs/view/"], a[href*="currentJobId="]'),
-              );
+              const searchSurfaceAnchorSelector = buildSearchSurfaceAnchorSelector();
+              const jobAnchors = searchSurfaceAnchorSelector
+                ? Array.from(
+                    document.querySelectorAll<HTMLAnchorElement>(searchSurfaceAnchorSelector),
+                  )
+                : [];
               const preferredAnchorByRoot = new Map<HTMLElement, { anchor: HTMLAnchorElement; score: number }>();
 
               for (const anchor of jobAnchors) {
@@ -1386,6 +1422,14 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             relevantUrlSubstrings,
             allowSubdomains: context.config.navigationPolicy.allowSubdomains === true,
             preferSearchSurfaceJobViewCardCapture: shouldUseSearchSurfaceJobViewCardCapture(pageUrl),
+            searchSurfaceRouteRules: SEARCH_SURFACE_ROUTE_RULES.map((rule) => ({
+              hostSuffixes: [...rule.hostSuffixes],
+              resultExactPaths: [...rule.resultExactPaths],
+              resultPathPrefixes: [...rule.resultPathPrefixes],
+              detailPathPrefix: rule.detailPathPrefix,
+              detailPathTemplate: rule.detailPathTemplate,
+              embeddedJobIdParams: [...rule.embeddedJobIdParams],
+            })),
           },
         ));
 

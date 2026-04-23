@@ -134,6 +134,11 @@ type SourceCapabilityRule = {
   label: ResolvedSourceCapability["label"];
   confidence: ResolvedSourceCapability["confidence"];
   apiAvailability: ResolvedSourceCapability["apiAvailability"];
+  hostnames: {
+    exact?: readonly string[];
+    suffixes?: readonly string[];
+    contains?: readonly string[];
+  };
   resolve: (url: URL) => Omit<ResolvedSourceCapability, "key" | "label" | "confidence" | "apiAvailability"> | null;
 };
 
@@ -175,12 +180,10 @@ const SOURCE_CAPABILITY_RULES = [
     label: "Greenhouse",
     confidence: 0.95,
     apiAvailability: "available",
+    hostnames: {
+      exact: ["boards.greenhouse.io", "job-boards.greenhouse.io"],
+    },
     resolve(url: URL) {
-      const hostname = url.hostname.toLowerCase();
-      if (!["boards.greenhouse.io", "job-boards.greenhouse.io"].includes(hostname)) {
-        return null;
-      }
-
       const boardKey = url.pathname.split("/").filter(Boolean)[0] ?? null;
       if (!boardKey) {
         return null;
@@ -199,12 +202,10 @@ const SOURCE_CAPABILITY_RULES = [
     label: "Lever",
     confidence: 0.95,
     apiAvailability: "available",
+    hostnames: {
+      suffixes: ["lever.co"],
+    },
     resolve(url: URL) {
-      const hostname = url.hostname.toLowerCase();
-      if (!hostname.includes("lever.co")) {
-        return null;
-      }
-
       const boardKey = url.pathname.split("/").filter(Boolean)[0] ?? null;
       if (!boardKey) {
         return null;
@@ -223,12 +224,10 @@ const SOURCE_CAPABILITY_RULES = [
     label: "LinkedIn Jobs",
     confidence: 0.98,
     apiAvailability: "not_supported",
-    resolve(url: URL) {
-      const hostname = url.hostname.toLowerCase();
-      if (!hostname.includes("linkedin.com")) {
-        return null;
-      }
-
+    hostnames: {
+      suffixes: ["linkedin.com"],
+    },
+    resolve() {
       return {
         publicApiUrlTemplate: null,
         boardToken: null,
@@ -242,12 +241,11 @@ const SOURCE_CAPABILITY_RULES = [
     label: "Ashby",
     confidence: 0.85,
     apiAvailability: "unconfirmed",
+    hostnames: {
+      contains: ["ashby"],
+    },
     resolve(url: URL) {
       const hostname = url.hostname.toLowerCase();
-      if (!hostname.includes("ashby")) {
-        return null;
-      }
-
       return {
         publicApiUrlTemplate: null,
         boardToken: null,
@@ -261,12 +259,12 @@ const SOURCE_CAPABILITY_RULES = [
     label: "Workday",
     confidence: 0.84,
     apiAvailability: "not_supported",
+    hostnames: {
+      suffixes: ["myworkdayjobs.com"],
+      contains: ["workday"],
+    },
     resolve(url: URL) {
       const hostname = url.hostname.toLowerCase();
-      if (!hostname.includes("myworkdayjobs.com") && !hostname.includes("workday")) {
-        return null;
-      }
-
       return {
         publicApiUrlTemplate: null,
         boardToken: null,
@@ -280,12 +278,11 @@ const SOURCE_CAPABILITY_RULES = [
     label: "iCIMS",
     confidence: 0.82,
     apiAvailability: "not_supported",
+    hostnames: {
+      contains: ["icims"],
+    },
     resolve(url: URL) {
       const hostname = url.hostname.toLowerCase();
-      if (!hostname.includes("icims")) {
-        return null;
-      }
-
       return {
         publicApiUrlTemplate: null,
         boardToken: null,
@@ -295,6 +292,24 @@ const SOURCE_CAPABILITY_RULES = [
     },
   },
 ] satisfies readonly SourceCapabilityRule[];
+
+function matchesSourceCapabilityHostname(
+  hostname: string,
+  rule: SourceCapabilityRule,
+): boolean {
+  const normalizedHostname = hostname.toLowerCase();
+  return Boolean(
+    rule.hostnames.exact?.includes(normalizedHostname) ||
+      rule.hostnames.suffixes?.some(
+        (suffix) =>
+          normalizedHostname === suffix ||
+          normalizedHostname.endsWith(`.${suffix}`),
+      ) ||
+      rule.hostnames.contains?.some((fragment) =>
+        normalizedHostname.includes(fragment),
+      ),
+  );
+}
 
 export type ReusableRouteKind =
   SourceIntelligenceArtifact["collection"]["startingRoutes"][number]["kind"];
@@ -483,6 +498,10 @@ function detectProvider(target: JobDiscoveryTarget, urls: readonly string[]) {
 
   for (const parsedUrl of parsedUrls) {
     for (const rule of SOURCE_CAPABILITY_RULES) {
+      if (!matchesSourceCapabilityHostname(parsedUrl.hostname, rule)) {
+        continue;
+      }
+
       const resolved = rule.resolve(parsedUrl);
       if (!resolved) {
         continue;

@@ -30,6 +30,14 @@ const remoteGeographyHints = [
   { pattern: /\b(canada|canadian)\b/i, label: "Canada" },
 ] as const;
 
+const ATS_PROVIDER_URL_PATTERNS = [
+  { label: "Greenhouse", fragments: ["greenhouse.io"] },
+  { label: "Lever", fragments: ["lever.co"] },
+  { label: "Workday", fragments: ["myworkdayjobs.com", "workday"] },
+  { label: "Ashby", fragments: ["ashbyhq.com", "ashby"] },
+  { label: "iCIMS", fragments: ["icims.com"] },
+] as const;
+
 
 export interface MergeDiscoveryResult {
   mergedJobs: SavedJob[];
@@ -54,20 +62,10 @@ function detectAtsProvider(posting: JobPosting): string | null {
   for (const value of urlCandidates) {
     const normalized = value.toLowerCase();
 
-    if (normalized.includes("greenhouse.io")) {
-      return "Greenhouse";
-    }
-    if (normalized.includes("lever.co")) {
-      return "Lever";
-    }
-    if (normalized.includes("myworkdayjobs.com") || normalized.includes("workday")) {
-      return "Workday";
-    }
-    if (normalized.includes("ashbyhq.com") || normalized.includes("ashby")) {
-      return "Ashby";
-    }
-    if (normalized.includes("icims.com")) {
-      return "iCIMS";
+    for (const provider of ATS_PROVIDER_URL_PATTERNS) {
+      if (provider.fragments.some((fragment) => normalized.includes(fragment))) {
+        return provider.label;
+      }
     }
   }
 
@@ -280,6 +278,20 @@ export function matchesAnyPhrase(
 
     return desiredTokens.every((token) => candidateTokens.has(token));
   });
+}
+
+export function matchesTitlePreference(
+  candidate: string,
+  targetRoles: readonly string[],
+): boolean {
+  return matchesAnyPhrase(candidate, targetRoles);
+}
+
+export function matchesLocationPreference(
+  candidate: string,
+  locations: readonly string[],
+): boolean {
+  return matchesAnyPhrase(candidate, locations);
 }
 
 export function toSavedJobId(posting: JobPosting): string {

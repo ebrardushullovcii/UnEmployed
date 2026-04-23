@@ -205,6 +205,10 @@ export async function flushDeferredSearchExtractions(input: {
 
     const deferredSearchPage = deferredSearchPages[index]!
     const remainingJobs = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
+    if (remainingJobs === 0) {
+      break
+    }
+
     const expandedSearchResultsBudget = getSearchResultsExtractionReviewBudget(input.config)
     const maxJobs = expandedSearchResultsBudget == null
       ? Math.min(remainingJobs, DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET)

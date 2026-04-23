@@ -22,6 +22,7 @@ export {
   deriveSourceDebugStartingUrls,
   getSourceDebugMaxSteps,
   getSourceDebugTargetJobCount,
+  resolveSourceDebugPhases,
   resolveSourceDebugCompletion,
 } from "./workspace-source-debug-helpers";
 export { synthesizeSourceInstructionArtifact } from "./workspace-source-instruction-synthesis";

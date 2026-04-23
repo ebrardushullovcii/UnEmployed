@@ -265,6 +265,12 @@ export function buildInstructionGuidance(
   ]);
 }
 
+export function buildDiscoveryInstructionGuidance(
+  artifact: SourceInstructionArtifact | null,
+): string[] {
+  return buildInstructionGuidance(artifact);
+}
+
 export function resolveActiveSourceInstructionArtifact(
   target: JobDiscoveryTarget,
   artifacts: readonly SourceInstructionArtifact[],

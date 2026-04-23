@@ -75,7 +75,7 @@ function createUnknownCareersTarget(): JobDiscoveryTarget {
   };
 }
 
-function createLinkedInTarget(): JobDiscoveryTarget {
+function createSearchSurfaceTarget(): JobDiscoveryTarget {
   return {
     id: "linkedin_default",
     label: "LinkedIn Jobs",
@@ -521,17 +521,17 @@ describe("collectPublicProviderJobs", () => {
     ]);
   });
 
-  test("prefers a concrete linkedin query url over generic learned routes when search preferences are available", () => {
-    const target = createLinkedInTarget();
+  test("prefers a concrete guided query url over generic learned routes when search preferences are available", () => {
+    const target = createSearchSurfaceTarget();
     const artifact = createSourceInstructionArtifact({
-      id: "instruction_linkedin_query_first",
+      id: "instruction_guided_query_first",
       targetId: target.id,
       status: "draft",
       createdAt: "2026-03-20T10:04:00.000Z",
       updatedAt: "2026-03-20T10:05:00.000Z",
       acceptedAt: null,
-      basedOnRunId: "debug_run_linkedin_query_first",
-      basedOnAttemptIds: ["debug_attempt_linkedin_query_first"],
+      basedOnRunId: "debug_run_guided_query_first",
+      basedOnAttemptIds: ["debug_attempt_guided_query_first"],
       notes: "Prefer concrete query entry over generic collections.",
       navigationGuidance: [],
       searchGuidance: [],
@@ -945,7 +945,7 @@ describe("applyDiscoveryTitleTriage", () => {
     ).toBe("pass");
   });
 
-  test("keeps lower-match technical linkedin roles in nearby remote locations instead of dropping to zero", () => {
+  test("keeps lower-match technical roles in nearby remote locations instead of dropping to zero", () => {
     const seed = createSeed();
     const searchPreferences = createSearchPreferences({
       targetRoles: ["Senior Full-Stack Software Engineer"],
@@ -1112,7 +1112,7 @@ describe("applyDiscoveryTitleTriage", () => {
 });
 
 describe("selectLowYieldTechnicalFallbackPostings", () => {
-  test("rescues clearly technical LinkedIn jobs when strict triage would otherwise return zero", () => {
+  test("rescues clearly technical jobs when strict triage would otherwise return zero", () => {
     const seed = createSeed();
     const searchPreferences = createSearchPreferences({
       targetRoles: ["Senior Full-Stack Software Engineer"],
@@ -1123,21 +1123,9 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
         createPosting({
           title: "Frontend Engineer",
           company: "Odiin",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/4327950709/",
-          providerKey: "linkedin",
-          sourceIntelligence: {
-            collection: { startingRoutes: [], rankedMethods: ["listing_route"] },
-            provider: {
-              key: "linkedin",
-              label: "LinkedIn Jobs",
-              confidence: 0.98,
-              apiAvailability: "not_supported",
-              publicApiUrlTemplate: null,
-              boardToken: null,
-              boardSlug: null,
-              providerIdentifier: "linkedin_jobs",
-            },
-          },
+          canonicalUrl: "https://example.com/jobs/frontend-engineer",
+          providerKey: null,
+          sourceIntelligence: null,
           location: "Kosovo (Remote)",
           workMode: ["remote"],
           keySkills: ["React", "TypeScript"],
@@ -1147,21 +1135,9 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
         createPosting({
           title: "Operations Manager",
           company: "Example Ops",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/9999999999/",
-          providerKey: "linkedin",
-          sourceIntelligence: {
-            collection: { startingRoutes: [], rankedMethods: ["listing_route"] },
-            provider: {
-              key: "linkedin",
-              label: "LinkedIn Jobs",
-              confidence: 0.98,
-              apiAvailability: "not_supported",
-              publicApiUrlTemplate: null,
-              boardToken: null,
-              boardSlug: null,
-              providerIdentifier: "linkedin_jobs",
-            },
-          },
+          canonicalUrl: "https://example.com/jobs/operations-manager",
+          providerKey: null,
+          sourceIntelligence: null,
           location: "Kosovo (Remote)",
           workMode: ["remote"],
           keySkills: ["Planning"],
@@ -1178,7 +1154,7 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
     expect(rescued[0]?.titleTriageOutcome).toBe("pass");
   });
 
-  test("rescues technical LinkedIn URL jobs even when provider metadata is missing", () => {
+  test("rescues technical URL jobs even when provider metadata is missing", () => {
     const seed = createSeed();
     const searchPreferences = createSearchPreferences({
       targetRoles: ["Senior Full-Stack Software Engineer"],
@@ -1189,7 +1165,7 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
         createPosting({
           title: ".NET Software Developer .NET Software Developer Quipu GmbH Pristina,",
           company: "District of",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/4400784689/",
+          canonicalUrl: "https://example.com/jobs/dotnet-software-developer",
           providerKey: null,
           sourceIntelligence: null,
           location: "Kosovo",
@@ -1201,7 +1177,7 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
         createPosting({
           title: "Senior Fullstack (MERN) Developer",
           company: "Proxify",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/4385358746/",
+          canonicalUrl: "https://example.com/jobs/senior-fullstack-mern-developer",
           providerKey: null,
           sourceIntelligence: null,
           location: "Kosovo",
@@ -1219,7 +1195,7 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
     expect(rescued.map((posting) => posting.titleTriageOutcome)).toEqual(["pass", "pass"]);
   });
 
-  test("rescues technical jobs when the collection provider is LinkedIn", () => {
+  test("rescues technical jobs from skipped collection cards", () => {
     const seed = createSeed();
     const searchPreferences = createSearchPreferences({
       targetRoles: ["Senior Full-Stack Software Engineer"],
@@ -1265,7 +1241,7 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
           location: "Kosovo",
           workMode: [],
           keySkills: [],
-          description: "Dismiss job card with polluted LinkedIn result text.",
+          description: "Dismiss job card with polluted search result text.",
           titleTriageOutcome: "skip_title",
         }),
       ],

@@ -575,7 +575,7 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
           toolCalls: [
             createToolCall(
               'extract_jobs',
-              { pageType: 'search_results', maxJobs: 10 },
+              { pageType: 'search_results', maxJobs: 4 },
               'tool_extract_budget_guard',
             ),
           ],
@@ -593,7 +593,7 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
       page,
       {
         ...createConfig(),
-        targetJobCount: 10,
+        targetJobCount: 4,
         promptContext: {
           siteLabel: 'Primary target',
         },

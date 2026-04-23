@@ -1,5 +1,14 @@
 import type { JobPosting } from "@unemployed/contracts";
 
+import {
+  SEARCH_SURFACE_ROUTE_RULES,
+  buildSearchSurfaceDetailUrl,
+  getSearchSurfaceRouteRuleForUrl,
+  isSearchSurfaceDetailPath,
+  isSearchSurfaceResultPath,
+  readEmbeddedSearchSurfaceJobId,
+} from "./search-surface-routes";
+
 export type ExtractedJobInput = Pick<
   JobPosting,
   | "sourceJobId"
@@ -851,23 +860,19 @@ function canonicalizeUrl(
       return "";
     }
 
-    const hostname = parsed.hostname.toLowerCase();
     const pathname = parsed.pathname.toLowerCase();
-    const embeddedSearchSurfaceJobId =
-      hostname.includes('linkedin.com')
-        ? cleanLine(
-            parsed.searchParams.get('currentJobId') ??
-            parsed.searchParams.get('selectedJobId') ??
-            parsed.searchParams.get('jobId'),
-          )
-        : '';
+    const searchSurfaceRule = getSearchSurfaceRouteRuleForUrl(parsed);
+    const embeddedSearchSurfaceJobId = searchSurfaceRule
+      ? readEmbeddedSearchSurfaceJobId(parsed, searchSurfaceRule)
+      : '';
     if (
       options?.canonicalizeEmbeddedSearchRoute !== false &&
       embeddedSearchSurfaceJobId &&
       /^\d+$/.test(embeddedSearchSurfaceJobId) &&
-      (pathname.includes('/jobs/search') || pathname.includes('/jobs/search-results') || pathname.includes('/jobs/collections') || pathname === '/jobs' || pathname === '/jobs/')
+      searchSurfaceRule &&
+      isSearchSurfaceResultPath(searchSurfaceRule, pathname)
     ) {
-      return `${parsed.origin}/jobs/view/${embeddedSearchSurfaceJobId}/`;
+      return buildSearchSurfaceDetailUrl(parsed, embeddedSearchSurfaceJobId);
     }
 
     for (const key of [...parsed.searchParams.keys()]) {
@@ -908,18 +913,13 @@ export function isSearchResultsSurfaceRoute(
 
   try {
     const parsed = new URL(normalizedUrl, baseUrl);
-    if (!/(^|\.)linkedin\.com$/i.test(parsed.hostname)) {
+    const searchSurfaceRule = getSearchSurfaceRouteRuleForUrl(parsed);
+    if (!searchSurfaceRule) {
       return false;
     }
 
     const pathname = parsed.pathname.toLowerCase();
-    return (
-      pathname.includes('/jobs/search') ||
-      pathname.includes('/jobs/search-results') ||
-      pathname.includes('/jobs/collections') ||
-      pathname === '/jobs' ||
-      pathname === '/jobs/'
-    );
+    return isSearchSurfaceResultPath(searchSurfaceRule, pathname);
   } catch {
     return false;
   }
@@ -936,17 +936,17 @@ function isSearchSurfaceRouteWithEmbeddedJobId(
 
   try {
     const parsed = new URL(normalizedUrl, baseUrl);
-    if (!isSearchResultsSurfaceRoute(parsed.toString(), baseUrl)) {
+    const searchSurfaceRule = getSearchSurfaceRouteRuleForUrl(parsed);
+    if (
+      !searchSurfaceRule ||
+      !isSearchResultsSurfaceRoute(parsed.toString(), baseUrl)
+    ) {
       return false;
     }
 
-    const currentJobId = cleanLine(
-      parsed.searchParams.get('currentJobId') ??
-        parsed.searchParams.get('selectedJobId') ??
-        parsed.searchParams.get('jobId'),
-    );
+    const embeddedJobId = readEmbeddedSearchSurfaceJobId(parsed, searchSurfaceRule);
 
-    return /^\d+$/.test(currentJobId);
+    return /^\d+$/.test(embeddedJobId);
   } catch {
     return false;
   }
@@ -1000,11 +1000,11 @@ function buildCanonicalDetailUrlFromJobHint(input: {
   for (const candidateUrl of urlCandidates) {
     try {
       const parsed = new URL(candidateUrl, input.pageUrl);
-      if (!/(^|\.)linkedin\.com$/i.test(parsed.hostname)) {
+      if (!getSearchSurfaceRouteRuleForUrl(parsed)) {
         continue;
       }
 
-      return `${parsed.origin}/jobs/view/${sourceJobIdHint}/`;
+      return buildSearchSurfaceDetailUrl(parsed, sourceJobIdHint);
     } catch {
       continue;
     }
@@ -1408,7 +1408,11 @@ function usesSearchSurfaceHeuristics(value: string | null | undefined): boolean 
   }
 
   try {
-    return /(^|\.)linkedin\.com$/i.test(new URL(normalized, 'https://www.linkedin.com').hostname);
+    const parsed = new URL(
+      normalized,
+      SEARCH_SURFACE_ROUTE_RULES[0]?.fallbackBaseUrl ?? 'https://example.invalid',
+    );
+    return getSearchSurfaceRouteRuleForUrl(parsed) !== null;
   } catch {
     return false;
   }
@@ -2697,33 +2701,22 @@ export function shouldCanonicalizeSearchSurfaceDetailRoute(input: {
 
   try {
     const parsed = new URL(candidateUrl, input.pageUrl);
-    if (!/(^|\.)linkedin\.com$/i.test(parsed.hostname)) {
+    const searchSurfaceRule = getSearchSurfaceRouteRuleForUrl(parsed);
+    if (!searchSurfaceRule) {
       return false;
     }
 
     const pathname = parsed.pathname.toLowerCase();
-    if (pathname.includes('/jobs/view/')) {
+    if (isSearchSurfaceDetailPath(searchSurfaceRule, pathname)) {
       return true;
     }
 
-    if (
-      !(
-        pathname.includes('/jobs/search') ||
-        pathname.includes('/jobs/search-results') ||
-        pathname.includes('/jobs/collections') ||
-        pathname === '/jobs' ||
-        pathname === '/jobs/'
-      )
-    ) {
+    if (!isSearchSurfaceResultPath(searchSurfaceRule, pathname)) {
       return false;
     }
 
-    const currentJobId = cleanLine(
-      parsed.searchParams.get('currentJobId') ??
-        parsed.searchParams.get('selectedJobId') ??
-        parsed.searchParams.get('jobId'),
-    );
-    if (!/^\d+$/.test(currentJobId)) {
+    const embeddedJobId = readEmbeddedSearchSurfaceJobId(parsed, searchSurfaceRule);
+    if (!/^\d+$/.test(embeddedJobId)) {
       return false;
     }
 
@@ -2733,7 +2726,7 @@ export function shouldCanonicalizeSearchSurfaceDetailRoute(input: {
         .join(' '),
     ).toLowerCase();
 
-    return searchableText.includes(currentJobId);
+    return searchableText.includes(embeddedJobId);
   } catch {
     return false;
   }

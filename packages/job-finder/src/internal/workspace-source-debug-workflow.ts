@@ -30,7 +30,7 @@ import {
   resolveActiveSourceInstructionArtifact,
   resolveAdapterKind,
 } from "./workspace-helpers";
-import { DEFAULT_ROLE, SOURCE_DEBUG_PHASES, discoveryAdapters } from "./workspace-defaults";
+import { DEFAULT_ROLE, discoveryAdapters } from "./workspace-defaults";
 import {
   buildSourceDebugPhasePacket,
   buildSourceDebugPhaseSummary,
@@ -39,6 +39,7 @@ import {
   deriveSourceDebugStartingUrls,
   getSourceDebugMaxSteps,
   getSourceDebugTargetJobCount,
+  resolveSourceDebugPhases,
   resolveSourceDebugCompletion,
   synthesizeSourceInstructionArtifact,
 } from "./workspace-service-helpers";
@@ -165,6 +166,11 @@ export async function runSourceDebugWorkflow(
     );
   }
 
+  const sourceDebugPhases = resolveSourceDebugPhases({
+    target: normalizedTarget,
+    instructionArtifact: reviewInstructionArtifact ?? preservedRouteHintArtifact,
+  });
+  const firstSourceDebugPhase = sourceDebugPhases[0] ?? "access_auth_probe";
   const adapterKind = resolveAdapterKind(normalizedTarget);
   const adapter = discoveryAdapters[adapterKind];
   const runId = `source_debug_${normalizedTarget.id}_${Date.now()}`;
@@ -189,8 +195,8 @@ export async function runSourceDebugWorkflow(
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     completedAt: null,
-    activePhase: SOURCE_DEBUG_PHASES[0],
-    phases: SOURCE_DEBUG_PHASES,
+    activePhase: firstSourceDebugPhase,
+    phases: sourceDebugPhases,
     targetLabel: normalizedTarget.label,
     targetUrl: normalizedTarget.startingUrl,
     targetHostname: targetUrl.hostname,
@@ -241,7 +247,7 @@ export async function runSourceDebugWorkflow(
       currentUrl: normalizedTarget.startingUrl,
     });
     await runSequentialArtifactOrchestrator<SourceDebugPhase, SourceDebugWorkerAttempt>({
-      phases: SOURCE_DEBUG_PHASES,
+      phases: sourceDebugPhases,
       beforePhase: async (phase) => {
         if (executionSignal.aborted) {
           throw new DOMException("Aborted", "AbortError");
@@ -275,7 +281,7 @@ export async function runSourceDebugWorkflow(
             : null;
         const phaseStartingUrlArtifact =
           reviewInstructionArtifact ?? synthesizedInstruction;
-        const nextPhase = SOURCE_DEBUG_PHASES[index + 1] ?? null;
+        const nextPhase = sourceDebugPhases[index + 1] ?? null;
         const currentRouteHintStartingUrls = deriveSourceDebugStartingUrls(
           normalizedTarget,
           phaseStartingUrlArtifact,
@@ -309,7 +315,15 @@ export async function runSourceDebugWorkflow(
             locations: searchPreferences.locations,
           },
           targetJobCount: getSourceDebugTargetJobCount(phase),
-          maxSteps: getSourceDebugMaxSteps(phase),
+          maxSteps: getSourceDebugMaxSteps(phase, {
+            hasLearnedRouteHints: phaseStartingUrls.some(
+              (url) => url !== normalizedTarget.startingUrl,
+            ),
+            hasPriorPhaseSummary: run.phaseSummaries.length > 0,
+            hasExistingInstructionArtifact: Boolean(
+              reviewInstructionArtifact ?? preservedRouteHintArtifact,
+            ),
+          }),
           startingUrls: phaseStartingUrls,
           siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
           navigationHostnames: [targetUrl.hostname],

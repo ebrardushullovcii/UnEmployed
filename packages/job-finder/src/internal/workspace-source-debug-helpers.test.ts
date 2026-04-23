@@ -3,7 +3,11 @@ import { describe, expect, test } from "vitest";
 import type { JobDiscoveryTarget, JobSearchPreferences } from "@unemployed/contracts";
 
 import { createSourceInstructionArtifact } from "../workspace-service.test-fixtures";
-import { deriveSourceDebugStartingUrls } from "./workspace-source-debug-helpers";
+import {
+  deriveSourceDebugStartingUrls,
+  getSourceDebugMaxSteps,
+  resolveSourceDebugPhases,
+} from "./workspace-source-debug-helpers";
 
 function createUnknownCareersTarget(): JobDiscoveryTarget {
   return {
@@ -22,11 +26,28 @@ function createUnknownCareersTarget(): JobDiscoveryTarget {
   };
 }
 
-function createLinkedInTarget(): JobDiscoveryTarget {
+function createSearchSurfaceTarget(): JobDiscoveryTarget {
   return {
     id: "linkedin_default",
     label: "LinkedIn Jobs",
     startingUrl: "https://www.linkedin.com/feed/",
+    enabled: true,
+    adapterKind: "auto",
+    customInstructions: null,
+    instructionStatus: "missing",
+    validatedInstructionId: null,
+    draftInstructionId: null,
+    lastDebugRunId: null,
+    lastVerifiedAt: null,
+    staleReason: null,
+  };
+}
+
+function createPublicProviderTarget(): JobDiscoveryTarget {
+  return {
+    id: "greenhouse_remote",
+    label: "Remote Greenhouse",
+    startingUrl: "https://job-boards.greenhouse.io/remote",
     enabled: true,
     adapterKind: "auto",
     customInstructions: null,
@@ -143,18 +164,18 @@ describe("deriveSourceDebugStartingUrls", () => {
     ]);
   });
 
-  test("prefers a concrete linkedin query url for search filter probe when preferences are available", () => {
-    const target = createLinkedInTarget();
+  test("prefers a concrete guided query url for search filter probe when preferences are available", () => {
+    const target = createSearchSurfaceTarget();
     const artifact = createSourceInstructionArtifact({
-      id: "instruction_linkedin_source_debug_query_first",
+      id: "instruction_guided_source_debug_query_first",
       targetId: target.id,
       status: "draft",
       createdAt: "2026-03-20T10:04:00.000Z",
       updatedAt: "2026-03-20T10:05:00.000Z",
       acceptedAt: null,
-      basedOnRunId: "debug_run_linkedin_source_debug_query_first",
-      basedOnAttemptIds: ["debug_attempt_linkedin_source_debug_query_first"],
-      notes: "Prefer concrete LinkedIn query route over collections during source-debug search probing.",
+      basedOnRunId: "debug_run_guided_source_debug_query_first",
+      basedOnAttemptIds: ["debug_attempt_guided_source_debug_query_first"],
+      notes: "Prefer concrete guided query route over collections during source-debug search probing.",
       navigationGuidance: [
         "Show all top job picks for you opens https://www.linkedin.com/jobs/collections/recommended/.",
       ],
@@ -328,5 +349,41 @@ describe("deriveSourceDebugStartingUrls", () => {
       "https://kosovajob.com/?q=software",
       "https://kosovajob.com/",
     ]);
+  });
+});
+
+describe("resolveSourceDebugPhases", () => {
+  test("skips listing and search probing when a public provider API is available", () => {
+    expect(
+      resolveSourceDebugPhases({
+        target: createPublicProviderTarget(),
+        instructionArtifact: null,
+      }),
+    ).toEqual([
+      "access_auth_probe",
+      "job_detail_validation",
+      "apply_path_validation",
+      "replay_verification",
+    ]);
+  });
+});
+
+describe("getSourceDebugMaxSteps", () => {
+  test("reduces non-auth phase budgets when reusable route context already exists", () => {
+    expect(
+      getSourceDebugMaxSteps("search_filter_probe", {
+        hasLearnedRouteHints: true,
+        hasPriorPhaseSummary: true,
+        hasExistingInstructionArtifact: true,
+      }),
+    ).toBe(10);
+
+    expect(
+      getSourceDebugMaxSteps("access_auth_probe", {
+        hasLearnedRouteHints: true,
+        hasPriorPhaseSummary: true,
+        hasExistingInstructionArtifact: true,
+      }),
+    ).toBe(16);
   });
 });
