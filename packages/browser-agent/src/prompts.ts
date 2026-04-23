@@ -1,15 +1,11 @@
 import type { AgentConfig } from "./types";
 
-function describeSeededLinkedInQuery(config: AgentConfig): string | null {
+function describeSeededSearchQuery(config: AgentConfig): string | null {
   for (const value of config.startingUrls) {
     try {
       const url = new URL(value);
       const keywords = url.searchParams.get("keywords")?.trim() ?? "";
       const location = url.searchParams.get("location")?.trim() ?? "";
-
-      if (!url.hostname.includes("linkedin.com") || !url.pathname.includes("/jobs/search")) {
-        continue;
-      }
 
       if (!keywords && !location) {
         continue;
@@ -20,7 +16,7 @@ function describeSeededLinkedInQuery(config: AgentConfig): string | null {
         location ? `location: ${location}` : null,
       ].filter(Boolean);
 
-      return `This run starts from a concrete LinkedIn search query${parts.length > 0 ? ` (${parts.join("; ")})` : ""}. Preserve those seeded terms when using the visible search UI. Do not broaden them into more generic roles or locations unless that exact query clearly yields no usable results or the site proves it is invalid.`;
+      return `This run starts from a concrete search query${parts.length > 0 ? ` (${parts.join("; ")})` : ""}. Preserve those seeded terms when using the visible search UI. Do not broaden them into more generic roles or locations unless that exact query clearly yields no usable results or the site proves it is invalid.`;
     } catch {
       continue;
     }
@@ -50,7 +46,7 @@ export function createSystemPrompt(config: AgentConfig): string {
         .join("\n")
       : "- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied";
   const taskPacket = config.promptContext.taskPacket;
-  const seededLinkedInQuery = describeSeededLinkedInQuery(config);
+  const seededSearchQuery = describeSeededSearchQuery(config);
   const taskPacketBlock = taskPacket
     ? [
         `PHASE GOAL: ${taskPacket.phaseGoal}`,
@@ -96,7 +92,7 @@ ${
 ${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.`
     : ""
 }
-${seededLinkedInQuery ? `${seededLinkedInQuery}
+${seededSearchQuery ? `${seededSearchQuery}
 ` : ""}Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
 Your goal: ${taskPacket ? "Complete the current phase goal with proven evidence and a structured finish." : `Find up to ${config.targetJobCount} relevant job postings.`}
 ${taskPacket ? "When a TASK PACKET is present, the phase goal is more important than collecting a large job count. Do not stop at the first visible jobs if key controls, entry paths, or blockers still need to be proven." : ""}

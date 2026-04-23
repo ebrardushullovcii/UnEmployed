@@ -33,7 +33,7 @@ const defaultBenchmarkTargetRoles = [
   'Sales',
   'Data',
   'Analyst',
-] 
+]
 
 const benchmarkTargets = [
   {
