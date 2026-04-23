@@ -37,6 +37,7 @@
   - `pnpm agents:sync`
   - `pnpm agents:check`
   - `pnpm docs:check`
+  - `pnpm source-generic:check`
   - `pnpm --filter @unemployed/job-finder lint`
   - `pnpm --filter @unemployed/job-finder typecheck`
   - `pnpm --filter @unemployed/browser-agent typecheck`

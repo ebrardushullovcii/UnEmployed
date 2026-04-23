@@ -7,11 +7,12 @@
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm structure:check`
+- `pnpm source-generic:check`
 
 ## Fast Validation Loops
 
-- `pnpm verify:quick` runs the fastest repo-wide preflight we expect before wider validation: docs, structure, lint, and typecheck.
-- `pnpm verify:affected` runs docs plus structure checks first, then uses Turborepo `--affected` filtering for lint, typecheck, and test on the packages changed relative to the current branch base.
+- `pnpm verify:quick` runs the fastest repo-wide preflight we expect before wider validation: docs, source-generic discovery policy, structure, lint, and typecheck.
+- `pnpm verify:affected` runs docs, source-generic discovery policy, and structure checks first, then uses Turborepo `--affected` filtering for lint, typecheck, and test on the packages changed relative to the current branch base.
 - `pnpm format` applies the canonical repo formatter in place.
 - `pnpm format:check` checks formatting without mutating files.
 - `pnpm knip` reports unused files, exports, and dependencies so cleanup happens before review feedback has to point it out.
@@ -22,6 +23,12 @@
 - Run `pnpm agents:check` after changing generated adapter sources, registry entries, required package guides, or project-local skills.
 - Run `pnpm docs:check` after changing canonical docs, root guidance, or internal markdown links.
 - Run `pnpm verify:quick` after repo-level script or tooling changes before the broader `pnpm verify` pass.
+
+## Source-Generic Discovery Checks
+
+- `pnpm source-generic:check` fails when shared discovery or browser-agent workflow code adds source-branded function, type, or constant declarations.
+- This check is intentionally narrow: provider adapter data, profile fields such as `linkedinUrl`, and tests or fixtures can still name real sources when that is the actual domain data.
+- Run it after changing `packages/browser-agent/src`, `packages/job-finder/src/internal`, or discovery/source-debug guidance.
 
 ## Structure Checks
 

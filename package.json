@@ -11,11 +11,12 @@
     "format:check": "prettier . --check --ignore-unknown",
     "lint": "turbo lint",
     "structure:check": "node scripts/check-structure.mjs",
+    "source-generic:check": "node scripts/check-source-generic-discovery.mjs",
     "hotspots": "node scripts/repo-hotspots.mjs",
     "lsp:typescript": "typescript-language-server --stdio",
     "typecheck": "turbo typecheck",
-    "verify:quick": "pnpm docs:check && pnpm structure:check && pnpm lint && pnpm typecheck",
-    "verify:affected": "pnpm docs:check && pnpm structure:check && turbo lint typecheck test --affected",
+    "verify:quick": "pnpm docs:check && pnpm source-generic:check && pnpm structure:check && pnpm lint && pnpm typecheck",
+    "verify:affected": "pnpm docs:check && pnpm source-generic:check && pnpm structure:check && turbo lint typecheck test --affected",
     "knip": "knip",
     "test": "vitest run",
     "test:unit": "vitest run",
@@ -23,7 +24,7 @@
     "agents:sync": "node scripts/repo-context.mjs sync",
     "agents:check": "node scripts/repo-context.mjs check-agents",
     "docs:check": "node scripts/repo-context.mjs check-docs",
-    "verify": "pnpm agents:check && pnpm docs:check && pnpm structure:check && pnpm lint && pnpm typecheck && pnpm test"
+    "verify": "pnpm agents:check && pnpm docs:check && pnpm source-generic:check && pnpm structure:check && pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

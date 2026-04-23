@@ -26,6 +26,7 @@
   - standard reusable provider adapters such as public ATS APIs
   - contained `browser-agent` extraction or navigation handling when a DOM quirk is unavoidable and proven
 - prefer evidence-driven route reuse, stronger agent instructions, and generic heuristics over codifying board-specific rules; if a behavior does not generalize, leave it to the agent instead of hardcoding it
+- `pnpm source-generic:check` guards this boundary by rejecting source-branded helper declarations in shared discovery and browser-agent workflow code
 - interview overlay state belongs to `interview-helper`; window lifecycle belongs to `os-integration`
 
 ## Main Flows
