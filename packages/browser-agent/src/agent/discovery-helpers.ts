@@ -1,4 +1,4 @@
-import type { Page } from 'playwright'
+import type { Page } from "playwright";
 import type {
   AgentConfig,
   AgentProgress,
@@ -6,27 +6,29 @@ import type {
   AgentState,
   OnProgressCallback,
   ToolCall,
-} from '../types'
-import { isAllowedUrl } from '../allowlist'
-import type { getToolDefinitions } from '../tools'
-import { addExtractedJobsToState } from './evidence'
-import { buildStructuredCandidateJobs } from './job-extraction'
+} from "../types";
+import { isAllowedUrl } from "../allowlist";
+import type { getToolDefinitions } from "../tools";
+import { addExtractedJobsToState } from "./evidence";
+import { buildStructuredCandidateJobs } from "./job-extraction";
 import {
   DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET,
   getSearchResultsExtractionReviewBudget,
-} from './search-results-budget'
-import type { JobExtractor, LLMClient } from './contracts'
+} from "./search-results-budget";
+import type { JobExtractor, LLMClient } from "./contracts";
 
-const MAX_LLM_RETRY_ATTEMPTS = 3
+const MAX_LLM_RETRY_ATTEMPTS = 3;
 const CLOSED_PAGE_ERROR_PATTERN =
-  /\b(target closed|target page, context or browser has been closed|page closed|context closed|browser has been closed)\b/i
+  /\b(target closed|target page, context or browser has been closed|page closed|context closed|browser has been closed)\b/i;
 
-export function isClosedPageErrorMessage(message: string | null | undefined): boolean {
-  return typeof message === 'string' && CLOSED_PAGE_ERROR_PATTERN.test(message)
+export function isClosedPageErrorMessage(
+  message: string | null | undefined,
+): boolean {
+  return typeof message === "string" && CLOSED_PAGE_ERROR_PATTERN.test(message);
 }
 
 export function isClosedPageError(error: unknown): boolean {
-  return error instanceof Error && isClosedPageErrorMessage(error.message)
+  return error instanceof Error && isClosedPageErrorMessage(error.message);
 }
 
 export async function waitForRetryDelay(
@@ -34,50 +36,50 @@ export async function waitForRetryDelay(
   signal?: AbortSignal,
 ): Promise<void> {
   if (delayMs <= 0) {
-    return
+    return;
   }
 
   if (signal?.aborted) {
-    throw new DOMException('Aborted', 'AbortError')
+    throw new DOMException("Aborted", "AbortError");
   }
 
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      cleanup()
-      resolve()
-    }, delayMs)
+      cleanup();
+      resolve();
+    }, delayMs);
 
     const handleAbort = () => {
-      cleanup()
-      reject(new DOMException('Aborted', 'AbortError'))
-    }
+      cleanup();
+      reject(new DOMException("Aborted", "AbortError"));
+    };
 
     const cleanup = () => {
-      clearTimeout(timeout)
-      signal?.removeEventListener('abort', handleAbort)
-    }
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", handleAbort);
+    };
 
-    signal?.addEventListener('abort', handleAbort, { once: true })
-  })
+    signal?.addEventListener("abort", handleAbort, { once: true });
+  });
 }
 
 export interface ExtractionPassSummary {
-  extractionPasses: number
-  zeroYieldExtractionPasses: number
-  trailingZeroYieldExtractionPasses: number
-  newJobsAdded: number
+  extractionPasses: number;
+  zeroYieldExtractionPasses: number;
+  trailingZeroYieldExtractionPasses: number;
+  newJobsAdded: number;
 }
 
 export function buildAgentResult(
   state: AgentState,
   partial: Omit<
     AgentResult,
-    | 'jobs'
-    | 'steps'
-    | 'transcriptMessageCount'
-    | 'reviewTranscript'
-    | 'compactionState'
-    | 'compactionUsedFallbackTrigger'
+    | "jobs"
+    | "steps"
+    | "transcriptMessageCount"
+    | "reviewTranscript"
+    | "compactionState"
+    | "compactionUsedFallbackTrigger"
   >,
 ): AgentResult {
   return {
@@ -86,9 +88,10 @@ export function buildAgentResult(
     transcriptMessageCount: state.conversation.length,
     reviewTranscript: state.reviewTranscript,
     compactionState: state.compactionState,
-    compactionUsedFallbackTrigger: state.compactionStatus.usedMessageCountFallback,
+    compactionUsedFallbackTrigger:
+      state.compactionStatus.usedMessageCountFallback,
     ...partial,
-  }
+  };
 }
 
 export function createEmptyExtractionPassSummary(): ExtractionPassSummary {
@@ -97,37 +100,42 @@ export function createEmptyExtractionPassSummary(): ExtractionPassSummary {
     zeroYieldExtractionPasses: 0,
     trailingZeroYieldExtractionPasses: 0,
     newJobsAdded: 0,
-  }
+  };
 }
 
-export function summarizeExtractionPassResult(result: unknown): ExtractionPassSummary {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return createEmptyExtractionPassSummary()
+export function summarizeExtractionPassResult(
+  result: unknown,
+): ExtractionPassSummary {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return createEmptyExtractionPassSummary();
   }
 
   const candidate = result as {
-    success?: unknown
-    data?: unknown
-  }
+    success?: unknown;
+    data?: unknown;
+  };
 
   if (
     candidate.success !== true ||
     !candidate.data ||
-    typeof candidate.data !== 'object' ||
+    typeof candidate.data !== "object" ||
     Array.isArray(candidate.data)
   ) {
-    return createEmptyExtractionPassSummary()
+    return createEmptyExtractionPassSummary();
   }
 
-  const data = candidate.data as Record<string, unknown>
+  const data = candidate.data as Record<string, unknown>;
 
-  if (typeof data.jobsExtracted !== 'number' || !Number.isFinite(data.jobsExtracted)) {
-    return createEmptyExtractionPassSummary()
+  if (
+    typeof data.jobsExtracted !== "number" ||
+    !Number.isFinite(data.jobsExtracted)
+  ) {
+    return createEmptyExtractionPassSummary();
   }
 
-  const newJobsAdded = Math.max(0, Math.floor(data.jobsExtracted))
+  const newJobsAdded = Math.max(0, Math.floor(data.jobsExtracted));
   if (data.deferredExtraction === true && newJobsAdded === 0) {
-    return createEmptyExtractionPassSummary()
+    return createEmptyExtractionPassSummary();
   }
 
   return {
@@ -135,7 +143,7 @@ export function summarizeExtractionPassResult(result: unknown): ExtractionPassSu
     zeroYieldExtractionPasses: newJobsAdded > 0 ? 0 : 1,
     trailingZeroYieldExtractionPasses: newJobsAdded > 0 ? 0 : 1,
     newJobsAdded,
-  }
+  };
 }
 
 export function getNonRouteEvidenceSignalCount(state: AgentState): number {
@@ -145,21 +153,25 @@ export function getNonRouteEvidenceSignalCount(state: AgentState): number {
     state.phaseEvidence.attemptedControls.length +
     state.phaseEvidence.warnings.length +
     state.collectedJobs.length
-  )
+  );
 }
 
 export function getEvidenceSignalCount(state: AgentState): number {
-  return getNonRouteEvidenceSignalCount(state) + state.phaseEvidence.routeSignals.length
+  return (
+    getNonRouteEvidenceSignalCount(state) +
+    state.phaseEvidence.routeSignals.length
+  );
 }
 
 export function hasSufficientEarlyForcedFinishEvidence(
   state: AgentState,
   config: AgentConfig,
 ): boolean {
-  const sampleBudgetSatisfied = state.collectedJobs.length >= config.targetJobCount
+  const sampleBudgetSatisfied =
+    state.collectedJobs.length >= config.targetJobCount;
 
   if (!sampleBudgetSatisfied) {
-    return false
+    return false;
   }
 
   return (
@@ -167,147 +179,166 @@ export function hasSufficientEarlyForcedFinishEvidence(
     state.phaseEvidence.successfulInteractions.length > 0 ||
     (state.phaseEvidence.visibleControls.length > 0 &&
       state.phaseEvidence.attemptedControls.length > 0)
-  )
+  );
 }
 
 export async function flushDeferredSearchExtractions(input: {
-  state: AgentState
-  config: AgentConfig
-  jobExtractor: JobExtractor
-  emitProgress: ReturnType<typeof createProgressEmitter>
-  mode?: 'batch' | 'final'
-  signal?: AbortSignal
+  state: AgentState;
+  config: AgentConfig;
+  jobExtractor: JobExtractor;
+  emitProgress: ReturnType<typeof createProgressEmitter>;
+  mode?: "batch" | "final";
+  signal?: AbortSignal;
 }): Promise<ExtractionPassSummary> {
-  const deferredSearchPages = [...input.state.deferredSearchExtractions.values()]
-  const summary = createEmptyExtractionPassSummary()
+  const deferredSearchPages = [
+    ...input.state.deferredSearchExtractions.values(),
+  ];
+  const summary = createEmptyExtractionPassSummary();
 
   if (deferredSearchPages.length === 0) {
-    return summary
+    return summary;
   }
 
   input.emitProgress({
-    currentAction: 'finalize_deferred_extraction',
-    waitReason: 'extracting_jobs',
+    currentAction: "finalize_deferred_extraction",
+    waitReason: "extracting_jobs",
     jobsFound: input.state.collectedJobs.length,
     message:
-      input.mode === 'final'
+      input.mode === "final"
         ? deferredSearchPages.length === 1
-          ? 'Reviewing the captured results page before wrapping up.'
+          ? "Reviewing the captured results page before wrapping up."
           : `Reviewing ${deferredSearchPages.length} captured results pages before wrapping up.`
         : deferredSearchPages.length === 1
-          ? 'Reviewing the captured results page to see if we already have enough jobs.'
+          ? "Reviewing the captured results page to see if we already have enough jobs."
           : `Reviewing ${deferredSearchPages.length} captured results pages to see if we already have enough jobs.`,
-  })
+  });
 
   for (let index = 0; index < deferredSearchPages.length; index += 1) {
     if (input.signal?.aborted) {
-      throw new DOMException('Aborted', 'AbortError')
+      throw new DOMException("Aborted", "AbortError");
     }
 
-    const deferredSearchPage = deferredSearchPages[index]
+    const deferredSearchPage = deferredSearchPages[index];
     if (!deferredSearchPage) {
-      continue
+      continue;
     }
-    const remainingJobs = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
+    const remainingJobs = Math.max(
+      0,
+      input.config.targetJobCount - input.state.collectedJobs.length,
+    );
     if (remainingJobs === 0) {
-      break
+      break;
     }
 
-    const expandedSearchResultsBudget = getSearchResultsExtractionReviewBudget(input.config)
-    // Search-surface review intentionally allows over-budget candidate review so fast-path extraction
-    // can inspect more cards than the remaining target when expandedSearchResultsBudget exceeds remainingJobs.
-    const maxJobs = expandedSearchResultsBudget == null
-      ? Math.min(remainingJobs, DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET)
-      : Math.max(remainingJobs, expandedSearchResultsBudget)
+    const expandedSearchResultsBudget = getSearchResultsExtractionReviewBudget(
+      input.config,
+    );
+    // Search-surface review intentionally uses the expanded review cap so fast-path extraction can
+    // inspect more cards than the default budget without scaling all the way up to a large target.
+    const maxJobs =
+      expandedSearchResultsBudget == null
+        ? Math.min(
+            remainingJobs,
+            DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET,
+          )
+        : Math.min(remainingJobs, expandedSearchResultsBudget);
 
     if (maxJobs === 0) {
-      break
+      break;
     }
 
     input.emitProgress({
-      currentAction: 'finalize_deferred_extraction',
+      currentAction: "finalize_deferred_extraction",
       currentUrl: deferredSearchPage.pageUrl,
-      waitReason: 'extracting_jobs',
+      waitReason: "extracting_jobs",
       jobsFound: input.state.collectedJobs.length,
       message:
-        input.mode === 'final'
+        input.mode === "final"
           ? deferredSearchPages.length === 1
-            ? 'Extracting jobs from the captured results page.'
+            ? "Extracting jobs from the captured results page."
             : `Extracting jobs from captured results page ${index + 1}/${deferredSearchPages.length}.`
           : deferredSearchPages.length === 1
-            ? 'Extracting jobs from the captured results page before continuing.'
+            ? "Extracting jobs from the captured results page before continuing."
             : `Extracting jobs from captured results page ${index + 1}/${deferredSearchPages.length} before continuing.`,
-    })
+    });
 
     const fastPathJobs = buildStructuredCandidateJobs({
       pageUrl: deferredSearchPage.pageUrl,
       maxJobs,
-      structuredDataCandidates: deferredSearchPage.structuredDataCandidates ?? [],
+      structuredDataCandidates:
+        deferredSearchPage.structuredDataCandidates ?? [],
       cardCandidates: deferredSearchPage.cardCandidates ?? [],
       searchPreferences: input.config.searchPreferences,
-    })
+    });
     const fastPathAddedCount = addExtractedJobsToState(
       fastPathJobs,
       input.state,
       input.config.source,
-    )
-    const remainingJobsAfterFastPath = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
+    );
+    const remainingJobsAfterFastPath = Math.max(
+      0,
+      input.config.targetJobCount - input.state.collectedJobs.length,
+    );
     // Keep the expanded review budget for search results even after fast-path adds jobs so deferred
     // extraction can still inspect more candidates than the remaining target when needed.
-    const remainingSearchResultsBudget = expandedSearchResultsBudget == null
-      ? Math.min(remainingJobsAfterFastPath, Math.max(0, maxJobs - fastPathAddedCount))
-      : Math.max(0, maxJobs - fastPathAddedCount)
+    const remainingSearchResultsBudget =
+      expandedSearchResultsBudget == null
+        ? Math.min(
+            remainingJobsAfterFastPath,
+            Math.max(0, maxJobs - fastPathAddedCount),
+          )
+        : Math.max(0, maxJobs - fastPathAddedCount);
     const extractedJobs =
       remainingSearchResultsBudget === 0
         ? []
         : await input.jobExtractor.extractJobsFromPage({
             pageText: deferredSearchPage.pageText,
             pageUrl: deferredSearchPage.pageUrl,
-            pageType: 'search_results',
+            pageType: "search_results",
             maxJobs: remainingSearchResultsBudget,
-          })
+          });
     const addedCount = addExtractedJobsToState(
       extractedJobs,
       input.state,
       input.config.source,
-    )
-    const totalAddedCount = fastPathAddedCount + addedCount
-    summary.extractionPasses += 1
-    summary.newJobsAdded += totalAddedCount
+    );
+    const totalAddedCount = fastPathAddedCount + addedCount;
+    summary.extractionPasses += 1;
+    summary.newJobsAdded += totalAddedCount;
 
     if (totalAddedCount === 0) {
-      summary.zeroYieldExtractionPasses += 1
-      summary.trailingZeroYieldExtractionPasses += 1
+      summary.zeroYieldExtractionPasses += 1;
+      summary.trailingZeroYieldExtractionPasses += 1;
     } else {
-      summary.trailingZeroYieldExtractionPasses = 0
+      summary.trailingZeroYieldExtractionPasses = 0;
     }
 
     if (fastPathAddedCount > 0) {
       console.log(
         `[Agent] +${fastPathAddedCount} jobs (${input.state.collectedJobs.length} total) from deferred structured extraction ${deferredSearchPage.pageUrl.slice(0, 60)}...`,
-      )
+      );
     }
 
     if (addedCount > 0) {
       console.log(
         `[Agent] +${addedCount} jobs (${input.state.collectedJobs.length} total) from deferred extraction ${deferredSearchPage.pageUrl.slice(0, 60)}...`,
-      )
+      );
     }
 
     input.emitProgress({
       currentAction: `deferred_extract_result:${totalAddedCount}:${input.state.collectedJobs.length}:${fastPathJobs.length + extractedJobs.length}`,
       currentUrl: deferredSearchPage.pageUrl,
-      waitReason: 'extracting_jobs',
+      waitReason: "extracting_jobs",
       jobsFound: input.state.collectedJobs.length,
       message:
         totalAddedCount > 0
-          ? `Kept ${totalAddedCount} new job${totalAddedCount === 1 ? '' : 's'} from deferred extraction.`
-          : 'Reviewed the deferred extraction pass and kept no new jobs.',
-    })
+          ? `Kept ${totalAddedCount} new job${totalAddedCount === 1 ? "" : "s"} from deferred extraction.`
+          : "Reviewed the deferred extraction pass and kept no new jobs.",
+    });
   }
 
-  input.state.deferredSearchExtractions.clear()
-  return summary
+  input.state.deferredSearchExtractions.clear();
+  return summary;
 }
 
 export function createProgressEmitter(
@@ -315,24 +346,24 @@ export function createProgressEmitter(
   config: AgentConfig,
   onProgress?: OnProgressCallback,
 ) {
-  const startedAtMs = Date.now()
+  const startedAtMs = Date.now();
   const defaultStartingUrl =
-    config.startingUrls.find((url) => url.trim().length > 0) ?? 'about:blank'
+    config.startingUrls.find((url) => url.trim().length > 0) ?? "about:blank";
 
   return (input: {
-    currentAction?: string
-    currentUrl?: string
-    jobsFound?: number
-    stepCount?: number
-    waitReason?: AgentProgress['waitReason']
-    message?: AgentProgress['message']
+    currentAction?: string;
+    currentUrl?: string;
+    jobsFound?: number;
+    stepCount?: number;
+    waitReason?: AgentProgress["waitReason"];
+    message?: AgentProgress["message"];
   }) => {
-    const lastActivityAt = new Date().toISOString()
+    const lastActivityAt = new Date().toISOString();
     const currentUrl =
       input.currentUrl ||
       state.currentUrl ||
       state.lastStableUrl ||
-      defaultStartingUrl
+      defaultStartingUrl;
 
     onProgress?.({
       currentUrl,
@@ -345,36 +376,40 @@ export function createProgressEmitter(
       lastActivityAt,
       targetId: null,
       adapterKind: config.source,
-    })
-  }
+    });
+  };
 }
 
 export async function recoverLivePageState(input: {
-  config: AgentConfig
-  pageRef: { current: Page }
-  state: AgentState
-  reason: string
-  onProgress?: OnProgressCallback
+  config: AgentConfig;
+  pageRef: { current: Page };
+  state: AgentState;
+  reason: string;
+  onProgress?: OnProgressCallback;
 }): Promise<boolean> {
   if (!input.config.resolveLivePage) {
-    return false
+    return false;
   }
 
-  const livePage = await input.config.resolveLivePage()
-  input.pageRef.current = livePage
-  const recoveredUrl = livePage.url()
-  let canTrackRecoveredUrl = false
+  const livePage = await input.config.resolveLivePage();
+  input.pageRef.current = livePage;
+  const recoveredUrl = livePage.url();
+  let canTrackRecoveredUrl = false;
   if (recoveredUrl) {
-    const recoveredUrlValidation = isAllowedUrl(recoveredUrl, input.config.navigationPolicy)
-    canTrackRecoveredUrl = recoveredUrlValidation.valid && recoveredUrl !== 'about:blank'
+    const recoveredUrlValidation = isAllowedUrl(
+      recoveredUrl,
+      input.config.navigationPolicy,
+    );
+    canTrackRecoveredUrl =
+      recoveredUrlValidation.valid && recoveredUrl !== "about:blank";
 
     if (recoveredUrlValidation.valid) {
-      input.state.currentUrl = recoveredUrl
+      input.state.currentUrl = recoveredUrl;
     }
 
     if (canTrackRecoveredUrl) {
-      input.state.lastStableUrl = recoveredUrl
-      input.state.visitedUrls.add(recoveredUrl)
+      input.state.lastStableUrl = recoveredUrl;
+      input.state.visitedUrls.add(recoveredUrl);
     }
   }
 
@@ -384,32 +419,34 @@ export async function recoverLivePageState(input: {
     stepCount: input.state.stepCount,
     currentAction: `recover_page:${input.reason}`,
     message: canTrackRecoveredUrl
-      ? 'Recovered to a live browser page after the previous tab or page closed.'
-      : 'Recovered to a live browser page, but it stayed off-policy so normal navigation guards remain in control.',
-    waitReason: 'waiting_on_page',
+      ? "Recovered to a live browser page after the previous tab or page closed."
+      : "Recovered to a live browser page, but it stayed off-policy so normal navigation guards remain in control.",
+    waitReason: "waiting_on_page",
     targetId: null,
     adapterKind: input.config.source,
-  })
+  });
 
-  return canTrackRecoveredUrl
+  return canTrackRecoveredUrl;
 }
 
 function canWaitForLoadState(
   page: Page,
-): page is Page & { waitForLoadState: Page['waitForLoadState'] } {
-  const pageWithOptionalWaitForLoadState: { waitForLoadState?: unknown } = page
-  return typeof pageWithOptionalWaitForLoadState.waitForLoadState === 'function'
+): page is Page & { waitForLoadState: Page["waitForLoadState"] } {
+  const pageWithOptionalWaitForLoadState: { waitForLoadState?: unknown } = page;
+  return (
+    typeof pageWithOptionalWaitForLoadState.waitForLoadState === "function"
+  );
 }
 
 export async function waitForInitialPageReady(page: Page): Promise<void> {
   if (!canWaitForLoadState(page)) {
-    return
+    return;
   }
 
   await Promise.any([
-    page.waitForLoadState('load', { timeout: 1_000 }),
-    page.waitForLoadState('networkidle', { timeout: 1_000 }),
-  ]).catch(() => undefined)
+    page.waitForLoadState("load", { timeout: 1_000 }),
+    page.waitForLoadState("networkidle", { timeout: 1_000 }),
+  ]).catch(() => undefined);
 }
 
 export async function getLlmResponse(
@@ -417,63 +454,71 @@ export async function getLlmResponse(
   tools: ReturnType<typeof getToolDefinitions>,
   llmClient: LLMClient,
   options?: {
-    maxOutputTokens?: number
+    maxOutputTokens?: number;
   },
   emitProgress?: (input: {
-    currentAction?: string
-    waitReason?: AgentProgress['waitReason']
-    message?: AgentProgress['message']
+    currentAction?: string;
+    waitReason?: AgentProgress["waitReason"];
+    message?: AgentProgress["message"];
   }) => void,
   signal?: AbortSignal,
 ): Promise<{ content?: string; toolCalls?: ToolCall[]; reasoning?: string }> {
-  let llmResponse: { content?: string; toolCalls?: ToolCall[]; reasoning?: string } | null =
-    null
-  let lastLlmError: unknown = null
+  let llmResponse: {
+    content?: string;
+    toolCalls?: ToolCall[];
+    reasoning?: string;
+  } | null = null;
+  let lastLlmError: unknown = null;
 
   for (let attempt = 0; attempt < MAX_LLM_RETRY_ATTEMPTS; attempt += 1) {
-    const callStartMs = Date.now()
-    let heartbeat: ReturnType<typeof setInterval> | null = null
+    const callStartMs = Date.now();
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
 
     if (emitProgress) {
       heartbeat = setInterval(() => {
-        const waitedSec = Math.round((Date.now() - callStartMs) / 1000)
+        const waitedSec = Math.round((Date.now() - callStartMs) / 1000);
         emitProgress?.({
-          currentAction: 'thinking',
-          waitReason: 'waiting_on_ai',
+          currentAction: "thinking",
+          waitReason: "waiting_on_ai",
           message: `Waiting for AI response (${waitedSec}s)…`,
-        })
-      }, 10_000)
+        });
+      }, 10_000);
     }
 
     try {
       llmResponse = await llmClient.chatWithTools(state.conversation, tools, {
         ...options,
         ...(signal ? { signal } : {}),
-      })
-      break
+      });
+      break;
     } catch (llmError) {
-      if ((llmError instanceof DOMException && llmError.name === 'AbortError') || signal?.aborted) {
-        throw llmError
+      if (
+        (llmError instanceof DOMException && llmError.name === "AbortError") ||
+        signal?.aborted
+      ) {
+        throw llmError;
       }
 
-      lastLlmError = llmError
+      lastLlmError = llmError;
 
       if (attempt < MAX_LLM_RETRY_ATTEMPTS - 1) {
         emitProgress?.({
-          currentAction: 'retrying_ai',
-          waitReason: 'retrying_ai',
+          currentAction: "retrying_ai",
+          waitReason: "retrying_ai",
           message: `Retrying AI planning after a temporary model error (${attempt + 2}/${MAX_LLM_RETRY_ATTEMPTS}).`,
-        })
-        await waitForRetryDelay(500 * (attempt + 1), signal)
+        });
+        await waitForRetryDelay(500 * (attempt + 1), signal);
       }
     } finally {
-      if (heartbeat !== null) clearInterval(heartbeat)
+      if (heartbeat !== null) clearInterval(heartbeat);
     }
   }
 
   if (!llmResponse) {
-    throw lastLlmError instanceof Error ? lastLlmError : new Error('LLM call failed')
+    throw lastLlmError instanceof Error
+      ? lastLlmError
+      : new Error("LLM call failed");
   }
 
-  return llmResponse
+  return llmResponse;
 }
