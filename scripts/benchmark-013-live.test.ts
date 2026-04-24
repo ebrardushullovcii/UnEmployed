@@ -104,21 +104,31 @@ const benchmarkTargets = [
   },
 ] as const
 
+const availableBenchmarkTargetIds = benchmarkTargets.map((target) => target.id)
+
+function selectBenchmarkTargets(
+  requestedTargetIds: readonly string[],
+): Array<(typeof benchmarkTargets)[number]> {
+  if (requestedTargetIds.length === 0) {
+    return [...benchmarkTargets]
+  }
+
+  const unknownTargetIds = requestedTargetIds.filter((targetId) => !availableBenchmarkTargetIds.includes(targetId))
+  if (unknownTargetIds.length > 0) {
+    throw new Error(
+      `BENCHMARK_TARGET_IDS contained unknown benchmark targets. Unknown: ${unknownTargetIds.join(', ')}. Available: ${availableBenchmarkTargetIds.join(', ')}`,
+    )
+  }
+
+  return benchmarkTargets.filter((target) => requestedTargetIds.includes(target.id))
+}
+
 const requestedBenchmarkTargetIds = (process.env.BENCHMARK_TARGET_IDS ?? '')
   .split(',')
   .map((value) => value.trim())
   .filter(Boolean)
 
-const selectedBenchmarkTargets =
-  requestedBenchmarkTargetIds.length > 0
-    ? benchmarkTargets.filter((target) => requestedBenchmarkTargetIds.includes(target.id))
-    : benchmarkTargets
-
-if (requestedBenchmarkTargetIds.length > 0 && selectedBenchmarkTargets.length === 0) {
-  throw new Error(
-    `BENCHMARK_TARGET_IDS did not match any known benchmark targets. Requested: ${requestedBenchmarkTargetIds.join(', ')}. Available: ${benchmarkTargets.map((target) => target.id).join(', ')}`,
-  )
-}
+const selectedBenchmarkTargets = selectBenchmarkTargets(requestedBenchmarkTargetIds)
 
 function getBenchmarkTargetRoles(target: (typeof benchmarkTargets)[number]): string[] {
   return [...(target.benchmarkTargetRoles ?? defaultBenchmarkTargetRoles)]
@@ -497,6 +507,30 @@ function buildSourceDebugBenchmarkVerdict(input: {
   return input.timedOut ? 'timed_out_without_artifact' : 'no_artifact'
 }
 
+const failingSourceDebugBenchmarkVerdicts = new Set(['no_artifact', 'timed_out_without_artifact'])
+const failingDiscoveryBenchmarkVerdicts = new Set(['no_usable_jobs', 'timed_out_without_quality'])
+
+function isPassingBenchmarkVerdict(
+  verdict: unknown,
+  failingVerdicts: ReadonlySet<string>,
+): boolean {
+  const normalizedVerdict = readString(verdict)
+  return normalizedVerdict !== null && !failingVerdicts.has(normalizedVerdict)
+}
+
+function isPassingBenchmarkResultEntry(entry: Record<string, unknown>): boolean {
+  const sourceDebug = asRecord(entry.sourceDebug)
+  const discovery = asRecord(entry.discovery)
+
+  return isPassingBenchmarkVerdict(
+    asRecord(sourceDebug?.qualitySignals)?.benchmarkVerdict,
+    failingSourceDebugBenchmarkVerdicts,
+  ) && isPassingBenchmarkVerdict(
+    asRecord(discovery?.qualitySignals)?.benchmarkVerdict,
+    failingDiscoveryBenchmarkVerdicts,
+  )
+}
+
 function summarizeSourceDebug(
   target: (typeof benchmarkTargets)[number],
   searchPreferences: { targetRoles: string[] },
@@ -790,6 +824,36 @@ test('summarizeSourceDebug preserves timed-out partial artifact evidence', () =>
   expect(summary.qualitySignals.benchmarkVerdict).toBe('timed_out_with_partial_artifact')
 })
 
+test('selectBenchmarkTargets rejects unknown ids even when some targets match', () => {
+  expect(() =>
+    selectBenchmarkTargets(['target_greenhouse_remote', 'typoed_target'])).toThrow(
+      /Unknown: typoed_target/u,
+    )
+})
+
+test('isPassingBenchmarkResultEntry rejects empty benchmark outcomes and keeps partial progress', () => {
+  expect(
+    isPassingBenchmarkResultEntry({
+      sourceDebug: { qualitySignals: { benchmarkVerdict: 'verified_artifact' } },
+      discovery: { qualitySignals: { benchmarkVerdict: 'no_usable_jobs' } },
+    }),
+  ).toBe(false)
+
+  expect(
+    isPassingBenchmarkResultEntry({
+      sourceDebug: { qualitySignals: { benchmarkVerdict: 'no_artifact' } },
+      discovery: { qualitySignals: { benchmarkVerdict: 'quality_signals_only' } },
+    }),
+  ).toBe(false)
+
+  expect(
+    isPassingBenchmarkResultEntry({
+      sourceDebug: { qualitySignals: { benchmarkVerdict: 'timed_out_with_partial_artifact' } },
+      discovery: { qualitySignals: { benchmarkVerdict: 'quality_signals_only' } },
+    }),
+  ).toBe(true)
+})
+
 describe.sequential('013 live before/after benchmark harness', () => {
   const benchmarkTest = runLiveBenchmark ? test : test.skip
 
@@ -904,12 +968,7 @@ describe.sequential('013 live before/after benchmark harness', () => {
       )
 
       expect(results.length).toBe(selectedBenchmarkTargets.length)
-      expect(results.every((entry) => {
-        const sourceDebug = entry.sourceDebug as Record<string, unknown>
-        const discovery = entry.discovery as Record<string, unknown>
-        return Boolean(asRecord(sourceDebug.qualitySignals)?.benchmarkVerdict) &&
-          Boolean(asRecord(discovery.qualitySignals)?.benchmarkVerdict)
-      })).toBe(true)
+      expect(results.every(isPassingBenchmarkResultEntry)).toBe(true)
     },
   )
 })
