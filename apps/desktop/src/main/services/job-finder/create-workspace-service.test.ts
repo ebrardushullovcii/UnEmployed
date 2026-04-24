@@ -57,9 +57,9 @@ describe('isBrowserAgentEnabled', () => {
     expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: ' FALSE ' })).toBe(false)
   })
 
-  test('keeps the browser agent enabled for explicit true and unknown values', () => {
+  test('enables only explicit true values and disables unknown values', () => {
     expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: '1' })).toBe(true)
     expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'TRUE' })).toBe(true)
-    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'yes' })).toBe(true)
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'yes' })).toBe(false)
   })
 })
