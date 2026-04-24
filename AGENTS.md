@@ -15,9 +15,7 @@ Agent-first Electron monorepo for `Job Finder` and `Interview Helper`.
 - Prefer the smallest relevant doc set; do not rescan the repo when canonical docs already answer the question
 - Keep package boundaries typed and schema-validated
 - Do not introduce `any`, deep cross-package imports, or untyped IPC
-- Keep job-source handling plug-and-play: do not add per-source route builders, query maps, triage overrides, or one-off workflow functions in core discovery just because one board is misbehaving
-- Prefer general solutions that scale across sources: better agent instructions, stronger generic heuristics, evidence-driven route reuse, or contained provider adapters
-- If a source quirk does not generalize, leave it to agent behavior or contained extraction handling instead of codifying it in shared orchestration
+- Follow the source-generic discovery rules in `docs/ARCHITECTURE.md`
 - Keep durable knowledge in `docs/`; keep `AGENTS.md` files short
 - Treat `docs/STATUS.md`, `docs/TRACKS.md`, and `docs/exec-plans/` as the handoff layer
 - When working in desktop, follow `apps/desktop/AGENTS.md`

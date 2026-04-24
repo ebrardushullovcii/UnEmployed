@@ -195,9 +195,9 @@ function createInitialRunRecord(input: {
     startedAt: new Date().toISOString(),
     completedAt: null,
     targetIds: input.targets.map((target) => target.id),
-      targetExecutions: input.targets.map((target) => ({
-        targetId: target.id,
-        adapterKind: target.adapterKind,
+    targetExecutions: input.targets.map((target) => ({
+      targetId: target.id,
+      adapterKind: target.adapterKind,
       resolvedAdapterKind: resolveAdapterKind(target),
       collectionMethod: null,
       sourceIntelligenceProvider: null,
@@ -205,13 +205,13 @@ function createInitialRunRecord(input: {
       startedAt: null,
       completedAt: null,
       jobsFound: 0,
-        jobsPersisted: 0,
-        jobsStaged: 0,
-        warning: null,
-        compactionState: null,
-        compactionUsedFallbackTrigger: false,
-        timing: null,
-      })),
+      jobsPersisted: 0,
+      jobsStaged: 0,
+      warning: null,
+      compactionState: null,
+      compactionUsedFallbackTrigger: false,
+      timing: null,
+    })),
     activity: [],
     summary: {
       targetsPlanned: input.targets.length,
@@ -290,7 +290,9 @@ function getSourceInstructionPriority(
 function prioritizeDiscoveryTargets(
   targets: readonly JobDiscoveryTarget[],
   sourceInstructionArtifacts: Awaited<
-    ReturnType<WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]>
+    ReturnType<
+      WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]
+    >
   >,
   searchPreferences: JobSearchPreferences,
 ): JobDiscoveryTarget[] {
@@ -319,7 +321,9 @@ function prioritizeDiscoveryTargets(
           activeInstruction?.status ?? target.instructionStatus,
         ),
         learnedRoutePriority:
-          startingUrls[0] != null && startingUrls[0] !== target.startingUrl ? 0 : 1,
+          startingUrls[0] != null && startingUrls[0] !== target.startingUrl
+            ? 0
+            : 1,
       };
     })
     .sort((left, right) => {
@@ -348,7 +352,11 @@ function createPostingWithTriage(
   posting: JobPosting;
   triageReason: string | null;
 } {
-  const triage = applyDiscoveryTitleTriage({ posting, searchPreferences, profile });
+  const triage = applyDiscoveryTitleTriage({
+    posting,
+    searchPreferences,
+    profile,
+  });
 
   return {
     posting: JobPostingSchema.parse({
@@ -376,7 +384,8 @@ function toProviderAwarePosting(input: {
     collectionMethod: input.collectionMethod,
     company: input.posting.company || input.target.label,
     providerKey: input.posting.providerKey ?? provider?.key ?? null,
-    providerBoardToken: input.posting.providerBoardToken ?? provider?.boardToken ?? null,
+    providerBoardToken:
+      input.posting.providerBoardToken ?? provider?.boardToken ?? null,
     providerIdentifier:
       input.posting.providerIdentifier ?? provider?.providerIdentifier ?? null,
     atsProvider: input.posting.atsProvider ?? provider?.label ?? null,
@@ -388,9 +397,13 @@ async function collectTargetJobs(input: {
   ctx: WorkspaceServiceContext;
   target: JobDiscoveryTarget;
   sourceInstructionArtifacts: Awaited<
-    ReturnType<WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]>
+    ReturnType<
+      WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]
+    >
   >;
-  profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
+  profile: Awaited<
+    ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>
+  >;
   searchPreferences: JobSearchPreferences;
   targetJobCount: number;
   maxSteps: number;
@@ -415,7 +428,10 @@ async function collectTargetJobs(input: {
     target,
     currentArtifact: activeInstruction,
   });
-  const collectionMethod = selectDiscoveryCollectionMethod(target, activeInstruction);
+  const collectionMethod = selectDiscoveryCollectionMethod(
+    target,
+    activeInstruction,
+  );
   const discoveryMethod = selectDiscoveryMethod(collectionMethod);
   const startingUrls = buildDiscoveryStartingUrls(
     target,
@@ -533,13 +549,17 @@ async function collectTargetJobs(input: {
       },
       targetJobCount: input.targetJobCount,
       maxSteps: input.maxSteps,
-	      startingUrls,
-	      weakSameHostBoard: adapter.kind === "target_site",
-	      siteLabel: target.label,
+      startingUrls,
+      agentHints: {
+        widenReviewBudget: adapter.kind === "target_site",
+      },
+      siteLabel: target.label,
       navigationHostnames: targetUrl ? [targetUrl.hostname] : [],
       siteInstructions: [...adapter.siteInstructions, ...instructionLines],
       toolUsageNotes: adapter.toolUsageNotes,
-      compactionWorkflowKey: "browser_agent_live_discovery",
+      compactionHints: {
+        workflowKey: "browser_agent_live_discovery",
+      },
       relevantUrlSubstrings: adapter.relevantUrlSubstrings,
       experimental: adapter.experimental,
       aiClient: ctx.aiClient,
@@ -594,7 +614,10 @@ async function collectTargetJobs(input: {
     };
   }
 
-  const result = await ctx.browserRuntime.runDiscovery(adapterKind, input.searchPreferences);
+  const result = await ctx.browserRuntime.runDiscovery(
+    adapterKind,
+    input.searchPreferences,
+  );
   return {
     result: {
       ...result,
@@ -626,14 +649,19 @@ export function createWorkspaceDiscoveryMethods(
   ) {
     let terminalStatus: "cancelled" | "failed" | "completed" = "completed";
     let caughtError: unknown = null;
-    const [profile, searchPreferences, settings, startingSavedJobs, startingDiscovery] =
-      await Promise.all([
-        ctx.repository.getProfile(),
-        ctx.repository.getSearchPreferences(),
-        ctx.repository.getSettings(),
-        ctx.repository.listSavedJobs(),
-        ctx.repository.getDiscoveryState(),
-      ]);
+    const [
+      profile,
+      searchPreferences,
+      settings,
+      startingSavedJobs,
+      startingDiscovery,
+    ] = await Promise.all([
+      ctx.repository.getProfile(),
+      ctx.repository.getSearchPreferences(),
+      ctx.repository.getSettings(),
+      ctx.repository.listSavedJobs(),
+      ctx.repository.getDiscoveryState(),
+    ]);
     const enrichedPreferences = enrichSearchPreferencesFromProfile(
       searchPreferences,
       profile,
@@ -650,11 +678,14 @@ export function createWorkspaceDiscoveryMethods(
 
     let workingSavedJobs = [...startingSavedJobs];
     let workingPendingJobs = [...startingDiscovery.pendingDiscoveryJobs];
-    let workingLedger: DiscoveryLedgerEntry[] = [...startingDiscovery.discoveryLedger];
+    let workingLedger: DiscoveryLedgerEntry[] = [
+      ...startingDiscovery.discoveryLedger,
+    ];
     const touchedSavedJobIds = new Set<string>();
     const touchedPendingJobIds = new Set<string>();
     const openedSessionSources = new Set<JobSource>();
-    const sourceInstructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
+    const sourceInstructionArtifacts =
+      await ctx.repository.listSourceInstructionArtifacts();
     const targets =
       options.scope === "run_all"
         ? prioritizeDiscoveryTargets(
@@ -833,9 +864,11 @@ export function createWorkspaceDiscoveryMethods(
           ...entry,
           collectionMethod: collected.collectionMethod,
           sourceIntelligenceProvider: collectedProviderKey,
-          compactionState: collected.result.agentMetadata?.compactionState ?? null,
+          compactionState:
+            collected.result.agentMetadata?.compactionState ?? null,
           compactionUsedFallbackTrigger:
-            collected.result.agentMetadata?.compactionUsedFallbackTrigger ?? false,
+            collected.result.agentMetadata?.compactionUsedFallbackTrigger ??
+            false,
         }));
 
         emitActivity(
@@ -877,16 +910,15 @@ export function createWorkspaceDiscoveryMethods(
         for (const rawPosting of collected.result.jobs) {
           const posting = JobPostingSchema.parse(rawPosting);
           targetSeenUrls.push(posting.canonicalUrl);
-          const { posting: triagedPosting, triageReason } = createPostingWithTriage(
-            posting,
-            enrichedPreferences,
-            profile,
-          );
+          const { posting: triagedPosting, triageReason } =
+            createPostingWithTriage(posting, enrichedPreferences, profile);
 
           if (triagedPosting.titleTriageOutcome !== "pass") {
             skippedByTitleTriage += 1;
             triageSkippedPostings.push(triagedPosting);
-            if (titleTriageSkipSamples.length < DISCOVERY_ACTIVITY_SAMPLE_LIMIT) {
+            if (
+              titleTriageSkipSamples.length < DISCOVERY_ACTIVITY_SAMPLE_LIMIT
+            ) {
               titleTriageSkipSamples.push({
                 title: triagedPosting.title,
                 company: triagedPosting.company,
@@ -904,7 +936,10 @@ export function createWorkspaceDiscoveryMethods(
             continue;
           }
 
-          const ledgerEntry = findDiscoveryLedgerEntry(workingLedger, triagedPosting);
+          const ledgerEntry = findDiscoveryLedgerEntry(
+            workingLedger,
+            triagedPosting,
+          );
           const ledgerDecision = shouldSkipPostingFromLedger({
             ledgerEntry,
             posting: triagedPosting,
@@ -967,12 +1002,17 @@ export function createWorkspaceDiscoveryMethods(
             0,
             skippedByTitleTriage - rescuedPostings.length,
           );
-          for (let index = titleTriageSkipSamples.length - 1; index >= 0; index -= 1) {
+          for (
+            let index = titleTriageSkipSamples.length - 1;
+            index >= 0;
+            index -= 1
+          ) {
             const sample = titleTriageSkipSamples[index];
             const rescuedPosting = sample
               ? rescuedPostings.find(
                   (posting) =>
-                    posting.title === sample.title && posting.company === sample.company,
+                    posting.title === sample.title &&
+                    posting.company === sample.company,
                 )
               : null;
             if (rescuedPosting) {
@@ -1033,7 +1073,9 @@ export function createWorkspaceDiscoveryMethods(
           mergeResult.mergedJobs,
         );
 
-        const persistedSavedJobIds = new Set(workingSavedJobs.map((job) => job.id));
+        const persistedSavedJobIds = new Set(
+          workingSavedJobs.map((job) => job.id),
+        );
         let jobsPersisted = 0;
         let jobsStaged = 0;
 
@@ -1046,13 +1088,18 @@ export function createWorkspaceDiscoveryMethods(
               persistedSavedJobIds.has(job.id) &&
               !mergeResult.newJobs.some((newJob) => newJob.id === job.id),
           );
-          workingPendingJobs = mergePendingJobs(workingPendingJobs, nextPendingJobs);
+          workingPendingJobs = mergePendingJobs(
+            workingPendingJobs,
+            nextPendingJobs,
+          );
           jobsStaged = nextPendingJobs.length;
           nextPendingJobs.forEach((job) => touchedPendingJobIds.add(job.id));
           workingSavedJobs.forEach((job) => touchedSavedJobIds.add(job.id));
         } else {
           workingSavedJobs = mergeResult.mergedJobs;
-          mergeResult.mergedJobs.forEach((job) => touchedSavedJobIds.add(job.id));
+          mergeResult.mergedJobs.forEach((job) =>
+            touchedSavedJobIds.add(job.id),
+          );
           jobsPersisted = mergeResult.newJobs.length;
         }
 
@@ -1099,7 +1146,8 @@ export function createWorkspaceDiscoveryMethods(
         );
 
         activeRun = updateRunSummary(activeRun, {
-          validJobsFound: activeRun.summary.validJobsFound + mergeResult.validatedCount,
+          validJobsFound:
+            activeRun.summary.validJobsFound + mergeResult.validatedCount,
           jobsPersisted: activeRun.summary.jobsPersisted + jobsPersisted,
           jobsStaged: activeRun.summary.jobsStaged + jobsStaged,
           jobsSkippedByLedger:
@@ -1108,17 +1156,23 @@ export function createWorkspaceDiscoveryMethods(
             activeRun.summary.jobsSkippedByTitleTriage + skippedByTitleTriage,
           duplicatesMerged:
             activeRun.summary.duplicatesMerged + mergeResult.duplicatesMerged,
-          invalidSkipped: activeRun.summary.invalidSkipped + mergeResult.invalidSkipped,
+          invalidSkipped:
+            activeRun.summary.invalidSkipped + mergeResult.invalidSkipped,
         });
 
         const targetCompletedAt = new Date().toISOString();
-        activeRun = completeTargetExecution(activeRun, target.id, targetCompletedAt, {
-          state: "completed",
-          jobsFound: mergeResult.validatedCount,
-          jobsPersisted,
-          jobsStaged,
-          warning: collected.result.warning,
-        });
+        activeRun = completeTargetExecution(
+          activeRun,
+          target.id,
+          targetCompletedAt,
+          {
+            state: "completed",
+            jobsFound: mergeResult.validatedCount,
+            jobsPersisted,
+            jobsStaged,
+            warning: collected.result.warning,
+          },
+        );
         emitActivity(
           createDiscoveryEvent({
             runId,
@@ -1173,7 +1227,8 @@ export function createWorkspaceDiscoveryMethods(
         );
       }
     } catch (error) {
-      const interrupted = error instanceof DOMException && error.name === "AbortError";
+      const interrupted =
+        error instanceof DOMException && error.name === "AbortError";
       terminalStatus = interrupted ? "cancelled" : "failed";
       caughtError = error;
       activeRun = finalizeRunningTargetExecutions(
@@ -1189,11 +1244,12 @@ export function createWorkspaceDiscoveryMethods(
       }
 
       if (openedSessionSources.size > 0) {
-        const representativeSource = [...openedSessionSources].pop() ?? "target_site";
+        const representativeSource =
+          [...openedSessionSources].pop() ?? "target_site";
         const browserCloseoutOccurredAt = new Date().toISOString();
-        const session = await ctx.browserRuntime.getSessionState(representativeSource).catch(
-          () => null,
-        );
+        const session = await ctx.browserRuntime
+          .getSessionState(representativeSource)
+          .catch(() => null);
         if (session) {
           activeRun = updateRunSummary(activeRun, {
             browserCloseout: {
@@ -1207,7 +1263,11 @@ export function createWorkspaceDiscoveryMethods(
       }
     }
 
-    activeRun = finalizeDiscoveryRun(activeRun, terminalStatus, new Date().toISOString());
+    activeRun = finalizeDiscoveryRun(
+      activeRun,
+      terminalStatus,
+      new Date().toISOString(),
+    );
 
     const latestDiscoveryState = await ctx.repository.getDiscoveryState();
     await ctx.repository.replaceSavedJobs(

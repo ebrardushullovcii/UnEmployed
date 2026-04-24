@@ -14,5 +14,4 @@ Move profile data from a thin resume-derived blob to reusable structured candida
 
 ## What It Means Now
 
-- this is a background foundation, not active direction
-- current profile flow continues through `011`, `012`, `018`, and `019`
+- current profile flow continues through setup (`011`), guided review and profile copilot (`012`), resume import reliability (`018`), and the later world-class import quality pass (`019`)

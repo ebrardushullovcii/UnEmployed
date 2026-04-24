@@ -142,7 +142,8 @@ export function normalizeResumeDraftTemplate(
   }
 
   const shouldClearApproval =
-    draft.status === "approved" || Boolean(draft.approvedAt || draft.approvedExportId);
+    draft.status === "approved" ||
+    Boolean(draft.approvedAt || draft.approvedExportId);
 
   return ResumeDraftSchema.parse({
     ...draft,
@@ -173,7 +174,9 @@ export function getPreferredSessionAdapter(
   return preferredTarget ? resolveAdapterKind(preferredTarget) : "target_site";
 }
 
-export function nextAssetVersion(existingAsset: TailoredAsset | undefined): string {
+export function nextAssetVersion(
+  existingAsset: TailoredAsset | undefined,
+): string {
   if (!existingAsset) {
     return "v1";
   }
@@ -250,36 +253,27 @@ export function buildSourceInstructionVersionInfo(adapterKind: JobSource) {
 export function buildInstructionGuidance(
   artifact: SourceInstructionArtifact | null,
 ): string[] {
-  if (!artifact) {
-    return [];
-  }
-
-  const navigationLines = filterSourceInstructionLines(
-    artifact.navigationGuidance,
-  );
-  const searchLines = filterSourceInstructionLines(artifact.searchGuidance);
-  const detailLines = filterSourceInstructionLines(artifact.detailGuidance);
-  const applyLines = filterSourceInstructionLines(artifact.applyGuidance);
-
-  return uniqueStrings([
-    ...prefixedLines("[Navigation] ", navigationLines),
-    ...prefixedLines("[Search] ", searchLines),
-    ...prefixedLines("[Detail] ", detailLines),
-    ...prefixedLines("[Apply] ", applyLines),
-  ]);
+  return buildGuidanceLines(artifact, filterSourceInstructionLines);
 }
 
 export function buildDiscoveryInstructionGuidance(
   artifact: SourceInstructionArtifact | null,
 ): string[] {
+  return buildGuidanceLines(artifact, filterDiscoveryInstructionLines);
+}
+
+function buildGuidanceLines(
+  artifact: SourceInstructionArtifact | null,
+  filterLines: (values: readonly string[]) => string[],
+): string[] {
   if (!artifact) {
     return [];
   }
 
-  const navigationLines = filterDiscoveryInstructionLines(artifact.navigationGuidance);
-  const searchLines = filterDiscoveryInstructionLines(artifact.searchGuidance);
-  const detailLines = filterDiscoveryInstructionLines(artifact.detailGuidance);
-  const applyLines = filterDiscoveryInstructionLines(artifact.applyGuidance);
+  const navigationLines = filterLines(artifact.navigationGuidance);
+  const searchLines = filterLines(artifact.searchGuidance);
+  const detailLines = filterLines(artifact.detailGuidance);
+  const applyLines = filterLines(artifact.applyGuidance);
 
   return uniqueStrings([
     ...prefixedLines("[Navigation] ", navigationLines),

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Will own interview prep, live session state, transcript context, captures, and suggestion generation once the full session module is implemented.
+Will own interview prep, live session state, transcript context, capture state, and suggestion generation once the full session module is implemented.
 
 ## Current State
 
@@ -11,6 +11,6 @@ Will own interview prep, live session state, transcript context, captures, and s
 
 ## Boundaries
 
-- `packages/interview-helper` will own session and prep state when session state logic is implemented; current exports are limited to overlay UI types and helpers such as `LiveCue`, `InterviewOverlayModel`, and `toOverlayWindowState`
-- `packages/os-integration` owns overlay window lifecycle and hotkeys
+- `packages/interview-helper` will own session and prep state when session state logic is implemented; that includes capture state such as transcripts, capture metadata, and suggestion context. Current exports are limited to overlay UI types and helpers such as `LiveCue`, `InterviewOverlayModel`, and `toOverlayWindowState`
+- `packages/os-integration` owns capture implementation details such as overlay window lifecycle, hotkeys, and any OS-specific capture mechanism
 - `packages/knowledge-base` and `packages/ai-providers` stay shared dependencies

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import type { JobDiscoveryTarget, JobSearchPreferences } from "@unemployed/contracts";
+import type {
+  JobDiscoveryTarget,
+  JobSearchPreferences,
+} from "@unemployed/contracts";
 
 import { createSourceInstructionArtifact } from "../workspace-service.test-fixtures";
 import {
@@ -9,7 +12,9 @@ import {
   resolveSourceDebugPhases,
 } from "./workspace-source-debug-helpers";
 
-function createUnknownCareersTarget(): JobDiscoveryTarget {
+function createTarget(
+  overrides: Partial<JobDiscoveryTarget> = {},
+): JobDiscoveryTarget {
   return {
     id: "unknown_careers",
     label: "Unknown Careers",
@@ -23,44 +28,33 @@ function createUnknownCareersTarget(): JobDiscoveryTarget {
     lastDebugRunId: null,
     lastVerifiedAt: null,
     staleReason: null,
+    ...overrides,
   };
+}
+
+function createUnknownCareersTarget(): JobDiscoveryTarget {
+  return createTarget();
 }
 
 function createSearchSurfaceTarget(): JobDiscoveryTarget {
-  return {
+  return createTarget({
     id: "linkedin_default",
     label: "LinkedIn Jobs",
     startingUrl: "https://www.linkedin.com/feed/",
-    enabled: true,
-    adapterKind: "auto",
-    customInstructions: null,
-    instructionStatus: "missing",
-    validatedInstructionId: null,
-    draftInstructionId: null,
-    lastDebugRunId: null,
-    lastVerifiedAt: null,
-    staleReason: null,
-  };
+  });
 }
 
 function createPublicProviderTarget(): JobDiscoveryTarget {
-  return {
+  return createTarget({
     id: "greenhouse_remote",
     label: "Remote Greenhouse",
     startingUrl: "https://job-boards.greenhouse.io/remote",
-    enabled: true,
-    adapterKind: "auto",
-    customInstructions: null,
-    instructionStatus: "missing",
-    validatedInstructionId: null,
-    draftInstructionId: null,
-    lastDebugRunId: null,
-    lastVerifiedAt: null,
-    staleReason: null,
-  };
+  });
 }
 
-function createSearchPreferences(overrides: Partial<JobSearchPreferences> = {}): JobSearchPreferences {
+function createSearchPreferences(
+  overrides: Partial<JobSearchPreferences> = {},
+): JobSearchPreferences {
   return {
     targetRoles: [],
     jobFamilies: [],
@@ -98,7 +92,8 @@ describe("deriveSourceDebugStartingUrls", () => {
       acceptedAt: null,
       basedOnRunId: "debug_run_unknown_careers_phase_routes",
       basedOnAttemptIds: ["debug_attempt_unknown_careers_phase_routes"],
-      notes: "Source-debug should not restart from broken or detail-only routes.",
+      notes:
+        "Source-debug should not restart from broken or detail-only routes.",
       navigationGuidance: [
         "Best repeatable entry path is https://example.com/jobs/search?selectedJobId=456.",
         "Direct path guesses like https://example.com/404 are broken and should be ignored.",
@@ -157,7 +152,9 @@ describe("deriveSourceDebugStartingUrls", () => {
       },
     });
 
-    expect(deriveSourceDebugStartingUrls(target, artifact, "search_filter_probe")).toEqual([
+    expect(
+      deriveSourceDebugStartingUrls(target, artifact, "search_filter_probe"),
+    ).toEqual([
       "https://example.com/jobs/search",
       "https://example.com/vacancies",
       "https://example.com/careers",
@@ -175,7 +172,8 @@ describe("deriveSourceDebugStartingUrls", () => {
       acceptedAt: null,
       basedOnRunId: "debug_run_guided_source_debug_query_first",
       basedOnAttemptIds: ["debug_attempt_guided_source_debug_query_first"],
-      notes: "Prefer concrete guided query route over collections during source-debug search probing.",
+      notes:
+        "Prefer concrete guided query route over collections during source-debug search probing.",
       navigationGuidance: [
         "Show all top job picks for you opens https://www.linkedin.com/jobs/collections/recommended/.",
       ],
@@ -259,7 +257,12 @@ describe("deriveSourceDebugStartingUrls", () => {
     });
 
     expect(
-      deriveSourceDebugStartingUrls(target, artifact, "search_filter_probe", searchPreferences),
+      deriveSourceDebugStartingUrls(
+        target,
+        artifact,
+        "search_filter_probe",
+        searchPreferences,
+      ),
     ).toEqual([
       "https://www.linkedin.com/jobs/search/",
       "https://www.linkedin.com/feed/",
@@ -291,7 +294,8 @@ describe("deriveSourceDebugStartingUrls", () => {
       acceptedAt: null,
       basedOnRunId: "debug_run_kosovajob_source_debug_query_first",
       basedOnAttemptIds: ["debug_attempt_kosovajob_source_debug_query_first"],
-      notes: "Prefer concrete homepage query over generic route guesses during search probing.",
+      notes:
+        "Prefer concrete homepage query over generic route guesses during search probing.",
       navigationGuidance: [],
       searchGuidance: [
         "Homepage query parameters like ?q=software change results while /jobs returns 404.",
@@ -344,11 +348,13 @@ describe("deriveSourceDebugStartingUrls", () => {
     });
 
     expect(
-      deriveSourceDebugStartingUrls(target, artifact, "search_filter_probe", searchPreferences),
-    ).toEqual([
-      "https://kosovajob.com/?q=software",
-      "https://kosovajob.com/",
-    ]);
+      deriveSourceDebugStartingUrls(
+        target,
+        artifact,
+        "search_filter_probe",
+        searchPreferences,
+      ),
+    ).toEqual(["https://kosovajob.com/?q=software", "https://kosovajob.com/"]);
   });
 });
 
@@ -420,8 +426,12 @@ describe("resolveSourceDebugPhases", () => {
           extraStartingRoutes: [],
         },
       },
-    })
-    ;(instructionArtifact as { intelligence: unknown }).intelligence = { bad: true }
+    });
+    // Simulate malformed persisted intelligence while keeping the rest of the artifact intact.
+    (instructionArtifact as unknown as { intelligence: unknown }).intelligence =
+      {
+        bad: true,
+      };
 
     expect(
       resolveSourceDebugPhases({
@@ -519,8 +529,8 @@ describe("deriveSourceDebugStartingUrls bucketing", () => {
       },
     });
 
-    expect(deriveSourceDebugStartingUrls(target, artifact, "search_filter_probe")).toEqual([
-      "https://example.com/careers",
-    ]);
+    expect(
+      deriveSourceDebugStartingUrls(target, artifact, "search_filter_probe"),
+    ).toEqual(["https://example.com/careers"]);
   });
 });

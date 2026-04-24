@@ -56,12 +56,23 @@ import {
 
 const MAX_PROGRESS_EVENTS = 1000;
 
-function buildSourceDebugCompactionPolicy(modelContextWindowTokens: number | null) {
+function buildSourceDebugCompactionPolicy(
+  modelContextWindowTokens: number | null,
+) {
   const baseline = modelContextWindowTokens ?? 196_000;
-  const minimumResponseHeadroomTokens = Math.max(2_048, Math.floor(baseline * 0.06));
+  const minimumResponseHeadroomTokens = Math.max(
+    2_048,
+    Math.floor(baseline * 0.06),
+  );
   const maxTargetBudget = Math.max(1, baseline - minimumResponseHeadroomTokens);
-  const targetTokenBudget = Math.min(Math.floor(baseline * 0.94), maxTargetBudget);
-  const warningTokenBudget = Math.min(Math.floor(baseline * 0.9), targetTokenBudget);
+  const targetTokenBudget = Math.min(
+    Math.floor(baseline * 0.94),
+    maxTargetBudget,
+  );
+  const warningTokenBudget = Math.min(
+    Math.floor(baseline * 0.9),
+    targetTokenBudget,
+  );
 
   return SharedAgentCompactionPolicySchema.parse({
     warningTokenBudget,
@@ -121,11 +132,15 @@ export async function runSourceDebugWorkflow(
   })();
 
   if (!targetUrl) {
-    throw new Error(`Target '${target.label}' does not have a valid starting URL.`);
+    throw new Error(
+      `Target '${target.label}' does not have a valid starting URL.`,
+    );
   }
 
-  const clearExistingInstructions = options?.clearExistingInstructions !== false;
-  const instructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
+  const clearExistingInstructions =
+    options?.clearExistingInstructions !== false;
+  const instructionArtifacts =
+    await ctx.repository.listSourceInstructionArtifacts();
   const preservedRouteHintArtifact = resolveActiveSourceInstructionArtifact(
     target,
     instructionArtifacts,
@@ -171,7 +186,8 @@ export async function runSourceDebugWorkflow(
   const adapter = discoveryAdapters[adapterKind];
   const sourceDebugPhases = resolveSourceDebugPhases({
     target: normalizedTarget,
-    instructionArtifact: reviewInstructionArtifact ?? preservedRouteHintArtifact,
+    instructionArtifact:
+      reviewInstructionArtifact ?? preservedRouteHintArtifact,
   });
   const runId = `source_debug_${normalizedTarget.id}_${Date.now()}`;
   const progressEvents: SourceDebugProgressEvent[] = [];
@@ -225,7 +241,10 @@ export async function runSourceDebugWorkflow(
   >();
   let synthesizedInstruction: SourceInstructionArtifact | null =
     reviewInstructionArtifact ??
-    resolveActiveSourceInstructionArtifact(normalizedTarget, instructionArtifacts);
+    resolveActiveSourceInstructionArtifact(
+      normalizedTarget,
+      instructionArtifacts,
+    );
   let browserSessionOpened = false;
   let browserSetupMs: number | null = null;
   let finalReviewMs: number | null = null;
@@ -248,7 +267,10 @@ export async function runSourceDebugWorkflow(
       message: `Browser ready for ${normalizedTarget.label}. Preparing the first debug phase.`,
       currentUrl: normalizedTarget.startingUrl,
     });
-    await runSequentialArtifactOrchestrator<SourceDebugPhase, SourceDebugWorkerAttempt>({
+    await runSequentialArtifactOrchestrator<
+      SourceDebugPhase,
+      SourceDebugWorkerAttempt
+    >({
       phases: sourceDebugPhases,
       beforePhase: async (phase) => {
         if (executionSignal.aborted) {
@@ -290,9 +312,10 @@ export async function runSourceDebugWorkflow(
           phase,
           searchPreferences,
         );
-        const currentRunHasDistinctRouteHint = currentRouteHintStartingUrls.some(
-          (url) => url !== normalizedTarget.startingUrl,
-        );
+        const currentRunHasDistinctRouteHint =
+          currentRouteHintStartingUrls.some(
+            (url) => url !== normalizedTarget.startingUrl,
+          );
         const preservedRouteHintStartingUrls =
           clearExistingInstructions && !currentRunHasDistinctRouteHint
             ? deriveSourceDebugStartingUrls(
@@ -304,8 +327,14 @@ export async function runSourceDebugWorkflow(
             : [];
         const phaseStartingUrls = uniqueStrings(
           currentRunHasDistinctRouteHint
-            ? [...currentRouteHintStartingUrls, ...preservedRouteHintStartingUrls]
-            : [...preservedRouteHintStartingUrls, ...currentRouteHintStartingUrls],
+            ? [
+                ...currentRouteHintStartingUrls,
+                ...preservedRouteHintStartingUrls,
+              ]
+            : [
+                ...preservedRouteHintStartingUrls,
+                ...currentRouteHintStartingUrls,
+              ],
         ).filter(Boolean);
         const phasePrimaryStartingUrl =
           phaseStartingUrls[0] ?? normalizedTarget.startingUrl;
@@ -314,63 +343,74 @@ export async function runSourceDebugWorkflow(
         );
         const phaseHasExistingInstructionArtifact = Boolean(
           phaseInstructionArtifact ??
-            phaseStartingUrlArtifact ??
-            preservedRouteHintArtifact,
+          phaseStartingUrlArtifact ??
+          preservedRouteHintArtifact,
         );
         const phaseMaxSteps = getSourceDebugMaxSteps(phase, {
           hasLearnedRouteHints: phaseHasLearnedRouteHints,
           hasPriorPhaseSummary:
-            phasePacket.priorPhaseSummary !== null || phasePacket.knownFacts.length > 0,
+            phasePacket.priorPhaseSummary !== null ||
+            phasePacket.knownFacts.length > 0,
           hasExistingInstructionArtifact: phaseHasExistingInstructionArtifact,
         });
-        const debugResult = await ctx.browserRuntime.runAgentDiscovery?.(adapterKind, {
-          userProfile: profile,
-          searchPreferences: {
-            targetRoles:
-              searchPreferences.targetRoles.length > 0
-                ? searchPreferences.targetRoles
-                : [DEFAULT_ROLE],
-            locations: searchPreferences.locations,
-          },
-          targetJobCount: getSourceDebugTargetJobCount(phase),
-          maxSteps: phaseMaxSteps,
-	          startingUrls: phaseStartingUrls,
-	          weakSameHostBoard: adapter.kind === "target_site",
-	          siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
-          navigationHostnames: [targetUrl.hostname],
-          siteInstructions: composeSourceDebugInstructions(
-            normalizedTarget,
-            adapter,
-            phase,
-            phaseInstructionArtifact,
-            phasePacket,
-          ),
-          toolUsageNotes: uniqueStrings([
-            ...adapter.toolUsageNotes,
-            "Prefer concise, high-confidence evidence over broad exploration.",
-            "Stop when the phase goal has been proven or blocked.",
-          ]),
-          taskPacket: phasePacket,
-          compaction: sourceDebugCompactionPolicy,
-          modelContextWindowTokens: modelContextWindowTokensSnapshot,
-          compactionWorkflowKey: "source_debug_worker",
-          relevantUrlSubstrings: adapter.relevantUrlSubstrings,
-          experimental: adapter.experimental,
-          skipSessionValidation: true,
-          aiClient: ctx.aiClient,
-          signal: executionSignal,
-          onProgress: (progress) => {
-            const summary = summarizeAgentProgressForSourceDebug(progress, phase);
-            emitProgress({
+        const debugResult = await ctx.browserRuntime.runAgentDiscovery?.(
+          adapterKind,
+          {
+            userProfile: profile,
+            searchPreferences: {
+              targetRoles:
+                searchPreferences.targetRoles.length > 0
+                  ? searchPreferences.targetRoles
+                  : [DEFAULT_ROLE],
+              locations: searchPreferences.locations,
+            },
+            targetJobCount: getSourceDebugTargetJobCount(phase),
+            maxSteps: phaseMaxSteps,
+            startingUrls: phaseStartingUrls,
+            agentHints: {
+              widenReviewBudget: adapter.kind === "target_site",
+            },
+            siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
+            navigationHostnames: [targetUrl.hostname],
+            siteInstructions: composeSourceDebugInstructions(
+              normalizedTarget,
+              adapter,
               phase,
-              waitReason: summary.waitReason,
-              message: summary.message,
-              currentUrl: progress.currentUrl,
-              stepCount: progress.stepCount,
-              jobsFound: progress.jobsFound,
-            });
+              phaseInstructionArtifact,
+              phasePacket,
+            ),
+            toolUsageNotes: uniqueStrings([
+              ...adapter.toolUsageNotes,
+              "Prefer concise, high-confidence evidence over broad exploration.",
+              "Stop when the phase goal has been proven or blocked.",
+            ]),
+            taskPacket: phasePacket,
+            compaction: sourceDebugCompactionPolicy,
+            modelContextWindowTokens: modelContextWindowTokensSnapshot,
+            compactionHints: {
+              workflowKey: "source_debug_worker",
+            },
+            relevantUrlSubstrings: adapter.relevantUrlSubstrings,
+            experimental: adapter.experimental,
+            skipSessionValidation: true,
+            aiClient: ctx.aiClient,
+            signal: executionSignal,
+            onProgress: (progress) => {
+              const summary = summarizeAgentProgressForSourceDebug(
+                progress,
+                phase,
+              );
+              emitProgress({
+                phase,
+                waitReason: summary.waitReason,
+                message: summary.message,
+                currentUrl: progress.currentUrl,
+                stepCount: progress.stepCount,
+                jobsFound: progress.jobsFound,
+              });
+            },
           },
-        });
+        );
 
         if (!debugResult) {
           throw new Error(
@@ -385,7 +425,8 @@ export async function runSourceDebugWorkflow(
           phase,
           waitReason: "persisting_results",
           message: `Saving the findings from ${formatStatusLabel(phase)}.`,
-          currentUrl: debugResult.jobs[0]?.canonicalUrl ?? normalizedTarget.startingUrl,
+          currentUrl:
+            debugResult.jobs[0]?.canonicalUrl ?? normalizedTarget.startingUrl,
           stepCount: debugResult.agentMetadata?.steps ?? 0,
           jobsFound: debugResult.jobs.length,
         });
@@ -438,9 +479,15 @@ export async function runSourceDebugWorkflow(
             : [];
         const confirmedFacts = uniqueStrings([
           ...(debugFindings?.summary ? [debugFindings.summary] : []),
-          ...prefixedLines("Reliable control: ", debugFindings?.reliableControls ?? []),
+          ...prefixedLines(
+            "Reliable control: ",
+            debugFindings?.reliableControls ?? [],
+          ),
           ...prefixedLines("Filter note: ", debugFindings?.trickyFilters ?? []),
-          ...prefixedLines("Navigation note: ", debugFindings?.navigationTips ?? []),
+          ...prefixedLines(
+            "Navigation note: ",
+            debugFindings?.navigationTips ?? [],
+          ),
           ...prefixedLines("Apply note: ", debugFindings?.applyTips ?? []),
           ...canonicalUrlBehavior,
           ...applyPathBehavior,
@@ -530,7 +577,8 @@ export async function runSourceDebugWorkflow(
           evidenceRefIds: evidenceRefs.map((evidenceRef) => evidenceRef.id),
           phaseEvidence: completion.phaseEvidence,
           compactionState: (() => {
-            const parsedCompactionState = debugResult.agentMetadata?.compactionState
+            const parsedCompactionState = debugResult.agentMetadata
+              ?.compactionState
               ? SourceDebugCompactionStateSchema.safeParse(
                   debugResult.agentMetadata.compactionState,
                 )
@@ -543,7 +591,9 @@ export async function runSourceDebugWorkflow(
               );
             }
 
-            return parsedCompactionState?.success ? parsedCompactionState.data : null;
+            return parsedCompactionState?.success
+              ? parsedCompactionState.data
+              : null;
           })(),
           timing: phaseTiming,
         });
@@ -565,7 +615,9 @@ export async function runSourceDebugWorkflow(
           attemptedActions: [...artifact.attemptedActions],
           phaseEvidence: artifact.phaseEvidence,
           compactionState: artifact.compactionState,
-          reviewTranscript: [...(debugResult.agentMetadata?.reviewTranscript ?? [])],
+          reviewTranscript: [
+            ...(debugResult.agentMetadata?.reviewTranscript ?? []),
+          ],
         });
 
         const shouldStopEarly = shouldFinishSourceDebugEarly({
@@ -627,13 +679,16 @@ export async function runSourceDebugWorkflow(
             }),
           });
           await ctx.persistSourceDebugRun(run);
-          await ctx.saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
-            ...currentTarget,
-            instructionStatus: currentTarget.validatedInstructionId
-              ? currentTarget.instructionStatus
-              : "missing",
-            lastDebugRunId: run.id,
-          }));
+          await ctx.saveDiscoveryTargetUpdate(
+            normalizedTarget.id,
+            (currentTarget) => ({
+              ...currentTarget,
+              instructionStatus: currentTarget.validatedInstructionId
+                ? currentTarget.instructionStatus
+                : "missing",
+              lastDebugRunId: run.id,
+            }),
+          );
           return;
         }
 
@@ -645,15 +700,16 @@ export async function runSourceDebugWorkflow(
         });
 
         if (phase !== "replay_verification") {
-          const nextSynthesizedInstruction = synthesizeSourceInstructionArtifact(
-            normalizedTarget,
-            run,
-            attempts,
-            adapterKind,
-            null,
-            undefined,
-            synthesizedInstruction ?? preservedRouteHintArtifact,
-          );
+          const nextSynthesizedInstruction =
+            synthesizeSourceInstructionArtifact(
+              normalizedTarget,
+              run,
+              attempts,
+              adapterKind,
+              null,
+              undefined,
+              synthesizedInstruction ?? preservedRouteHintArtifact,
+            );
           synthesizedInstruction = nextSynthesizedInstruction;
 
           if (!reviewInstructionArtifact) {
@@ -664,12 +720,15 @@ export async function runSourceDebugWorkflow(
             await ctx.repository.upsertSourceInstructionArtifact(
               nextSynthesizedInstruction,
             );
-            await ctx.saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
-              ...currentTarget,
-              draftInstructionId: nextSynthesizedInstruction.id,
-              instructionStatus: nextSynthesizedInstruction.status,
-              lastDebugRunId: run.id,
-            }));
+            await ctx.saveDiscoveryTargetUpdate(
+              normalizedTarget.id,
+              (currentTarget) => ({
+                ...currentTarget,
+                draftInstructionId: nextSynthesizedInstruction.id,
+                instructionStatus: nextSynthesizedInstruction.status,
+                lastDebugRunId: run.id,
+              }),
+            );
           }
         }
 
@@ -690,7 +749,8 @@ export async function runSourceDebugWorkflow(
       verifiedAt: new Date().toISOString(),
       outcome: attempts.some(
         (attempt) =>
-          attempt.phase === "replay_verification" && attempt.outcome === "succeeded",
+          attempt.phase === "replay_verification" &&
+          attempt.outcome === "succeeded",
       )
         ? "passed"
         : "failed",
@@ -710,7 +770,9 @@ export async function runSourceDebugWorkflow(
       adapterKind,
       verification,
       undefined,
-      reviewInstructionArtifact ?? synthesizedInstruction ?? preservedRouteHintArtifact,
+      reviewInstructionArtifact ??
+        synthesizedInstruction ??
+        preservedRouteHintArtifact,
     );
     const shouldRunAiFinalReview =
       !finishedEarlyAfterUsefulDraft &&
@@ -758,7 +820,9 @@ export async function runSourceDebugWorkflow(
           adapterKind,
           verification,
           reviewOverride,
-          reviewInstructionArtifact ?? synthesizedInstruction ?? preservedRouteHintArtifact,
+          reviewInstructionArtifact ??
+            synthesizedInstruction ??
+            preservedRouteHintArtifact,
         )
       : heuristicFinalizedInstruction;
     const preserveExistingValidatedInstruction =
@@ -786,26 +850,30 @@ export async function runSourceDebugWorkflow(
     });
     const finalizationStartedAtMs = Date.now();
     await ctx.repository.upsertSourceInstructionArtifact(instructionToPersist);
-    await ctx.saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
-      ...currentTarget,
-      instructionStatus: preserveExistingValidatedInstruction
-        ? currentTarget.validatedInstructionId
-          ? "validated"
-          : instructionToPersist.status
-        : instructionToPersist.status,
-      draftInstructionId:
-        preserveExistingValidatedInstruction ||
-        instructionToPersist.status !== "validated"
-          ? instructionToPersist.id
-          : null,
-      validatedInstructionId:
-        instructionToPersist.status === "validated"
-          ? instructionToPersist.id
-          : currentTarget.validatedInstructionId,
-      lastDebugRunId: run.id,
-      lastVerifiedAt: verification.verifiedAt,
-      staleReason: verification.outcome === "passed" ? null : verification.reason,
-    }));
+    await ctx.saveDiscoveryTargetUpdate(
+      normalizedTarget.id,
+      (currentTarget) => ({
+        ...currentTarget,
+        instructionStatus: preserveExistingValidatedInstruction
+          ? currentTarget.validatedInstructionId
+            ? "validated"
+            : instructionToPersist.status
+          : instructionToPersist.status,
+        draftInstructionId:
+          preserveExistingValidatedInstruction ||
+          instructionToPersist.status !== "validated"
+            ? instructionToPersist.id
+            : null,
+        validatedInstructionId:
+          instructionToPersist.status === "validated"
+            ? instructionToPersist.id
+            : currentTarget.validatedInstructionId,
+        lastDebugRunId: run.id,
+        lastVerifiedAt: verification.verifiedAt,
+        staleReason:
+          verification.outcome === "passed" ? null : verification.reason,
+      }),
+    );
     finalizationMs = Date.now() - finalizationStartedAtMs;
     const completedAt = new Date().toISOString();
     run = SourceDebugRunRecordSchema.parse({
@@ -836,7 +904,8 @@ export async function runSourceDebugWorkflow(
     });
     await ctx.persistSourceDebugRun(run);
   } catch (error) {
-    const interrupted = error instanceof DOMException && error.name === "AbortError";
+    const interrupted =
+      error instanceof DOMException && error.name === "AbortError";
     const completedAt = new Date().toISOString();
     run = SourceDebugRunRecordSchema.parse({
       ...run,

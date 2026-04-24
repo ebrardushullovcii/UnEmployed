@@ -862,13 +862,14 @@ export async function executeToolCall(
         typeof args.maxJobs === "number" && Number.isFinite(args.maxJobs)
           ? Math.max(0, Math.floor(args.maxJobs))
           : null;
-      const effectiveMaxJobs =
+      const isExpandedSearchResultsBudget =
         normalizedPageType === "search_results" &&
-        expandedSearchResultsBudget != null
+        expandedSearchResultsBudget != null;
+      const effectiveMaxJobs = isExpandedSearchResultsBudget
+        ? maxJobs
+        : requestedMaxJobs == null
           ? maxJobs
-          : requestedMaxJobs == null
-            ? maxJobs
-            : Math.min(requestedMaxJobs, maxJobs);
+          : Math.min(requestedMaxJobs, maxJobs);
       const structuredDataCandidates = Array.isArray(
         extractData.structuredDataCandidates,
       )

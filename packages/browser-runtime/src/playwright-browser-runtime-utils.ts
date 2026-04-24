@@ -9,7 +9,9 @@ import { JobPostingSchema, type JobPosting } from "@unemployed/contracts";
 import type { Page } from "playwright";
 import type { AgentDiscoveryOptions } from "./runtime-types";
 
-const WARM_REUSE_REMOVABLE_QUERY_PARAMS = [
+// These query params vary per warm page instance and do not change the reusable
+// page surface we compare against for warm-session reuse.
+export const DEFAULT_WARM_REUSE_REMOVABLE_QUERY_PARAMS = [
   "currentJobId",
   "selectedJobId",
   "jobId",
@@ -29,7 +31,10 @@ export interface RunningChromeDebugSession {
 }
 
 function normalizeUserDataDir(value: string): string {
-  return value.replace(/\\/g, "/").replace(/\/+$|\s+$/g, "").toLowerCase();
+  return value
+    .replace(/\\/g, "/")
+    .replace(/\/+$|\s+$/g, "")
+    .toLowerCase();
 }
 
 function parseProcessListOutput(value: string): string[] {
@@ -74,17 +79,15 @@ async function listChromeProcessCommandLines(): Promise<string[]> {
       return parseProcessListOutput(stdout);
     }
 
-    const { stdout } = await execFileAsync(
-      "ps",
-      ["-axww", "-o", "command="],
-      {
-        maxBuffer: 5 * 1024 * 1024,
-      },
-    );
+    const { stdout } = await execFileAsync("ps", ["-axww", "-o", "command="], {
+      maxBuffer: 5 * 1024 * 1024,
+    });
 
     const chromeProcessOutput = stdout
       .split("\n")
-      .filter((line) => /(^|\s)(chrome|chromium|google-chrome)(\s|$)/i.test(line))
+      .filter((line) =>
+        /(^|\s)(chrome|chromium|google-chrome)(\s|$)/i.test(line),
+      )
       .join("\n");
 
     return parseProcessListOutput(chromeProcessOutput);
@@ -99,7 +102,11 @@ export function parseRunningChromeDebugSession(
   const debugPortMatch = commandLine.match(REMOTE_DEBUGGING_PORT_PATTERN);
   const userDataDirMatch = commandLine.match(USER_DATA_DIR_PATTERN);
   const debugPort = debugPortMatch?.[1] ? Number(debugPortMatch[1]) : null;
-  const userDataDir = userDataDirMatch?.[1] ?? userDataDirMatch?.[2] ?? userDataDirMatch?.[3] ?? null;
+  const userDataDir =
+    userDataDirMatch?.[1] ??
+    userDataDirMatch?.[2] ??
+    userDataDirMatch?.[3] ??
+    null;
 
   if (
     !debugPort ||
@@ -127,11 +134,13 @@ export function findRunningChromeDebugPortInCommandLines(
       const session = parseRunningChromeDebugSession(commandLine);
       return session ? [session] : [];
     }),
-    (session) => `${normalizeUserDataDir(session.userDataDir)}:${session.debugPort}`,
+    (session) =>
+      `${normalizeUserDataDir(session.userDataDir)}:${session.debugPort}`,
   );
 
   const match = sessions.find(
-    (session) => normalizeUserDataDir(session.userDataDir) === normalizedUserDataDir,
+    (session) =>
+      normalizeUserDataDir(session.userDataDir) === normalizedUserDataDir,
   );
 
   return match?.debugPort ?? null;
@@ -162,7 +171,10 @@ export function uniqueByKey<TValue>(
   });
 }
 
-export function validateJobPostings(values: unknown, context: string): JobPosting[] {
+export function validateJobPostings(
+  values: unknown,
+  context: string,
+): JobPosting[] {
   if (!Array.isArray(values)) {
     console.warn(
       `[BrowserRuntime] Expected an array of job postings from ${context}, received ${typeof values}.`,
@@ -234,6 +246,7 @@ function is404LikeUrl(value: string): boolean {
 
 export function normalizeWarmReuseUrl(
   value: string | null | undefined,
+  options?: { removableQueryParams?: readonly string[] },
 ): string | null {
   const normalizedValue = typeof value === "string" ? value.trim() : "";
   if (!normalizedValue || !isHttpUrlLike(normalizedValue)) {
@@ -242,7 +255,10 @@ export function normalizeWarmReuseUrl(
 
   try {
     const parsedUrl = new URL(normalizedValue);
-    for (const key of WARM_REUSE_REMOVABLE_QUERY_PARAMS) {
+    const removableQueryParams =
+      options?.removableQueryParams ??
+      DEFAULT_WARM_REUSE_REMOVABLE_QUERY_PARAMS;
+    for (const key of removableQueryParams) {
       parsedUrl.searchParams.delete(key);
     }
     parsedUrl.hash = "";
@@ -320,13 +336,15 @@ export function isWarmPageReusable(input: {
   );
 }
 
-export function isLikelyStalePage(page: Pick<Page, "url" | "isClosed">): boolean {
+export function isLikelyStalePage(
+  page: Pick<Page, "url" | "isClosed">,
+): boolean {
   return page.isClosed() || !isHttpUrlLike(page.url());
 }
 
-export function selectLiveHttpPage<TPage extends Pick<Page, "url" | "isClosed">>(
-  pages: readonly TPage[],
-): TPage | null {
+export function selectLiveHttpPage<
+  TPage extends Pick<Page, "url" | "isClosed">,
+>(pages: readonly TPage[]): TPage | null {
   for (let index = pages.length - 1; index >= 0; index -= 1) {
     const candidate = pages[index];
     if (candidate && !isLikelyStalePage(candidate)) {
@@ -357,7 +375,9 @@ export async function isTcpPortReachable(port: number): Promise<boolean> {
   });
 }
 
-export function buildChromeExecutableCandidates(explicitPath?: string): string[] {
+export function buildChromeExecutableCandidates(
+  explicitPath?: string,
+): string[] {
   const candidates = explicitPath ? [explicitPath] : [];
 
   if (process.platform === "win32") {
@@ -371,7 +391,9 @@ export function buildChromeExecutableCandidates(explicitPath?: string): string[]
     );
 
     if (process.env.LOCALAPPDATA) {
-      candidates.push(`${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`);
+      candidates.push(
+        `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
+      );
     }
   } else if (process.platform === "darwin") {
     candidates.push(

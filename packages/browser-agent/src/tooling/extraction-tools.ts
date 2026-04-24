@@ -188,8 +188,21 @@ const SEARCH_SURFACE_CAPTURE_SCORE_WEIGHT = 25;
 const SEARCH_SURFACE_TITLE_DOMINANCE_THRESHOLD = 20;
 const MAX_SEARCH_SURFACE_PRIORITIZED_CARD_CANDIDATES = 96;
 export const MAX_GENERIC_PRIORITIZED_CARD_CANDIDATES = 24;
+const GENERIC_HEADING_LENGTH_WEIGHT = 3;
+const GENERIC_ANCHOR_LENGTH_WEIGHT = 2;
+const GENERIC_LINE_LENGTH_WEIGHT = 0.5;
+const GENERIC_JOB_SIGNAL_BONUS = 180;
 const TECHNICAL_CARD_SIGNAL_PATTERN =
   /\b(full[-\s]?stack|software|engineer|developer|frontend|front[-\s]?end|backend|back[-\s]?end|react|node|typescript|javascript|\.net|dotnet|c#|csharp|python|java|devops|platform|sre|qa automation|mobile|android|ios)\b/i;
+
+function selectLongerCardText(
+  current: string | null | undefined,
+  next: string | null | undefined,
+): string | null | undefined {
+  return cleanCardText(next).length > cleanCardText(current).length
+    ? next
+    : current;
+}
 
 function scoreGenericCardCandidate(
   candidate: RawSearchResultCardCandidate,
@@ -203,14 +216,14 @@ function scoreGenericCardCandidate(
         " ",
       ),
     )
-      ? 180
+      ? GENERIC_JOB_SIGNAL_BONUS
       : 0;
 
   return (
     scoreRawCardCandidateQuality(candidate) +
-    headingLength * 3 +
-    anchorLength * 2 +
-    lineLength / 2 +
+    headingLength * GENERIC_HEADING_LENGTH_WEIGHT +
+    anchorLength * GENERIC_ANCHOR_LENGTH_WEIGHT +
+    lineLength * GENERIC_LINE_LENGTH_WEIGHT +
     likelyJobSignal
   );
 }
@@ -408,27 +421,17 @@ function mergeRawCardCandidate(
     current.captureMeta,
     next.captureMeta,
   );
+  const sourceJobIdHint = selectLongerCardText(
+    current.sourceJobIdHint,
+    next.sourceJobIdHint,
+  );
   const merged: RawSearchResultCardCandidate = {
     canonicalUrl: current.canonicalUrl,
-    anchorText:
-      cleanCardText(next.anchorText).length >
-      cleanCardText(current.anchorText).length
-        ? next.anchorText
-        : current.anchorText,
+    anchorText: selectLongerCardText(current.anchorText, next.anchorText) ?? "",
     headingText:
-      cleanCardText(next.headingText).length >
-      cleanCardText(current.headingText).length
-        ? next.headingText
-        : current.headingText,
+      selectLongerCardText(current.headingText, next.headingText) ?? null,
     lines: uniqueCardStrings([...current.lines, ...next.lines]).slice(0, 12),
-    ...(cleanCardText(next.sourceJobIdHint).length >
-    cleanCardText(current.sourceJobIdHint).length
-      ? next.sourceJobIdHint !== undefined
-        ? { sourceJobIdHint: next.sourceJobIdHint }
-        : {}
-      : current.sourceJobIdHint !== undefined
-        ? { sourceJobIdHint: current.sourceJobIdHint }
-        : {}),
+    ...(sourceJobIdHint !== undefined ? { sourceJobIdHint } : {}),
     ...(preferredCaptureMeta !== undefined
       ? { captureMeta: preferredCaptureMeta }
       : {}),

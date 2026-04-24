@@ -16,4 +16,4 @@ Create one shared compaction baseline for long-running agent workflows.
 ## What It Means Now
 
 - this is the compaction baseline
-- as implemented, the deterministic apply flow intentionally does not depend on it
+- as implemented, the deterministic apply flow intentionally does not depend on it so apply stays reproducible and avoids hidden compaction side effects in the current safe path

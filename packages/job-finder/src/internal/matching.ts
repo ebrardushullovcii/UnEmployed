@@ -11,7 +11,10 @@ import {
   type SavedJob,
   type SavedJobDiscoveryProvenance,
 } from "@unemployed/contracts";
-import { parseNormalizedCompensation, parseSalaryFloor } from "./matching-compensation";
+import {
+  parseNormalizedCompensation,
+  parseSalaryFloor,
+} from "./matching-compensation";
 export {
   buildApplicationRecords,
   buildDiscoveryJobs,
@@ -75,7 +78,10 @@ function getTitleMatchCandidateVariants(value: string): string[] {
   return [cleaned, collapsed];
 }
 
-function normalizePhraseMatchInput(value: string, mode: PhraseMatchMode): string {
+function normalizePhraseMatchInput(
+  value: string,
+  mode: PhraseMatchMode,
+): string {
   const normalized = value
     .replace(/\bfullstack\b/gi, "full stack")
     .replace(/\bfront\s*end\b/gi, "frontend")
@@ -94,17 +100,19 @@ function tokenizePhraseMatchValue(
   value: string,
   mode: PhraseMatchMode,
 ): string[] {
-  const tokens = tokenize(normalizePhraseMatchInput(value, mode)).flatMap((token) => {
-    if (mode === "location" && locationNoiseTokens.has(token)) {
-      return [];
-    }
+  const tokens = tokenize(normalizePhraseMatchInput(value, mode)).flatMap(
+    (token) => {
+      if (mode === "location" && locationNoiseTokens.has(token)) {
+        return [];
+      }
 
-    if (mode === "title") {
-      return [titleTokenAliases.get(token) ?? token];
-    }
+      if (mode === "title") {
+        return [titleTokenAliases.get(token) ?? token];
+      }
 
-    return [token];
-  });
+      return [token];
+    },
+  );
 
   return [...new Set(tokens)];
 }
@@ -168,12 +176,18 @@ function isEditDistanceAtMostOne(left: string, right: string): boolean {
   return mismatchCount <= 1;
 }
 
+// Avoid fuzzy title-token matching on short tokens where one edit would be too permissive.
+const MIN_FUZZY_MATCH_TOKEN_LENGTH = 6;
+
 function phraseMatchTokensEqual(left: string, right: string): boolean {
   if (left === right) {
     return true;
   }
 
-  if (left.length < 6 || right.length < 6) {
+  if (
+    left.length < MIN_FUZZY_MATCH_TOKEN_LENGTH ||
+    right.length < MIN_FUZZY_MATCH_TOKEN_LENGTH
+  ) {
     return false;
   }
 
@@ -215,12 +229,14 @@ function countMatchedPhraseTokens(
 }
 
 const remoteGeographyHints = [
-  { pattern: /\b(united states|u\.s\.|u\.s|us only|usa only)\b/i, label: "United States" },
+  {
+    pattern: /\b(united states|u\.s\.|u\.s|us only|usa only)\b/i,
+    label: "United States",
+  },
   { pattern: /\b(united kingdom|uk only|u\.k\.)\b/i, label: "United Kingdom" },
   { pattern: /\b(european union|europe|eu only)\b/i, label: "Europe" },
   { pattern: /\b(canada|canadian)\b/i, label: "Canada" },
 ] as const;
-
 
 export interface MergeDiscoveryResult {
   mergedJobs: SavedJob[];
@@ -233,7 +249,6 @@ export interface MergeDiscoveryResult {
 export function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
-
 
 function detectAtsProvider(posting: JobPosting): string | null {
   const urlCandidates = [
@@ -251,7 +266,10 @@ function detectAtsProvider(posting: JobPosting): string | null {
     if (normalized.includes("lever.co")) {
       return "Lever";
     }
-    if (normalized.includes("myworkdayjobs.com") || normalized.includes("workday")) {
+    if (
+      normalized.includes("myworkdayjobs.com") ||
+      normalized.includes("workday")
+    ) {
       return "Workday";
     }
     if (normalized.includes("ashbyhq.com") || normalized.includes("ashby")) {
@@ -266,11 +284,19 @@ function detectAtsProvider(posting: JobPosting): string | null {
 }
 
 function buildKeywordSignals(posting: JobPosting): JobKeywordSignal[] {
-  const buckets: Array<{ values: readonly string[]; kind: JobKeywordSignal["kind"]; weight: number }> = [
+  const buckets: Array<{
+    values: readonly string[];
+    kind: JobKeywordSignal["kind"];
+    weight: number;
+  }> = [
     { values: posting.keySkills, kind: "skill", weight: 5 },
     { values: posting.responsibilities, kind: "responsibility", weight: 3 },
     { values: posting.minimumQualifications, kind: "qualification", weight: 4 },
-    { values: posting.preferredQualifications, kind: "qualification", weight: 2 },
+    {
+      values: posting.preferredQualifications,
+      kind: "qualification",
+      weight: 2,
+    },
     { values: posting.benefits, kind: "benefit", weight: 1 },
   ];
   const seen = new Set<string>();
@@ -302,9 +328,13 @@ function buildKeywordSignals(posting: JobPosting): JobKeywordSignal[] {
 }
 
 function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
-  const remoteHintSource = [posting.location, posting.summary, posting.description]
+  const remoteHintSource = [
+    posting.location,
+    posting.summary,
+    posting.description,
+  ]
     .filter(Boolean)
-    .join(" ")
+    .join(" ");
   const normalizedText = normalizeText(
     [
       posting.location,
@@ -312,14 +342,14 @@ function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
       posting.description,
       ...posting.minimumQualifications,
       ...posting.preferredQualifications,
-      ]
-        .filter(Boolean)
-        .join(" "),
+    ]
+      .filter(Boolean)
+      .join(" "),
   );
   const supportsRemoteGeographyHints =
     posting.workMode.includes("remote") ||
     posting.workMode.includes("flexible") ||
-    /\bremote\b/i.test(remoteHintSource)
+    /\bremote\b/i.test(remoteHintSource);
 
   return {
     sponsorshipText:
@@ -332,9 +362,11 @@ function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
       normalizedText.includes("active clearance")
         ? true
         : null,
-    relocationText: normalizedText.includes("relocation") || normalizedText.includes("relocate")
-      ? "Relocation support or requirements are mentioned in the listing."
-      : null,
+    relocationText:
+      normalizedText.includes("relocation") ||
+      normalizedText.includes("relocate")
+        ? "Relocation support or requirements are mentioned in the listing."
+        : null,
     travelText: normalizedText.includes("travel")
       ? "Travel expectations are mentioned in the listing."
       : null,
@@ -367,7 +399,9 @@ function enrichDiscoveredPosting(
   posting: JobPosting,
   existingJob: SavedJob | undefined,
 ): JobPosting {
-  const normalizedCompensation = parseNormalizedCompensation(posting.salaryText);
+  const normalizedCompensation = parseNormalizedCompensation(
+    posting.salaryText,
+  );
   const screeningHints = buildScreeningHints(posting);
   const existingCompensation = existingJob?.normalizedCompensation;
   const postingKeywordSignals = posting.keywordSignals ?? [];
@@ -377,11 +411,13 @@ function enrichDiscoveredPosting(
     applicationUrl:
       posting.applicationUrl ??
       existingJob?.applicationUrl ??
-      (posting.applyPath === "external_redirect" ? posting.employerWebsiteUrl : null),
-    firstSeenAt: existingJob?.firstSeenAt ?? posting.firstSeenAt ?? posting.discoveredAt,
+      (posting.applyPath === "external_redirect"
+        ? posting.employerWebsiteUrl
+        : null),
+    firstSeenAt:
+      existingJob?.firstSeenAt ?? posting.firstSeenAt ?? posting.discoveredAt,
     lastSeenAt: posting.lastSeenAt ?? posting.discoveredAt,
-    lastVerifiedActiveAt:
-      posting.lastVerifiedActiveAt ?? posting.discoveredAt,
+    lastVerifiedActiveAt: posting.lastVerifiedActiveAt ?? posting.discoveredAt,
     normalizedCompensation:
       existingCompensation &&
       (existingCompensation.minAmount !== null ||
@@ -394,27 +430,40 @@ function enrichDiscoveredPosting(
             interval:
               normalizedCompensation.interval ?? existingCompensation.interval,
             minAmount:
-              normalizedCompensation.minAmount ?? existingCompensation.minAmount,
+              normalizedCompensation.minAmount ??
+              existingCompensation.minAmount,
             maxAmount:
-              normalizedCompensation.maxAmount ?? existingCompensation.maxAmount,
+              normalizedCompensation.maxAmount ??
+              existingCompensation.maxAmount,
             minAnnualUsd:
-              normalizedCompensation.minAnnualUsd ?? existingCompensation.minAnnualUsd,
+              normalizedCompensation.minAnnualUsd ??
+              existingCompensation.minAnnualUsd,
             maxAnnualUsd:
-              normalizedCompensation.maxAnnualUsd ?? existingCompensation.maxAnnualUsd,
+              normalizedCompensation.maxAnnualUsd ??
+              existingCompensation.maxAnnualUsd,
           }
         : normalizedCompensation,
-    atsProvider: posting.atsProvider ?? existingJob?.atsProvider ?? detectAtsProvider(posting),
+    atsProvider:
+      posting.atsProvider ??
+      existingJob?.atsProvider ??
+      detectAtsProvider(posting),
     screeningHints: {
       sponsorshipText:
-        screeningHints.sponsorshipText ?? existingJob?.screeningHints.sponsorshipText ?? null,
+        screeningHints.sponsorshipText ??
+        existingJob?.screeningHints.sponsorshipText ??
+        null,
       requiresSecurityClearance:
         screeningHints.requiresSecurityClearance ??
         existingJob?.screeningHints.requiresSecurityClearance ??
         null,
       relocationText:
-        screeningHints.relocationText ?? existingJob?.screeningHints.relocationText ?? null,
+        screeningHints.relocationText ??
+        existingJob?.screeningHints.relocationText ??
+        null,
       travelText:
-        screeningHints.travelText ?? existingJob?.screeningHints.travelText ?? null,
+        screeningHints.travelText ??
+        existingJob?.screeningHints.travelText ??
+        null,
       remoteGeographies: uniqueStrings([
         ...(existingJob?.screeningHints.remoteGeographies ?? []),
         ...screeningHints.remoteGeographies,
@@ -465,7 +514,11 @@ export function matchesAnyPhrase(
       return true;
     }
 
-    if (new RegExp(`(^|\\s)${escapeRegex(normalizedDesired)}($|\\s)`).test(normalizedCandidate)) {
+    if (
+      new RegExp(`(^|\\s)${escapeRegex(normalizedDesired)}($|\\s)`).test(
+        normalizedCandidate,
+      )
+    ) {
       return true;
     }
 
@@ -513,12 +566,11 @@ export function matchesTitlePreference(
         return true;
       }
 
-      const matchedCount = countMatchedPhraseTokens(desiredTokens, candidateTokens);
+      const matchedCount = countMatchedPhraseTokens(
+        desiredTokens,
+        candidateTokens,
+      );
       const matchRatio = matchedCount / desiredTokens.length;
-
-      if (desiredTokens.length === 2) {
-        return matchedCount === 2;
-      }
 
       if (desiredTokens.length === 3) {
         return matchedCount >= 2 && matchRatio >= 2 / 3;
@@ -540,7 +592,10 @@ export function matchesLocationPreference(
   }
 
   const candidateTokens = tokenizePhraseMatchValue(candidate, "location");
-  const fallbackCandidateTokens = tokenizePhraseMatchValue(candidate, "generic");
+  const fallbackCandidateTokens = tokenizePhraseMatchValue(
+    candidate,
+    "generic",
+  );
   const normalizedCandidate = candidateTokens.join(" ");
 
   if (isRemoteOnlyLocation(candidate)) {
@@ -549,7 +604,10 @@ export function matchesLocationPreference(
 
   return desiredValues.some((desiredValue) => {
     const desiredTokens = tokenizePhraseMatchValue(desiredValue, "location");
-    const fallbackDesiredTokens = tokenizePhraseMatchValue(desiredValue, "generic");
+    const fallbackDesiredTokens = tokenizePhraseMatchValue(
+      desiredValue,
+      "generic",
+    );
 
     if (desiredTokens.length === 0) {
       if (fallbackDesiredTokens.length === 0) {
@@ -562,7 +620,10 @@ export function matchesLocationPreference(
         );
       }
 
-      return everyPhraseTokenMatches(fallbackDesiredTokens, fallbackCandidateTokens);
+      return everyPhraseTokenMatches(
+        fallbackDesiredTokens,
+        fallbackCandidateTokens,
+      );
     }
 
     if (desiredTokens.length === 1) {
@@ -590,7 +651,6 @@ export function matchesLocationPreference(
 export function toSavedJobId(posting: JobPosting): string {
   return `job_${posting.source}_${posting.sourceJobId}`;
 }
-
 
 export function createMatchAssessment(
   profile: CandidateProfile,

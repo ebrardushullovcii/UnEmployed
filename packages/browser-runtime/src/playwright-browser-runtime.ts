@@ -23,19 +23,19 @@ import type {
   BrowserSessionRuntime,
   ExecuteApplicationFlowInput,
   ExecuteEasyApplyInput,
- } from "./runtime-types";
+} from "./runtime-types";
 import {
-    buildChromeExecutableCandidates,
-    buildQuerySummary,
-    findRunningChromeDebugPortForUserDataDir,
-    isHttpUrlLike,
-    isWarmPageReusable,
-    isTcpPortReachable,
-    isLikelyStalePage,
-    pathExists,
-    readDevToolsActivePort,
-    selectLiveHttpPage,
-    validateJobPostings,
+  buildChromeExecutableCandidates,
+  buildQuerySummary,
+  findRunningChromeDebugPortForUserDataDir,
+  isHttpUrlLike,
+  isWarmPageReusable,
+  isTcpPortReachable,
+  isLikelyStalePage,
+  pathExists,
+  readDevToolsActivePort,
+  selectLiveHttpPage,
+  validateJobPostings,
 } from "./playwright-browser-runtime-utils";
 
 export interface JobPageExtractionInput {
@@ -63,7 +63,8 @@ function buildUnsupportedApplyResult(input: {
   mode: "easy_apply" | ExecuteApplicationFlowInput["mode"];
   targetUrl?: string | null;
 }): ApplyExecutionResult {
-  const targetUrl = input.targetUrl ?? input.job.applicationUrl ?? input.job.canonicalUrl;
+  const targetUrl =
+    input.targetUrl ?? input.job.applicationUrl ?? input.job.canonicalUrl;
   const prepareOnly = input.mode === "prepare_only";
 
   return ApplyExecutionResultSchema.parse({
@@ -118,7 +119,6 @@ export interface BrowserAgentRuntimeOptions {
   aiClient?: JobFinderAiClient;
 }
 
-
 async function resolveChromeExecutable(explicitPath?: string): Promise<string> {
   for (const candidate of buildChromeExecutableCandidates(explicitPath)) {
     if (await pathExists(candidate)) {
@@ -172,8 +172,7 @@ async function isDebuggerEndpointOwnedByUserDataDir(
     );
 
     return candidateUserDataDirs.some(
-      (candidate) =>
-        normalizeUserDataDir(candidate) === normalizedUserDataDir,
+      (candidate) => normalizeUserDataDir(candidate) === normalizedUserDataDir,
     );
   } catch {
     return false;
@@ -189,7 +188,7 @@ async function resolveBrowserDebugPort(
 
   if (
     runningDebugPortForUserDataDir !== null &&
-    await isDebuggerEndpointReady(runningDebugPortForUserDataDir)
+    (await isDebuggerEndpointReady(runningDebugPortForUserDataDir))
   ) {
     return runningDebugPortForUserDataDir;
   }
@@ -198,7 +197,7 @@ async function resolveBrowserDebugPort(
 
   if (
     activeDebugPortFromProfile !== null &&
-    await isDebuggerEndpointReady(activeDebugPortFromProfile)
+    (await isDebuggerEndpointReady(activeDebugPortFromProfile))
   ) {
     return activeDebugPortFromProfile;
   }
@@ -224,10 +223,7 @@ async function resolveBrowserDebugPort(
   }
 
   if (
-    await isDebuggerEndpointOwnedByUserDataDir(
-      preferredDebugPort,
-      userDataDir,
-    )
+    await isDebuggerEndpointOwnedByUserDataDir(preferredDebugPort, userDataDir)
   ) {
     return preferredDebugPort;
   }
@@ -457,7 +453,6 @@ export function createBrowserAgentRuntime(
         // Ignore cleanup failures here; session reset still clears local state.
       }
     }
-
   }
 
   async function terminateLaunchedChromeProcess(): Promise<void> {
@@ -485,7 +480,9 @@ export function createBrowserAgentRuntime(
           break;
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        await new Promise((resolve) =>
+          setTimeout(resolve, 250 * (attempt + 1)),
+        );
       }
     }
 
@@ -595,10 +592,12 @@ export function createBrowserAgentRuntime(
 
   return {
     getSessionState(source) {
-      return Promise.resolve(BrowserSessionStateSchema.parse({
-        ...currentSessionState,
-        source,
-      }));
+      return Promise.resolve(
+        BrowserSessionStateSchema.parse({
+          ...currentSessionState,
+          source,
+        }),
+      );
     },
     async openSession(source) {
       await getReadyPage(source);
@@ -623,7 +622,10 @@ export function createBrowserAgentRuntime(
       } catch {
         // Ignore browser close failures and continue process cleanup.
       } finally {
-        await terminateChromeProcess(chromeProcess, shouldTerminateChromeProcess).catch(() => {});
+        await terminateChromeProcess(
+          chromeProcess,
+          shouldTerminateChromeProcess,
+        ).catch(() => {});
         resetBrowserConnection();
       }
 
@@ -637,18 +639,20 @@ export function createBrowserAgentRuntime(
     runDiscovery(source, searchPreferences) {
       const timestamp = new Date().toISOString();
 
-      return Promise.resolve(DiscoveryRunResultSchema.parse({
-        source,
-        startedAt: timestamp,
-        completedAt: timestamp,
-        querySummary: buildQuerySummary(
-          searchPreferences.targetRoles,
-          searchPreferences.locations,
-        ),
-        warning:
-          "Direct live discovery is not available for generic target flows. Use the agent discovery path instead.",
-        jobs: [],
-      }));
+      return Promise.resolve(
+        DiscoveryRunResultSchema.parse({
+          source,
+          startedAt: timestamp,
+          completedAt: timestamp,
+          querySummary: buildQuerySummary(
+            searchPreferences.targetRoles,
+            searchPreferences.locations,
+          ),
+          warning:
+            "Direct live discovery is not available for generic target flows. Use the agent discovery path instead.",
+          jobs: [],
+        }),
+      );
     },
     executeEasyApply(
       source,
@@ -725,14 +729,18 @@ export function createBrowserAgentRuntime(
       try {
         page = await getReadyPage(source);
 
-        if (!isWarmPageReusable({ pageUrl: page.url(), options: agentOptions })) {
+        if (
+          !isWarmPageReusable({ pageUrl: page.url(), options: agentOptions })
+        ) {
           const navigationTarget =
             agentOptions.startingUrls.find((url) => isHttpUrlLike(url)) ??
             agentOptions.startingUrls[0] ??
             null;
 
           if (navigationTarget) {
-            await page.goto(navigationTarget, { waitUntil: "domcontentloaded" });
+            await page.goto(navigationTarget, {
+              waitUntil: "domcontentloaded",
+            });
           }
         }
 
@@ -745,9 +753,11 @@ export function createBrowserAgentRuntime(
             targetRoles: agentOptions.searchPreferences.targetRoles,
             locations: agentOptions.searchPreferences.locations,
           },
-	          startingUrls: agentOptions.startingUrls,
-	          ...(agentOptions.weakSameHostBoard ? { weakSameHostBoard: true } : {}),
-	          navigationPolicy: {
+          startingUrls: agentOptions.startingUrls,
+          ...(agentOptions.agentHints?.widenReviewBudget
+            ? { weakSameHostBoard: true }
+            : {}),
+          navigationPolicy: {
             allowedHostnames: agentOptions.navigationHostnames,
             allowSubdomains: true,
           },
@@ -762,11 +772,11 @@ export function createBrowserAgentRuntime(
             ...(agentOptions.taskPacket
               ? { taskPacket: agentOptions.taskPacket }
               : {}),
-          ...(agentOptions.experimental ? { experimental: true } : {}),
+            ...(agentOptions.experimental ? { experimental: true } : {}),
           },
           resolveLivePage: async () => {
             const context = await getContext();
-            return currentSessionState.status === 'ready'
+            return currentSessionState.status === "ready"
               ? getPrimaryPageIfReady(context)
               : getReadyPage(source);
           },
@@ -779,17 +789,26 @@ export function createBrowserAgentRuntime(
                 const messageContent = message.content ?? "";
                 const contentTokens = Math.ceil(messageContent.length / 4);
                 if (message.role === "assistant" && message.toolCalls) {
-                  return sum + contentTokens + Math.ceil(JSON.stringify(message.toolCalls).length / 4);
+                  return (
+                    sum +
+                    contentTokens +
+                    Math.ceil(JSON.stringify(message.toolCalls).length / 4)
+                  );
                 }
                 if (message.role === "tool") {
-                  return sum + contentTokens + Math.ceil((message.toolCallId ?? "").length / 4);
+                  return (
+                    sum +
+                    contentTokens +
+                    Math.ceil((message.toolCallId ?? "").length / 4)
+                  );
                 }
                 return sum + contentTokens;
               }, 0);
 
               return {
                 estimatedInputTokens,
-                estimatedTotalTokens: estimatedInputTokens + Math.max(0, maxOutputTokens),
+                estimatedTotalTokens:
+                  estimatedInputTokens + Math.max(0, maxOutputTokens),
               };
             },
             modelContextWindowTokens:
@@ -797,7 +816,7 @@ export function createBrowserAgentRuntime(
               ensuredAiClient.getStatus().modelContextWindowTokens ??
               null,
             compactionWorkflowKey:
-              agentOptions.compactionWorkflowKey ??
+              agentOptions.compactionHints?.workflowKey ??
               (agentOptions.taskPacket
                 ? "source_debug_worker"
                 : "browser_agent_live_discovery"),

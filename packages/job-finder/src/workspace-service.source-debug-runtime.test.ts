@@ -10,6 +10,7 @@ import { describe, expect, test } from "vitest";
 import {
   createAgentAiClient,
   createAgentBrowserRuntime,
+  parsePhaseFromSiteLabel,
   createSeed,
   createStrongSourceDebugFindingsByPhase,
   createWorkspaceServiceHarness,
@@ -62,7 +63,9 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
     const attempts = await repository.listSourceDebugAttempts();
 
     expect(snapshot.activeSourceDebugRun?.state).toBe("paused_manual");
@@ -72,9 +75,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("paused_manual");
     expect(attempts).toHaveLength(1);
     expect(attempts[0]?.outcome).toBe("blocked_auth");
-    expect(snapshot.searchPreferences.discovery.targets[0]?.instructionStatus).toBe(
-      "missing",
-    );
+    expect(
+      snapshot.searchPreferences.discovery.targets[0]?.instructionStatus,
+    ).toBe("missing");
   });
 
   test("keeps the browser session open when source debug pauses for a manual prerequisite", async () => {
@@ -147,7 +150,9 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
 
     expect(snapshot.activeSourceDebugRun?.state).toBe("paused_manual");
     expect(openSessionCalls).toBe(1);
@@ -231,8 +236,12 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
-    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1);
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
+    const latestArtifact = (
+      await repository.listSourceInstructionArtifacts()
+    ).at(-1);
     const learnedLines = [
       ...(latestArtifact?.navigationGuidance ?? []),
       ...(latestArtifact?.searchGuidance ?? []),
@@ -314,7 +323,9 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
 
     expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
     expect(openSessionCalls).toBe(1);
@@ -352,7 +363,8 @@ describe("createJobFinderWorkspaceService", () => {
       ...baseRuntime,
       async runAgentDiscovery(source, options) {
         options.onProgress?.({
-          currentUrl: options.startingUrls[0] ?? "https://www.linkedin.com/jobs/",
+          currentUrl:
+            options.startingUrls[0] ?? "https://www.linkedin.com/jobs/",
           jobsFound: 0,
           stepCount: 1,
           currentAction: "thinking",
@@ -384,20 +396,22 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
-    expect(streamedEvents.some((event) => event.waitReason === "starting_browser")).toBe(
-      true,
-    );
-    expect(streamedEvents.some((event) => event.waitReason === "waiting_on_ai")).toBe(
-      true,
-    );
-    expect(streamedEvents.some((event) => event.waitReason === "finalizing")).toBe(
-      true,
-    );
+    expect(
+      streamedEvents.some((event) => event.waitReason === "starting_browser"),
+    ).toBe(true);
+    expect(
+      streamedEvents.some((event) => event.waitReason === "waiting_on_ai"),
+    ).toBe(true);
+    expect(
+      streamedEvents.some((event) => event.waitReason === "finalizing"),
+    ).toBe(true);
     const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
 
     expect(latestRunId).toBeTruthy();
 
-    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+    const latestRun = await workspaceService.getSourceDebugRunDetails(
+      latestRunId!,
+    );
 
     expect(
       streamedEvents.some((event) =>
@@ -420,9 +434,7 @@ describe("createJobFinderWorkspaceService", () => {
       ),
     ).toBe(true);
     expect(
-      latestRun.run.phaseSummaries.every(
-        (summary) => summary.timing !== null,
-      ),
+      latestRun.run.phaseSummaries.every((summary) => summary.timing !== null),
     ).toBe(true);
   });
 
@@ -435,18 +447,7 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        const siteLabel = options.siteLabel.toLowerCase();
-        const phase = siteLabel.includes("access auth probe")
-          ? "access_auth_probe"
-          : siteLabel.includes("site structure mapping")
-            ? "site_structure_mapping"
-            : siteLabel.includes("search filter probe")
-              ? "search_filter_probe"
-              : siteLabel.includes("job detail validation")
-                ? "job_detail_validation"
-                : siteLabel.includes("apply path validation")
-                  ? "apply_path_validation"
-                  : "replay_verification";
+        const phase = parsePhaseFromSiteLabel(options.siteLabel);
         phaseCalls.push(phase);
 
         return Promise.resolve({
@@ -537,9 +538,13 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
     const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
-    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1);
+    const latestArtifact = (
+      await repository.listSourceInstructionArtifacts()
+    ).at(-1);
 
     expect(phaseCalls).toEqual([
       "access_auth_probe",
@@ -554,10 +559,14 @@ describe("createJobFinderWorkspaceService", () => {
     expect(latestArtifact?.status).toBe("draft");
     expect(latestRunId).toBeTruthy();
 
-    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+    const latestRun = await workspaceService.getSourceDebugRunDetails(
+      latestRunId!,
+    );
 
     expect(latestRun.run.timing?.finalReviewMs).toBeNull();
-    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(phaseCalls);
+    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(
+      phaseCalls,
+    );
   });
 
   test("skips replay verification and AI final review after enough non-auth evidence is proven", async () => {
@@ -569,18 +578,7 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        const siteLabel = options.siteLabel.toLowerCase();
-        const phase = siteLabel.includes("access auth probe")
-          ? "access_auth_probe"
-          : siteLabel.includes("site structure mapping")
-            ? "site_structure_mapping"
-            : siteLabel.includes("search filter probe")
-              ? "search_filter_probe"
-              : siteLabel.includes("job detail validation")
-                ? "job_detail_validation"
-                : siteLabel.includes("apply path validation")
-                  ? "apply_path_validation"
-                  : "replay_verification";
+        const phase = parsePhaseFromSiteLabel(options.siteLabel);
         phaseCalls.push(phase);
 
         return Promise.resolve({
@@ -599,7 +597,10 @@ describe("createJobFinderWorkspaceService", () => {
               company: "Signal Systems",
               location: "Remote",
               workMode: ["remote"],
-              applyPath: phase === "apply_path_validation" ? "external_redirect" : "unknown",
+              applyPath:
+                phase === "apply_path_validation"
+                  ? "external_redirect"
+                  : "unknown",
               easyApplyEligible: false,
               postedAt: "2026-03-20T09:00:00.000Z",
               postedAtText: null,
@@ -659,9 +660,13 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
     const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
-    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1);
+    const latestArtifact = (
+      await repository.listSourceInstructionArtifacts()
+    ).at(-1);
 
     expect(phaseCalls).toEqual([
       "access_auth_probe",
@@ -674,10 +679,14 @@ describe("createJobFinderWorkspaceService", () => {
     expect(latestArtifact?.status).toBe("draft");
     expect(latestRunId).toBeTruthy();
 
-    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+    const latestRun = await workspaceService.getSourceDebugRunDetails(
+      latestRunId!,
+    );
 
     expect(latestRun.run.timing?.finalReviewMs).toBeNull();
-    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(phaseCalls);
+    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(
+      phaseCalls,
+    );
   });
 
   test("skips AI final review for fresh draft instructions when replay verification does not pass", async () => {
@@ -689,18 +698,7 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        const siteLabel = options.siteLabel.toLowerCase();
-        const phase = siteLabel.includes("access auth probe")
-          ? "access_auth_probe"
-          : siteLabel.includes("site structure mapping")
-            ? "site_structure_mapping"
-            : siteLabel.includes("search filter probe")
-              ? "search_filter_probe"
-              : siteLabel.includes("job detail validation")
-                ? "job_detail_validation"
-                : siteLabel.includes("apply path validation")
-                  ? "apply_path_validation"
-                  : "replay_verification";
+        const phase = parsePhaseFromSiteLabel(options.siteLabel);
         phaseCalls.push(phase);
 
         if (phase === "apply_path_validation") {
@@ -709,7 +707,8 @@ describe("createJobFinderWorkspaceService", () => {
             startedAt: "2026-03-20T10:00:00.000Z",
             completedAt: "2026-03-20T10:00:10.000Z",
             querySummary: `Phase ${phase}`,
-            warning: "Apply path was visible but not stable enough to prove yet.",
+            warning:
+              "Apply path was visible but not stable enough to prove yet.",
             jobs: [
               JobPostingSchema.parse({
                 source,
@@ -758,7 +757,9 @@ describe("createJobFinderWorkspaceService", () => {
                 trickyFilters: [],
                 navigationTips: [],
                 applyTips: [],
-                warnings: ["Apply path was visible but not stable enough to prove yet."],
+                warnings: [
+                  "Apply path was visible but not stable enough to prove yet.",
+                ],
               },
             },
           });
@@ -770,7 +771,8 @@ describe("createJobFinderWorkspaceService", () => {
             startedAt: "2026-03-20T10:00:00.000Z",
             completedAt: "2026-03-20T10:00:10.000Z",
             querySummary: `Phase ${phase}`,
-            warning: "Replay verification could not prove the route from scratch.",
+            warning:
+              "Replay verification could not prove the route from scratch.",
             jobs: [],
             agentMetadata: {
               steps: 3,
@@ -789,7 +791,9 @@ describe("createJobFinderWorkspaceService", () => {
                 trickyFilters: [],
                 navigationTips: [],
                 applyTips: [],
-                warnings: ["Replay verification could not prove the route from scratch."],
+                warnings: [
+                  "Replay verification could not prove the route from scratch.",
+                ],
               },
             },
           });
@@ -871,15 +875,21 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    const snapshot = await workspaceService.runSourceDebug("target_linkedin_default");
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
     const latestRunId = snapshot.recentSourceDebugRuns[0]?.id;
-    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1);
+    const latestArtifact = (
+      await repository.listSourceInstructionArtifacts()
+    ).at(-1);
 
     expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("failed");
     expect(latestArtifact?.status).toBe("draft");
     expect(latestRunId).toBeTruthy();
 
-    const latestRun = await workspaceService.getSourceDebugRunDetails(latestRunId!);
+    const latestRun = await workspaceService.getSourceDebugRunDetails(
+      latestRunId!,
+    );
 
     expect(phaseCalls).toEqual([
       "access_auth_probe",
@@ -890,7 +900,9 @@ describe("createJobFinderWorkspaceService", () => {
       "replay_verification",
     ]);
     expect(latestRun.run.timing?.finalReviewMs).toBeNull();
-    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(phaseCalls);
+    expect(latestRun.attempts.map((attempt) => attempt.phase)).toEqual(
+      phaseCalls,
+    );
   });
 
   test("rejects starting a second source-debug run while one is already active", async () => {
@@ -945,7 +957,9 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    const firstRunPromise = workspaceService.runSourceDebug("target_linkedin_default");
+    const firstRunPromise = workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
     await Promise.resolve();
 
     await expect(
@@ -975,7 +989,8 @@ describe("createJobFinderWorkspaceService", () => {
           source: "target_site",
           sourceJobId: "linkedin_noise_case",
           discoveryMethod: "catalog_seed",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_noise_case",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_noise_case",
           title: "Frontend Developer",
           company: "Signal Systems",
           location: "Remote",
@@ -1055,7 +1070,8 @@ describe("createJobFinderWorkspaceService", () => {
               "The phase timed out before the worker returned a structured finish call.",
             phaseEvidence: null,
             debugFindings: {
-              summary: "Use the jobs route and reusable show-all collection path.",
+              summary:
+                "Use the jobs route and reusable show-all collection path.",
               reliableControls: [
                 "Recommendation rows expose show-all links that open reusable prefiltered job lists.",
                 "Location encoding: Use %2C for comma and %20 for spaces.",
@@ -1072,7 +1088,9 @@ describe("createJobFinderWorkspaceService", () => {
               applyTips: [
                 "Use the on-site apply entry when the detail page exposes it.",
               ],
-              warnings: ["Agent discovery stopped after 12 steps. Found 0 jobs."],
+              warnings: [
+                "Agent discovery stopped after 12 steps. Found 0 jobs.",
+              ],
             },
           },
         });
@@ -1089,7 +1107,9 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.runSourceDebug("target_linkedin_default");
-    const latestArtifact = (await repository.listSourceInstructionArtifacts()).at(-1);
+    const latestArtifact = (
+      await repository.listSourceInstructionArtifacts()
+    ).at(-1);
     const learnedLines = [
       ...(latestArtifact?.navigationGuidance ?? []),
       ...(latestArtifact?.searchGuidance ?? []),
@@ -1106,6 +1126,8 @@ describe("createJobFinderWorkspaceService", () => {
     expect(learnedLines).not.toContain("query parameters");
     expect(learnedLines).not.toContain("geoid");
     expect(learnedLines).not.toContain("currentjobid");
-    expect(learnedLines).not.toContain("job availability may change frequently");
+    expect(learnedLines).not.toContain(
+      "job availability may change frequently",
+    );
   });
 });

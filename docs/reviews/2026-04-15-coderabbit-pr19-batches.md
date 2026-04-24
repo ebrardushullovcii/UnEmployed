@@ -27,3 +27,4 @@ The full PR was too large for one OSS CodeRabbit review, so it was reviewed in b
 
 - prefer batch review for oversized PRs
 - fix root causes and shared patterns, not one commented line at a time
+- current review-process guidance now lives in root `AGENTS.md` and `docs/ARCHITECTURE.md`; keep this file as historical context only

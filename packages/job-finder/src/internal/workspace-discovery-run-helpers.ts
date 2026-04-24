@@ -17,7 +17,10 @@ import {
   computeTimelineSummary,
   serializeOrderedDurationEntries,
 } from "./performance-timing";
-import { DEFAULT_MAX_STEPS, DEFAULT_TARGET_JOB_COUNT } from "./workspace-defaults";
+import {
+  DEFAULT_MAX_STEPS,
+  DEFAULT_TARGET_JOB_COUNT,
+} from "./workspace-defaults";
 
 function buildDiscoveryTimingSummary(
   events: readonly DiscoveryActivityEvent[],
@@ -114,13 +117,18 @@ export function finalizeRunningTargetExecutions(
       continue;
     }
 
-    nextRun = completeTargetExecution(nextRun, targetExecution.targetId, completedAt, {
-      state,
-      warning:
-        state === "cancelled"
-          ? "Discovery was cancelled before this target finished."
-          : targetExecution.warning,
-    });
+    nextRun = completeTargetExecution(
+      nextRun,
+      targetExecution.targetId,
+      completedAt,
+      {
+        state,
+        warning:
+          state === "cancelled"
+            ? "Discovery was cancelled before this target finished."
+            : targetExecution.warning,
+      },
+    );
   }
 
   return nextRun;
@@ -139,7 +147,11 @@ export function finalizeDiscoveryRun(
       ...run.summary,
       durationMs: calculateDurationMs(run.startedAt, completedAt),
       outcome: state,
-      timing: buildDiscoveryTimingSummary(run.activity, run.startedAt, completedAt),
+      timing: buildDiscoveryTimingSummary(
+        run.activity,
+        run.startedAt,
+        completedAt,
+      ),
     },
   });
 }
@@ -152,11 +164,12 @@ export function resolveDiscoveryTargetBudget(input: {
   targetsRemaining: number;
   validJobsFoundSoFar: number;
 }) {
+  const remainingJobs = Math.max(
+    1,
+    DEFAULT_TARGET_JOB_COUNT - input.validJobsFoundSoFar,
+  );
+
   if (input.targetsRemaining <= 1) {
-    const remainingJobs = Math.max(
-      1,
-      DEFAULT_TARGET_JOB_COUNT - input.validJobsFoundSoFar,
-    );
     const targetJobCount = Math.min(
       SINGLE_TARGET_DISCOVERY_JOB_COUNT,
       remainingJobs,
@@ -171,10 +184,6 @@ export function resolveDiscoveryTargetBudget(input: {
     };
   }
 
-  const remainingJobs = Math.max(
-    1,
-    DEFAULT_TARGET_JOB_COUNT - input.validJobsFoundSoFar,
-  );
   const targetJobCount = Math.min(
     DEFAULT_TARGET_JOB_COUNT,
     Math.ceil(remainingJobs / Math.max(1, input.targetsRemaining)),
