@@ -72,7 +72,9 @@ export async function createJobFinderWorkspaceServiceAsync() {
     outputDirectory: getGeneratedResumeDocumentsDirectory()
   })
   const exportFileVerifier = createLocalResumeExportFileVerifier()
-  const researchAdapter = createDesktopResumeResearchAdapter()
+  const researchAdapter = isDesktopTestApiEnabled()
+    ? undefined
+    : createDesktopResumeResearchAdapter()
 
   return createJobFinderWorkspaceService({
     aiClient,
@@ -80,6 +82,6 @@ export async function createJobFinderWorkspaceServiceAsync() {
     exportFileVerifier,
     repository: jobFinderRepository,
     browserRuntime,
-    researchAdapter
+    ...(researchAdapter ? { researchAdapter } : {})
   })
 }

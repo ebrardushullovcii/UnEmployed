@@ -123,6 +123,18 @@ function getPreferredCurrentTargets(enabledTargets) {
   return [...preferred, ...remaining];
 }
 
+function resolveRequestedCurrentWorkspaceTargets(allTargets, requestedIds, mode) {
+  return requestedIds.map((id) => {
+    const match = allTargets.find((target) => target.id === id);
+    if (!match) {
+      throw new Error(
+        `Requested ${mode} target '${id}' was not found in the current workspace. Available targets: ${allTargets.map((target) => target.id).join(", ")}`,
+      );
+    }
+    return match;
+  });
+}
+
 async function loadFixture() {
   return JSON.parse(await readFile(fixturePath, "utf8"));
 }
@@ -176,6 +188,34 @@ async function waitForProfileOrSetupHeading(window, timeout = 15000) {
       .getByRole("heading", { level: 1, name: "Guided setup" })
       .waitFor({ timeout }),
   ]);
+}
+
+async function resolveUsableWindow(app, preferredWindow = null) {
+  const candidateWindows = [preferredWindow, ...app.windows()].filter(Boolean);
+
+  for (const candidate of candidateWindows) {
+    if (candidate.isClosed()) {
+      continue;
+    }
+
+    await candidate.waitForLoadState("domcontentloaded").catch(() => undefined);
+    await waitForProfileOrSetupHeading(candidate).catch(() => undefined);
+    if (!candidate.isClosed()) {
+      return candidate;
+    }
+  }
+
+  const firstWindow = await Promise.race([
+    app.firstWindow(),
+    new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error("Timed out waiting for a usable window."));
+      }, 30000);
+    }),
+  ]);
+  await firstWindow.waitForLoadState("domcontentloaded");
+  await waitForProfileOrSetupHeading(firstWindow);
+  return firstWindow;
 }
 
 async function seedWorkspace(window, input) {
@@ -238,7 +278,7 @@ async function resetDiscoveryState(window) {
     },
   };
 
-  await window.evaluate(async (state) => {
+  return window.evaluate(async (state) => {
     if (!window.unemployed.jobFinder.test?.resetWorkspaceState) {
       throw new Error(
         "Current-workspace benchmark reset requires desktop test API support.",
@@ -249,13 +289,19 @@ async function resetDiscoveryState(window) {
   }, resetState);
 }
 
-async function withScopedCurrentWorkspaceTargets(window, targetIds, runner) {
+async function withScopedCurrentWorkspaceTargets(
+  app,
+  window,
+  targetIds,
+  runner,
+  originalWorkspaceOverride = null,
+) {
   const scopedTargetIds = [...new Set(targetIds.filter(Boolean))];
   if (!useCurrentWorkspace || scopedTargetIds.length === 0) {
-    return runner();
+    return runner(window);
   }
 
-  const originalWorkspace = await getWorkspace(window);
+  const originalWorkspace = originalWorkspaceOverride ?? (await getWorkspace(window));
   const originalSearchPreferences = originalWorkspace?.searchPreferences;
   const originalTargets = Array.isArray(
     originalSearchPreferences?.discovery?.targets,
@@ -264,7 +310,7 @@ async function withScopedCurrentWorkspaceTargets(window, targetIds, runner) {
     : [];
 
   if (originalTargets.length === 0) {
-    return runner();
+    return runner(window);
   }
 
   const scopedTargets = originalTargets.map((target) => ({
@@ -277,29 +323,43 @@ async function withScopedCurrentWorkspaceTargets(window, targetIds, runner) {
   );
 
   if (!needsScopeChange) {
-    return runner();
+    return runner(window);
   }
 
-  await window.evaluate(
-    async ({ profile, searchPreferences }) =>
-      window.unemployed.jobFinder.saveWorkspaceInputs({
-        profile,
-        searchPreferences,
-      }),
-    {
-      profile: originalWorkspace.profile,
-      searchPreferences: {
-        ...originalSearchPreferences,
-        discovery: {
-          ...originalSearchPreferences.discovery,
-          targets: scopedTargets,
-        },
+  const scopedWorkspaceInput = {
+    profile: originalWorkspace.profile,
+    searchPreferences: {
+      ...originalSearchPreferences,
+      discovery: {
+        ...originalSearchPreferences.discovery,
+        targets: scopedTargets,
       },
     },
-  );
+  };
+  const saveScopedTargets = async (activeWindow) =>
+    activeWindow.evaluate(
+      async ({ profile, searchPreferences }) =>
+        window.unemployed.jobFinder.saveWorkspaceInputs({
+          profile,
+          searchPreferences,
+        }),
+      scopedWorkspaceInput,
+    );
 
   try {
-    return await runner();
+    await saveScopedTargets(window);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/Target page, context or browser has been closed/i.test(message)) {
+      throw error;
+    }
+
+    window = await resolveUsableWindow(app, window);
+    await saveScopedTargets(window);
+  }
+
+  try {
+    return await runner(window);
   } finally {
     await window
       .evaluate(
@@ -327,44 +387,63 @@ async function resolveCurrentWorkspaceTargets(
   requestedRunAllTargetIds,
 ) {
   const workspace = await getWorkspace(window);
-  const enabledTargets = Array.isArray(
+  const allTargets = Array.isArray(
     workspace?.searchPreferences?.discovery?.targets,
   )
-    ? workspace.searchPreferences.discovery.targets.filter(
-        (target) => target?.enabled,
-      )
+    ? workspace.searchPreferences.discovery.targets.filter(Boolean)
     : [];
+  const enabledTargets = allTargets.filter((target) => target?.enabled);
 
-  if (enabledTargets.length === 0) {
-    throw new Error("The current workspace has no enabled discovery targets.");
+  if (allTargets.length === 0) {
+    throw new Error("The current workspace has no discovery targets.");
   }
 
-  const availableTargets = enabledTargets.map(toCurrentWorkspaceTarget);
-  const preferredTargets = getPreferredCurrentTargets(availableTargets);
+  if (enabledTargets.length === 0) {
+    if (
+      requestedSingleTargetIds.length === 0 &&
+      requestedRunAllTargetIds.length === 0
+    ) {
+      throw new Error("The current workspace has no enabled discovery targets.");
+    }
+  }
+
+  const availableTargets = allTargets.map(toCurrentWorkspaceTarget);
+  const enabledAvailableTargets = enabledTargets.map(toCurrentWorkspaceTarget);
+
+  if (enabledAvailableTargets.length === 0) {
+    return {
+      availableTargets,
+      singleTargets: resolveRequestedCurrentWorkspaceTargets(
+        availableTargets,
+        requestedSingleTargetIds,
+        "single",
+      ),
+      runAllTargets: resolveRequestedCurrentWorkspaceTargets(
+        availableTargets,
+        requestedRunAllTargetIds,
+        "run-all",
+      ),
+      workspace,
+    };
+  }
+
+  const preferredTargets = getPreferredCurrentTargets(enabledAvailableTargets);
   const singleTargets =
     requestedSingleTargetIds.length > 0
-      ? requestedSingleTargetIds.map((id) => {
-          const match = availableTargets.find((target) => target.id === id);
-          if (!match) {
-            throw new Error(
-              `Requested target '${id}' was not found in the current workspace. Available targets: ${availableTargets.map((target) => target.id).join(", ")}`,
-            );
-          }
-          return match;
-        })
+      ? resolveRequestedCurrentWorkspaceTargets(
+          availableTargets,
+          requestedSingleTargetIds,
+          "single",
+        )
       : preferredTargets.slice(0, Math.min(2, preferredTargets.length));
   const runAllTargets =
     requestedRunAllTargetIds.length > 0
-      ? requestedRunAllTargetIds.map((id) => {
-          const match = availableTargets.find((target) => target.id === id);
-          if (!match) {
-            throw new Error(
-              `Requested run-all target '${id}' was not found in the current workspace. Available targets: ${availableTargets.map((target) => target.id).join(", ")}`,
-            );
-          }
-          return match;
-        })
-      : availableTargets;
+      ? resolveRequestedCurrentWorkspaceTargets(
+          availableTargets,
+          requestedRunAllTargetIds,
+          "run-all",
+        )
+      : enabledAvailableTargets;
 
   return {
     availableTargets,
@@ -521,6 +600,7 @@ async function runSingleScenario({
     const window = await app.firstWindow();
     await window.waitForLoadState("domcontentloaded");
     await waitForProfileOrSetupHeading(window);
+    let resetWorkspaceSnapshot = null;
     if (seededInput) {
       await seedWorkspace(window, {
         profile: seededInput.profile,
@@ -528,15 +608,17 @@ async function runSingleScenario({
         settings: seededInput.settings,
       });
     } else {
-      await resetDiscoveryState(window);
+      resetWorkspaceSnapshot = await resetDiscoveryState(window);
     }
 
     const timed = await withTimedScenario(scenario, () =>
       scopeCurrentWorkspaceTargets
         ? withScopedCurrentWorkspaceTargets(
+            app,
             window,
             targets.map((target) => target.id),
-            () => runner(window),
+            (activeWindow) => runner(activeWindow),
+            resetWorkspaceSnapshot,
           )
         : runner(window),
     );
@@ -567,6 +649,242 @@ async function runSingleScenario({
       );
     }
   }
+}
+
+async function runSingleTargetBenchmarkPair(target) {
+  const fixture = useCurrentWorkspace ? null : await loadFixture();
+  const seededInput = useCurrentWorkspace
+    ? null
+    : {
+        profile: fixture.profile,
+        searchPreferences: buildSearchPreferences(
+          fixture.searchPreferences,
+          [target],
+          [...target.benchmarkTargetRoles],
+        ),
+        settings: buildSettings(fixture.settings),
+      };
+  const userDataDirectory = useCurrentWorkspace
+    ? null
+    : await mkdtemp(path.join(os.tmpdir(), "unemployed-app-benchmark-"));
+  const app = await electron.launch({
+    args: ["."],
+    cwd: desktopDir,
+    env: {
+      ...process.env,
+      ...(useCurrentWorkspace
+        ? {
+            UNEMPLOYED_ENABLE_TEST_API: "1",
+            UNEMPLOYED_TEST_API_USE_LIVE_AI: "1",
+          }
+        : {}),
+      ...(userDataDirectory
+        ? { UNEMPLOYED_USER_DATA_DIR: userDataDirectory }
+        : {}),
+    },
+  });
+
+  try {
+    const window = await app.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    await waitForProfileOrSetupHeading(window);
+    let resetWorkspaceSnapshot = null;
+    if (seededInput) {
+      await seedWorkspace(window, seededInput);
+    } else {
+      resetWorkspaceSnapshot = await resetDiscoveryState(window);
+    }
+
+    const wrapResult = (entry) => ({
+      ...entry,
+      targets: [
+        {
+          id: target.id,
+          label: target.label,
+          startingUrl: target.startingUrl,
+        },
+      ],
+    });
+
+    return await executeBenchmarkPairScenarios({
+      app,
+      window,
+      target,
+      resetWorkspaceSnapshot,
+      preflightWorkspace: useCurrentWorkspace,
+    });
+  } finally {
+    await app.close().catch(() => undefined);
+    if (userDataDirectory) {
+      await rm(userDataDirectory, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  }
+}
+
+async function executeBenchmarkPairScenarios({
+  app,
+  window,
+  target,
+  resetWorkspaceSnapshot = null,
+  preflightWorkspace = false,
+}) {
+  const wrapResult = (entry) => ({
+    ...entry,
+    targets: [
+      {
+        id: target.id,
+        label: target.label,
+        startingUrl: target.startingUrl,
+      },
+    ],
+  });
+
+  return withScopedCurrentWorkspaceTargets(
+    app,
+    window,
+    [target.id],
+    async (scopedWindow) => {
+      if (preflightWorkspace) {
+        await getWorkspace(scopedWindow);
+      }
+
+      const sourceDebugTimed = await withTimedScenario(
+        `check_source:${target.id}`,
+        async () => {
+          const snapshot = await scopedWindow.evaluate(
+            async (targetId) => window.unemployed.jobFinder.runSourceDebug(targetId),
+            target.id,
+          );
+          const latestRunId = snapshot?.recentSourceDebugRuns?.[0]?.id ?? null;
+          const details = latestRunId
+            ? await scopedWindow.evaluate(
+                async (runId) =>
+                  window.unemployed.jobFinder.getSourceDebugRunDetails(runId),
+                latestRunId,
+              )
+            : null;
+
+          return {
+            snapshot,
+            details,
+          };
+        },
+      );
+      const sourceDebugSnapshot = sourceDebugTimed.value?.snapshot ?? null;
+      const sourceDebugTargetRoles = Array.isArray(
+        sourceDebugSnapshot?.searchPreferences?.targetRoles,
+      )
+        ? sourceDebugSnapshot.searchPreferences.targetRoles
+        : [...target.benchmarkTargetRoles];
+      const sourceDebugEntry = wrapResult({
+        scenario: `check_source:${target.id}`,
+        targetRoles: sourceDebugTargetRoles,
+        wallClockMs: sourceDebugTimed.wallClockMs,
+        ok: sourceDebugTimed.ok,
+        error: sourceDebugTimed.error,
+        result: sourceDebugTimed.value,
+        sourceDebug: buildSourceDebugSummary(sourceDebugTimed.value),
+      });
+
+      printScenarioSummary(sourceDebugEntry);
+
+      if (!sourceDebugTimed.ok) {
+        return [sourceDebugEntry];
+      }
+
+      const discoveryTimed = await withTimedScenario(
+        `search_now:${target.id}`,
+        () =>
+          scopedWindow.evaluate(
+            async (targetId) =>
+              window.unemployed.jobFinder.runAgentDiscovery(undefined, targetId),
+            target.id,
+          ),
+      );
+      const discoverySnapshot = discoveryTimed.value ?? null;
+      const discoveryTargetRoles = Array.isArray(
+        discoverySnapshot?.searchPreferences?.targetRoles,
+      )
+        ? discoverySnapshot.searchPreferences.targetRoles
+        : [...target.benchmarkTargetRoles];
+      const discoveryEntry = wrapResult({
+        scenario: `search_now:${target.id}`,
+        targetRoles: discoveryTargetRoles,
+        wallClockMs: discoveryTimed.wallClockMs,
+        ok: discoveryTimed.ok,
+        error: discoveryTimed.error,
+        result: discoveryTimed.value,
+        discovery: buildDiscoverySummary(discoveryTimed.value),
+      });
+
+      printScenarioSummary(discoveryEntry);
+
+      return [sourceDebugEntry, discoveryEntry];
+    },
+    resetWorkspaceSnapshot,
+  );
+}
+
+async function runCurrentWorkspaceSingleTargetBenchmarkPair(app, window, target) {
+  let activeWindow = await resolveUsableWindow(app, window);
+  const resetWorkspaceSnapshot = await resetDiscoveryState(activeWindow);
+  const pairResults = await executeBenchmarkPairScenarios({
+    app,
+    window: activeWindow,
+    target,
+    resetWorkspaceSnapshot,
+    preflightWorkspace: true,
+  });
+
+  activeWindow = await resolveUsableWindow(app, activeWindow);
+  return {
+    window: activeWindow,
+    results: pairResults,
+  };
+}
+
+async function runCurrentWorkspaceRunAllScenario(app, window, targets) {
+  let activeWindow = await resolveUsableWindow(app, window);
+  const resetWorkspaceSnapshot = await resetDiscoveryState(activeWindow);
+  const targetRoles = [
+    ...new Set(targets.flatMap((target) => target.benchmarkTargetRoles)),
+  ];
+  const result = await withTimedScenario("search_jobs:run_all", () =>
+    withScopedCurrentWorkspaceTargets(
+      app,
+      activeWindow,
+      targets.map((target) => target.id),
+      (scopedWindow) =>
+        scopedWindow.evaluate(async () =>
+          window.unemployed.jobFinder.runAgentDiscovery(),
+        ),
+      resetWorkspaceSnapshot,
+    ),
+  );
+  const snapshot = result.value ?? null;
+  const effectiveTargetRoles = Array.isArray(snapshot?.searchPreferences?.targetRoles)
+    ? snapshot.searchPreferences.targetRoles
+    : targetRoles;
+  activeWindow = await resolveUsableWindow(app, activeWindow);
+
+  return {
+    window: activeWindow,
+    entry: {
+      scenario: "search_jobs:run_all",
+      targets: targets.map((target) => ({
+        id: target.id,
+        label: target.label,
+        startingUrl: target.startingUrl,
+      })),
+      targetRoles: effectiveTargetRoles,
+      wallClockMs: result.wallClockMs,
+      ok: result.ok,
+      error: result.error,
+      result: result.value,
+    },
+  };
 }
 
 async function runSourceDebugScenario(target) {
@@ -713,24 +1031,26 @@ async function main() {
 
   await mkdir(outputDir, { recursive: true });
   const results = [];
+  let currentWorkspaceApp = null;
+  let currentWorkspaceWindow = null;
 
-  if (useCurrentWorkspace) {
-    const bootstrapApp = await electron.launch({
-      args: ["."],
-      cwd: desktopDir,
-      env: {
-        ...process.env,
-        UNEMPLOYED_ENABLE_TEST_API: "1",
-        UNEMPLOYED_TEST_API_USE_LIVE_AI: "1",
-      },
-    });
+  try {
+    if (useCurrentWorkspace) {
+      currentWorkspaceApp = await electron.launch({
+        args: ["."],
+        cwd: desktopDir,
+        env: {
+          ...process.env,
+          UNEMPLOYED_ENABLE_TEST_API: "1",
+          UNEMPLOYED_TEST_API_USE_LIVE_AI: "1",
+        },
+      });
 
-    try {
-      const window = await bootstrapApp.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
-      await waitForProfileOrSetupHeading(window);
+      currentWorkspaceWindow = await currentWorkspaceApp.firstWindow();
+      await currentWorkspaceWindow.waitForLoadState("domcontentloaded");
+      await waitForProfileOrSetupHeading(currentWorkspaceWindow);
       const resolved = await resolveCurrentWorkspaceTargets(
-        window,
+        currentWorkspaceWindow,
         requestedSingleTargetIds,
         requestedRunAllTargetIds,
       );
@@ -745,34 +1065,49 @@ async function main() {
       process.stdout.write(
         `Run-all scenarios will use enabled targets: ${runAllTargets.map((target) => target.id).join(", ")}\n`,
       );
-    } finally {
-      await bootstrapApp.close().catch(() => undefined);
     }
-  }
 
-  for (const target of singleTargets) {
-    const sourceDebugResult = await runSourceDebugScenario(target);
-    printScenarioSummary(sourceDebugResult);
-    results.push({
-      ...sourceDebugResult,
-      sourceDebug: buildSourceDebugSummary(sourceDebugResult.result),
-    });
+    for (const target of singleTargets) {
+      if (useCurrentWorkspace && currentWorkspaceApp && currentWorkspaceWindow) {
+        const pairRun = await runCurrentWorkspaceSingleTargetBenchmarkPair(
+          currentWorkspaceApp,
+          currentWorkspaceWindow,
+          target,
+        );
+        currentWorkspaceWindow = pairRun.window;
+        results.push(...pairRun.results);
+      } else {
+        const pairResults = await runSingleTargetBenchmarkPair(target);
+        results.push(...pairResults);
+      }
+    }
 
-    const discoveryResult = await runSingleTargetDiscoveryScenario(target);
-    printScenarioSummary(discoveryResult);
-    results.push({
-      ...discoveryResult,
-      discovery: buildDiscoverySummary(discoveryResult.result),
-    });
-  }
-
-  if (runAllTargets.length > 0) {
-    const runAllResult = await runRunAllScenario(runAllTargets);
-    printScenarioSummary(runAllResult);
-    results.push({
-      ...runAllResult,
-      discovery: buildDiscoverySummary(runAllResult.result),
-    });
+    if (runAllTargets.length > 0) {
+      if (useCurrentWorkspace && currentWorkspaceApp && currentWorkspaceWindow) {
+        const runAll = await runCurrentWorkspaceRunAllScenario(
+          currentWorkspaceApp,
+          currentWorkspaceWindow,
+          runAllTargets,
+        );
+        currentWorkspaceWindow = runAll.window;
+        printScenarioSummary(runAll.entry);
+        results.push({
+          ...runAll.entry,
+          discovery: buildDiscoverySummary(runAll.entry.result),
+        });
+      } else {
+        const runAllResult = await runRunAllScenario(runAllTargets);
+        printScenarioSummary(runAllResult);
+        results.push({
+          ...runAllResult,
+          discovery: buildDiscoverySummary(runAllResult.result),
+        });
+      }
+    }
+  } finally {
+    if (currentWorkspaceApp) {
+      await currentWorkspaceApp.close().catch(() => undefined);
+    }
   }
 
   const report = {

@@ -17,7 +17,7 @@
 ## Current Problems
 
 - LinkedIn now persists multiple jobs in the rebuilt real desktop flow, but some persisted title/company fields remain polluted
-- `Check source` is still too slow, especially on Kosovajob
+- `Check source` is still too slow, especially on Kosovajob, and LinkedIn source-debug can still end in a failed run state after proving a usable draft route
 - Kosovajob discovery still collects weak or non-technical jobs, persists too little, and the real app flow is still reusing a broken `/search` route
 - One architecture seam still violates the intended boundary: `browser-runtime` depends on `browser-agent` for catalog session creation
 
@@ -36,6 +36,11 @@
   - source-debug now uses generic phase selection and step-budget reduction when public provider APIs, route hints, prior phase summaries, or existing instructions make full exploration lower value
 - Detailed validation history, benchmark timings, and volatile rerun notes now live in `docs/exec-plans/active/017-experiment-tracker.md`
 - Benchmark reminder: rebuild desktop before judging source changes because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches the built `out/main/index.cjs`
+- Benchmark harness correctness fixes are landed:
+  - single-target `check_source` and `search_now` now share one Electron session so discovery can reuse freshly learned source-debug artifacts
+  - current-workspace benchmarks can temporarily scope explicitly requested disabled targets and restore target enablement afterward
+  - current-workspace benchmarks now reuse one Electron session end-to-end instead of resolving targets in one app launch and benchmarking in another
+- Latest truthful current-workspace reruns on the rebuilt app show LinkedIn is still healthy enough to persist `5` jobs in single-target `Search now` and `6` jobs in LinkedIn-only `run_all`; Kosovajob remains the dominant weak target with `0` persisted jobs in both flows
 - Kosovajob remains the dominant weak target: the real app flow still needs faster source-debug and stronger technical-job survival on the homepage query/detail pattern
 
 ## Hard Decisions
@@ -50,7 +55,7 @@
 ## Next Step
 
 - Work from `docs/TRACKS.md` and `docs/exec-plans/active/017-browser-substrate-evaluation-and-direction.md`
-- Prioritize `Check source` speed, continued source-generic regression checks, LinkedIn title/company cleanup, and the separate Kosovajob route/extraction problem
+- Prioritize `Check source` speed, continued source-generic regression checks, LinkedIn title/company cleanup, the remaining LinkedIn source-debug finish-state issue, and the separate Kosovajob route/extraction problem
 
 ## Key References
 

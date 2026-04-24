@@ -209,6 +209,7 @@ export function ApplicationsScreen(props: {
   const latestApplyRunIdForSelectedRecord = applyResultsForSelectedRecord[0]?.runId ?? null
   const effectiveSelectedJobId = effectiveSelectedRecord?.jobId ?? null
   const effectiveSelectedRunId = effectiveSelectedApplyResult?.runId ?? null
+  const effectiveSelectedRunUpdatedAt = effectiveSelectedApplyResult?.updatedAt ?? null
   const showLatestAttemptDetails =
     !effectiveSelectedApplyRunId ||
     !latestApplyRunIdForSelectedRecord ||
@@ -301,7 +302,12 @@ export function ApplicationsScreen(props: {
     return () => {
       cancelled = true
     }
-  }, [effectiveSelectedJobId, effectiveSelectedRunId, onGetApplyRunDetails])
+  }, [
+    effectiveSelectedJobId,
+    effectiveSelectedRunId,
+    effectiveSelectedRunUpdatedAt,
+    onGetApplyRunDetails,
+  ])
 
   return (
     <LockedScreenLayout

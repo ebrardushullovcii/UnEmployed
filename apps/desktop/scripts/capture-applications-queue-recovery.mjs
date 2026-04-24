@@ -70,6 +70,18 @@ async function stageSelectedQueue(window) {
   await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
 }
 
+async function selectApplicationRecord(window, title, company) {
+  const recordButton = window.getByRole('button', {
+    name: new RegExp(`${escapeRegExp(title)}\\s+${escapeRegExp(company)}`, 'i'),
+  }).first()
+  await recordButton.waitFor({ timeout: 10000 })
+  await recordButton.click()
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 async function approveCurrentRun(window) {
   const approveButton = window.getByRole('button', { name: 'Record submit approval' })
   await approveButton.waitFor({ timeout: 10000 })
@@ -112,6 +124,7 @@ async function captureApplicationsQueueRecovery() {
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
     await selectQueueJobs(window, ['Senior Product Designer', 'Staff Product Designer'])
     await stageSelectedQueue(window)
+    await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
     await approveCurrentRun(window)
 
     await waitForCondition(
@@ -125,6 +138,9 @@ async function captureApplicationsQueueRecovery() {
       },
       'initial queue run to reach a recoverable state',
     )
+
+    await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
+    await window.getByText('Consent requests', { exact: true }).waitFor({ timeout: 20000 })
 
     const skipJobButton = window.getByRole('button', { name: 'Skip this job' })
     await skipJobButton.waitFor({ timeout: 10000 })

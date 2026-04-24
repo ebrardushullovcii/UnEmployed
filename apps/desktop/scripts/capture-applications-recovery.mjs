@@ -102,6 +102,27 @@ async function expectRunIdVisible(window, runId) {
   await window.getByText(`Run ${runId}`, { exact: true }).waitFor({ timeout: 10000 })
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function selectRunHistoryEntry(window, resultSummary) {
+  if (typeof resultSummary !== 'string' || resultSummary.trim().length === 0) {
+    throw new Error('selectRunHistoryEntry requires a non-empty resultSummary')
+  }
+
+  const runHistorySection = window.getByText('Run history', { exact: true }).locator('xpath=ancestor::section[1]')
+  await runHistorySection.waitFor({ timeout: 10000 })
+
+  const button = runHistorySection.getByRole('button', {
+    name: new RegExp(escapeRegExp(resultSummary), 'i'),
+  }).first()
+
+  await button.waitFor({ timeout: 10000 })
+  await button.click()
+  return button
+}
+
 async function approveResumeForReadyJob(window) {
   await window.getByRole('button', { name: /^Shortlisted/ }).click()
   await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
@@ -210,17 +231,13 @@ async function captureApplicationsRecovery() {
     await window.getByText('Recovery', { exact: true }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-applications-recovery-auto-restaged.png') })
 
-    const latestCopilotRun = [...afterAutoRestage.applyRuns]
-      .filter((run) => run.mode === 'copilot' && run.jobIds.includes('job_ready'))
+    const latestCopilotResult = [...afterAutoRestage.applyJobResults]
+      .filter((result) => result.jobId === 'job_ready' && result.state === 'awaiting_review')
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0]
-    const runHistorySection = window.getByText('Run history', { exact: true }).locator('xpath=ancestor::section[1]')
-    if (!latestCopilotRun) {
+    if (!latestCopilotResult) {
       throw new Error('Expected the retained copilot run in Applications recovery history.')
     }
-    const olderRunButton = runHistorySection.getByRole('button', {
-      name: new RegExp(`Run ${latestCopilotRun.id} updated`, 'i'),
-    })
-    await olderRunButton.click()
+    const olderRunButton = await selectRunHistoryEntry(window, latestCopilotResult.summary)
     await expectRunIdVisible(window, initialCopilotRun.id)
     await waitForCondition(
       async () => (await olderRunButton.locator('xpath=ancestor::li[1]').getAttribute('aria-current')) === 'true',

@@ -1391,7 +1391,12 @@ export function createWorkspaceApplicationMethods(
     },
     async sendResumeAssistantMessage(jobId, content) {
       const workspaceState = await ensureResumeDraft(ctx, jobId);
-      const messageTimestamp = new Date().toISOString();
+      const messageTimestamp = createMonotonicTimestamp(
+        workspaceState.draft.updatedAt,
+      );
+      const assistantMessageTimestamp = createMonotonicTimestamp(
+        messageTimestamp,
+      );
       const userMessage = ResumeAssistantMessageSchema.parse({
         id: createUniqueId(`resume_message_user_${jobId}`),
         jobId,
@@ -1423,7 +1428,7 @@ export function createWorkspaceApplicationMethods(
         jobId,
         content: assistantReply.content,
         patches: normalizedPatches,
-        createdAt: messageTimestamp,
+        createdAt: assistantMessageTimestamp,
       });
 
       let candidateDraft = workspaceState.draft;
@@ -1445,7 +1450,7 @@ export function createWorkspaceApplicationMethods(
           jobId,
           content: `No assistant changes were applied. ${failureDetail}`,
           patches: [],
-          createdAt: messageTimestamp,
+          createdAt: assistantMessageTimestamp,
         });
 
         await ctx.repository.upsertResumeAssistantMessage(userMessage);

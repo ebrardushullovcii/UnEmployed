@@ -21,16 +21,16 @@ Read `docs/STATUS.md` first. Use this file for active work and ready follow-ups,
   - core discovery policy picked up source-specific logic during `017`; the main shared-flow cleanup landed, but remaining source-named debt still needs to be removed rather than copied
   - LinkedIn now persists multiple jobs in the rebuilt real desktop flow, but some title/company extraction remains polluted
   - Desktop benchmark source changes must be rebuilt first because the harness launches `out/main/index.cjs`
-  - `Check source` remains too slow, especially on Kosovajob
-  - Kosovajob discovery still yields weak technical matches and the real app flow still reuses the broken `/search` route
+  - `Check source` remains too slow, especially on Kosovajob, and LinkedIn source-debug can still end in a failed run state after proving a usable draft route
+  - Kosovajob discovery still yields weak technical matches; truthful current-workspace reruns remain at `0` persisted jobs for both single-target `Search now` and KosovaJob-only `run_all`
   - `browser-runtime` still imports catalog session creation from `browser-agent`
   - root `pnpm lint` is blocked by pre-existing `packages/browser-runtime/src/playwright-browser-runtime.test.ts` issues outside the current cleanup
 - next step:
   - finish removing remaining source-named helper debt and keep shared orchestration plug-and-play across job sources
   - keep denied-route-aware starting-url reuse in place while fixing the remaining Kosovajob route/extraction failures
-  - clean remaining LinkedIn persisted title/company pollution while preserving `6+` persisted jobs
+  - clean remaining LinkedIn persisted title/company pollution while preserving the recovered `5` persisted `Search now` and `6` persisted LinkedIn-only `run_all` behavior
   - cut end-to-end `Check source` cost in the real app
-  - fix the real-flow Kosovajob `/search` route reuse, then keep Kosovajob as a separate weak-target diagnosis path
+  - keep Kosovajob as a separate weak-target diagnosis path; latest truthful reruns show the real blocker is still technical-job survival and over-exploration, not the seeded benchmark harness
 
 ## Reopenable Baselines
 
@@ -74,4 +74,4 @@ Read `docs/STATUS.md` first. Use this file for active work and ready follow-ups,
 - Validate cross-platform sidecar packaging for `019`
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import
-- Keep repo-level quality commands aligned with actual workflow and CI
+- Keep repo-level quality commands aligned with actual workflow and CI once `pnpm lint` is unblocked from the known `packages/browser-runtime/src/playwright-browser-runtime.test.ts` failures

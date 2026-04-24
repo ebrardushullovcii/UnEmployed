@@ -44,7 +44,11 @@ Primary user-facing bar:
   - discovery starting-url reuse now honors denied-route guidance instead of silently falling back to a known-bad target URL when no reusable learned routes survive
 - Browser-agent deferred search-result review now stops once fast structured extraction has already filled the configured target count, avoiding unnecessary slower extractor work without adding source-specific policy
 - Source-debug now uses generic phase selection and step-budget reduction when public provider APIs, route hints, prior phase summaries, or existing instructions make full exploration lower value
-- A truthful rebuilt desktop benchmark moved LinkedIn from the old `0`/`1 persisted` ceiling to `6 persisted` in single-target `Search now` and `7 persisted` in LinkedIn-only `run_all`
+- Desktop benchmark harness fixes are landed so truthful reruns now:
+  - keep single-target `check_source` and `search_now` in one Electron session
+  - can temporarily scope explicitly requested disabled current-workspace targets
+  - reuse one Electron session end-to-end for current-workspace benchmarks instead of resolving targets in one launch and benchmarking in another
+- Truthful rebuilt desktop benchmarks moved LinkedIn from the old `0`/`1 persisted` ceiling to `5` to `6` persisted in single-target `Search now` and `6` to `7` persisted in LinkedIn-only `run_all`, depending on the current-workspace rerun
 - Kosovajob remains the weakest real target for both speed and quality
 - Full app-triggered flows are the benchmark source of truth, not narrower service slices
 
@@ -59,6 +63,16 @@ Primary user-facing bar:
 
 ## Latest Truthful Checkpoints
 
+- Latest truthful current-workspace rerun after benchmark harness fixes and rebuilt desktop reuse:
+  - LinkedIn `Check source`: `250.5s`, still `draft`, but the run state ended `failed` after proving a usable draft route
+  - LinkedIn single-target `Search now`: `53.3s`, `5 persisted`
+  - LinkedIn-only `run_all`: `101.6s`, `6 persisted`
+  - This confirms LinkedIn remains near the current best product bar on the real workspace; the seeded benchmark `0 persisted` result was not a truthful product regression signal
+- Latest truthful current-workspace rerun for KosovaJob after the same harness fixes:
+  - KosovaJob `Check source`: `343.6s`, still `draft`
+  - KosovaJob single-target `Search now`: `205.7s`, `0 persisted`
+  - KosovaJob-only `run_all`: `220.8s`, `0 persisted`
+  - KosovaJob remains the dominant live browser blocker after LinkedIn recovery
 - Latest truthful current-workspace rerun after rebuilding desktop with LinkedIn broad floor/direct pass-through:
   - LinkedIn `Check source`: `232.7s`, still `draft`
   - LinkedIn single-target `Search now`: `63.0s`, `6 persisted`, `0` title-triage skips
@@ -110,7 +124,7 @@ Primary user-facing bar:
 
 ## Next Steps
 
-1. Rebuild and rerun truthful `Check source` flows to measure the generic phase-selection and step-budget changes before adding more latency work
+1. Rebuild and rerun truthful `Check source` flows to measure the generic phase-selection and step-budget changes before adding more latency work, with special attention to the remaining LinkedIn source-debug failed-finish behavior
 2. Keep auditing source-named helper debt; remaining source labels should stay limited to provider metadata, profile fields, fixtures, or reusable adapter data
 3. Clean remaining LinkedIn title/company pollution now that multiple candidates survive into persistence
 4. Keep Kosovajob as a separate investigation path from LinkedIn: reduce source-debug and discovery over-exploration, then improve technical-role survival on the homepage query/detail pattern that the real app actually observes without adding Kosovajob-only branches to core `job-finder` discovery orchestration

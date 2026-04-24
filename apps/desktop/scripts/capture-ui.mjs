@@ -50,6 +50,14 @@ async function clickNavigationControl(window, name) {
   await window.getByRole('button', { name }).click()
 }
 
+async function waitForHeading(window, headings) {
+  await window.waitForFunction((allowedHeadings) => {
+    const heading = document.querySelector('h1')
+    const text = heading?.textContent ?? ''
+    return allowedHeadings.some((allowedHeading) => text.includes(allowedHeading))
+  }, headings, { timeout: 10000 })
+}
+
 async function waitForProfileOrSetupHeading(window) {
   await window.waitForFunction(() => {
     const heading = document.querySelector('h1')
@@ -84,7 +92,7 @@ async function captureScreens() {
 
     for (const screen of screens) {
       await clickNavigationControl(window, screen.buttonName)
-      await window.getByRole('heading', { level: 1, name: screen.heading }).waitFor({ timeout: 10000 })
+      await waitForHeading(window, screen.heading === 'Your profile' ? ['Your profile', 'Guided setup'] : [screen.heading])
       await window.screenshot({
         animations: 'disabled',
         path: path.join(outputDir, screen.fileName)

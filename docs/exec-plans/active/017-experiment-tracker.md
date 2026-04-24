@@ -27,6 +27,16 @@ This file is the short working log for `017`. Keep it to baselines, confirmed wi
 
 ## Best Recent Evidence
 
+- Latest truthful current-workspace rerun after fixing benchmark current-workspace target scoping and session reuse:
+  - LinkedIn `Check source`: `250.5s`, `draft`, but the run state still ended `failed` after proving a usable draft route
+  - LinkedIn single-target `Search now`: `53.3s`, `5 persisted`
+  - LinkedIn-only `run_all`: `101.6s`, `6 persisted`
+  - Report: `apps/desktop/test-artifacts/ui/job-finder-app-benchmark-linkedin-current-20260424-reused/job-finder-app-benchmark-report.json`
+- Latest truthful current-workspace rerun for KosovaJob after the same benchmark harness fixes:
+  - KosovaJob `Check source`: `343.6s`, `draft`
+  - KosovaJob single-target `Search now`: `205.7s`, `0 persisted`
+  - KosovaJob-only `run_all`: `220.8s`, `0 persisted`
+  - Report: `apps/desktop/test-artifacts/ui/job-finder-app-benchmark-kosovajob-current-20260424-reused/job-finder-app-benchmark-report.json`
 - Latest truthful current-workspace rerun after rebuilding desktop with LinkedIn broad floor/direct pass-through:
   - LinkedIn `Check source`: `232.7s`, `draft`
   - LinkedIn single-target `Search now`: `63.0s`, `6 persisted`, `0` title-triage skips
@@ -72,6 +82,10 @@ This file is the short working log for `017`. Keep it to baselines, confirmed wi
 
 ## Confirmed Wins
 
+- Fixed benchmark harness correctness issues that were producing misleading regressions:
+  - single-target `check_source` and `search_now` now run in one Electron session so discovery can reuse the source-debug artifact it just created
+  - current-workspace benchmarks can temporarily scope explicitly requested disabled targets and then restore the original target enablement
+  - current-workspace benchmarks now reuse one Electron session end-to-end instead of resolving targets in one app launch and benchmarking in another
 - Fixed owned Chrome attach and teardown issues that were poisoning reruns
 - Landed query-first LinkedIn starts for discovery and source-debug
 - Landed route hygiene and restore guards for broken, templated, or placeholder routes
@@ -94,6 +108,7 @@ This file is the short working log for `017`. Keep it to baselines, confirmed wi
 
 ## Current Bottlenecks
 
+- Default seeded benchmark runs are not a truthful proxy for the `017` product bar because the committed fixture uses a London/design profile that does not match the current-workspace LinkedIn and KosovaJob targets used in truthful reruns
 - shared discovery still contains some source-named helper debt from the LinkedIn recovery work, even after the first cleanup pass
 - LinkedIn now persists multiple candidates in the rebuilt real app, but some extracted titles and companies remain polluted
 - `Check source` still does too much work before returning control
@@ -103,7 +118,7 @@ This file is the short working log for `017`. Keep it to baselines, confirmed wi
 ## Next Experiments
 
 1. Finish removing remaining source-named helper debt and replace it with source-generic orchestration rules
-2. Remove more first-run `Check source` cost
+2. Remove more first-run `Check source` cost, especially the LinkedIn source-debug path that still returns a failed run state after proving a usable draft route
 3. Clean remaining LinkedIn persisted title/company pollution while keeping the new multi-job persistence behavior
 4. Keep Kosovajob separate: reduce `Check source` cost, stop over-exploring low-signal pages, and improve technical-job survival on the homepage query/detail pattern that live inspection confirmed
 5. Re-test provider-backed source-debug against the current full-app bar
