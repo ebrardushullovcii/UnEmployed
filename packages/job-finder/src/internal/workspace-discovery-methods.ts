@@ -644,9 +644,30 @@ export function createWorkspaceDiscoveryMethods(
   JobFinderWorkspaceService,
   "runDiscovery" | "runAgentDiscovery" | "runDiscoveryForTarget"
 > {
+  function trackDiscoveryPromise<T>(promise: Promise<T>): Promise<T> {
+    ctx.activeDiscoveryPromiseRef.current = promise;
+    void promise.finally(() => {
+      if (ctx.activeDiscoveryPromiseRef.current === promise) {
+        ctx.activeDiscoveryPromiseRef.current = null;
+      }
+    });
+    return promise;
+  }
+
   async function executeDiscoveryPipeline(
     options: DiscoveryTargetPipelineOptions,
   ) {
+    if (ctx.activeDiscoveryAbortControllerRef.current) {
+      throw new Error(
+        "A discovery run is already in progress. Wait for it to finish or cancel it before starting another run.",
+      );
+    }
+
+    const executionController = new AbortController();
+    ctx.activeDiscoveryAbortControllerRef.current = executionController;
+    const onExternalAbort = () => executionController.abort();
+    options.signal?.addEventListener("abort", onExternalAbort);
+    const executionSignal = executionController.signal;
     let terminalStatus: "cancelled" | "failed" | "completed" = "completed";
     let caughtError: unknown = null;
     const [
@@ -790,7 +811,7 @@ export function createWorkspaceDiscoveryMethods(
           continue;
         }
 
-        if (options.signal?.aborted) {
+        if (executionSignal.aborted) {
           throw new DOMException("Aborted", "AbortError");
         }
 
@@ -851,7 +872,7 @@ export function createWorkspaceDiscoveryMethods(
           maxSteps: discoveryBudget.maxSteps,
           activeRun,
           emitActivity,
-          ...(options.signal ? { signal: options.signal } : {}),
+          signal: executionSignal,
           openedSessionSources,
           useAgentRuntime: options.useAgentRuntime ?? false,
         });
@@ -1066,7 +1087,7 @@ export function createWorkspaceDiscoveryMethods(
               providerBoardToken: posting.providerBoardToken,
               titleTriageOutcome: posting.titleTriageOutcome,
             }),
-          options.signal,
+          executionSignal,
         );
         const changedJobIds = collectResumeAffectingChangedJobIds(
           workingSavedJobs,
@@ -1261,6 +1282,9 @@ export function createWorkspaceDiscoveryMethods(
           });
         }
       }
+
+      options.signal?.removeEventListener("abort", onExternalAbort);
+      ctx.activeDiscoveryAbortControllerRef.current = null;
     }
 
     activeRun = finalizeDiscoveryRun(
@@ -1307,49 +1331,59 @@ export function createWorkspaceDiscoveryMethods(
   return {
     async runDiscovery(targetId) {
       if (targetId) {
-        return executeDiscoveryPipeline({
-          scope: "single_target",
-          targetId,
-          allowInactiveMarking: false,
-          useAgentRuntime: false,
-        });
+        return trackDiscoveryPromise(
+          executeDiscoveryPipeline({
+            scope: "single_target",
+            targetId,
+            allowInactiveMarking: false,
+            useAgentRuntime: false,
+          }),
+        );
       }
 
-      return executeDiscoveryPipeline({
-        scope: "run_all",
-        allowInactiveMarking: true,
-        useAgentRuntime: false,
-      });
+      return trackDiscoveryPromise(
+        executeDiscoveryPipeline({
+          scope: "run_all",
+          allowInactiveMarking: true,
+          useAgentRuntime: false,
+        }),
+      );
     },
     async runAgentDiscovery(onActivity, signal, targetId) {
       if (targetId) {
-        return executeDiscoveryPipeline({
+        return trackDiscoveryPromise(
+          executeDiscoveryPipeline({
+            scope: "single_target",
+            targetId,
+            ...(onActivity ? { onActivity } : {}),
+            ...(signal ? { signal } : {}),
+            allowInactiveMarking: false,
+            useAgentRuntime: true,
+          }),
+        );
+      }
+
+      return trackDiscoveryPromise(
+        executeDiscoveryPipeline({
+          scope: "run_all",
+          ...(onActivity ? { onActivity } : {}),
+          ...(signal ? { signal } : {}),
+          allowInactiveMarking: true,
+          useAgentRuntime: true,
+        }),
+      );
+    },
+    async runDiscoveryForTarget(targetId, onActivity, signal) {
+      return trackDiscoveryPromise(
+        executeDiscoveryPipeline({
           scope: "single_target",
           targetId,
           ...(onActivity ? { onActivity } : {}),
           ...(signal ? { signal } : {}),
           allowInactiveMarking: false,
           useAgentRuntime: true,
-        });
-      }
-
-      return executeDiscoveryPipeline({
-        scope: "run_all",
-        ...(onActivity ? { onActivity } : {}),
-        ...(signal ? { signal } : {}),
-        allowInactiveMarking: true,
-        useAgentRuntime: true,
-      });
-    },
-    async runDiscoveryForTarget(targetId, onActivity, signal) {
-      return executeDiscoveryPipeline({
-        scope: "single_target",
-        targetId,
-        ...(onActivity ? { onActivity } : {}),
-        ...(signal ? { signal } : {}),
-        allowInactiveMarking: false,
-        useAgentRuntime: true,
-      });
+        }),
+      );
     },
   };
 }

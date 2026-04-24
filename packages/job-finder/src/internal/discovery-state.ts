@@ -300,11 +300,10 @@ export function finalizeDiscoveryState(
   return JobFinderDiscoveryStateSchema.parse({
     ...current,
     runState: run.state,
-    activeRun: run,
+    activeRun: run.state === "running" ? run : null,
     recentRuns: [
       run,
       ...current.recentRuns.filter((entry) => entry.id !== run.id),
     ].slice(0, historyLimit),
   });
 }
-

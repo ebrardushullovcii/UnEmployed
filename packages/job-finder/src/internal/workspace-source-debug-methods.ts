@@ -34,13 +34,33 @@ export function createWorkspaceSourceDebugMethods(
 } {
   const storeMethods = createWorkspaceSourceDebugStoreMethods(ctx);
 
+  function trackSourceDebugPromise<T>(promise: Promise<T>): Promise<T> {
+    ctx.activeSourceDebugPromiseRef.current = promise;
+    void promise.finally(() => {
+      if (ctx.activeSourceDebugPromiseRef.current === promise) {
+        ctx.activeSourceDebugPromiseRef.current = null;
+      }
+    });
+    return promise;
+  }
+
   return {
     runSourceDebugWorkflow: (targetId, signal, options, onProgress) =>
-      runSourceDebugWorkflow(ctx, targetId, signal, options, onProgress),
+      trackSourceDebugPromise(
+        runSourceDebugWorkflow(ctx, targetId, signal, options, onProgress),
+      ),
     async runSourceDebug(targetId, signal, onProgress) {
-      return runSourceDebugWorkflow(ctx, targetId, signal, {
-        clearExistingInstructions: true,
-      }, onProgress);
+      return trackSourceDebugPromise(
+        runSourceDebugWorkflow(
+          ctx,
+          targetId,
+          signal,
+          {
+            clearExistingInstructions: true,
+          },
+          onProgress,
+        ),
+      );
     },
     async cancelSourceDebug(runId) {
       if (
@@ -92,10 +112,18 @@ export function createWorkspaceSourceDebugMethods(
         throw new Error(`Unknown source instruction '${instructionId}'.`);
       }
 
-      return runSourceDebugWorkflow(ctx, targetId, signal, {
-        clearExistingInstructions: false,
-        reviewInstructionId: artifact.id,
-      }, onProgress);
+      return trackSourceDebugPromise(
+        runSourceDebugWorkflow(
+          ctx,
+          targetId,
+          signal,
+          {
+            clearExistingInstructions: false,
+            reviewInstructionId: artifact.id,
+          },
+          onProgress,
+        ),
+      );
     },
   };
 }

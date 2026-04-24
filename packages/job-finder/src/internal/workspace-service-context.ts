@@ -30,8 +30,11 @@ export interface WorkspaceServiceContext {
   exportFileVerifier?: ResumeExportFileVerifier;
   researchAdapter?: ResumeResearchAdapter;
   repository: JobFinderRepository;
+  activeDiscoveryAbortControllerRef: MutableRef<AbortController | null>;
+  activeDiscoveryPromiseRef: MutableRef<Promise<unknown> | null>;
   activeSourceDebugExecutionIdRef: MutableRef<string | null>;
   activeSourceDebugAbortControllerRef: MutableRef<AbortController | null>;
+  activeSourceDebugPromiseRef: MutableRef<Promise<unknown> | null>;
   getWorkspaceSnapshot: () => Promise<JobFinderWorkspaceSnapshot>;
   runSourceDebugWorkflow: (
     targetId: string,

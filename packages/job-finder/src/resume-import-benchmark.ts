@@ -561,8 +561,11 @@ function createBenchmarkContext(input: {
     browserRuntime,
     documentManager,
     repository,
+    activeDiscoveryAbortControllerRef: { current: null },
+    activeDiscoveryPromiseRef: { current: null },
     activeSourceDebugExecutionIdRef: { current: null },
     activeSourceDebugAbortControllerRef: { current: null },
+    activeSourceDebugPromiseRef: { current: null },
     getWorkspaceSnapshot: () =>
       Promise.reject(
         new Error("Workspace snapshots are not available in the benchmark harness."),

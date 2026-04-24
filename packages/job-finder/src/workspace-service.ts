@@ -75,9 +75,18 @@ export function createJobFinderWorkspaceService(
     repository,
     researchAdapter,
   } = options;
+  const activeDiscoveryAbortControllerRef = {
+    current: null as AbortController | null,
+  };
+  const activeDiscoveryPromiseRef = {
+    current: null as Promise<unknown> | null,
+  };
   const activeSourceDebugExecutionIdRef = { current: null as string | null };
   const activeSourceDebugAbortControllerRef = {
     current: null as AbortController | null,
+  };
+  const activeSourceDebugPromiseRef = {
+    current: null as Promise<unknown> | null,
   };
 
   const context: WorkspaceServiceContext = {
@@ -86,8 +95,11 @@ export function createJobFinderWorkspaceService(
     documentManager,
     ...(exportFileVerifier ? { exportFileVerifier } : {}),
     repository,
+    activeDiscoveryAbortControllerRef,
+    activeDiscoveryPromiseRef,
     activeSourceDebugExecutionIdRef,
     activeSourceDebugAbortControllerRef,
+    activeSourceDebugPromiseRef,
     getWorkspaceSnapshot: () =>
       Promise.reject(new Error("Workspace snapshot method not initialized.")),
     runSourceDebugWorkflow: () =>
@@ -324,6 +336,14 @@ export function createJobFinderWorkspaceService(
   }
 
   async function shutdown(): Promise<void> {
+    activeDiscoveryAbortControllerRef.current?.abort();
+    activeSourceDebugAbortControllerRef.current?.abort();
+
+    await Promise.allSettled([
+      activeDiscoveryPromiseRef.current,
+      activeSourceDebugPromiseRef.current,
+    ].filter((value): value is Promise<unknown> => value != null));
+
     const discoveryState = await repository
       .getDiscoveryState()
       .catch(() => null);

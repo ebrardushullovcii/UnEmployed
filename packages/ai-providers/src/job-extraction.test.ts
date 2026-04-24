@@ -221,8 +221,7 @@ describe("job extraction with openai-compatible client", () => {
           "kosovajob_com_shopaz_category_manager_fashion_sports_outdoor_e_commerce",
         canonicalUrl:
           "https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce",
-        title:
-          "Category Manager, Fashion, Sports & Outdoor (E-Commerce) Prishtinë 11 ditë",
+        title: "Category Manager, Fashion, Sports & Outdoor (E-Commerce)",
         company: "Shopaz",
         location: "Prishtinë",
         postedAt: null,
@@ -319,8 +318,61 @@ describe("job extraction with openai-compatible client", () => {
 
       expect(jobs).toHaveLength(1);
       expect(jobs[0]).toMatchObject({
-        title: "Platform Engineer Architect Prishtine",
+        title: "Platform Engineer Architect",
         location: "Prishtine",
+      });
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("uses normalized title and inferred company in search-result description fallback", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              jobs: [
+                {
+                  title:
+                    "Category Manager, Fashion, Sports & Outdoor (E-Commerce) Prishtinë 11 ditë",
+                  company: "",
+                  location: "",
+                  canonicalUrl:
+                    "https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce",
+                  description: "",
+                  summary: "",
+                  applyPath: "unknown",
+                  easyApplyEligible: false,
+                  workMode: [],
+                  keySkills: [],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: "Homepage job listings on Kosovajob",
+        pageUrl: "https://kosovajob.com/",
+        pageType: "search_results",
+        maxJobs: 5,
+      });
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        title: "Category Manager, Fashion, Sports & Outdoor (E-Commerce)",
+        company: "Shopaz",
+        location: "Prishtinë",
+        postedAtText: "11 ditë",
+        description:
+          "Category Manager, Fashion, Sports & Outdoor (E-Commerce) opportunity at Shopaz",
       });
     } finally {
       restoreFetch();

@@ -464,6 +464,61 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationAttempts).toHaveLength(0);
   });
 
+  test("shutdown aborts an in-flight discovery run before closing persistence", async () => {
+    let allowDiscoveryToFinish: (() => void) | null = null;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      async runAgentDiscovery(source, options) {
+        options.onProgress?.({
+          currentUrl: options.startingUrls[0] ?? "https://example.com/jobs",
+          jobsFound: 0,
+          stepCount: 1,
+          currentAction: "navigate",
+          targetId: null,
+          adapterKind: source,
+        });
+
+        await new Promise<void>((resolve, reject) => {
+          allowDiscoveryToFinish = resolve;
+          options.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+
+        return {
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Long-running discovery test run",
+          warning: null,
+          jobs: [],
+          agentMetadata: null,
+        };
+      },
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: createDiscoveryOnlySeed(),
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const discoveryPromise = workspaceService.runAgentDiscovery(() => {});
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    await expect(workspaceService.shutdown()).resolves.toBeUndefined();
+
+    const snapshot = await discoveryPromise;
+    const discoveryState = await repository.getDiscoveryState();
+
+    expect(snapshot.activeDiscoveryRun).toBeNull();
+    expect(snapshot.recentDiscoveryRuns[0]?.state).toBe("cancelled");
+    expect(discoveryState.activeRun).toBeNull();
+    expect(discoveryState.recentRuns[0]?.state).toBe("cancelled");
+
+  });
+
   test("agent discovery does not throw when the configured AI client lacks tool calling", async () => {
     const discoveryResult = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
       "target_site",

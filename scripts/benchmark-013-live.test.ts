@@ -114,6 +114,12 @@ const selectedBenchmarkTargets =
     ? benchmarkTargets.filter((target) => requestedBenchmarkTargetIds.includes(target.id))
     : benchmarkTargets
 
+if (requestedBenchmarkTargetIds.length > 0 && selectedBenchmarkTargets.length === 0) {
+  throw new Error(
+    `BENCHMARK_TARGET_IDS did not match any known benchmark targets. Requested: ${requestedBenchmarkTargetIds.join(', ')}. Available: ${benchmarkTargets.map((target) => target.id).join(', ')}`,
+  )
+}
+
 function getBenchmarkTargetRoles(target: (typeof benchmarkTargets)[number]): string[] {
   return [...(target.benchmarkTargetRoles ?? defaultBenchmarkTargetRoles)]
 }
@@ -341,7 +347,7 @@ function findLatestDiscoveryRunSnapshot(
     asArrayOfRecords(run.targetExecutions).some((execution) => execution.targetId === targetId) ||
     (Array.isArray(run.targetIds) && run.targetIds.includes(targetId))
 
-  return recentRuns.find(runMatchesTarget) ?? (activeRun && runMatchesTarget(activeRun) ? activeRun : null)
+  return (activeRun && runMatchesTarget(activeRun) ? activeRun : null) ?? recentRuns.find(runMatchesTarget)
 }
 
 async function collectSourceDebugBenchmarkPartialState(

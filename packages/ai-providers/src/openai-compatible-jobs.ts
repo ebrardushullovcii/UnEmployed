@@ -436,8 +436,12 @@ export function normalizeExtractedJobs(input: {
     const rawSourceJobId = toStr(raw.sourceJobId);
     const rawCanonicalUrl =
       toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link);
-    const rawTitle = trimToNull(raw.title);
-    const normalizedCompositeTitle = normalizeCompositeTitle(rawTitle ?? "");
+    const originalRawTitle = trimToNull(raw.title);
+    const normalizedCompositeTitle = normalizeCompositeTitle(
+      originalRawTitle ?? "",
+    );
+    const normalizedTitle =
+      trimToNull(normalizedCompositeTitle.title) ?? originalRawTitle ?? "";
 
     const fallbackUrl = input.pageType === "job_detail" ? input.pageUrl : "";
     const derivedCanonicalUrl = buildGenericCanonicalUrl(
@@ -465,13 +469,20 @@ export function normalizeExtractedJobs(input: {
     );
     const rawDescription = trimToNull(toStr(raw.description));
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
+    const normalizedCompany =
+      trimToNull(raw.company) ?? inferCompanyFromCanonicalUrl(derivedCanonicalUrl);
+    const normalizedLocation =
+      trimToNull(raw.location) ?? normalizedCompositeTitle.location;
+    const normalizedPostedAtText =
+      trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative) ??
+      normalizedCompositeTitle.postedAtText;
     const summary =
       input.pageType === "search_results"
         ? trimToNull(raw.summary)
         : (trimToNull(raw.summary) ??
           summarizeJobPosting({
-            title: toStr(raw.title),
-            company: toStr(raw.company),
+            title: normalizedTitle,
+            company: normalizedCompany ?? "",
             description: rawDescription ?? "",
             responsibilities,
             minimumQualifications,
@@ -480,23 +491,14 @@ export function normalizeExtractedJobs(input: {
     const description =
       rawDescription ??
       (input.pageType === "search_results"
-        ? (summary ??
-          `${toStr(raw.title)} opportunity at ${toStr(raw.company)}`)
+        ? (summary ?? `${normalizedTitle} opportunity at ${normalizedCompany ?? ""}`)
         : (summary ?? ""));
-    const normalizedCompany =
-      trimToNull(raw.company) ??
-      inferCompanyFromCanonicalUrl(derivedCanonicalUrl);
-    const normalizedLocation =
-      trimToNull(raw.location) ?? normalizedCompositeTitle.location;
-    const normalizedPostedAtText =
-      trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative) ??
-      normalizedCompositeTitle.postedAtText;
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,
       discoveryMethod: "browser_agent" as const,
       canonicalUrl: derivedCanonicalUrl,
-      title: rawTitle ?? normalizedCompositeTitle.title,
+      title: normalizedTitle,
       company: normalizedCompany ?? "",
       location: normalizedLocation ?? "",
       workMode: toWorkModeArray(raw.workMode),
