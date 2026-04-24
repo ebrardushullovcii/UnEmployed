@@ -139,8 +139,15 @@ async function captureApplicationsQueueRecovery() {
       'initial queue run to reach a recoverable state',
     )
 
+    const initialRecoveryWorkspace = await getWorkspace(window)
+    const needsConsentReview = initialRecoveryWorkspace.applyRuns.some(
+      (run) => run.mode === 'queue_auto' && run.state === 'paused_for_consent',
+    )
+
     await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
-    await window.getByText('Consent requests', { exact: true }).waitFor({ timeout: 20000 })
+    if (needsConsentReview) {
+      await window.getByText('Consent requests', { exact: true }).waitFor({ timeout: 20000 })
+    }
 
     const skipJobButton = window.getByRole('button', { name: 'Skip this job' })
     await skipJobButton.waitFor({ timeout: 10000 })

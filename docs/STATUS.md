@@ -18,7 +18,7 @@
 
 - LinkedIn now persists multiple jobs in the rebuilt real desktop flow, but some persisted title/company fields remain polluted
 - `Check source` is still too slow, especially on Kosovajob, and LinkedIn source-debug can still end in a failed run state after proving a usable draft route
-- Kosovajob discovery still collects weak or non-technical jobs, persists too little, and the real app flow is still reusing a broken `/search` route
+- Kosovajob discovery still collects weak or non-technical jobs, persists too little, and the real app flow still needs stronger route/extraction behavior on the homepage query/detail pattern
 - One architecture seam still violates the intended boundary: `browser-runtime` depends on `browser-agent` for catalog session creation
 
 ## Latest 017 Snapshot

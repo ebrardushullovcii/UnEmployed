@@ -316,11 +316,17 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         filePath: getJobFinderWorkspaceFilePath(),
         seed: createEmptyJobFinderRepositoryState(),
       });
-      const currentResumeImportState = await Promise.all([
-        repository.listResumeImportRuns(),
-        repository.listResumeImportDocumentBundles(),
-        repository.listResumeImportFieldCandidates(),
-      ]).finally(() => repository.close());
+      let currentResumeImportState;
+
+      try {
+        currentResumeImportState = await Promise.all([
+          repository.listResumeImportRuns(),
+          repository.listResumeImportDocumentBundles(),
+          repository.listResumeImportFieldCandidates(),
+        ]);
+      } finally {
+        await repository.close();
+      }
       const partialPayload =
         payload && typeof payload === "object" && !Array.isArray(payload)
           ? (payload as Record<string, unknown>)

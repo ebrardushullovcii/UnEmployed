@@ -1,0 +1,9 @@
+Starting CodeRabbit review in plain text mode...
+
+Review directory: /mnt/d/Projects-Personal/UnEmployed
+
+Connecting to review service
+Setting up
+[2026-04-24T14:10:45.770Z] ERROR: Your review has hit the rate limit. Your organization is not enrolled in usage-based pricing. Contact your admin to enable it, or try again in 17 minutes and 23 seconds.
+Failed to start review: Review failed
+[error] stopping cli

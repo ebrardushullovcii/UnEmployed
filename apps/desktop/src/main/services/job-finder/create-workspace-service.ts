@@ -28,24 +28,25 @@ export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.
 }
 
 export async function createJobFinderWorkspaceServiceAsync() {
+  const env = process.env
   const jobFinderRepository = await createFileJobFinderRepository({
     filePath: getJobFinderWorkspaceFilePath(),
     seed: createEmptyJobFinderRepositoryState()
   })
-  const rawPort = process.env.UNEMPLOYED_CHROME_DEBUG_PORT
-    ? Number.parseInt(process.env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
+  const rawPort = env.UNEMPLOYED_CHROME_DEBUG_PORT
+    ? Number.parseInt(env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
     : null
   const chromeDebugPort = (rawPort !== null && Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535)
     ? rawPort
     : null
-  const aiClient = createDesktopJobFinderAiClient(process.env)
-  const browserAgentEnabled = isBrowserAgentEnabled()
+  const aiClient = createDesktopJobFinderAiClient(env)
+  const browserAgentEnabled = isBrowserAgentEnabled(env)
   const browserRuntime = browserAgentEnabled
     ? createBrowserAgentRuntime({
         userDataDir: getBrowserAgentProfileDirectory(),
-        headless: isBrowserHeadlessEnabled(),
-        ...(process.env.UNEMPLOYED_CHROME_PATH
-          ? { chromeExecutablePath: process.env.UNEMPLOYED_CHROME_PATH }
+        headless: isBrowserHeadlessEnabled(env),
+        ...(env.UNEMPLOYED_CHROME_PATH
+          ? { chromeExecutablePath: env.UNEMPLOYED_CHROME_PATH }
           : {}),
         ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {}),
         jobExtractor: (input) => aiClient.extractJobsFromPage(input),
@@ -58,10 +59,10 @@ export async function createJobFinderWorkspaceServiceAsync() {
             status: 'ready',
             driver: 'catalog_seed',
             label: 'Browser session ready',
-            detail: isDesktopTestApiEnabled()
+            detail: isDesktopTestApiEnabled(env)
               ? 'Deterministic desktop test runtime is ready.'
               : 'Deterministic catalog runtime is ready.',
-            lastCheckedAt: isDesktopTestApiEnabled()
+            lastCheckedAt: isDesktopTestApiEnabled(env)
               ? deterministicTestTimestamp
               : new Date().toISOString()
           }
@@ -72,7 +73,7 @@ export async function createJobFinderWorkspaceServiceAsync() {
     outputDirectory: getGeneratedResumeDocumentsDirectory()
   })
   const exportFileVerifier = createLocalResumeExportFileVerifier()
-  const researchAdapter = isDesktopTestApiEnabled()
+  const researchAdapter = isDesktopTestApiEnabled(env)
     ? undefined
     : createDesktopResumeResearchAdapter()
 

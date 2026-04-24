@@ -1,3 +1,4 @@
+/* eslint-env node, browser */
 /* global process, setTimeout, document */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -106,16 +107,16 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-async function selectRunHistoryEntry(window, resultSummary) {
-  if (typeof resultSummary !== 'string' || resultSummary.trim().length === 0) {
-    throw new Error('selectRunHistoryEntry requires a non-empty resultSummary')
+async function selectRunHistoryEntry(window, runId) {
+  if (typeof runId !== 'string' || runId.trim().length === 0) {
+    throw new Error('selectRunHistoryEntry requires a non-empty runId')
   }
 
   const runHistorySection = window.getByText('Run history', { exact: true }).locator('xpath=ancestor::section[1]')
   await runHistorySection.waitFor({ timeout: 10000 })
 
   const button = runHistorySection.getByRole('button', {
-    name: new RegExp(escapeRegExp(resultSummary), 'i'),
+    name: new RegExp(`Run\\s+${escapeRegExp(runId)}`, 'i'),
   }).first()
 
   await button.waitFor({ timeout: 10000 })
@@ -231,16 +232,10 @@ async function captureApplicationsRecovery() {
     await window.getByText('Recovery', { exact: true }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-applications-recovery-auto-restaged.png') })
 
-    const latestCopilotResult = [...afterAutoRestage.applyJobResults]
-      .filter((result) => result.jobId === 'job_ready' && result.state === 'awaiting_review')
-      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())[0]
-    if (!latestCopilotResult) {
-      throw new Error('Expected the retained copilot run in Applications recovery history.')
-    }
-    const olderRunButton = await selectRunHistoryEntry(window, latestCopilotResult.summary)
+    const olderRunButton = await selectRunHistoryEntry(window, initialCopilotRun.id)
     await expectRunIdVisible(window, initialCopilotRun.id)
     await waitForCondition(
-      async () => (await olderRunButton.locator('xpath=ancestor::li[1]').getAttribute('aria-current')) === 'true',
+      async () => (await olderRunButton.getAttribute('aria-current')) === 'true',
       'older run selection in Applications run history',
     )
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-applications-recovery-history-selected.png') })

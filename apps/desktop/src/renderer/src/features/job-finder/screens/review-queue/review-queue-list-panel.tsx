@@ -69,7 +69,6 @@ export function ReviewQueueListPanel({
               >
                 <div className="flex w-full items-start justify-between gap-3">
                   <label
-                    aria-label={`Select ${item.title} for queue automation`}
                     htmlFor={queueCheckboxId}
                     className={cn(
                       "inline-flex items-center gap-2 text-[0.72rem] uppercase tracking-(--tracking-badge)",

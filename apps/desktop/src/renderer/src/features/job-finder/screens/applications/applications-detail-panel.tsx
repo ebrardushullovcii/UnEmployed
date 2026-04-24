@@ -652,11 +652,9 @@ export function ApplicationsDetailPanel({
                   const isSelected = selectedApplyRunId === result.runId;
 
                   return (
-                    <li
-                      key={result.id}
-                      aria-current={isSelected ? "true" : undefined}
-                    >
+                    <li key={result.id}>
                       <button
+                        aria-current={isSelected ? "true" : undefined}
                         className={cn(
                           "grid w-full gap-2 rounded-(--radius-field) border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30",
                           isSelected
@@ -693,6 +691,9 @@ export function ApplicationsDetailPanel({
                           {result.blockerSummary
                             ? ` • ${result.blockerSummary}`
                             : ""}
+                        </p>
+                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                          Run {result.runId}
                         </p>
                       </button>
                     </li>

@@ -311,7 +311,7 @@ function inferCompanyFromCanonicalUrl(url: string): string | null {
         (!jobSegment.includes("-") && jobSegment.length <= 3) ||
         !/[a-z\p{L}]/iu.test(companySegment)
       ) {
-        return null;
+        continue;
       }
 
       return titleCaseWords(companySegment.replace(/[-_]+/g, " "));

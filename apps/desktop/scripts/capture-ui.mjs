@@ -1,3 +1,6 @@
+/* eslint-env node, browser */
+/* global process, document */
+
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'

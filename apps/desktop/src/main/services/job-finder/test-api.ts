@@ -20,16 +20,21 @@ export function isBrowserAgentEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
+  const normalizedValue = configuredValue?.trim().toLowerCase();
 
   if (configuredValue == null) {
     return true;
   }
 
-  if (isDisabled(configuredValue)) {
+  if (normalizedValue != null && isDisabled(normalizedValue)) {
     return false;
   }
 
-  return isEnabled(configuredValue);
+  if (normalizedValue != null && isEnabled(normalizedValue)) {
+    return true;
+  }
+
+  return true;
 }
 
 export function isBrowserHeadlessEnabled(

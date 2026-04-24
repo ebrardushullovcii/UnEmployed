@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { createDesktopJobFinderAiClient } from './create-workspace-service'
+import { isBrowserAgentEnabled } from './test-api'
 
 describe('createDesktopJobFinderAiClient', () => {
   test('forces the deterministic client when the desktop test API is enabled', () => {
@@ -42,5 +43,23 @@ describe('createDesktopJobFinderAiClient', () => {
 
     expect(client.chatWithTools).toBeUndefined()
     expect(client.getStatus().kind).toBe('deterministic')
+  })
+})
+
+describe('isBrowserAgentEnabled', () => {
+  test('defaults to enabled when the flag is unset', () => {
+    expect(isBrowserAgentEnabled({})).toBe(true)
+  })
+
+  test('disables only for explicit false values', () => {
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: '0' })).toBe(false)
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'false' })).toBe(false)
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: ' FALSE ' })).toBe(false)
+  })
+
+  test('keeps the browser agent enabled for explicit true and unknown values', () => {
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: '1' })).toBe(true)
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'TRUE' })).toBe(true)
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'yes' })).toBe(true)
   })
 })

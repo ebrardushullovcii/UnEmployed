@@ -288,11 +288,11 @@ describe("job extraction with openai-compatible client", () => {
             content: JSON.stringify({
               jobs: [
                 {
-                  title: "Platform Engineer Architect",
+                  title: "Platform Engineer Architect Prishtine",
                   company: "Acme",
-                  location: "Remote",
+                  location: "",
                   canonicalUrl:
-                    "https://jobs.example.com/platform-engineer-architect",
+                    "https://jobs.example.com/platform-engineer-architect-prishtine",
                   description: "Design platform systems.",
                   applyPath: "unknown",
                   easyApplyEligible: false,
@@ -319,8 +319,8 @@ describe("job extraction with openai-compatible client", () => {
 
       expect(jobs).toHaveLength(1);
       expect(jobs[0]).toMatchObject({
-        title: "Platform Engineer Architect",
-        location: "Remote",
+        title: "Platform Engineer Architect Prishtine",
+        location: "Prishtine",
       });
     } finally {
       restoreFetch();

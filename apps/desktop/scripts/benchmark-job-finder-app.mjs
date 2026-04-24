@@ -336,6 +336,7 @@ async function withScopedCurrentWorkspaceTargets(
       },
     },
   };
+  let activeWindow = window;
   const saveScopedTargets = async (activeWindow) =>
     activeWindow.evaluate(
       async ({ profile, searchPreferences }) =>
@@ -347,21 +348,21 @@ async function withScopedCurrentWorkspaceTargets(
     );
 
   try {
-    await saveScopedTargets(window);
+    await saveScopedTargets(activeWindow);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!/Target page, context or browser has been closed/i.test(message)) {
       throw error;
     }
 
-    window = await resolveUsableWindow(app, window);
-    await saveScopedTargets(window);
+    activeWindow = await resolveUsableWindow(app, activeWindow);
+    await saveScopedTargets(activeWindow);
   }
 
   try {
-    return await runner(window);
+    return await runner(activeWindow);
   } finally {
-    await window
+    await activeWindow
       .evaluate(
         async ({ profile, searchPreferences }) =>
           window.unemployed.jobFinder.saveWorkspaceInputs({
@@ -695,17 +696,6 @@ async function runSingleTargetBenchmarkPair(target) {
       resetWorkspaceSnapshot = await resetDiscoveryState(window);
     }
 
-    const wrapResult = (entry) => ({
-      ...entry,
-      targets: [
-        {
-          id: target.id,
-          label: target.label,
-          startingUrl: target.startingUrl,
-        },
-      ],
-    });
-
     return await executeBenchmarkPairScenarios({
       app,
       window,
@@ -856,12 +846,12 @@ async function runCurrentWorkspaceRunAllScenario(app, window, targets) {
       app,
       activeWindow,
       targets.map((target) => target.id),
-      (scopedWindow) =>
-        scopedWindow.evaluate(async () =>
-          window.unemployed.jobFinder.runAgentDiscovery(),
-        ),
-      resetWorkspaceSnapshot,
-    ),
+        (scopedWindow) =>
+          scopedWindow.evaluate(async () =>
+            window.unemployed.jobFinder.runAgentDiscovery(),
+          ),
+        resetWorkspaceSnapshot,
+      ),
   );
   const snapshot = result.value ?? null;
   const effectiveTargetRoles = Array.isArray(snapshot?.searchPreferences?.targetRoles)
@@ -885,72 +875,6 @@ async function runCurrentWorkspaceRunAllScenario(app, window, targets) {
       result: result.value,
     },
   };
-}
-
-async function runSourceDebugScenario(target) {
-  const fixture = useCurrentWorkspace ? null : await loadFixture();
-  return runSingleScenario({
-    scenario: `check_source:${target.id}`,
-    targets: [target],
-    targetRoles: [...target.benchmarkTargetRoles],
-    seededInput: useCurrentWorkspace
-      ? null
-      : {
-          profile: fixture.profile,
-          searchPreferences: buildSearchPreferences(
-            fixture.searchPreferences,
-            [target],
-            [...target.benchmarkTargetRoles],
-          ),
-          settings: buildSettings(fixture.settings),
-        },
-    runner: async (window) => {
-      const snapshot = await window.evaluate(
-        async (targetId) =>
-          window.unemployed.jobFinder.runSourceDebug(targetId),
-        target.id,
-      );
-      const latestRunId = snapshot?.recentSourceDebugRuns?.[0]?.id ?? null;
-      const details = latestRunId
-        ? await window.evaluate(
-            async (runId) =>
-              window.unemployed.jobFinder.getSourceDebugRunDetails(runId),
-            latestRunId,
-          )
-        : null;
-
-      return {
-        snapshot,
-        details,
-      };
-    },
-  });
-}
-
-async function runSingleTargetDiscoveryScenario(target) {
-  const fixture = useCurrentWorkspace ? null : await loadFixture();
-  return runSingleScenario({
-    scenario: `search_now:${target.id}`,
-    targets: [target],
-    targetRoles: [...target.benchmarkTargetRoles],
-    seededInput: useCurrentWorkspace
-      ? null
-      : {
-          profile: fixture.profile,
-          searchPreferences: buildSearchPreferences(
-            fixture.searchPreferences,
-            [target],
-            [...target.benchmarkTargetRoles],
-          ),
-          settings: buildSettings(fixture.settings),
-        },
-    runner: async (window) =>
-      window.evaluate(
-        async (targetId) =>
-          window.unemployed.jobFinder.runAgentDiscovery(undefined, targetId),
-        target.id,
-      ),
-  });
 }
 
 async function runRunAllScenario(targets) {
