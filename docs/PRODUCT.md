@@ -21,6 +21,7 @@ Current product baseline:
 - browser-driven job discovery across configured targets
 - source-debug for learning reusable target instructions
 - resume workspace with ATS-first PDF approval
+- default resume output is the ATS-first `Classic ATS` PDF template; no additional resume templates ship in the current baseline, and any template roadmap or expansion requires a separate approved exec plan
 - apply flows that stop before final submission with Applications recovery
 
 ## Interview Helper

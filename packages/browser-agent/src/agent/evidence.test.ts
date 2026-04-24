@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { addExtractedJobsToState, recordToolEvidence } from './evidence'
+import { addExtractedJobsToState, recordToolEvidence, scoreCollectedJobQuality, type ExtractedJobInput } from './evidence'
 import type { AgentState } from '../types'
 
 function createState(): AgentState {
@@ -27,6 +27,25 @@ function createState(): AgentState {
       lastEstimatedTokensBefore: null,
       lastEstimatedTokensAfter: null,
     }
+  }
+}
+
+function createJob(overrides: Partial<ExtractedJobInput> = {}): ExtractedJobInput {
+  return {
+    sourceJobId: 'job_quality',
+    canonicalUrl: 'https://jobs.example.com/job-quality',
+    title: 'Staff Frontend Engineer',
+    company: 'Signal Systems',
+    location: 'Remote',
+    description: 'Build product experiences.',
+    salaryText: null,
+    summary: 'Build product experiences.',
+    postedAt: null,
+    workMode: ['remote'],
+    applyPath: 'unknown',
+    easyApplyEligible: false,
+    keySkills: [],
+    ...overrides,
   }
 }
 
@@ -211,13 +230,75 @@ describe('addExtractedJobsToState', () => {
     expect(initialAddedCount).toBe(1)
     expect(replacementAddedCount).toBe(0)
     expect(state.collectedJobs).toHaveLength(1)
-    expect(state.collectedJobs[0]).toEqual(
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404542575/',
-        title: 'Full Stack Developer (AI-First)',
+	    expect(state.collectedJobs[0]).toEqual(
+	      expect.objectContaining({
+	        sourceJobId: 'linkedin_detail_better',
+	        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404542575/',
+	        title: 'Full Stack Developer (AI-First)',
         company: 'Full Circle Agency',
         location: 'Prishtina (Remote)',
       }),
     )
+	  })
+	})
+
+describe('scoreCollectedJobQuality', () => {
+  test('penalizes repeated leading title phrases', () => {
+    const normalScore = scoreCollectedJobQuality(createJob())
+    const repeatedScore = scoreCollectedJobQuality(createJob({
+      title: 'Staff Frontend Engineer Staff Frontend Engineer',
+    }))
+
+    expect(repeatedScore).toBeLessThan(normalScore - 100)
+  })
+
+  test('penalizes single-word titles', () => {
+    const normalScore = scoreCollectedJobQuality(createJob())
+    const singleWordScore = scoreCollectedJobQuality(createJob({ title: 'Engineer' }))
+
+    expect(singleWordScore).toBeLessThan(normalScore)
+  })
+
+  test('penalizes UI-noise tokens in title and company', () => {
+    const normalScore = scoreCollectedJobQuality(createJob())
+    const noisyTitleScore = scoreCollectedJobQuality(createJob({
+      title: 'Dismiss Staff Frontend Engineer viewed',
+    }))
+    const noisyCompanyScore = scoreCollectedJobQuality(createJob({
+      company: 'Signal Systems with verification',
+    }))
+
+    expect(noisyTitleScore).toBeLessThan(normalScore)
+    expect(noisyCompanyScore).toBeLessThan(normalScore)
+  })
+
+  test('penalizes title and company containment signals', () => {
+    const normalScore = scoreCollectedJobQuality(createJob())
+    const companyContainsTitleScore = scoreCollectedJobQuality(createJob({
+      title: 'Frontend Engineer',
+      company: 'Frontend Engineer Confidential',
+    }))
+    const titleContainsCompanyScore = scoreCollectedJobQuality(createJob({
+      title: 'Signal Systems Staff Engineer',
+      company: 'Signal Systems',
+    }))
+
+    expect(companyContainsTitleScore).toBeLessThan(normalScore)
+    expect(titleContainsCompanyScore).toBeLessThan(normalScore)
+  })
+
+  test('rewards structured fields and easy-apply evidence', () => {
+    const sparseScore = scoreCollectedJobQuality(createJob())
+    const richScore = scoreCollectedJobQuality(createJob({
+      description: 'Build product experiences for a complex platform with clear ownership and cross-functional collaboration.',
+      summary: 'Build product experiences for a complex platform.',
+      keySkills: ['React', 'TypeScript'],
+      responsibilities: ['Own the frontend architecture.'],
+      minimumQualifications: ['5 years of product engineering experience.'],
+      preferredQualifications: ['Electron experience.'],
+      easyApplyEligible: true,
+    }))
+
+    expect(richScore).toBeGreaterThan(sparseScore + 50)
   })
 })

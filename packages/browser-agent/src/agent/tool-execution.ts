@@ -5,9 +5,10 @@ import { getToolExecutor } from '../tools'
 import type { JobExtractor } from '../agent'
 import { addExtractedJobsToState } from './evidence'
 import {
-  isClosedPageError,
-  isClosedPageErrorMessage,
-  waitForRetryDelay,
+	  isClosedPageError,
+	  isClosedPageErrorMessage,
+	  recoverLivePageState,
+	  waitForRetryDelay,
 } from './discovery-helpers'
 import { buildSearchResultCardMergeKey, buildStructuredCandidateJobs } from './job-extraction'
 import {
@@ -15,11 +16,10 @@ import {
   getSearchResultsExtractionReviewBudget,
 } from './search-results-budget'
 import {
-  getSeededQueryRuleParams,
-  isSeededQueryPlaceholderValue,
-  looksLikeSeededSearchSurfacePath,
-  SEEDED_QUERY_PATH_HINTS,
-} from './seeded-query'
+	  getSeededQueryRuleParams,
+	  isSeededQueryPlaceholderValue,
+	  looksLikeSeededSearchSurfacePath,
+	} from './seeded-query'
 
 const SEEDED_QUERY_GUARD_TOOLS = new Set(['navigate', 'click', 'fill', 'select_option', 'go_back'])
 const SEEDED_QUERY_GUARD_LOCATION_NOISE = new Set(['remote', 'hybrid', 'on', 'site'])
@@ -167,6 +167,22 @@ function parseSeededSearchQuery(config: AgentConfig): SeededSearchQuery | null {
   return null
 }
 
+function normalizeRestoreCandidateUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(value)
+    parsed.hash = ''
+    parsed.searchParams.sort()
+    return parsed.toString()
+  } catch {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+}
+
 function queryDropsSeededTokens(candidateTokens: readonly string[], seededTokens: readonly string[]): boolean {
   if (seededTokens.length === 0) {
     return false
@@ -279,11 +295,16 @@ async function restoreAfterSeededQueryGuard(input: {
   state: AgentState
   config: AgentConfig
   previousUrl: string
-}): Promise<string | null> {
-  const seededQuery = parseSeededSearchQuery(input.config)
-  const restoreCandidates = [...new Set([input.previousUrl, seededQuery?.seedUrl ?? null])].filter(
-    (value): value is string => Boolean(value),
-  )
+	}): Promise<string | null> {
+	  const seededQuery = parseSeededSearchQuery(input.config)
+	  const restoreCandidateMap = new Map<string, string>()
+	  for (const candidate of [input.previousUrl, seededQuery?.seedUrl ?? null]) {
+	    const normalized = normalizeRestoreCandidateUrl(candidate)
+	    if (normalized && candidate) {
+	      restoreCandidateMap.set(normalized, candidate)
+	    }
+	  }
+	  const restoreCandidates = [...restoreCandidateMap.values()]
 
   for (const candidateUrl of restoreCandidates) {
     const urlValidation = isAllowedUrl(candidateUrl, input.config.navigationPolicy)
@@ -306,16 +327,24 @@ async function restoreAfterSeededQueryGuard(input: {
         waitUntil: 'domcontentloaded',
         timeout: 10000,
       })
-      const restoredUrl = input.pageRef.current.url() || candidateUrl
-      const restoredGuardViolation = detectSeededSearchQueryDrift({
-        config: input.config,
-        state: input.state,
-        url: restoredUrl,
-        previousUrl: input.previousUrl,
-      })
-      if (restoredGuardViolation) {
-        continue
-      }
+	      const restoredUrl = input.pageRef.current.url() || candidateUrl
+	      const restoredGuardViolation = detectSeededSearchQueryDrift({
+	        config: input.config,
+	        state: input.state,
+	        url: restoredUrl,
+	        previousUrl: input.previousUrl,
+	      })
+	      if (restoredGuardViolation) {
+	        try {
+	          await input.pageRef.current.goto(input.previousUrl, {
+	            waitUntil: 'domcontentloaded',
+	            timeout: 10000,
+	          })
+	        } catch {
+	          // Keep state unchanged; normal navigation guards will handle the still-drifting page.
+	        }
+	        continue
+	      }
 
       input.state.currentUrl = restoredUrl
       input.state.lastStableUrl = restoredUrl
@@ -576,42 +605,13 @@ async function recoverClosedPage(input: {
   toolName: string
   onProgress?: OnProgressCallback
 }): Promise<boolean> {
-  if (!input.config.resolveLivePage) {
-    return false
-  }
-
-  const livePage = await input.config.resolveLivePage()
-  input.pageRef.current = livePage
-  const recoveredUrl = livePage.url()
-  let canTrackRecoveredUrl = false
-  if (recoveredUrl) {
-    const recoveredUrlValidation = isAllowedUrl(recoveredUrl, input.config.navigationPolicy)
-    canTrackRecoveredUrl = recoveredUrlValidation.valid && recoveredUrl !== 'about:blank'
-
-    if (recoveredUrlValidation.valid) {
-      input.state.currentUrl = recoveredUrl
-    }
-
-    if (canTrackRecoveredUrl) {
-      input.state.lastStableUrl = recoveredUrl
-      input.state.visitedUrls.add(recoveredUrl)
-    }
-  }
-
-  input.onProgress?.({
-    currentUrl: input.state.currentUrl,
-    jobsFound: input.state.collectedJobs.length,
-    stepCount: input.state.stepCount,
-    currentAction: `recover_page:${input.toolName}`,
-    message: canTrackRecoveredUrl
-      ? 'Recovered to a live browser page after the previous tab or page closed.'
-      : 'Recovered to a live browser page, but it stayed off-policy so normal navigation guards remain in control.',
-    waitReason: 'waiting_on_page',
-    targetId: null,
-    adapterKind: input.config.source,
+  return recoverLivePageState({
+    config: input.config,
+    pageRef: input.pageRef,
+    state: input.state,
+    reason: input.toolName,
+    ...(input.onProgress ? { onProgress: input.onProgress } : {}),
   })
-
-  return canTrackRecoveredUrl
 }
 
 export async function executeToolCall(
@@ -626,11 +626,11 @@ export async function executeToolCall(
   const toolName = toolCall.function.name
   let args: Record<string, unknown> = {}
   try {
-    const parsedArgs = JSON.parse(toolCall.function.arguments || '{}')
+    const parsedArgs = JSON.parse(toolCall.function.arguments || '{}') as unknown
     if (!parsedArgs || typeof parsedArgs !== 'object' || Array.isArray(parsedArgs)) {
       throw new Error('Tool arguments must be a JSON object')
     }
-    args = parsedArgs
+    args = parsedArgs as Record<string, unknown>
   } catch (parseError) {
     console.error(`[Agent] Failed to parse tool arguments for ${toolName}:`, parseError)
     return {

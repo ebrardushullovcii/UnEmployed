@@ -10,15 +10,13 @@ import { createLocalResumeExportFileVerifier } from '../../adapters/job-finder-e
 import { createEmptyJobFinderRepositoryState } from '../../adapters/job-finder-initial-state'
 import { createDesktopResumeResearchAdapter } from '../../adapters/job-finder-research-adapter'
 import { getBrowserAgentProfileDirectory, getGeneratedResumeDocumentsDirectory, getJobFinderWorkspaceFilePath } from './paths'
-import { isBrowserAgentEnabled, isBrowserHeadlessEnabled, isDesktopTestApiEnabled } from './test-api'
+import { isBrowserAgentEnabled, isBrowserHeadlessEnabled, isDesktopTestApiEnabled, isEnabled } from './test-api'
 
 const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
 
 export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.env) {
   const desktopTestApiEnabled = isDesktopTestApiEnabled(env)
-  const forceLiveAiDuringTestApi =
-    env.UNEMPLOYED_TEST_API_USE_LIVE_AI === '1' ||
-    env.UNEMPLOYED_TEST_API_USE_LIVE_AI === 'true'
+  const forceLiveAiDuringTestApi = isEnabled(env.UNEMPLOYED_TEST_API_USE_LIVE_AI)
 
   if (desktopTestApiEnabled && !forceLiveAiDuringTestApi) {
     return createDeterministicJobFinderAiClient(

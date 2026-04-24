@@ -17,7 +17,14 @@ export async function shutdownJobFinderWorkspaceService() {
     return
   }
 
-  const service = await servicePromise
+  const service = await servicePromise.catch((error) => {
+    console.warn('[Desktop] Job Finder workspace service was not created before shutdown.', error)
+    return undefined
+  })
+  if (!service) {
+    return
+  }
+
   await service.shutdown().catch((error) => {
     console.warn('[Desktop] Failed to shut down Job Finder workspace service cleanly.', error)
   })

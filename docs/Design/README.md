@@ -16,7 +16,7 @@ Use this directory as visual reference only.
 - `job-finder-review-queue/`
 - `job-finder-applications/`
 - `job-finder-settings/`
-- `job-finder-state-*`
+- `job-finder-state-*` (state folders such as `job-finder-state-loading`, `job-finder-state-error`, and `job-finder-state-completed`)
 - `tactical-command-design-system/`
 
 ## Historical Reference

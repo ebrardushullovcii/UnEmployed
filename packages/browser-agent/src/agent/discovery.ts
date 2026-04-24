@@ -1,5 +1,5 @@
 import type { Page } from 'playwright'
-import type { AgentConfig, AgentResult, AgentState } from '../types'
+import type { AgentConfig, AgentProgress, AgentResult, AgentState, ToolCall } from '../types'
 import { getToolDefinitions } from '../tools'
 import { createSystemPrompt } from '../prompts'
 import { isAllowedUrl } from '../allowlist'
@@ -33,9 +33,10 @@ import {
   getEvidenceSignalCount,
   getLlmResponse,
   getNonRouteEvidenceSignalCount,
-  hasSufficientEarlyForcedFinishEvidence,
-  isClosedPageError,
-  summarizeExtractionPassResult,
+	  hasSufficientEarlyForcedFinishEvidence,
+	  isClosedPageError,
+	  recoverLivePageState,
+	  summarizeExtractionPassResult,
   waitForInitialPageReady,
   type ExtractionPassSummary,
 } from './discovery-helpers'
@@ -71,7 +72,7 @@ export async function runAgentDiscovery(
   config: AgentConfig,
   llmClient: LLMClient,
   jobExtractor: JobExtractor,
-  onProgress?: (progress: import('../types').AgentProgress) => void,
+  onProgress?: (progress: AgentProgress) => void,
   signal?: AbortSignal,
 ): Promise<AgentResult> {
   console.log(`[Agent] Starting discovery: ${config.targetJobCount} jobs target`)
@@ -279,40 +280,13 @@ export async function runAgentDiscovery(
     })
   }
   const recoverLivePage = async (reason: string): Promise<boolean> => {
-    if (!config.resolveLivePage) {
-      return false
-    }
-
-    const livePage = await config.resolveLivePage()
-    pageRef.current = livePage
-    const recoveredUrl = livePage.url()
-    let canTrackRecoveredUrl = false
-    if (recoveredUrl) {
-      const recoveredUrlValidation = isAllowedUrl(recoveredUrl, config.navigationPolicy)
-      canTrackRecoveredUrl = recoveredUrlValidation.valid && recoveredUrl !== 'about:blank'
-
-      if (recoveredUrlValidation.valid) {
-        state.currentUrl = recoveredUrl
-      }
-
-      if (canTrackRecoveredUrl) {
-        state.lastStableUrl = recoveredUrl
-        state.visitedUrls.add(recoveredUrl)
-      }
-    }
-
-    emitProgress({
-      ...(state.currentUrl ? { currentUrl: state.currentUrl } : {}),
-      jobsFound: state.collectedJobs.length,
-      stepCount: state.stepCount,
-      currentAction: `recover_page:${reason}`,
-      message: canTrackRecoveredUrl
-        ? 'Recovered to a live browser page after the previous tab or page closed.'
-        : 'Recovered to a live browser page, but the page stayed off-policy so normal navigation guards remain in control.',
-      waitReason: 'waiting_on_page',
+    return recoverLivePageState({
+      config,
+      pageRef,
+      state,
+      reason,
+      ...(onProgress ? { onProgress } : {}),
     })
-
-    return canTrackRecoveredUrl
   }
 
   try {
@@ -472,25 +446,30 @@ export async function runAgentDiscovery(
         config,
       })
       if (seededQueryRecovery) {
+        const seededDriftKey = `${seededQueryRecovery.blockedUrl}|${seededQueryRecovery.restoredUrl ?? ''}`
+        const shouldAppendSeededDrift = state.lastSeededDrift !== seededDriftKey
+        state.lastSeededDrift = seededDriftKey
         const blockedUrl = sanitizeUrl(seededQueryRecovery.blockedUrl)
         const restoredUrl = sanitizeUrl(seededQueryRecovery.restoredUrl)
-        appendPhaseEvidence(state, 'routeSignals', [
-          seededQueryRecovery.restoredUrl
-            ? blockedUrl && restoredUrl
-              ? `Restored the seeded search surface from ${blockedUrl} back to ${restoredUrl} before the next planning turn.`
-              : restoredUrl
-                ? `Restored the seeded search surface before the next planning turn: ${restoredUrl}`
-                : null
-            : blockedUrl
-              ? `Detected a blocked seeded query route before planning but automatic restore failed: ${blockedUrl}`
-              : 'Detected a blocked seeded query route before planning but automatic restore failed.',
-        ])
-        appendConversationMessage(state, {
-          role: 'user',
-          content: seededQueryRecovery.restoredUrl
-            ? `${seededQueryRecovery.guardMessage} The browser was automatically restored to the seeded search surface before planning continued. Stay on that seeded search route unless it is clearly broken.`
-            : `${seededQueryRecovery.guardMessage} Automatic restore did not succeed yet, so the next action must restore the seeded search surface before any broader exploration.`,
-        })
+        if (shouldAppendSeededDrift) {
+          appendPhaseEvidence(state, 'routeSignals', [
+            seededQueryRecovery.restoredUrl
+              ? blockedUrl && restoredUrl
+                ? `Restored the seeded search surface from ${blockedUrl} back to ${restoredUrl} before the next planning turn.`
+                : restoredUrl
+                  ? `Restored the seeded search surface before the next planning turn: ${restoredUrl}`
+                  : null
+              : blockedUrl
+                ? `Detected a blocked seeded query route before planning but automatic restore failed: ${blockedUrl}`
+                : 'Detected a blocked seeded query route before planning but automatic restore failed.',
+          ])
+          appendConversationMessage(state, {
+            role: 'user',
+            content: seededQueryRecovery.restoredUrl
+              ? `${seededQueryRecovery.guardMessage} The browser was automatically restored to the seeded search surface before planning continued. Stay on that seeded search route unless it is clearly broken.`
+              : `${seededQueryRecovery.guardMessage} Automatic restore did not succeed yet, so the next action must restore the seeded search surface before any broader exploration.`,
+          })
+        }
         emitProgress({
           currentUrl: seededQueryRecovery.restoredUrl ?? seededQueryRecovery.blockedUrl,
           jobsFound: state.collectedJobs.length,
@@ -503,14 +482,16 @@ export async function runAgentDiscovery(
             : 'Detected a blocked seeded query route before planning, but automatic restore failed.',
           waitReason: 'waiting_on_page',
         })
-        if (!maybeCompactConversation(state, config, createUserPrompt)) {
+        if (shouldAppendSeededDrift && !maybeCompactConversation(state, config, createUserPrompt)) {
           return buildContextBudgetFailureResult(
             state,
             requiresExplicitFinish,
             pendingDebugFindings,
           )
         }
-        recordEvidenceProgress()
+        if (shouldAppendSeededDrift) {
+          recordEvidenceProgress()
+        }
       }
 
       if (!requiresExplicitFinish) {
@@ -548,7 +529,7 @@ export async function runAgentDiscovery(
         waitReason: 'waiting_on_ai',
       })
 
-      let response: { content?: string; toolCalls?: import('../types').ToolCall[]; reasoning?: string }
+      let response: { content?: string; toolCalls?: ToolCall[]; reasoning?: string }
         try {
           if (shouldFailForContextBudget(state, config)) {
           return buildContextBudgetFailureResult(

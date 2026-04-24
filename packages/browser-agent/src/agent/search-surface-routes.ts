@@ -20,7 +20,7 @@ export const SEARCH_SURFACE_ROUTE_RULES = [
     detailPathTemplate: '/jobs/view/{sourceJobId}/',
     embeddedJobIdParams: ['currentJobId', 'selectedJobId', 'jobId'],
     locationParam: 'geoId',
-    trackingParams: ['trk', 'trackingId'],
+	    trackingParams: ['ebp', 'refId', 'trk', 'trackingId'],
   },
 ] satisfies readonly SearchSurfaceRouteRule[];
 

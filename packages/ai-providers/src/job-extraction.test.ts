@@ -155,6 +155,7 @@ describe('job extraction with openai-compatible client', () => {
       })
 
       expect(jobs[0]).toMatchObject({
+        title: 'Senior Frontend Engineer',
         postedAt: null,
         postedAtText: 'Posted 3 days ago',
         responsibilities: ['Own the design-system frontend architecture'],
@@ -173,7 +174,7 @@ describe('job extraction with openai-compatible client', () => {
     }
   })
 
-  test('recovers sparse weak-target search results by splitting composite titles and deriving company from same-host urls', async () => {
+  test('recovers sparse weak-target search results by deriving company from same-host urls and preserving visible snippets', async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
         {
@@ -212,11 +213,12 @@ describe('job extraction with openai-compatible client', () => {
       expect(jobs[0]).toMatchObject({
         sourceJobId: 'kosovajob_com_shopaz_category_manager_fashion_sports_outdoor_e_commerce',
         canonicalUrl: 'https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce',
-        title: 'Category Manager, Fashion, Sports & Outdoor (E-Commerce)',
+        title: 'Category Manager, Fashion, Sports & Outdoor (E-Commerce) Prishtinë 11 ditë',
         company: 'Shopaz',
         location: 'Prishtinë',
         postedAt: null,
-        postedAtText: '11 ditë'
+        postedAtText: '11 ditë',
+        description: 'Visible homepage job snippet.'
       })
     } finally {
       restoreFetch()

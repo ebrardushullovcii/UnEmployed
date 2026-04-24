@@ -875,16 +875,16 @@ function canonicalizeUrl(
       return buildSearchSurfaceDetailUrl(parsed, embeddedSearchSurfaceJobId) ?? "";
     }
 
+    const removableSearchSurfaceParams = new Set([
+      ...(searchSurfaceRule?.embeddedJobIdParams ?? []),
+      ...(searchSurfaceRule?.trackingParams ?? []),
+    ].map((key) => key.toLowerCase()));
+
     for (const key of [...parsed.searchParams.keys()]) {
       const lowered = key.toLowerCase();
       if (
         lowered.startsWith("utm_") ||
-        lowered === "ebp" ||
-        lowered === "refid" ||
-        lowered === "trk" ||
-        lowered === "trackingid" ||
-        lowered === "currentjobid" ||
-        lowered === "selectedjobid"
+        removableSearchSurfaceParams.has(lowered)
       ) {
         parsed.searchParams.delete(key);
       }
@@ -2525,12 +2525,13 @@ export function scoreSearchResultCardForPreferences(input: {
   pageUrl: string;
   candidate: SearchResultCardCandidate;
   searchPreferences?: ExtractionSearchPreferences;
+  prebuiltJob?: ExtractedJobInput;
 }): number {
   if (!input.searchPreferences) {
     return 0;
   }
 
-  const job = buildJobFromCardCandidate(input.candidate, input.pageUrl);
+  const job = input.prebuiltJob ?? buildJobFromCardCandidate(input.candidate, input.pageUrl);
   if (!job) {
     return 0;
   }
@@ -2542,12 +2543,13 @@ export function scoreSearchResultCardTitleForPreferences(input: {
   pageUrl: string;
   candidate: SearchResultCardCandidate;
   searchPreferences?: ExtractionSearchPreferences;
+  prebuiltJob?: ExtractedJobInput;
 }): number {
   if (!input.searchPreferences) {
     return 0;
   }
 
-  const job = buildJobFromCardCandidate(input.candidate, input.pageUrl);
+  const job = input.prebuiltJob ?? buildJobFromCardCandidate(input.candidate, input.pageUrl);
   if (!job) {
     return 0;
   }

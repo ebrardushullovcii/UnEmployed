@@ -336,7 +336,6 @@ describe("runAgentDiscovery recovery behavior", () => {
     await replacementPage.goto("https://www.linkedin.com/jobs/collections/recommended/");
     const originalFirstPageGoto = firstPage.goto.bind(firstPage);
 
-    let activePage = firstPage;
     let recoveryCalls = 0;
     let firstPageGotoCount = 0;
 
@@ -429,14 +428,13 @@ describe("runAgentDiscovery recovery behavior", () => {
     const config = createConfig();
     config.resolveLivePage = vi.fn(async () => {
       recoveryCalls += 1;
-      activePage = replacementPage;
       return replacementPage;
     });
 
     const progressEvents: Array<{ currentAction?: string; message?: string | null }> = [];
 
     const result = await runAgentDiscovery(
-      activePage,
+      firstPage,
       config,
       llmClient,
       jobExtractor,
@@ -473,7 +471,6 @@ describe("runAgentDiscovery recovery behavior", () => {
     const firstPage = createPage() as Page;
     const replacementPage = createPage() as Page;
     const originalReplacementGoto = replacementPage.goto.bind(replacementPage);
-    await originalReplacementGoto("https://www.linkedin.com/jobs/collections/recommended/");
     const recoveredPrimaryUrl = "https://www.linkedin.com/jobs/search/";
     const recoveredFallbackUrl = "https://www.linkedin.com/jobs/collections/recommended/";
 
@@ -539,7 +536,7 @@ describe("runAgentDiscovery recovery behavior", () => {
     expect(result.error).toBeUndefined();
     expect(config.resolveLivePage).toHaveBeenCalledTimes(1);
     expect(firstPageGoto).toHaveBeenCalled();
-    expect(replacementPageGoto).toHaveBeenCalledWith(
+    expect(replacementPageGoto).not.toHaveBeenCalledWith(
       recoveredPrimaryUrl,
       expect.objectContaining({ waitUntil: "domcontentloaded" }),
     );

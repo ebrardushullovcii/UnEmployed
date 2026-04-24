@@ -106,6 +106,7 @@ export interface AgentConfig {
   userProfile: CandidateProfile;
   searchPreferences: AgentSearchPreferences;
   startingUrls: string[];
+  weakSameHostBoard?: boolean;
   navigationPolicy: AgentNavigationPolicy;
   promptContext: AgentPromptContext;
   extractionContext?: AgentExtractionContext;
@@ -129,6 +130,7 @@ export interface AgentState {
   phaseEvidence: SourceDebugPhaseEvidence;
   compactionState: SourceDebugCompactionState | null;
   compactionStatus: AgentCompactionStatus;
+  lastSeededDrift?: string;
 }
 
 export interface AgentResult {

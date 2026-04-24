@@ -1,8 +1,42 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+import type { Page } from 'playwright'
 
 import { createConfig } from '../agent.test-fixtures'
 import { buildStructuredCandidateJobs } from './job-extraction'
-import { detectSeededSearchQueryDrift } from './tool-execution'
+import { detectSeededSearchQueryDrift, restoreSeededQuerySurfaceIfNeeded } from './tool-execution'
+import type { AgentState } from '../types'
+
+function createState(): AgentState {
+  return {
+    conversation: [],
+    reviewTranscript: [],
+    collectedJobs: [],
+    deferredSearchExtractions: new Map(),
+    failedInteractionAttempts: new Map([
+      ['navigate:placeholder', { count: 1, lastError: 'placeholder drift' }],
+    ]),
+    failedInteractionPageStateToken: 'stale-page',
+    visitedUrls: new Set(['https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo']),
+    stepCount: 1,
+    currentUrl: 'https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+    lastStableUrl: 'https://jobs.example.com/search?location=Prishtina%2C+Kosovo&keywords=Senior+Full-Stack+Software+Engineer',
+    isRunning: true,
+    phaseEvidence: {
+      visibleControls: [],
+      successfulInteractions: [],
+      routeSignals: [],
+      attemptedControls: [],
+      warnings: [],
+    },
+    compactionState: null,
+    compactionStatus: {
+      lastTriggerKind: null,
+      usedMessageCountFallback: false,
+      lastEstimatedTokensBefore: null,
+      lastEstimatedTokensAfter: null,
+    },
+  }
+}
 
 describe('deferred search-surface card identity', () => {
   test('keeps distinct seeded-search fallback cards when merging repeated captures of the same results page', () => {
@@ -59,6 +93,7 @@ describe('seeded search query guard', () => {
       targetRoles: ['Senior Full-Stack Software Engineer'],
       locations: ['Prishtina, Kosovo'],
     }
+    const seededUrl = config.startingUrls[0] ?? ''
 
     expect(
       detectSeededSearchQueryDrift({
@@ -66,11 +101,11 @@ describe('seeded search query guard', () => {
         state: {
           collectedJobs: [],
           deferredSearchExtractions: new Map([
-            ['seed', { key: 'seed', pageUrl: config.startingUrls[0]!, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
+            ['seed', { key: 'seed', pageUrl: seededUrl, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
           ]),
         },
         url: 'https://jobs.example.com/search?keywords=Software%20Engineer&location=Kosovo',
-        previousUrl: config.startingUrls[0]!,
+        previousUrl: seededUrl,
       }),
     ).toContain('Blocked a broader seeded query')
   })
@@ -84,6 +119,7 @@ describe('seeded search query guard', () => {
       targetRoles: ['Senior Full-Stack Software Engineer'],
       locations: ['Prishtina, Kosovo'],
     }
+    const seededUrl = config.startingUrls[0] ?? ''
 
     expect(
       detectSeededSearchQueryDrift({
@@ -91,11 +127,11 @@ describe('seeded search query guard', () => {
         state: {
           collectedJobs: [],
           deferredSearchExtractions: new Map([
-            ['seed', { key: 'seed', pageUrl: config.startingUrls[0]!, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
+            ['seed', { key: 'seed', pageUrl: seededUrl, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
           ]),
         },
         url: 'https://jobs.example.com/search?currentJobId=4404542575&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-        previousUrl: config.startingUrls[0]!,
+        previousUrl: seededUrl,
       }),
     ).toBeNull()
   })
@@ -124,6 +160,7 @@ describe('seeded search query guard', () => {
     config.startingUrls = [
       'https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
     ]
+    const seededUrl = config.startingUrls[0] ?? ''
 
     expect(
       detectSeededSearchQueryDrift({
@@ -133,7 +170,7 @@ describe('seeded search query guard', () => {
           deferredSearchExtractions: new Map(),
         },
         url: 'https://jobs.example.com/search?currentJobId=4400784689&geoId=GEO_ID&keywords=JOB_TITLE',
-        previousUrl: config.startingUrls[0]!,
+        previousUrl: seededUrl,
       }),
     ).toContain('placeholder query values')
   })
@@ -163,6 +200,7 @@ describe('seeded search query guard', () => {
     config.startingUrls = [
       'https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
     ]
+    const seededUrl = config.startingUrls[0] ?? ''
 
     expect(
       detectSeededSearchQueryDrift({
@@ -171,7 +209,7 @@ describe('seeded search query guard', () => {
           collectedJobs: [],
           deferredSearchExtractions: new Map(),
         },
-        previousUrl: config.startingUrls[0]!,
+        previousUrl: seededUrl,
         url: 'https://jobs.example.com/jobs/',
       }),
     ).toContain('Blocked a route change away from the seeded search results before extraction proved that the seeded route was insufficient')
@@ -186,6 +224,7 @@ describe('seeded search query guard', () => {
       targetRoles: ['Senior Full-Stack Software Engineer'],
       locations: ['Prishtina, Kosovo'],
     }
+    const seededUrl = config.startingUrls[0] ?? ''
 
     expect(
       detectSeededSearchQueryDrift({
@@ -193,11 +232,11 @@ describe('seeded search query guard', () => {
         state: {
           collectedJobs: [],
           deferredSearchExtractions: new Map([
-            ['seed', { key: 'seed', pageUrl: config.startingUrls[0]!, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
+            ['seed', { key: 'seed', pageUrl: seededUrl, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
           ]),
         },
         url: 'https://jobs.example.com/jobs/collections/remote-jobs/?currentJobId=4384607994&discover=true',
-        previousUrl: config.startingUrls[0]!,
+        previousUrl: seededUrl,
       }),
     ).toContain('Blocked a route change away from the seeded search results')
   })
@@ -211,6 +250,7 @@ describe('seeded search query guard', () => {
       targetRoles: ['Senior Full-Stack Software Engineer'],
       locations: ['Prishtina, Kosovo'],
     }
+    const seededUrl = config.startingUrls[0] ?? ''
 
     expect(
       detectSeededSearchQueryDrift({
@@ -218,12 +258,45 @@ describe('seeded search query guard', () => {
         state: {
           collectedJobs: [],
           deferredSearchExtractions: new Map([
-            ['seed', { key: 'seed', pageUrl: config.startingUrls[0]!, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
+            ['seed', { key: 'seed', pageUrl: seededUrl, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
           ]),
         },
         url: 'https://jobs.example.com/search-results?currentJobId=4404574355&geoId=104640522&keywords=Senior%20Full-Stack%20Software%20Engineer&origin=JOB_SEARCH_PAGE_SEARCH_BUTTON&refresh=true',
-        previousUrl: config.startingUrls[0]!,
+        previousUrl: seededUrl,
       }),
     ).toContain('Blocked a broader seeded query')
+  })
+
+  test('keeps state unchanged when seeded-query restore still lands on a drifting route', async () => {
+    const config = createConfig()
+    config.startingUrls = [
+      'https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+    ]
+    config.navigationPolicy = {
+      allowedHostnames: ['jobs.example.com'],
+    }
+    const state = createState()
+    let pageUrl = 'https://jobs.example.com/search?currentJobId=4400784689&geoId=GEO_ID&keywords=JOB_TITLE'
+    const goto = vi.fn(() => {
+      pageUrl = 'https://jobs.example.com/search?currentJobId=4400784689&geoId=GEO_ID&keywords=JOB_TITLE'
+      return Promise.resolve(null as never)
+    })
+    const page = {
+      goto,
+      url: () => pageUrl,
+    } as unknown as Page
+
+    const result = await restoreSeededQuerySurfaceIfNeeded({
+      pageRef: { current: page },
+      state,
+      config,
+    })
+
+    expect(result?.restoredUrl).toBeNull()
+    expect(goto).toHaveBeenCalledTimes(2)
+    expect(state.currentUrl).toBe('https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo')
+    expect(state.lastStableUrl).toBe('https://jobs.example.com/search?location=Prishtina%2C+Kosovo&keywords=Senior+Full-Stack+Software+Engineer')
+    expect(state.failedInteractionAttempts?.size).toBe(1)
+    expect(state.failedInteractionPageStateToken).toBe('stale-page')
   })
 })

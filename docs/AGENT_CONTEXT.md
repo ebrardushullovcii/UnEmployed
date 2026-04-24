@@ -16,8 +16,8 @@ Read this doc when changing repo guidance, generated adapters, or the handoff mo
 
 ## Reading Order
 
-- normal implementation: `AGENTS.md` -> `docs/README.md` -> `docs/STATUS.md` -> `docs/TRACKS.md` -> relevant exec plan -> nearest package `AGENTS.md`
-- repo-guidance work: add this file and `.agents/registry.yaml`
+- normal implementation: `AGENTS.md` -> `docs/README.md` -> `docs/STATUS.md` -> `docs/TRACKS.md` -> linked active or queued exec plan -> nearest package `AGENTS.md`
+- repo-guidance work: add this file and `.agents/registry.yaml`; use `.agents/registry.yaml` to find the nearest active or queued exec plan when the handoff docs reference one
 
 ## Rules
 

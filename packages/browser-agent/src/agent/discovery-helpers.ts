@@ -7,7 +7,8 @@ import type {
   OnProgressCallback,
   ToolCall,
 } from '../types'
-import { getToolDefinitions } from '../tools'
+import { isAllowedUrl } from '../allowlist'
+import type { getToolDefinitions } from '../tools'
 import { addExtractedJobsToState } from './evidence'
 import { buildStructuredCandidateJobs } from './job-extraction'
 import {
@@ -203,7 +204,10 @@ export async function flushDeferredSearchExtractions(input: {
       throw new DOMException('Aborted', 'AbortError')
     }
 
-    const deferredSearchPage = deferredSearchPages[index]!
+    const deferredSearchPage = deferredSearchPages[index]
+    if (!deferredSearchPage) {
+      continue
+    }
     const remainingJobs = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
     if (remainingJobs === 0) {
       break
@@ -328,8 +332,7 @@ export function createProgressEmitter(
       input.currentUrl ||
       state.currentUrl ||
       state.lastStableUrl ||
-      defaultStartingUrl ||
-      'about:blank'
+      defaultStartingUrl
 
     onProgress?.({
       currentUrl,
@@ -344,6 +347,51 @@ export function createProgressEmitter(
       adapterKind: config.source,
     })
   }
+}
+
+export async function recoverLivePageState(input: {
+  config: AgentConfig
+  pageRef: { current: Page }
+  state: AgentState
+  reason: string
+  onProgress?: OnProgressCallback
+}): Promise<boolean> {
+  if (!input.config.resolveLivePage) {
+    return false
+  }
+
+  const livePage = await input.config.resolveLivePage()
+  input.pageRef.current = livePage
+  const recoveredUrl = livePage.url()
+  let canTrackRecoveredUrl = false
+  if (recoveredUrl) {
+    const recoveredUrlValidation = isAllowedUrl(recoveredUrl, input.config.navigationPolicy)
+    canTrackRecoveredUrl = recoveredUrlValidation.valid && recoveredUrl !== 'about:blank'
+
+    if (recoveredUrlValidation.valid) {
+      input.state.currentUrl = recoveredUrl
+    }
+
+    if (canTrackRecoveredUrl) {
+      input.state.lastStableUrl = recoveredUrl
+      input.state.visitedUrls.add(recoveredUrl)
+    }
+  }
+
+  input.onProgress?.({
+    currentUrl: input.state.currentUrl,
+    jobsFound: input.state.collectedJobs.length,
+    stepCount: input.state.stepCount,
+    currentAction: `recover_page:${input.reason}`,
+    message: canTrackRecoveredUrl
+      ? 'Recovered to a live browser page after the previous tab or page closed.'
+      : 'Recovered to a live browser page, but it stayed off-policy so normal navigation guards remain in control.',
+    waitReason: 'waiting_on_page',
+    targetId: null,
+    adapterKind: input.config.source,
+  })
+
+  return canTrackRecoveredUrl
 }
 
 function canWaitForLoadState(

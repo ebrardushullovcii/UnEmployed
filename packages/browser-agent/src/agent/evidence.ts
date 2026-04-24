@@ -3,6 +3,8 @@ import type { AgentResult, AgentState } from '../types'
 import { uniqueStrings } from '../utils/string'
 import { getSearchSurfaceRouteRuleForUrl, isSearchSurfaceResultPath } from './search-surface-routes'
 
+const NOISE_TOKEN_RE = /\bdismiss\b|\bviewed\b|\bpromoted\b|\bwith verification\b/i
+
 interface ToolExecutionResult {
   success?: boolean
   error?: string
@@ -77,7 +79,7 @@ function findRepeatedLeadingPhrase(value: string): string | null {
   return null
 }
 
-function scoreCollectedJobQuality(job: ExtractedJobInput | JobPosting): number {
+export function scoreCollectedJobQuality(job: ExtractedJobInput | JobPosting): number {
   const title = trimToNull(job.title) ?? ''
   const company = trimToNull(job.company) ?? ''
   const location = trimToNull(job.location) ?? ''
@@ -102,7 +104,7 @@ function scoreCollectedJobQuality(job: ExtractedJobInput | JobPosting): number {
     score += 10
   }
 
-  if (/\bdismiss\b|\bviewed\b|\bpromoted\b|\bwith verification\b/i.test(title)) {
+  if (NOISE_TOKEN_RE.test(title)) {
     score -= 180
   }
 
@@ -110,7 +112,7 @@ function scoreCollectedJobQuality(job: ExtractedJobInput | JobPosting): number {
     score -= 360
   }
 
-  if (/\bdismiss\b|\bviewed\b|\bpromoted\b|\bwith verification\b/i.test(company)) {
+  if (NOISE_TOKEN_RE.test(company)) {
     score -= 220
   }
 
@@ -168,7 +170,11 @@ function buildCollectedJob(
 
   const validation = JobPostingSchema.safeParse(jobToAdd)
   if (!validation.success) {
-    console.warn(`[Agent] Skipping invalid job ${job.sourceJobId}:`, validation.error)
+    const issues = validation.error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : 'root'
+      return `${path}: ${issue.message}`
+    })
+    console.warn(`[Agent] Skipping invalid job ${job.sourceJobId}:`, issues)
     return null
   }
 
@@ -486,26 +492,28 @@ export function addExtractedJobsToState(
   source: JobPosting['source']
 ): number {
   let addedCount = 0
+  const discoveredAt = new Date().toISOString()
 
   for (const job of extractedJobs) {
     const existingIndex = state.collectedJobs.findIndex((existingJob) =>
       existingJob.sourceJobId === job.sourceJobId ||
-      (
-        shouldDeduplicateByCanonicalUrl(existingJob.canonicalUrl) &&
-        shouldDeduplicateByCanonicalUrl(job.canonicalUrl) &&
-        Boolean(existingJob.canonicalUrl) &&
-        Boolean(job.canonicalUrl) &&
-        existingJob.canonicalUrl === job.canonicalUrl
-      )
-    )
-
-    const validatedJob = buildCollectedJob(job, source, new Date().toISOString())
+	      (
+	        shouldDeduplicateByCanonicalUrl(existingJob.canonicalUrl) &&
+	        shouldDeduplicateByCanonicalUrl(job.canonicalUrl) &&
+	        existingJob.canonicalUrl === job.canonicalUrl
+	      )
+	    )
+	
+	    const validatedJob = buildCollectedJob(job, source, discoveredAt)
     if (!validatedJob) {
       continue
     }
 
     if (existingIndex !== -1) {
-      const existingJob = state.collectedJobs[existingIndex]!
+      const existingJob = state.collectedJobs[existingIndex]
+      if (!existingJob) {
+        continue
+      }
       if (scoreCollectedJobQuality(validatedJob) > scoreCollectedJobQuality(existingJob)) {
         state.collectedJobs[existingIndex] = {
           ...validatedJob,

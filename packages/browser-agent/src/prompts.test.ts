@@ -3,11 +3,11 @@ import { createConfig } from './agent.test-fixtures'
 import { createSystemPrompt } from './prompts'
 import { createUserPrompt } from './agent/user-prompts'
 
-describe('LinkedIn seeded-query prompt guidance', () => {
-  test('preserves concrete LinkedIn query terms in both prompts', () => {
+describe('seeded-query prompt guidance', () => {
+  test('preserves seeded search terms in both prompts', () => {
     const config = createConfig()
     config.startingUrls = [
-      'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+      'https://example.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
     ]
 
     expect(createSystemPrompt(config)).toContain(

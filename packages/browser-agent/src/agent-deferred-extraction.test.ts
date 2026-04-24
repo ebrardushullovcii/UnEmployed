@@ -2,8 +2,21 @@ import { describe, expect, test, vi } from 'vitest'
 import type { Page } from 'playwright'
 import { runAgentDiscovery, type JobExtractor, type LLMClient } from './agent'
 import { createConfig, createPage, createToolCall } from './agent.test-fixtures'
+import { createEmptyExtractionPassSummary, summarizeExtractionPassResult } from './agent/discovery-helpers'
 
 describe('runAgentDiscovery deferred extraction behavior', () => {
+  test('treats zero-job deferred extraction as an empty pass summary', () => {
+    expect(
+      summarizeExtractionPassResult({
+        success: true,
+        data: {
+          deferredExtraction: true,
+          jobsExtracted: 0,
+        },
+      }),
+    ).toEqual(createEmptyExtractionPassSummary())
+  })
+
   test('discovery defers repeated search-result extraction until the end of the run', async () => {
     const page = createPage() as Page
     const llmClient: LLMClient = {

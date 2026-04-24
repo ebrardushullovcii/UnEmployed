@@ -334,8 +334,9 @@ export async function runSourceDebugWorkflow(
           },
           targetJobCount: getSourceDebugTargetJobCount(phase),
           maxSteps: phaseMaxSteps,
-          startingUrls: phaseStartingUrls,
-          siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
+	          startingUrls: phaseStartingUrls,
+	          weakSameHostBoard: adapter.kind === "target_site",
+	          siteLabel: `${normalizedTarget.label} ${formatStatusLabel(phase)}`,
           navigationHostnames: [targetUrl.hostname],
           siteInstructions: composeSourceDebugInstructions(
             normalizedTarget,

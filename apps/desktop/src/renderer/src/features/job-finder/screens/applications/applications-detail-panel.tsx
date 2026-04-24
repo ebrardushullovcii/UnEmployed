@@ -590,7 +590,6 @@ export function ApplicationsDetailPanel({
                   return (
                     <li key={result.id} aria-current={isSelected ? 'true' : undefined}>
                       <button
-                        aria-describedby={`${summaryId} ${metaId}`}
                         className={cn(
                           'grid w-full gap-2 rounded-(--radius-field) border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30',
                           isSelected

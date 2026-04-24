@@ -62,6 +62,7 @@ export interface AgentDiscoveryOptions {
   targetJobCount: number;
   maxSteps: number;
   startingUrls: string[];
+  weakSameHostBoard?: boolean;
   siteLabel: string;
   navigationHostnames: string[];
   siteInstructions?: string[];

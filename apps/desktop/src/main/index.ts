@@ -10,6 +10,7 @@ import {
 } from './services/job-finder'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
+const jobFinderShutdownTimeoutMs = 15_000
 
 loadDesktopEnvironment()
 registerDesktopRoutes(ipcMain)
@@ -35,11 +36,23 @@ app.on('before-quit', (event) => {
 
   jobFinderShutdownInFlight = true
   event.preventDefault()
-  void shutdownJobFinderWorkspaceService()
+  let shutdownTimeoutId: ReturnType<typeof setTimeout> | null = null
+  const shutdownTimeout = new Promise<void>((resolve) => {
+    shutdownTimeoutId = setTimeout(() => {
+      console.warn(
+        `[Desktop] Job Finder workspace service shutdown exceeded ${jobFinderShutdownTimeoutMs}ms; continuing quit.`,
+      )
+      resolve()
+    }, jobFinderShutdownTimeoutMs)
+  })
+  void Promise.race([shutdownJobFinderWorkspaceService(), shutdownTimeout])
     .catch((error) => {
       console.warn('[Desktop] Failed to shut down Job Finder workspace service before quit.', error)
     })
     .finally(() => {
+      if (shutdownTimeoutId) {
+        clearTimeout(shutdownTimeoutId)
+      }
       app.quit()
     })
 })

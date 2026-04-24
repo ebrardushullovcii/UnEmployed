@@ -3,14 +3,14 @@ import { describe, expect, test } from 'vitest'
 import { getSearchResultsExtractionReviewBudget } from './search-results-budget'
 
 describe('getSearchResultsExtractionReviewBudget', () => {
-  test('keeps the wider seeded LinkedIn review budget for query-first search routes', () => {
+  test('keeps the wider seeded-query review budget for query-first search routes', () => {
     expect(
       getSearchResultsExtractionReviewBudget({
         startingUrls: [
-          'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+          'https://example.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
         ],
         promptContext: {
-          siteLabel: 'LinkedIn Jobs',
+          siteLabel: 'Example Jobs',
         },
         targetJobCount: 8,
       }),
@@ -25,6 +25,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
           siteLabel: 'KosovaJob',
         },
         targetJobCount: 8,
+        weakSameHostBoard: true,
       }),
     ).toBe(8)
   })
@@ -37,34 +38,60 @@ describe('getSearchResultsExtractionReviewBudget', () => {
           siteLabel: 'KosovaJob',
         },
         targetJobCount: 4,
+        weakSameHostBoard: true,
       }),
     ).toBe(4)
   })
 
-  test('scales seeded LinkedIn review budget up with larger discovery targets', () => {
+  test('scales seeded-query review budget up with larger discovery targets below the cap', () => {
     expect(
       getSearchResultsExtractionReviewBudget({
         startingUrls: [
-          'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+          'https://example.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
         ],
         promptContext: {
-          siteLabel: 'LinkedIn Jobs',
+          siteLabel: 'Example Jobs',
         },
-        targetJobCount: 12,
+        targetJobCount: 10,
       }),
-    ).toBe(12)
+    ).toBe(10)
   })
 
-  test('scales weak-board review budget up with larger discovery targets', () => {
+  test('scales weak-board review budget up with larger discovery targets below the cap', () => {
     expect(
       getSearchResultsExtractionReviewBudget({
         startingUrls: ['https://kosovajob.com/'],
         promptContext: {
           siteLabel: 'KosovaJob',
         },
-        targetJobCount: 14,
+        targetJobCount: 10,
+        weakSameHostBoard: true,
       }),
-    ).toBe(14)
+    ).toBe(10)
+  })
+
+  test('does not widen review budget for normal provider board runs', () => {
+    expect(
+      getSearchResultsExtractionReviewBudget({
+        startingUrls: ['https://jobs.lever.co/example-company'],
+        promptContext: {
+          siteLabel: 'Example Lever',
+        },
+        targetJobCount: 8,
+      }),
+    ).toBeNull()
+  })
+
+  test('does not widen review budget for a single host without an explicit weak-board flag', () => {
+    expect(
+      getSearchResultsExtractionReviewBudget({
+        startingUrls: ['https://jobs.example.com/'],
+        promptContext: {
+          siteLabel: 'Example Jobs',
+        },
+        targetJobCount: 8,
+      }),
+    ).toBeNull()
   })
 
   test('does not widen review budget for phase-driven runs', () => {
@@ -82,6 +109,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
           },
         },
         targetJobCount: 8,
+        weakSameHostBoard: true,
       }),
     ).toBeNull()
   })

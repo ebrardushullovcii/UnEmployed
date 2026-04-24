@@ -2,7 +2,7 @@ export interface ResumeImportPathPayload {
   sourcePath: string
 }
 
-function isEnabled(value: string | undefined): boolean {
+export function isEnabled(value: string | undefined): boolean {
   return value === '1' || value === 'true'
 }
 

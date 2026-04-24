@@ -51,7 +51,7 @@ function isSeededQuerySearchUrl(value: string): boolean {
 }
 
 export function getSearchResultsExtractionReviewBudget(
-  config: Pick<AgentConfig, 'startingUrls' | 'promptContext' | 'targetJobCount'>,
+  config: Pick<AgentConfig, 'startingUrls' | 'promptContext' | 'targetJobCount' | 'weakSameHostBoard'>,
 ): number | null {
   if (config.promptContext.taskPacket || config.targetJobCount < DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET) {
     return null
@@ -72,7 +72,8 @@ export function getSearchResultsExtractionReviewBudget(
   const startingHosts = getNormalizedStartingHosts(config.startingUrls)
   const isWeakSameHostBoard =
     config.targetJobCount >= DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET &&
-    startingHosts.length === 1
+    startingHosts.length === 1 &&
+    Boolean(config.weakSameHostBoard)
 
   if (!isWeakSameHostBoard) {
     return null

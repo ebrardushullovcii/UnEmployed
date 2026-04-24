@@ -745,8 +745,9 @@ export function createBrowserAgentRuntime(
             targetRoles: agentOptions.searchPreferences.targetRoles,
             locations: agentOptions.searchPreferences.locations,
           },
-          startingUrls: agentOptions.startingUrls,
-          navigationPolicy: {
+	          startingUrls: agentOptions.startingUrls,
+	          ...(agentOptions.weakSameHostBoard ? { weakSameHostBoard: true } : {}),
+	          navigationPolicy: {
             allowedHostnames: agentOptions.navigationHostnames,
             allowSubdomains: true,
           },

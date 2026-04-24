@@ -39,6 +39,27 @@
 - discovery/apply: `job-finder` orchestrates, `browser-agent` executes bounded policy, `browser-runtime` owns sessions
 - source-debug: `job-finder` orchestrates phases and artifacts, `browser-agent` returns structured attempts, `db` persists runs and evidence
 
+## Resume Safety & Approval
+
+- approved resume exports must be current before apply: stale drafts cannot be used as approved exports
+- a resume draft becomes stale when profile details change, resume settings change, saved job details change materially, the approved draft is edited after export, approval is cleared, or a legacy draft points at a retired layout
+- stale or missing approval blocks apply approval with a review/export requirement instead of silently using an older file
+- maintainers changing resume or apply flow should check the workspace service validation and approval path before applying a tailored resume
+
+## Native Modules
+
+- native helpers live behind `packages/os-integration`
+- macOS additions should follow Cocoa conventions, keep Electron-facing APIs typed, and document module-specific behavior in the relevant module or platform doc
+- Windows additions should account for COM and shell integration behavior, keep environment workarounds contained, and document module-specific behavior in the relevant module or platform doc
+- native additions require both this architecture entry and the relevant module or platform documentation
+
+## AI Provider Module Shape
+
+- keep `packages/ai-providers/src/index.ts` as a thin barrel
+- split deterministic parsing, model transport, and fallback composition into separate internal modules before adapters grow large
+- use the existing `packages/ai-providers/src/deterministic/` directory as the pattern for deterministic extraction concerns that should not be mixed into provider transport code
+- apply this separation when a provider file starts combining schema normalization, model IO, deterministic recovery, and fallback composition in one place
+
 ## Known Debt
 
 - active work still needs to remove the catalog-session seam where `browser-runtime` depends on `browser-agent`

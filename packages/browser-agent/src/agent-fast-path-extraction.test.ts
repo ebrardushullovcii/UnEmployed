@@ -607,7 +607,7 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
     expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(0)
   })
 
-  test('search-results fast path keeps the stronger full-stack LinkedIn card when saved preferences differ from earlier frontend cards', async () => {
+  test('fast path prefers cards matching saved role/location preferences over earlier cards', async () => {
     const page = {
       async goto() {
         return null as never
@@ -616,7 +616,7 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
         return undefined
       },
       url() {
-        return 'https://www.linkedin.com/jobs/search/?currentJobId=4404057151&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo'
+        return 'https://example.com/jobs/search/?currentJobId=role_fullstack_1&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo'
       },
       async title() {
         return 'Primary target'
@@ -652,8 +652,8 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
 
         if (serialized.includes('querySelectorAll("a[href]")')) {
           return [
-            'https://www.linkedin.com/jobs/view/role_frontend_1',
-            'https://www.linkedin.com/jobs/view/role_fullstack_1',
+            'https://example.com/jobs/view/role_frontend_1',
+            'https://example.com/jobs/view/role_fullstack_1',
           ]
         }
 
@@ -662,20 +662,20 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
             structuredDataCandidates: [],
             cardCandidates: [
               {
-                canonicalUrl: 'https://www.linkedin.com/jobs/view/role_frontend_1',
+                canonicalUrl: 'https://example.com/jobs/view/role_frontend_1',
                 anchorText: 'Frontend Engineer',
                 headingText: 'Frontend Engineer',
                 lines: [
                   'Frontend Engineer',
                   'Odiin',
                   'Prishtina, Kosovo',
-                  'Dismiss Frontend Engineer job',
+                  'Frontend Engineer role summary',
                 ],
                 captureMeta: {
                   domOrder: 0,
                   rootTagName: 'li',
                   rootRole: 'listitem',
-                  rootClassName: 'jobs-search-results__list-item job-card-container',
+                  rootClassName: 'search-result-card',
                   hasJobDataset: true,
                   sameRootJobAnchorCount: 1,
                   inLikelyResultsList: true,
@@ -683,24 +683,24 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
                   inHeader: false,
                   inNavigation: false,
                   inDetailPane: false,
-                  hasDismissLabel: true,
+                  hasDismissLabel: false,
                 },
               },
               {
-                canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack_1',
+                canonicalUrl: 'https://example.com/jobs/view/role_fullstack_1',
                 anchorText: 'Full Stack Developer (AI-First)',
                 headingText: 'Full Stack Developer (AI-First)',
                 lines: [
                   'Full Stack Developer (AI-First)',
                   'Full Circle Agency',
                   'Prishtina (Remote)',
-                  'Dismiss Full Stack Developer (AI-First) job',
+                  'Full Stack Developer role summary',
                 ],
                 captureMeta: {
                   domOrder: 1,
                   rootTagName: 'li',
                   rootRole: 'listitem',
-                  rootClassName: 'jobs-search-results__list-item job-card-container',
+                  rootClassName: 'search-result-card',
                   hasJobDataset: true,
                   sameRootJobAnchorCount: 1,
                   inLikelyResultsList: true,
@@ -708,7 +708,7 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
                   inHeader: false,
                   inNavigation: false,
                   inDetailPane: false,
-                  hasDismissLabel: true,
+                  hasDismissLabel: false,
                 },
               },
             ],
@@ -744,6 +744,10 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
       page,
       {
         ...createConfig(),
+        startingUrls: ['https://example.com/jobs/search/'],
+        navigationPolicy: {
+          allowedHostnames: ['example.com'],
+        },
         targetJobCount: 1,
         promptContext: {
           siteLabel: 'Primary target',
@@ -760,7 +764,7 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
     expect(result.jobs).toHaveLength(1)
     expect(result.jobs[0]).toEqual(
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack_1',
+        canonicalUrl: 'https://example.com/jobs/view/role_fullstack_1',
         title: 'Full Stack Developer (AI-First)',
       }),
     )

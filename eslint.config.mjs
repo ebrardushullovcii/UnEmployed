@@ -14,6 +14,21 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
+    files: ['**/*.{js,mjs,cjs}'],
+    ...tseslint.configs.disableTypeChecked
+  },
+  {
+    files: ['apps/desktop/scripts/**'],
+    languageOptions: {
+      globals: {
+        clearTimeout: 'readonly',
+        console: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly'
+      }
+    }
+  },
+  {
     files: ['**/*.{ts,tsx,mts,cts}'],
     languageOptions: {
       parserOptions: {
@@ -28,4 +43,3 @@ export default tseslint.config(
     }
   }
 )
-

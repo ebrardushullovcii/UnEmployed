@@ -6,7 +6,6 @@ import { _electron as electron } from 'playwright'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(currentDir, '..')
-const repoRoot = path.resolve(desktopDir, '..', '..')
 const fixturePath = path.join(
   desktopDir,
   'test-fixtures',
@@ -526,7 +525,7 @@ async function runSingleScenario({
 }
 
 async function runSourceDebugScenario(target) {
-  const fixture = await loadFixture()
+  const fixture = useCurrentWorkspace ? null : await loadFixture()
   return runSingleScenario({
     scenario: `check_source:${target.id}`,
     targets: [target],
@@ -564,7 +563,7 @@ async function runSourceDebugScenario(target) {
 }
 
 async function runSingleTargetDiscoveryScenario(target) {
-  const fixture = await loadFixture()
+  const fixture = useCurrentWorkspace ? null : await loadFixture()
   return runSingleScenario({
     scenario: `search_now:${target.id}`,
     targets: [target],
@@ -590,7 +589,7 @@ async function runSingleTargetDiscoveryScenario(target) {
 
 async function runRunAllScenario(targets) {
   const targetRoles = [...new Set(targets.flatMap((target) => target.benchmarkTargetRoles))]
-  const fixture = await loadFixture()
+  const fixture = useCurrentWorkspace ? null : await loadFixture()
   return runSingleScenario({
     scenario: 'search_jobs:run_all',
     targets,
@@ -723,11 +722,13 @@ async function main() {
   const report = {
     generatedAt: new Date().toISOString(),
     invocation: 'electron_preload_bridge',
-    notes: [
-      'These benchmarks run through the desktop Electron app and preload bridge, not the older service-only 013 harness.',
-      'Desktop test API is intentionally not enabled here so the configured live AI/runtime path remains active.',
-      ...(useCurrentWorkspace
-        ? ['This run reused the current persisted workspace and browser profile instead of a seeded temporary workspace.']
+	    notes: [
+	      'These benchmarks run through the desktop Electron app and preload bridge, not the older service-only 013 harness.',
+	      ...(useCurrentWorkspace
+	        ? ['Desktop test API is enabled for current-workspace reuse, with live AI/runtime forced through UNEMPLOYED_TEST_API_USE_LIVE_AI.']
+	        : ['Desktop test API is intentionally not enabled here so the configured live AI/runtime path remains active.']),
+	      ...(useCurrentWorkspace
+	        ? ['This run reused the current persisted workspace and browser profile instead of a seeded temporary workspace.']
         : ['This run used a seeded temporary workspace for isolation.']),
     ],
     useCurrentWorkspace,
@@ -741,4 +742,7 @@ async function main() {
   process.stdout.write(`\nSaved app benchmark report to ${reportPath}\n`)
 }
 
-void main()
+main().catch((error) => {
+  console.error('Uncaught error in main:', error)
+  process.exitCode = 1
+})

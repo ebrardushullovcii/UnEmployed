@@ -18,4 +18,4 @@ Turn source-debug output into typed source intelligence and use it to make disco
 
 - this established the discovery foundation at the time of completion
 - live benchmark evidence is in `013-benchmark-results.md`
-- active browser-loop optimization is in `docs/exec-plans/active/017-browser-substrate-evaluation-and-direction.md`
+- current browser-loop optimization handoff lives in `docs/STATUS.md` and `docs/TRACKS.md`; follow the active exec-plan pointer from there

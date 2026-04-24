@@ -23,6 +23,7 @@ const ROLE_TOKEN_PATTERN =
 const LOCATION_HINT_PATTERN =
   /\b(remote|hybrid|on[- ]site|onsite|work from home|home office|worldwide|global|anywhere)\b/i;
 const GENERIC_JOB_PATH_SEGMENTS = new Set([
+  "en",
   "job",
   "jobs",
   "jobs-view",
@@ -52,6 +53,7 @@ const GENERIC_JOB_PATH_SEGMENTS = new Set([
   "karriere",
   "karrier",
 ]);
+const LANGUAGE_OR_REGION_PATH_PATTERN = /^[a-z]{2}(?:-[a-z]{2})?$/i;
 
 function trimToNull(value: unknown): string | null {
   if (typeof value === "string") {
@@ -194,6 +196,14 @@ function inferTrailingCompositeLocation(value: string): string | null {
 
   for (let width = 1; width <= Math.min(3, tokens.length - 1); width += 1) {
     const candidate = tokens.slice(-width).join(" ");
+    const candidateTokens = tokens.slice(-width);
+    if (
+      width > 1 &&
+      candidateTokens.some((token) => ROLE_TOKEN_PATTERN.test(token.replace(/[^\p{L}\p{N}]+/gu, "")))
+    ) {
+      continue;
+    }
+
     if (
       width === 1 &&
       !LOCATION_HINT_PATTERN.test(candidate) &&
@@ -250,9 +260,13 @@ function inferCompanyFromCanonicalUrl(url: string): string | null {
     }
 
     const companySegment = pathSegments[0]?.toLowerCase() ?? "";
+    const jobSegment = pathSegments[1] ?? "";
     if (
       !companySegment ||
       GENERIC_JOB_PATH_SEGMENTS.has(companySegment) ||
+      LANGUAGE_OR_REGION_PATH_PATTERN.test(companySegment) ||
+      companySegment.length <= 2 ||
+      (!jobSegment.includes("-") && jobSegment.length <= 3) ||
       !/[a-z\p{L}]/iu.test(companySegment)
     ) {
       return null;
@@ -377,7 +391,8 @@ const toWorkModeArray = (value: unknown): string[] => {
     const rawSourceJobId = toStr(raw.sourceJobId);
     const rawCanonicalUrl =
       toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link);
-    const normalizedCompositeTitle = normalizeCompositeTitle(toStr(raw.title));
+    const rawTitle = trimToNull(raw.title);
+    const normalizedCompositeTitle = normalizeCompositeTitle(rawTitle ?? "");
 
     const fallbackUrl =
       input.pageType === "job_detail" ? input.pageUrl : "";
@@ -435,7 +450,7 @@ const rawDescription = trimToNull(toStr(raw.description));
       sourceJobId: derivedSourceJobId,
       discoveryMethod: "browser_agent" as const,
       canonicalUrl: derivedCanonicalUrl,
-      title: normalizedCompositeTitle.title || toStr(raw.title),
+      title: rawTitle ?? normalizedCompositeTitle.title,
       company: normalizedCompany ?? "",
       location: normalizedLocation ?? "",
       workMode: toWorkModeArray(raw.workMode),
