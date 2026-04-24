@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { createDesktopJobFinderAiClient } from './create-workspace-service'
 import { isBrowserAgentEnabled } from './test-api'
 
@@ -51,15 +51,26 @@ describe('isBrowserAgentEnabled', () => {
     expect(isBrowserAgentEnabled({})).toBe(true)
   })
 
+  test('ignores the removed LinkedIn-specific alias when the generic flag is unset', () => {
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_LINKEDIN_BROWSER_AGENT: '0' })).toBe(true)
+  })
+
   test('disables only for explicit false values', () => {
     expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: '0' })).toBe(false)
     expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'false' })).toBe(false)
     expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: ' FALSE ' })).toBe(false)
   })
 
-  test('enables only explicit true values and disables unknown values', () => {
+  test('enables explicit true values and warns once for unknown values while defaulting to enabled', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
     expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: '1' })).toBe(true)
     expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'TRUE' })).toBe(true)
-    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'yes' })).toBe(false)
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'yes' })).toBe(true)
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'yes' })).toBe(true)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[desktop test-api] Unrecognized UNEMPLOYED_BROWSER_AGENT value: "yes". Falling back to the default enabled behavior.',
+    )
   })
 })

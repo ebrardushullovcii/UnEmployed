@@ -23,7 +23,7 @@ This file is the working log for `017`. Keep only current baselines, confirmed w
 - Product bar is the full desktop flow, not service slices
 - Real user baseline that triggered this plan:
   - LinkedIn `Check source`: `5+ min`
-  - Kosovajob `Check source`: `9+ min`
+  - KosovaJob `Check source`: `9+ min`
 
 ## Best Recent Evidence
 
@@ -50,7 +50,7 @@ This file is the working log for `017`. Keep only current baselines, confirmed w
 - Removed several source-specific shared-flow paths: LinkedIn-only direct pass, source-branded rescue naming, source-branded search-surface helpers, and separate public ATS parser functions
 - Confirmed the desktop benchmark must be preceded by `pnpm --filter @unemployed/desktop build`; otherwise it can keep exercising stale `out/main/index.cjs`
 - Added evidence-driven query-first starts and removed brittle KosovaJob city/industry mappings
-- Improved weak-board review budgets and technical-role fallback for Kosovajob-like sources
+- Improved weak-board review budgets and technical-role fallback for KosovaJob-like sources
 - Reduced one source-debug cost by skipping final AI review for first-run draft-only failures
 
 ## Current Bottlenecks
@@ -59,7 +59,7 @@ This file is the working log for `017`. Keep only current baselines, confirmed w
 - shared discovery still contains some source-named helper debt from the LinkedIn recovery work, even after the first cleanup pass
 - LinkedIn now persists multiple candidates in the rebuilt real app, but some extracted titles and companies remain polluted
 - `Check source` still does too much work before returning control
-- Kosovajob is now starting from a better homepage query route, but `Search now` still misses too many visible technical jobs and overall runtime remains much worse than LinkedIn or Greenhouse
+- KosovaJob is now starting from a better homepage query route, but `Search now` still misses too many visible technical jobs and overall runtime remains much worse than LinkedIn or Greenhouse
 - Provider-backed source-debug still needs restabilization
 
 ## Next Experiments
@@ -67,7 +67,7 @@ This file is the working log for `017`. Keep only current baselines, confirmed w
 1. Finish removing remaining source-named helper debt and replace it with source-generic orchestration rules
 2. Remove more first-run `Check source` cost, especially the LinkedIn source-debug path that still returns a failed run state after proving a usable draft route
 3. Clean remaining LinkedIn persisted title/company pollution while keeping the new multi-job persistence behavior
-4. Keep Kosovajob separate: reduce `Check source` cost, stop over-exploring low-signal pages, and improve technical-job survival on the homepage query/detail pattern that live inspection confirmed
+4. Keep KosovaJob separate: reduce `Check source` cost, stop over-exploring low-signal pages, and improve technical-job survival on the homepage query/detail pattern that live inspection confirmed
 5. Re-test provider-backed source-debug against the current full-app bar
 
 ## References

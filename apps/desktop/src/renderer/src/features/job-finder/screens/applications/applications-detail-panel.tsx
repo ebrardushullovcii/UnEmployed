@@ -142,6 +142,10 @@ function getQueueStateExplanation(
   return "This queue still has unfinished jobs. Review the per-job outcomes below before deciding whether to restage the remaining work.";
 }
 
+function formatVisibleRunId(runId: string): string {
+  return runId.length <= 8 ? runId : runId.slice(-8);
+}
+
 function getAnswerTone(
   status: ApplyRunDetails["answerRecords"][number]["status"],
 ) {
@@ -218,21 +222,35 @@ export function ApplicationsDetailPanel({
   const canRestageAutoRun =
     selectedRecord?.status === "approved" ||
     selectedRecord?.status === "ready_for_review";
-  const selectedRunHistoryEntry =
-    applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ??
-    null;
-  const selectedApplyRunDetails =
-    applyRunDetailsStatus === "ready" &&
-    selectedRecord != null &&
-    applyRunDetailsTarget?.jobId === selectedRecord.jobId &&
-    applyRunDetailsTarget.runId === selectedApplyRunId &&
-    applyRunDetails?.run?.id === selectedApplyRunId
-      ? applyRunDetails
-      : null;
+  const selectedRunHistoryEntry = useMemo(
+    () =>
+      applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ??
+      null,
+    [applyRunHistory, selectedApplyRunId],
+  );
+  const selectedApplyRunDetails = useMemo(
+    () =>
+      applyRunDetailsStatus === "ready" &&
+      selectedRecord != null &&
+      applyRunDetailsTarget?.jobId === selectedRecord.jobId &&
+      applyRunDetailsTarget.runId === selectedApplyRunId &&
+      applyRunDetails?.run?.id === selectedApplyRunId
+        ? applyRunDetails
+        : null,
+    [
+      applyRunDetailsStatus,
+      selectedRecord,
+      applyRunDetailsTarget,
+      selectedApplyRunId,
+      applyRunDetails,
+    ],
+  );
   const selectedRun =
     selectedApplyRunDetails
       ? selectedApplyRunDetails.run
       : (selectedRunHistoryEntry?.run ?? null);
+  const visibleApplyRunId =
+    selectedApplyRunDetails?.run.id ?? visibleApplyResult?.runId ?? null;
   const applyDetailsStatusBadge = getApplyDetailsStatusBadge(
     applyRunDetailsStatus,
   );
@@ -429,7 +447,10 @@ export function ApplicationsDetailPanel({
               </p>
             </div>
             {visibleApplyResult ? (
-              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+              <div
+                className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4"
+                title={visibleApplyRunId ?? undefined}
+              >
                 <span className="card-heading-sm">Apply run</span>
                 <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
                   {formatStatusLabel(visibleApplyResult.state)}
@@ -445,10 +466,10 @@ export function ApplicationsDetailPanel({
                   </p>
                 ) : null}
                 <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                   Run {selectedApplyRunDetails?.run.id ?? visibleApplyResult.runId}
-                 </p>
-               </div>
-             ) : null}
+                  Run {formatVisibleRunId(visibleApplyRunId ?? visibleApplyResult.runId)}
+                </p>
+              </div>
+            ) : null}
           </div>
           <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -674,6 +695,7 @@ export function ApplicationsDetailPanel({
                             : "border-(--surface-panel-border) bg-background/40 hover:bg-background/60",
                         )}
                         onClick={() => onSelectApplyRun(result.runId)}
+                        title={result.runId}
                         type="button"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -705,7 +727,7 @@ export function ApplicationsDetailPanel({
                             : ""}
                         </p>
                         <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                          Run {result.runId}
+                          Run {formatVisibleRunId(result.runId)}
                         </p>
                       </button>
                     </li>

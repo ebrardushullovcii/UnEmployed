@@ -1,6 +1,45 @@
 import { describe, expect, test, vi } from "vitest";
 import { createJobFinderAiClientFromEnvironment } from "./index";
+import { normalizeCompositeTitle } from "./deterministic/job-extraction";
 import { createEnvironment, mockJsonFetch } from "./test-fixtures";
+
+describe("normalizeCompositeTitle", () => {
+  test("strips posted-at suffixes across supported languages", () => {
+    expect(
+      normalizeCompositeTitle("Senior Product Designer Remote Posted 3 days ago"),
+    ).toMatchObject({
+      title: "Senior Product Designer",
+      location: "Remote",
+      postedAtText: "Posted 3 days ago",
+    });
+    expect(normalizeCompositeTitle("Backend Engineer Prishtine 11 ditë")).toMatchObject({
+      title: "Backend Engineer",
+      location: "Prishtine",
+      postedAtText: "11 ditë",
+    });
+  });
+
+  test("does not treat a trailing role token with punctuation as a location", () => {
+    expect(normalizeCompositeTitle("Senior Software Engineer.")).toMatchObject({
+      title: "Senior Software Engineer.",
+      location: null,
+      postedAtText: null,
+    });
+  });
+
+  test("extracts location hints like remote or hybrid", () => {
+    expect(normalizeCompositeTitle("Staff Data Engineer Remote")).toMatchObject({
+      title: "Staff Data Engineer",
+      location: "Remote",
+      postedAtText: null,
+    });
+    expect(normalizeCompositeTitle("Product Designer Hybrid")).toMatchObject({
+      title: "Product Designer",
+      location: "Hybrid",
+      postedAtText: null,
+    });
+  });
+});
 
 describe("job extraction with openai-compatible client", () => {
   test("preserves extracted apply metadata when the model returns it", async () => {

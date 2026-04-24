@@ -101,7 +101,19 @@ async function loadResumeWorkspaceDemo(window) {
 }
 
 async function expectRunIdVisible(window, runId) {
-  await window.getByText(`Run ${runId}`, { exact: true }).waitFor({ timeout: 10000 })
+  const visibleRunId = runId.length <= 8 ? runId : runId.slice(-8)
+  const applyRunSection = window.getByText('Apply run', { exact: true }).locator('xpath=ancestor::div[1]')
+  await applyRunSection.waitFor({ timeout: 10000 })
+  const runLabel = applyRunSection.getByText(`Run ${visibleRunId}`, { exact: true })
+  await runLabel.waitFor({ timeout: 10000 })
+  const titledContainer = runLabel.locator('xpath=ancestor-or-self::*[@title][1]')
+  if (await titledContainer.count()) {
+    await titledContainer.evaluate((element, expectedRunId) => {
+      if (element.getAttribute('title') !== expectedRunId) {
+        throw new Error(`Expected run title ${expectedRunId} but found ${element.getAttribute('title')}`)
+      }
+    }, runId)
+  }
 }
 
 async function selectRunHistoryEntry(window, runId) {
@@ -111,12 +123,18 @@ async function selectRunHistoryEntry(window, runId) {
 
   const runHistorySection = window.getByText('Run history', { exact: true }).locator('xpath=ancestor::section[1]')
   await runHistorySection.waitFor({ timeout: 10000 })
+  const visibleRunId = runId.length <= 8 ? runId : runId.slice(-8)
 
   const button = runHistorySection.getByRole('button', {
-    name: new RegExp(`Run\\s+${escapeRegExp(runId)}(?!\\w)`, 'i'),
+    name: new RegExp(`Run\\s+${escapeRegExp(visibleRunId)}(?!\\w)`, 'i'),
   }).first()
 
   await button.waitFor({ timeout: 10000 })
+  await button.evaluate((element, expectedRunId) => {
+    if (element.getAttribute('title') !== expectedRunId) {
+      throw new Error(`Expected run history button title ${expectedRunId} but found ${element.getAttribute('title')}`)
+    }
+  }, runId)
   await button.click()
   return button
 }
@@ -286,8 +304,8 @@ async function captureApplicationsRecovery() {
     }
     try {
       await rm(userDataDirectory, { recursive: true, force: true })
-    } catch {
-      // Preserve the original failure while still cleaning up the temp profile.
+    } catch (error) {
+      console.warn('Failed to remove temporary browser profile.', error)
     }
   }
 

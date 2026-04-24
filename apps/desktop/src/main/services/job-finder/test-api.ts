@@ -2,6 +2,8 @@ export interface ResumeImportPathPayload {
   sourcePath: string;
 }
 
+const warnedInvalidEnvValues = new Set<string>();
+
 function normalizeFlagValue(value: string | null | undefined): string | null {
   if (value == null) {
     return null;
@@ -21,6 +23,18 @@ function isDisabled(value: string | null | undefined): boolean {
   return normalized === "0" || normalized === "false";
 }
 
+function warnInvalidBooleanEnvValue(variableName: string, configuredValue: string) {
+  const warningKey = `${variableName}:${configuredValue}`;
+  if (warnedInvalidEnvValues.has(warningKey)) {
+    return;
+  }
+
+  warnedInvalidEnvValues.add(warningKey);
+  console.warn(
+    `[desktop test-api] Unrecognized ${variableName} value: ${JSON.stringify(configuredValue)}. Falling back to the default enabled behavior.`,
+  );
+}
+
 export function isDesktopTestApiEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -30,8 +44,7 @@ export function isDesktopTestApiEnabled(
 export function isBrowserAgentEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const configuredValue =
-    env.UNEMPLOYED_BROWSER_AGENT ?? env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT;
+  const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
 
   if (configuredValue == null) {
     return true;
@@ -45,7 +58,8 @@ export function isBrowserAgentEnabled(
     return true;
   }
 
-  return false;
+  warnInvalidBooleanEnvValue("UNEMPLOYED_BROWSER_AGENT", configuredValue);
+  return true;
 }
 
 export function isBrowserHeadlessEnabled(

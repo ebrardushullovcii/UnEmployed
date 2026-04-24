@@ -103,6 +103,7 @@ function inferTrailingCompositeLocation(value: string): string | null {
   for (let width = 1; width <= Math.min(3, tokens.length - 1); width += 1) {
     const candidate = tokens.slice(-width).join(" ");
     const candidateTokens = tokens.slice(-width);
+    const normalizedCandidate = candidate.replace(/[^\p{L}\p{N}]+/gu, "");
     if (
       width > 1 &&
       candidateTokens.some((token) =>
@@ -115,7 +116,7 @@ function inferTrailingCompositeLocation(value: string): string | null {
     if (
       width === 1 &&
       !LOCATION_HINT_PATTERN.test(candidate) &&
-      (tokens.length < 3 || ROLE_TOKEN_PATTERN.test(candidate))
+      (tokens.length < 3 || ROLE_TOKEN_PATTERN.test(normalizedCandidate))
     ) {
       continue;
     }

@@ -320,7 +320,7 @@ export function ApplicationsScreen(props: {
         lastFetchedApplyRunRef.current = {
           jobId: effectiveSelectedJobId,
           runId: effectiveSelectedRunId,
-          updatedAt: effectiveSelectedRunUpdatedAt,
+          updatedAt: details.run.updatedAt ?? details.result?.updatedAt ?? effectiveSelectedRunUpdatedAt,
         }
         setApplyRunDetails(details)
         setApplyRunDetailsTarget({

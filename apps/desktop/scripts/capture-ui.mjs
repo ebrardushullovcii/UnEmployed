@@ -1,5 +1,5 @@
 /* eslint-env node, browser */
-/* global process, document */
+/* global document */
 
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
@@ -54,11 +54,13 @@ async function clickNavigationControl(window, name) {
 }
 
 async function waitForHeading(window, headings, options) {
+  const allowedHeadings = Array.isArray(headings) ? headings : [headings]
+
   await window.waitForFunction((allowedHeadings) => {
     const heading = document.querySelector('h1')
     const text = heading?.textContent ?? ''
     return allowedHeadings.some((allowedHeading) => text.includes(allowedHeading))
-  }, headings, { timeout: 10000, ...options })
+  }, allowedHeadings, { timeout: 10000, ...options })
 }
 
 async function waitForProfileOrSetupHeading(window) {
@@ -92,7 +94,11 @@ async function captureScreens() {
 
     for (const screen of screens) {
       await clickNavigationControl(window, screen.buttonName)
-      await waitForHeading(window, screen.heading === 'Your profile' ? ['Your profile', 'Guided setup'] : [screen.heading])
+      if (screen.heading === 'Your profile') {
+        await waitForProfileOrSetupHeading(window)
+      } else {
+        await waitForHeading(window, screen.heading)
+      }
       await window.screenshot({
         animations: 'disabled',
         path: path.join(outputDir, screen.fileName)

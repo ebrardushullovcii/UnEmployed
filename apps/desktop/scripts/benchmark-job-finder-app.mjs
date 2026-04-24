@@ -34,6 +34,7 @@ const defaultBenchmarkTargetRoles = [
   "Analyst",
 ];
 
+// These targets and role terms are intentionally source-branded benchmark fixtures only; never reuse them in shared discovery or production source-generic code.
 const benchmarkTargets = [
   {
     id: "target_linkedin_default",
@@ -177,6 +178,64 @@ function buildSettings(baseSettings) {
     keepSessionAlive: true,
     discoveryOnly: false,
   };
+}
+
+async function launchAppForScenario({ seededInput }) {
+  const userDataDirectory = useCurrentWorkspace
+    ? null
+    : await mkdtemp(path.join(os.tmpdir(), "unemployed-app-benchmark-"));
+  const app = await electron.launch({
+    args: ["."],
+    cwd: desktopDir,
+    env: {
+      ...process.env,
+      ...(useCurrentWorkspace
+        ? {
+            UNEMPLOYED_ENABLE_TEST_API: "1",
+            UNEMPLOYED_TEST_API_USE_LIVE_AI: "1",
+          }
+        : {}),
+      ...(userDataDirectory
+        ? { UNEMPLOYED_USER_DATA_DIR: userDataDirectory }
+        : {}),
+    },
+  });
+  let cleanedUp = false;
+  const cleanup = async () => {
+    if (cleanedUp) {
+      return;
+    }
+
+    cleanedUp = true;
+    await app.close().catch(() => undefined);
+    if (userDataDirectory) {
+      await rm(userDataDirectory, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+    }
+  };
+
+  try {
+    const window = await app.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    await waitForProfileOrSetupHeading(window);
+    let resetWorkspaceSnapshot = null;
+    if (seededInput) {
+      await seedWorkspace(window, seededInput);
+    } else {
+      resetWorkspaceSnapshot = await resetDiscoveryState(window);
+    }
+
+    return {
+      app,
+      cleanup,
+      resetWorkspaceSnapshot,
+      window,
+    };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
 }
 
 async function waitForProfileOrSetupHeading(window, timeout = 15000) {
@@ -577,41 +636,10 @@ async function runSingleScenario({
   seededInput,
   scopeCurrentWorkspaceTargets = false,
 }) {
-  const userDataDirectory = useCurrentWorkspace
-    ? null
-    : await mkdtemp(path.join(os.tmpdir(), "unemployed-app-benchmark-"));
-  const app = await electron.launch({
-    args: ["."],
-    cwd: desktopDir,
-    env: {
-      ...process.env,
-      ...(useCurrentWorkspace
-        ? {
-            UNEMPLOYED_ENABLE_TEST_API: "1",
-            UNEMPLOYED_TEST_API_USE_LIVE_AI: "1",
-          }
-        : {}),
-      ...(userDataDirectory
-        ? { UNEMPLOYED_USER_DATA_DIR: userDataDirectory }
-        : {}),
-    },
-  });
+  const { app, cleanup, resetWorkspaceSnapshot, window } =
+    await launchAppForScenario({ seededInput });
 
   try {
-    const window = await app.firstWindow();
-    await window.waitForLoadState("domcontentloaded");
-    await waitForProfileOrSetupHeading(window);
-    let resetWorkspaceSnapshot = null;
-    if (seededInput) {
-      await seedWorkspace(window, {
-        profile: seededInput.profile,
-        searchPreferences: seededInput.searchPreferences,
-        settings: seededInput.settings,
-      });
-    } else {
-      resetWorkspaceSnapshot = await resetDiscoveryState(window);
-    }
-
     const timed = await withTimedScenario(scenario, () =>
       scopeCurrentWorkspaceTargets
         ? withScopedCurrentWorkspaceTargets(
@@ -643,12 +671,7 @@ async function runSingleScenario({
       result: timed.value,
     };
   } finally {
-    await app.close().catch(() => undefined);
-    if (userDataDirectory) {
-      await rm(userDataDirectory, { recursive: true, force: true }).catch(
-        () => undefined,
-      );
-    }
+    await cleanup();
   }
 }
 
@@ -663,39 +686,12 @@ async function runSingleTargetBenchmarkPair(target) {
           [target],
           [...target.benchmarkTargetRoles],
         ),
-        settings: buildSettings(fixture.settings),
+          settings: buildSettings(fixture.settings),
       };
-  const userDataDirectory = useCurrentWorkspace
-    ? null
-    : await mkdtemp(path.join(os.tmpdir(), "unemployed-app-benchmark-"));
-  const app = await electron.launch({
-    args: ["."],
-    cwd: desktopDir,
-    env: {
-      ...process.env,
-      ...(useCurrentWorkspace
-        ? {
-            UNEMPLOYED_ENABLE_TEST_API: "1",
-            UNEMPLOYED_TEST_API_USE_LIVE_AI: "1",
-          }
-        : {}),
-      ...(userDataDirectory
-        ? { UNEMPLOYED_USER_DATA_DIR: userDataDirectory }
-        : {}),
-    },
-  });
+  const { app, cleanup, resetWorkspaceSnapshot, window } =
+    await launchAppForScenario({ seededInput });
 
   try {
-    const window = await app.firstWindow();
-    await window.waitForLoadState("domcontentloaded");
-    await waitForProfileOrSetupHeading(window);
-    let resetWorkspaceSnapshot = null;
-    if (seededInput) {
-      await seedWorkspace(window, seededInput);
-    } else {
-      resetWorkspaceSnapshot = await resetDiscoveryState(window);
-    }
-
     return await executeBenchmarkPairScenarios({
       app,
       window,
@@ -704,12 +700,7 @@ async function runSingleTargetBenchmarkPair(target) {
       preflightWorkspace: useCurrentWorkspace,
     });
   } finally {
-    await app.close().catch(() => undefined);
-    if (userDataDirectory) {
-      await rm(userDataDirectory, { recursive: true, force: true }).catch(
-        () => undefined,
-      );
-    }
+    await cleanup();
   }
 }
 
@@ -846,12 +837,12 @@ async function runCurrentWorkspaceRunAllScenario(app, window, targets) {
       app,
       activeWindow,
       targets.map((target) => target.id),
-        (scopedWindow) =>
-          scopedWindow.evaluate(async () =>
-            window.unemployed.jobFinder.runAgentDiscovery(),
-          ),
-        resetWorkspaceSnapshot,
-      ),
+      (scopedWindow) =>
+        scopedWindow.evaluate(async () =>
+          window.unemployed.jobFinder.runAgentDiscovery(),
+        ),
+      resetWorkspaceSnapshot,
+    ),
   );
   const snapshot = result.value ?? null;
   const effectiveTargetRoles = Array.isArray(snapshot?.searchPreferences?.targetRoles)

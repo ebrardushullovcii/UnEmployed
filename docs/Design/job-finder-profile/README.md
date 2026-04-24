@@ -15,8 +15,7 @@ Use this directory for profile-screen visual references only. The Job Finder pro
 
 - context: captured during `codex/profile-resume-polish` before later setup, resume, and profile work changed the active profile shell baseline
 - branch at capture time: `codex/profile-resume-polish`
-- artifact folder: `apps/desktop/test-artifacts/ui/profile-visual-baseline-2026-03-23/`
-- artifact availability: historical comparison only; use current desktop UI harness outputs for fresh baseline captures
+- artifact availability: no committed artifact folder is retained for this historical snapshot; use fresh harness output when you need a current comparison
 - viewport: `1440x920`
-- rerun command at capture time: `pnpm --filter @unemployed/desktop ui:profile-baseline`
-- note: retained only as historical comparison metadata, not as an active design brief
+- rerun command: `pnpm --filter @unemployed/desktop ui:profile-baseline`
+- note: this entry is retained as historical metadata only; generated UI artifacts are disposable and should be recreated as needed rather than stored here long-term
