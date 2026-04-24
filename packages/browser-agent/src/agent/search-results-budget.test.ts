@@ -122,6 +122,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
           siteLabel: 'KosovaJob',
         },
         targetJobCount: 3,
+        weakSameHostBoard: true,
       }),
     ).toBeNull()
   })

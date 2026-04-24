@@ -112,6 +112,7 @@ export function parseRunningChromeDebugSession(
     !debugPort ||
     !Number.isInteger(debugPort) ||
     debugPort <= 0 ||
+    debugPort > 65535 ||
     !userDataDir ||
     userDataDir.trim().length === 0
   ) {

@@ -1,6 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
 import { createJobFinderAiClientFromEnvironment } from "./index";
-import { normalizeCompositeTitle } from "./deterministic/job-extraction";
+import {
+  inferCompanyFromCanonicalUrl,
+  normalizeCompositeTitle,
+} from "./deterministic/job-extraction";
 import { createEnvironment, mockJsonFetch } from "./test-fixtures";
 
 describe("normalizeCompositeTitle", () => {
@@ -38,6 +41,22 @@ describe("normalizeCompositeTitle", () => {
       location: "Hybrid",
       postedAtText: null,
     });
+  });
+});
+
+describe("inferCompanyFromCanonicalUrl", () => {
+  test("keeps plausible company segments even when the job slug is short", () => {
+    expect(
+      inferCompanyFromCanonicalUrl("https://example.com/acme/dev"),
+    ).toBe("Acme");
+  });
+
+  test("does not treat pune as a generic company path segment", () => {
+    expect(
+      inferCompanyFromCanonicalUrl(
+        "https://example.com/pune/frontend-engineer",
+      ),
+    ).toBe("Pune");
   });
 });
 

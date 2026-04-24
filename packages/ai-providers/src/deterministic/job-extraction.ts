@@ -42,7 +42,6 @@ const GENERIC_JOB_PATH_SEGMENTS = new Set([
   "vacancies",
   "role",
   "roles",
-  "pune",
   "punes",
   "punesim",
   "pozita",
@@ -200,7 +199,6 @@ export function inferCompanyFromCanonicalUrl(url: string): string | null {
 
       if (
         companySegment.length <= 2 ||
-        (!jobSegment.includes("-") && jobSegment.length <= 3) ||
         !/[a-z\p{L}]/iu.test(companySegment)
       ) {
         continue;

@@ -337,7 +337,7 @@ export async function dismissObstructiveOverlays(
           .map((element) => ({
             label: readLabel(element),
             role:
-              element.getAttribute("role")?.trim().toLowerCase() ??
+              element.getAttribute("role")?.trim().toLowerCase() ||
               element.tagName.toLowerCase(),
           }));
       });

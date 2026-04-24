@@ -120,6 +120,7 @@ export const navigationTools: ToolDefinition[] = [
           changedToAllowedUrl &&
           readyState !== "loading"
         ) {
+          await dismissObstructiveOverlays(page).catch(() => undefined);
           state.currentUrl = finalUrl;
           state.failedInteractionAttempts?.clear();
           state.visitedUrls.add(finalUrl);

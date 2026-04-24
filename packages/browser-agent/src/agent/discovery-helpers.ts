@@ -415,7 +415,7 @@ export async function recoverLivePageState(input: {
     }
   }
 
-  input.onProgress?.({
+  createProgressEmitter(input.state, input.config, input.onProgress)({
     currentUrl: input.state.currentUrl,
     jobsFound: input.state.collectedJobs.length,
     stepCount: input.state.stepCount,
@@ -424,8 +424,6 @@ export async function recoverLivePageState(input: {
       ? "Recovered to a live browser page after the previous tab or page closed."
       : "Recovered to a live browser page, but it stayed off-policy so normal navigation guards remain in control.",
     waitReason: "waiting_on_page",
-    targetId: null,
-    adapterKind: input.config.source,
   });
 
   return canTrackRecoveredUrl;

@@ -164,6 +164,10 @@ export function resolveDiscoveryTargetBudget(input: {
   targetsRemaining: number;
   validJobsFoundSoFar: number;
 }) {
+  if (input.targetsRemaining <= 0) {
+    throw new Error("resolveDiscoveryTargetBudget requires at least one remaining target.");
+  }
+
   const remainingJobs = Math.max(
     1,
     DEFAULT_TARGET_JOB_COUNT - input.validJobsFoundSoFar,

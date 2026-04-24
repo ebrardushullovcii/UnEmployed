@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron as electron } from 'playwright'
-import { escapeRegExp } from './ui-selectors.mjs'
+import { escapeRegExp, formatVisibleRunId } from './ui-selectors.mjs'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(currentDir, '..')
@@ -100,19 +100,22 @@ async function loadResumeWorkspaceDemo(window) {
 }
 
 async function expectRunIdVisible(window, runId) {
-  const visibleRunId = runId.length <= 8 ? runId : runId.slice(-8)
+  const visibleRunId = formatVisibleRunId(runId)
   const applyRunSection = window.getByText('Apply run', { exact: true }).locator('xpath=ancestor::div[1]')
   await applyRunSection.waitFor({ timeout: 10000 })
   const runLabel = applyRunSection.getByText(`Run ${visibleRunId}`, { exact: true })
   await runLabel.waitFor({ timeout: 10000 })
   const titledContainer = runLabel.locator('xpath=ancestor-or-self::*[@title][1]')
-  if (await titledContainer.count()) {
-    await titledContainer.evaluate((element, expectedRunId) => {
-      if (element.getAttribute('title') !== expectedRunId) {
-        throw new Error(`Expected run title ${expectedRunId} but found ${element.getAttribute('title')}`)
-      }
-    }, runId)
+  const titledContainerCount = await titledContainer.count()
+  if (titledContainerCount === 0) {
+    throw new Error(`Expected a titled container for Apply run ${runId}, but none was found.`)
   }
+
+  await titledContainer.first().evaluate((element, expectedRunId) => {
+    if (element.getAttribute('title') !== expectedRunId) {
+      throw new Error(`Expected run title ${expectedRunId} but found ${element.getAttribute('title')}`)
+    }
+  }, runId)
 }
 
 async function selectRunHistoryEntry(window, runId) {
@@ -122,7 +125,7 @@ async function selectRunHistoryEntry(window, runId) {
 
   const runHistorySection = window.getByText('Run history', { exact: true }).locator('xpath=ancestor::section[1]')
   await runHistorySection.waitFor({ timeout: 10000 })
-  const visibleRunId = runId.length <= 8 ? runId : runId.slice(-8)
+  const visibleRunId = formatVisibleRunId(runId)
 
   const button = runHistorySection.getByRole('button', {
     name: new RegExp(`Run\\s+${escapeRegExp(visibleRunId)}(?!\\w)`, 'i'),

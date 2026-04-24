@@ -70,6 +70,12 @@ function matchesApplicationsFilter(
   }
 }
 
+function pickLatestIsoTimestamp(...values: Array<string | null | undefined>) {
+  return values
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null
+}
+
 export function ApplicationsScreen(props: {
   applicationAttempts: readonly ApplicationAttempt[]
   applicationRecords: readonly ApplicationRecord[]
@@ -221,10 +227,10 @@ export function ApplicationsScreen(props: {
   const selectedApplyRun = effectiveSelectedRunId
     ? applyRunsById.get(effectiveSelectedRunId) ?? null
     : null
-  const effectiveSelectedRunUpdatedAt =
-    [selectedApplyRun?.updatedAt, effectiveSelectedApplyResult?.updatedAt]
-      .filter((value): value is string => Boolean(value))
-      .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null
+  const effectiveSelectedRunUpdatedAt = pickLatestIsoTimestamp(
+    selectedApplyRun?.updatedAt,
+    effectiveSelectedApplyResult?.updatedAt,
+  )
   const showLatestAttemptDetails =
     !effectiveSelectedApplyRunId ||
     !latestApplyRunIdForSelectedRecord ||
@@ -326,7 +332,11 @@ export function ApplicationsScreen(props: {
         lastFetchedApplyRunRef.current = {
           jobId: effectiveSelectedJobId,
           runId: effectiveSelectedRunId,
-          updatedAt: details.run.updatedAt ?? details.result?.updatedAt ?? effectiveSelectedRunUpdatedAt,
+          updatedAt: pickLatestIsoTimestamp(
+            details.run.updatedAt,
+            details.result?.updatedAt,
+            effectiveSelectedRunUpdatedAt,
+          ),
         }
         setApplyRunDetails(details)
         setApplyRunDetailsTarget({

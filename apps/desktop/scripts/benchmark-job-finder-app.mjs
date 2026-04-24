@@ -264,10 +264,16 @@ async function resolveUsableWindow(app, preferredWindow = null) {
     }
   }
 
+  let timeoutHandle = null;
   const firstWindow = await Promise.race([
-    app.firstWindow(),
+    app.firstWindow().then((window) => {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      return window;
+    }),
     new Promise((_, reject) => {
-      setTimeout(() => {
+      timeoutHandle = setTimeout(() => {
         reject(new Error("Timed out waiting for a usable window."));
       }, 30000);
     }),
@@ -348,6 +354,18 @@ async function resetDiscoveryState(window) {
   }, resetState);
 
   return workspace;
+}
+
+async function restoreWorkspaceSnapshot(window, snapshot) {
+  await window.evaluate(async (state) => {
+    if (!window.unemployed.jobFinder.test?.resetWorkspaceState) {
+      throw new Error(
+        "Current-workspace benchmark restore requires desktop test API support.",
+      );
+    }
+
+    return window.unemployed.jobFinder.test.resetWorkspaceState(state);
+  }, snapshot);
 }
 
 async function withScopedCurrentWorkspaceTargets(
@@ -813,13 +831,20 @@ async function executeBenchmarkPairScenarios({
 async function runCurrentWorkspaceSingleTargetBenchmarkPair(app, window, target) {
   let activeWindow = await resolveUsableWindow(app, window);
   const resetWorkspaceSnapshot = await resetDiscoveryState(activeWindow);
-  const pairResults = await executeBenchmarkPairScenarios({
-    app,
-    window: activeWindow,
-    target,
-    resetWorkspaceSnapshot,
-    preflightWorkspace: true,
-  });
+  let pairResults;
+
+  try {
+    pairResults = await executeBenchmarkPairScenarios({
+      app,
+      window: activeWindow,
+      target,
+      resetWorkspaceSnapshot,
+      preflightWorkspace: true,
+    });
+  } finally {
+    activeWindow = await resolveUsableWindow(app, activeWindow);
+    await restoreWorkspaceSnapshot(activeWindow, resetWorkspaceSnapshot);
+  }
 
   activeWindow = await resolveUsableWindow(app, activeWindow);
   return {
@@ -834,18 +859,26 @@ async function runCurrentWorkspaceRunAllScenario(app, window, targets) {
   const targetRoles = [
     ...new Set(targets.flatMap((target) => target.benchmarkTargetRoles)),
   ];
-  const result = await withTimedScenario("search_jobs:run_all", () =>
-    withScopedCurrentWorkspaceTargets(
-      app,
-      activeWindow,
-      targets.map((target) => target.id),
-      (scopedWindow) =>
-        scopedWindow.evaluate(async () =>
-          window.unemployed.jobFinder.runAgentDiscovery(),
-        ),
-      resetWorkspaceSnapshot,
-    ),
-  );
+  let result;
+
+  try {
+    result = await withTimedScenario("search_jobs:run_all", () =>
+      withScopedCurrentWorkspaceTargets(
+        app,
+        activeWindow,
+        targets.map((target) => target.id),
+        (scopedWindow) =>
+          scopedWindow.evaluate(async () =>
+            window.unemployed.jobFinder.runAgentDiscovery(),
+          ),
+        resetWorkspaceSnapshot,
+      ),
+    );
+  } finally {
+    activeWindow = await resolveUsableWindow(app, activeWindow);
+    await restoreWorkspaceSnapshot(activeWindow, resetWorkspaceSnapshot);
+  }
+
   const snapshot = result.value ?? null;
   const effectiveTargetRoles = Array.isArray(snapshot?.searchPreferences?.targetRoles)
     ? snapshot.searchPreferences.targetRoles

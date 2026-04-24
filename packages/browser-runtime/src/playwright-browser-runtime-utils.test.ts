@@ -108,6 +108,11 @@ describe('playwright browser runtime utils', () => {
     })
 
     expect(parseRunningChromeDebugSession('"chrome.exe" --user-data-dir="C:\\temp\\profile"')).toBeNull()
+    expect(
+      parseRunningChromeDebugSession(
+        '"chrome.exe" --remote-debugging-port=70000 --user-data-dir="C:\\temp\\profile"',
+      ),
+    ).toBeNull()
   })
 
   test('finds a running Chrome debug port for the same user data dir from command lines', () => {

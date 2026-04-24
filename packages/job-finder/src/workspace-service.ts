@@ -88,6 +88,9 @@ export function createJobFinderWorkspaceService(
   const activeSourceDebugPromiseRef = {
     current: null as Promise<unknown> | null,
   };
+  const shutdownPromiseRef = {
+    current: null as Promise<void> | null,
+  };
 
   const context: WorkspaceServiceContext = {
     aiClient,
@@ -340,6 +343,11 @@ export function createJobFinderWorkspaceService(
   }
 
   async function shutdown(): Promise<void> {
+    if (shutdownPromiseRef.current) {
+      return shutdownPromiseRef.current;
+    }
+
+    shutdownPromiseRef.current = (async () => {
     activeDiscoveryAbortControllerRef.current?.abort();
     activeSourceDebugAbortControllerRef.current?.abort();
 
@@ -369,6 +377,9 @@ export function createJobFinderWorkspaceService(
         ),
       );
     }
+    })();
+
+    return shutdownPromiseRef.current;
   }
 
   return {
