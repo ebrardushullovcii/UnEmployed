@@ -26,6 +26,10 @@ import {
 interface ApplicationsDetailPanelProps {
   activeFilter: ApplicationsViewFilter;
   applyRunDetails: ApplyRunDetails | null;
+  applyRunDetailsTarget: {
+    jobId: string;
+    runId: string;
+  } | null;
   applyRunDetailsError: string | null;
   applyRunDetailsStatus: "idle" | "loading" | "ready" | "error";
   applicationRecords: readonly ApplicationRecord[];
@@ -183,6 +187,7 @@ function getApprovalTone(status: ApplySubmitApproval["status"]) {
 export function ApplicationsDetailPanel({
   activeFilter,
   applyRunDetails,
+  applyRunDetailsTarget,
   applyRunDetailsError,
   applyRunDetailsStatus,
   applicationRecords,
@@ -216,10 +221,17 @@ export function ApplicationsDetailPanel({
   const selectedRunHistoryEntry =
     applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ??
     null;
-  const selectedRun =
+  const selectedApplyRunDetails =
     applyRunDetailsStatus === "ready" &&
+    selectedRecord != null &&
+    applyRunDetailsTarget?.jobId === selectedRecord.jobId &&
+    applyRunDetailsTarget.runId === selectedApplyRunId &&
     applyRunDetails?.run?.id === selectedApplyRunId
-      ? applyRunDetails.run
+      ? applyRunDetails
+      : null;
+  const selectedRun =
+    selectedApplyRunDetails
+      ? selectedApplyRunDetails.run
       : (selectedRunHistoryEntry?.run ?? null);
   const applyDetailsStatusBadge = getApplyDetailsStatusBadge(
     applyRunDetailsStatus,
@@ -433,10 +445,10 @@ export function ApplicationsDetailPanel({
                   </p>
                 ) : null}
                 <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                  Run {applyRunDetails?.run.id ?? visibleApplyResult.runId}
-                </p>
-              </div>
-            ) : null}
+                   Run {selectedApplyRunDetails?.run.id ?? visibleApplyResult.runId}
+                 </p>
+               </div>
+             ) : null}
           </div>
           <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -702,9 +714,9 @@ export function ApplicationsDetailPanel({
               </ul>
             </section>
           ) : null}
-          {applyRunDetails?.submitApproval
+          {selectedApplyRunDetails?.submitApproval
             ? (() => {
-                const submitApproval = applyRunDetails.submitApproval;
+                const submitApproval = selectedApplyRunDetails.submitApproval;
 
                 return (
                   <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
@@ -761,7 +773,7 @@ export function ApplicationsDetailPanel({
                     ) : null}
                     <div className="flex flex-wrap gap-2">
                       {submitApproval.status === "pending" &&
-                      applyRunDetails.run.state ===
+                      selectedApplyRunDetails.run.state ===
                         "awaiting_submit_approval" ? (
                         <Button
                           onClick={() =>
@@ -775,9 +787,9 @@ export function ApplicationsDetailPanel({
                         </Button>
                       ) : null}
                       {submitApproval.status === "approved" &&
-                      applyRunDetails.run.state !== "completed" &&
-                      applyRunDetails.run.state !== "cancelled" &&
-                      applyRunDetails.run.state !== "failed" ? (
+                      selectedApplyRunDetails.run.state !== "completed" &&
+                      selectedApplyRunDetails.run.state !== "cancelled" &&
+                      selectedApplyRunDetails.run.state !== "failed" ? (
                         <Button
                           onClick={() =>
                             onRevokeApplyRunApproval(submitApproval.runId)
@@ -789,11 +801,11 @@ export function ApplicationsDetailPanel({
                           Revoke approval
                         </Button>
                       ) : null}
-                      {applyRunDetails.run.state !== "completed" &&
-                      applyRunDetails.run.state !== "cancelled" ? (
+                      {selectedApplyRunDetails.run.state !== "completed" &&
+                      selectedApplyRunDetails.run.state !== "cancelled" ? (
                         <Button
                           onClick={() =>
-                            onCancelApplyRun(applyRunDetails.run.id)
+                            onCancelApplyRun(selectedApplyRunDetails.run.id)
                           }
                           type="button"
                           variant="ghost"
@@ -829,38 +841,38 @@ export function ApplicationsDetailPanel({
                     "Apply run details could not be loaded."}
                 </p>
               ) : null}
-              {applyRunDetails ? (
+              {selectedApplyRunDetails ? (
                 <>
                   <div className="grid gap-3 md:grid-cols-4">
                     <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
                       <p className="label-mono-xs">Questions</p>
                       <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
-                        {applyRunDetails.questionRecords.length}
+                        {selectedApplyRunDetails.questionRecords.length}
                       </strong>
                     </div>
                     <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
                       <p className="label-mono-xs">Grounded answers</p>
                       <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
-                        {applyRunDetails.answerRecords.length}
+                        {selectedApplyRunDetails.answerRecords.length}
                       </strong>
                     </div>
                     <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
                       <p className="label-mono-xs">Artifacts</p>
                       <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
-                        {applyRunDetails.artifactRefs.length}
+                        {selectedApplyRunDetails.artifactRefs.length}
                       </strong>
                     </div>
                     <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
                       <p className="label-mono-xs">Checkpoints</p>
                       <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
-                        {applyRunDetails.checkpoints.length}
+                        {selectedApplyRunDetails.checkpoints.length}
                       </strong>
                     </div>
                   </div>
-                  {applyRunDetails.questionRecords.length ? (
+                  {selectedApplyRunDetails.questionRecords.length ? (
                     <div className="grid gap-2">
                       <p className="label-mono-xs">Detected questions</p>
-                      {applyRunDetails.questionRecords.map((question) => (
+                      {selectedApplyRunDetails.questionRecords.map((question) => (
                         <div
                           key={question.id}
                           className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3"
@@ -905,10 +917,10 @@ export function ApplicationsDetailPanel({
                       ))}
                     </div>
                   ) : null}
-                  {applyRunDetails.answerRecords.length ? (
+                  {selectedApplyRunDetails.answerRecords.length ? (
                     <div className="grid gap-2">
                       <p className="label-mono-xs">Grounded answers</p>
-                      {applyRunDetails.answerRecords.map((answer) => (
+                      {selectedApplyRunDetails.answerRecords.map((answer) => (
                         <div
                           key={answer.id}
                           className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3"
@@ -941,10 +953,10 @@ export function ApplicationsDetailPanel({
                       ))}
                     </div>
                   ) : null}
-                  {applyRunDetails.artifactRefs.length ? (
+                  {selectedApplyRunDetails.artifactRefs.length ? (
                     <div className="grid gap-2">
                       <p className="label-mono-xs">Retained artifacts</p>
-                      {applyRunDetails.artifactRefs.map((artifact) => (
+                      {selectedApplyRunDetails.artifactRefs.map((artifact) => (
                         <div
                           key={artifact.id}
                           className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft"
@@ -968,10 +980,10 @@ export function ApplicationsDetailPanel({
                       ))}
                     </div>
                   ) : null}
-                  {applyRunDetails.checkpoints.length ? (
+                  {selectedApplyRunDetails.checkpoints.length ? (
                     <div className="grid gap-2">
                       <p className="label-mono-xs">Replay checkpoints</p>
-                      {applyRunDetails.checkpoints.map((checkpoint) => (
+                      {selectedApplyRunDetails.checkpoints.map((checkpoint) => (
                         <div
                           key={checkpoint.id}
                           className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft"
@@ -1006,10 +1018,10 @@ export function ApplicationsDetailPanel({
                       ))}
                     </div>
                   ) : null}
-                  {applyRunDetails.consentRequests.length ? (
+                  {selectedApplyRunDetails.consentRequests.length ? (
                     <div className="grid gap-2">
                       <p className="label-mono-xs">Consent requests</p>
-                      {applyRunDetails.consentRequests.map((request) => (
+                      {selectedApplyRunDetails.consentRequests.map((request) => (
                         <div
                           key={request.id}
                           className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft"
@@ -1029,7 +1041,7 @@ export function ApplicationsDetailPanel({
                             <p className="mt-2">{request.detail}</p>
                           ) : null}
                           {request.status === "pending" &&
-                          applyRunDetails.run.state === "paused_for_consent" ? (
+                          selectedApplyRunDetails.run.state === "paused_for_consent" ? (
                             <div className="mt-3 flex flex-wrap gap-2">
                               <Button
                                 onClick={() =>

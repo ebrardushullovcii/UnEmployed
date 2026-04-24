@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron as electron } from 'playwright'
+import { escapeRegExp } from './ui-selectors.mjs'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(currentDir, '..')
@@ -103,10 +104,6 @@ async function expectRunIdVisible(window, runId) {
   await window.getByText(`Run ${runId}`, { exact: true }).waitFor({ timeout: 10000 })
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 async function selectRunHistoryEntry(window, runId) {
   if (typeof runId !== 'string' || runId.trim().length === 0) {
     throw new Error('selectRunHistoryEntry requires a non-empty runId')
@@ -116,7 +113,7 @@ async function selectRunHistoryEntry(window, runId) {
   await runHistorySection.waitFor({ timeout: 10000 })
 
   const button = runHistorySection.getByRole('button', {
-    name: new RegExp(`Run\\s+${escapeRegExp(runId)}`, 'i'),
+    name: new RegExp(`Run\\s+${escapeRegExp(runId)}(?!\\w)`, 'i'),
   }).first()
 
   await button.waitFor({ timeout: 10000 })

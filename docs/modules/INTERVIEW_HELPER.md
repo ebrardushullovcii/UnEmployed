@@ -2,12 +2,19 @@
 
 ## Purpose
 
+Currently provides overlay UI types and helpers for interview session visualization.
+
 Will own interview prep, live session state, transcript context, capture state, and suggestion generation once the full session module is implemented.
 
 ## Current State
 
 - partially implemented with overlay UI types and helpers; full session state logic is planned but not yet the active implementation focus
-- should reuse shared profile and application history from `packages/contracts`; any future document retrieval or AI dependencies should stay behind explicit adapters instead of becoming assumed module coupling
+- current active runtime integration is limited to overlay-facing helpers and `packages/os-integration`, not full interview session orchestration
+
+## Design Principles
+
+- future session flows should reuse shared profile and application history from `packages/contracts`
+- any future document retrieval or AI dependencies should stay behind explicit adapters instead of becoming assumed module coupling
 
 ## Boundaries
 

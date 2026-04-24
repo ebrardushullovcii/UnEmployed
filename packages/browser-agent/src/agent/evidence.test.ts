@@ -173,14 +173,14 @@ describe("addExtractedJobsToState", () => {
           title: "Full Stack Developer (AI-First)",
           company: "Full Circle Agency",
           location: "Prishtina (Remote)",
-          description: "Second copy.",
+          description: "Second copy with stronger evidence and extracted skills.",
           salaryText: null,
-          summary: "Second copy.",
+          summary: "Second copy with stronger evidence and extracted skills.",
           postedAt: null,
           workMode: ["remote"],
           applyPath: "unknown",
           easyApplyEligible: false,
-          keySkills: [],
+          keySkills: ["React", "TypeScript"],
         },
       ],
       state,
@@ -192,7 +192,7 @@ describe("addExtractedJobsToState", () => {
     expect(state.collectedJobs[0]).toEqual(
       expect.objectContaining({
         sourceJobId: "linkedin_detail_2",
-        description: "Second copy.",
+        keySkills: ["React", "TypeScript"],
       }),
     );
   });

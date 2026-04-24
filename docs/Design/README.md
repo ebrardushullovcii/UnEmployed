@@ -21,4 +21,4 @@ Use this directory as visual reference only.
 
 ## Historical Reference
 
-- `job-finder-profile/historical-branch-baseline-2026-03-23.md`
+- superseded design baseline metadata should be consolidated into the nearest directory `README.md` when a standalone note is no longer necessary

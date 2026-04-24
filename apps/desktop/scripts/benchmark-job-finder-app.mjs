@@ -337,8 +337,8 @@ async function withScopedCurrentWorkspaceTargets(
     },
   };
   let activeWindow = window;
-  const saveScopedTargets = async (activeWindow) =>
-    activeWindow.evaluate(
+  const saveScopedTargets = async (targetWindow) =>
+    targetWindow.evaluate(
       async ({ profile, searchPreferences }) =>
         window.unemployed.jobFinder.saveWorkspaceInputs({
           profile,

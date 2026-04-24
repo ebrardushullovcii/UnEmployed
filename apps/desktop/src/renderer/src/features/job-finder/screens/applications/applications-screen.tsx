@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ApplicationAttempt,
   ApplicationRecord,
@@ -118,10 +118,19 @@ export function ApplicationsScreen(props: {
     Record<string, string>
   >({})
   const [applyRunDetails, setApplyRunDetails] = useState<ApplyRunDetails | null>(null)
+  const [applyRunDetailsTarget, setApplyRunDetailsTarget] = useState<{
+    jobId: string
+    runId: string
+  } | null>(null)
   const [applyRunDetailsStatus, setApplyRunDetailsStatus] = useState<
     'idle' | 'loading' | 'ready' | 'error'
   >('idle')
   const [applyRunDetailsError, setApplyRunDetailsError] = useState<string | null>(null)
+  const lastFetchedApplyRunRef = useRef<{
+    jobId: string
+    runId: string
+    updatedAt: string | null
+  } | null>(null)
   const filterCounts = useMemo(
     () =>
       Object.fromEntries(
@@ -264,7 +273,9 @@ export function ApplicationsScreen(props: {
     let cancelled = false
 
     if (!effectiveSelectedJobId || !effectiveSelectedRunId) {
+      lastFetchedApplyRunRef.current = null
       setApplyRunDetails(null)
+      setApplyRunDetailsTarget(null)
       setApplyRunDetailsStatus('idle')
       setApplyRunDetailsError(null)
       return () => {
@@ -272,7 +283,26 @@ export function ApplicationsScreen(props: {
       }
     }
 
+    if (
+      lastFetchedApplyRunRef.current?.jobId === effectiveSelectedJobId &&
+      lastFetchedApplyRunRef.current?.runId === effectiveSelectedRunId &&
+      (effectiveSelectedRunUpdatedAt == null ||
+        (lastFetchedApplyRunRef.current.updatedAt != null &&
+          effectiveSelectedRunUpdatedAt <= lastFetchedApplyRunRef.current.updatedAt))
+    ) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    lastFetchedApplyRunRef.current = {
+      jobId: effectiveSelectedJobId,
+      runId: effectiveSelectedRunId,
+      updatedAt: effectiveSelectedRunUpdatedAt,
+    }
+
     setApplyRunDetails(null)
+    setApplyRunDetailsTarget(null)
     setApplyRunDetailsStatus('loading')
     setApplyRunDetailsError(null)
 
@@ -283,6 +313,10 @@ export function ApplicationsScreen(props: {
         }
 
         setApplyRunDetails(details)
+        setApplyRunDetailsTarget({
+          jobId: effectiveSelectedJobId,
+          runId: effectiveSelectedRunId,
+        })
         setApplyRunDetailsStatus('ready')
       })
       .catch((error) => {
@@ -291,6 +325,7 @@ export function ApplicationsScreen(props: {
         }
 
         setApplyRunDetails(null)
+        setApplyRunDetailsTarget(null)
         setApplyRunDetailsStatus('error')
         setApplyRunDetailsError(
           error instanceof Error
@@ -334,6 +369,7 @@ export function ApplicationsScreen(props: {
         <ApplicationsDetailPanel
           activeFilter={activeFilter}
           applyRunDetails={applyRunDetails}
+          applyRunDetailsTarget={applyRunDetailsTarget}
           applyRunDetailsError={applyRunDetailsError}
           applyRunDetailsStatus={applyRunDetailsStatus}
           applicationRecords={applicationRecords}

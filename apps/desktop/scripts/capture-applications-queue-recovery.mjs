@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron as electron } from 'playwright'
+import { selectApplicationRecord } from './ui-selectors.mjs'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(currentDir, '..')
@@ -68,18 +69,6 @@ async function stageSelectedQueue(window) {
   await stageButton.waitFor({ timeout: 10000 })
   await stageButton.click()
   await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
-}
-
-async function selectApplicationRecord(window, title, company) {
-  const recordButton = window.getByRole('button', {
-    name: new RegExp(`${escapeRegExp(title)}\\s+${escapeRegExp(company)}`, 'i'),
-  }).first()
-  await recordButton.waitFor({ timeout: 10000 })
-  await recordButton.click()
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 async function approveCurrentRun(window) {
@@ -224,7 +213,11 @@ async function captureApplicationsQueueRecovery() {
         // Preserve the original failure while still cleaning up the temp profile.
       }
     }
-    await rm(userDataDirectory, { recursive: true, force: true })
+    try {
+      await rm(userDataDirectory, { recursive: true, force: true })
+    } catch (error) {
+      console.warn('Failed to remove temporary Applications queue recovery profile.', error)
+    }
   }
 
   process.stdout.write(`Saved Applications queue recovery artifacts to ${outputDir}\n`)

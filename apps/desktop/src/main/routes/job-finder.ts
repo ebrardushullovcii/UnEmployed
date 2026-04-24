@@ -40,7 +40,6 @@ import {
 } from "@unemployed/contracts";
 import {
   getDesktopTestDelayMs,
-  getJobFinderWorkspaceFilePath,
   getJobFinderWorkspaceService,
   importResumeFromSourcePath,
   isDesktopTestApiEnabled,
@@ -50,8 +49,6 @@ import {
   resetJobFinderWorkspace,
   runDesktopResumeImportBenchmark,
 } from "../services/job-finder";
-import { createFileJobFinderRepository } from "@unemployed/db";
-import { createEmptyJobFinderRepositoryState } from "../adapters/job-finder-initial-state";
 
 function parseAgentDiscoveryRequest(payload: unknown) {
   return JobFinderAgentDiscoveryActionInputSchema.parse(payload);
@@ -312,38 +309,11 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         );
       }
 
-      const repository = await createFileJobFinderRepository({
-        filePath: getJobFinderWorkspaceFilePath(),
-        seed: createEmptyJobFinderRepositoryState(),
-      });
-      let currentResumeImportState;
-
-      try {
-        currentResumeImportState = await Promise.all([
-          repository.listResumeImportRuns(),
-          repository.listResumeImportDocumentBundles(),
-          repository.listResumeImportFieldCandidates(),
-        ]);
-      } finally {
-        await repository.close();
-      }
       const partialPayload =
         payload && typeof payload === "object" && !Array.isArray(payload)
           ? (payload as Record<string, unknown>)
           : {};
-      const state = JobFinderRepositoryStateSchema.parse({
-        ...partialPayload,
-        resumeImportRuns:
-          partialPayload.resumeImportRuns ?? currentResumeImportState[0] ?? [],
-        resumeImportDocumentBundles:
-          partialPayload.resumeImportDocumentBundles ??
-          currentResumeImportState[1] ??
-          [],
-        resumeImportFieldCandidates:
-          partialPayload.resumeImportFieldCandidates ??
-          currentResumeImportState[2] ??
-          [],
-      });
+      const state = JobFinderRepositoryStateSchema.parse(partialPayload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.resetWorkspace(state);
 

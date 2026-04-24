@@ -71,7 +71,7 @@ Read `docs/STATUS.md` first. Use this file for active work and ready follow-ups,
 
 ## Ready Queue
 
-- Validate cross-platform sidecar packaging for `019`
+- Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import
 - Keep repo-level quality commands aligned with actual workflow and CI once `pnpm lint` is unblocked from the known `packages/browser-runtime/src/playwright-browser-runtime.test.ts` failures

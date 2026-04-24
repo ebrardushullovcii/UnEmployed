@@ -227,13 +227,23 @@ export function runMigrations(database: DatabaseSync): void {
     rowId: string;
     serializedValue: string;
     survivorId: string;
-  }): string {
-    const parsedValue = JSON.parse(input.serializedValue) as unknown;
+  }): string | null {
+    let parsedValue: unknown;
+
+    try {
+      parsedValue = JSON.parse(input.serializedValue) as unknown;
+    } catch {
+      console.warn(
+        `[DB migration] Skipping embedded resultId rewrite for ${input.tableName}.${input.rowId} because the persisted value is not valid JSON.`,
+      );
+      return null;
+    }
 
     if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
-      throw new Error(
-        `Expected JSON object in ${input.tableName}.${input.rowId} during apply-result dedupe migration`,
+      console.warn(
+        `[DB migration] Skipping embedded resultId rewrite for ${input.tableName}.${input.rowId} because the persisted value is not a JSON object.`,
       );
+      return null;
     }
 
     return JSON.stringify({
@@ -305,13 +315,15 @@ export function runMigrations(database: DatabaseSync): void {
           throw new Error(`Invalid ${tableName} evidence row while rewriting apply result ids.`)
         }
         const typedRow = row as { id: string; value: string; survivor_id: string }
+        const rewrittenValue = rewritePersistedResultId({
+          tableName,
+          rowId: typedRow.id,
+          serializedValue: typedRow.value,
+          survivorId: typedRow.survivor_id,
+        })
+
         updateStatement.run(
-          rewritePersistedResultId({
-            tableName,
-            rowId: typedRow.id,
-            serializedValue: typedRow.value,
-            survivorId: typedRow.survivor_id,
-          }),
+          rewrittenValue ?? typedRow.value,
           typedRow.survivor_id,
           typedRow.id,
         )

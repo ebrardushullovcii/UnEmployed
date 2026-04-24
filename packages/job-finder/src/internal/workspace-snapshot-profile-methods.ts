@@ -41,6 +41,7 @@ export function createWorkspaceSnapshotProfileMethods(
 ): Pick<
   JobFinderWorkspaceService,
   | "getWorkspaceSnapshot"
+  | "getResumeImportState"
   | "resetWorkspace"
   | "openBrowserSession"
   | "checkBrowserSession"
@@ -213,6 +214,20 @@ export function createWorkspaceSnapshotProfileMethods(
 
   return {
     getWorkspaceSnapshot,
+    async getResumeImportState() {
+      const [resumeImportRuns, resumeImportDocumentBundles, resumeImportFieldCandidates] =
+        await Promise.all([
+          ctx.repository.listResumeImportRuns(),
+          ctx.repository.listResumeImportDocumentBundles(),
+          ctx.repository.listResumeImportFieldCandidates(),
+        ])
+
+      return {
+        resumeImportRuns,
+        resumeImportDocumentBundles,
+        resumeImportFieldCandidates,
+      }
+    },
     async resetWorkspace(seed: JobFinderRepositorySeed) {
       await ctx.repository.reset(seed);
       return getWorkspaceSnapshot();

@@ -279,7 +279,7 @@ describe("job extraction with openai-compatible client", () => {
     }
   });
 
-  test("does not treat a lone trailing role token as a location", async () => {
+  test("extracts a trailing location even when preceding tokens are role-like", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
         {

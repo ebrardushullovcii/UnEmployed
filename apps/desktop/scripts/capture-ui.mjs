@@ -53,19 +53,16 @@ async function clickNavigationControl(window, name) {
   await window.getByRole('button', { name }).click()
 }
 
-async function waitForHeading(window, headings) {
+async function waitForHeading(window, headings, options) {
   await window.waitForFunction((allowedHeadings) => {
     const heading = document.querySelector('h1')
     const text = heading?.textContent ?? ''
     return allowedHeadings.some((allowedHeading) => text.includes(allowedHeading))
-  }, headings, { timeout: 10000 })
+  }, headings, { timeout: 10000, ...options })
 }
 
 async function waitForProfileOrSetupHeading(window) {
-  await window.waitForFunction(() => {
-    const heading = document.querySelector('h1')
-    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
-  }, undefined, { timeout: 15000 })
+  await waitForHeading(window, ['Your profile', 'Guided setup'], { timeout: 15000 })
 }
 
 async function captureScreens() {

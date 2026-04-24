@@ -2,12 +2,23 @@ export interface ResumeImportPathPayload {
   sourcePath: string;
 }
 
-export function isEnabled(value: string | undefined): boolean {
-  return value === "1" || value === "true";
+function normalizeFlagValue(value: string | null | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
 }
 
-function isDisabled(value: string | undefined): boolean {
-  return value === "0" || value === "false";
+export function isEnabled(value: string | null | undefined): boolean {
+  const normalized = normalizeFlagValue(value);
+  return normalized === "1" || normalized === "true";
+}
+
+function isDisabled(value: string | null | undefined): boolean {
+  const normalized = normalizeFlagValue(value);
+  return normalized === "0" || normalized === "false";
 }
 
 export function isDesktopTestApiEnabled(
@@ -20,17 +31,16 @@ export function isBrowserAgentEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
-  const normalizedValue = configuredValue?.trim().toLowerCase();
 
   if (configuredValue == null) {
     return true;
   }
 
-  if (normalizedValue != null && isDisabled(normalizedValue)) {
+  if (isDisabled(configuredValue)) {
     return false;
   }
 
-  if (normalizedValue != null && isEnabled(normalizedValue)) {
+  if (isEnabled(configuredValue)) {
     return true;
   }
 
