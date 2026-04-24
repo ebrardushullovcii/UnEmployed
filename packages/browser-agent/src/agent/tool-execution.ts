@@ -11,6 +11,7 @@ import { getToolExecutor } from "../tools";
 import type { JobExtractor } from "../agent";
 import { addExtractedJobsToState } from "./evidence";
 import {
+  createProgressEmitter,
   isClosedPageError,
   isClosedPageErrorMessage,
   recoverLivePageState,
@@ -694,12 +695,18 @@ async function recoverClosedPage(input: {
   toolName: string;
   onProgress?: OnProgressCallback;
 }): Promise<boolean> {
+  const emitProgress = createProgressEmitter(
+    input.state,
+    input.config,
+    input.onProgress,
+  );
+
   return recoverLivePageState({
     config: input.config,
     pageRef: input.pageRef,
     state: input.state,
     reason: input.toolName,
-    ...(input.onProgress ? { onProgress: input.onProgress } : {}),
+    emitProgress,
   });
 }
 

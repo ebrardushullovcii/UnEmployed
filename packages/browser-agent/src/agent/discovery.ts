@@ -315,7 +315,7 @@ export async function runAgentDiscovery(
       pageRef,
       state,
       reason,
-      ...(onProgress ? { onProgress } : {}),
+      emitProgress,
     });
   };
 

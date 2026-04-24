@@ -353,7 +353,7 @@ async function resetDiscoveryState(window) {
     return window.unemployed.jobFinder.test.resetWorkspaceState(state);
   }, resetState);
 
-  return workspace;
+  return resetState;
 }
 
 async function restoreWorkspaceSnapshot(window, snapshot) {
@@ -706,7 +706,7 @@ async function runSingleTargetBenchmarkPair(target) {
           [target],
           [...target.benchmarkTargetRoles],
         ),
-          settings: buildSettings(fixture.settings),
+        settings: buildSettings(fixture.settings),
       };
   const { app, cleanup, resetWorkspaceSnapshot, window } =
     await launchAppForScenario({ seededInput });

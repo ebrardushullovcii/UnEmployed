@@ -188,7 +188,6 @@ export function inferCompanyFromCanonicalUrl(url: string): string | null {
 
     for (let index = 0; index < pathSegments.length - 1; index += 1) {
       const companySegment = pathSegments[index]?.toLowerCase() ?? "";
-      const jobSegment = pathSegments[index + 1] ?? "";
       if (
         !companySegment ||
         GENERIC_JOB_PATH_SEGMENTS.has(companySegment) ||

@@ -44,15 +44,15 @@ export async function waitForRetryDelay(
   }
 
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, delayMs);
-
     const handleAbort = () => {
       cleanup();
       reject(new DOMException("Aborted", "AbortError"));
     };
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, delayMs);
 
     const cleanup = () => {
       clearTimeout(timeout);
@@ -60,6 +60,10 @@ export async function waitForRetryDelay(
     };
 
     signal?.addEventListener("abort", handleAbort, { once: true });
+
+    if (signal?.aborted) {
+      handleAbort();
+    }
   });
 }
 
@@ -385,7 +389,7 @@ export async function recoverLivePageState(input: {
   pageRef: { current: Page };
   state: AgentState;
   reason: string;
-  onProgress?: OnProgressCallback;
+  emitProgress: ReturnType<typeof createProgressEmitter>;
 }): Promise<boolean> {
   if (!input.config.resolveLivePage) {
     return false;
@@ -415,7 +419,7 @@ export async function recoverLivePageState(input: {
     }
   }
 
-  createProgressEmitter(input.state, input.config, input.onProgress)({
+  input.emitProgress({
     currentUrl: input.state.currentUrl,
     jobsFound: input.state.collectedJobs.length,
     stepCount: input.state.stepCount,

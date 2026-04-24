@@ -71,9 +71,24 @@ function matchesApplicationsFilter(
 }
 
 function pickLatestIsoTimestamp(...values: Array<string | null | undefined>) {
-  return values
-    .filter((value): value is string => Boolean(value))
-    .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null
+  let latestValue: string | null = null
+  let latestTimestamp = Number.NEGATIVE_INFINITY
+
+  for (const value of values) {
+    if (!value) {
+      continue
+    }
+
+    const parsedTimestamp = Date.parse(value)
+    if (Number.isNaN(parsedTimestamp) || parsedTimestamp <= latestTimestamp) {
+      continue
+    }
+
+    latestTimestamp = parsedTimestamp
+    latestValue = value
+  }
+
+  return latestValue
 }
 
 export function ApplicationsScreen(props: {
