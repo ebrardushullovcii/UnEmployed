@@ -590,8 +590,8 @@ export function createBrowserAgentRuntime(
       "Browser profile ready",
       "The dedicated browser profile is open and ready for target-specific discovery.",
     );
-      return page;
-    }
+    return page;
+  }
 
   return {
     getSessionState(source) {

@@ -110,11 +110,6 @@ function tokenizePhraseMatchValue(
 }
 
 function isRemoteOnlyLocation(value: string): boolean {
-  const normalized = normalizePhraseMatchInput(value, "location");
-  if (!normalized) {
-    return false;
-  }
-
   const genericTokens = tokenizePhraseMatchValue(value, "generic");
   const locationTokens = tokenizePhraseMatchValue(value, "location");
 

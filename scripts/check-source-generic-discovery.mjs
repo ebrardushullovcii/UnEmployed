@@ -1,5 +1,3 @@
-/* eslint-env node */
-
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -13,7 +11,6 @@ const scannedPathPrefixes = [
 
 const excludedPathPatterns = [
   /\.test\.ts$/,
-  /\.test\.tsx$/,
   /(^|\/)resume-/,
   /(^|\/)profile-/,
 ]

@@ -1005,11 +1005,11 @@ export function buildDiscoveryStartingUrls(
   const preferredMethod =
     artifact.intelligence.overrides.forceMethod ??
     artifact.intelligence.collection.preferredMethod;
-  const normalizedStartingUrl = normalizeRoute(target.startingUrl)
+  const normalizedStartingUrl = normalizeRoute(target.startingUrl);
   const startingUrlRoute =
     normalizedStartingUrl && !isDeniedRoute(normalizedStartingUrl)
       ? [target.startingUrl]
-      : []
+      : [];
 
   const routes = uniqueStrings(
     (
@@ -1728,7 +1728,7 @@ function matchesTechnicalRoleFallback(input: {
 
   const profileSkillSignals = collectProfileSkillSignals(profile);
   if (profileSkillSignals.length === 0) {
-    return true;
+    return false;
   }
 
   return matchesAnyPhrase(postingEvidenceText, profileSkillSignals);
@@ -1844,34 +1844,45 @@ export function selectLowYieldTechnicalFallbackPostings(input: {
       const profileSkillOverlap =
         profileSkillSignals.length > 0 &&
         matchesAnyPhrase(postingEvidenceText, profileSkillSignals);
+      const rescuePriorityWeights = {
+        skipLocationTriage: 6,
+        remoteFriendly: 5,
+        titleMatched: 4,
+        profileAligned: 4,
+        titleTechnicalSignal: 3,
+        evidenceTechnicalSignal: 2,
+        locationMatched: 2,
+        profileSkillOverlap: 1,
+        easyApply: 1,
+      } as const;
       let priority = 0;
 
       if (posting.titleTriageOutcome === "skip_location") {
-        priority += 6;
+        priority += rescuePriorityWeights.skipLocationTriage;
       }
       if (remoteFriendlyLocation) {
-        priority += 5;
+        priority += rescuePriorityWeights.remoteFriendly;
       }
       if (titleMatched) {
-        priority += 4;
+        priority += rescuePriorityWeights.titleMatched;
       }
       if (profileAlignedTechnicalRole) {
-        priority += 4;
+        priority += rescuePriorityWeights.profileAligned;
       }
       if (titleHasTechnicalSignal) {
-        priority += 3;
+        priority += rescuePriorityWeights.titleTechnicalSignal;
       }
       if (evidenceHasTechnicalSignal) {
-        priority += 2;
+        priority += rescuePriorityWeights.evidenceTechnicalSignal;
       }
       if (locationMatched) {
-        priority += 2;
+        priority += rescuePriorityWeights.locationMatched;
       }
       if (profileSkillOverlap) {
-        priority += 1;
+        priority += rescuePriorityWeights.profileSkillOverlap;
       }
       if (posting.easyApplyEligible) {
-        priority += 1;
+        priority += rescuePriorityWeights.easyApply;
       }
 
       return [

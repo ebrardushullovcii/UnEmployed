@@ -159,6 +159,7 @@ describe('runAgentDiscovery stagnation behavior', () => {
     const result = await runAgentDiscovery(page, config, llmClient, jobExtractor)
 
     expect(result.jobs).toHaveLength(4)
+    expect(result.steps).toBe(5)
     expect(result.incomplete).toBe(true)
     expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1)
     expect(llmClient.chatWithTools).toHaveBeenCalledTimes(4)

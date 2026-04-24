@@ -348,22 +348,20 @@ function isLowSignalSearchTemplateLine(value: string): boolean {
   const normalized = normalizeText(value);
 
   return (
-    (
-      raw.includes("/jobs/search/?keywords=") ||
-      raw.includes("keywords=...") ||
-      raw.includes("location=...") ||
-      raw.includes("geoid=") ||
-      normalized.includes("url based search") ||
-      normalized.includes("use url parameters") ||
-      normalized.includes("direct search") ||
-      normalized.includes("keywords location") ||
-      normalized.includes("jobs search keywords") ||
-      normalized.includes("jobs search location") ||
-      normalized.includes("jobs search keywords location") ||
-      normalized.includes("keywords job title") ||
-      normalized.includes("location geo id") ||
-      normalized.includes("location location")
-    )
+    raw.includes("/jobs/search/?keywords=") ||
+    raw.includes("keywords=...") ||
+    raw.includes("location=...") ||
+    raw.includes("geoid=") ||
+    normalized.includes("url based search") ||
+    normalized.includes("use url parameters") ||
+    normalized.includes("direct search") ||
+    normalized.includes("keywords location") ||
+    normalized.includes("jobs search keywords") ||
+    normalized.includes("jobs search location") ||
+    normalized.includes("jobs search keywords location") ||
+    normalized.includes("keywords job title") ||
+    normalized.includes("location geo id") ||
+    normalized.includes("location location")
   );
 }
 
@@ -389,10 +387,8 @@ function shouldKeepDiscoveryInstructionLine(value: string): boolean {
   );
 }
 
-export function filterDiscoveryInstructionLines(input: {
-  values: readonly string[];
-}): string[] {
-  return filterSourceInstructionLines(input.values).filter((value) =>
+export function filterDiscoveryInstructionLines(values: readonly string[]): string[] {
+  return filterSourceInstructionLines(values).filter((value) =>
     shouldKeepDiscoveryInstructionLine(value),
   );
 }

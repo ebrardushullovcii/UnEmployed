@@ -6,5 +6,5 @@ This file is archived.
 
 ## Outcome
 
-- major setup and copilot issues from the original stabilization pass were resolved
+- major setup and copilot issues from the original stabilization pass were resolved, including setup-state recovery, profile copilot prompt routing, persisted preference hydration, and blocking UI regressions in the guided setup flow
 - any new setup or copilot work should create a fresh task or plan instead of reusing this old fixlist; see [docs/STATUS.md](../../STATUS.md), [docs/TRACKS.md](../../TRACKS.md), and [docs/exec-plans/](../) as the authoritative handoff layer for current status and next-step guidance

@@ -18,7 +18,10 @@ export function isSeededQueryPlaceholderValue(value: string): boolean {
 
 export function looksLikeSeededSearchSurfacePath(pathname: string): boolean {
   const normalizedPathname = pathname.toLowerCase()
-  return normalizedPathname === '/' || SEEDED_QUERY_PATH_HINTS.some((hint) => normalizedPathname.includes(hint))
+  const pathSegments = normalizedPathname.split('/').flatMap((segment) => segment.split(/[^\p{L}\p{N}]+/u)).filter(Boolean)
+  return normalizedPathname === '/' || pathSegments.some((segment) =>
+    SEEDED_QUERY_PATH_HINTS.some((hint) => segment === hint),
+  )
 }
 
 export function getSeededQueryRuleParams(hostname: string): {

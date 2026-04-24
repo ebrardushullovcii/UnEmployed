@@ -276,18 +276,10 @@ export function buildDiscoveryInstructionGuidance(
     return [];
   }
 
-  const navigationLines = filterDiscoveryInstructionLines({
-    values: artifact.navigationGuidance,
-  });
-  const searchLines = filterDiscoveryInstructionLines({
-    values: artifact.searchGuidance,
-  });
-  const detailLines = filterDiscoveryInstructionLines({
-    values: artifact.detailGuidance,
-  });
-  const applyLines = filterDiscoveryInstructionLines({
-    values: artifact.applyGuidance,
-  });
+  const navigationLines = filterDiscoveryInstructionLines(artifact.navigationGuidance);
+  const searchLines = filterDiscoveryInstructionLines(artifact.searchGuidance);
+  const detailLines = filterDiscoveryInstructionLines(artifact.detailGuidance);
+  const applyLines = filterDiscoveryInstructionLines(artifact.applyGuidance);
 
   return uniqueStrings([
     ...prefixedLines("[Navigation] ", navigationLines),

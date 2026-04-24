@@ -111,7 +111,11 @@ If the click fails, you'll get details about why so you can decide whether to re
     }
 
     try {
-      await dismissObstructiveOverlays(page);
+      await dismissObstructiveOverlays(page).catch((error: unknown) => {
+        console.warn("[Agent] Failed to dismiss obstructive overlays before click", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
       const locator = await resolveRoleLocator(page, role, name, index);
       const isVisible = await locator.isVisible().catch(() => false);
       if (!isVisible && retryIfNotVisible) {

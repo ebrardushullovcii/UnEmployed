@@ -1,4 +1,3 @@
-import type { Page } from "playwright";
 import type { AgentState } from "../types";
 
 export const CLICK_TIMEOUT_MS = 5000;
@@ -11,11 +10,12 @@ type FailedInteractionState = Pick<
   "failedInteractionAttempts" | "failedInteractionPageStateToken"
 >;
 
-export async function readInteractionPageStateToken(page: Page): Promise<string> {
-  if (typeof (page as { evaluate?: unknown }).evaluate !== "function") {
-    return page.url();
-  }
+type InteractionStatePage = {
+  url(): string;
+  evaluate<T>(callback: () => T | Promise<T>): Promise<T>;
+};
 
+export async function readInteractionPageStateToken(page: InteractionStatePage): Promise<string> {
   try {
     const token = await page.evaluate(() => {
       const elements = Array.from(
@@ -71,7 +71,7 @@ export async function readInteractionPageStateToken(page: Page): Promise<string>
 }
 
 export async function syncFailedInteractionAttemptsWithPageState(
-  page: Page,
+  page: InteractionStatePage,
   state: FailedInteractionState,
 ): Promise<void> {
   const nextToken = await readInteractionPageStateToken(page);

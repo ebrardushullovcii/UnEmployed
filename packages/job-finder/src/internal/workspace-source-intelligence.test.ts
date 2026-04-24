@@ -119,7 +119,7 @@ function createSearchPreferences(overrides: Partial<JobSearchPreferences> = {}):
 }
 
 function createPosting(
-  overrides: Partial<typeof JobPostingSchema._input> = {},
+  overrides: Partial<ReturnType<typeof JobPostingSchema.parse>> = {},
 ) {
   return JobPostingSchema.parse({
     source: "target_site",

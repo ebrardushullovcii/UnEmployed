@@ -5,6 +5,8 @@ import {
   looksLikeSeededSearchSurfacePath,
 } from "./agent/seeded-query";
 
+const MAX_SEEDED_TERMS = 3;
+
 function describeSeededSearchQuery(config: AgentConfig): string | null {
   for (const value of config.startingUrls) {
     try {
@@ -27,7 +29,7 @@ function describeSeededSearchQuery(config: AgentConfig): string | null {
 
           return [`${key}: ${trimmedValue}`];
         })
-        .slice(0, 3);
+        .slice(0, MAX_SEEDED_TERMS);
 
       if (parts.length === 0) {
         continue;

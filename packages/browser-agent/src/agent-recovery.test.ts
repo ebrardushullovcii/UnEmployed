@@ -30,7 +30,7 @@ describe("runAgentDiscovery recovery behavior", () => {
               "tool_retry_finish",
             ),
           ],
-        }),
+        })
     };
     const jobExtractor: JobExtractor = {
       async extractJobsFromPage() {
@@ -115,7 +115,7 @@ describe("runAgentDiscovery recovery behavior", () => {
               "tool_finish_404",
             ),
           ],
-        }),
+        })
     };
     const jobExtractor: JobExtractor = {
       async extractJobsFromPage() {

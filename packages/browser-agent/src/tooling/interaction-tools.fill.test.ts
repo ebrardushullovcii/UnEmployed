@@ -149,5 +149,8 @@ describe("fill", () => {
     });
     expect(overlayButton.click).toHaveBeenCalled();
     expect(locator.fill).toHaveBeenCalledWith('frontend engineer');
+    expect(overlayButton.click.mock.invocationCallOrder[0]).toBeLessThan(
+      locator.fill.mock.invocationCallOrder[0],
+    );
   });
 });

@@ -294,7 +294,9 @@ async function withScopedCurrentWorkspaceTargets(window, targetIds, runner) {
           searchPreferences: originalSearchPreferences,
         },
       )
-      .catch(() => undefined)
+      .catch((error) => {
+        process.stderr.write(`Warning: failed to restore workspace inputs: ${error instanceof Error ? error.message : String(error)}\n`)
+      })
   }
 }
 

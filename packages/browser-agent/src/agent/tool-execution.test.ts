@@ -277,17 +277,17 @@ describe('seeded search query guard', () => {
     }
     const state = createState()
     let pageUrl = 'https://jobs.example.com/search?currentJobId=4400784689&geoId=GEO_ID&keywords=JOB_TITLE'
-    const goto = vi.fn(() => {
+    const goto = vi.fn<NonNullable<Page['goto']>>(async () => {
       pageUrl = 'https://jobs.example.com/search?currentJobId=4400784689&geoId=GEO_ID&keywords=JOB_TITLE'
-      return Promise.resolve(null as never)
+      return null
     })
-    const page = {
+    const page: Partial<Page> = {
       goto,
       url: () => pageUrl,
-    } as unknown as Page
+    }
 
     const result = await restoreSeededQuerySurfaceIfNeeded({
-      pageRef: { current: page },
+      pageRef: { current: page as Page },
       state,
       config,
     })

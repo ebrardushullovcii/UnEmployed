@@ -20,6 +20,7 @@ The full PR was too large for one OSS CodeRabbit review, so it was reviewed in b
 
 - valid high-signal findings from those batches were fixed in repo state
 - later review notes mostly became background once the fixes landed
+- recurring package-boundary and review-process patterns were captured in root `AGENTS.md` and `docs/ARCHITECTURE.md`
 - use this file as historical context only, not as active handoff
 
 ## If Similar Review Work Reopens

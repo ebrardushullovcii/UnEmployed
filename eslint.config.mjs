@@ -1,4 +1,5 @@
 import js from '@eslint/js'
+import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
@@ -18,13 +19,10 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked
   },
   {
-    files: ['apps/desktop/scripts/**'],
+    files: ['apps/desktop/scripts/**', 'scripts/**'],
     languageOptions: {
       globals: {
-        clearTimeout: 'readonly',
-        console: 'readonly',
-        process: 'readonly',
-        setTimeout: 'readonly'
+        ...globals.node
       }
     }
   },

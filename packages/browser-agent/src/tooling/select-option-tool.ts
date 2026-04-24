@@ -77,7 +77,11 @@ You get role, name, and index from get_interactive_elements().`,
     }
 
     try {
-      await dismissObstructiveOverlays(page);
+      await dismissObstructiveOverlays(page).catch((error: unknown) => {
+        console.warn("[Agent] Failed to dismiss obstructive overlays before select_option", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
       const locator = await resolveRoleLocator(page, role, name, index);
       const elementHandle = await locator.elementHandle();
       if (!elementHandle) {

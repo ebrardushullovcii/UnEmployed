@@ -286,7 +286,7 @@ export function runMigrations(database: DatabaseSync): void {
         FROM ${tableName}
         INNER JOIN apply_job_result_dedupe_map
           ON apply_job_result_dedupe_map.duplicate_id = ${tableName}.result_id;
-      `).all() as { id: string; value: string; survivor_id: string }[]
+      `).all()
 
       const updateStatement = database.prepare(`
         UPDATE ${tableName}
@@ -295,15 +295,25 @@ export function runMigrations(database: DatabaseSync): void {
       `)
 
       for (const row of rows) {
+        if (
+          !row ||
+          typeof row !== "object" ||
+          typeof (row as { id?: unknown }).id !== "string" ||
+          typeof (row as { value?: unknown }).value !== "string" ||
+          typeof (row as { survivor_id?: unknown }).survivor_id !== "string"
+        ) {
+          throw new Error(`Invalid ${tableName} evidence row while rewriting apply result ids.`)
+        }
+        const typedRow = row as { id: string; value: string; survivor_id: string }
         updateStatement.run(
           rewritePersistedResultId({
             tableName,
-            rowId: row.id,
-            serializedValue: row.value,
-            survivorId: row.survivor_id,
+            rowId: typedRow.id,
+            serializedValue: typedRow.value,
+            survivorId: typedRow.survivor_id,
           }),
-          row.survivor_id,
-          row.id,
+          typedRow.survivor_id,
+          typedRow.id,
         )
       }
 

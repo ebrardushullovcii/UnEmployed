@@ -1,6 +1,6 @@
 # AI Providers
 
-Owns provider abstractions and adapters.
+Owns provider abstractions and adapters for chat, vision, STT, and embeddings. See `docs/ARCHITECTURE.md` for the canonical ownership map.
 
 ## Rules
 

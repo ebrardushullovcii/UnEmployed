@@ -16,7 +16,7 @@ Deliver the first real Job Finder slice around LinkedIn discovery, custom resume
 ## What It Means Now
 
 - this plan is historical only
-- later plans generalized discovery, profile, resume, and apply beyond LinkedIn-first assumptions
+- later plans generalized discovery, profile, resume, and apply beyond LinkedIn-first assumptions; see `docs/ARCHITECTURE.md` for the durable generic discovery architecture
 
 ## Follow-On Plans
 

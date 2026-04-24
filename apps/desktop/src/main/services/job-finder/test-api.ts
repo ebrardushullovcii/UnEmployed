@@ -14,8 +14,8 @@ export function isDesktopTestApiEnabled(env: NodeJS.ProcessEnv = process.env): b
   return isEnabled(env.UNEMPLOYED_ENABLE_TEST_API)
 }
 
-export function isBrowserAgentEnabled(): boolean {
-  const configuredValue = process.env.UNEMPLOYED_BROWSER_AGENT ?? process.env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT
+export function isBrowserAgentEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const configuredValue = env.UNEMPLOYED_BROWSER_AGENT ?? env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT
 
   if (configuredValue == null) {
     return true
@@ -28,8 +28,8 @@ export function isBrowserAgentEnabled(): boolean {
   return isEnabled(configuredValue)
 }
 
-export function isBrowserHeadlessEnabled(): boolean {
-  return isEnabled(process.env.UNEMPLOYED_BROWSER_HEADLESS)
+export function isBrowserHeadlessEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isEnabled(env.UNEMPLOYED_BROWSER_HEADLESS)
 }
 
 export function parseResumeImportPathPayload(payload: unknown): ResumeImportPathPayload {

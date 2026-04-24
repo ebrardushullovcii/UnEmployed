@@ -287,7 +287,8 @@ export async function dismissObstructiveOverlays(page: Page): Promise<OverlayDis
           }));
       });
       candidates = Array.isArray(evaluatedCandidates) ? evaluatedCandidates : [];
-    } catch {
+    } catch (error) {
+      console.debug("[Agent] dismissObstructiveOverlays candidate detection failed", { error });
       candidates = [];
     }
 
@@ -301,8 +302,9 @@ export async function dismissObstructiveOverlays(page: Page): Promise<OverlayDis
 
     const clicked = await (async () => {
       const exactLabel = normalizeInteractiveName(bestCandidate.label);
+      const targetRole = bestCandidate.role === "a" || bestCandidate.role === "link" ? "link" : "button";
       const exactLocator = exactLabel
-        ? page.getByRole("button", { name: exactLabel, exact: true }).first()
+        ? page.getByRole(targetRole, { name: exactLabel, exact: true }).first()
         : null;
       if (exactLocator && (await exactLocator.count().catch(() => 0)) > 0) {
         try {
@@ -314,7 +316,7 @@ export async function dismissObstructiveOverlays(page: Page): Promise<OverlayDis
       }
 
       const looseLocator = exactLabel
-        ? page.getByRole("button", { name: buildLooseAccessibleNamePattern(exactLabel) }).first()
+        ? page.getByRole(targetRole, { name: buildLooseAccessibleNamePattern(exactLabel) }).first()
         : null;
       if (looseLocator && (await looseLocator.count().catch(() => 0)) > 0) {
         try {
@@ -326,7 +328,10 @@ export async function dismissObstructiveOverlays(page: Page): Promise<OverlayDis
       }
 
       const fallbackLocator = exactLabel
-        ? page.locator("button, [role='button'], a[href]").filter({ hasText: buildLooseAccessibleNamePattern(exactLabel) }).first()
+        ? page
+            .locator("button, [role='button'], a[href]")
+            .filter({ hasText: buildLooseAccessibleNamePattern(exactLabel) })
+            .first()
         : null;
       if (fallbackLocator && (await fallbackLocator.count().catch(() => 0)) > 0) {
         try {

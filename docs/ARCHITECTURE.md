@@ -11,7 +11,7 @@
 - `packages/browser-agent`: browser workflow policy, prompts, tool use, structured outputs
 - `packages/job-finder`: discovery, source-debug, resume, apply orchestration
 - `packages/interview-helper`: prep, live session, transcript, cues
-- `packages/ai-providers`: provider interfaces and adapters
+- `packages/ai-providers`: provider interfaces and adapters for chat, vision, STT, and embeddings
 - `packages/os-integration`: tray, hotkeys, windows, capture-policy adapters
 - `packages/testing`: fixtures, fakes, harness helpers
 
@@ -55,6 +55,7 @@
 
 ## AI Provider Module Shape
 
+- `packages/ai-providers` owns chat, vision, STT, embedding, deterministic parsing, and provider fallback adapters; package-level rules live in `packages/ai-providers/AGENTS.md`
 - keep `packages/ai-providers/src/index.ts` as a thin barrel
 - split deterministic parsing, model transport, and fallback composition into separate internal modules before adapters grow large
 - use the existing `packages/ai-providers/src/deterministic/` directory as the pattern for deterministic extraction concerns that should not be mixed into provider transport code

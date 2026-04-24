@@ -1,6 +1,6 @@
 # Contracts
 
-Use this doc for cross-package contract rules and important shared semantics. Put field-level detail in `packages/contracts`.
+Use this doc for cross-package contract rules and important shared semantics. Put field-level schema/type definitions, validation rules, and field semantics in `packages/contracts` JSDoc or `packages/contracts/README.md`.
 
 ## Rules
 

@@ -168,7 +168,7 @@ function isLocationLike(value: string): boolean {
   }
 
   if (tokens.length <= 3) {
-    return tokens.every((token) => /^[A-Z][\p{L}\p{N}.'’-]*$/u.test(token));
+    return tokens.every((token) => /^[\p{Lu}][\p{L}\p{N}.'’-]*$/u.test(token));
   }
 
   return false;
@@ -228,12 +228,20 @@ function normalizeCompositeTitle(value: string): {
   const normalized = trimToNull(value) ?? "";
   const { content, postedAtText } = stripTrailingPostedAtText(normalized);
   const location = inferTrailingCompositeLocation(content);
-  const title = location
-    ? content
-        .slice(0, Math.max(0, content.length - location.length))
-        .replace(/[\s–—-]+$/, "")
-        .trim()
-    : content;
+  let title = content;
+  if (location) {
+    const locationPattern = new RegExp(
+      `\\s+${location
+        .split(/\s+/)
+        .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join("\\s+")}\\s*$`,
+      "i",
+    );
+    const match = content.match(locationPattern);
+    title = match && typeof match.index === "number"
+      ? content.slice(0, match.index).replace(/[\s–—-]+$/, "").trim()
+      : content.slice(0, Math.max(0, content.length - location.length)).replace(/[\s–—-]+$/, "").trim();
+  }
 
   return {
     title: title || content,
@@ -261,6 +269,7 @@ function inferCompanyFromCanonicalUrl(url: string): string | null {
 
     const companySegment = pathSegments[0]?.toLowerCase() ?? "";
     const jobSegment = pathSegments[1] ?? "";
+    // Accept only /company/job-slug paths, rejecting locale-like prefixes and short tenant keys.
     if (
       !companySegment ||
       GENERIC_JOB_PATH_SEGMENTS.has(companySegment) ||

@@ -71,7 +71,6 @@ export function getSearchResultsExtractionReviewBudget(
 
   const startingHosts = getNormalizedStartingHosts(config.startingUrls)
   const isWeakSameHostBoard =
-    config.targetJobCount >= DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET &&
     startingHosts.length === 1 &&
     Boolean(config.weakSameHostBoard)
 

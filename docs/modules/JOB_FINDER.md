@@ -4,13 +4,12 @@
 
 Owns profile, resume import, discovery, source-debug, resume workspace, review queue, applications, and apply orchestration.
 
-## Current Baseline
+## Responsibilities
 
-- guided setup and profile copilot are landed
-- resume import is reviewable and evidence-backed
-- discovery supports configured targets plus source-debug
-- resume workspace ships one ATS-first PDF approval path
-- apply ships safe non-submitting flows with Applications recovery
+- Own guided setup, profile copilot inputs, resume import, discovery, source-debug, resume workspace, review queue, applications, and apply flows.
+- Keep package boundaries typed through `packages/contracts`; desktop IPC should call package APIs rather than package internals.
+- Treat discovery targets, learned source instructions, and browser recovery state as generic source capabilities, not hardcoded board branches.
+- Preserve resume approval and stale-state checks before apply work, and keep live submit disabled unless explicitly re-authorized.
 
 ## Important Defaults
 
@@ -21,6 +20,6 @@ Owns profile, resume import, discovery, source-debug, resume workspace, review q
 
 ## Where To Continue
 
-- active work: `docs/exec-plans/active/017-browser-substrate-evaluation-and-direction.md`
+- active work: `docs/STATUS.md` and `docs/TRACKS.md`
 - product baseline: `docs/PRODUCT.md`
 - package rules: `packages/job-finder/AGENTS.md`

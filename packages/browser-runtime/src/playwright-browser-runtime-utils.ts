@@ -76,13 +76,18 @@ async function listChromeProcessCommandLines(): Promise<string[]> {
 
     const { stdout } = await execFileAsync(
       "ps",
-      ["-ax", "-o", "command="],
+      ["-axww", "-o", "command="],
       {
         maxBuffer: 5 * 1024 * 1024,
       },
     );
 
-    return parseProcessListOutput(stdout);
+    const chromeProcessOutput = stdout
+      .split("\n")
+      .filter((line) => /(^|\s)(chrome|chromium|google-chrome)(\s|$)/i.test(line))
+      .join("\n");
+
+    return parseProcessListOutput(chromeProcessOutput);
   } catch {
     return [];
   }
@@ -260,7 +265,7 @@ function hostMatchesNavigationPolicy(
     const pageHostname = parsedPageUrl.hostname.toLowerCase();
 
     return navigationHostnames.some((hostname) => {
-      const normalizedHostname = hostname.toLowerCase();
+      const normalizedHostname = hostname.trim().toLowerCase();
       return (
         pageHostname === normalizedHostname ||
         pageHostname.endsWith(`.${normalizedHostname}`)

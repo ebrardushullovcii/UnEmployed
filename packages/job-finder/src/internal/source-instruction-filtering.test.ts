@@ -34,15 +34,13 @@ describe("source instruction filtering", () => {
 
   test("drops LinkedIn broad query templates from discovery guidance only", () => {
     expect(
-      filterDiscoveryInstructionLines({
-        values: [
-          "URL-based search: /jobs/search/?keywords=...&location=... reliably returns filtered results",
-          "Use URL parameters for direct search: keywords and location",
-          "LinkedIn jobs surface is fully accessible. Best entry path is /jobs/search/?keywords=...&location=... URL parameters. Jobs hub at /jobs/ shows recommendation rows with \"Show all available jobs\" and \"Show all top job picks for you\" links.",
-          "Job listings are clickable and open detail panels inline",
-          "Apply button appears on job detail side panels",
-        ],
-      }),
+      filterDiscoveryInstructionLines([
+        "URL-based search: /jobs/search/?keywords=...&location=... reliably returns filtered results",
+        "Use URL parameters for direct search: keywords and location",
+        "LinkedIn jobs surface is fully accessible. Best entry path is /jobs/search/?keywords=...&location=... URL parameters. Jobs hub at /jobs/ shows recommendation rows with \"Show all available jobs\" and \"Show all top job picks for you\" links.",
+        "Job listings are clickable and open detail panels inline",
+        "Apply button appears on job detail side panels",
+      ]),
     ).toEqual([
       "Job listings are clickable and open detail panels inline",
       "Apply button appears on job detail side panels",

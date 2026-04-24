@@ -38,7 +38,7 @@ Read `docs/STATUS.md` first. Use this file for active work and ready follow-ups,
 
 - status: `done`
 - linked plan: `docs/exec-plans/completed/019-job-finder-world-class-resume-import.md`
-- focus: validate bundled native parser-sidecar packaging on each supported release platform
+- focus: bundled native parser-sidecar packaging validation is complete for the current supported release platforms; reopen only for platform changes, packaging regressions, or new supported release targets
 
 ### `015 Automatic Job Apply`
 

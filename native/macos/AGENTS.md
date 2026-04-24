@@ -1,6 +1,6 @@
 # macOS Native
 
-Reserve for native helpers only when Electron APIs are not enough.
+Reserve native code for native helpers only when Electron APIs are insufficient.
 
 ## Rules
 

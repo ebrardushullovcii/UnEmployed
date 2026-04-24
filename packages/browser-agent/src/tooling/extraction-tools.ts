@@ -65,11 +65,8 @@ interface SearchResultCardCaptureMeta {
   viewportDistance?: number | null;
 }
 
-interface RawSearchResultCardCandidate extends SearchResultCardCandidate {
-  captureMeta?: SearchResultCardCaptureMeta | null;
-}
-
 const MAX_IN_PAGE_CARD_CANDIDATES = 160;
+type RawSearchResultCardCandidate = SearchResultCardCandidate;
 
 const StructuredDataCandidateSchema = z.object({
   canonicalUrl: z.string().optional().nullable(),
@@ -452,15 +449,15 @@ function scoreSearchSurfaceCardCaptureCandidate(candidate: RawSearchResultCardCa
 
 export function prioritizeExtractedCardCandidates(
   pageUrl: string,
-  candidates: readonly RawSearchResultCardCandidate[],
+  candidates: readonly SearchResultCardCandidate[],
   searchPreferences?: ExtractionSearchPreferences,
-): RawSearchResultCardCandidate[] {
+): SearchResultCardCandidate[] {
   const dedupedCandidates = dedupeExtractedCardCandidates(pageUrl, candidates);
   const preferenceScoreCache = new Map<string, number>();
   const titleScoreCache = new Map<string, number>();
-  const getCandidateKey = (candidate: RawSearchResultCardCandidate): string =>
-    `${pageUrl}::${JSON.stringify(candidate)}`;
-  const getPreferenceScore = (candidate: RawSearchResultCardCandidate): number => {
+  const getCandidateKey = (candidate: SearchResultCardCandidate): string =>
+    buildExtractedCardCandidateMergeKey(pageUrl, candidate);
+  const getPreferenceScore = (candidate: SearchResultCardCandidate): number => {
     const cacheKey = getCandidateKey(candidate);
     const cached = preferenceScoreCache.get(cacheKey);
     if (cached != null) {
@@ -475,7 +472,7 @@ export function prioritizeExtractedCardCandidates(
     preferenceScoreCache.set(cacheKey, nextScore);
     return nextScore;
   };
-  const getTitleScore = (candidate: RawSearchResultCardCandidate): number => {
+  const getTitleScore = (candidate: SearchResultCardCandidate): number => {
     const cacheKey = getCandidateKey(candidate);
     const cached = titleScoreCache.get(cacheKey);
     if (cached != null) {
@@ -1289,7 +1286,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
             return {
               structuredDataCandidates: structuredJobs.slice(0, 20),
-                cardCandidates: limitedCardCandidates,
+              cardCandidates: limitedCardCandidates,
             };
           },
           {
@@ -1309,7 +1306,28 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
           },
         ));
 
-        return { success: true, data: { pageType, pageUrl, pageText: truncatedPageText, pageTextLength: extractionTextLength, pageTextTruncated, readyForExtraction, maxJobs, discoveredJobUrlsFound: discoveredUrls.length, structuredDataCandidates: structuredCandidates.structuredDataCandidates, cardCandidates: prioritizeExtractedCardCandidates(pageUrl, structuredCandidates.cardCandidates as RawSearchResultCardCandidate[], context.config.searchPreferences), checks: { hasMinimumContent, hasNoLoadingIndicators, hasJobContent } } };
+        const prioritizedCardCandidates = prioritizeExtractedCardCandidates(
+          pageUrl,
+          structuredCandidates.cardCandidates,
+          context.config.searchPreferences,
+        );
+
+        return {
+          success: true,
+          data: {
+            pageType,
+            pageUrl,
+            pageText: truncatedPageText,
+            pageTextLength: extractionTextLength,
+            pageTextTruncated,
+            readyForExtraction,
+            maxJobs,
+            discoveredJobUrlsFound: discoveredUrls.length,
+            structuredDataCandidates: structuredCandidates.structuredDataCandidates,
+            cardCandidates: prioritizedCardCandidates,
+            checks: { hasMinimumContent, hasNoLoadingIndicators, hasJobContent },
+          },
+        };
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : "Failed to extract jobs" };
       }

@@ -123,4 +123,4 @@ Primary user-facing bar:
 
 - Full-app benchmark reports: `apps/desktop/test-artifacts/ui/job-finder-app-benchmark/`
 - Provider checkpoint: `apps/desktop/test-artifacts/ui/013-benchmark-service/017-provider-phase-fast-path.json`
-- Weak-target checkpoints live in `017-experiment-tracker.md`
+- Weak-target checkpoints live in `docs/exec-plans/active/017-experiment-tracker.md`

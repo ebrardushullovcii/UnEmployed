@@ -4,6 +4,22 @@ import { uniqueStrings } from '../utils/string'
 import { getSearchSurfaceRouteRuleForUrl, isSearchSurfaceResultPath } from './search-surface-routes'
 
 const NOISE_TOKEN_RE = /\bdismiss\b|\bviewed\b|\bpromoted\b|\bwith verification\b/i
+const QUALITY_WEIGHTS = {
+  titleLength: 6,
+  companyLength: 4,
+  locationLength: 2,
+  keySkill: 8,
+  responsibility: 6,
+  minimumQualification: 6,
+  preferredQualification: 4,
+  easyApplyBonus: 10,
+  titleNoisePenalty: 180,
+  repeatedTitlePenalty: 360,
+  companyNoisePenalty: 220,
+  companyContainsTitlePenalty: 260,
+  titleContainsCompanyPenalty: 120,
+  shortTitlePenalty: 120,
+} as const
 
 interface ToolExecutionResult {
   success?: boolean
@@ -90,42 +106,42 @@ export function scoreCollectedJobQuality(job: ExtractedJobInput | JobPosting): n
   const repeatedTitlePrefix = findRepeatedLeadingPhrase(title)
   let score = 0
 
-  score += Math.min(title.length, 120) * 6
-  score += Math.min(company.length, 120) * 4
-  score += Math.min(location.length, 80) * 2
+  score += Math.min(title.length, 120) * QUALITY_WEIGHTS.titleLength
+  score += Math.min(company.length, 120) * QUALITY_WEIGHTS.companyLength
+  score += Math.min(location.length, 80) * QUALITY_WEIGHTS.locationLength
   score += Math.min(summary.length, 280)
   score += Math.min(description.length, 500) / 2
-  score += (job.keySkills?.length ?? 0) * 8
-  score += (job.responsibilities?.length ?? 0) * 6
-  score += (job.minimumQualifications?.length ?? 0) * 6
-  score += (job.preferredQualifications?.length ?? 0) * 4
+  score += (job.keySkills?.length ?? 0) * QUALITY_WEIGHTS.keySkill
+  score += (job.responsibilities?.length ?? 0) * QUALITY_WEIGHTS.responsibility
+  score += (job.minimumQualifications?.length ?? 0) * QUALITY_WEIGHTS.minimumQualification
+  score += (job.preferredQualifications?.length ?? 0) * QUALITY_WEIGHTS.preferredQualification
 
   if (job.easyApplyEligible) {
-    score += 10
+    score += QUALITY_WEIGHTS.easyApplyBonus
   }
 
   if (NOISE_TOKEN_RE.test(title)) {
-    score -= 180
+    score -= QUALITY_WEIGHTS.titleNoisePenalty
   }
 
   if (repeatedTitlePrefix) {
-    score -= 360
+    score -= QUALITY_WEIGHTS.repeatedTitlePenalty
   }
 
   if (NOISE_TOKEN_RE.test(company)) {
-    score -= 220
+    score -= QUALITY_WEIGHTS.companyNoisePenalty
   }
 
   if (companyLower && titleLower && companyLower !== titleLower && companyLower.includes(titleLower)) {
-    score -= 260
+    score -= QUALITY_WEIGHTS.companyContainsTitlePenalty
   }
 
   if (titleLower && companyLower && titleLower.includes(companyLower) && companyLower.length >= 6) {
-    score -= 120
+    score -= QUALITY_WEIGHTS.titleContainsCompanyPenalty
   }
 
   if (title.split(/\s+/).filter(Boolean).length <= 1) {
-    score -= 120
+    score -= QUALITY_WEIGHTS.shortTitlePenalty
   }
 
   return Math.round(score)
@@ -497,14 +513,14 @@ export function addExtractedJobsToState(
   for (const job of extractedJobs) {
     const existingIndex = state.collectedJobs.findIndex((existingJob) =>
       existingJob.sourceJobId === job.sourceJobId ||
-	      (
-	        shouldDeduplicateByCanonicalUrl(existingJob.canonicalUrl) &&
-	        shouldDeduplicateByCanonicalUrl(job.canonicalUrl) &&
-	        existingJob.canonicalUrl === job.canonicalUrl
-	      )
-	    )
-	
-	    const validatedJob = buildCollectedJob(job, source, discoveredAt)
+      (
+        shouldDeduplicateByCanonicalUrl(existingJob.canonicalUrl) &&
+        shouldDeduplicateByCanonicalUrl(job.canonicalUrl) &&
+        existingJob.canonicalUrl === job.canonicalUrl
+      )
+    )
+
+    const validatedJob = buildCollectedJob(job, source, discoveredAt)
     if (!validatedJob) {
       continue
     }

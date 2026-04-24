@@ -291,11 +291,23 @@ export function createJobFinderWorkspaceService(
   context.runSourceDebugWorkflow = sourceDebugMethods.runSourceDebugWorkflow;
   const applyRunStoreMethods = createWorkspaceApplyRunStoreMethods(context);
 
-  async function shutdown() {
-    await Promise.allSettled([
-      browserRuntime.closeSession("target_site"),
+  async function shutdown(): Promise<void> {
+    const discoveryState = await repository.getDiscoveryState().catch(() => null);
+    const sessionSources = uniqueStrings(
+      (discoveryState?.sessions ?? []).map((session) => session.adapterKind),
+    ) as JobSource[];
+    const sourcesToClose = sessionSources.length > 0 ? sessionSources : (["target_site"] as JobSource[]);
+    const shutdownResults = await Promise.allSettled([
+      ...sourcesToClose.map((source) => browserRuntime.closeSession(source)),
       repository.close(),
     ]);
+    const rejectedResults = shutdownResults.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (rejectedResults.length > 0) {
+      console.warn(
+        "[JobFinderWorkspace] Shutdown completed with failures",
+        rejectedResults.map((result) => result.reason),
+      );
+    }
   }
 
   return {

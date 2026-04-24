@@ -1,7 +1,6 @@
 import type { JobPosting } from "@unemployed/contracts";
 
 import {
-  SEARCH_SURFACE_ROUTE_RULES,
   buildSearchSurfaceDetailUrl,
   getSearchSurfaceRouteRuleForUrl,
   isSearchSurfaceDetailPath,
@@ -1133,10 +1132,12 @@ function normalizePotentialCompanyCandidate(value: string): string {
   return withoutAtPrefix || normalized;
 }
 
+const SALARY_PATTERN_GLOBAL = new RegExp(SALARY_PATTERN.source, 'gi');
+
 function stripSalaryArtifacts(value: string): string {
   return cleanLine(
     value
-      .replace(new RegExp(SALARY_PATTERN.source, 'gi'), ' ')
+      .replace(SALARY_PATTERN_GLOBAL, ' ')
       .replace(/\/\s*(?:yr|year|month|mo|week|wk|day|hour|hr)\b/gi, ' ')
       .replace(/\b(?:yr|year|month|mo|week|wk|day|hour|hr)\b/gi, ' ')
       .replace(/\s*(?:-|–|to)\s*$/gi, ' '),
@@ -1381,10 +1382,7 @@ function usesSearchSurfaceHeuristics(value: string | null | undefined): boolean 
   }
 
   try {
-    const parsed = new URL(
-      normalized,
-      SEARCH_SURFACE_ROUTE_RULES[0]?.fallbackBaseUrl ?? 'https://example.invalid',
-    );
+    const parsed = new URL(normalized, 'https://example.invalid');
     return getSearchSurfaceRouteRuleForUrl(parsed) !== null;
   } catch {
     return false;
@@ -2652,11 +2650,9 @@ export function buildStructuredCandidateJobs(input: {
         return surfaceScoreDelta;
       }
 
-      if (!input.searchPreferences) {
-        const preferenceScoreDelta = right.preferenceScore - left.preferenceScore;
-        if (preferenceScoreDelta !== 0) {
-          return preferenceScoreDelta;
-        }
+      const preferenceScoreDelta = right.preferenceScore - left.preferenceScore;
+      if (preferenceScoreDelta !== 0) {
+        return preferenceScoreDelta;
       }
 
       return left.index - right.index;
