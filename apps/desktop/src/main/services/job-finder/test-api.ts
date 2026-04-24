@@ -10,8 +10,8 @@ function isDisabled(value: string | undefined): boolean {
   return value === '0' || value === 'false'
 }
 
-export function isDesktopTestApiEnabled(): boolean {
-  return isEnabled(process.env.UNEMPLOYED_ENABLE_TEST_API)
+export function isDesktopTestApiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isEnabled(env.UNEMPLOYED_ENABLE_TEST_API)
 }
 
 export function isBrowserAgentEnabled(): boolean {

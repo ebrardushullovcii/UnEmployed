@@ -28,6 +28,9 @@
 - prefer evidence-driven route reuse, stronger agent instructions, and generic heuristics over codifying board-specific rules; if a behavior does not generalize, leave it to the agent instead of hardcoding it
 - `pnpm source-generic:check` guards this boundary by rejecting source-branded helper declarations in shared discovery and browser-agent workflow code
 - interview overlay state belongs to `interview-helper`; window lifecycle belongs to `os-integration`
+- native helpers are a last resort when Electron APIs are insufficient
+- native code stays behind `packages/os-integration`, not directly in renderer or unrelated package flows
+- document every native addition here and in the relevant module or platform doc
 
 ## Main Flows
 

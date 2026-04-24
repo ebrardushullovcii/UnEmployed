@@ -11,6 +11,8 @@ import {
   shouldUseSearchSurfaceJobViewCardCapture,
 } from './tooling/extraction-tools'
 
+const GENERIC_CARRY_FORWARD_CAP = 24
+
 describe('interactive element helpers', () => {
   test('parses interactive elements from aria snapshots', () => {
     const snapshot = [
@@ -1106,7 +1108,7 @@ describe('LinkedIn extraction helpers', () => {
   })
 
   test('prioritizes stronger non-LinkedIn technical cards before the generic carry-forward cap', () => {
-    const fillerCandidates = Array.from({ length: 24 }, (_, index) => ({
+    const fillerCandidates = Array.from({ length: GENERIC_CARRY_FORWARD_CAP }, (_, index) => ({
       canonicalUrl: `https://jobs.example.com/jobs/filler-${index}`,
       anchorText: `Retail role ${index}`,
       headingText: `Retail role ${index}`,
@@ -1154,12 +1156,12 @@ describe('LinkedIn extraction helpers', () => {
       ],
     )
 
-    expect(candidates).toHaveLength(24)
+    expect(candidates).toHaveLength(GENERIC_CARRY_FORWARD_CAP)
     expect(candidates[0]?.canonicalUrl).toBe('https://jobs.example.com/jobs/senior-fullstack-developer')
   })
 
   test('keeps strong LinkedIn cards beyond the old top-20 carry-forward cap', () => {
-    const fillerCandidates = Array.from({ length: 24 }, (_, index) => ({
+    const fillerCandidates = Array.from({ length: GENERIC_CARRY_FORWARD_CAP }, (_, index) => ({
       canonicalUrl: `https://www.linkedin.com/jobs/view/filler-${index}/`,
       anchorText: `Software Engineer ${index}`,
       headingText: `Software Engineer ${index}`,

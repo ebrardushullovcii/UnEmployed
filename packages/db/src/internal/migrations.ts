@@ -222,6 +222,26 @@ export function runMigrations(database: DatabaseSync): void {
     `);
   }
 
+  function rewritePersistedResultId(input: {
+    tableName: string;
+    rowId: string;
+    serializedValue: string;
+    survivorId: string;
+  }): string {
+    const parsedValue = JSON.parse(input.serializedValue) as unknown;
+
+    if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
+      throw new Error(
+        `Expected JSON object in ${input.tableName}.${input.rowId} during apply-result dedupe migration`,
+      );
+    }
+
+    return JSON.stringify({
+      ...parsedValue,
+      resultId: input.survivorId,
+    });
+  }
+
   function dedupeApplyJobResultsByRunAndJob(): void {
     const evidenceTables = [
       'application_question_records',
@@ -258,25 +278,35 @@ export function runMigrations(database: DatabaseSync): void {
         continue
       }
 
-      database.exec(`
+      const rows = database.prepare(`
+        SELECT
+          ${tableName}.id AS id,
+          ${tableName}.value AS value,
+          apply_job_result_dedupe_map.survivor_id AS survivor_id
+        FROM ${tableName}
+        INNER JOIN apply_job_result_dedupe_map
+          ON apply_job_result_dedupe_map.duplicate_id = ${tableName}.result_id;
+      `).all() as { id: string; value: string; survivor_id: string }[]
+
+      const updateStatement = database.prepare(`
         UPDATE ${tableName}
-        SET
-          value = REPLACE(
-            value,
-            json_quote(result_id),
-            json_quote((
-              SELECT survivor_id
-              FROM apply_job_result_dedupe_map
-              WHERE duplicate_id = ${tableName}.result_id
-            ))
-          ),
-          result_id = (
-            SELECT survivor_id
-            FROM apply_job_result_dedupe_map
-            WHERE duplicate_id = ${tableName}.result_id
-          )
-        WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+        SET value = ?, result_id = ?
+        WHERE id = ?
       `)
+
+      for (const row of rows) {
+        updateStatement.run(
+          rewritePersistedResultId({
+            tableName,
+            rowId: row.id,
+            serializedValue: row.value,
+            survivorId: row.survivor_id,
+          }),
+          row.survivor_id,
+          row.id,
+        )
+      }
+
     }
 
     database.exec(`

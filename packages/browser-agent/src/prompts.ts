@@ -1,22 +1,39 @@
 import type { AgentConfig } from "./types";
+import {
+  getSeededQueryRuleParams,
+  isSeededQueryPlaceholderValue,
+  looksLikeSeededSearchSurfacePath,
+} from "./agent/seeded-query";
 
 function describeSeededSearchQuery(config: AgentConfig): string | null {
   for (const value of config.startingUrls) {
     try {
       const url = new URL(value);
-      const keywords = url.searchParams.get("keywords")?.trim() ?? "";
-      const location = url.searchParams.get("location")?.trim() ?? "";
-
-      if (!keywords && !location) {
+      if (!looksLikeSeededSearchSurfacePath(url.pathname)) {
         continue;
       }
 
-      const parts = [
-        keywords ? `keywords: ${keywords}` : null,
-        location ? `location: ${location}` : null,
-      ].filter(Boolean);
+      const { ignoredParams } = getSeededQueryRuleParams(url.hostname);
+      const parts = [...url.searchParams.entries()]
+        .flatMap(([key, rawValue]) => {
+          if (ignoredParams.has(key)) {
+            return [];
+          }
 
-      return `This run starts from a concrete search query${parts.length > 0 ? ` (${parts.join("; ")})` : ""}. Preserve those seeded terms when using the visible search UI. Do not broaden them into more generic roles or locations unless that exact query clearly yields no usable results or the site proves it is invalid.`;
+          const trimmedValue = rawValue.trim();
+          if (!trimmedValue || isSeededQueryPlaceholderValue(trimmedValue)) {
+            return [];
+          }
+
+          return [`${key}: ${trimmedValue}`];
+        })
+        .slice(0, 3);
+
+      if (parts.length === 0) {
+        continue;
+      }
+
+      return `This run starts from a concrete search query (${parts.join("; ")}). Preserve those seeded terms when using the visible search UI. Do not broaden them into more generic roles or locations unless that exact query clearly yields no usable results or the site proves it is invalid.`;
     } catch {
       continue;
     }

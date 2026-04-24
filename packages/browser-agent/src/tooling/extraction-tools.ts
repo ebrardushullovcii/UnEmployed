@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "../types";
+import { z } from "zod";
 import { ExtractJobsSchema } from "./shared";
 import {
   isSearchResultsSurfaceRoute,
@@ -7,11 +8,7 @@ import {
   shouldCanonicalizeSearchSurfaceDetailRoute,
   type ExtractionSearchPreferences,
 } from "../agent/job-extraction";
-import {
-  SEARCH_SURFACE_ROUTE_RULES,
-  getSearchSurfaceRouteRuleForUrl,
-  readEmbeddedSearchSurfaceJobId,
-} from "../agent/search-surface-routes";
+import { SEARCH_SURFACE_ROUTE_RULES } from "../agent/search-surface-routes";
 
 interface StructuredDataJobCandidate {
   canonicalUrl?: string | null;
@@ -72,6 +69,63 @@ interface RawSearchResultCardCandidate extends SearchResultCardCandidate {
   captureMeta?: SearchResultCardCaptureMeta | null;
 }
 
+const MAX_IN_PAGE_CARD_CANDIDATES = 160;
+
+const StructuredDataCandidateSchema = z.object({
+  canonicalUrl: z.string().optional().nullable(),
+  sourceJobId: z.string().optional().nullable(),
+  title: z.string().optional().nullable(),
+  company: z.string().optional().nullable(),
+  location: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  summary: z.string().optional().nullable(),
+  postedAt: z.string().optional().nullable(),
+  postedAtText: z.string().optional().nullable(),
+  salaryText: z.string().optional().nullable(),
+  workMode: z.array(z.string()).optional().nullable(),
+  applyPath: z.enum(["easy_apply", "external_redirect", "unknown"]).optional().nullable(),
+  easyApplyEligible: z.boolean().optional().nullable(),
+  keySkills: z.array(z.string()).optional().nullable(),
+  responsibilities: z.array(z.string()).optional().nullable(),
+  minimumQualifications: z.array(z.string()).optional().nullable(),
+  preferredQualifications: z.array(z.string()).optional().nullable(),
+  seniority: z.string().optional().nullable(),
+  employmentType: z.string().optional().nullable(),
+  department: z.string().optional().nullable(),
+  team: z.string().optional().nullable(),
+  employerWebsiteUrl: z.string().optional().nullable(),
+  employerDomain: z.string().optional().nullable(),
+  benefits: z.array(z.string()).optional().nullable(),
+});
+
+const CardCaptureMetaSchema = z.object({
+  domOrder: z.number(),
+  rootTagName: z.string().nullable(),
+  rootRole: z.string().nullable(),
+  rootClassName: z.string().nullable(),
+  hasJobDataset: z.boolean(),
+  sameRootJobAnchorCount: z.number(),
+  inLikelyResultsList: z.boolean(),
+  inAside: z.boolean(),
+  inHeader: z.boolean(),
+  inNavigation: z.boolean(),
+  inDetailPane: z.boolean(),
+  hasDismissLabel: z.boolean(),
+  isVisible: z.boolean().optional(),
+  intersectsViewport: z.boolean().optional(),
+  viewportTop: z.number().nullable().optional(),
+  viewportDistance: z.number().nullable().optional(),
+});
+
+const RawSearchResultCardCandidateSchema = z.object({
+  canonicalUrl: z.string(),
+  anchorText: z.string(),
+  headingText: z.string().nullable(),
+  lines: z.array(z.string()),
+  sourceJobIdHint: z.string().optional().nullable(),
+  captureMeta: CardCaptureMetaSchema.optional().nullable(),
+});
+
 function normalizeStructuredExtractionPayload(value: unknown): {
   structuredDataCandidates: StructuredDataJobCandidate[];
   cardCandidates: RawSearchResultCardCandidate[];
@@ -88,13 +142,22 @@ function normalizeStructuredExtractionPayload(value: unknown): {
     cardCandidates?: unknown;
   };
 
+  const structuredDataCandidates = Array.isArray(candidate.structuredDataCandidates)
+    ? candidate.structuredDataCandidates.flatMap((entry) => {
+        const result = StructuredDataCandidateSchema.safeParse(entry);
+        return result.success ? [result.data as StructuredDataJobCandidate] : [];
+      })
+    : [];
+  const cardCandidates = Array.isArray(candidate.cardCandidates)
+    ? candidate.cardCandidates.flatMap((entry) => {
+        const result = RawSearchResultCardCandidateSchema.safeParse(entry);
+        return result.success ? [result.data as RawSearchResultCardCandidate] : [];
+      })
+    : [];
+
   return {
-    structuredDataCandidates: Array.isArray(candidate.structuredDataCandidates)
-      ? candidate.structuredDataCandidates as StructuredDataJobCandidate[]
-      : [],
-    cardCandidates: Array.isArray(candidate.cardCandidates)
-      ? candidate.cardCandidates as RawSearchResultCardCandidate[]
-      : [],
+    structuredDataCandidates,
+    cardCandidates,
   };
 }
 
@@ -156,29 +219,6 @@ function uniqueCardStrings(values: readonly string[]): string[] {
     seen.add(key);
     return [normalized];
   });
-}
-
-function isSearchSurfaceRouteWithEmbeddedJobId(pageUrl: string, candidateUrl: string): boolean {
-  const normalizedUrl = cleanCardText(candidateUrl);
-  if (!normalizedUrl) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(normalizedUrl, pageUrl);
-    if (!isSearchResultsSurfaceRoute(parsed.toString(), pageUrl)) {
-      return false;
-    }
-
-    const routeRule = getSearchSurfaceRouteRuleForUrl(parsed);
-    const embeddedJobId = routeRule
-      ? readEmbeddedSearchSurfaceJobId(parsed, routeRule)
-      : '';
-
-    return /^\d+$/.test(embeddedJobId);
-  } catch {
-    return false;
-  }
 }
 
 function buildExtractedCardFingerprint(candidate: SearchResultCardCandidate): string {
@@ -416,6 +456,40 @@ export function prioritizeExtractedCardCandidates(
   searchPreferences?: ExtractionSearchPreferences,
 ): RawSearchResultCardCandidate[] {
   const dedupedCandidates = dedupeExtractedCardCandidates(pageUrl, candidates);
+  const preferenceScoreCache = new Map<string, number>();
+  const titleScoreCache = new Map<string, number>();
+  const getCandidateKey = (candidate: RawSearchResultCardCandidate): string =>
+    `${pageUrl}::${JSON.stringify(candidate)}`;
+  const getPreferenceScore = (candidate: RawSearchResultCardCandidate): number => {
+    const cacheKey = getCandidateKey(candidate);
+    const cached = preferenceScoreCache.get(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+
+    const nextScore = scoreSearchResultCardForPreferences({
+      pageUrl,
+      candidate,
+      ...(searchPreferences ? { searchPreferences } : {}),
+    });
+    preferenceScoreCache.set(cacheKey, nextScore);
+    return nextScore;
+  };
+  const getTitleScore = (candidate: RawSearchResultCardCandidate): number => {
+    const cacheKey = getCandidateKey(candidate);
+    const cached = titleScoreCache.get(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+
+    const nextScore = scoreSearchResultCardTitleForPreferences({
+      pageUrl,
+      candidate,
+      ...(searchPreferences ? { searchPreferences } : {}),
+    });
+    titleScoreCache.set(cacheKey, nextScore);
+    return nextScore;
+  };
 
   if (!shouldUseSearchSurfaceJobViewCardCapture(pageUrl)) {
     return [...dedupedCandidates]
@@ -425,27 +499,11 @@ export function prioritizeExtractedCardCandidates(
 
   return [...dedupedCandidates]
     .sort((left, right) => {
-      const rightPreferenceScore = scoreSearchResultCardForPreferences({
-        pageUrl,
-        candidate: right,
-        ...(searchPreferences ? { searchPreferences } : {}),
-      });
-      const leftPreferenceScore = scoreSearchResultCardForPreferences({
-        pageUrl,
-        candidate: left,
-        ...(searchPreferences ? { searchPreferences } : {}),
-      });
+      const rightPreferenceScore = getPreferenceScore(right);
+      const leftPreferenceScore = getPreferenceScore(left);
       if (searchPreferences) {
-        const rightTitleScore = scoreSearchResultCardTitleForPreferences({
-          pageUrl,
-          candidate: right,
-          searchPreferences,
-        });
-        const leftTitleScore = scoreSearchResultCardTitleForPreferences({
-          pageUrl,
-          candidate: left,
-          searchPreferences,
-        });
+        const rightTitleScore = getTitleScore(right);
+        const leftTitleScore = getTitleScore(left);
         const titleScoreDelta = rightTitleScore - leftTitleScore;
         if (Math.abs(titleScoreDelta) >= SEARCH_SURFACE_TITLE_DOMINANCE_THRESHOLD) {
           return titleScoreDelta;
@@ -574,6 +632,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             relevantUrlSubstrings: string[];
             allowSubdomains: boolean;
             preferSearchSurfaceJobViewCardCapture: boolean;
+            maxInPageCardCandidates: number;
             searchSurfaceRouteRules: Array<{
               hostSuffixes: string[];
               resultExactPaths: string[];
@@ -806,142 +865,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               };
             };
 
-            const scoreCardCaptureMeta = (meta: RawSearchResultCardCandidate['captureMeta']): number => {
-              if (!meta) {
-                return 0;
-              }
-
-              let score = 0;
-
-              if (meta.hasJobDataset) {
-                score += 180;
-              }
-
-              if (meta.inLikelyResultsList) {
-                score += 120;
-              }
-
-              if (meta.hasDismissLabel) {
-                score += 70;
-              }
-
-              if (meta.intersectsViewport) {
-                score += 420;
-              } else if (meta.isVisible) {
-                score += 80;
-              }
-
-              if (meta.sameRootJobAnchorCount <= 1) {
-                score += 20;
-              } else if (meta.sameRootJobAnchorCount >= 4) {
-                score -= 80;
-              }
-
-              if (typeof meta.viewportTop === 'number') {
-                if (meta.viewportTop >= -48 && meta.viewportTop <= 560) {
-                  score += 120;
-                } else if (meta.viewportTop > 560) {
-                  score -= Math.min(meta.viewportTop - 560, 1600) / 8;
-                } else if (meta.viewportTop < -120) {
-                  score -= Math.min(Math.abs(meta.viewportTop) - 120, 800) / 10;
-                }
-              }
-
-              if (typeof meta.viewportDistance === 'number') {
-                score -= Math.min(Math.max(0, meta.viewportDistance), 1600) / 4;
-              }
-
-              if (meta.inDetailPane) {
-                score -= 140;
-              }
-
-              if (meta.inAside) {
-                score -= 180;
-              }
-
-              if (meta.inHeader) {
-                score -= 140;
-              }
-
-              if (meta.inNavigation) {
-                score -= 180;
-              }
-
-              return Math.round(score);
-            };
-            const selectPreferredCaptureMeta = (
-              current: RawSearchResultCardCandidate['captureMeta'],
-              next: RawSearchResultCardCandidate['captureMeta'],
-            ): RawSearchResultCardCandidate['captureMeta'] => {
-              if (!current) {
-                return next;
-              }
-
-              if (!next) {
-                return current;
-              }
-
-              const scoreDelta = scoreCardCaptureMeta(next) - scoreCardCaptureMeta(current);
-              if (scoreDelta !== 0) {
-                return scoreDelta > 0 ? next : current;
-              }
-
-              return (next.domOrder ?? Number.MAX_SAFE_INTEGER) <
-                (current.domOrder ?? Number.MAX_SAFE_INTEGER)
-                ? next
-                : current;
-            };
-            const scoreCardCandidateQuality = (candidate: RawSearchResultCardCandidate): number => {
-              const linesScore = candidate.lines.join(" ").length;
-              const anchorScore = candidate.anchorText.length * 4;
-              const headingScore = toText(candidate.headingText).length * 3;
-              const dismissScore = candidate.lines.some((line) => /\bdismiss\b.*\bjob\b/i.test(line))
-                ? 60
-                : 0;
-
-              return linesScore + anchorScore + headingScore + dismissScore + scoreCardCaptureMeta(candidate.captureMeta);
-            };
-            const mergeCardCandidate = (
-              current: RawSearchResultCardCandidate | undefined,
-              next: RawSearchResultCardCandidate,
-            ): RawSearchResultCardCandidate => {
-              if (!current) {
-                return next;
-              }
-
-              const preferredCaptureMeta = selectPreferredCaptureMeta(
-                current.captureMeta,
-                next.captureMeta,
-              );
-              const merged: RawSearchResultCardCandidate = {
-                canonicalUrl: current.canonicalUrl,
-                anchorText:
-                  toText(next.anchorText).length > toText(current.anchorText).length
-                    ? next.anchorText
-                    : current.anchorText,
-                headingText:
-                  toText(next.headingText).length > toText(current.headingText).length
-                    ? next.headingText
-                    : current.headingText,
-                lines: uniqueStrings([...current.lines, ...next.lines]).slice(0, 12),
-                ...((toText(next.sourceJobIdHint).length >
-                  toText(current.sourceJobIdHint).length
-                  ? next.sourceJobIdHint !== undefined
-                    ? { sourceJobIdHint: next.sourceJobIdHint }
-                    : {}
-                  : current.sourceJobIdHint !== undefined
-                    ? { sourceJobIdHint: current.sourceJobIdHint }
-                    : {})),
-                ...((preferredCaptureMeta !== undefined
-                  ? { captureMeta: preferredCaptureMeta }
-                  : {})),
-              };
-
-              return scoreCardCandidateQuality(merged) >= scoreCardCandidateQuality(current)
-                ? merged
-                : current;
-            };
-            const cardCandidatesByUrl = new Map<string, RawSearchResultCardCandidate>();
+            const cardCandidates: RawSearchResultCardCandidate[] = [];
             const isSearchSurfaceRoute = (value: string): boolean => {
               try {
                 const parsed = new URL(value, window.location.href);
@@ -954,51 +878,6 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 return isSearchSurfaceResultPath(routeRule, pathname);
               } catch {
                 return false;
-              }
-            };
-            const buildCardMergeKey = (candidate: RawSearchResultCardCandidate): string => {
-              const sourceJobIdHint = toText(candidate.sourceJobIdHint);
-              if (sourceJobIdHint) {
-                return candidate.canonicalUrl;
-              }
-
-              try {
-                const parsed = new URL(candidate.canonicalUrl, window.location.href);
-                if (!isSearchSurfaceRoute(parsed.toString())) {
-                  return candidate.canonicalUrl;
-                }
-
-                const routeRule = findSearchSurfaceRouteRuleForUrl(parsed.toString());
-                const embeddedJobId = routeRule
-                  ? readEmbeddedSearchSurfaceJobId(parsed, routeRule)
-                  : '';
-                if (/^\d+$/.test(embeddedJobId)) {
-                  const fingerprint = uniqueStrings(
-                    [candidate.anchorText, candidate.headingText, ...candidate.lines]
-                      .filter((value): value is string => Boolean(value))
-                      .map((value) => toText(value).toLowerCase()),
-                  )
-                    .join(' ')
-                    .replace(/[^a-z0-9]+/g, '_')
-                    .replace(/^_+|_+$/g, '')
-                    .slice(0, 120);
-
-                  return `${candidate.canonicalUrl}::card:${fingerprint || 'candidate'}`;
-                }
-
-                const fingerprint = uniqueStrings(
-                  [candidate.anchorText, candidate.headingText, ...candidate.lines]
-                    .filter((value): value is string => Boolean(value))
-                    .map((value) => toText(value).toLowerCase()),
-                )
-                  .join(' ')
-                  .replace(/[^a-z0-9]+/g, '_')
-                  .replace(/^_+|_+$/g, '')
-                  .slice(0, 120);
-
-                return `${candidate.canonicalUrl}::card:${fingerprint || 'candidate'}`;
-              } catch {
-                return candidate.canonicalUrl;
               }
             };
             const looksLikeSearchSurfaceResultCard = (element: HTMLElement): boolean => {
@@ -1067,10 +946,10 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   }
 
                   const pathname = parsedAnchorUrl.pathname.toLowerCase();
-                  const anchorJobViewId =
-                    pathname.startsWith(anchorRouteRule.detailPathPrefix)
-                      ? pathname.match(new RegExp(`${anchorRouteRule.detailPathPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)`))?.[1] ?? null
-                      : null;
+                  const detailPathPattern = new RegExp(
+                    `^${anchorRouteRule.detailPathPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)(?:[/?#]|$)`,
+                  );
+                  const anchorJobViewId = pathname.match(detailPathPattern)?.[1] ?? null;
                   const anchorCurrentJobId = readEmbeddedSearchSurfaceJobId(
                     parsedAnchorUrl,
                     anchorRouteRule,
@@ -1168,7 +1047,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 lines,
                 sourceJobIdHint,
                 captureMeta: {
-                  domOrder: cardCandidatesByUrl.size,
+                  domOrder: cardCandidates.length,
                   rootTagName: element.tagName?.toLowerCase() ?? null,
                   rootRole: toText(element.getAttribute("role")) || null,
                   rootClassName: rootClassName || null,
@@ -1203,11 +1082,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   viewportDistance,
                 },
               };
-              const mergeKey = buildCardMergeKey(nextCandidate);
-              cardCandidatesByUrl.set(
-                mergeKey,
-                mergeCardCandidate(cardCandidatesByUrl.get(mergeKey), nextCandidate),
-              );
+              cardCandidates.push(nextCandidate);
             };
 
             if (input.preferSearchSurfaceJobViewCardCapture) {
@@ -1334,7 +1209,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               );
 
               for (const root of supplementalRoots) {
-                if (cardCandidatesByUrl.size >= 160 || scannedRoots.has(root) || !looksLikeSearchSurfaceResultCard(root)) {
+                if (cardCandidates.length >= input.maxInPageCardCandidates || scannedRoots.has(root) || !looksLikeSearchSurfaceResultCard(root)) {
                   continue;
                 }
 
@@ -1348,7 +1223,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               }
             }
 
-            if (cardCandidatesByUrl.size === 0) {
+            if (cardCandidates.length === 0) {
               const cardSelectors = [
                 "article",
                 "li",
@@ -1359,7 +1234,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               ];
               for (const selector of cardSelectors) {
                 for (const element of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
-                  if (cardCandidatesByUrl.size >= 160) {
+                  if (cardCandidates.length >= input.maxInPageCardCandidates) {
                     break;
                   }
                   const anchor =
@@ -1370,7 +1245,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 }
               }
             }
-            const cardCandidates = Array.from(cardCandidatesByUrl.values()).slice(0, 160);
+            const limitedCardCandidates = cardCandidates.slice(0, input.maxInPageCardCandidates);
 
             const structuredJobs = uniqueStrings(
               Array.from(
@@ -1414,7 +1289,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
             return {
               structuredDataCandidates: structuredJobs.slice(0, 20),
-               cardCandidates,
+                cardCandidates: limitedCardCandidates,
             };
           },
           {
@@ -1422,6 +1297,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
             relevantUrlSubstrings,
             allowSubdomains: context.config.navigationPolicy.allowSubdomains === true,
             preferSearchSurfaceJobViewCardCapture: shouldUseSearchSurfaceJobViewCardCapture(pageUrl),
+            maxInPageCardCandidates: MAX_IN_PAGE_CARD_CANDIDATES,
             searchSurfaceRouteRules: SEARCH_SURFACE_ROUTE_RULES.map((rule) => ({
               hostSuffixes: [...rule.hostSuffixes],
               resultExactPaths: [...rule.resultExactPaths],

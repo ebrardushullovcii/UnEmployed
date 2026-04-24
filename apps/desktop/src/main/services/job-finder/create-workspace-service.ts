@@ -15,8 +15,7 @@ import { isBrowserAgentEnabled, isBrowserHeadlessEnabled, isDesktopTestApiEnable
 const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
 
 export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.env) {
-  const desktopTestApiEnabled =
-    env.UNEMPLOYED_ENABLE_TEST_API === '1' || env.UNEMPLOYED_ENABLE_TEST_API === 'true'
+  const desktopTestApiEnabled = isDesktopTestApiEnabled(env)
   const forceLiveAiDuringTestApi =
     env.UNEMPLOYED_TEST_API_USE_LIVE_AI === '1' ||
     env.UNEMPLOYED_TEST_API_USE_LIVE_AI === 'true'

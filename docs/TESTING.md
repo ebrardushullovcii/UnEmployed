@@ -47,12 +47,6 @@
 - validate apply work with deterministic contracts, service tests, and desktop harnesses by default
 - capture artifacts under `apps/desktop/test-artifacts/ui/`; they are QA output, not source files
 
-## Active 017 Validation
-
-- for active `017`, pair targeted package tests with full app-triggered benchmark evidence
-- treat desktop `Check source`, single-target `Search now`, and `run_all` as the product bar
-- do not claim browser wins from unit tests alone
-
 ## Resume Import Notes
 
 - when import or parser routing changes, validate at least one plain-text path and one extracted-document path

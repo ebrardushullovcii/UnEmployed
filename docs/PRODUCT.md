@@ -21,7 +21,7 @@ Current product baseline:
 - browser-driven job discovery across configured targets
 - source-debug for learning reusable target instructions
 - resume workspace with ATS-first PDF approval
-- safe non-submitting apply flows with Applications recovery
+- apply flows that stop before final submission with Applications recovery
 
 ## Interview Helper
 

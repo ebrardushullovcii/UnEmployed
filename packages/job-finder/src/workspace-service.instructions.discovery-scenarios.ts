@@ -373,7 +373,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://example.com/careers/open-roles/",
         "https://example.com/",
       ],
-      maxSteps: 13,
+      maxSteps: 10,
     });
     expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
       startingUrls: [
@@ -381,7 +381,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://example.com/",
         "https://example.com/careers/open-roles/",
       ],
-      maxSteps: 14,
+      maxSteps: 10,
     });
   });
 
@@ -563,7 +563,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/collections/recommended/",
         "https://www.linkedin.com/jobs/",
       ],
-      maxSteps: 14,
+      maxSteps: 10,
     });
   });
 });

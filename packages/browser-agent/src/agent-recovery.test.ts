@@ -665,10 +665,10 @@ describe("runAgentDiscovery recovery behavior", () => {
     expect(currentUrl).toBe(seededUrl);
     expect(seededRestoreAttempts).toBe(3);
     expect(result.phaseEvidence?.routeSignals.some((entry) =>
-      entry.includes("Restored the seeded LinkedIn search surface"),
+      entry.includes("Restored the seeded search surface"),
     )).toBe(true);
     expect(result.reviewTranscript?.some((entry) =>
-      entry.includes("automatically restored to the seeded LinkedIn search surface"),
+      entry.includes("automatically restored to the seeded search surface"),
     )).toBe(true);
   });
 

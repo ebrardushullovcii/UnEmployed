@@ -12,6 +12,12 @@ This file is the short working log for `017`. Keep it to baselines, confirmed wi
 - if a source quirk does not generalize, keep it in contained agent behavior or extraction handling instead of codifying it in shared discovery
 - existing LinkedIn-only core-path behavior is now explicit cleanup debt, even where it improved benchmarks
 
+## 017 Validation Notes
+
+- pair targeted package tests with full app-triggered benchmark evidence
+- treat desktop `Check source`, single-target `Search now`, and `run_all` as the product bar
+- do not claim browser wins from unit tests alone
+
 ## Baseline
 
 - Product bar is the full desktop flow, not service slices
@@ -61,8 +67,8 @@ This file is the short working log for `017`. Keep it to baselines, confirmed wi
   - Kosovajob `Check source`: `319.2s`, `draft`
   - Kosovajob single-target `Search now`: `229.6s`, `0 persisted`
   - mixed `run_all`: `322.3s`, `0 persisted`
-- LinkedIn still only surfaced `5` candidate jobs and title/location triage dropped all `5`
-- Kosovajob still entered `https://kosovajob.com/search` in the real app flow, hit `/404`, then recovered to the homepage and collected only weak non-technical jobs
+  - LinkedIn still only surfaced `5` candidate jobs and title/location triage dropped all `5`
+  - Kosovajob still entered `https://kosovajob.com/search` in the real app flow, hit `/404`, then recovered to the homepage and collected only weak non-technical jobs
 
 ## Confirmed Wins
 

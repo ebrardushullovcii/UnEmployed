@@ -54,6 +54,8 @@ const chromeDebugPort =
   rawChromeDebugPort <= 65535
     ? rawChromeDebugPort
     : null
+const PARTIAL_STATE_POLL_DEADLINE_MS = 6_000
+const PARTIAL_STATE_POLL_INTERVAL_MS = 200
 
 const defaultBenchmarkTargetRoles = [
   'Engineer',
@@ -346,7 +348,7 @@ async function collectSourceDebugBenchmarkPartialState(
   workspaceService: JobFinderWorkspaceService,
   targetId: string,
 ): Promise<SourceDebugBenchmarkRunResult | null> {
-  const deadline = Date.now() + 6_000
+  const deadline = Date.now() + PARTIAL_STATE_POLL_DEADLINE_MS
   let latestSnapshot: Record<string, unknown> | null = null
   let latestDetails: Record<string, unknown> | null = null
 
@@ -365,7 +367,7 @@ async function collectSourceDebugBenchmarkPartialState(
       break
     }
 
-    await sleep(200)
+    await sleep(PARTIAL_STATE_POLL_INTERVAL_MS)
   }
 
   return latestSnapshot
@@ -380,7 +382,7 @@ async function collectDiscoveryBenchmarkPartialState(
   workspaceService: JobFinderWorkspaceService,
   targetId: string,
 ): Promise<Record<string, unknown> | null> {
-  const deadline = Date.now() + 6_000
+  const deadline = Date.now() + PARTIAL_STATE_POLL_DEADLINE_MS
   let latestSnapshot: Record<string, unknown> | null = null
 
   while (Date.now() <= deadline) {
@@ -393,7 +395,7 @@ async function collectDiscoveryBenchmarkPartialState(
       break
     }
 
-    await sleep(200)
+    await sleep(PARTIAL_STATE_POLL_INTERVAL_MS)
   }
 
   return latestSnapshot
@@ -505,9 +507,9 @@ function summarizeSourceDebug(
     partialStateCaptured: boolean
   },
 ) {
-  const details = result?.details ?? null
-  const run = (details?.run as Record<string, unknown> | undefined) ?? null
-  const artifact = (details?.instructionArtifact as Record<string, unknown> | undefined) ?? null
+  const details = asRecord(result?.details)
+  const run = asRecord(details?.run)
+  const artifact = asRecord(details?.instructionArtifact)
   const attempts = asArrayOfRecords(details?.attempts)
   const evidenceRefs = asArrayOfRecords(details?.evidenceRefs)
   const verification = asRecord(artifact?.verification)
@@ -639,9 +641,7 @@ function summarizeDiscovery(
   },
 ) {
   const run = findLatestDiscoveryRunSnapshot(snapshot, target.id)
-  const targetExecutions = Array.isArray(run?.targetExecutions)
-    ? (run.targetExecutions as Array<Record<string, unknown>>)
-    : []
+  const targetExecutions = asArrayOfRecords(run?.targetExecutions)
   const jobs = Array.isArray(snapshot?.discoveryJobs) ? (snapshot.discoveryJobs as Array<Record<string, unknown>>) : []
   const summary = asRecord(run?.summary)
 

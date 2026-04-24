@@ -18,6 +18,8 @@ import {
 } from './playwright-browser-runtime-utils'
 import { createAgentChatWithToolsBridge } from './playwright-browser-runtime'
 
+type StalePageLike = Pick<Parameters<typeof isLikelyStalePage>[0], 'isClosed' | 'url'>
+
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
 
 function withPlatform(platform: NodeJS.Platform, run: () => void): void {
@@ -142,19 +144,19 @@ describe('playwright browser runtime utils', () => {
       isLikelyStalePage({
         isClosed: () => true,
         url: () => 'https://example.com/jobs',
-      } as never),
+      } as StalePageLike),
     ).toBe(true)
     expect(
       isLikelyStalePage({
         isClosed: () => false,
         url: () => 'about:blank',
-      } as never),
+      } as StalePageLike),
     ).toBe(true)
     expect(
       isLikelyStalePage({
         isClosed: () => false,
         url: () => 'https://example.com/jobs',
-      } as never),
+      } as StalePageLike),
     ).toBe(false)
   })
 

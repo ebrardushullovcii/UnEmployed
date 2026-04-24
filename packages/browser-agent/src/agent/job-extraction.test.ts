@@ -551,8 +551,8 @@ describe('buildStructuredCandidateJobs', () => {
         title: 'Experienced Software Engineer',
         company: 'Proxify',
         location: 'Kosovo (Remote)',
-        }),
-      ])
+      }),
+    ])
   })
 
   test('strips malformed title-overlap fragments from confidential LinkedIn company metadata', () => {

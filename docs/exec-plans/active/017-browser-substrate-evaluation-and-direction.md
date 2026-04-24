@@ -41,6 +41,7 @@ Primary user-facing bar:
   - seeded-query preservation in `browser-agent` now uses generic search-surface language and behavior
   - public provider parsing and search-surface extraction helpers now use generic adapter tables and generic helper names instead of source-branded helper functions
   - browser-agent search-surface route handling is centralized as adapter data instead of duplicated source-only helper branches
+  - discovery starting-url reuse now honors denied-route guidance instead of silently falling back to a known-bad target URL when no reusable learned routes survive
 - Browser-agent deferred search-result review now stops once fast structured extraction has already filled the configured target count, avoiding unnecessary slower extractor work without adding source-specific policy
 - Source-debug now uses generic phase selection and step-budget reduction when public provider APIs, route hints, prior phase summaries, or existing instructions make full exploration lower value
 - A truthful rebuilt desktop benchmark moved LinkedIn from the old `0`/`1 persisted` ceiling to `6 persisted` in single-target `Search now` and `7 persisted` in LinkedIn-only `run_all`
@@ -112,7 +113,9 @@ Primary user-facing bar:
 1. Rebuild and rerun truthful `Check source` flows to measure the generic phase-selection and step-budget changes before adding more latency work
 2. Keep auditing source-named helper debt; remaining source labels should stay limited to provider metadata, profile fields, fixtures, or reusable adapter data
 3. Clean remaining LinkedIn title/company pollution now that multiple candidates survive into persistence
-4. Keep Kosovajob on a separate path from LinkedIn: reduce source-debug and discovery over-exploration, then improve technical-role survival on the homepage query/detail pattern that the real app actually observes
+4. Keep Kosovajob as a separate investigation path from LinkedIn: reduce source-debug and discovery over-exploration, then improve technical-role survival on the homepage query/detail pattern that the real app actually observes without adding Kosovajob-only branches to core `job-finder` discovery orchestration
+   - Any Kosovajob-specific handling must stay inside contained `browser-agent` extraction or navigation logic, or reusable adapter data, not shared discovery policy
+   - This must conform to `docs/ARCHITECTURE.md`: core `job-finder` discovery remains source-generic while unavoidable site quirks stay contained in `browser-agent` or adapter data
 5. Fix the `browser-runtime` -> `browser-agent` catalog seam if it blocks clearer ownership or further optimization
 6. Revisit alternate substrates only after the current stack has another measured pass
 

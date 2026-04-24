@@ -366,6 +366,77 @@ describe("resolveSourceDebugPhases", () => {
       "replay_verification",
     ]);
   });
+
+  test("falls back to inferred intelligence when persisted intelligence is malformed", () => {
+    const instructionArtifact = createSourceInstructionArtifact({
+      id: "instruction_malformed_intelligence",
+      targetId: createPublicProviderTarget().id,
+      status: "draft",
+      createdAt: "2026-04-24T00:00:00.000Z",
+      updatedAt: "2026-04-24T00:01:00.000Z",
+      acceptedAt: null,
+      basedOnRunId: "debug_run_malformed_intelligence",
+      basedOnAttemptIds: ["debug_attempt_malformed_intelligence"],
+      notes: null,
+      navigationGuidance: [],
+      searchGuidance: [],
+      detailGuidance: [],
+      applyGuidance: [],
+      warnings: [],
+      versionInfo: {
+        promptProfileVersion: "v1",
+        toolsetVersion: "v1",
+        adapterVersion: "v1",
+        appSchemaVersion: "v1",
+      },
+      verification: null,
+      intelligence: {
+        provider: null,
+        collection: {
+          preferredMethod: "listing_route",
+          rankedMethods: ["listing_route", "careers_page", "fallback_search"],
+          startingRoutes: [],
+          searchRouteTemplates: [],
+          detailRoutePatterns: [],
+          listingMarkers: [],
+        },
+        apply: {
+          applyPath: "unknown",
+          authMarkers: [],
+          consentMarkers: [],
+          questionSurfaceHints: [],
+          resumeUploadHints: [],
+        },
+        reliability: {
+          selectorFingerprints: [],
+          stableControlNames: [],
+          failureFingerprints: [],
+          verifiedAt: null,
+          freshnessNotes: [],
+        },
+        overrides: {
+          forceMethod: null,
+          deniedRoutePatterns: [],
+          extraStartingRoutes: [],
+        },
+      },
+    })
+    ;(instructionArtifact as { intelligence: unknown }).intelligence = { bad: true }
+
+    expect(
+      resolveSourceDebugPhases({
+        target: createPublicProviderTarget(),
+        instructionArtifact,
+      }),
+    ).toEqual([
+      "access_auth_probe",
+      "site_structure_mapping",
+      "search_filter_probe",
+      "job_detail_validation",
+      "apply_path_validation",
+      "replay_verification",
+    ]);
+  });
 });
 
 describe("getSourceDebugMaxSteps", () => {
@@ -385,5 +456,71 @@ describe("getSourceDebugMaxSteps", () => {
         hasExistingInstructionArtifact: true,
       }),
     ).toBe(16);
+  });
+});
+
+describe("deriveSourceDebugStartingUrls bucketing", () => {
+  test("lets url classification win over line text and filters detail/apply routes before bucketing", () => {
+    const target = createUnknownCareersTarget();
+    const artifact = createSourceInstructionArtifact({
+      id: "instruction_bucket_route_kinds",
+      targetId: target.id,
+      status: "draft",
+      createdAt: "2026-04-24T00:00:00.000Z",
+      updatedAt: "2026-04-24T00:01:00.000Z",
+      acceptedAt: null,
+      basedOnRunId: "debug_run_bucket_route_kinds",
+      basedOnAttemptIds: ["debug_attempt_bucket_route_kinds"],
+      notes: null,
+      navigationGuidance: [
+        "Search entry path mention https://example.com/jobs/view/123 should still be treated like a landing or detail-classified url, not a search route.",
+        "Apply path mention https://example.com/apply/123 should be ignored for starting-url reuse.",
+      ],
+      searchGuidance: [],
+      detailGuidance: [],
+      applyGuidance: [],
+      warnings: [],
+      versionInfo: {
+        promptProfileVersion: "v1",
+        toolsetVersion: "v1",
+        adapterVersion: "v1",
+        appSchemaVersion: "v1",
+      },
+      verification: null,
+      intelligence: {
+        provider: null,
+        collection: {
+          preferredMethod: "listing_route",
+          rankedMethods: ["listing_route", "careers_page", "fallback_search"],
+          startingRoutes: [],
+          searchRouteTemplates: [],
+          detailRoutePatterns: [],
+          listingMarkers: [],
+        },
+        apply: {
+          applyPath: "unknown",
+          authMarkers: [],
+          consentMarkers: [],
+          questionSurfaceHints: [],
+          resumeUploadHints: [],
+        },
+        reliability: {
+          selectorFingerprints: [],
+          stableControlNames: [],
+          failureFingerprints: [],
+          verifiedAt: null,
+          freshnessNotes: [],
+        },
+        overrides: {
+          forceMethod: null,
+          deniedRoutePatterns: [],
+          extraStartingRoutes: [],
+        },
+      },
+    });
+
+    expect(deriveSourceDebugStartingUrls(target, artifact, "search_filter_probe")).toEqual([
+      "https://example.com/careers",
+    ]);
   });
 });

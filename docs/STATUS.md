@@ -31,21 +31,12 @@
   - seeded-query preservation and search-surface extraction helpers in `browser-agent` now use generic naming and behavior instead of source-branded helper APIs
   - public provider parsing in `job-finder` now uses generic adapter tables instead of separate per-source parser functions
   - browser-agent search-surface route handling is centralized as adapter data instead of duplicated source-only helper branches
+  - discovery starting-url reuse now respects denied route guidance even when no other learned routes survive, so shared flow does not silently fall back to a known-bad start URL
   - browser-agent search-result review now stops deferred or slower extraction once fast structured extraction has already filled the target job count
   - source-debug now uses generic phase selection and step-budget reduction when public provider APIs, route hints, prior phase summaries, or existing instructions make full exploration lower value
-- Non-app validation after the cleanup passed for the touched packages and docs:
-  - `pnpm agents:sync`
-  - `pnpm agents:check`
-  - `pnpm docs:check`
-  - `pnpm source-generic:check`
-  - `pnpm --filter @unemployed/job-finder lint`
-  - `pnpm --filter @unemployed/job-finder typecheck`
-  - `pnpm --filter @unemployed/browser-agent typecheck`
-  - focused `job-finder` and `browser-agent` unit suites covering the cleanup
-- Root `pnpm lint` is still blocked by pre-existing `packages/browser-runtime/src/playwright-browser-runtime.test.ts` lint errors outside this change set
-- Rebuilt truthful LinkedIn rerun: `232.7s` `Check source`, `63.0s` single-target `Search now` with `6 persisted`, and `105.2s` LinkedIn-only `run_all` with `7 persisted`
-- Benchmark note: rebuild desktop before judging source changes because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches the built `out/main/index.cjs`
-- Kosovajob remains unchanged as the other dominant blocker: the real app flow still enters `/search` then `/404` before recovering to the homepage and collecting weak non-technical jobs
+- Detailed validation history, benchmark timings, and volatile rerun notes now live in `docs/exec-plans/active/017-experiment-tracker.md`
+- Benchmark reminder: rebuild desktop before judging source changes because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches the built `out/main/index.cjs`
+- Kosovajob remains the dominant weak target: the real app flow still needs faster source-debug and stronger technical-job survival on the homepage query/detail pattern
 
 ## Hard Decisions
 

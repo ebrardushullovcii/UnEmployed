@@ -270,7 +270,7 @@ async function withScopedCurrentWorkspaceTargets(window, targetIds, runner) {
 
   await window.evaluate(
     async ({ profile, searchPreferences }) =>
-      window.unemployed.jobFinder.saveWorkspaceInputs(profile, searchPreferences),
+      window.unemployed.jobFinder.saveWorkspaceInputs({ profile, searchPreferences }),
     {
       profile: originalWorkspace.profile,
       searchPreferences: {
@@ -289,7 +289,7 @@ async function withScopedCurrentWorkspaceTargets(window, targetIds, runner) {
     await window
       .evaluate(
         async ({ profile, searchPreferences }) =>
-          window.unemployed.jobFinder.saveWorkspaceInputs(profile, searchPreferences),
+          window.unemployed.jobFinder.saveWorkspaceInputs({ profile, searchPreferences }),
         {
           profile: originalWorkspace.profile,
           searchPreferences: originalSearchPreferences,
@@ -459,7 +459,6 @@ async function runSingleScenario({
   seededInput,
   scopeCurrentWorkspaceTargets = false,
 }) {
-  const fixture = await loadFixture()
   const userDataDirectory = useCurrentWorkspace
     ? null
     : await mkdtemp(path.join(os.tmpdir(), 'unemployed-app-benchmark-'))

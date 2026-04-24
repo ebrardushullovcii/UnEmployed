@@ -35,7 +35,6 @@ describe("source instruction filtering", () => {
   test("drops LinkedIn broad query templates from discovery guidance only", () => {
     expect(
       filterDiscoveryInstructionLines({
-        artifactProviderKey: "linkedin",
         values: [
           "URL-based search: /jobs/search/?keywords=...&location=... reliably returns filtered results",
           "Use URL parameters for direct search: keywords and location",

@@ -1011,4 +1011,153 @@ describe('createFileJobFinderRepository', () => {
       })
     }
   }, 15000)
+
+  test('dedupe migration rewrites result references without replacing unrelated JSON strings', async () => {
+    const temp = await createTempRepository('unemployed-db-apply-dedupe-migration-')
+    let repository: FileRepository | null = null
+    let initialRepository: FileRepository | null = null
+    const duplicateResultId = 'apply_result_duplicate'
+    const survivorResult = ApplyJobResultSchema.parse({
+      id: 'apply_result_survivor',
+      runId: 'apply_run_dedupe',
+      jobId: 'job_dedupe',
+      queuePosition: 0,
+      state: 'awaiting_review',
+      summary: 'Migration kept the newest job result.',
+      detail: 'A later replay checkpoint superseded the older duplicate result.',
+      startedAt: '2026-04-18T10:01:00.000Z',
+      updatedAt: '2026-04-18T10:01:30.000Z',
+      completedAt: null,
+      blockerReason: null,
+      blockerSummary: null,
+      latestQuestionCount: 0,
+      latestAnswerCount: 0,
+      pendingConsentRequestCount: 0,
+      artifactCount: 1,
+      latestCheckpointId: null,
+    })
+
+    try {
+      initialRepository = await temp.createRepository()
+
+      await initialRepository.upsertApplyRun(ApplyRunSchema.parse({
+        id: 'apply_run_dedupe',
+        mode: 'copilot',
+        state: 'paused_for_user_review',
+        jobIds: ['job_dedupe'],
+        currentJobId: 'job_dedupe',
+        submitApprovalId: null,
+        createdAt: '2026-04-18T10:00:00.000Z',
+        updatedAt: '2026-04-18T10:01:30.000Z',
+        completedAt: null,
+        summary: 'Apply dedupe migration fixture.',
+        detail: 'Creates duplicate results to exercise the migration path.',
+        totalJobs: 1,
+        pendingJobs: 0,
+        submittedJobs: 0,
+        skippedJobs: 0,
+        blockedJobs: 0,
+        failedJobs: 0,
+      }))
+      await initialRepository.upsertApplyJobResult(ApplyJobResultSchema.parse({
+        id: duplicateResultId,
+        runId: 'apply_run_dedupe',
+        jobId: 'job_dedupe',
+        queuePosition: 0,
+        state: 'awaiting_review',
+        summary: 'Older duplicate apply result.',
+        detail: 'This row should be deduped in favor of the newer one.',
+        startedAt: '2026-04-18T10:00:10.000Z',
+        updatedAt: '2026-04-18T10:00:40.000Z',
+        completedAt: null,
+        blockerReason: null,
+        blockerSummary: null,
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 1,
+        latestCheckpointId: null,
+      }))
+      await initialRepository.upsertApplicationArtifactRef(ApplicationArtifactRefSchema.parse({
+        id: 'artifact_dedupe_migration',
+        runId: 'apply_run_dedupe',
+        jobId: 'job_dedupe',
+        resultId: duplicateResultId,
+        questionId: null,
+        kind: 'field_snapshot',
+        label: duplicateResultId,
+        createdAt: '2026-04-18T10:00:20.000Z',
+        storagePath: null,
+        url: 'https://jobs.example.com/apply',
+        textSnippet: duplicateResultId,
+      }))
+
+      await initialRepository.close()
+      initialRepository = null
+
+      const database = new DatabaseSync(temp.filePath)
+      try {
+        database.exec('DROP INDEX IF EXISTS apply_job_results_run_job_unique_idx')
+        database
+          .prepare(
+            `INSERT INTO apply_job_results (
+              id,
+              run_id,
+              job_id,
+              queue_position,
+              updated_at,
+              state,
+              value
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            survivorResult.id,
+            survivorResult.runId,
+            survivorResult.jobId,
+            survivorResult.queuePosition,
+            survivorResult.updatedAt,
+            survivorResult.state,
+            JSON.stringify(survivorResult),
+          )
+        database
+          .prepare('DELETE FROM schema_migrations WHERE version = ?')
+          .run(7)
+      } finally {
+        database.close()
+      }
+
+      repository = await temp.createRepository()
+
+      await expect(repository.listApplyJobResults()).resolves.toEqual([
+        expect.objectContaining({
+          id: survivorResult.id,
+          runId: survivorResult.runId,
+          jobId: survivorResult.jobId,
+        }),
+      ])
+      await expect(repository.listApplicationArtifactRefs({ resultId: survivorResult.id })).resolves.toEqual([
+        expect.objectContaining({
+          id: 'artifact_dedupe_migration',
+          resultId: survivorResult.id,
+          label: duplicateResultId,
+          textSnippet: duplicateResultId,
+        }),
+      ])
+      await expect(repository.listApplicationArtifactRefs({ resultId: duplicateResultId })).resolves.toEqual([])
+    } finally {
+      if (repository) {
+        await repository.close()
+      }
+      if (initialRepository) {
+        await initialRepository.close()
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      await rm(temp.tempDirectory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      })
+    }
+  }, 15000)
 })

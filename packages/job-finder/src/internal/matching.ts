@@ -482,6 +482,8 @@ export function matchesTitlePreference(
   candidate: string,
   desiredValues: readonly string[],
 ): boolean {
+  // Title matching is intentionally richer than matchesAnyPhrase and should stay aligned with
+  // target-role semantics unless we explicitly choose to widen or narrow role-title behavior.
   if (desiredValues.length === 0) {
     return true;
   }
@@ -536,6 +538,8 @@ export function matchesLocationPreference(
   candidate: string,
   desiredValues: readonly string[],
 ): boolean {
+  // Location matching is intentionally richer than matchesAnyPhrase and should stay aligned with
+  // location semantics unless we explicitly choose to widen or narrow location behavior.
   if (desiredValues.length === 0) {
     return true;
   }

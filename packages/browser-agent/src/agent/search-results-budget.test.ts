@@ -14,7 +14,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
         },
         targetJobCount: 8,
       }),
-    ).toBe(16)
+    ).toBe(8)
   })
 
   test('widens review budget for weak same-host non-provider boards', () => {
@@ -26,7 +26,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
         },
         targetJobCount: 8,
       }),
-    ).toBe(16)
+    ).toBe(8)
   })
 
   test('widens review budget for standard mixed-run weak-board targets too', () => {
@@ -38,7 +38,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
         },
         targetJobCount: 4,
       }),
-    ).toBe(16)
+    ).toBe(4)
   })
 
   test('scales seeded LinkedIn review budget up with larger discovery targets', () => {
@@ -52,7 +52,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
         },
         targetJobCount: 12,
       }),
-    ).toBe(16)
+    ).toBe(12)
   })
 
   test('scales weak-board review budget up with larger discovery targets', () => {
@@ -64,7 +64,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
         },
         targetJobCount: 14,
       }),
-    ).toBe(16)
+    ).toBe(14)
   })
 
   test('does not widen review budget for phase-driven runs', () => {

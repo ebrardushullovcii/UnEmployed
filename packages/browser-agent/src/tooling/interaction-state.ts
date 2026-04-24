@@ -12,8 +12,12 @@ type FailedInteractionState = Pick<
 >;
 
 export async function readInteractionPageStateToken(page: Page): Promise<string> {
+  if (typeof (page as { evaluate?: unknown }).evaluate !== "function") {
+    return page.url();
+  }
+
   try {
-    return await page.evaluate(() => {
+    const token = await page.evaluate(() => {
       const elements = Array.from(
         document.querySelectorAll<HTMLElement>(
           'a[href], button, input, select, textarea, [role="button"], [role="link"], [role="textbox"], [role="checkbox"], [role="menuitem"], [role="option"], [role="tab"], [role="switch"], [role="slider"], [role="combobox"], [contenteditable="true"]',
@@ -59,6 +63,8 @@ export async function readInteractionPageStateToken(page: Page): Promise<string>
 
       return `${window.location.href}::${document.title}::${elements.join("|")}`;
     });
+
+    return typeof token === "string" && token.trim().length > 0 ? token : page.url();
   } catch {
     return page.url();
   }

@@ -46,7 +46,7 @@ export function normalizeInstructionLine(value: string): string {
 }
 
 function trimInstructionRouteToken(value: string): string {
-  return value.replace(/[.,;:!?]+$/g, "");
+  return value.replace(/[.,;:!?]+$/, "");
 }
 
 function isBrokenInstructionRouteToken(value: string): boolean {
@@ -60,13 +60,12 @@ function isBrokenInstructionRouteToken(value: string): boolean {
     const parsed = trimmedValue.startsWith("/")
       ? new URL(trimmedValue, "https://example.com")
       : new URL(trimmedValue);
-    const pathname = (() => {
-      try {
-        return decodeURIComponent(parsed.pathname).toLowerCase();
-      } catch {
-        return parsed.pathname.toLowerCase();
-      }
-    })();
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent(parsed.pathname).toLowerCase();
+    } catch {
+      pathname = parsed.pathname.toLowerCase();
+    }
     const routeText = `${pathname}${parsed.search.toLowerCase()}`;
 
     return (
@@ -392,7 +391,6 @@ function shouldKeepDiscoveryInstructionLine(value: string): boolean {
 
 export function filterDiscoveryInstructionLines(input: {
   values: readonly string[];
-  artifactProviderKey?: string | null;
 }): string[] {
   return filterSourceInstructionLines(input.values).filter((value) =>
     shouldKeepDiscoveryInstructionLine(value),

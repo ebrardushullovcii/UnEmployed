@@ -5,7 +5,7 @@ import {
   JobPostingSchema,
   type DiscoveryActivityEvent,
 } from "@unemployed/contracts";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   createAgentAiClient,
   createAgentBrowserRuntime,
@@ -14,7 +14,6 @@ import {
   createSourceInstructionArtifact,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
-import { vi } from "vitest";
 
 function createDiscoveryOnlySeed() {
   return {
@@ -239,7 +238,7 @@ describe("createJobFinderWorkspaceService", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("agent discovery streams sampled title-triage skips when all candidates are rejected", async () => {
+  test("agent discovery keeps the remote adjacent technical candidate after generic technical triage widening", async () => {
     const seed = {
       ...createDiscoveryOnlySeed(),
       profile: {
@@ -358,15 +357,19 @@ describe("createJobFinderWorkspaceService", () => {
       (event) => event.stage === "extraction" && event.message.includes("Collected 2 candidate jobs"),
     );
     const scoringEvent = streamedEvents.find(
-      (event) => event.stage === "scoring" && event.message.includes("Reviewing 0 promising jobs"),
+      (event) =>
+        event.stage === "scoring" &&
+        event.message.includes('"Software Engineer - AI products at Quik Hire Staffing"'),
     );
 
+    expect(scoringEvent).toBeDefined();
     expect(collectionEvent?.message).toContain('"Senior Frontend Engineer at Fresha"');
     expect(collectionEvent?.message).toContain('"Software Engineer - AI products at Quik Hire Staffing"');
-    expect(scoringEvent?.message).toContain("Title triage skipped 2");
-    expect(scoringEvent?.message).toContain(
-      '"Senior Frontend Engineer at Fresha -> Title is outside the current target roles."',
+    expect(scoringEvent!.message).toContain("Reviewing 1 promising jobs");
+    expect(scoringEvent!.message).toContain(
+      '"Software Engineer - AI products at Quik Hire Staffing"',
     );
+    expect(scoringEvent!.message).not.toContain('"Senior Frontend Engineer at Fresha"');
   });
 
   test("agent discovery persists lightweight compaction metadata without persisting raw transcripts on target executions", async () => {
@@ -694,12 +697,9 @@ describe("createJobFinderWorkspaceService", () => {
       "target_linkedin_default",
     );
 
-    expect(capturedStartingUrls).toEqual([
-      [
-        "https://www.linkedin.com/jobs/search/?keywords=Workflow+engineer&location=Remote",
-        "https://www.linkedin.com/jobs/search/",
-      ],
-    ]);
+    expect(capturedStartingUrls).toEqual([[
+      "https://www.linkedin.com/jobs/search/",
+    ]]);
   });
 
   test("agent discovery merge uses deterministic fit scoring without model fit calls", async () => {
@@ -977,10 +977,9 @@ describe("createJobFinderWorkspaceService", () => {
         return baseAgentRuntime.runAgentDiscovery!(source, options);
       },
     };
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
           jobs: [
             {
               id: 4622190,
@@ -992,7 +991,9 @@ describe("createJobFinderWorkspaceService", () => {
             },
           ],
         }),
-    } as Response);
+        { status: 200 },
+      ),
+    );
 
     try {
       const { workspaceService } = createWorkspaceServiceHarness({

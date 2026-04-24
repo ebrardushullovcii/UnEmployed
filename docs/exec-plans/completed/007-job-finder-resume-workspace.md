@@ -17,4 +17,4 @@ Deliver a dedicated workspace where a user can generate, edit, validate, export,
 ## What It Means Now
 
 - this is the baseline for later resume quality work
-- later quality and ATS decisions are in `014`
+- later quality and ATS decisions are in `docs/exec-plans/completed/014-job-finder-resume-output-and-template-quality.md`

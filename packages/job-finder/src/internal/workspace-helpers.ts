@@ -276,22 +276,17 @@ export function buildDiscoveryInstructionGuidance(
     return [];
   }
 
-  const artifactProviderKey = artifact.intelligence.provider?.key ?? null;
   const navigationLines = filterDiscoveryInstructionLines({
     values: artifact.navigationGuidance,
-    artifactProviderKey,
   });
   const searchLines = filterDiscoveryInstructionLines({
     values: artifact.searchGuidance,
-    artifactProviderKey,
   });
   const detailLines = filterDiscoveryInstructionLines({
     values: artifact.detailGuidance,
-    artifactProviderKey,
   });
   const applyLines = filterDiscoveryInstructionLines({
     values: artifact.applyGuidance,
-    artifactProviderKey,
   });
 
   return uniqueStrings([

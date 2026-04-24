@@ -16,6 +16,6 @@ Turn source-debug output into typed source intelligence and use it to make disco
 
 ## What It Means Now
 
-- this is the current discovery foundation
+- this established the discovery foundation at the time of completion
 - live benchmark evidence is in `013-benchmark-results.md`
-- active browser-loop optimization is in `017`
+- active browser-loop optimization is in `docs/exec-plans/active/017-browser-substrate-evaluation-and-direction.md`

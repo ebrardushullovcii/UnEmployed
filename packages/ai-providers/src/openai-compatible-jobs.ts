@@ -19,7 +19,7 @@ const jobBoardHostFragments = [
 const COMPOSITE_POSTED_SUFFIX_PATTERN =
   /(?:posted\s+)?(?:\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?)(?:\s+ago)?|today|yesterday|just posted|sot|dje)$/iu;
 const ROLE_TOKEN_PATTERN =
-  /^(?:engineer|developer|manager|designer|analyst|specialist|support|sales|marketing|data|software|product|qa|frontend|backend|react|category|customer|experience|work)$/i;
+  /^(?:engineer|developer|manager|designer|analyst|specialist|support|sales|marketing|data|software|product|qa|frontend|backend|react|category|customer|experience|work|senior|junior|lead|principal|staff|intern|associate|director|head|chief|coordinator|consultant|administrator|executive|trainee|apprentice|sr|jr|ii|iii)$/i;
 const LOCATION_HINT_PATTERN =
   /\b(remote|hybrid|on[- ]site|onsite|work from home|home office|worldwide|global|anywhere)\b/i;
 const GENERIC_JOB_PATH_SEGMENTS = new Set([

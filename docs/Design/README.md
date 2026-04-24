@@ -21,4 +21,4 @@ Use this directory as visual reference only.
 
 ## Historical Reference
 
-- `job-finder-profile/current-branch-baseline-2026-03-23.md`
+- `job-finder-profile/historical-branch-baseline-2026-03-23.md`

@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import type * as childProcess from "node:child_process";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ const connectOverCDPMock = vi.fn();
 const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
 
 vi.mock("node:child_process", async () => {
-  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  const actual = await vi.importActual<typeof childProcess>("node:child_process");
   return {
     ...actual,
     execFile: execFileMock,
@@ -91,6 +92,15 @@ function createSlowExitMockChildProcess(input: { pid: number; exitDelayMs: numbe
   return processEmitter;
 }
 
+type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
+
+function maybeInvokeExecFileCallback(args: unknown[]) {
+  const callback = args[args.length - 1];
+  if (typeof callback === "function") {
+    (callback as ExecFileCallback)(null, "[]", "");
+  }
+}
+
 async function reserveFreePort(): Promise<number> {
   const server = net.createServer();
 
@@ -153,9 +163,10 @@ describe("playwright browser runtime", () => {
         pages: () => [fakePage],
       };
       const fakeBrowser = {
-        close: vi.fn(async () => {
+        close: vi.fn(() => {
           disconnectedHandler?.();
           launchedChromeProcess.kill();
+          return Promise.resolve();
         }),
         contexts: () => [fakeContext],
         isConnected: () => true,
@@ -170,24 +181,21 @@ describe("playwright browser runtime", () => {
       let debuggerReadyChecks = 0;
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () => {
+        vi.fn(() => {
           debuggerReadyChecks += 1;
           if (debuggerReadyChecks === 1) {
-            throw new Error("debugger not ready yet");
+            return Promise.reject(new Error("debugger not ready yet"));
           }
 
-          return {
+          return Promise.resolve({
             ok: true,
-            json: async () => ({}),
-          } as Response;
+            json: () => Promise.resolve({}),
+          } as Response);
         }),
       );
 
       execFileMock.mockImplementation((...args: unknown[]) => {
-        const callback = args[args.length - 1];
-        if (typeof callback === "function") {
-          callback(null, "[]", "");
-        }
+        maybeInvokeExecFileCallback(args);
       });
 
       spawnMock.mockImplementation((command: string) => {
@@ -230,6 +238,7 @@ describe("playwright browser runtime", () => {
   });
 
   test("closeSession waits for owned Windows Chrome exit after taskkill returns", async () => {
+    vi.useFakeTimers();
     const userDataDir = await mkdtemp(join(tmpdir(), "unemployed-browser-runtime-windows-exit-"));
 
     try {
@@ -251,9 +260,10 @@ describe("playwright browser runtime", () => {
         pages: () => [fakePage],
       };
       const fakeBrowser = {
-        close: vi.fn(async () => {
+        close: vi.fn(() => {
           disconnectedHandler?.();
           launchedChromeProcess.kill();
+          return Promise.resolve();
         }),
         contexts: () => [fakeContext],
         isConnected: () => true,
@@ -268,24 +278,21 @@ describe("playwright browser runtime", () => {
       let debuggerReadyChecks = 0;
       vi.stubGlobal(
         "fetch",
-        vi.fn(async () => {
+        vi.fn(() => {
           debuggerReadyChecks += 1;
           if (debuggerReadyChecks === 1) {
-            throw new Error("debugger not ready yet");
+            return Promise.reject(new Error("debugger not ready yet"));
           }
 
-          return {
+          return Promise.resolve({
             ok: true,
-            json: async () => ({}),
-          } as Response;
+            json: () => Promise.resolve({}),
+          } as Response);
         }),
       );
 
       execFileMock.mockImplementation((...args: unknown[]) => {
-        const callback = args[args.length - 1];
-        if (typeof callback === "function") {
-          callback(null, "[]", "");
-        }
+        maybeInvokeExecFileCallback(args);
       });
 
       spawnMock.mockImplementation((command: string) => {
@@ -306,15 +313,196 @@ describe("playwright browser runtime", () => {
 
       await withPlatform("win32", async () => {
         await runtime.openSession("target_site");
-        const closeStartedAt = Date.now();
-        await runtime.closeSession("target_site");
-
-        expect(Date.now() - closeStartedAt).toBeGreaterThanOrEqual(150);
+        const closePromise = runtime.closeSession("target_site");
+        await vi.advanceTimersByTimeAsync(150);
+        await expect(Promise.race([
+          closePromise.then(() => 'closed'),
+          Promise.resolve('pending'),
+        ])).resolves.toBe('pending');
+        await vi.advanceTimersByTimeAsync(50);
+        await expect(closePromise).resolves.toEqual(
+          expect.objectContaining({ label: "Browser profile closed" }),
+        );
       });
 
       expect(spawnMock).toHaveBeenCalledTimes(2);
       expect(spawnMock.mock.calls[1]?.[0]).toBe("taskkill");
       expect(launchedChromeProcess.exitCode).toBe(0);
+    } finally {
+      vi.useRealTimers();
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("resolveLivePage avoids focus churn when the session is already ready", async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), "unemployed-browser-runtime-resolve-live-page-"));
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 54545 });
+
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "https://example.com/jobs",
+        goto: vi.fn().mockResolvedValue(undefined),
+      };
+      const fakeContext = {
+        pages: () => [fakePage],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      let debuggerReadyChecks = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => {
+          debuggerReadyChecks += 1;
+          if (debuggerReadyChecks === 1) {
+            return Promise.reject(new Error("debugger not ready yet"));
+          }
+
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          } as Response);
+        }),
+      );
+
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } = await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+        aiClient: {
+          chatWithTools: vi.fn().mockResolvedValue({ content: "done", toolCalls: [] }),
+          getStatus: () => ({ available: true, modelContextWindowTokens: null }),
+        } as never,
+        jobExtractor: vi.fn().mockResolvedValue([]),
+      });
+
+      await runtime.openSession("target_site");
+      fakePage.bringToFront.mockClear();
+
+      await runtime.runAgentDiscovery!("target_site", {
+        maxSteps: 1,
+        targetJobCount: 1,
+        userProfile: {
+          id: "candidate_1",
+          firstName: "Alex",
+          lastName: "Vanguard",
+          middleName: null,
+          fullName: "Alex Vanguard",
+          preferredDisplayName: null,
+          headline: "Senior systems designer",
+          summary: "Builds resilient workflows.",
+          currentLocation: "Remote",
+          currentCity: null,
+          currentRegion: null,
+          currentCountry: null,
+          timeZone: null,
+          yearsExperience: 10,
+          email: "alex@example.com",
+          secondaryEmail: null,
+          phone: "+44 7700 900123",
+          portfolioUrl: null,
+          linkedinUrl: null,
+          githubUrl: null,
+          personalWebsiteUrl: null,
+          narrative: {
+            professionalStory: "Builds resilient workflows.",
+            nextChapterSummary: "Open to workflow roles.",
+            careerTransitionSummary: null,
+            differentiators: [],
+            motivationThemes: [],
+          },
+          proofBank: [],
+          answerBank: {
+            workAuthorization: null,
+            visaSponsorship: null,
+            relocation: null,
+            travel: null,
+            noticePeriod: null,
+            availability: null,
+            salaryExpectations: null,
+            selfIntroduction: null,
+            careerTransition: null,
+            customAnswers: [],
+          },
+          applicationIdentity: {
+            preferredEmail: "alex@example.com",
+            preferredPhone: "+44 7700 900123",
+            preferredLinkIds: [],
+          },
+          baseResume: {
+            id: "resume_1",
+            fileName: "alex-vanguard.pdf",
+            uploadedAt: "2026-03-20T10:00:00.000Z",
+            storagePath: null,
+            textContent: null,
+            textUpdatedAt: null,
+            extractionStatus: "not_started",
+            lastAnalyzedAt: null,
+            analysisProviderKind: null,
+            analysisProviderLabel: null,
+            analysisWarnings: [],
+          },
+          workEligibility: {
+            authorizedWorkCountries: [],
+            requiresVisaSponsorship: null,
+            willingToRelocate: null,
+            preferredRelocationRegions: [],
+            willingToTravel: null,
+            remoteEligible: null,
+            noticePeriodDays: null,
+            availableStartDate: null,
+            securityClearance: null,
+          },
+          professionalSummary: {
+            shortValueProposition: null,
+            fullSummary: null,
+            careerThemes: [],
+            leadershipSummary: null,
+            domainFocusSummary: null,
+            strengths: [],
+          },
+          skillGroups: {
+            coreSkills: [],
+            tools: [],
+            languagesAndFrameworks: [],
+            softSkills: [],
+            highlightedSkills: [],
+          },
+          targetRoles: [],
+          locations: [],
+          skills: [],
+          experiences: [],
+          education: [],
+          certifications: [],
+          links: [],
+          projects: [],
+          spokenLanguages: [],
+        },
+        searchPreferences: { targetRoles: [], locations: [] },
+        startingUrls: ["https://example.com/jobs"],
+        navigationHostnames: ["example.com"],
+        siteLabel: "Example Jobs",
+      });
+
+      expect(fakePage.bringToFront).not.toHaveBeenCalled();
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }

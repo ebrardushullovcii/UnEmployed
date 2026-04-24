@@ -714,6 +714,9 @@ export async function runSourceDebugWorkflow(
     const shouldRunAiFinalReview =
       !finishedEarlyAfterUsefulDraft &&
       (verification.outcome === "passed" || Boolean(reviewInstructionArtifact));
+    const successfulAttemptCount = attempts.filter(
+      (attempt) => attempt.outcome === "succeeded",
+    ).length;
     const reviewOverride = shouldRunAiFinalReview
       ? await (async () => {
           emitProgress({
@@ -721,7 +724,7 @@ export async function runSourceDebugWorkflow(
             message:
               "Reviewing the collected evidence and organizing the final source instructions.",
             currentUrl: normalizedTarget.startingUrl,
-            jobsFound: attempts.filter((attempt) => attempt.outcome === "succeeded").length,
+            jobsFound: successfulAttemptCount,
           });
           const finalReviewStartedAtMs = Date.now();
           try {
@@ -778,7 +781,7 @@ export async function runSourceDebugWorkflow(
       waitReason: "finalizing",
       message: "Saving the final source instructions and verification result.",
       currentUrl: normalizedTarget.startingUrl,
-      jobsFound: attempts.filter((attempt) => attempt.outcome === "succeeded").length,
+      jobsFound: successfulAttemptCount,
     });
     const finalizationStartedAtMs = Date.now();
     await ctx.repository.upsertSourceInstructionArtifact(instructionToPersist);

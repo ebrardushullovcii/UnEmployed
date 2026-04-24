@@ -1,6 +1,6 @@
 # Agent Context
 
-Read this doc only when changing repo guidance, generated adapters, or the handoff model itself.
+Read this doc when changing repo guidance, generated adapters, or the handoff model itself.
 
 ## Guidance Layers
 
@@ -16,7 +16,7 @@ Read this doc only when changing repo guidance, generated adapters, or the hando
 
 ## Reading Order
 
-- normal implementation: `README` -> `STATUS` -> `TRACKS` -> relevant exec plan -> nearest package `AGENTS.md`
+- normal implementation: `AGENTS.md` -> `docs/README.md` -> `docs/STATUS.md` -> `docs/TRACKS.md` -> relevant exec plan -> nearest package `AGENTS.md`
 - repo-guidance work: add this file and `.agents/registry.yaml`
 
 ## Rules

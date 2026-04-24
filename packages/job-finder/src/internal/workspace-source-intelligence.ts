@@ -1005,6 +1005,11 @@ export function buildDiscoveryStartingUrls(
   const preferredMethod =
     artifact.intelligence.overrides.forceMethod ??
     artifact.intelligence.collection.preferredMethod;
+  const normalizedStartingUrl = normalizeRoute(target.startingUrl)
+  const startingUrlRoute =
+    normalizedStartingUrl && !isDeniedRoute(normalizedStartingUrl)
+      ? [target.startingUrl]
+      : []
 
   const routes = uniqueStrings(
     (
@@ -1014,25 +1019,29 @@ export function buildDiscoveryStartingUrls(
             ...overrideRoutes,
             ...searchRoutes,
             ...learnedStartingRoutes,
-            target.startingUrl,
+            ...startingUrlRoute,
           ]
         : preferredMethod === "careers_page"
           ? [
-            ...overrideRoutes,
-            ...learnedStartingRoutes,
-            ...searchRoutes,
-            target.startingUrl,
-          ]
+              ...overrideRoutes,
+              ...learnedStartingRoutes,
+              ...searchRoutes,
+              ...startingUrlRoute,
+            ]
           : [
               ...overrideRoutes,
               ...searchRoutes,
               ...learnedStartingRoutes,
-              target.startingUrl,
+              ...startingUrlRoute,
             ]
     ).filter(Boolean),
   );
 
-  return routes.length > 0 ? routes : [target.startingUrl];
+  if (routes.length > 0) {
+    return routes;
+  }
+
+  return startingUrlRoute;
 }
 
 function resolveDeniedDiscoveryRoutes(
@@ -1269,6 +1278,7 @@ function selectGuidedSearchBaseUrl(
 
     const parsed = tryParseUrl(normalizedRoute);
     if (parsed) {
+      parsed.search = "";
       return new URL(parsed.toString());
     }
   }
@@ -1795,7 +1805,7 @@ export function selectLowYieldTechnicalFallbackPostings(input: {
   }
 
   const profileSkillSignals = profile ? collectProfileSkillSignals(profile) : [];
-  const rescueLimit = Math.max(1, input.limit ?? 6);
+  const rescueLimit = Math.max(0, input.limit ?? 6);
 
   return skippedPostings
     .flatMap((posting, index) => {

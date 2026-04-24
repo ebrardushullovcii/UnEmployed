@@ -13,8 +13,6 @@ Use only what the task needs:
 - `docs/ARCHITECTURE.md`: package boundaries and data flow
 - `docs/CONTRACTS.md`: schemas, DTOs, preload APIs, IPC
 - `docs/TESTING.md`: required checks and UI QA flows
-- `docs/PLAN.md`: durable direction
-- `docs/HISTORY.md`: completed background
 
 Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior. The repo rule is explicit: core discovery must stay source-generic; do not add per-board route builders, query maps, triage overrides, or one-off workflow functions in shared orchestration.
 

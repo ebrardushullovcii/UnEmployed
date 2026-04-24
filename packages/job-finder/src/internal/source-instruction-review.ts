@@ -274,9 +274,6 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
     modelContextWindowTokens: input.modelContextWindowTokens,
   });
   const chatWithTools = input.aiClient.chatWithTools;
-  if (!chatWithTools) {
-    return null;
-  }
   const maxOutputTokens = Math.max(
     MIN_SOURCE_INSTRUCTION_REVIEW_OUTPUT_TOKENS,
     effectiveCompactionPolicy.minimumResponseHeadroomTokens,
@@ -335,6 +332,10 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
     })();
 
     if (!response.content) {
+      return null;
+    }
+
+    if (!response.content.includes("{")) {
       return null;
     }
 

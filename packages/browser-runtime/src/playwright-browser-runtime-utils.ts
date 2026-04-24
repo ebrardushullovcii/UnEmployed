@@ -316,20 +316,20 @@ export function isWarmPageReusable(input: {
 }
 
 export function isLikelyStalePage(page: Pick<Page, "url" | "isClosed">): boolean {
-  return page.isClosed() || !isHttpUrlLike(page.url())
+  return page.isClosed() || !isHttpUrlLike(page.url());
 }
 
 export function selectLiveHttpPage<TPage extends Pick<Page, "url" | "isClosed">>(
   pages: readonly TPage[],
 ): TPage | null {
   for (let index = pages.length - 1; index >= 0; index -= 1) {
-    const candidate = pages[index]
+    const candidate = pages[index];
     if (candidate && !isLikelyStalePage(candidate)) {
-      return candidate
+      return candidate;
     }
   }
 
-  return null
+  return null;
 }
 
 export async function isTcpPortReachable(port: number): Promise<boolean> {
@@ -338,8 +338,10 @@ export async function isTcpPortReachable(port: number): Promise<boolean> {
       host: "127.0.0.1",
       port,
     });
+    const timeoutId = setTimeout(() => settle(false), 1_000);
 
     const settle = (reachable: boolean) => {
+      clearTimeout(timeoutId);
       socket.removeAllListeners();
       socket.destroy();
       resolve(reachable);
@@ -347,7 +349,6 @@ export async function isTcpPortReachable(port: number): Promise<boolean> {
 
     socket.once("connect", () => settle(true));
     socket.once("error", () => settle(false));
-    socket.setTimeout(1_000, () => settle(false));
   });
 }
 

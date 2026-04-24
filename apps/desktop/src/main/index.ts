@@ -36,7 +36,9 @@ app.on('before-quit', (event) => {
   jobFinderShutdownInFlight = true
   event.preventDefault()
   void shutdownJobFinderWorkspaceService()
-    .catch(() => undefined)
+    .catch((error) => {
+      console.warn('[Desktop] Failed to shut down Job Finder workspace service before quit.', error)
+    })
     .finally(() => {
       app.quit()
     })

@@ -872,7 +872,7 @@ function canonicalizeUrl(
       searchSurfaceRule &&
       isSearchSurfaceResultPath(searchSurfaceRule, pathname)
     ) {
-      return buildSearchSurfaceDetailUrl(parsed, embeddedSearchSurfaceJobId);
+      return buildSearchSurfaceDetailUrl(parsed, embeddedSearchSurfaceJobId) ?? "";
     }
 
     for (const key of [...parsed.searchParams.keys()]) {
@@ -920,33 +920,6 @@ export function isSearchResultsSurfaceRoute(
 
     const pathname = parsed.pathname.toLowerCase();
     return isSearchSurfaceResultPath(searchSurfaceRule, pathname);
-  } catch {
-    return false;
-  }
-}
-
-function isSearchSurfaceRouteWithEmbeddedJobId(
-  url: string | null | undefined,
-  baseUrl: string,
-): boolean {
-  const normalizedUrl = cleanLine(url);
-  if (!normalizedUrl) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(normalizedUrl, baseUrl);
-    const searchSurfaceRule = getSearchSurfaceRouteRuleForUrl(parsed);
-    if (
-      !searchSurfaceRule ||
-      !isSearchResultsSurfaceRoute(parsed.toString(), baseUrl)
-    ) {
-      return false;
-    }
-
-    const embeddedJobId = readEmbeddedSearchSurfaceJobId(parsed, searchSurfaceRule);
-
-    return /^\d+$/.test(embeddedJobId);
   } catch {
     return false;
   }
@@ -2589,12 +2562,17 @@ export function buildStructuredCandidateJobs(input: {
   cardCandidates?: readonly SearchResultCardCandidate[];
   searchPreferences?: ExtractionSearchPreferences;
 }): ExtractedJobInput[] {
+  if (input.maxJobs <= 0) {
+    return [];
+  }
+
   const jobsByCanonicalUrl = new Map<string, ExtractedJobInput>();
   const cardSurfaceScoreByMergeKey = new Map<string, number>();
   const isSearchSurface = isSearchResultsSurfaceRoute(input.pageUrl, input.pageUrl);
+  const effectiveMaxJobs = Math.max(1, input.maxJobs);
   const targetCardCandidateBudget = isSearchSurface
-    ? Math.max(96, input.maxJobs * 8)
-    : Math.max(20, input.maxJobs * 3);
+    ? Math.max(96, effectiveMaxJobs * 8)
+    : Math.max(20, effectiveMaxJobs * 3);
 
   for (const candidate of input.structuredDataCandidates ?? []) {
     const job = buildJobFromStructuredData(candidate, input.pageUrl);

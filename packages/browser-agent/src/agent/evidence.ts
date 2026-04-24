@@ -1,6 +1,7 @@
 import { AgentDebugFindingsSchema, JobPostingSchema, SourceDebugPhaseEvidenceSchema, type JobPosting, type SourceDebugPhaseEvidence } from '@unemployed/contracts'
 import type { AgentResult, AgentState } from '../types'
 import { uniqueStrings } from '../utils/string'
+import { getSearchSurfaceRouteRuleForUrl, isSearchSurfaceResultPath } from './search-surface-routes'
 
 interface ToolExecutionResult {
   success?: boolean
@@ -468,14 +469,8 @@ function shouldDeduplicateByCanonicalUrl(value: string | null | undefined): bool
 
   try {
     const parsed = new URL(canonicalUrl)
-    const pathname = parsed.pathname.toLowerCase()
-    if (
-      pathname === '/jobs' ||
-      pathname === '/jobs/' ||
-      pathname.includes('/jobs/search') ||
-      pathname.includes('/jobs/search-results') ||
-      pathname.includes('/jobs/collections')
-    ) {
+    const rule = getSearchSurfaceRouteRuleForUrl(parsed)
+    if (rule && isSearchSurfaceResultPath(rule, parsed.pathname.toLowerCase())) {
       return false
     }
 

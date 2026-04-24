@@ -764,5 +764,6 @@ describe('runAgentDiscovery fast-path extraction behavior', () => {
         title: 'Full Stack Developer (AI-First)',
       }),
     )
+    expect(jobExtractor.extractJobsFromPage).not.toHaveBeenCalled()
   })
 })

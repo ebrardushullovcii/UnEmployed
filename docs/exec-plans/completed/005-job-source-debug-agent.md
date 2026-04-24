@@ -16,4 +16,4 @@ Add a bounded debug workflow that can learn reusable target instructions when a 
 ## What It Means Now
 
 - this is completed background
-- later source-intelligence work built on this in `013`, and current runtime hardening is in `017`
+- later source-intelligence work built on this in `013 Job Finder Source Intelligence And Faster Discovery`, and current runtime hardening is in `017 Browser Substrate Evaluation And Direction`

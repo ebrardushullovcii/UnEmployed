@@ -1,3 +1,5 @@
+/* eslint-env node */
+
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -63,7 +65,16 @@ async function main() {
 
   for (const relativePath of files) {
     const absolutePath = path.join(rootDir, relativePath)
-    const content = await fs.readFile(absolutePath, 'utf8')
+    let content
+
+    try {
+      content = await fs.readFile(absolutePath, 'utf8')
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        continue
+      }
+      throw error
+    }
 
     for (const match of content.matchAll(declarationPattern)) {
       const declarationName = match[1] ?? ''

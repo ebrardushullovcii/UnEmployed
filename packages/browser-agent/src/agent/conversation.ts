@@ -321,8 +321,8 @@ function rebuildConversationFromSummary(input: {
   )
 
   input.state.conversation = [
-    { role: 'system', content: createSystemPrompt(input.config) },
-    { role: 'user', content: input.createUserPrompt(input.config) },
+    { role: 'system', content: bootstrapSystemPrompt },
+    { role: 'user', content: bootstrapUserPrompt },
     {
       role: 'assistant',
       content: [

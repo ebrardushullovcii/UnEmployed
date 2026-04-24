@@ -14,12 +14,15 @@ import {
   DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET,
   getSearchResultsExtractionReviewBudget,
 } from './search-results-budget'
+import {
+  getSeededQueryRuleParams,
+  isSeededQueryPlaceholderValue,
+  looksLikeSeededSearchSurfacePath,
+  SEEDED_QUERY_PATH_HINTS,
+} from './seeded-query'
 
 const SEEDED_QUERY_GUARD_TOOLS = new Set(['navigate', 'click', 'fill', 'select_option', 'go_back'])
 const SEEDED_QUERY_GUARD_LOCATION_NOISE = new Set(['remote', 'hybrid', 'on', 'site'])
-const SEEDED_QUERY_IGNORED_PARAMS = new Set(['page', 'currentJobId', 'selectedJobId', 'trk', 'trackingId'])
-const SEEDED_QUERY_PATH_HINTS = ['search', 'results', 'find', 'query']
-const LOCATION_LIKE_QUERY_PARAMS = new Set(['location', 'loc', 'city', 'region', 'geoId'])
 
 type SeededSearchQuery = {
   seedUrl: string
@@ -32,7 +35,7 @@ function isSeededSearchSurfaceUrl(value: string, seedUrl?: string): boolean {
   try {
     const url = new URL(value)
     const pathname = url.pathname.toLowerCase()
-    const looksLikeSearchPath = pathname === '/' || SEEDED_QUERY_PATH_HINTS.some((hint) => pathname.includes(hint))
+    const looksLikeSearchPath = looksLikeSeededSearchSurfacePath(pathname)
 
     if (looksLikeSearchPath) {
       return true
@@ -62,13 +65,14 @@ function normalizeSeededQueryValue(value: string): string {
 function tokenizeSeededQueryValue(
   value: string,
   paramName: string,
+  locationLikeQueryParams: ReadonlySet<string>,
 ): string[] {
   const tokens = normalizeSeededQueryValue(value)
     .split(/\s+/)
     .filter(Boolean)
     .filter((token) => token.length > 1)
 
-  if (!LOCATION_LIKE_QUERY_PARAMS.has(paramName)) {
+  if (!locationLikeQueryParams.has(paramName)) {
     return [...new Set(tokens)]
   }
 
@@ -83,6 +87,7 @@ function parseSearchQueryUrl(value: string, seedUrl?: string): {
   try {
     const url = new URL(value)
     const pathname = url.pathname.toLowerCase()
+    const { ignoredParams, locationParams } = getSeededQueryRuleParams(url.hostname)
 
     if (!isSeededSearchSurfaceUrl(value, seedUrl)) {
       return null
@@ -90,7 +95,7 @@ function parseSearchQueryUrl(value: string, seedUrl?: string): {
 
     const paramTokens = new Map<string, string[]>()
     for (const [key, rawValue] of url.searchParams.entries()) {
-      if (SEEDED_QUERY_IGNORED_PARAMS.has(key)) {
+      if (ignoredParams.has(key)) {
         continue
       }
 
@@ -99,18 +104,11 @@ function parseSearchQueryUrl(value: string, seedUrl?: string): {
         continue
       }
 
-      const upperValue = trimmedValue.toUpperCase()
-      if (
-        upperValue === 'JOB_TITLE' ||
-        upperValue === 'LOCATION' ||
-        upperValue === 'GEO_ID' ||
-        upperValue === 'KEYWORDS' ||
-        upperValue === 'QUERY'
-      ) {
+      if (isSeededQueryPlaceholderValue(trimmedValue)) {
         continue
       }
 
-      const tokens = tokenizeSeededQueryValue(trimmedValue, key)
+      const tokens = tokenizeSeededQueryValue(trimmedValue, key, locationParams)
       if (tokens.length > 0) {
         paramTokens.set(key, tokens)
       }
@@ -129,17 +127,13 @@ function parseSearchQueryUrl(value: string, seedUrl?: string): {
 function hasPlaceholderQueryValues(value: string): boolean {
   try {
     const url = new URL(value)
+    const { ignoredParams } = getSeededQueryRuleParams(url.hostname)
     return [...url.searchParams.entries()].some(([key, rawValue]) => {
-      if (SEEDED_QUERY_IGNORED_PARAMS.has(key)) {
+      if (ignoredParams.has(key)) {
         return false
       }
 
-      const paramValue = rawValue.trim().toUpperCase()
-      return paramValue === 'JOB_TITLE' ||
-        paramValue === 'LOCATION' ||
-        paramValue === 'GEO_ID' ||
-        paramValue === 'KEYWORDS' ||
-        paramValue === 'QUERY'
+      return isSeededQueryPlaceholderValue(rawValue)
     })
   } catch {
     return false
@@ -445,9 +439,9 @@ function describeToolAction(toolName: string): string {
 function buildDeferredSearchExtractionKey(pageUrl: string): string {
   try {
     const parsedUrl = new URL(pageUrl)
-    const removableParams = ['currentJobId', 'selectedJobId', 'jobId', 'trk', 'trackingId']
+    const { ignoredParams } = getSeededQueryRuleParams(parsedUrl.hostname)
 
-    for (const key of removableParams) {
+    for (const key of ignoredParams) {
       parsedUrl.searchParams.delete(key)
     }
 
@@ -589,9 +583,16 @@ async function recoverClosedPage(input: {
   const livePage = await input.config.resolveLivePage()
   input.pageRef.current = livePage
   const recoveredUrl = livePage.url()
+  let canTrackRecoveredUrl = false
   if (recoveredUrl) {
-    input.state.currentUrl = recoveredUrl
-    if (recoveredUrl !== 'about:blank') {
+    const recoveredUrlValidation = isAllowedUrl(recoveredUrl, input.config.navigationPolicy)
+    canTrackRecoveredUrl = recoveredUrlValidation.valid && recoveredUrl !== 'about:blank'
+
+    if (recoveredUrlValidation.valid) {
+      input.state.currentUrl = recoveredUrl
+    }
+
+    if (canTrackRecoveredUrl) {
       input.state.lastStableUrl = recoveredUrl
       input.state.visitedUrls.add(recoveredUrl)
     }
@@ -602,13 +603,15 @@ async function recoverClosedPage(input: {
     jobsFound: input.state.collectedJobs.length,
     stepCount: input.state.stepCount,
     currentAction: `recover_page:${input.toolName}`,
-    message: 'Recovered to a live browser page after the previous tab or page closed.',
+    message: canTrackRecoveredUrl
+      ? 'Recovered to a live browser page after the previous tab or page closed.'
+      : 'Recovered to a live browser page, but it stayed off-policy so normal navigation guards remain in control.',
     waitReason: 'waiting_on_page',
     targetId: null,
     adapterKind: input.config.source,
   })
 
-  return true
+  return canTrackRecoveredUrl
 }
 
 export async function executeToolCall(
@@ -710,18 +713,14 @@ export async function executeToolCall(
         !hasRecoveredClosedPage &&
         config.resolveLivePage
       ) {
-        try {
-          hasRecoveredClosedPage = await recoverClosedPage({
-            config,
-            pageRef,
-            state,
-            toolName,
-            ...(onProgress ? { onProgress } : {}),
-          })
-          continue
-        } catch (resolveError) {
-          throw resolveError
-        }
+        hasRecoveredClosedPage = await recoverClosedPage({
+          config,
+          pageRef,
+          state,
+          toolName,
+          ...(onProgress ? { onProgress } : {}),
+        })
+        continue
       }
 
       if (toolName !== 'extract_jobs' || !result.success || !result.data) {
@@ -746,6 +745,9 @@ export async function executeToolCall(
         : 'search_results'
       const remainingJobs = Math.max(0, config.targetJobCount - state.collectedJobs.length)
       const expandedSearchResultsBudget = getSearchResultsExtractionReviewBudget(config)
+      // Search-result extraction intentionally uses the full expandedSearchResultsBudget as maxJobs when
+      // normalizedPageType === 'search_results', so effectiveMaxJobs ignores args.maxJobs/requestedMaxJobs
+      // and keeps the larger search-surface review budget for aggressive extraction.
       const maxJobs = normalizedPageType === 'search_results'
         ? expandedSearchResultsBudget == null
           ? Math.min(remainingJobs, DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET)
@@ -777,6 +779,8 @@ export async function executeToolCall(
         : []
       const fastPathAddedCount = addExtractedJobsToState(fastPathJobs, state, config.source)
       const remainingJobsAfterFastPath = Math.max(0, config.targetJobCount - state.collectedJobs.length)
+      // Keep the expanded review budget for search results even after fast-path extraction so the slower
+      // pass can inspect more candidates than the remaining target when expandedSearchResultsBudget is active.
       const remainingSearchResultsBudget = normalizedPageType === 'search_results'
         ? expandedSearchResultsBudget == null
           ? Math.min(remainingJobsAfterFastPath, Math.max(0, effectiveMaxJobs - fastPathAddedCount))
@@ -916,7 +920,15 @@ export async function executeToolCall(
           })
           continue
         } catch (resolveError) {
-          error = resolveError
+          const recoveryError = resolveError instanceof Error
+            ? new Error(resolveError.message, { cause: error })
+            : new Error('Failed to recover from a closed page error.', { cause: error })
+          return {
+            success: false,
+            error: shouldRetry
+              ? `Failed after ${maxRetries} attempts: ${recoveryError.message}`
+              : recoveryError.message,
+          }
         }
       }
 

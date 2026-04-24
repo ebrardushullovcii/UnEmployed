@@ -6,6 +6,8 @@ export type SearchSurfaceRouteRule = {
   detailPathPrefix: string;
   detailPathTemplate: string;
   embeddedJobIdParams: readonly string[];
+  locationParam?: string | null;
+  trackingParams?: readonly string[];
 };
 
 export const SEARCH_SURFACE_ROUTE_RULES = [
@@ -17,6 +19,8 @@ export const SEARCH_SURFACE_ROUTE_RULES = [
     detailPathPrefix: '/jobs/view/',
     detailPathTemplate: '/jobs/view/{sourceJobId}/',
     embeddedJobIdParams: ['currentJobId', 'selectedJobId', 'jobId'],
+    locationParam: 'geoId',
+    trackingParams: ['trk', 'trackingId'],
   },
 ] satisfies readonly SearchSurfaceRouteRule[];
 
@@ -74,9 +78,16 @@ export function readEmbeddedSearchSurfaceJobId(
   );
 }
 
-export function buildSearchSurfaceDetailUrl(url: URL, sourceJobId: string): string {
+export function buildSearchSurfaceDetailUrl(url: URL, sourceJobId: string): string | null {
   const rule = getSearchSurfaceRouteRuleForUrl(url);
-  return rule
-    ? `${url.origin}${rule.detailPathTemplate.replace('{sourceJobId}', sourceJobId)}`
-    : '';
+  if (!rule) {
+    return null;
+  }
+
+  const normalizedJobId = sourceJobId.trim();
+  if (!/^\d+$/.test(normalizedJobId)) {
+    return null;
+  }
+
+  return `${rule.fallbackBaseUrl}${rule.detailPathTemplate.replace('{sourceJobId}', encodeURIComponent(normalizedJobId))}`;
 }

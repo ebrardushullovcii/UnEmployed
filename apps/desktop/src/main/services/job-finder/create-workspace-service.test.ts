@@ -33,4 +33,14 @@ describe('createDesktopJobFinderAiClient', () => {
     expect(client.chatWithTools).toBeTypeOf('function')
     expect(client.getStatus().kind).toBe('openai_compatible')
   })
+
+  test('keeps deterministic behavior when live AI is requested without an API key', () => {
+    const client = createDesktopJobFinderAiClient({
+      UNEMPLOYED_ENABLE_TEST_API: '1',
+      UNEMPLOYED_TEST_API_USE_LIVE_AI: '1',
+    })
+
+    expect(client.chatWithTools).toBeUndefined()
+    expect(client.getStatus().kind).toBe('deterministic')
+  })
 })

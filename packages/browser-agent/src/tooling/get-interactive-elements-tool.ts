@@ -1,6 +1,7 @@
 import type { ToolDefinition } from "../types";
 import {
   dismissObstructiveOverlays,
+  canCaptureAriaSnapshot,
   mergeInteractiveElementCandidates,
   parseInteractiveElementsFromAriaSnapshot,
   prioritizeInteractiveElements,
@@ -23,97 +24,116 @@ Note: If multiple elements have the same role and name, use the index (0-based) 
 
     try {
       await dismissObstructiveOverlays(page);
-      const snapshot = await page.locator("body").ariaSnapshot().catch(() => "");
+      const bodyLocator = page.locator("body");
+      let snapshot = "";
+      if (canCaptureAriaSnapshot(bodyLocator)) {
+        try {
+          const nextSnapshot = await bodyLocator.ariaSnapshot();
+          snapshot = typeof nextSnapshot === "string" ? nextSnapshot : "";
+        } catch (error) {
+          console.warn("[Agent] Failed to capture aria snapshot for interactive element discovery.", error);
+          snapshot = "";
+        }
+      }
       const ariaElements = snapshot ? parseInteractiveElementsFromAriaSnapshot(snapshot) : [];
-      const domElements = await page.evaluate(() => {
-        const roleFromInputType = (element: HTMLInputElement): string => {
-          const type = (element.getAttribute("type") ?? "text").toLowerCase();
-          if (type === "search") return "searchbox";
-          if (type === "checkbox") return "checkbox";
-          if (type === "radio") return "radio";
-          if (type === "range") return "slider";
-          if (["button", "submit", "reset"].includes(type)) return "button";
-          return "textbox";
-        };
+      let domElements: Array<{ role: string; name: string }> = [];
+      if (typeof (page as { evaluate?: unknown }).evaluate === "function") {
+        try {
+          const evaluatedElements = await page.evaluate(() => {
+            const roleFromInputType = (element: HTMLInputElement): string => {
+              const type = (element.getAttribute("type") ?? "text").toLowerCase();
+              if (type === "search") return "searchbox";
+              if (type === "checkbox") return "checkbox";
+              if (type === "radio") return "radio";
+              if (type === "range") return "slider";
+              if (["button", "submit", "reset"].includes(type)) return "button";
+              return "textbox";
+            };
 
-        const readLabelledByText = (element: HTMLElement): string => {
-          const labelledBy = element.getAttribute("aria-labelledby");
-          if (!labelledBy) return "";
-          return labelledBy
-            .split(/\s+/)
-            .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
-            .filter(Boolean)
-            .join(" ");
-        };
+            const readLabelledByText = (element: HTMLElement): string => {
+              const labelledBy = element.getAttribute("aria-labelledby");
+              if (!labelledBy) return "";
+              return labelledBy
+                .split(/\s+/)
+                .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+                .filter(Boolean)
+                .join(" ");
+            };
 
-        const readElementName = (element: HTMLElement): string => {
-          const ariaLabel = element.getAttribute("aria-label")?.trim();
-          if (ariaLabel) return ariaLabel;
-          const labelledByText = readLabelledByText(element);
-          if (labelledByText) return labelledByText;
-          if ("labels" in element) {
-            const labels = Array.from(
-              (element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).labels ?? [],
+            const readElementName = (element: HTMLElement): string => {
+              const ariaLabel = element.getAttribute("aria-label")?.trim();
+              if (ariaLabel) return ariaLabel;
+              const labelledByText = readLabelledByText(element);
+              if (labelledByText) return labelledByText;
+              if ("labels" in element) {
+                const labels = Array.from(
+                  (element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).labels ?? [],
+                )
+                  .map((label) => label.textContent?.trim() ?? "")
+                  .filter(Boolean);
+                if (labels.length > 0) return labels.join(" ");
+              }
+              const placeholder = element.getAttribute("placeholder")?.trim();
+              if (placeholder) return placeholder;
+              const title = element.getAttribute("title")?.trim();
+              if (title) return title;
+              if (element instanceof HTMLInputElement) {
+                const value = element.value.trim();
+                if (value) return value;
+              }
+              return (element.textContent ?? "").replace(/\s+/g, " ").trim();
+            };
+
+            const resolveRole = (element: HTMLElement): string => {
+              const explicitRole = element.getAttribute("role")?.trim().toLowerCase();
+              if (explicitRole) return explicitRole;
+              if (element instanceof HTMLAnchorElement) return "link";
+              if (element instanceof HTMLButtonElement) return "button";
+              if (element instanceof HTMLSelectElement) return "combobox";
+              if (element instanceof HTMLTextAreaElement) return "textbox";
+              if (element instanceof HTMLInputElement) return roleFromInputType(element);
+              if (element.isContentEditable) return "textbox";
+              return "";
+            };
+
+            const isVisible = (element: HTMLElement): boolean => {
+              if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
+              const style = window.getComputedStyle(element);
+              if (
+                style.display === "none" ||
+                style.visibility === "hidden" ||
+                Number(style.opacity) === 0 ||
+                style.pointerEvents === "none"
+              ) {
+                return false;
+              }
+              const rect = element.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            };
+
+            return Array.from(
+              document.querySelectorAll<HTMLElement>(
+                'a[href], button, input, select, textarea, [role], [contenteditable="true"]',
+              ),
             )
-              .map((label) => label.textContent?.trim() ?? "")
-              .filter(Boolean);
-            if (labels.length > 0) return labels.join(" ");
-          }
-          const placeholder = element.getAttribute("placeholder")?.trim();
-          if (placeholder) return placeholder;
-          const title = element.getAttribute("title")?.trim();
-          if (title) return title;
-          if (element instanceof HTMLInputElement) {
-            const value = element.value.trim();
-            if (value) return value;
-          }
-          return (element.textContent ?? "").replace(/\s+/g, " ").trim();
-        };
-
-        const resolveRole = (element: HTMLElement): string => {
-          const explicitRole = element.getAttribute("role")?.trim().toLowerCase();
-          if (explicitRole) return explicitRole;
-          if (element instanceof HTMLAnchorElement) return "link";
-          if (element instanceof HTMLButtonElement) return "button";
-          if (element instanceof HTMLSelectElement) return "combobox";
-          if (element instanceof HTMLTextAreaElement) return "textbox";
-          if (element instanceof HTMLInputElement) return roleFromInputType(element);
-          if (element.isContentEditable) return "textbox";
-          return "";
-        };
-
-        const isVisible = (element: HTMLElement): boolean => {
-          if (element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-          const style = window.getComputedStyle(element);
-          if (
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            Number(style.opacity) === 0 ||
-            style.pointerEvents === "none"
-          ) {
-            return false;
-          }
-          const rect = element.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0;
-        };
-
-        return Array.from(
-          document.querySelectorAll<HTMLElement>(
-            'a[href], button, input, select, textarea, [role], [contenteditable="true"]',
-          ),
-        )
-          .filter(
-            (element) =>
-              !element.closest('[aria-hidden="true"], [hidden], [inert], template') &&
-              !element.closest('[aria-disabled="true"], [disabled]') &&
-              !element.hasAttribute("inert") &&
-              !element.hasAttribute("disabled") &&
-              element.getAttribute("aria-disabled") !== "true",
-          )
-          .filter(isVisible)
-          .map((element) => ({ role: resolveRole(element), name: readElementName(element) }))
-          .filter((element) => element.role && element.name);
-      });
+              .filter(
+                (element) =>
+                  !element.closest('[aria-hidden="true"], [hidden], [inert], template') &&
+                  !element.closest('[aria-disabled="true"], [disabled]') &&
+                  !element.hasAttribute("inert") &&
+                  !element.hasAttribute("disabled") &&
+                  element.getAttribute("aria-disabled") !== "true",
+              )
+              .filter(isVisible)
+              .map((element) => ({ role: resolveRole(element), name: readElementName(element) }))
+              .filter((element) => element.role && element.name);
+          });
+          domElements = Array.isArray(evaluatedElements) ? evaluatedElements : [];
+        } catch (error) {
+          console.warn("[Agent] Failed to inspect DOM interactive elements directly.", error);
+          domElements = [];
+        }
+      }
 
       const mergedElements = mergeInteractiveElementCandidates(ariaElements, domElements);
       const prioritizedElements = prioritizeInteractiveElements(mergedElements);

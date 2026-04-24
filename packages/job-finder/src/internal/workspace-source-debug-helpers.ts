@@ -520,8 +520,11 @@ export function resolveSourceDebugPhases(input: {
   target: JobDiscoveryTarget;
   instructionArtifact: SourceInstructionArtifact | null;
 }): SourceDebugPhase[] {
-  const intelligence = input.instructionArtifact?.intelligence
-    ? SourceIntelligenceArtifactSchema.parse(input.instructionArtifact.intelligence)
+  const parsedIntelligence = input.instructionArtifact?.intelligence
+    ? SourceIntelligenceArtifactSchema.safeParse(input.instructionArtifact.intelligence)
+    : null
+  const intelligence = parsedIntelligence?.success
+    ? parsedIntelligence.data
     : inferSourceIntelligenceFromTarget({
         target: input.target,
         currentArtifact: input.instructionArtifact,
@@ -571,27 +574,29 @@ export function getSourceDebugMaxSteps(
     replay_verification: 10,
   };
 
-  let maxSteps = baseStepsByPhase[phase];
+  const totalReduction = (
+    phase !== "access_auth_probe" && input?.hasLearnedRouteHints
+      ? phase === "search_filter_probe" ? 6 : 4
+      : 0
+  ) + (
+    phase !== "access_auth_probe" && input?.hasPriorPhaseSummary
+      ? phase === "search_filter_probe" ? 2 : 1
+      : 0
+  ) + (
+    input?.hasExistingInstructionArtifact && phase === "replay_verification"
+      ? 4
+      : 0
+  ) + (
+    input?.hasExistingInstructionArtifact &&
+    (phase === "job_detail_validation" || phase === "apply_path_validation")
+      ? 2
+      : 0
+  )
+  const maxSteps = baseStepsByPhase[phase] - totalReduction
 
-  if (phase !== "access_auth_probe" && input?.hasLearnedRouteHints) {
-    maxSteps -= phase === "search_filter_probe" ? 6 : 4;
-  }
-
-  if (phase !== "access_auth_probe" && input?.hasPriorPhaseSummary) {
-    maxSteps -= phase === "search_filter_probe" ? 2 : 1;
-  }
-
-  if (input?.hasExistingInstructionArtifact) {
-    if (phase === "replay_verification") {
-      maxSteps -= 4;
-    }
-
-    if (phase === "job_detail_validation" || phase === "apply_path_validation") {
-      maxSteps -= 2;
-    }
-  }
-
-  return Math.max(minimumStepsByPhase[phase], maxSteps);
+  // The minimum clamp is load-bearing; if future deltas change, keep the reduction math and
+  // these minimums aligned so phase budgets stay readable and safe.
+  return Math.max(minimumStepsByPhase[phase], maxSteps)
 }
 
 export function shouldFinishSourceDebugEarly(input: {
@@ -621,6 +626,9 @@ export function shouldFinishSourceDebugEarly(input: {
     detailAttempt?.outcome === "succeeded" ||
     detailAttempt?.completionMode === "forced_finish";
 
+  // This helper only runs for job_detail_validation and apply_path_validation. For auth-restricted
+  // sources, a blocking auth probe is enough to skip replay/apply once structure, search, and detail
+  // are proven. For non-restricted sources, we only finish early after successful access plus apply proof.
   if (input.currentPhase === "job_detail_validation") {
     if (!accessAttempt || !warningSuggestsAuthRestriction(accessAttempt.blockerSummary)) {
       return false;
@@ -634,9 +642,7 @@ export function shouldFinishSourceDebugEarly(input: {
   }
 
   const applyAttempt = byPhase.get("apply_path_validation");
-  const applyProven =
-    applyAttempt?.outcome === "succeeded" ||
-    applyAttempt?.completionMode === "forced_finish";
+  const applyProven = applyAttempt?.completionMode === "forced_finish";
 
   if (!accessAttempt || accessAttempt.outcome !== "succeeded") {
     return false;

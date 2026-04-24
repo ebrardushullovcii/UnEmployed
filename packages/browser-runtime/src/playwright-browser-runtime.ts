@@ -278,7 +278,11 @@ async function getPrimaryPage(context: BrowserContext): Promise<Page> {
   return pages[pages.length - 1] ?? context.newPage();
 }
 
-async function resolveLivePageForContext(context: BrowserContext): Promise<Page> {
+async function resolveLivePageForContext(
+  context: BrowserContext,
+  options?: { bringToFront?: boolean },
+): Promise<Page> {
+  const bringToFront = options?.bringToFront !== false;
   const currentPages = context.pages();
   const liveHttpPage = selectLiveHttpPage(currentPages);
   const page = liveHttpPage ?? (await getPrimaryPage(context));
@@ -286,17 +290,29 @@ async function resolveLivePageForContext(context: BrowserContext): Promise<Page>
   if (isLikelyStalePage(page)) {
     const refreshedLiveHttpPage = selectLiveHttpPage(context.pages());
     if (refreshedLiveHttpPage) {
-      await refreshedLiveHttpPage.bringToFront().catch(() => undefined);
+      if (bringToFront) {
+        await refreshedLiveHttpPage.bringToFront().catch(() => undefined);
+      }
       return refreshedLiveHttpPage;
     }
 
     const freshPage = await context.newPage();
-    await freshPage.bringToFront().catch(() => undefined);
+    if (bringToFront) {
+      await freshPage.bringToFront().catch(() => undefined);
+    }
     return freshPage;
   }
 
-  await page.bringToFront().catch(() => undefined);
+  if (bringToFront) {
+    await page.bringToFront().catch(() => undefined);
+  }
   return page;
+}
+
+async function getPrimaryPageIfReady(context: BrowserContext): Promise<Page> {
+  const currentPages = context.pages();
+  const liveHttpPage = selectLiveHttpPage(currentPages);
+  return liveHttpPage ?? getPrimaryPage(context);
 }
 
 export function createBrowserAgentRuntime(
@@ -565,7 +581,9 @@ export function createBrowserAgentRuntime(
 
   async function getReadyPage(source: JobSource): Promise<Page> {
     const context = await getContext();
-    const page = await resolveLivePageForContext(context);
+    const page = await resolveLivePageForContext(context, {
+      bringToFront: currentSessionState.status !== "ready",
+    });
     setSessionState(
       source,
       "ready",
@@ -743,18 +761,13 @@ export function createBrowserAgentRuntime(
             ...(agentOptions.taskPacket
               ? { taskPacket: agentOptions.taskPacket }
               : {}),
-            ...(agentOptions.experimental ? { experimental: true } : {}),
+          ...(agentOptions.experimental ? { experimental: true } : {}),
           },
           resolveLivePage: async () => {
             const context = await getContext();
-            const livePage = await resolveLivePageForContext(context);
-            setSessionState(
-              source,
-              "ready",
-              "Browser profile ready",
-              "The dedicated browser profile is open and ready for target-specific discovery.",
-            );
-            return livePage;
+            return currentSessionState.status === 'ready'
+              ? getPrimaryPageIfReady(context)
+              : getReadyPage(source);
           },
           ...(agentOptions.compaction
             ? { compaction: agentOptions.compaction }

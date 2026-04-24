@@ -122,7 +122,13 @@ describe("navigate", () => {
       first: vi.fn(),
       click: vi.fn().mockResolvedValue(undefined),
     };
+    const missingButton = {
+      count: vi.fn().mockResolvedValue(0),
+      first: vi.fn(),
+      click: vi.fn().mockResolvedValue(undefined),
+    };
     overlayButton.first.mockReturnValue(overlayButton);
+    missingButton.first.mockReturnValue(missingButton);
 
     const page = {
       goto: vi.fn().mockResolvedValue(undefined),
@@ -134,7 +140,7 @@ describe("navigate", () => {
           return overlayButton;
         }
 
-        return overlayButton;
+        return missingButton;
       }),
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
     } as unknown as Page;

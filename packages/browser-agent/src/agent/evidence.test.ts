@@ -152,6 +152,12 @@ describe('addExtractedJobsToState', () => {
 
     expect(addedCount).toBe(1)
     expect(state.collectedJobs).toHaveLength(1)
+    expect(state.collectedJobs[0]).toEqual(
+      expect.objectContaining({
+        sourceJobId: 'linkedin_detail_2',
+        description: 'Second copy.',
+      }),
+    )
   })
 
   test('upgrades an earlier weak duplicate when a later extraction finds a stronger version of the same LinkedIn job', () => {

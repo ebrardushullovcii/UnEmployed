@@ -1,19 +1,27 @@
 import type { AgentConfig, AgentState } from '../types'
-
-const SEEDED_QUERY_IGNORED_PARAMS = new Set(['page', 'currentJobId', 'selectedJobId', 'trk', 'trackingId'])
+import {
+  getSeededQueryRuleParams,
+  isSeededQueryPlaceholderValue,
+  looksLikeSeededSearchSurfacePath,
+} from './seeded-query'
 
 function describeSeededSearchQuery(config: AgentConfig): string | null {
   for (const value of config.startingUrls) {
     try {
       const url = new URL(value)
+      if (!looksLikeSeededSearchSurfacePath(url.pathname)) {
+        continue
+      }
+
+      const { ignoredParams } = getSeededQueryRuleParams(url.hostname)
       const parts = [...url.searchParams.entries()]
         .flatMap(([key, rawValue]) => {
-          if (SEEDED_QUERY_IGNORED_PARAMS.has(key)) {
+          if (ignoredParams.has(key)) {
             return []
           }
 
           const value = rawValue.trim()
-          if (!value) {
+          if (!value || isSeededQueryPlaceholderValue(value)) {
             return []
           }
 

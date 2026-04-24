@@ -810,6 +810,225 @@ describe("collectPublicProviderJobs", () => {
     ]);
   });
 
+  test("does not re-add the starting url when it is denied by learned guidance", () => {
+    const target = createUnknownCareersTarget();
+    const artifact = createSourceInstructionArtifact({
+      id: "instruction_unknown_careers_denied_starting_url",
+      targetId: target.id,
+      status: "draft",
+      createdAt: "2026-04-24T00:00:00.000Z",
+      updatedAt: "2026-04-24T00:01:00.000Z",
+      acceptedAt: null,
+      basedOnRunId: "debug_run_unknown_careers_denied_starting_url",
+      basedOnAttemptIds: ["debug_attempt_unknown_careers_denied_starting_url"],
+      notes: null,
+      navigationGuidance: [],
+      searchGuidance: ["https://example.com/careers returns 404 and should not be reused."],
+      detailGuidance: [],
+      applyGuidance: [],
+      warnings: [],
+      versionInfo: {
+        promptProfileVersion: "v1",
+        toolsetVersion: "v1",
+        adapterVersion: "v1",
+        appSchemaVersion: "v1",
+      },
+      verification: null,
+      intelligence: {
+        provider: null,
+        collection: {
+          preferredMethod: "listing_route",
+          rankedMethods: ["listing_route", "careers_page", "fallback_search"],
+          startingRoutes: [],
+          searchRouteTemplates: [
+            {
+              url: "https://example.com/jobs/search",
+              label: "Search route",
+              kind: "search",
+              confidence: 0.9,
+            },
+          ],
+          detailRoutePatterns: [],
+          listingMarkers: [],
+        },
+        apply: {
+          applyPath: "unknown",
+          authMarkers: [],
+          consentMarkers: [],
+          questionSurfaceHints: [],
+          resumeUploadHints: [],
+        },
+        reliability: {
+          selectorFingerprints: [],
+          stableControlNames: [],
+          failureFingerprints: [],
+          verifiedAt: null,
+          freshnessNotes: [],
+        },
+        overrides: {
+          forceMethod: null,
+          deniedRoutePatterns: [],
+          extraStartingRoutes: [],
+        },
+      },
+    });
+
+    expect(buildDiscoveryStartingUrls(target, artifact)).toEqual([
+      "https://example.com/jobs/search",
+    ]);
+  });
+
+  test("returns no discovery starting urls when every learned route and the target starting url are denied", () => {
+    const target = createUnknownCareersTarget();
+    const artifact = createSourceInstructionArtifact({
+      id: "instruction_unknown_careers_all_routes_denied",
+      targetId: target.id,
+      status: "draft",
+      createdAt: "2026-04-24T00:00:00.000Z",
+      updatedAt: "2026-04-24T00:01:00.000Z",
+      acceptedAt: null,
+      basedOnRunId: "debug_run_unknown_careers_all_routes_denied",
+      basedOnAttemptIds: ["debug_attempt_unknown_careers_all_routes_denied"],
+      notes: null,
+      navigationGuidance: [],
+      searchGuidance: [
+        "https://example.com/careers returns 404 and should not be reused.",
+        "https://example.com/jobs/search returns 404 and should not be reused.",
+      ],
+      detailGuidance: [],
+      applyGuidance: [],
+      warnings: [],
+      versionInfo: {
+        promptProfileVersion: "v1",
+        toolsetVersion: "v1",
+        adapterVersion: "v1",
+        appSchemaVersion: "v1",
+      },
+      verification: null,
+      intelligence: {
+        provider: null,
+        collection: {
+          preferredMethod: "listing_route",
+          rankedMethods: ["listing_route", "careers_page", "fallback_search"],
+          startingRoutes: [],
+          searchRouteTemplates: [
+            {
+              url: "https://example.com/jobs/search",
+              label: "Search route",
+              kind: "search",
+              confidence: 0.9,
+            },
+          ],
+          detailRoutePatterns: [],
+          listingMarkers: [],
+        },
+        apply: {
+          applyPath: "unknown",
+          authMarkers: [],
+          consentMarkers: [],
+          questionSurfaceHints: [],
+          resumeUploadHints: [],
+        },
+        reliability: {
+          selectorFingerprints: [],
+          stableControlNames: [],
+          failureFingerprints: [],
+          verifiedAt: null,
+          freshnessNotes: [],
+        },
+        overrides: {
+          forceMethod: null,
+          deniedRoutePatterns: [],
+          extraStartingRoutes: [],
+        },
+      },
+    });
+
+    expect(buildDiscoveryStartingUrls(target, artifact)).toEqual([]);
+  });
+
+  test("clears stale query params from guided search templates before building the final url", () => {
+    const target = createSearchSurfaceTarget();
+    const artifact = createSourceInstructionArtifact({
+      id: "instruction_guided_query_clears_stale_params",
+      targetId: target.id,
+      status: "draft",
+      createdAt: "2026-04-24T00:00:00.000Z",
+      updatedAt: "2026-04-24T00:01:00.000Z",
+      acceptedAt: null,
+      basedOnRunId: "debug_run_guided_query_clears_stale_params",
+      basedOnAttemptIds: ["debug_attempt_guided_query_clears_stale_params"],
+      notes: "Use a clean search template before setting query params.",
+      navigationGuidance: [],
+      searchGuidance: [],
+      detailGuidance: [],
+      applyGuidance: [],
+      warnings: [],
+      versionInfo: {
+        promptProfileVersion: "v1",
+        toolsetVersion: "v1",
+        adapterVersion: "v1",
+        appSchemaVersion: "v1",
+      },
+      verification: null,
+      intelligence: {
+        provider: {
+          key: "linkedin",
+          label: "LinkedIn Jobs",
+          confidence: 0.98,
+          apiAvailability: "not_supported",
+          publicApiUrlTemplate: null,
+          boardToken: null,
+          boardSlug: null,
+          providerIdentifier: "linkedin_jobs",
+        },
+        collection: {
+          preferredMethod: "listing_route",
+          rankedMethods: ["listing_route", "careers_page", "fallback_search"],
+          startingRoutes: [],
+          searchRouteTemplates: [
+            {
+              url: "https://www.linkedin.com/jobs/search/?keywords=placeholder&location=old",
+              label: "Templated search route",
+              kind: "search",
+              confidence: 0.95,
+            },
+          ],
+          detailRoutePatterns: [],
+          listingMarkers: [],
+        },
+        apply: {
+          applyPath: "unknown",
+          authMarkers: [],
+          consentMarkers: [],
+          questionSurfaceHints: [],
+          resumeUploadHints: [],
+        },
+        reliability: {
+          selectorFingerprints: [],
+          stableControlNames: [],
+          failureFingerprints: [],
+          verifiedAt: null,
+          freshnessNotes: [],
+        },
+        overrides: {
+          forceMethod: null,
+          deniedRoutePatterns: [],
+          extraStartingRoutes: [],
+        },
+      },
+    });
+
+    const searchPreferences = createSearchPreferences({
+      targetRoles: ["Senior Full-Stack Software Engineer"],
+      locations: ["Prishtina, Kosovo"],
+    });
+
+    expect(buildDiscoveryStartingUrls(target, artifact, searchPreferences)[0]).toBe(
+      "https://www.linkedin.com/jobs/search/?keywords=software&location=Prishtina%2C+Kosovo",
+    );
+  });
+
   test("does not classify kosovajob-style same-host slug detail routes as reusable listing routes", () => {
     expect(
       resolveRouteKindForReuse(

@@ -210,6 +210,8 @@ export async function flushDeferredSearchExtractions(input: {
     }
 
     const expandedSearchResultsBudget = getSearchResultsExtractionReviewBudget(input.config)
+    // Search-surface review intentionally allows over-budget candidate review so fast-path extraction
+    // can inspect more cards than the remaining target when expandedSearchResultsBudget exceeds remainingJobs.
     const maxJobs = expandedSearchResultsBudget == null
       ? Math.min(remainingJobs, DEFAULT_SEARCH_RESULTS_EXTRACTION_REVIEW_BUDGET)
       : Math.max(remainingJobs, expandedSearchResultsBudget)
@@ -246,6 +248,8 @@ export async function flushDeferredSearchExtractions(input: {
       input.config.source,
     )
     const remainingJobsAfterFastPath = Math.max(0, input.config.targetJobCount - input.state.collectedJobs.length)
+    // Keep the expanded review budget for search results even after fast-path adds jobs so deferred
+    // extraction can still inspect more candidates than the remaining target when needed.
     const remainingSearchResultsBudget = expandedSearchResultsBudget == null
       ? Math.min(remainingJobsAfterFastPath, Math.max(0, maxJobs - fastPathAddedCount))
       : Math.max(0, maxJobs - fastPathAddedCount)

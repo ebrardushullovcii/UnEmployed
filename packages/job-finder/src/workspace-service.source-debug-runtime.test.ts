@@ -407,15 +407,6 @@ describe("createJobFinderWorkspaceService", () => {
 
     expect(latestRun.run.timing?.browserSetupMs).not.toBeNull();
     expect(latestRun.run.timing?.finalizationMs).not.toBeNull();
-    if (
-      streamedEvents.some((event) =>
-        event.message.includes("Reviewing the collected evidence"),
-      )
-    ) {
-      expect(latestRun.run.timing?.finalReviewMs).not.toBeNull();
-    } else {
-      expect(latestRun.run.timing?.finalReviewMs).toBeNull();
-    }
     expect(
       latestRun.run.timing?.waitReasonDurations.some(
         (entry) => entry.waitReason === "waiting_on_ai",

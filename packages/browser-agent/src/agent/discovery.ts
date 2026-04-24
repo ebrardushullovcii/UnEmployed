@@ -78,7 +78,6 @@ export async function runAgentDiscovery(
   let pendingDebugFindings: NonNullable<AgentResult['debugFindings']> | null = null
   let awaitingStructuredFinish = false
   let forcedFinishPromptSent = false
-  let recoveredClosedPageForLlm = false
   const requiresExplicitFinish = Boolean(config.promptContext.taskPacket)
   const startingUrlCandidates = [...new Set(config.startingUrls.map((url) => url.trim()).filter(Boolean))]
   const pageRef: { current: Page } = { current: page }
@@ -237,12 +236,12 @@ export async function runAgentDiscovery(
       config.targetJobCount,
       Math.max(
         DISCOVERY_CANDIDATE_HOLD_MIN_JOBS,
-        Math.ceil(config.targetJobCount * 0.75),
+        Math.ceil(config.targetJobCount * 0.5),
       ),
     )
     const nearStepLimit = state.stepCount >= Math.max(1, config.maxSteps - DISCOVERY_LATE_STEP_STOP_BUFFER)
     const hasGeneralCandidateHold =
-      alignedCollectedJobCount >= DISCOVERY_CANDIDATE_HOLD_MIN_JOBS &&
+      alignedCollectedJobCount >= usefulCandidateThreshold &&
       state.stepCount - lastJobGainStep >= DISCOVERY_CANDIDATE_HOLD_STEP_WINDOW
     const hasLateUsefulCandidateHold =
       nearStepLimit && alignedCollectedJobCount >= usefulCandidateThreshold
@@ -287,9 +286,16 @@ export async function runAgentDiscovery(
     const livePage = await config.resolveLivePage()
     pageRef.current = livePage
     const recoveredUrl = livePage.url()
+    let canTrackRecoveredUrl = false
     if (recoveredUrl) {
-      state.currentUrl = recoveredUrl
-      if (recoveredUrl !== 'about:blank') {
+      const recoveredUrlValidation = isAllowedUrl(recoveredUrl, config.navigationPolicy)
+      canTrackRecoveredUrl = recoveredUrlValidation.valid && recoveredUrl !== 'about:blank'
+
+      if (recoveredUrlValidation.valid) {
+        state.currentUrl = recoveredUrl
+      }
+
+      if (canTrackRecoveredUrl) {
         state.lastStableUrl = recoveredUrl
         state.visitedUrls.add(recoveredUrl)
       }
@@ -300,11 +306,13 @@ export async function runAgentDiscovery(
       jobsFound: state.collectedJobs.length,
       stepCount: state.stepCount,
       currentAction: `recover_page:${reason}`,
-      message: 'Recovered to a live browser page after the previous tab or page closed.',
+      message: canTrackRecoveredUrl
+        ? 'Recovered to a live browser page after the previous tab or page closed.'
+        : 'Recovered to a live browser page, but the page stayed off-policy so normal navigation guards remain in control.',
       waitReason: 'waiting_on_page',
     })
 
-    return true
+    return canTrackRecoveredUrl
   }
 
   try {
@@ -452,6 +460,7 @@ export async function runAgentDiscovery(
       }
 
       state.stepCount += 1
+      let recoveredClosedPageForLlm = false
 
       if (state.stepCount % 10 === 0) {
         console.log(`[Agent] Step ${state.stepCount}/${config.maxSteps} | Jobs: ${state.collectedJobs.length}`)
