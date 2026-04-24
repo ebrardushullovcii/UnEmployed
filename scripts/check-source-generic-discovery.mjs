@@ -1,104 +1,115 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import fs from "node:fs/promises";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
 
-const rootDir = path.resolve(import.meta.dirname, '..')
+const rootDir = path.resolve(import.meta.dirname, "..");
 
 const scannedPathPrefixes = [
-  'packages/browser-agent/src/',
-  'packages/job-finder/src/internal/',
-]
+  "packages/browser-agent/src/",
+  "packages/job-finder/src/internal/",
+];
 
-const excludedPathPatterns = [
-  /\.test\.ts$/,
-  /(^|\/)resume-/,
-  /(^|\/)profile-/,
-]
+const excludedPathPatterns = [/\.test\.ts$/, /(^|\/)resume-/, /(^|\/)profile-/];
 
 const sourceNamePattern =
-  /(?:LinkedIn|Linkedin|Greenhouse|Lever|Workday|Ashby|ICIMS|iCIMS|KosovaJob|Kosovajob)/u
+  /(?:LinkedIn|Linkedin|Greenhouse|Lever|Workday|Ashby|ICIMS|iCIMS|KosovaJob|Kosovajob)/u;
 const declarationPattern =
-  /\b(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gu
+  /\b(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gu;
 
 function toPosixPath(value) {
-  return value.replace(/\\/g, '/')
+  return value.replace(/\\/g, "/");
 }
 
 function shouldScan(relativePath) {
-  const normalizedPath = toPosixPath(relativePath)
+  const normalizedPath = toPosixPath(relativePath);
   return (
     scannedPathPrefixes.some((prefix) => normalizedPath.startsWith(prefix)) &&
-    normalizedPath.endsWith('.ts') &&
+    normalizedPath.endsWith(".ts") &&
     !excludedPathPatterns.some((pattern) => pattern.test(normalizedPath))
-  )
+  );
 }
 
 function listGitFiles(args) {
-  return execFileSync('git', args, {
-    cwd: rootDir,
-    encoding: 'utf8',
-  })
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
+  try {
+    return execFileSync("git", args, {
+      cwd: rootDir,
+      encoding: "utf8",
+    })
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  } catch (error) {
+    throw new Error(
+      `Failed to run git ${args.join(" ")} in ${rootDir}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
 }
 
 function listCandidateFiles() {
   return [
     ...new Set([
-      ...listGitFiles(['ls-files']),
-      ...listGitFiles(['ls-files', '--others', '--exclude-standard']),
+      ...listGitFiles(["ls-files"]),
+      ...listGitFiles(["ls-files", "--others", "--exclude-standard"]),
     ]),
-  ]
+  ];
 }
 
 function lineNumberForIndex(content, index) {
-  return content.slice(0, index).split(/\r?\n/).length
+  return content.slice(0, index).split(/\r?\n/).length;
 }
 
 async function main() {
-  const failures = []
-  const files = listCandidateFiles().filter(shouldScan)
+  const failures = [];
+  const files = listCandidateFiles().filter(shouldScan);
 
   for (const relativePath of files) {
-    const absolutePath = path.join(rootDir, relativePath)
-    let content
+    const absolutePath = path.join(rootDir, relativePath);
+    let content;
 
     try {
-      content = await fs.readFile(absolutePath, 'utf8')
+      content = await fs.readFile(absolutePath, "utf8");
     } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-        continue
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
+        continue;
       }
-      throw error
+      throw error;
     }
 
     for (const match of content.matchAll(declarationPattern)) {
-      const declarationName = match[1] ?? ''
+      const declarationName = match[1] ?? "";
       if (!sourceNamePattern.test(declarationName)) {
-        continue
+        continue;
       }
 
       failures.push(
         `${relativePath}:${lineNumberForIndex(content, match.index ?? 0)} source-branded declaration "${declarationName}"`,
-      )
+      );
     }
   }
 
   if (failures.length > 0) {
     console.error(
       [
-        'Source-generic discovery check failed.',
-        'Do not add one-source function/type/constant names to shared discovery or browser-agent workflow code.',
-        'Use generic helper names plus data-driven adapter tables instead.',
-        '',
+        "Source-generic discovery check failed.",
+        "Do not add one-source function/type/constant names to shared discovery or browser-agent workflow code.",
+        "Use generic helper names plus data-driven adapter tables instead.",
+        "",
         ...failures,
-      ].join('\n'),
-    )
-    process.exit(1)
+      ].join("\n"),
+    );
+    process.exit(1);
   }
 
-  console.log('Source-generic discovery checks passed.')
+  console.log("Source-generic discovery checks passed.");
 }
 
-await main()
+await main().catch((error) => {
+  console.error("Uncaught error in main:", error);
+  process.exit(1);
+});

@@ -1,55 +1,65 @@
 export interface ResumeImportPathPayload {
-  sourcePath: string
+  sourcePath: string;
 }
 
 export function isEnabled(value: string | undefined): boolean {
-  return value === '1' || value === 'true'
+  return value === "1" || value === "true";
 }
 
 function isDisabled(value: string | undefined): boolean {
-  return value === '0' || value === 'false'
+  return value === "0" || value === "false";
 }
 
-export function isDesktopTestApiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return isEnabled(env.UNEMPLOYED_ENABLE_TEST_API)
+export function isDesktopTestApiEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isEnabled(env.UNEMPLOYED_ENABLE_TEST_API);
 }
 
-export function isBrowserAgentEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const configuredValue = env.UNEMPLOYED_BROWSER_AGENT ?? env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT
+export function isBrowserAgentEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
 
   if (configuredValue == null) {
-    return true
+    return true;
   }
 
   if (isDisabled(configuredValue)) {
-    return false
+    return false;
   }
 
-  return isEnabled(configuredValue)
+  return isEnabled(configuredValue);
 }
 
-export function isBrowserHeadlessEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return isEnabled(env.UNEMPLOYED_BROWSER_HEADLESS)
+export function isBrowserHeadlessEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isEnabled(env.UNEMPLOYED_BROWSER_HEADLESS);
 }
 
-export function parseResumeImportPathPayload(payload: unknown): ResumeImportPathPayload {
+export function parseResumeImportPathPayload(
+  payload: unknown,
+): ResumeImportPathPayload {
   if (
     !payload ||
-    typeof payload !== 'object' ||
-    !('sourcePath' in payload) ||
-    typeof payload.sourcePath !== 'string' ||
+    typeof payload !== "object" ||
+    !("sourcePath" in payload) ||
+    typeof payload.sourcePath !== "string" ||
     payload.sourcePath.trim().length === 0
   ) {
-    throw new Error('A non-empty sourcePath string is required for scripted resume import.')
+    throw new Error(
+      "A non-empty sourcePath string is required for scripted resume import.",
+    );
   }
 
   return {
-    sourcePath: payload.sourcePath
-  }
+    sourcePath: payload.sourcePath,
+  };
 }
 
 export function getDesktopTestDelayMs(value: string | undefined): number {
-  const parsed = value ? Number.parseInt(value, 10) : 0
+  const parsed = value ? Number.parseInt(value, 10) : 0;
 
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }

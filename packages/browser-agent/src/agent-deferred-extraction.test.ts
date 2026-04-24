@@ -334,10 +334,10 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
       siteLabel: "Primary target",
     };
     config.startingUrls = [
-      "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+      "https://jobs.example.com/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
     ];
     config.navigationPolicy = {
-      allowedHostnames: ["www.linkedin.com"],
+      allowedHostnames: ["jobs.example.com"],
     };
 
     await runAgentDiscovery(page, config, llmClient, jobExtractor);

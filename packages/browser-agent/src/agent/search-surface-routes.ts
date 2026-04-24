@@ -57,11 +57,13 @@ export function isSearchSurfaceResultPath(
 ): boolean {
   const normalizedPathname = pathname.toLowerCase();
   return (
-    rule.resultExactPaths.includes(normalizedPathname) ||
+    rule.resultExactPaths.some(
+      (exactPath) => exactPath.toLowerCase() === normalizedPathname,
+    ) ||
     rule.resultPathPrefixes.some(
       (prefix) =>
-        normalizedPathname === prefix ||
-        normalizedPathname.startsWith(`${prefix}/`),
+        normalizedPathname === prefix.toLowerCase() ||
+        normalizedPathname.startsWith(`${prefix.toLowerCase()}/`),
     )
   );
 }

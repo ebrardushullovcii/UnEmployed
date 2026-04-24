@@ -1,4 +1,4 @@
-import { useId, useMemo } from "react";
+import { useMemo } from "react";
 import type {
   ApplicationAttempt,
   ApplicationRecord,
@@ -217,14 +217,13 @@ export function ApplicationsDetailPanel({
     applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ??
     null;
   const selectedRun =
-    applyRunDetailsStatus !== "loading" &&
+    applyRunDetailsStatus === "ready" &&
     applyRunDetails?.run?.id === selectedApplyRunId
       ? applyRunDetails.run
       : (selectedRunHistoryEntry?.run ?? null);
   const applyDetailsStatusBadge = getApplyDetailsStatusBadge(
     applyRunDetailsStatus,
   );
-  const runHistoryDescriptionPrefix = useId();
   const selectedQueueEntries = useMemo<QueueEntry[]>(() => {
     if (!selectedRun) {
       return [];
@@ -651,8 +650,6 @@ export function ApplicationsDetailPanel({
               <ul className="grid gap-2">
                 {applyRunHistory.map(({ result, run }) => {
                   const isSelected = selectedApplyRunId === result.runId;
-                  const summaryId = `${runHistoryDescriptionPrefix}-${result.id}-summary`;
-                  const metaId = `${runHistoryDescriptionPrefix}-${result.id}-meta`;
 
                   return (
                     <li
@@ -687,16 +684,10 @@ export function ApplicationsDetailPanel({
                             {formatStatusLabel(result.state)}
                           </StatusBadge>
                         </div>
-                        <p
-                          id={summaryId}
-                          className="text-(length:--text-small) leading-6 text-foreground-soft"
-                        >
+                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                           {result.summary}
                         </p>
-                        <p
-                          id={metaId}
-                          className="text-(length:--text-small) leading-6 text-foreground-soft"
-                        >
+                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                           {formatTimestamp(result.updatedAt)}
                           {run ? ` • ${formatStatusLabel(run.state)}` : ""}
                           {result.blockerSummary

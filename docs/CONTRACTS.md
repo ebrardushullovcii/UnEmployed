@@ -1,6 +1,6 @@
 # Contracts
 
-Use this doc for cross-package contract rules and important shared semantics. Put field-level schema/type definitions, validation rules, and field semantics in `packages/contracts` JSDoc or `packages/contracts/README.md`.
+Use this doc for cross-package contract rules, workflow semantics that span packages, public invariants, and external-boundary validation expectations. Put field-level schema/type definitions and field-specific validation rules in `packages/contracts` JSDoc; use `packages/contracts/README.md` for package-level guidance and schema organization.
 
 ## Rules
 
@@ -11,6 +11,8 @@ Use this doc for cross-package contract rules and important shared semantics. Pu
 - do not import package internals across workspace boundaries
 
 ## Main Shared Domains
+
+See `docs/ARCHITECTURE.md` for the authoritative package ownership and data-flow map behind these domains.
 
 - candidate profile, search preferences, proof, narrative, and reusable answers
 - resume import runs, document bundles, field candidates, and setup review items
@@ -25,7 +27,7 @@ Use this doc for cross-package contract rules and important shared semantics. Pu
 - discovery, source-debug, and apply consume the newest instruction artifact for the exact target: latest `draft`, otherwise latest `validated`
 - canonical profile writes from import happen only through accepted candidates or explicit user edits
 - resume approval is separate from apply approval
-- apply automation must refuse missing or stale approved resumes
+- apply automation must refuse missing or stale approved resumes; the staleness rules are the approval-state and stale-state checks for resume-affecting profile, settings, and saved-job changes in `packages/job-finder/src/internal/resume-workspace-staleness.ts`
 - persist structured artifacts and summaries, not raw hidden worker transcripts
 
 ## Validation Expectations

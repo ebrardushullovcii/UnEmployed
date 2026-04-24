@@ -1,4 +1,8 @@
-import { JobPostingSchema, WorkModeListSchema, type JobPosting } from "@unemployed/contracts";
+import {
+  JobPostingSchema,
+  WorkModeListSchema,
+  type JobPosting,
+} from "@unemployed/contracts";
 import {
   buildGenericCanonicalUrl,
   buildGenericJobId,
@@ -16,10 +20,13 @@ const jobBoardHostFragments = [
   "ashbyhq.com",
   "smartrecruiters.com",
 ];
+// Supports common relative-time suffixes seen in English and Albanian job titles,
+// including day/week/month/hour variants like "posted", "today", "yesterday",
+// "dite", "jave", "muaj", "ore", and hr/hrs abbreviations.
 const COMPOSITE_POSTED_SUFFIX_PATTERN =
   /(?:posted\s+)?(?:\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?)(?:\s+ago)?|today|yesterday|just posted|sot|dje)$/iu;
 const ROLE_TOKEN_PATTERN =
-  /^(?:engineer|developer|manager|designer|analyst|specialist|support|sales|marketing|data|software|product|qa|frontend|backend|react|category|customer|experience|work|senior|junior|lead|principal|staff|intern|associate|director|head|chief|coordinator|consultant|administrator|executive|trainee|apprentice|sr|jr|ii|iii)$/i;
+  /^(?:engineer|engineering|developer|architect|manager|designer|writer|scientist|researcher|analyst|specialist|representative|accountant|technician|nurse|lawyer|operator|agent|recruiter|planner|strategist|controller|auditor|officer|assistant|supervisor|president|partner|support|sales|marketing|data|software|product|qa|frontend|backend|react|category|customer|experience|work|senior|junior|lead|principal|staff|intern|associate|director|head|chief|coordinator|consultant|administrator|executive|trainee|apprentice|sr|jr|ii|iii)$/i;
 const LOCATION_HINT_PATTERN =
   /\b(remote|hybrid|on[- ]site|onsite|work from home|home office|worldwide|global|anywhere)\b/i;
 const GENERIC_JOB_PATH_SEGMENTS = new Set([
@@ -36,6 +43,11 @@ const GENERIC_JOB_PATH_SEGMENTS = new Set([
   "openings",
   "search",
   "apply",
+  "team",
+  "department",
+  "listing",
+  "posting",
+  "browse",
   "company",
   "companies",
   "category",
@@ -107,11 +119,12 @@ function summarizeJobPosting(input: {
   minimumQualifications: readonly string[];
   preferredQualifications: readonly string[];
 }): string {
-  const firstStructuredLine = [
-    ...input.responsibilities,
-    ...input.minimumQualifications,
-    ...input.preferredQualifications,
-  ][0] ?? null;
+  const firstStructuredLine =
+    [
+      ...input.responsibilities,
+      ...input.minimumQualifications,
+      ...input.preferredQualifications,
+    ][0] ?? null;
 
   if (firstStructuredLine) {
     return firstStructuredLine;
@@ -127,7 +140,9 @@ function summarizeJobPosting(input: {
     .map((entry) => entry.trim())
     .find(Boolean);
 
-  return firstSentence ? firstSentence.slice(0, 280) : normalizedDescription.slice(0, 280);
+  return firstSentence
+    ? firstSentence.slice(0, 280)
+    : normalizedDescription.slice(0, 280);
 }
 
 function toHostnameOrNull(value: string | null): string | null {
@@ -199,7 +214,9 @@ function inferTrailingCompositeLocation(value: string): string | null {
     const candidateTokens = tokens.slice(-width);
     if (
       width > 1 &&
-      candidateTokens.some((token) => ROLE_TOKEN_PATTERN.test(token.replace(/[^\p{L}\p{N}]+/gu, "")))
+      candidateTokens.some((token) =>
+        ROLE_TOKEN_PATTERN.test(token.replace(/[^\p{L}\p{N}]+/gu, "")),
+      )
     ) {
       continue;
     }
@@ -238,9 +255,20 @@ function normalizeCompositeTitle(value: string): {
       "i",
     );
     const match = content.match(locationPattern);
-    title = match && typeof match.index === "number"
-      ? content.slice(0, match.index).replace(/[\s–—-]+$/, "").trim()
-      : content.slice(0, Math.max(0, content.length - location.length)).replace(/[\s–—-]+$/, "").trim();
+    if (match && typeof match.index === "number") {
+      title = content
+        .slice(0, match.index)
+        .replace(/[\s–—-]+$/, "")
+        .trim();
+    } else if (
+      location.length > 0 &&
+      content.toLowerCase().endsWith(location.toLowerCase())
+    ) {
+      title = content
+        .slice(0, Math.max(0, content.length - location.length))
+        .replace(/[\s–—-]+$/, "")
+        .trim();
+    }
   }
 
   return {
@@ -267,21 +295,29 @@ function inferCompanyFromCanonicalUrl(url: string): string | null {
       return null;
     }
 
-    const companySegment = pathSegments[0]?.toLowerCase() ?? "";
-    const jobSegment = pathSegments[1] ?? "";
-    // Accept only /company/job-slug paths, rejecting locale-like prefixes and short tenant keys.
-    if (
-      !companySegment ||
-      GENERIC_JOB_PATH_SEGMENTS.has(companySegment) ||
-      LANGUAGE_OR_REGION_PATH_PATTERN.test(companySegment) ||
-      companySegment.length <= 2 ||
-      (!jobSegment.includes("-") && jobSegment.length <= 3) ||
-      !/[a-z\p{L}]/iu.test(companySegment)
-    ) {
-      return null;
+    for (let index = 0; index < pathSegments.length - 1; index += 1) {
+      const companySegment = pathSegments[index]?.toLowerCase() ?? "";
+      const jobSegment = pathSegments[index + 1] ?? "";
+      if (
+        !companySegment ||
+        GENERIC_JOB_PATH_SEGMENTS.has(companySegment) ||
+        LANGUAGE_OR_REGION_PATH_PATTERN.test(companySegment)
+      ) {
+        continue;
+      }
+
+      if (
+        companySegment.length <= 2 ||
+        (!jobSegment.includes("-") && jobSegment.length <= 3) ||
+        !/[a-z\p{L}]/iu.test(companySegment)
+      ) {
+        return null;
+      }
+
+      return titleCaseWords(companySegment.replace(/[-_]+/g, " "));
     }
 
-    return titleCaseWords(companySegment.replace(/[-_]+/g, " "));
+    return null;
   } catch {
     return null;
   }
@@ -299,7 +335,7 @@ export function buildJobsExtractionPrompt(input: {
         "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
         "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills when visible, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
         'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
-        'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
+        "Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.",
         'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
         "If only a short search-results snippet is visible, reuse that grounded snippet for description instead of leaving description empty.",
         "Do not spend effort inventing detail-page-only fields that are not visible on the search page.",
@@ -314,7 +350,7 @@ export function buildJobsExtractionPrompt(input: {
         "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
         "Each job should include canonicalUrl, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills, responsibilities, minimumQualifications, preferredQualifications, seniority, employmentType, department, team, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
         'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
-        'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
+        "Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.",
         "Use the page URL as the source of truth for canonicalUrl whenever available.",
         "Do not fabricate posted dates. Use null when exact posting time is unknown and preserve any visible relative string in postedAtText.",
         'If the page is not clearly a job detail page, return { "jobs": [] }.',
@@ -346,7 +382,7 @@ export function normalizeExtractedJobs(input: {
     return normalized ? [normalized] : [];
   };
 
-const toWorkModeArray = (value: unknown): string[] => {
+  const toWorkModeArray = (value: unknown): string[] => {
     const parsed = WorkModeListSchema.safeParse(value);
     if (!parsed.success) {
       return [];
@@ -403,8 +439,7 @@ const toWorkModeArray = (value: unknown): string[] => {
     const rawTitle = trimToNull(raw.title);
     const normalizedCompositeTitle = normalizeCompositeTitle(rawTitle ?? "");
 
-    const fallbackUrl =
-      input.pageType === "job_detail" ? input.pageUrl : "";
+    const fallbackUrl = input.pageType === "job_detail" ? input.pageUrl : "";
     const derivedCanonicalUrl = buildGenericCanonicalUrl(
       rawCanonicalUrl || fallbackUrl,
       input.pageUrl,
@@ -428,7 +463,7 @@ const toWorkModeArray = (value: unknown): string[] => {
     const preferredQualifications = toStringArray(
       raw.preferredQualifications ?? raw.preferredRequirements,
     );
-const rawDescription = trimToNull(toStr(raw.description));
+    const rawDescription = trimToNull(toStr(raw.description));
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
     const summary =
       input.pageType === "search_results"
@@ -445,10 +480,12 @@ const rawDescription = trimToNull(toStr(raw.description));
     const description =
       rawDescription ??
       (input.pageType === "search_results"
-        ? (summary ?? `${toStr(raw.title)} opportunity at ${toStr(raw.company)}`)
-        : summary ?? "");
+        ? (summary ??
+          `${toStr(raw.title)} opportunity at ${toStr(raw.company)}`)
+        : (summary ?? ""));
     const normalizedCompany =
-      trimToNull(raw.company) ?? inferCompanyFromCanonicalUrl(derivedCanonicalUrl);
+      trimToNull(raw.company) ??
+      inferCompanyFromCanonicalUrl(derivedCanonicalUrl);
     const normalizedLocation =
       trimToNull(raw.location) ?? normalizedCompositeTitle.location;
     const normalizedPostedAtText =

@@ -392,6 +392,8 @@ export async function recoverLivePageState(input: {
   }
 
   const livePage = await input.config.resolveLivePage();
+  // Intentionally swap in the replacement page before allowlist validation so callers can still
+  // drive fallback navigation on the live page even when recovery does not yield a trackable URL.
   input.pageRef.current = livePage;
   const recoveredUrl = livePage.url();
   let canTrackRecoveredUrl = false;

@@ -32,7 +32,7 @@ Read `docs/STATUS.md` first. Use this file for active work and ready follow-ups,
   - cut end-to-end `Check source` cost in the real app
   - fix the real-flow Kosovajob `/search` route reuse, then keep Kosovajob as a separate weak-target diagnosis path
 
-## Ready
+## Reopenable Baselines
 
 ### `019 World-Class Resume Import`
 

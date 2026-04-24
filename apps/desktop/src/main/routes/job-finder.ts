@@ -1,9 +1,5 @@
 import path from "node:path";
-import {
-  app,
-  BrowserWindow,
-  dialog,
-} from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import type { IpcMain, SaveDialogOptions } from "electron";
 import {
   ApplyRunDetailsSchema,
@@ -44,6 +40,7 @@ import {
 } from "@unemployed/contracts";
 import {
   getDesktopTestDelayMs,
+  getJobFinderWorkspaceFilePath,
   getJobFinderWorkspaceService,
   importResumeFromSourcePath,
   isDesktopTestApiEnabled,
@@ -53,6 +50,8 @@ import {
   resetJobFinderWorkspace,
   runDesktopResumeImportBenchmark,
 } from "../services/job-finder";
+import { createFileJobFinderRepository } from "@unemployed/db";
+import { createEmptyJobFinderRepositoryState } from "../adapters/job-finder-initial-state";
 
 function parseAgentDiscoveryRequest(payload: unknown) {
   return JobFinderAgentDiscoveryActionInputSchema.parse(payload);
@@ -78,7 +77,10 @@ function sanitizeFileNameSegment(value: string): string {
     .trim();
 }
 
-function buildResumeExportDefaultPath(jobTitle: string, company: string): string {
+function buildResumeExportDefaultPath(
+  jobTitle: string,
+  company: string,
+): string {
   const titleSegment = sanitizeFileNameSegment(jobTitle) || "Resume";
   const companySegment = sanitizeFileNameSegment(company);
   const fileName = companySegment
@@ -168,9 +170,10 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     async (_event, payload: unknown) => {
       const profileSetupState = ProfileSetupStateSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.saveProfileSetupState(
-        profileSetupState,
-      );
+      const snapshot =
+        await jobFinderWorkspaceService.saveProfileSetupState(
+          profileSetupState,
+        );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -182,10 +185,11 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const { reviewItemId, action } =
         JobFinderProfileSetupReviewActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.applyProfileSetupReviewAction(
-        reviewItemId,
-        action,
-      );
+      const snapshot =
+        await jobFinderWorkspaceService.applyProfileSetupReviewAction(
+          reviewItemId,
+          action,
+        );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -197,7 +201,9 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const { content, context } =
         JobFinderProfileCopilotMessageInputSchema.parse(payload);
       const testDelayMs = isDesktopTestApiEnabled()
-        ? getDesktopTestDelayMs(process.env.UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS)
+        ? getDesktopTestDelayMs(
+            process.env.UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS,
+          )
         : 0;
 
       if (testDelayMs > 0) {
@@ -205,10 +211,11 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       }
 
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.sendProfileCopilotMessage(
-        content,
-        context,
-      );
+      const snapshot =
+        await jobFinderWorkspaceService.sendProfileCopilotMessage(
+          content,
+          context,
+        );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -220,9 +227,10 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const { patchGroupId } =
         JobFinderProfileCopilotPatchGroupActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.applyProfileCopilotPatchGroup(
-        patchGroupId,
-      );
+      const snapshot =
+        await jobFinderWorkspaceService.applyProfileCopilotPatchGroup(
+          patchGroupId,
+        );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -234,9 +242,10 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const { patchGroupId } =
         JobFinderProfileCopilotPatchGroupActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.rejectProfileCopilotPatchGroup(
-        patchGroupId,
-      );
+      const snapshot =
+        await jobFinderWorkspaceService.rejectProfileCopilotPatchGroup(
+          patchGroupId,
+        );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -245,11 +254,11 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle(
     "job-finder:undo-profile-revision",
     async (_event, payload: unknown) => {
-      const { revisionId } = JobFinderUndoProfileRevisionInputSchema.parse(payload);
+      const { revisionId } =
+        JobFinderUndoProfileRevisionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.undoProfileRevision(
-        revisionId,
-      );
+      const snapshot =
+        await jobFinderWorkspaceService.undoProfileRevision(revisionId);
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -303,7 +312,32 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         );
       }
 
-      const state = JobFinderRepositoryStateSchema.parse(payload);
+      const repository = await createFileJobFinderRepository({
+        filePath: getJobFinderWorkspaceFilePath(),
+        seed: createEmptyJobFinderRepositoryState(),
+      });
+      const currentResumeImportState = await Promise.all([
+        repository.listResumeImportRuns(),
+        repository.listResumeImportDocumentBundles(),
+        repository.listResumeImportFieldCandidates(),
+      ]).finally(() => repository.close());
+      const partialPayload =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+      const state = JobFinderRepositoryStateSchema.parse({
+        ...partialPayload,
+        resumeImportRuns:
+          partialPayload.resumeImportRuns ?? currentResumeImportState[0] ?? [],
+        resumeImportDocumentBundles:
+          partialPayload.resumeImportDocumentBundles ??
+          currentResumeImportState[1] ??
+          [],
+        resumeImportFieldCandidates:
+          partialPayload.resumeImportFieldCandidates ??
+          currentResumeImportState[2] ??
+          [],
+      });
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.resetWorkspace(state);
 
@@ -311,64 +345,57 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     },
   );
 
-  ipcMain.handle(
-    "job-finder:test-load-resume-workspace-demo",
-    async () => {
-      if (!isDesktopTestApiEnabled()) {
-        throw new Error(
-          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
-        );
-      }
+  ipcMain.handle("job-finder:test-load-resume-workspace-demo", async () => {
+    if (!isDesktopTestApiEnabled()) {
+      throw new Error(
+        "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+      );
+    }
 
-      const snapshot = await loadResumeWorkspaceDemoState();
+    const snapshot = await loadResumeWorkspaceDemoState();
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
-    },
-  );
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+  });
 
-  ipcMain.handle(
-    "job-finder:test-load-apply-queue-demo",
-    async () => {
-      if (!isDesktopTestApiEnabled()) {
-        throw new Error(
-          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
-        );
-      }
+  ipcMain.handle("job-finder:test-load-apply-queue-demo", async () => {
+    if (!isDesktopTestApiEnabled()) {
+      throw new Error(
+        "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+      );
+    }
 
-      const snapshot = await loadApplyQueueDemoState();
+    const snapshot = await loadApplyQueueDemoState();
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
-    },
-  );
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+  });
 
-  ipcMain.handle(
-    "job-finder:test-get-performance-snapshot",
-    async () => {
-      if (!isDesktopTestApiEnabled()) {
-        throw new Error(
-          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
-        );
-      }
+  ipcMain.handle("job-finder:test-get-performance-snapshot", async () => {
+    if (!isDesktopTestApiEnabled()) {
+      throw new Error(
+        "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+      );
+    }
 
-      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const workspace = await jobFinderWorkspaceService.getWorkspaceSnapshot();
-      const latestDiscoveryRun =
-        workspace.activeDiscoveryRun ?? workspace.recentDiscoveryRuns[0] ?? null;
-      const latestSourceDebugSummary =
-        workspace.activeSourceDebugRun ?? workspace.recentSourceDebugRuns[0] ?? null;
-      const latestSourceDebugRun = latestSourceDebugSummary
-        ? await jobFinderWorkspaceService.getSourceDebugRunDetails(
-            latestSourceDebugSummary.id,
-          )
-        : null;
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+    const workspace = await jobFinderWorkspaceService.getWorkspaceSnapshot();
+    const latestDiscoveryRun =
+      workspace.activeDiscoveryRun ?? workspace.recentDiscoveryRuns[0] ?? null;
+    const latestSourceDebugSummary =
+      workspace.activeSourceDebugRun ??
+      workspace.recentSourceDebugRuns[0] ??
+      null;
+    const latestSourceDebugRun = latestSourceDebugSummary
+      ? await jobFinderWorkspaceService.getSourceDebugRunDetails(
+          latestSourceDebugSummary.id,
+        )
+      : null;
 
-      return JobFinderPerformanceSnapshotSchema.parse({
-        generatedAt: new Date().toISOString(),
-        latestDiscoveryRun,
-        latestSourceDebugRun,
-      });
-    },
-  );
+    return JobFinderPerformanceSnapshotSchema.parse({
+      generatedAt: new Date().toISOString(),
+      latestDiscoveryRun,
+      latestSourceDebugRun,
+    });
+  });
 
   ipcMain.handle(
     "job-finder:test-run-resume-import-benchmark",
@@ -379,13 +406,17 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         );
       }
 
-      const parsed = ResumeImportBenchmarkRequestSchema.partial().parse(payload ?? {});
+      const parsed = ResumeImportBenchmarkRequestSchema.partial().parse(
+        payload ?? {},
+      );
       const options = {
         ...(parsed.benchmarkVersion !== undefined
           ? { benchmarkVersion: parsed.benchmarkVersion }
           : {}),
         ...(parsed.cases !== undefined ? { cases: parsed.cases } : {}),
-        ...(parsed.canaryOnly !== undefined ? { canaryOnly: parsed.canaryOnly } : {}),
+        ...(parsed.canaryOnly !== undefined
+          ? { canaryOnly: parsed.canaryOnly }
+          : {}),
         ...(parsed.useConfiguredAi !== undefined
           ? { useConfiguredAi: parsed.useConfiguredAi }
           : {}),
@@ -629,7 +660,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle(
     "job-finder:get-apply-run-details",
     async (_event, payload: unknown) => {
-      const { runId, jobId } = JobFinderApplyRunDetailsQuerySchema.parse(payload);
+      const { runId, jobId } =
+        JobFinderApplyRunDetailsQuerySchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const details = await jobFinderWorkspaceService.getApplyRunDetails(
         runId,
@@ -645,7 +677,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     async (_event, payload: unknown) => {
       const { jobId } = JobFinderResumeWorkspaceQuerySchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const workspace = await jobFinderWorkspaceService.getResumeWorkspace(jobId);
+      const workspace =
+        await jobFinderWorkspaceService.getResumeWorkspace(jobId);
 
       return JobFinderResumeWorkspaceSchema.parse(workspace);
     },
@@ -667,7 +700,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     async (_event, payload: unknown) => {
       const { jobId } = JobFinderJobActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.regenerateResumeDraft(jobId);
+      const snapshot =
+        await jobFinderWorkspaceService.regenerateResumeDraft(jobId);
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -696,7 +730,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       let outputPath: string | null = null;
 
       if (!isDesktopTestApiEnabled()) {
-        const workspace = await jobFinderWorkspaceService.getResumeWorkspace(jobId);
+        const workspace =
+          await jobFinderWorkspaceService.getResumeWorkspace(jobId);
         const browserWindow = BrowserWindow.fromWebContents(event.sender);
         const saveDialogOptions: SaveDialogOptions = {
           defaultPath: buildResumeExportDefaultPath(
@@ -717,7 +752,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
           : await dialog.showSaveDialog(saveDialogOptions);
 
         if (saveResult.canceled || !saveResult.filePath) {
-          const snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot();
+          const snapshot =
+            await jobFinderWorkspaceService.getWorkspaceSnapshot();
 
           return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
         }
@@ -739,7 +775,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle(
     "job-finder:approve-resume",
     async (_event, payload: unknown) => {
-      const { jobId, exportId } = JobFinderApproveResumeInputSchema.parse(payload);
+      const { jobId, exportId } =
+        JobFinderApproveResumeInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.approveResume(
         jobId,
@@ -755,7 +792,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     async (_event, payload: unknown) => {
       const { jobId } = JobFinderJobActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.clearResumeApproval(jobId);
+      const snapshot =
+        await jobFinderWorkspaceService.clearResumeApproval(jobId);
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -784,7 +822,9 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const messages =
         await jobFinderWorkspaceService.getResumeAssistantMessages(jobId);
 
-      return JobFinderResumeWorkspaceSchema.shape.assistantMessages.parse(messages);
+      return JobFinderResumeWorkspaceSchema.shape.assistantMessages.parse(
+        messages,
+      );
     },
   );
 
@@ -794,12 +834,15 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const { jobId, content } =
         JobFinderResumeAssistantMessageInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const messages = await jobFinderWorkspaceService.sendResumeAssistantMessage(
-        jobId,
-        content,
-      );
+      const messages =
+        await jobFinderWorkspaceService.sendResumeAssistantMessage(
+          jobId,
+          content,
+        );
 
-      return JobFinderResumeWorkspaceSchema.shape.assistantMessages.parse(messages);
+      return JobFinderResumeWorkspaceSchema.shape.assistantMessages.parse(
+        messages,
+      );
     },
   );
 
@@ -819,7 +862,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     async (_event, payload: unknown) => {
       const { jobId } = JobFinderJobActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.startApplyCopilotRun(jobId);
+      const snapshot =
+        await jobFinderWorkspaceService.startApplyCopilotRun(jobId);
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -841,7 +885,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     async (_event, payload: unknown) => {
       const { jobIds } = JobFinderApplyQueueActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.startAutoApplyQueueRun(jobIds);
+      const snapshot =
+        await jobFinderWorkspaceService.startAutoApplyQueueRun(jobIds);
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -875,10 +920,11 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const { requestId, action } =
         JobFinderApplyConsentActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.resolveApplyConsentRequest(
-        requestId,
-        action,
-      );
+      const snapshot =
+        await jobFinderWorkspaceService.resolveApplyConsentRequest(
+          requestId,
+          action,
+        );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },
@@ -889,7 +935,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     async (_event, payload: unknown) => {
       const { runId } = JobFinderApplyRunActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = await jobFinderWorkspaceService.revokeApplyRunApproval(runId);
+      const snapshot =
+        await jobFinderWorkspaceService.revokeApplyRunApproval(runId);
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },

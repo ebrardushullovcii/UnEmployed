@@ -4,15 +4,20 @@ import type * as childProcess from "node:child_process";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const spawnMock = vi.fn();
 const execFileMock = vi.fn();
 const connectOverCDPMock = vi.fn();
-const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(
+  process,
+  "platform",
+);
 
 vi.mock("node:child_process", async () => {
-  const actual = await vi.importActual<typeof childProcess>("node:child_process");
+  const actual =
+    await vi.importActual<typeof childProcess>("node:child_process");
   return {
     ...actual,
     execFile: execFileMock,
@@ -26,7 +31,10 @@ vi.mock("playwright", () => ({
   },
 }));
 
-function withPlatform(platform: NodeJS.Platform, run: () => Promise<void>): Promise<void> {
+function withPlatform(
+  platform: NodeJS.Platform,
+  run: () => Promise<void>,
+): Promise<void> {
   Object.defineProperty(process, "platform", {
     configurable: true,
     value: platform,
@@ -68,7 +76,10 @@ function createMockChildProcess(input: { pid: number; emitExit?: boolean }) {
   return processEmitter;
 }
 
-function createSlowExitMockChildProcess(input: { pid: number; exitDelayMs: number }) {
+function createSlowExitMockChildProcess(input: {
+  pid: number;
+  exitDelayMs: number;
+}) {
   const processEmitter = new EventEmitter() as EventEmitter & {
     pid: number;
     exitCode: number | null;
@@ -92,7 +103,11 @@ function createSlowExitMockChildProcess(input: { pid: number; exitDelayMs: numbe
   return processEmitter;
 }
 
-type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
+type ExecFileCallback = (
+  error: Error | null,
+  stdout: string,
+  stderr: string,
+) => void;
 
 function maybeInvokeExecFileCallback(args: unknown[]) {
   const callback = args[args.length - 1];
@@ -145,7 +160,9 @@ describe("playwright browser runtime", () => {
   });
 
   test("closeSession still terminates an owned Chrome process after browser disconnect reset", async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), "unemployed-browser-runtime-close-"));
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-close-"),
+    );
 
     try {
       const chromeExecutablePath = join(userDataDir, "chrome.exe");
@@ -207,7 +224,8 @@ describe("playwright browser runtime", () => {
       });
       connectOverCDPMock.mockResolvedValue(fakeBrowser);
 
-      const { createBrowserAgentRuntime } = await import("./playwright-browser-runtime");
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
       const runtime = createBrowserAgentRuntime({
         userDataDir,
         chromeExecutablePath,
@@ -224,7 +242,9 @@ describe("playwright browser runtime", () => {
       expect(fakeBrowser.close).toHaveBeenCalledTimes(1);
       expect(spawnMock).toHaveBeenCalledTimes(2);
       expect(spawnMock.mock.calls[0]?.[0]).toBe(chromeExecutablePath);
-      expect(spawnMock.mock.calls[0]?.[1]).toContain(`--remote-debugging-port=${debugPort}`);
+      expect(spawnMock.mock.calls[0]?.[1]).toContain(
+        `--remote-debugging-port=${debugPort}`,
+      );
       expect(spawnMock.mock.calls[1]?.[0]).toBe("taskkill");
       expect(spawnMock.mock.calls[1]?.[1]).toEqual([
         "/PID",
@@ -239,7 +259,9 @@ describe("playwright browser runtime", () => {
 
   test("closeSession waits for owned Windows Chrome exit after taskkill returns", async () => {
     vi.useFakeTimers();
-    const userDataDir = await mkdtemp(join(tmpdir(), "unemployed-browser-runtime-windows-exit-"));
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-windows-exit-"),
+    );
 
     try {
       const chromeExecutablePath = join(userDataDir, "chrome.exe");
@@ -304,7 +326,8 @@ describe("playwright browser runtime", () => {
       });
       connectOverCDPMock.mockResolvedValue(fakeBrowser);
 
-      const { createBrowserAgentRuntime } = await import("./playwright-browser-runtime");
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
       const runtime = createBrowserAgentRuntime({
         userDataDir,
         chromeExecutablePath,
@@ -315,10 +338,13 @@ describe("playwright browser runtime", () => {
         await runtime.openSession("target_site");
         const closePromise = runtime.closeSession("target_site");
         await vi.advanceTimersByTimeAsync(150);
-        await expect(Promise.race([
-          closePromise.then(() => 'closed'),
-          Promise.resolve('pending'),
-        ])).resolves.toBe('pending');
+        // Verify the close promise is still pending until Chrome exits.
+        await expect(
+          Promise.race([
+            closePromise.then(() => "closed"),
+            Promise.resolve("pending"),
+          ]),
+        ).resolves.toBe("pending");
         await vi.advanceTimersByTimeAsync(50);
         await expect(closePromise).resolves.toEqual(
           expect.objectContaining({ label: "Browser profile closed" }),
@@ -335,7 +361,9 @@ describe("playwright browser runtime", () => {
   });
 
   test("resolveLivePage avoids focus churn when the session is already ready", async () => {
-    const userDataDir = await mkdtemp(join(tmpdir(), "unemployed-browser-runtime-resolve-live-page-"));
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-resolve-live-page-"),
+    );
 
     try {
       const chromeExecutablePath = join(userDataDir, "chrome.exe");
@@ -382,15 +410,27 @@ describe("playwright browser runtime", () => {
       spawnMock.mockReturnValue(launchedChromeProcess);
       connectOverCDPMock.mockResolvedValue(fakeBrowser);
 
-      const { createBrowserAgentRuntime } = await import("./playwright-browser-runtime");
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const mockAiClient = {
+        chatWithTools: vi
+          .fn()
+          .mockResolvedValue({ content: "done", toolCalls: [] }),
+        getStatus: () => ({
+          kind: "deterministic",
+          ready: true,
+          label: "Test AI client ready",
+          model: null,
+          baseUrl: null,
+          modelContextWindowTokens: null,
+          detail: null,
+        }),
+      } satisfies Pick<JobFinderAiClient, "chatWithTools" | "getStatus">;
       const runtime = createBrowserAgentRuntime({
         userDataDir,
         chromeExecutablePath,
         debugPort,
-        aiClient: {
-          chatWithTools: vi.fn().mockResolvedValue({ content: "done", toolCalls: [] }),
-          getStatus: () => ({ available: true, modelContextWindowTokens: null }),
-        } as never,
+        aiClient: mockAiClient as unknown as JobFinderAiClient,
         jobExtractor: vi.fn().mockResolvedValue([]),
       });
 

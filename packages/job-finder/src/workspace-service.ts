@@ -1,12 +1,27 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
-import { JobFinderDiscoveryStateSchema, SavedJobSchema, type JobFinderDiscoveryState, type JobDiscoveryTarget, type JobSearchPreferences, type JobSource, type SavedJob, type SourceDebugRunRecord } from "@unemployed/contracts";
 import {
-  mergeSessionStates,
-} from "./internal/workspace-service-helpers";
-import { getActiveDiscoveryTargets, resolveAdapterKind, updateDiscoveryTarget } from "./internal/workspace-helpers";
+  JobFinderDiscoveryStateSchema,
+  JobSourceSchema,
+  SavedJobSchema,
+  type JobFinderDiscoveryState,
+  type JobDiscoveryTarget,
+  type JobSearchPreferences,
+  type JobSource,
+  type SavedJob,
+  type SourceDebugRunRecord,
+} from "@unemployed/contracts";
+import { mergeSessionStates } from "./internal/workspace-service-helpers";
+import {
+  getActiveDiscoveryTargets,
+  resolveAdapterKind,
+  updateDiscoveryTarget,
+} from "./internal/workspace-helpers";
 import { SOURCE_DEBUG_RECENT_HISTORY_LIMIT } from "./internal/workspace-defaults";
 import type { WorkspaceServiceContext } from "./internal/workspace-service-context";
-import { buildStaleResumeDraft, hasResumeAffectingJobChange } from "./internal/resume-workspace-staleness";
+import {
+  buildStaleResumeDraft,
+  hasResumeAffectingJobChange,
+} from "./internal/resume-workspace-staleness";
 import {
   type CreateJobFinderWorkspaceServiceOptions,
   type JobFinderWorkspaceService,
@@ -121,7 +136,8 @@ export function createJobFinderWorkspaceService(
       }
 
       if (
-        JSON.stringify(nextSessions) !== JSON.stringify(currentDiscovery.sessions)
+        JSON.stringify(nextSessions) !==
+        JSON.stringify(currentDiscovery.sessions)
       ) {
         const latestDiscovery = await repository.getDiscoveryState();
 
@@ -165,7 +181,9 @@ export function createJobFinderWorkspaceService(
               : current.activeSourceDebugRun,
         recentSourceDebugRuns: [
           run,
-          ...current.recentSourceDebugRuns.filter((entry) => entry.id !== run.id),
+          ...current.recentSourceDebugRuns.filter(
+            (entry) => entry.id !== run.id,
+          ),
         ].slice(0, SOURCE_DEBUG_RECENT_HISTORY_LIMIT),
       }));
     },
@@ -192,7 +210,11 @@ export function createJobFinderWorkspaceService(
       const targetJobIds = jobIds ? new Set(jobIds) : null;
 
       for (const draft of drafts) {
-        if (!draft.approvedAt && !draft.approvedExportId && draft.status !== "approved") {
+        if (
+          !draft.approvedAt &&
+          !draft.approvedExportId &&
+          draft.status !== "approved"
+        ) {
           continue;
         }
 
@@ -200,7 +222,8 @@ export function createJobFinderWorkspaceService(
           continue;
         }
 
-        const existingAsset = tailoredAssets.find((asset) => asset.jobId === draft.jobId) ?? null;
+        const existingAsset =
+          tailoredAssets.find((asset) => asset.jobId === draft.jobId) ?? null;
         const staleDraft = buildStaleResumeDraft(draft, staleReason);
 
         await repository.clearResumeApproval({
@@ -258,7 +281,12 @@ export function createJobFinderWorkspaceService(
           repository.listTailoredAssets(),
         ]);
 
-        if (draft && (draft.approvedAt || draft.approvedExportId || draft.status === "approved")) {
+        if (
+          draft &&
+          (draft.approvedAt ||
+            draft.approvedExportId ||
+            draft.status === "approved")
+        ) {
           const existingAsset =
             tailoredAssets.find((asset) => asset.jobId === draft.jobId) ?? null;
           const staleDraft = buildStaleResumeDraft(draft, staleReason);
@@ -291,17 +319,24 @@ export function createJobFinderWorkspaceService(
   context.runSourceDebugWorkflow = sourceDebugMethods.runSourceDebugWorkflow;
   const applyRunStoreMethods = createWorkspaceApplyRunStoreMethods(context);
 
+  function isJobSource(value: unknown): value is JobSource {
+    return JobSourceSchema.safeParse(value).success;
+  }
+
   async function shutdown(): Promise<void> {
-    const discoveryState = await repository.getDiscoveryState().catch(() => null);
+    const discoveryState = await repository
+      .getDiscoveryState()
+      .catch(() => null);
     const sessionSources = uniqueStrings(
       (discoveryState?.sessions ?? []).map((session) => session.adapterKind),
-    ) as JobSource[];
-    const sourcesToClose = sessionSources.length > 0 ? sessionSources : (["target_site"] as JobSource[]);
+    ).filter(isJobSource);
     const shutdownResults = await Promise.allSettled([
-      ...sourcesToClose.map((source) => browserRuntime.closeSession(source)),
+      ...sessionSources.map((source) => browserRuntime.closeSession(source)),
       repository.close(),
     ]);
-    const rejectedResults = shutdownResults.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    const rejectedResults = shutdownResults.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
     if (rejectedResults.length > 0) {
       console.warn(
         "[JobFinderWorkspace] Shutdown completed with failures",
