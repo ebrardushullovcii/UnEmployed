@@ -13,16 +13,20 @@ export type SearchSurfaceRouteRule = {
 
 export const SEARCH_SURFACE_ROUTE_RULES = [
   {
-    hostSuffixes: ['linkedin.com'],
-    fallbackBaseUrl: 'https://www.linkedin.com',
-    resultExactPaths: ['/jobs', '/jobs/'],
-    resultPathPrefixes: ['/jobs/search', '/jobs/search-results', '/jobs/collections'],
-    detailPathPrefix: '/jobs/view/',
-    detailPathTemplate: '/jobs/view/{sourceJobId}/',
-    embeddedJobIdParams: ['currentJobId', 'selectedJobId', 'jobId'],
+    hostSuffixes: ["linkedin.com"],
+    fallbackBaseUrl: "https://www.linkedin.com",
+    resultExactPaths: ["/jobs", "/jobs/"],
+    resultPathPrefixes: [
+      "/jobs/search",
+      "/jobs/search-results",
+      "/jobs/collections",
+    ],
+    detailPathPrefix: "/jobs/view/",
+    detailPathTemplate: "/jobs/view/{sourceJobId}/",
+    embeddedJobIdParams: ["currentJobId", "selectedJobId", "jobId"],
     jobIdPattern: /^\d+$/,
-    locationParam: 'geoId',
-    trackingParams: ['ebp', 'refId', 'trk', 'trackingId'],
+    locationParam: "geoId",
+    trackingParams: ["ebp", "refId", "trk", "trackingId"],
   },
 ] satisfies readonly SearchSurfaceRouteRule[];
 
@@ -75,12 +79,15 @@ export function readEmbeddedSearchSurfaceJobId(
 ): string {
   return (
     rule.embeddedJobIdParams
-      .map((paramName) => url.searchParams.get(paramName)?.trim() ?? '')
-      .find((value) => value.length > 0) ?? ''
+      .map((paramName) => url.searchParams.get(paramName)?.trim() ?? "")
+      .find((value) => value.length > 0) ?? ""
   );
 }
 
-export function buildSearchSurfaceDetailUrl(url: URL, sourceJobId: string): string | null {
+export function buildSearchSurfaceDetailUrl(
+  url: URL,
+  sourceJobId: string,
+): string | null {
   const rule = getSearchSurfaceRouteRuleForUrl(url);
   if (!rule) {
     return null;
@@ -91,5 +98,5 @@ export function buildSearchSurfaceDetailUrl(url: URL, sourceJobId: string): stri
     return null;
   }
 
-  return `${rule.fallbackBaseUrl}${rule.detailPathTemplate.replace('{sourceJobId}', encodeURIComponent(normalizedJobId))}`;
+  return `${rule.fallbackBaseUrl}${rule.detailPathTemplate.replace("{sourceJobId}", encodeURIComponent(normalizedJobId))}`;
 }
