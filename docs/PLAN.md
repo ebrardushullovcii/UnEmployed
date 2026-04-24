@@ -4,18 +4,13 @@ Use this doc for durable direction. Use `docs/STATUS.md` and `docs/TRACKS.md` fo
 
 ## End Goal
 
-Build one dependable desktop app that owns the full loop:
-
-- maintain a strong reusable candidate profile and document base
-- discover, tailor, review, track, and safely apply to jobs in `Job Finder`
-- prepare for and support live interviews in `Interview Helper`
-- keep important context local so the system improves over time
+Build one local-first desktop app for profile/document memory, job discovery through safe non-submitting apply, and interview prep/live support.
 
 ## Product Shape
 
 - one Electron desktop app
-- two modules: `Job Finder` and `Interview Helper`
-- one shared local profile, knowledge base, application history, and assistant surface
+- modules: `Job Finder`, `Interview Helper`
+- shared profile, knowledge base, application history, assistant surface
 
 ## Durable Product Decisions
 
@@ -36,10 +31,10 @@ Build one dependable desktop app that owns the full loop:
 
 ## Delivery Order
 
-1. shared repo, docs, shell, contracts, and persistence
-2. `Job Finder` core profile, import, discovery, resume, and apply workflows
+1. shared repo, docs, shell, contracts, persistence
+2. `Job Finder` profile, import, discovery, resume, apply
 3. `Interview Helper` prep and live-session workflows
-4. hardening, packaging, and platform parity
+4. hardening, packaging, platform parity
 
 ## Engineering Rules
 

@@ -646,11 +646,13 @@ export function createWorkspaceDiscoveryMethods(
 > {
   function trackDiscoveryPromise<T>(promise: Promise<T>): Promise<T> {
     ctx.activeDiscoveryPromiseRef.current = promise;
-    void promise.finally(() => {
-      if (ctx.activeDiscoveryPromiseRef.current === promise) {
-        ctx.activeDiscoveryPromiseRef.current = null;
-      }
-    });
+    void promise
+      .finally(() => {
+        if (ctx.activeDiscoveryPromiseRef.current === promise) {
+          ctx.activeDiscoveryPromiseRef.current = null;
+        }
+      })
+      .catch(() => {});
     return promise;
   }
 
@@ -666,8 +668,21 @@ export function createWorkspaceDiscoveryMethods(
     const executionController = new AbortController();
     ctx.activeDiscoveryAbortControllerRef.current = executionController;
     const onExternalAbort = () => executionController.abort();
-    options.signal?.addEventListener("abort", onExternalAbort);
+    if (options.signal?.aborted) {
+      executionController.abort();
+    } else {
+      options.signal?.addEventListener("abort", onExternalAbort);
+    }
     const executionSignal = executionController.signal;
+    const clearActiveController = () => {
+      options.signal?.removeEventListener("abort", onExternalAbort);
+      if (
+        ctx.activeDiscoveryAbortControllerRef.current === executionController
+      ) {
+        ctx.activeDiscoveryAbortControllerRef.current = null;
+      }
+    };
+
     let terminalStatus: "cancelled" | "failed" | "completed" = "completed";
     let caughtError: unknown = null;
     const [
@@ -682,7 +697,10 @@ export function createWorkspaceDiscoveryMethods(
       ctx.repository.getSettings(),
       ctx.repository.listSavedJobs(),
       ctx.repository.getDiscoveryState(),
-    ]);
+    ]).catch((error: unknown) => {
+      clearActiveController();
+      throw error;
+    });
     const enrichedPreferences = enrichSearchPreferencesFromProfile(
       searchPreferences,
       profile,
@@ -690,6 +708,8 @@ export function createWorkspaceDiscoveryMethods(
     const selectedTargets = selectTargets(enrichedPreferences, options);
 
     if (selectedTargets.length === 0) {
+      clearActiveController();
+
       if (options.scope === "single_target") {
         throw new Error("single_target: target not found or unavailable");
       }
@@ -706,7 +726,12 @@ export function createWorkspaceDiscoveryMethods(
     const touchedPendingJobIds = new Set<string>();
     const openedSessionSources = new Set<JobSource>();
     const sourceInstructionArtifacts =
-      await ctx.repository.listSourceInstructionArtifacts();
+      await ctx.repository
+        .listSourceInstructionArtifacts()
+        .catch((error: unknown) => {
+          clearActiveController();
+          throw error;
+        });
     const targets =
       options.scope === "run_all"
         ? prioritizeDiscoveryTargets(
@@ -751,14 +776,19 @@ export function createWorkspaceDiscoveryMethods(
       }),
     );
 
-    await ctx.persistDiscoveryState((current) => ({
-      ...current,
-      runState: "running",
-      activeRun,
-      recentRuns: current.recentRuns,
-      pendingDiscoveryJobs: workingPendingJobs,
-      discoveryLedger: workingLedger,
-    }));
+    await ctx
+      .persistDiscoveryState((current) => ({
+        ...current,
+        runState: "running",
+        activeRun,
+        recentRuns: current.recentRuns,
+        pendingDiscoveryJobs: workingPendingJobs,
+        discoveryLedger: workingLedger,
+      }))
+      .catch((error: unknown) => {
+        clearActiveController();
+        throw error;
+      });
 
     try {
       for (const [index, target] of targets.entries()) {
@@ -1283,8 +1313,7 @@ export function createWorkspaceDiscoveryMethods(
         }
       }
 
-      options.signal?.removeEventListener("abort", onExternalAbort);
-      ctx.activeDiscoveryAbortControllerRef.current = null;
+      clearActiveController();
     }
 
     activeRun = finalizeDiscoveryRun(

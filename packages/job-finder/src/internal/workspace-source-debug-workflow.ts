@@ -104,14 +104,30 @@ export async function runSourceDebugWorkflow(
   const executionController = new AbortController();
   ctx.activeSourceDebugAbortControllerRef.current = executionController;
   const onExternalAbort = () => executionController.abort();
-  signal?.addEventListener("abort", onExternalAbort);
+  if (signal?.aborted) {
+    executionController.abort();
+  } else {
+    signal?.addEventListener("abort", onExternalAbort);
+  }
   const executionSignal = executionController.signal;
+  const clearActiveController = () => {
+    signal?.removeEventListener("abort", onExternalAbort);
+    if (
+      ctx.activeSourceDebugAbortControllerRef.current === executionController
+    ) {
+      ctx.activeSourceDebugAbortControllerRef.current = null;
+    }
+  };
+
   const modelContextWindowTokensSnapshot =
     ctx.aiClient.getStatus().modelContextWindowTokens;
   const [profile, searchPreferences] = await Promise.all([
     ctx.repository.getProfile(),
     ctx.repository.getSearchPreferences(),
-  ]);
+  ]).catch((error: unknown) => {
+    clearActiveController();
+    throw error;
+  });
   const target = searchPreferences.discovery.targets.find(
     (entry) => entry.id === targetId,
   );
@@ -120,6 +136,7 @@ export async function runSourceDebugWorkflow(
   );
 
   if (!target) {
+    clearActiveController();
     throw new Error(`Unknown discovery target '${targetId}'.`);
   }
 
@@ -132,6 +149,7 @@ export async function runSourceDebugWorkflow(
   })();
 
   if (!targetUrl) {
+    clearActiveController();
     throw new Error(
       `Target '${target.label}' does not have a valid starting URL.`,
     );
@@ -140,24 +158,16 @@ export async function runSourceDebugWorkflow(
   const clearExistingInstructions =
     options?.clearExistingInstructions !== false;
   const instructionArtifacts =
-    await ctx.repository.listSourceInstructionArtifacts();
+    await ctx.repository
+      .listSourceInstructionArtifacts()
+      .catch((error: unknown) => {
+        clearActiveController();
+        throw error;
+      });
   const preservedRouteHintArtifact = resolveActiveSourceInstructionArtifact(
     target,
     instructionArtifacts,
   );
-
-  if (clearExistingInstructions) {
-    await ctx.repository.deleteSourceInstructionArtifactsForTarget(target.id);
-    await ctx.saveDiscoveryTargetUpdate(target.id, (currentTarget) => ({
-      ...currentTarget,
-      instructionStatus: "missing",
-      validatedInstructionId: null,
-      draftInstructionId: null,
-      lastVerifiedAt: null,
-      staleReason: null,
-    }));
-  }
-
   const normalizedTarget: JobDiscoveryTarget = clearExistingInstructions
     ? {
         ...target,
@@ -177,9 +187,32 @@ export async function runSourceDebugWorkflow(
     : null;
 
   if (options?.reviewInstructionId && !reviewInstructionArtifact) {
+    clearActiveController();
     throw new Error(
       `Source instruction '${options.reviewInstructionId}' does not belong to target '${normalizedTarget.id}'.`,
     );
+  }
+
+  if (clearExistingInstructions) {
+    await ctx.repository
+      .deleteSourceInstructionArtifactsForTarget(target.id)
+      .catch((error: unknown) => {
+        clearActiveController();
+        throw error;
+      });
+    await ctx
+      .saveDiscoveryTargetUpdate(target.id, (currentTarget) => ({
+        ...currentTarget,
+        instructionStatus: "missing",
+        validatedInstructionId: null,
+        draftInstructionId: null,
+        lastVerifiedAt: null,
+        staleReason: null,
+      }))
+      .catch((error: unknown) => {
+        clearActiveController();
+        throw error;
+      });
   }
 
   const adapterKind = resolveAdapterKind(normalizedTarget);
@@ -202,7 +235,6 @@ export async function runSourceDebugWorkflow(
       onProgress?.(event);
     },
   });
-  ctx.activeSourceDebugExecutionIdRef.current = runId;
 
   let run = SourceDebugRunRecordSchema.parse({
     id: runId,
@@ -227,11 +259,19 @@ export async function runSourceDebugWorkflow(
       null,
   });
 
-  await ctx.persistSourceDebugRun(run);
-  await ctx.saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
-    ...currentTarget,
-    lastDebugRunId: run.id,
-  }));
+  await ctx.persistSourceDebugRun(run).catch((error: unknown) => {
+    clearActiveController();
+    throw error;
+  });
+  await ctx
+    .saveDiscoveryTargetUpdate(normalizedTarget.id, (currentTarget) => ({
+      ...currentTarget,
+      lastDebugRunId: run.id,
+    }))
+    .catch((error: unknown) => {
+      clearActiveController();
+      throw error;
+    });
 
   const attempts: SourceDebugWorkerAttempt[] = [];
   const strategyFingerprints: string[] = [];
@@ -251,6 +291,8 @@ export async function runSourceDebugWorkflow(
   let finalizationMs: number | null = null;
   let shouldKeepBrowserSessionOpen = false;
   let finishedEarlyAfterUsefulDraft = false;
+
+  ctx.activeSourceDebugExecutionIdRef.current = runId;
 
   try {
     const browserSetupStartedAtMs = Date.now();
@@ -933,9 +975,8 @@ export async function runSourceDebugWorkflow(
     if (browserSessionOpened && !shouldKeepBrowserSessionOpen) {
       await ctx.closeRunBrowserSession(adapterKind).catch(() => {});
     }
-    signal?.removeEventListener("abort", onExternalAbort);
+    clearActiveController();
     ctx.activeSourceDebugExecutionIdRef.current = null;
-    ctx.activeSourceDebugAbortControllerRef.current = null;
   }
 
   return ctx.getWorkspaceSnapshot();

@@ -6,10 +6,10 @@ Owns profile, resume import, discovery, source-debug, resume workspace, review q
 
 ## Responsibilities
 
-- Own guided setup, profile copilot inputs, resume import, discovery, source-debug, resume workspace, review queue, applications, and apply flows.
-- Keep package boundaries typed through `packages/contracts`; desktop IPC should call package APIs rather than package internals.
-- Treat discovery targets, learned source instructions, and browser recovery state as generic source capabilities, not hardcoded board branches.
-- Preserve resume approval and stale-state checks before apply work, and keep live submit disabled unless explicitly re-authorized.
+- Own guided setup, profile copilot, resume import, discovery, source-debug, resume workspace, review queue, applications, and apply flows.
+- Keep boundaries typed through `packages/contracts`.
+- Treat source instructions and browser recovery as generic capabilities, not hardcoded board branches.
+- Preserve resume approval and stale-state checks before apply; keep live submit disabled unless explicitly re-authorized.
 
 ## Important Defaults
 

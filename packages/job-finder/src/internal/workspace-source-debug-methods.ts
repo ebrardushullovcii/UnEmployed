@@ -36,11 +36,13 @@ export function createWorkspaceSourceDebugMethods(
 
   function trackSourceDebugPromise<T>(promise: Promise<T>): Promise<T> {
     ctx.activeSourceDebugPromiseRef.current = promise;
-    void promise.finally(() => {
-      if (ctx.activeSourceDebugPromiseRef.current === promise) {
-        ctx.activeSourceDebugPromiseRef.current = null;
-      }
-    });
+    void promise
+      .finally(() => {
+        if (ctx.activeSourceDebugPromiseRef.current === promise) {
+          ctx.activeSourceDebugPromiseRef.current = null;
+        }
+      })
+      .catch(() => {});
     return promise;
   }
 

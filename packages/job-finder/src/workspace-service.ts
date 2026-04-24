@@ -335,6 +335,10 @@ export function createJobFinderWorkspaceService(
     return JobSourceSchema.safeParse(value).success;
   }
 
+  function describeShutdownFailure(reason: unknown): string {
+    return reason instanceof Error ? reason.message : String(reason);
+  }
+
   async function shutdown(): Promise<void> {
     activeDiscoveryAbortControllerRef.current?.abort();
     activeSourceDebugAbortControllerRef.current?.abort();
@@ -360,7 +364,9 @@ export function createJobFinderWorkspaceService(
     if (rejectedResults.length > 0) {
       console.warn(
         "[JobFinderWorkspace] Shutdown completed with failures",
-        rejectedResults.map((result) => result.reason),
+        rejectedResults.map((result) =>
+          describeShutdownFailure(result.reason),
+        ),
       );
     }
   }

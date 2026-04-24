@@ -465,7 +465,6 @@ describe("createJobFinderWorkspaceService", () => {
   });
 
   test("shutdown aborts an in-flight discovery run before closing persistence", async () => {
-    let allowDiscoveryToFinish: (() => void) | null = null;
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
       async runAgentDiscovery(source, options) {
@@ -478,24 +477,15 @@ describe("createJobFinderWorkspaceService", () => {
           adapterKind: source,
         });
 
-        await new Promise<void>((resolve, reject) => {
-          allowDiscoveryToFinish = resolve;
-          options.signal?.addEventListener(
-            "abort",
-            () => reject(new DOMException("Aborted", "AbortError")),
-            { once: true },
-          );
-        });
+        if (!options.signal?.aborted) {
+          await new Promise<void>((resolve) => {
+            options.signal?.addEventListener("abort", () => resolve(), {
+              once: true,
+            });
+          });
+        }
 
-        return {
-          source,
-          startedAt: "2026-03-20T10:00:00.000Z",
-          completedAt: "2026-03-20T10:00:05.000Z",
-          querySummary: "Long-running discovery test run",
-          warning: null,
-          jobs: [],
-          agentMetadata: null,
-        };
+        throw new DOMException("Aborted", "AbortError");
       },
     };
     const { repository, workspaceService } = createWorkspaceServiceHarness({

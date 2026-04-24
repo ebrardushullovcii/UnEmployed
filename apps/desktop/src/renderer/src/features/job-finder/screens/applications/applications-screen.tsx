@@ -283,22 +283,27 @@ export function ApplicationsScreen(props: {
       }
     }
 
+    const lastFetchedUpdatedAt = lastFetchedApplyRunRef.current?.updatedAt
+    const selectedRunUpdatedAtMs =
+      effectiveSelectedRunUpdatedAt == null
+        ? Number.NaN
+        : Date.parse(effectiveSelectedRunUpdatedAt)
+    const lastFetchedUpdatedAtMs =
+      lastFetchedUpdatedAt == null ? Number.NaN : Date.parse(lastFetchedUpdatedAt)
+    const hasValidParsedUpdatedAt =
+      !Number.isNaN(selectedRunUpdatedAtMs) && !Number.isNaN(lastFetchedUpdatedAtMs)
+
     if (
       lastFetchedApplyRunRef.current?.jobId === effectiveSelectedJobId &&
       lastFetchedApplyRunRef.current?.runId === effectiveSelectedRunId &&
       (effectiveSelectedRunUpdatedAt == null ||
-        (lastFetchedApplyRunRef.current.updatedAt != null &&
-          effectiveSelectedRunUpdatedAt <= lastFetchedApplyRunRef.current.updatedAt))
+        (lastFetchedUpdatedAt != null &&
+          hasValidParsedUpdatedAt &&
+          selectedRunUpdatedAtMs <= lastFetchedUpdatedAtMs))
     ) {
       return () => {
         cancelled = true
       }
-    }
-
-    lastFetchedApplyRunRef.current = {
-      jobId: effectiveSelectedJobId,
-      runId: effectiveSelectedRunId,
-      updatedAt: effectiveSelectedRunUpdatedAt,
     }
 
     setApplyRunDetails(null)
@@ -312,6 +317,11 @@ export function ApplicationsScreen(props: {
           return
         }
 
+        lastFetchedApplyRunRef.current = {
+          jobId: effectiveSelectedJobId,
+          runId: effectiveSelectedRunId,
+          updatedAt: effectiveSelectedRunUpdatedAt,
+        }
         setApplyRunDetails(details)
         setApplyRunDetailsTarget({
           jobId: effectiveSelectedJobId,
@@ -324,6 +334,7 @@ export function ApplicationsScreen(props: {
           return
         }
 
+        lastFetchedApplyRunRef.current = null
         setApplyRunDetails(null)
         setApplyRunDetailsTarget(null)
         setApplyRunDetailsStatus('error')

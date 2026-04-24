@@ -7,7 +7,7 @@ Owns discovery, source-debug, resume workflow, review queue, and apply orchestra
 - Ground outputs in stored profile and workspace data
 - Widen contracts before widening workflow state
 - Keep browser, storage, and AI behind adapters
-- Keep discovery orchestration source-generic; do not add per-board route builders, query maps, title-triage overrides, or policy branches in shared flow
-- Standard provider adapters are acceptable when they represent reusable integration surfaces such as public ATS APIs; board-specific workflow policy is not
-- Prefer evidence-driven route reuse and generic weak-signal handling over source-specific rescue logic
+- Keep discovery orchestration source-generic: no per-board route builders, query maps, triage overrides, or policy branches
+- Provider adapters are acceptable for reusable integration surfaces; board-specific workflow policy is not
+- Prefer evidence-driven route reuse and generic weak-signal handling
 - Keep `src/index.ts` as a thin barrel; put workflow logic in focused internal modules

@@ -5,15 +5,42 @@
 - broad repo check: `pnpm verify`
 - fast preflight: `pnpm verify:quick`
 - affected-only check: `pnpm verify:affected`
+- docs/guidance only: `pnpm validate:docs-only`
+- package-local validation: `pnpm validate:package <package-name|alias|path>`
 - source-generic guard: `pnpm source-generic:check`
 - formatting: `pnpm format`, `pnpm format:check`
 - dead-code cleanup: `pnpm knip`
 
+## Pick Checks
+
+| Change | Prefer |
+| --- | --- |
+| docs or agent guidance only | `pnpm validate:docs-only` |
+| package-local code | `pnpm validate:package <alias>` first, then broader checks only if risk warrants |
+| contracts or IPC | `pnpm validate:contracts` plus affected package typecheck |
+| discovery/source-debug | `pnpm source-generic:check` plus focused package tests |
+| desktop UI | `pnpm validate:desktop` plus the matching UI harness |
+| broad cross-package behavior | `pnpm verify:affected` or `pnpm verify` |
+
+Common package aliases:
+
+- `pnpm validate:desktop`
+- `pnpm validate:job-finder`
+- `pnpm validate:browser-agent`
+- `pnpm validate:browser-runtime`
+- `pnpm validate:contracts`
+
+## Stop Rules
+
+- Do not run `pnpm verify` for docs-only or guidance-only changes.
+- Do not rerun a broad failing command unchanged; isolate the failing package or command first.
+- If a failure is documented as pre-existing and unrelated, report it once and switch to focused validation.
+- Current known unrelated blocker: root `pnpm lint` can fail on `packages/browser-runtime/src/playwright-browser-runtime.test.ts`; use focused package lint plus docs/typecheck checks unless your task touches that file.
+- Rebuild desktop before judging benchmark/source changes because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches `out/main/index.cjs`.
+
 ## Guidance Checks
 
-- `pnpm agents:sync` after shared guidance or skill changes
-- `pnpm agents:check` after agent-guidance changes
-- `pnpm docs:check` after doc or link changes
+- `pnpm validate:docs-only` after shared guidance, skill, doc, or link changes
 
 ## Structure Checks
 
@@ -22,9 +49,8 @@
 
 ## Source-Generic Discovery Guard
 
-- `pnpm source-generic:check` rejects source-branded helper declarations in shared discovery and browser-agent workflow code
-- `packages/browser-agent/src/agent/search-results-budget.test.ts` covers seeded-query review widening, weak same-host widening, provider-board non-widening, phase-driven runs, and small discovery targets
-- run the full surfaces with `pnpm verify`, `pnpm verify:quick`, or `pnpm verify:affected`; run the focused guard directly with `pnpm source-generic:check`
+- `pnpm source-generic:check` rejects source-branded helper declarations in shared discovery/browser-agent workflow code
+- focused coverage includes `packages/browser-agent/src/agent/search-results-budget.test.ts`
 
 ## Desktop Core
 
@@ -35,18 +61,17 @@
 
 ## Desktop UI Harnesses
 
-- shell and theme review: `pnpm --filter @unemployed/desktop ui:capture`
-- resume import: `pnpm --filter @unemployed/desktop ui:resume-import`
-- guided setup: `pnpm --filter @unemployed/desktop ui:profile-setup`
-- profile baseline: `pnpm --filter @unemployed/desktop ui:profile-baseline`
-- profile copilot: `pnpm --filter @unemployed/desktop ui:profile-copilot-preferences`
-- resume workspace: `pnpm --filter @unemployed/desktop ui:resume-workspace`
-- dirty-state resume checks: `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
-- apply recovery and queue controls:
-  - `pnpm --filter @unemployed/desktop ui:applications-copilot-review`
-  - `pnpm --filter @unemployed/desktop ui:applications-recovery`
-  - `pnpm --filter @unemployed/desktop ui:applications-queue-recovery`
-  - `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
+- `pnpm --filter @unemployed/desktop ui:capture`
+- `pnpm --filter @unemployed/desktop ui:resume-import`
+- `pnpm --filter @unemployed/desktop ui:profile-setup`
+- `pnpm --filter @unemployed/desktop ui:profile-baseline`
+- `pnpm --filter @unemployed/desktop ui:profile-copilot-preferences`
+- `pnpm --filter @unemployed/desktop ui:resume-workspace`
+- `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
+- `pnpm --filter @unemployed/desktop ui:applications-copilot-review`
+- `pnpm --filter @unemployed/desktop ui:applications-recovery`
+- `pnpm --filter @unemployed/desktop ui:applications-queue-recovery`
+- `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
 
 ## Safety Rules
 
@@ -63,8 +88,5 @@ Track-specific validation and product-bar requirements live in the handoff layer
 
 ## Resume-Import Benchmark
 
-- `019` established the current resume-import quality baseline with benchmarked local import quality and a replayable benchmark corpus
-- canonical corpus: `apps/desktop/test-fixtures/job-finder/resume-import-sample.txt` and `docs/resume-tests/Ebrar.pdf`, declared in `apps/desktop/src/main/services/job-finder/resume-import-benchmark.ts`
-- baseline metrics are emitted per run as literal-field precision/recall, experience-record F1, education-record F1, evidence coverage, auto-apply precision, and unresolved rate; the deterministic canary is expected to pass all declared literal fields and required experience records
-- replay from the desktop harness with `pnpm --filter @unemployed/desktop benchmark:resume-import`; the UI harness entry point is `pnpm --filter @unemployed/desktop ui:resume-import`
-- benchmark output is a `ResumeImportBenchmarkReport` containing aggregate metrics, case results, parser strategy, taxonomy notes, and pass/fail state
+- replay with `pnpm --filter @unemployed/desktop benchmark:resume-import`
+- corpus is declared in `apps/desktop/src/main/services/job-finder/resume-import-benchmark.ts`

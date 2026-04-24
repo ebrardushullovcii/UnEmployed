@@ -8,16 +8,18 @@ Read this doc when changing repo guidance, generated adapters, or the handoff mo
 - nearest package `AGENTS.md`: local rules
 - `docs/README.md`: doc map
 - `docs/STATUS.md` and `docs/TRACKS.md`: current state
-- `docs/exec-plans/`: task-scoped detail
-- `docs/HISTORY.md` and `docs/decisions/`: completed background
+- `docs/exec-plans/`: task detail
+- `docs/HISTORY.md` and `docs/decisions/`: background
 - `.agents/skills/`: reusable workflows
 - `.agents/registry.yaml`: machine-readable map
 - `CLAUDE.md`, `.cursor/rules/00-project.mdc`, `.claude/skills/`: generated adapters
 
 ## Reading Order
 
-- normal implementation: `AGENTS.md` -> `docs/README.md` -> `docs/STATUS.md` -> `docs/TRACKS.md` -> linked active or queued exec plan -> nearest package `AGENTS.md`
-- repo-guidance work: add this file and `.agents/registry.yaml`; use `.agents/registry.yaml` to find the nearest active or queued exec plan when the handoff docs reference one
+- normal work: `AGENTS.md` -> `docs/README.md` -> task-specific docs only
+- active feature or handoff work: add `docs/STATUS.md`, `docs/TRACKS.md`, and the relevant exec plan
+- package edits/reviews: add the nearest package `AGENTS.md`
+- repo-guidance work: also read this file and `.agents/registry.yaml`
 
 ## Rules
 
@@ -31,4 +33,4 @@ Read this doc when changing repo guidance, generated adapters, or the handoff mo
 
 - update canonical docs first
 - update affected package `AGENTS.md` files if local rules changed
-- run `pnpm agents:sync`, `pnpm agents:check`, and `pnpm docs:check`
+- run `pnpm validate:docs-only`

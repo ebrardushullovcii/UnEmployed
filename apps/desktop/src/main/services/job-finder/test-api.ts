@@ -30,7 +30,8 @@ export function isDesktopTestApiEnabled(
 export function isBrowserAgentEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
+  const configuredValue =
+    env.UNEMPLOYED_BROWSER_AGENT ?? env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT;
 
   if (configuredValue == null) {
     return true;
@@ -44,7 +45,7 @@ export function isBrowserAgentEnabled(
     return true;
   }
 
-  return true;
+  return false;
 }
 
 export function isBrowserHeadlessEnabled(

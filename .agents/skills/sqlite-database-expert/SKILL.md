@@ -1,7 +1,7 @@
 ---
 name: SQLite Database Expert
 risk_level: HIGH
-description: Expert in SQLite embedded database development for Tauri/desktop applications with focus on SQL injection prevention, migrations, FTS search, and secure data handling
+description: Use for SQLite desktop persistence work involving queries, migrations, FTS, WAL, SQL injection prevention, or secure data handling.
 version: 1.0.0
 author: JARVIS AI Assistant
 tags: [database, sqlite, sql, embedded, migrations, fts, security]
