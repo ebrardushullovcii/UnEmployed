@@ -337,7 +337,7 @@ async function resetDiscoveryState(window) {
     },
   };
 
-  return window.evaluate(async (state) => {
+  await window.evaluate(async (state) => {
     if (!window.unemployed.jobFinder.test?.resetWorkspaceState) {
       throw new Error(
         "Current-workspace benchmark reset requires desktop test API support.",
@@ -346,6 +346,8 @@ async function resetDiscoveryState(window) {
 
     return window.unemployed.jobFinder.test.resetWorkspaceState(state);
   }, resetState);
+
+  return workspace;
 }
 
 async function withScopedCurrentWorkspaceTargets(

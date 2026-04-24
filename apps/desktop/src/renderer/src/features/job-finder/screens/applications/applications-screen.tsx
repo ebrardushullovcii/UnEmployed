@@ -218,7 +218,13 @@ export function ApplicationsScreen(props: {
   const latestApplyRunIdForSelectedRecord = applyResultsForSelectedRecord[0]?.runId ?? null
   const effectiveSelectedJobId = effectiveSelectedRecord?.jobId ?? null
   const effectiveSelectedRunId = effectiveSelectedApplyResult?.runId ?? null
-  const effectiveSelectedRunUpdatedAt = effectiveSelectedApplyResult?.updatedAt ?? null
+  const selectedApplyRun = effectiveSelectedRunId
+    ? applyRunsById.get(effectiveSelectedRunId) ?? null
+    : null
+  const effectiveSelectedRunUpdatedAt =
+    [selectedApplyRun?.updatedAt, effectiveSelectedApplyResult?.updatedAt]
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null
   const showLatestAttemptDetails =
     !effectiveSelectedApplyRunId ||
     !latestApplyRunIdForSelectedRecord ||

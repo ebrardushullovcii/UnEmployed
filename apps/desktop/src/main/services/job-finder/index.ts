@@ -15,6 +15,7 @@ export {
   isBrowserHeadlessEnabled,
   isDesktopTestApiEnabled,
   isBrowserAgentEnabled,
+  resetInvalidBooleanEnvWarnings,
   parseResumeImportPathPayload,
   type ResumeImportPathPayload
 } from './test-api'

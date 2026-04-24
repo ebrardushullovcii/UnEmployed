@@ -1,6 +1,6 @@
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createDesktopJobFinderAiClient } from './create-workspace-service'
-import { isBrowserAgentEnabled } from './test-api'
+import { isBrowserAgentEnabled, resetInvalidBooleanEnvWarnings } from './test-api'
 
 describe('createDesktopJobFinderAiClient', () => {
   test('forces the deterministic client when the desktop test API is enabled', () => {
@@ -47,6 +47,16 @@ describe('createDesktopJobFinderAiClient', () => {
 })
 
 describe('isBrowserAgentEnabled', () => {
+  beforeEach(() => {
+    resetInvalidBooleanEnvWarnings()
+    vi.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    resetInvalidBooleanEnvWarnings()
+    vi.restoreAllMocks()
+  })
+
   test('defaults to enabled when the flag is unset', () => {
     expect(isBrowserAgentEnabled({})).toBe(true)
   })
@@ -71,6 +81,20 @@ describe('isBrowserAgentEnabled', () => {
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith(
       '[desktop test-api] Unrecognized UNEMPLOYED_BROWSER_AGENT value: "yes". Falling back to the default enabled behavior.',
+    )
+
+    warnSpy.mockRestore()
+  })
+
+  test('dedupes unknown values across casing and whitespace differences', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: ' yes ' })).toBe(true)
+    expect(isBrowserAgentEnabled({ UNEMPLOYED_BROWSER_AGENT: 'YES' })).toBe(true)
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[desktop test-api] Unrecognized UNEMPLOYED_BROWSER_AGENT value: " yes ". Falling back to the default enabled behavior.',
     )
   })
 })

@@ -73,6 +73,12 @@ Common package aliases:
 - `pnpm --filter @unemployed/desktop ui:applications-queue-recovery`
 - `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
 
+## Running Desktop Benchmarks
+
+- Run from the repo root: `pnpm --filter @unemployed/desktop build`
+- Do this before desktop benchmark scripts or benchmark-backed source/debug checks because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches `out/main/index.cjs`, and stale build output can invalidate results
+- Context and current evidence live in `docs/exec-plans/active/017-experiment-tracker.md`
+
 ## Safety Rules
 
 - do not run live-site submit flows or final-submit QA unless the user explicitly re-authorizes it

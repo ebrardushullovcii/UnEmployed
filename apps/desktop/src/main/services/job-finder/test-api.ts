@@ -4,6 +4,10 @@ export interface ResumeImportPathPayload {
 
 const warnedInvalidEnvValues = new Set<string>();
 
+export function resetInvalidBooleanEnvWarnings() {
+  warnedInvalidEnvValues.clear();
+}
+
 function normalizeFlagValue(value: string | null | undefined): string | null {
   if (value == null) {
     return null;
@@ -24,7 +28,8 @@ function isDisabled(value: string | null | undefined): boolean {
 }
 
 function warnInvalidBooleanEnvValue(variableName: string, configuredValue: string) {
-  const warningKey = `${variableName}:${configuredValue}`;
+  const normalizedConfiguredValue = normalizeFlagValue(configuredValue) ?? configuredValue.trim().toLowerCase();
+  const warningKey = `${variableName}:${normalizedConfiguredValue}`;
   if (warnedInvalidEnvValues.has(warningKey)) {
     return;
   }
