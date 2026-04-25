@@ -237,11 +237,6 @@ export function normalizeExtractedJobs(input: {
     const rawCanonicalUrl =
       toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link);
     const originalRawTitle = trimToNull(raw.title);
-    const normalizedCompositeTitle = normalizeCompositeTitle(
-      originalRawTitle ?? "",
-    );
-    const normalizedTitle =
-      trimToNull(normalizedCompositeTitle.title) ?? originalRawTitle ?? "";
 
     const fallbackUrl = input.pageType === "job_detail" ? input.pageUrl : "";
     const derivedCanonicalUrl = buildGenericCanonicalUrl(
@@ -262,13 +257,12 @@ export function normalizeExtractedJobs(input: {
 
     const rawCompany = trimToNull(raw.company);
     const normalizedPair = normalizeTitleCompanyPair({
-      title: originalRawTitle ?? normalizedTitle,
+      title: originalRawTitle ?? "",
       company: rawCompany,
     });
-    const pairChanged =
-      normalizedPair.title !== (originalRawTitle ?? normalizedTitle) ||
-      normalizedPair.company !== rawCompany;
-    const normalizedJobTitle = pairChanged ? normalizedPair.title : normalizedTitle;
+    const normalizedCompositeTitle = normalizeCompositeTitle(normalizedPair.title);
+    const normalizedJobTitle =
+      trimToNull(normalizedCompositeTitle.title) ?? normalizedPair.title;
     const responsibilities = toStringArray(raw.responsibilities);
     const minimumQualifications = toStringArray(
       raw.minimumQualifications ?? raw.requirements ?? raw.qualifications,

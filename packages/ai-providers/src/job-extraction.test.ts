@@ -1,3 +1,4 @@
+import { ok as assert } from "node:assert/strict";
 import { describe, expect, test, vi } from "vitest";
 import { createJobFinderAiClientFromEnvironment } from "./index";
 import {
@@ -6,6 +7,38 @@ import {
   normalizeTitleCompanyPair,
 } from "./deterministic/job-extraction";
 import { createEnvironment, mockJsonFetch } from "./test-fixtures";
+
+type CapturedRequestBody = {
+  messages?: Array<{ content: string }>;
+};
+
+function isCapturedRequestBody(value: unknown): value is CapturedRequestBody {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const maybeBody = value as { messages?: unknown };
+  if (maybeBody.messages == null) {
+    return true;
+  }
+
+  return (
+    Array.isArray(maybeBody.messages) &&
+    maybeBody.messages.every((message) => {
+      if (!message || typeof message !== "object") {
+        return false;
+      }
+
+      return typeof (message as { content?: unknown }).content === "string";
+    })
+  );
+}
+
+function assertCapturedRequestBody(
+  value: unknown,
+): asserts value is CapturedRequestBody {
+  assert(isCapturedRequestBody(value), "capturedBody missing");
+}
 
 describe("normalizeCompositeTitle", () => {
   test("strips posted-at suffixes across supported languages", () => {
@@ -538,6 +571,53 @@ describe("job extraction with openai-compatible client", () => {
     }
   });
 
+  test("rejects title-at-company rows instead of persisting the inferred company as location", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              jobs: [
+                {
+                  title: "Backend Engineer at Signal Systems",
+                  company: "",
+                  location: "",
+                  canonicalUrl: "https://jobs.example.com/backend-engineer",
+                  description: "Build backend systems.",
+                  applyPath: "unknown",
+                  easyApplyEligible: false,
+                  workMode: [],
+                  keySkills: ["Node.js"],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: "Backend Engineer role",
+        pageUrl: "https://jobs.example.com/search",
+        pageType: "search_results",
+        maxJobs: 5,
+      });
+
+      expect(jobs).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Top invalid fields: location(1)"),
+      );
+    } finally {
+      vi.restoreAllMocks();
+      restoreFetch();
+    }
+  });
+
   test("repairs reversed company-at-title search results before validation", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
@@ -736,13 +816,11 @@ describe("job extraction with openai-compatible client", () => {
 
   test("uses lighter request limits for search-results extraction to reduce first-pass stalls", async () => {
     const originalFetch = globalThis.fetch;
-    let capturedBody: { messages?: Array<{ content: string }> } | null = null;
+    let capturedBody: unknown = null;
 
     globalThis.fetch = ((_, init) => {
       const requestBody = typeof init?.body === "string" ? init.body : "{}";
-      capturedBody = JSON.parse(requestBody) as {
-        messages?: Array<{ content: string }>;
-      };
+      capturedBody = JSON.parse(requestBody) as unknown;
 
       return Promise.resolve(
         new Response(
@@ -777,21 +855,18 @@ describe("job extraction with openai-compatible client", () => {
       });
 
       expect(capturedBody).not.toBeNull();
-      if (!capturedBody) {
-        throw new Error("Expected the extraction request body to be captured.");
-      }
-      // TypeScript needs explicit type annotation after null check due to control flow analysis
-      const requestBody: { messages?: Array<{ content: string }> } =
-        capturedBody;
-      const messages = requestBody.messages ?? [];
+      assertCapturedRequestBody(capturedBody);
+      const messages = capturedBody.messages ?? [];
       expect(messages[0]?.content).toContain("Return at most 4 jobs.");
       expect(messages[0]?.content).toContain(
         "If only a short search-results snippet is visible",
       );
-      const userPayload = JSON.parse(messages[1]?.content ?? "{}") as {
-        pageText?: string;
-      };
-      expect(userPayload.pageText?.length ?? 0).toBeLessThanOrEqual(8000);
+      const parsedUserPayload = JSON.parse(messages[1]?.content ?? "{}") as unknown;
+      const pageText =
+        parsedUserPayload && typeof parsedUserPayload === "object"
+          ? (parsedUserPayload as { pageText?: unknown }).pageText
+          : undefined;
+      expect(typeof pageText === "string" ? pageText.length : 0).toBeLessThanOrEqual(8000);
     } finally {
       globalThis.fetch = originalFetch;
     }

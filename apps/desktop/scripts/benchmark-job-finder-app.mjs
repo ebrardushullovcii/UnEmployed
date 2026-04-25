@@ -6,7 +6,6 @@ import { _electron as electron } from "playwright";
 import {
   isDisabled,
   isEnabled,
-  normalizeFlagValue,
 } from "../src/main/services/job-finder/env-flags.mjs";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
