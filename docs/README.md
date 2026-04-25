@@ -34,7 +34,7 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 
 Current active plan:
 
-- `docs/exec-plans/active/017-browser-substrate-evaluation-and-direction.md`
+- none
 
 Plan directories:
 

@@ -18,26 +18,17 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Active
 
-### `017 Browser Substrate Evaluation And Direction`
-
-- status: `in_progress`
-- last updated: `2026-04-24`
-- linked plan: `docs/exec-plans/active/017-browser-substrate-evaluation-and-direction.md`
-- focus: improve the real desktop browser loop on the current stack before considering a substrate change
-- current blockers:
-  - `Check source` cost remains too high, especially Kosovajob
-  - LinkedIn source-debug can finish failed after proving a usable draft route
-  - LinkedIn persisted title/company extraction still has pollution
-  - Kosovajob recent truthful reruns persist `0` jobs in single-target and `run_all`
-  - `browser-runtime` imports catalog session creation from `browser-agent`
-  - root `pnpm lint` is blocked by pre-existing `packages/browser-runtime/src/playwright-browser-runtime.test.ts` issues
-- next step:
-  - reduce real-app `Check source` cost
-  - clean LinkedIn title/company extraction while preserving recovered multi-job persistence
-  - keep Kosovajob diagnosis separate and source-generic: fix technical-job survival and over-exploration without adding core per-board policy
-  - remove remaining source-named helper debt where it is not provider metadata, fixtures, or reusable adapter data
+- none
 
 ## Reopenable Baselines
+
+### `017 Browser Substrate Evaluation And Direction`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/017-browser-substrate-evaluation-and-direction.md`
+- completed current-stack evaluation; no substrate change is justified by current evidence
+- reopen only for a concrete browser-loop regression, source-generic discovery improvement, or explicit substrate decision
+- Kosovajob `0` persisted jobs can be valid when the board has few suitable matches for the current resume; judge it by visible-fit evidence, not count alone
 
 ### `019 World-Class Resume Import`
 
@@ -78,4 +69,4 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import
-- Keep repo-level quality commands aligned with actual workflow and CI once `pnpm lint` is unblocked from the known `packages/browser-runtime/src/playwright-browser-runtime.test.ts` failures
+- Open new discovery/browser work only when there is a concrete source-generic improvement, ownership cleanup, or substrate decision to make

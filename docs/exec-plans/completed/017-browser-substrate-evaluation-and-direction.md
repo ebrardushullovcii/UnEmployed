@@ -1,6 +1,6 @@
 # 017 Browser Substrate Evaluation And Direction
 
-Status: active
+Status: completed
 
 ## Goal
 
@@ -31,7 +31,7 @@ Primary user-facing bar:
 8. prefer general solutions that scale across sources: stronger agent instructions, evidence-driven route reuse, and generic heuristics
 9. if a source quirk does not generalize, keep it contained in agent behavior or extraction handling instead of codifying it in core flow
 
-## Current State
+## What Landed
 
 - Query-first LinkedIn starts, route hygiene, Chrome attach reuse, and several extraction fixes are landed
 - LinkedIn polluted-card parsing and downstream review now recover multiple persisted jobs in truthful rebuilt desktop runs
@@ -39,24 +39,23 @@ Primary user-facing bar:
 - Source-debug now uses generic phase selection and step-budget reduction when existing evidence makes full exploration lower value
 - Desktop benchmark harness fixes are landed: single-session single-target flows, temporary disabled-target scoping, and end-to-end current-workspace session reuse
 - Truthful rebuilt desktop benchmarks moved LinkedIn from the old `0`/`1 persisted` ceiling to `5` in single-target `Search now` and `6` in LinkedIn-only `run_all`
-- Kosovajob remains the weakest real target for both speed and quality
+- Kosovajob remains the weakest real target for speed and quality, but `0` persisted jobs is acceptable when few visible jobs match the current resume
 - Full app-triggered flows are the benchmark source of truth, not narrower service slices
 
-## Highest-Signal Open Problems
+## Accepted Residuals
 
-1. `Check source` still overpays on phase count and synchronous review cost
-2. LinkedIn candidate quality is now good enough to persist multiple jobs, but some titles/companies remain polluted and should be cleaned further
-3. Kosovajob discovery still spends too much effort on weak or non-technical jobs
-4. `browser-runtime` still has a catalog-session seam that depends on `browser-agent`
+1. `Check source` can still be optimized, but further work should be scoped as a concrete product-speed task
+2. Some extracted title/company pollution can be cleaned when it affects user-visible quality
+3. Kosovajob should be judged by visible-fit evidence, not persisted count alone, because the board can have few suitable matches
+4. `browser-runtime` still has a catalog-session seam that depends on `browser-agent`; fix it when touching runtime ownership
 5. Future truthful desktop benchmarks must run against a rebuilt desktop bundle; `benchmark-job-finder-app.mjs` launches `out/main/index.cjs` and does not rebuild automatically
-6. Root repo lint is currently blocked by unrelated `packages/browser-runtime/src/playwright-browser-runtime.test.ts` violations, so cleanup validation should rely on focused package lint plus root docs and typecheck until that debt is cleared
 
 ## Latest Truthful Checkpoints
 
 - LinkedIn: `Check source` `250.5s` `draft` but failed finish state; `Search now` `53.3s` with `5 persisted`; LinkedIn-only `run_all` `101.6s` with `6 persisted`
 - Kosovajob: `Check source` `343.6s` `draft`; `Search now` `205.7s` with `0 persisted`; Kosovajob-only `run_all` `220.8s` with `0 persisted`
 - Remote Greenhouse control: `Check source` `190.6s`; `Search now` `0.4s` with `2 persisted`; `run_all` `0.6s` with `2 persisted`
-- Full rerun history and report paths: `docs/exec-plans/active/017-experiment-tracker.md`
+- Full rerun history and report paths: `docs/exec-plans/completed/017-experiment-tracker.md`
 
 ## Decisions Already Made
 
@@ -67,19 +66,14 @@ Primary user-facing bar:
 - Treat existing provider-specific core discovery policy as cleanup debt to remove, not a pattern to copy
 - Keep volatile rerun-by-rerun history out of `docs/STATUS.md` and `docs/TRACKS.md`
 
-## Next Steps
+## What It Means Now
 
-1. Rebuild and rerun truthful `Check source` flows to measure the generic phase-selection and step-budget changes before adding more latency work, with special attention to the remaining LinkedIn source-debug failed-finish behavior
-2. Keep auditing source-named helper debt; remaining source labels should stay limited to provider metadata, profile fields, fixtures, or reusable adapter data
-3. Clean remaining LinkedIn title/company pollution now that multiple candidates survive into persistence
-4. Keep Kosovajob as a separate investigation path from LinkedIn: reduce source-debug and discovery over-exploration, then improve technical-role survival on the homepage query/detail pattern that the real app actually observes without adding Kosovajob-only branches to core `job-finder` discovery orchestration
-   - Any Kosovajob-specific handling must stay inside contained `browser-agent` extraction or navigation logic, or reusable adapter data, not shared discovery policy
-   - This must conform to `docs/ARCHITECTURE.md`: core `job-finder` discovery remains source-generic while unavoidable site quirks stay contained in `browser-agent` or adapter data
-5. Fix the `browser-runtime` -> `browser-agent` catalog seam if it blocks clearer ownership or further optimization
-6. Revisit alternate substrates only after the current stack has another measured pass
+1. Keep the current Playwright-backed stack; `017` did not prove that a new substrate is necessary
+2. Preserve the source-generic architecture ruling from this plan for future discovery work
+3. Reopen browser-loop work only through a concrete follow-up with a narrow product goal and fresh full-app evidence
 
 ## Evidence
 
 - Full-app benchmark reports: `apps/desktop/test-artifacts/ui/job-finder-app-benchmark/`
 - Provider checkpoint: `apps/desktop/test-artifacts/ui/013-benchmark-service/017-provider-phase-fast-path.json`
-- Weak-target checkpoints live in `docs/exec-plans/active/017-experiment-tracker.md`
+- Weak-target checkpoints live in `docs/exec-plans/completed/017-experiment-tracker.md`

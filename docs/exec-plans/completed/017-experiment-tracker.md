@@ -1,8 +1,8 @@
 # 017 Experiment Tracker
 
-Status: active
+Status: completed
 
-This file is the working log for `017`. Keep only current baselines, confirmed wins, open bottlenecks, next experiments, and report paths.
+This file retains the working log for completed plan `017`: current baselines, confirmed wins, accepted residuals, reopenable follow-ups, and report paths.
 
 ## Architecture Ruling
 
@@ -53,16 +53,16 @@ This file is the working log for `017`. Keep only current baselines, confirmed w
 - Improved weak-board review budgets and technical-role fallback for KosovaJob-like sources
 - Reduced one source-debug cost by skipping final AI review for first-run draft-only failures
 
-## Current Bottlenecks
+## Accepted Residuals
 
 - Default seeded benchmark runs are not a truthful proxy for the `017` product bar because the committed fixture uses a London/design profile that does not match the current-workspace LinkedIn and KosovaJob targets used in truthful reruns
 - shared discovery still contains some source-named helper debt from the LinkedIn recovery work, even after the first cleanup pass
 - LinkedIn now persists multiple candidates in the rebuilt real app, but some extracted titles and companies remain polluted
 - `Check source` still does too much work before returning control
-- KosovaJob is now starting from a better homepage query route, but `Search now` still misses too many visible technical jobs and overall runtime remains much worse than LinkedIn or Greenhouse
+- KosovaJob is now starting from a better homepage query route, but `0` persisted jobs can be valid when the board has few suitable matches for the current resume; judge future work by visible-fit evidence, not count alone
 - Provider-backed source-debug still needs restabilization
 
-## Next Experiments
+## Reopenable Follow-Ups
 
 1. Finish removing remaining source-named helper debt and replace it with source-generic orchestration rules
 2. Remove more first-run `Check source` cost, especially the LinkedIn source-debug path that still returns a failed run state after proving a usable draft route
@@ -72,6 +72,6 @@ This file is the working log for `017`. Keep only current baselines, confirmed w
 
 ## References
 
-- Plan: `docs/exec-plans/active/017-browser-substrate-evaluation-and-direction.md`
+- Plan: `docs/exec-plans/completed/017-browser-substrate-evaluation-and-direction.md`
 - Full-app reports: `apps/desktop/test-artifacts/ui/job-finder-app-benchmark/`
 - Provider checkpoint: `apps/desktop/test-artifacts/ui/013-benchmark-service/017-provider-phase-fast-path.json`

@@ -16,4 +16,4 @@ Retain the key before-vs-after benchmark outcome for the `013` discovery and sou
 ## Use Now
 
 - historical benchmark context only
-- active performance truth now comes from `docs/exec-plans/active/017-experiment-tracker.md`
+- later performance evidence is retained in `docs/exec-plans/completed/017-experiment-tracker.md`
