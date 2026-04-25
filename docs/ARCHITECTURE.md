@@ -2,35 +2,59 @@
 
 ## Workspaces
 
-- `apps/desktop`: Electron shell, preload bridge, React renderer
-- `packages/contracts`: schemas, enums, DTOs, typed IPC contracts
-- `packages/core`: shared result types and small cross-cutting helpers
-- `packages/db`: local persistence and repository boundaries
-- `packages/knowledge-base`: ingestion, chunking, retrieval, search
-- `packages/browser-agent`: generic browser-worker prompts, tools, transcript compaction, tool policy, and site- or workflow-specific agent behavior including deterministic catalog workflow orchestration
-- `packages/browser-runtime`: browser session lifecycle and generic automation primitives
-- `packages/job-finder`: discovery, drafting, apply workflow orchestration
-- `packages/interview-helper`: prep, live session, transcript, cue generation
-- `packages/ai-providers`: provider interfaces and adapters
-- `packages/os-integration`: tray, hotkeys, overlay window lifecycle, and window or capture policy adapters
-- `packages/testing`: fake providers, fixtures, and integration harnesses
+- `apps/desktop`: Electron main, preload, renderer
+- `packages/contracts`: schemas, DTOs, typed IPC
+- `packages/core`: small shared helpers and result types
+- `packages/db`: persistence and repository boundaries
+- `packages/knowledge-base`: ingestion, chunking, retrieval
+- `packages/browser-runtime`: browser lifecycle and generic automation primitives
+- `packages/browser-agent`: browser workflow policy, prompts, tool use, structured outputs
+- `packages/job-finder`: discovery, source-debug, resume, apply orchestration
+- `packages/interview-helper`: prep, live session, transcript, cues
+- `packages/ai-providers`: provider interfaces and adapters for chat, vision, STT, and embeddings
+- `packages/os-integration`: tray, hotkeys, windows, capture-policy adapters
+- `packages/testing`: fixtures, fakes, harness helpers
 
-## Architectural Rules
+## Boundary Rules
 
-- UI talks to Electron main only through typed preload APIs.
-- Shared contracts are defined once in `packages/contracts`.
-- Package public APIs are the only supported import surface.
-- Package entrypoints such as `src/index.ts` should stay thin and mostly re-export internal modules instead of accumulating implementation.
-- External IO must be schema-validated at the boundary.
-- Agent handoff state lives in docs, not in chat history.
-- Interview overlay state belongs to `packages/interview-helper`; platform window behavior belongs to `packages/os-integration`.
+- renderer talks to Electron main through typed preload APIs only
+- cross-package contracts live in `packages/contracts`
+- package public APIs are the only supported import surface
+- `browser-runtime` stays generic; site or workflow policy belongs higher
+- `job-finder` core discovery stays source-generic; do not add per-board route builders, query maps, triage overrides, or policy branches that only make sense for one job source
+- source-specific code is acceptable only for reusable provider adapters or contained `browser-agent` extraction/navigation quirks
+- prefer evidence-driven route reuse, stronger agent instructions, and generic heuristics over codifying board-specific rules; if a behavior does not generalize, leave it to the agent instead of hardcoding it
+- `pnpm source-generic:check` guards this boundary
+- interview overlay state belongs to `interview-helper`; window lifecycle belongs to `os-integration`
+- native helpers are a last resort when Electron APIs are insufficient
+- native code stays behind `packages/os-integration`, not directly in renderer or unrelated package flows
+- document every native addition here and in the relevant module or platform doc
 
-## Cross-Package Flows
+## Main Flows
 
-- Desktop flow: renderer -> typed preload APIs -> Electron main -> package services.
-- Resume and profile flow: `apps/desktop` handles local file ingress plus parser routing into canonical resume document bundles, `packages/job-finder` owns staged import orchestration and safe canonical application, `packages/ai-providers` normalizes staged model outputs, and `packages/db` persists both canonical profile state and durable import-run artifacts.
-- Discovery and apply flow: `packages/job-finder` owns orchestration and adapter selection, including deriving bounded retry context from prior saved apply runs and replay checkpoints for the same job; `packages/browser-agent` owns bounded agent tasks, prompts, transcript compaction, tool policy, structured outputs, and deterministic catalog workflow orchestration such as filtering, eligibility gates, checkpoint shaping, approved-resume usage rules, and recovery-checkpoint shaping; and `packages/browser-runtime` owns browser session lifecycle and generic automation primitives. The staged apply runtime now widens behind `executeApplicationFlow(...)`, where runtime keeps the generic execution seam and browser-agent or job-finder layers keep the policy that decides whether a run is review-safe `prepare_only` copilot work or later submit-enabled work.
-- Source-debug flow: `packages/job-finder` owns phase orchestration, artifact synthesis, and replay verification; `packages/browser-agent` keeps worker transcripts ephemeral, owns prompt and tool policy, and returns structured schema-validated attempt data; `packages/db` retains durable run and artifact records while workspace snapshots keep only lightweight UI summaries.
-- Shared compaction flow: `packages/contracts` owns reusable compaction policy schemas, snapshot shapes, and handoff-mode enums, but not the runtime decision logic itself; `packages/browser-runtime` exposes the model-window and token-estimation capability inputs that long-running agent runs can consume; `packages/browser-agent` applies the runtime token-first live transcript compaction logic with message-count fallback while keeping full transcripts ephemeral; and `packages/job-finder` applies workflow-specific overrides plus summary-first multi-phase handoffs while persisting only lightweight compaction metadata instead of the full hidden transcript payloads.
-- Renderer and Electron surfaces should consume `packages/browser-agent` only through typed higher-level package APIs or runtime seams; they should not depend on browser-agent internals directly.
-- Interview flow: `packages/interview-helper` owns prep and live-session state, while `packages/os-integration` owns tray, hotkeys, overlay window lifecycle, and platform-specific capture policy.
+- desktop: renderer -> preload -> Electron main -> package services
+- resume import: desktop ingress -> parser routing -> import artifacts -> accepted canonical writes
+- discovery/apply: `job-finder` orchestrates, `browser-agent` executes bounded policy, `browser-runtime` owns sessions
+- source-debug: `job-finder` orchestrates phases and artifacts, `browser-agent` returns structured attempts, `db` persists runs and evidence
+
+## Resume Safety & Approval
+
+- approved resume exports must be current before apply: stale drafts cannot be used as approved exports
+- stale or missing approval blocks apply approval with a review/export requirement
+- staleness rules live in `packages/job-finder/src/internal/resume-workspace-staleness.ts`
+
+## Native Modules
+
+- native helpers live behind `packages/os-integration`
+- native additions require both this architecture entry and the relevant module or platform documentation
+
+## AI Provider Module Shape
+
+- `packages/ai-providers` owns chat, vision, STT, embedding, deterministic parsing, and fallback adapters
+- keep `packages/ai-providers/src/index.ts` as a thin barrel
+- split deterministic parsing, model transport, and fallback composition into separate internal modules before adapters grow large
+
+## Known Debt
+
+- active work still needs to remove the catalog-session seam where `browser-runtime` depends on `browser-agent`
+- remaining source-named discovery debt from `017` must not expand to other sources

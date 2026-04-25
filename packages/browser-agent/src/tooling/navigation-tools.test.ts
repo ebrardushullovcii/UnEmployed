@@ -71,6 +71,7 @@ describe("navigate", () => {
       goto: vi.fn().mockResolvedValue(undefined),
       url: vi.fn(() => "https://www.linkedin.com/jobs/collections/recommended"),
       title: vi.fn().mockResolvedValue("Recommended jobs | LinkedIn"),
+      evaluate: vi.fn().mockResolvedValue([]),
     } as unknown as Page;
 
     const tool = navigationTools.find((candidate) => candidate.name === "navigate");
@@ -113,5 +114,71 @@ describe("navigate", () => {
       }),
     });
     expect(state.failedInteractionAttempts.size).toBe(0);
+  });
+
+  test("dismisses obstructive overlays after successful navigation", async () => {
+    const overlayButton = {
+      count: vi.fn().mockResolvedValue(1),
+      first: vi.fn(),
+      click: vi.fn().mockResolvedValue(undefined),
+    };
+    const missingButton = {
+      count: vi.fn().mockResolvedValue(0),
+      first: vi.fn(),
+      click: vi.fn().mockResolvedValue(undefined),
+    };
+    overlayButton.first.mockReturnValue(overlayButton);
+    missingButton.first.mockReturnValue(missingButton);
+
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn(() => 'https://example.com/jobs'),
+      title: vi.fn().mockResolvedValue('Jobs'),
+      evaluate: vi.fn().mockResolvedValue([{ label: 'Close', role: 'button' }]),
+      getByRole: vi.fn((role: string, options?: { name?: string; exact?: boolean }) => {
+        if (role === 'button' && String(options?.name ?? '').toLowerCase() === 'close') {
+          return overlayButton;
+        }
+
+        return missingButton;
+      }),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Page;
+
+    const tool = navigationTools.find((candidate) => candidate.name === 'navigate');
+    if (!tool) {
+      throw new Error('navigate tool is not registered');
+    }
+
+    const state = {
+      currentUrl: 'https://example.com',
+      visitedUrls: new Set<string>(),
+      failedInteractionAttempts: new Map(),
+    };
+
+    const result = await tool.execute(
+      {
+        url: 'https://example.com/jobs',
+        waitFor: 'domcontentloaded',
+        timeout: 5000,
+      },
+      {
+        page,
+        state: state as never,
+        config: {
+          navigationPolicy: {
+            allowedHostnames: ['example.com'],
+          },
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        url: 'https://example.com/jobs',
+      }),
+    });
+    expect(overlayButton.click).toHaveBeenCalled();
   });
 });

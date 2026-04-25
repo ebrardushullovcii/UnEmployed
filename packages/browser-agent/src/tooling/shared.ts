@@ -7,12 +7,34 @@ export const MAX_NAVIGATION_TIMEOUT = 120_000;
 const MAX_ACCESSIBLE_NAME_PATTERN_LENGTH = 200;
 const BOUNDED_WHITESPACE_PATTERN = "(?:\\s{1,8})";
 const INTERACTIVE_ELEMENT_LIMIT = 30;
+const OVERLAY_CLOSE_TEXT_PATTERN =
+  /^(?:x|close|dismiss|skip|cancel|not\s*now|maybe\s*later|no\s*thanks?|got\s*it|continue)$/i;
+
+export function canCaptureAriaSnapshot(
+  value: unknown,
+): value is { ariaSnapshot: () => Promise<unknown> } {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "ariaSnapshot" in value &&
+    typeof value.ariaSnapshot === "function",
+  );
+}
 
 export const NavigateSchema = z
   .object({
     url: z.string().url(),
-    timeout: z.number().int().positive().max(MAX_NAVIGATION_TIMEOUT).optional().default(30000),
-    waitFor: z.enum(["domcontentloaded", "load", "networkidle"]).optional().default("domcontentloaded"),
+    timeout: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_NAVIGATION_TIMEOUT)
+      .optional()
+      .default(30000),
+    waitFor: z
+      .enum(["domcontentloaded", "load", "networkidle"])
+      .optional()
+      .default("domcontentloaded"),
   })
   .strict();
 
@@ -32,9 +54,15 @@ const supportedInteractiveRoles = [
 ] as const;
 
 const fillInteractiveRoles = ["searchbox", "textbox", "combobox"] as const;
-const selectOptionInteractiveRoles = ["combobox", "option", "listitem"] as const;
+const selectOptionInteractiveRoles = [
+  "combobox",
+  "option",
+  "listitem",
+] as const;
 
-function getRoleSearchOrder(role: SupportedInteractiveRole): SupportedInteractiveRole[] {
+function getRoleSearchOrder(
+  role: SupportedInteractiveRole,
+): SupportedInteractiveRole[] {
   switch (role) {
     case "button":
       return ["button", "link"];
@@ -51,12 +79,15 @@ function getRoleSearchOrder(role: SupportedInteractiveRole): SupportedInteractiv
   }
 }
 
-export type SupportedInteractiveRole = (typeof supportedInteractiveRoles)[number];
+export type SupportedInteractiveRole =
+  (typeof supportedInteractiveRoles)[number];
 const SupportedInteractiveRoleSchema = z.enum(supportedInteractiveRoles);
 const FillRoleSchema = z.enum(fillInteractiveRoles);
 const SelectOptionRoleSchema = z.enum(selectOptionInteractiveRoles);
 
-function isSupportedInteractiveRole(role: string): role is SupportedInteractiveRole {
+function isSupportedInteractiveRole(
+  role: string,
+): role is SupportedInteractiveRole {
   return supportedInteractiveRoles.includes(role as SupportedInteractiveRole);
 }
 
@@ -92,28 +123,47 @@ export const SelectOptionSchema = z
 export const ScrollDownSchema = z
   .object({
     amount: z.number().int().positive().optional().default(800),
-    delayMs: z.number().int().nonnegative().max(MAX_NAVIGATION_TIMEOUT).optional().default(1000),
+    delayMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_NAVIGATION_TIMEOUT)
+      .optional()
+      .default(1000),
   })
   .strict();
 
 export const ScrollToTopSchema = z
   .object({
-    delayMs: z.number().int().nonnegative().max(MAX_NAVIGATION_TIMEOUT).optional().default(800),
+    delayMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_NAVIGATION_TIMEOUT)
+      .optional()
+      .default(800),
   })
   .strict();
 
-export const GoBackSchema = z
-  .object({})
-  .strict();
+export const GoBackSchema = z.object({}).strict();
 
 export const ExtractJobsSchema = z
   .object({
-    pageType: z.enum(["search_results", "job_detail", "company_page", "unknown"]),
+    pageType: z.enum([
+      "search_results",
+      "job_detail",
+      "company_page",
+      "unknown",
+    ]),
     maxJobs: z.number().int().positive().optional().default(5),
   })
   .strict();
 
-const FinishFindingListSchema = z.array(z.string().trim().min(1)).max(8).optional().default([]);
+const FinishFindingListSchema = z
+  .array(z.string().trim().min(1))
+  .max(8)
+  .optional()
+  .default([]);
 
 export const FinishSchema = z
   .object({
@@ -132,7 +182,19 @@ export interface InteractiveElementCandidate {
   name: string;
 }
 
-const INTERACTIVE_ELEMENT_ROLE_PRIORITY: Record<SupportedInteractiveRole, number> = {
+export interface OverlayDismissalResult {
+  dismissedCount: number;
+  dismissedLabels: string[];
+}
+
+function canEvaluatePage(page: Page): boolean {
+  return typeof (page as Page & { evaluate?: unknown }).evaluate === "function";
+}
+
+const INTERACTIVE_ELEMENT_ROLE_PRIORITY: Record<
+  SupportedInteractiveRole,
+  number
+> = {
   searchbox: 140,
   textbox: 120,
   combobox: 110,
@@ -157,7 +219,11 @@ const INTERACTIVE_ELEMENT_PRIORITY_PATTERNS = [
   { pattern: /\bdepartment\b/i, boost: 200 },
   { pattern: /\bexperience\b/i, boost: 190 },
   { pattern: /\b(remote|hybrid|on[- ]site|work mode)\b/i, boost: 180 },
-  { pattern: /\b(recommended|recommendation|collection|collections|top job picks)\b/i, boost: 175 },
+  {
+    pattern:
+      /\b(recommended|recommendation|collection|collections|top job picks)\b/i,
+    boost: 175,
+  },
   { pattern: /\bjob(s)?\b/i, boost: 150 },
   { pattern: /\b(next|load more|more results|see more|browse)\b/i, boost: 140 },
   { pattern: /\bapply\b/i, boost: 80 },
@@ -170,7 +236,203 @@ const INTERACTIVE_ELEMENT_NOISE_PATTERNS = [
 ];
 
 function normalizeInteractiveName(value: string): string {
-  return value.replace(/\s+/g, " ").replace(/[→←↗↘↙↖›»]+$/g, "").trim();
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/[→←↗↘↙↖›»]+$/g, "")
+    .trim();
+}
+
+function scoreOverlayDismissCandidate(label: string): number {
+  const normalized = normalizeInteractiveName(label);
+  if (!normalized) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  let score = 0;
+  if (OVERLAY_CLOSE_TEXT_PATTERN.test(normalized)) {
+    score += 300;
+  }
+
+  if (/^x$/i.test(normalized)) {
+    score += 80;
+  }
+
+  if (/\b(close|dismiss|skip|cancel)\b/i.test(normalized)) {
+    score += 120;
+  }
+
+  score -= Math.min(normalized.length, 120) / 4;
+  return score;
+}
+
+export async function dismissObstructiveOverlays(
+  page: Page,
+): Promise<OverlayDismissalResult> {
+  const dismissedLabels: string[] = [];
+
+  if (!canEvaluatePage(page)) {
+    return {
+      dismissedCount: 0,
+      dismissedLabels,
+    };
+  }
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    let candidates: Array<{ label: string; role: string }> = [];
+    try {
+      const evaluatedCandidates = await page.evaluate(() => {
+        const isVisible = (element: HTMLElement): boolean => {
+          if (element.hidden || element.getAttribute("aria-hidden") === "true")
+            return false;
+          const style = window.getComputedStyle(element);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.visibility === "collapse" ||
+            Number(style.opacity || "1") < 0.05 ||
+            style.pointerEvents === "none"
+          ) {
+            return false;
+          }
+
+          const rect = element.getBoundingClientRect();
+          return rect.width >= 16 && rect.height >= 16;
+        };
+
+        const readLabel = (element: HTMLElement): string => {
+          const labelledBy = element.getAttribute("aria-labelledby");
+          const labelledByText = labelledBy
+            ? labelledBy
+                .split(/\s+/)
+                .map(
+                  (id) =>
+                    document.getElementById(id)?.textContent?.trim() ?? "",
+                )
+                .filter(Boolean)
+                .join(" ")
+            : "";
+
+          return (
+            element.getAttribute("aria-label")?.trim() ||
+            element.getAttribute("title")?.trim() ||
+            labelledByText ||
+            element.textContent?.replace(/\s+/g, " ").trim() ||
+            ""
+          );
+        };
+
+        const selectors = [
+          '[role="dialog"] button, [role="dialog"] [role="button"], [role="dialog"] a[href]',
+          '[aria-modal="true"] button, [aria-modal="true"] [role="button"], [aria-modal="true"] a[href]',
+          '[class*="modal"] button, [class*="modal"] [role="button"], [class*="modal"] a[href]',
+          '[class*="popup"] button, [class*="popup"] [role="button"], [class*="popup"] a[href]',
+          '[class*="overlay"] button, [class*="overlay"] [role="button"], [class*="overlay"] a[href]',
+          '[class*="interstitial"] button, [class*="interstitial"] [role="button"], [class*="interstitial"] a[href]',
+        ];
+
+        return Array.from(
+          document.querySelectorAll<HTMLElement>(selectors.join(", ")),
+        )
+          .filter((element) => isVisible(element))
+          .map((element) => ({
+            label: readLabel(element),
+            role:
+              element.getAttribute("role")?.trim().toLowerCase() ||
+              element.tagName.toLowerCase(),
+          }));
+      });
+      candidates = Array.isArray(evaluatedCandidates)
+        ? evaluatedCandidates
+        : [];
+    } catch (error) {
+      console.debug(
+        "[Agent] dismissObstructiveOverlays candidate detection failed",
+        {
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        },
+      );
+      candidates = [];
+    }
+
+    const bestCandidate = candidates
+      .map((candidate) => ({
+        ...candidate,
+        score: scoreOverlayDismissCandidate(candidate.label),
+      }))
+      .sort((left, right) => right.score - left.score)[0];
+
+    if (!bestCandidate || bestCandidate.score < 140) {
+      break;
+    }
+
+    const clicked = await (async () => {
+      const exactLabel = normalizeInteractiveName(bestCandidate.label);
+      const targetRole =
+        bestCandidate.role === "a" || bestCandidate.role === "link"
+          ? "link"
+          : "button";
+      const exactLocator = exactLabel
+        ? page.getByRole(targetRole, { name: exactLabel, exact: true }).first()
+        : null;
+      if (exactLocator && (await exactLocator.count().catch(() => 0)) > 0) {
+        try {
+          await exactLocator.click({ timeout: 1500 });
+          return true;
+        } catch {
+          // Try looser locators before giving up on the overlay candidate.
+        }
+      }
+
+      const looseLocator = exactLabel
+        ? page
+            .getByRole(targetRole, {
+              name: buildLooseAccessibleNamePattern(exactLabel),
+            })
+            .first()
+        : null;
+      if (looseLocator && (await looseLocator.count().catch(() => 0)) > 0) {
+        try {
+          await looseLocator.click({ timeout: 1500 });
+          return true;
+        } catch {
+          // Fall through to the broad text locator as a last resort.
+        }
+      }
+
+      const fallbackLocator = exactLabel
+        ? page
+            .locator("button, [role='button'], a[href]")
+            .filter({ hasText: buildLooseAccessibleNamePattern(exactLabel) })
+            .first()
+        : null;
+      if (
+        fallbackLocator &&
+        (await fallbackLocator.count().catch(() => 0)) > 0
+      ) {
+        try {
+          await fallbackLocator.click({ timeout: 1500 });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      return false;
+    })();
+
+    if (!clicked) {
+      break;
+    }
+
+    dismissedLabels.push(bestCandidate.label);
+    await page.waitForTimeout(250).catch(() => undefined);
+  }
+
+  return {
+    dismissedCount: dismissedLabels.length,
+    dismissedLabels,
+  };
 }
 
 function makeInteractiveElementKey(role: string, name: string): string {
@@ -180,7 +442,10 @@ function makeInteractiveElementKey(role: string, name: string): string {
 export function mergeInteractiveElementCandidates(
   ...candidateLists: Array<readonly InteractiveElementCandidate[]>
 ): InteractiveElementCandidate[] {
-  const merged = new Map<string, { role: string; name: string; counts: number[]; order: number }>();
+  const merged = new Map<
+    string,
+    { role: string; name: string; counts: number[]; order: number }
+  >();
   let order = 0;
 
   candidateLists.forEach((candidateList, listIndex) => {
@@ -190,9 +455,9 @@ export function mergeInteractiveElementCandidates(
       const role = candidate.role.trim().toLowerCase();
       const name = normalizeInteractiveName(candidate.name);
 
-        if (!role || !name || !isSupportedInteractiveRole(role)) {
-          continue;
-        }
+      if (!role || !name || !isSupportedInteractiveRole(role)) {
+        continue;
+      }
 
       const key = makeInteractiveElementKey(role, name);
       const nextCount = (counts.get(key) ?? 0) + 1;
@@ -215,11 +480,16 @@ export function mergeInteractiveElementCandidates(
     .sort((left, right) => left.order - right.order)
     .flatMap((entry) => {
       const maxCount = Math.max(...entry.counts, 1);
-      return Array.from({ length: maxCount }, () => ({ role: entry.role, name: entry.name }));
+      return Array.from({ length: maxCount }, () => ({
+        role: entry.role,
+        name: entry.name,
+      }));
     });
 }
 
-function scoreInteractiveElement(candidate: InteractiveElementCandidate): number {
+function scoreInteractiveElement(
+  candidate: InteractiveElementCandidate,
+): number {
   const normalizedName = normalizeInteractiveName(candidate.name);
   const compactName = normalizedName.toLowerCase();
   const normalizedRole = candidate.role.trim().toLowerCase();
@@ -249,7 +519,9 @@ function scoreInteractiveElement(candidate: InteractiveElementCandidate): number
   return score;
 }
 
-export function parseInteractiveElementsFromAriaSnapshot(snapshot: string): InteractiveElementCandidate[] {
+export function parseInteractiveElementsFromAriaSnapshot(
+  snapshot: string,
+): InteractiveElementCandidate[] {
   const elements: InteractiveElementCandidate[] = [];
 
   for (const line of snapshot.split("\n")) {
@@ -276,10 +548,18 @@ export function prioritizeInteractiveElements(
   limit = INTERACTIVE_ELEMENT_LIMIT,
 ): Array<InteractiveElementCandidate & { index: number }> {
   const scored = candidates
-    .filter((candidate) => isSupportedInteractiveRole(candidate.role.trim().toLowerCase()))
-    .map((candidate, order) => ({ ...candidate, order, score: scoreInteractiveElement(candidate) }));
+    .filter((candidate) =>
+      isSupportedInteractiveRole(candidate.role.trim().toLowerCase()),
+    )
+    .map((candidate, order) => ({
+      ...candidate,
+      order,
+      score: scoreInteractiveElement(candidate),
+    }));
 
-  scored.sort((left, right) => right.score - left.score || left.order - right.order);
+  scored.sort(
+    (left, right) => right.score - left.score || left.order - right.order,
+  );
 
   const roleNameIndices = new Map<string, number>();
 
@@ -299,7 +579,10 @@ export function buildLooseAccessibleNamePattern(name: string): RegExp {
 
   const safeName = trimmedName.slice(0, MAX_ACCESSIBLE_NAME_PATTERN_LENGTH);
   const escapedName = safeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const whitespaceTolerantName = escapedName.replace(/\s+/g, BOUNDED_WHITESPACE_PATTERN);
+  const whitespaceTolerantName = escapedName.replace(
+    /\s+/g,
+    BOUNDED_WHITESPACE_PATTERN,
+  );
   return new RegExp(whitespaceTolerantName, "i");
 }
 
@@ -310,14 +593,17 @@ function escapeAttributeValue(value: string): string {
 function normalizeLooseLocatorName(value: string): string {
   return normalizeInteractiveName(value)
     .toLowerCase()
-    .replace(/\bverified job\b/g, ' ')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/\bverified job\b/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 function titleCaseWords(value: string): string {
-  return value.replace(/\b\p{L}[\p{L}\p{N}]*/gu, (word) => word.charAt(0).toUpperCase() + word.slice(1));
+  return value.replace(
+    /\b\p{L}[\p{L}\p{N}]*/gu,
+    (word) => word.charAt(0).toUpperCase() + word.slice(1),
+  );
 }
 
 function looseLocatorNameMatches(target: string, candidate: string): boolean {
@@ -335,8 +621,11 @@ function looseLocatorNameMatches(target: string, candidate: string): boolean {
     return true;
   }
 
-  const targetTokens = normalizedTarget.split(' ').filter(Boolean);
-  return targetTokens.length >= 2 && targetTokens.every((token) => normalizedCandidate.includes(token));
+  const targetTokens = normalizedTarget.split(" ").filter(Boolean);
+  return (
+    targetTokens.length >= 2 &&
+    targetTokens.every((token) => normalizedCandidate.includes(token))
+  );
 }
 
 async function findVisibleLocator(
@@ -364,47 +653,59 @@ async function findVisibleLocator(
   return null;
 }
 
-async function readLocatorAccessibleName(locator: Locator): Promise<string | null> {
-  return locator.evaluate((element) => {
-    const readLabelledByText = (target: Element): string => {
-      const labelledBy = target.getAttribute('aria-labelledby')
-      if (!labelledBy) return ''
-      return labelledBy
-        .split(/\s+/)
-        .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
-        .filter(Boolean)
-        .join(' ')
-    }
+async function readLocatorAccessibleName(
+  locator: Locator,
+): Promise<string | null> {
+  return locator
+    .evaluate((element) => {
+      const readLabelledByText = (target: Element): string => {
+        const labelledBy = target.getAttribute("aria-labelledby");
+        if (!labelledBy) return "";
+        return labelledBy
+          .split(/\s+/)
+          .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+          .filter(Boolean)
+          .join(" ");
+      };
 
-    const ariaLabel = element.getAttribute('aria-label')?.trim()
-    if (ariaLabel) return ariaLabel
+      const ariaLabel = element.getAttribute("aria-label")?.trim();
+      if (ariaLabel) return ariaLabel;
 
-    const labelledByText = readLabelledByText(element)
-    if (labelledByText) return labelledByText
+      const labelledByText = readLabelledByText(element);
+      if (labelledByText) return labelledByText;
 
-    if ('labels' in element) {
-      const labels = Array.from((element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).labels ?? [])
-        .map((label) => label.textContent?.trim() ?? '')
-        .filter(Boolean)
-      if (labels.length > 0) return labels.join(' ')
-    }
+      if ("labels" in element) {
+        const labels = Array.from(
+          (
+            element as
+              | HTMLInputElement
+              | HTMLSelectElement
+              | HTMLTextAreaElement
+          ).labels ?? [],
+        )
+          .map((label) => label.textContent?.trim() ?? "")
+          .filter(Boolean);
+        if (labels.length > 0) return labels.join(" ");
+      }
 
-    const placeholder = element.getAttribute('placeholder')?.trim()
-    if (placeholder) return placeholder
+      const placeholder = element.getAttribute("placeholder")?.trim();
+      if (placeholder) return placeholder;
 
-    const title = element.getAttribute('title')?.trim()
-    if (title) return title
+      const title = element.getAttribute("title")?.trim();
+      if (title) return title;
 
-    if (element instanceof HTMLInputElement) {
-      const value = element.value.trim()
-      if (value) return value
-    }
+      if (element instanceof HTMLInputElement) {
+        const value = element.value.trim();
+        if (value) return value;
+      }
 
-    const innerText = element instanceof HTMLElement ? element.innerText.trim() : ''
-    if (innerText) return innerText
+      const innerText =
+        element instanceof HTMLElement ? element.innerText.trim() : "";
+      if (innerText) return innerText;
 
-    return (element.textContent ?? '').replace(/\s+/g, ' ').trim() || null
-  }).catch(() => null)
+      return (element.textContent ?? "").replace(/\s+/g, " ").trim() || null;
+    })
+    .catch(() => null);
 }
 
 async function findLooselyMatchingVisibleLocator(
@@ -412,111 +713,149 @@ async function findLooselyMatchingVisibleLocator(
   roles: readonly SupportedInteractiveRole[],
   candidateNames: readonly string[],
   visibleIndex: number,
-): Promise<ReturnType<Page['getByRole']> | null> {
-  let matchedVisibleCount = 0
+): Promise<ReturnType<Page["getByRole"]> | null> {
+  let matchedVisibleCount = 0;
 
   for (const role of roles) {
-    const broadLocator = page.getByRole(role)
-    const count = await broadLocator.count().catch(() => 0)
+    const broadLocator = page.getByRole(role);
+    const count = await broadLocator.count().catch(() => 0);
 
     for (let candidateIndex = 0; candidateIndex < count; candidateIndex += 1) {
-      const candidate = broadLocator.nth(candidateIndex)
-      const visible = await candidate.isVisible().catch(() => false)
+      const candidate = broadLocator.nth(candidateIndex);
+      const visible = await candidate.isVisible().catch(() => false);
 
       if (!visible) {
-        continue
+        continue;
       }
 
-      const accessibleName = await readLocatorAccessibleName(candidate)
-      if (!accessibleName || !candidateNames.some((name) => looseLocatorNameMatches(name, accessibleName))) {
-        continue
+      const accessibleName = await readLocatorAccessibleName(candidate);
+      if (
+        !accessibleName ||
+        !candidateNames.some((name) =>
+          looseLocatorNameMatches(name, accessibleName),
+        )
+      ) {
+        continue;
       }
 
       if (matchedVisibleCount === visibleIndex) {
-        return candidate
+        return candidate;
       }
 
-      matchedVisibleCount += 1
+      matchedVisibleCount += 1;
     }
   }
 
-  return null
+  return null;
 }
 
-function logComboboxDebug(action: string, optionText: string, error: unknown): void {
+function logComboboxDebug(
+  action: string,
+  optionText: string,
+  error: unknown,
+): void {
   console.debug(`[Agent] fillComboboxValue ${action} failed`, {
     error,
     optionText,
-  })
+  });
 }
 
-async function locatorContainsActiveElement(locator: Locator): Promise<boolean> {
+async function locatorContainsActiveElement(
+  locator: Locator,
+): Promise<boolean> {
   try {
     return await locator.evaluate((element) => {
-      const activeElement = document.activeElement
-      return Boolean(activeElement && (element === activeElement || element.contains(activeElement)))
-    })
+      const activeElement = document.activeElement;
+      return Boolean(
+        activeElement &&
+        (element === activeElement || element.contains(activeElement)),
+      );
+    });
   } catch {
-    return false
+    return false;
   }
 }
 
-export async function fillComboboxValue(locator: Locator, page: Page, optionText: string): Promise<boolean> {
+export async function fillComboboxValue(
+  locator: Locator,
+  page: Page,
+  optionText: string,
+): Promise<boolean> {
   const inputLocator = locator.locator("input, textarea").first();
   const inputCount = await inputLocator.count().catch((error) => {
-    logComboboxDebug('count input', optionText, error)
-    return 0
+    logComboboxDebug("count input", optionText, error);
+    return 0;
   });
 
   if (inputCount > 0) {
     await inputLocator.click().catch((error) => {
-      logComboboxDebug('click input', optionText, error)
-      return undefined
+      logComboboxDebug("click input", optionText, error);
+      return undefined;
     });
     try {
-      await inputLocator.fill(optionText)
-      return true
+      await inputLocator.fill(optionText);
+      return true;
     } catch (error) {
-      logComboboxDebug('fill input', optionText, error)
-      const inputIsActive = await locatorContainsActiveElement(inputLocator)
+      logComboboxDebug("fill input", optionText, error);
+      const inputIsActive = await locatorContainsActiveElement(inputLocator);
       if (!inputIsActive) {
-        logComboboxDebug('input not active', optionText, new Error('Input did not receive focus'))
-        return false
+        logComboboxDebug(
+          "input not active",
+          optionText,
+          new Error("Input did not receive focus"),
+        );
+        return false;
       }
 
-      const didSelectExistingText = await page.keyboard.press("ControlOrMeta+A").then(() => true).catch((keyboardError) => {
-        logComboboxDebug('keyboard press', optionText, keyboardError)
-        return false
-      });
+      const didSelectExistingText = await page.keyboard
+        .press("ControlOrMeta+A")
+        .then(() => true)
+        .catch((keyboardError) => {
+          logComboboxDebug("keyboard press", optionText, keyboardError);
+          return false;
+        });
       if (!didSelectExistingText) {
-        return false
+        return false;
       }
-      return await page.keyboard.type(optionText).then(() => true).catch((keyboardError) => {
-        logComboboxDebug('keyboard type', optionText, keyboardError)
-        return false
-      });
+      return await page.keyboard
+        .type(optionText)
+        .then(() => true)
+        .catch((keyboardError) => {
+          logComboboxDebug("keyboard type", optionText, keyboardError);
+          return false;
+        });
     }
   }
 
   await locator.click().catch((error) => {
-    logComboboxDebug('locator click', optionText, error)
+    logComboboxDebug("locator click", optionText, error);
     return locator.focus().catch((focusError) => {
-      logComboboxDebug('locator focus', optionText, focusError)
-      return undefined
-    })
+      logComboboxDebug("locator focus", optionText, focusError);
+      return undefined;
+    });
   });
-  const locatorIsActive = await locatorContainsActiveElement(locator)
+  const locatorIsActive = await locatorContainsActiveElement(locator);
   if (!locatorIsActive) {
-    logComboboxDebug('target not active', optionText, new Error('Combobox did not receive focus'))
-    return false
+    logComboboxDebug(
+      "target not active",
+      optionText,
+      new Error("Combobox did not receive focus"),
+    );
+    return false;
   }
-  return await page.keyboard.type(optionText).then(() => true).catch((error) => {
-    logComboboxDebug('keyboard type', optionText, error)
-    return false
-  });
+  return await page.keyboard
+    .type(optionText)
+    .then(() => true)
+    .catch((error) => {
+      logComboboxDebug("keyboard type", optionText, error);
+      return false;
+    });
 }
 
-export function buildComboboxOptionScopes(page: Page, popupId: string | null): Locator[] {
+export function buildComboboxOptionScopes(
+  page: Page,
+  popupId: string | null,
+): Locator[] {
   if (popupId) {
     return [page.locator(`[id="${escapeAttributeValue(popupId)}"]`)];
   }
@@ -524,7 +863,10 @@ export function buildComboboxOptionScopes(page: Page, popupId: string | null): L
   return [page.locator("body")];
 }
 
-export async function clickMatchingComboboxOption(scopes: readonly Locator[], optionText: string): Promise<boolean> {
+export async function clickMatchingComboboxOption(
+  scopes: readonly Locator[],
+  optionText: string,
+): Promise<boolean> {
   const optionPattern = buildLooseAccessibleNamePattern(optionText);
 
   for (const scope of scopes) {
@@ -536,7 +878,9 @@ export async function clickMatchingComboboxOption(scopes: readonly Locator[], op
       return true;
     }
 
-    const fallbackOptions = scope.locator('[role="option"], [role="listitem"], li, button').filter({ hasText: optionPattern });
+    const fallbackOptions = scope
+      .locator('[role="option"], [role="listitem"], li, button')
+      .filter({ hasText: optionPattern });
     const fallbackOptionCount = await fallbackOptions.count().catch(() => 0);
 
     if (fallbackOptionCount > 0) {
@@ -548,15 +892,25 @@ export async function clickMatchingComboboxOption(scopes: readonly Locator[], op
   return false;
 }
 
-export async function readComboboxSelection(locator: Locator): Promise<{ selectedLabel: string | null; selectedValue: string | null }> {
+export async function readComboboxSelection(
+  locator: Locator,
+): Promise<{ selectedLabel: string | null; selectedValue: string | null }> {
   return locator.evaluate((element) => {
     const input =
-      element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLTextAreaElement
         ? element
-        : (element.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null);
+        : (element.querySelector("input, textarea") as
+            | HTMLInputElement
+            | HTMLTextAreaElement
+            | null);
 
-    const activeDescendantId = input?.getAttribute("aria-activedescendant") ?? element.getAttribute("aria-activedescendant");
-    const activeDescendant = activeDescendantId ? document.getElementById(activeDescendantId) : null;
+    const activeDescendantId =
+      input?.getAttribute("aria-activedescendant") ??
+      element.getAttribute("aria-activedescendant");
+    const activeDescendant = activeDescendantId
+      ? document.getElementById(activeDescendantId)
+      : null;
     const selectedLabel = [
       activeDescendant?.textContent,
       input?.value,
@@ -567,7 +921,8 @@ export async function readComboboxSelection(locator: Locator): Promise<{ selecte
 
     return {
       selectedLabel: selectedLabel?.trim() ?? null,
-      selectedValue: input?.value?.trim() ?? element.getAttribute("value")?.trim() ?? null,
+      selectedValue:
+        input?.value?.trim() ?? element.getAttribute("value")?.trim() ?? null,
     };
   });
 }
@@ -578,41 +933,62 @@ export async function resolveRoleLocator(
   name: string,
   index: number,
 ): Promise<ReturnType<Page["getByRole"]>> {
-  const roleSearchOrder = getRoleSearchOrder(role)
-  const baseName = normalizeInteractiveName(name)
-  const alternateNames = new Set<string>([baseName])
+  const roleSearchOrder = getRoleSearchOrder(role);
+  const baseName = normalizeInteractiveName(name);
+  const alternateNames = new Set<string>([baseName]);
 
-  if (role === 'button') {
+  if (role === "button") {
     if (/\ball filters\b/i.test(baseName)) {
-      alternateNames.add(baseName.replace(/\ball filters\b/i, 'show all filters'))
-      alternateNames.add(baseName.replace(/\ball filters\b/i, 'Show all filters'))
+      alternateNames.add(
+        baseName.replace(/\ball filters\b/i, "show all filters"),
+      );
+      alternateNames.add(
+        baseName.replace(/\ball filters\b/i, "Show all filters"),
+      );
     }
 
     if (/\bshow all filters\b/i.test(baseName)) {
-      alternateNames.add(baseName.replace(/\bshow all filters\b/i, 'all filters'))
-      alternateNames.add(baseName.replace(/\bshow all filters\b/i, 'All filters'))
+      alternateNames.add(
+        baseName.replace(/\bshow all filters\b/i, "all filters"),
+      );
+      alternateNames.add(
+        baseName.replace(/\bshow all filters\b/i, "All filters"),
+      );
     }
   }
 
-  if (role === 'link') {
-    alternateNames.add(baseName.replace(/\s*\(verified job\)\s*/gi, ' ').replace(/\s+/g, ' ').trim())
-    alternateNames.add(baseName.replace(/\s*verified job\s*/gi, ' ').replace(/\s+/g, ' ').trim())
+  if (role === "link") {
+    alternateNames.add(
+      baseName
+        .replace(/\s*\(verified job\)\s*/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
+    alternateNames.add(
+      baseName
+        .replace(/\s*verified job\s*/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
     if (!/verified job/i.test(baseName)) {
-      alternateNames.add(`${baseName} (Verified job)`.trim())
-      alternateNames.add(`${baseName} Verified job`.trim())
+      alternateNames.add(`${baseName} (Verified job)`.trim());
+      alternateNames.add(`${baseName} Verified job`.trim());
     }
   }
 
-  alternateNames.add(titleCaseWords(baseName))
-  let hiddenFallback: ReturnType<Page["getByRole"]> | null = null
+  alternateNames.add(titleCaseWords(baseName));
+  let hiddenFallback: ReturnType<Page["getByRole"]> | null = null;
 
   for (const candidateRole of roleSearchOrder) {
     for (const candidateName of alternateNames) {
       if (!candidateName) {
-        continue
+        continue;
       }
 
-      const exactLocator = page.getByRole(candidateRole, { name: candidateName, exact: true });
+      const exactLocator = page.getByRole(candidateRole, {
+        name: candidateName,
+        exact: true,
+      });
       const exactCount = await exactLocator.count().catch(() => 0);
       const exactVisibleLocator = await findVisibleLocator(exactLocator, index);
 
@@ -624,7 +1000,9 @@ export async function resolveRoleLocator(
         hiddenFallback = exactLocator;
       }
 
-      const looseLocator = page.getByRole(candidateRole, { name: buildLooseAccessibleNamePattern(candidateName) });
+      const looseLocator = page.getByRole(candidateRole, {
+        name: buildLooseAccessibleNamePattern(candidateName),
+      });
       const looseCount = await looseLocator.count().catch(() => 0);
       const looseVisibleLocator = await findVisibleLocator(looseLocator, index);
 
@@ -638,13 +1016,18 @@ export async function resolveRoleLocator(
     }
   }
 
-  const looseVisibleLocator = await findLooselyMatchingVisibleLocator(page, roleSearchOrder, [...alternateNames], index)
+  const looseVisibleLocator = await findLooselyMatchingVisibleLocator(
+    page,
+    roleSearchOrder,
+    [...alternateNames],
+    index,
+  );
   if (looseVisibleLocator) {
-    return looseVisibleLocator
+    return looseVisibleLocator;
   }
 
   if (hiddenFallback) {
-    return hiddenFallback.nth(index)
+    return hiddenFallback.nth(index);
   }
 
   throw new Error(`No ${role} matched accessible name "${name}".`);
@@ -657,7 +1040,8 @@ export async function recoverFromOffAllowlist(
   policy: AgentNavigationPolicy,
 ): Promise<{ recovered: boolean; error: string; recoveredUrl?: string }> {
   const error = `Navigation went to disallowed URL: ${invalidUrl}`;
-  const previousUrlValid = previousUrl && isAllowedUrl(previousUrl, policy).valid;
+  const previousUrlValid =
+    previousUrl && isAllowedUrl(previousUrl, policy).valid;
 
   try {
     await page.goBack({ waitUntil: "domcontentloaded", timeout: 5000 });
@@ -674,12 +1058,19 @@ export async function recoverFromOffAllowlist(
 
   if (previousUrlValid) {
     try {
-      await page.goto(previousUrl, { waitUntil: "domcontentloaded", timeout: 5000 });
+      await page.goto(previousUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 5000,
+      });
 
       const finalUrl = page.url();
       const urlCheck = isAllowedUrl(finalUrl, policy);
       if (urlCheck.valid) {
-        return { recovered: true, error: error + ` (recovered to ${previousUrl})`, recoveredUrl: finalUrl };
+        return {
+          recovered: true,
+          error: error + ` (recovered to ${previousUrl})`,
+          recoveredUrl: finalUrl,
+        };
       }
     } catch {
       // direct recovery failed
@@ -687,7 +1078,10 @@ export async function recoverFromOffAllowlist(
   }
 
   if (!previousUrlValid) {
-    return { recovered: false, error: error + " (no previous allowed URL to recover to)" };
+    return {
+      recovered: false,
+      error: error + " (no previous allowed URL to recover to)",
+    };
   }
 
   return { recovered: false, error: error + " (recovery failed)" };

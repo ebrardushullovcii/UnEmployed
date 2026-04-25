@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron as electron } from 'playwright'
+import { selectApplicationRecord } from './ui-selectors.mjs'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(currentDir, '..')
@@ -112,6 +113,7 @@ async function captureApplicationsQueueRecovery() {
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
     await selectQueueJobs(window, ['Senior Product Designer', 'Staff Product Designer'])
     await stageSelectedQueue(window)
+    await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
     await approveCurrentRun(window)
 
     await waitForCondition(
@@ -125,6 +127,16 @@ async function captureApplicationsQueueRecovery() {
       },
       'initial queue run to reach a recoverable state',
     )
+
+    const initialRecoveryWorkspace = await getWorkspace(window)
+    const needsConsentReview = initialRecoveryWorkspace.applyRuns.some(
+      (run) => run.mode === 'queue_auto' && run.state === 'paused_for_consent',
+    )
+
+    await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
+    if (needsConsentReview) {
+      await window.getByText('Consent requests', { exact: true }).waitFor({ timeout: 20000 })
+    }
 
     const skipJobButton = window.getByRole('button', { name: 'Skip this job' })
     await skipJobButton.waitFor({ timeout: 10000 })
@@ -201,7 +213,11 @@ async function captureApplicationsQueueRecovery() {
         // Preserve the original failure while still cleaning up the temp profile.
       }
     }
-    await rm(userDataDirectory, { recursive: true, force: true })
+    try {
+      await rm(userDataDirectory, { recursive: true, force: true })
+    } catch (error) {
+      console.warn('Failed to remove temporary Applications queue recovery profile.', error)
+    }
   }
 
   process.stdout.write(`Saved Applications queue recovery artifacts to ${outputDir}\n`)

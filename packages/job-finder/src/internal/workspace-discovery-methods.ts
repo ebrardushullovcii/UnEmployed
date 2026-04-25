@@ -1,6 +1,7 @@
 import {
   DiscoveryRunRecordSchema,
   JobPostingSchema,
+  type CandidateProfile,
   type DiscoveryActivityEvent,
   type DiscoveryLedgerEntry,
   type DiscoveryRunRecord,
@@ -10,6 +11,7 @@ import {
   type JobPosting,
   type JobSearchPreferences,
   type JobSource,
+  type SourceIntelligenceProviderKey,
 } from "@unemployed/contracts";
 import {
   appendDiscoveryEvent,
@@ -20,7 +22,7 @@ import {
 } from "./discovery-state";
 import { mergeDiscoveredPostings } from "./matching";
 import {
-  buildInstructionGuidance,
+  buildDiscoveryInstructionGuidance,
   enrichSearchPreferencesFromProfile,
   getActiveDiscoveryTargets,
   resolveActiveSourceInstructionArtifact,
@@ -59,10 +61,14 @@ import {
   buildDiscoveryStartingUrls,
   collectPublicProviderJobs,
   inferSourceIntelligenceFromTarget,
+  selectLowYieldTechnicalFallbackPostings,
   selectDiscoveryCollectionMethod,
   selectDiscoveryMethod,
 } from "./workspace-source-intelligence";
-import { createUniqueId } from "./shared";
+import { createUniqueId, uniqueStrings } from "./shared";
+
+const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
+const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
 
 function describeUnknownThrowable(caughtError: unknown): string {
   if (typeof caughtError === "string") {
@@ -114,10 +120,67 @@ function describeCloseoutMode(keptAlive: boolean) {
       };
 }
 
+function formatDiscoveryPostingLabel(input: {
+  title: string;
+  company: string;
+}): string {
+  const title = input.title.trim();
+  const company = input.company.trim();
+
+  return company ? `${title} at ${company}` : title;
+}
+
+function formatDiscoveryPostingSamples(
+  postings: readonly Pick<JobPosting, "title" | "company">[],
+): string | null {
+  const labels = uniqueStrings(
+    postings
+      .map((posting) => formatDiscoveryPostingLabel(posting))
+      .filter(Boolean),
+  ).slice(0, DISCOVERY_ACTIVITY_SAMPLE_LIMIT);
+
+  return labels.length > 0
+    ? labels.map((label) => `"${label}"`).join("; ")
+    : null;
+}
+
+function formatDiscoverySkipSamples(
+  samples: {
+    title: string;
+    company: string;
+    reason: string | null;
+  }[],
+): string | null {
+  const labels = uniqueStrings(
+    samples.map((sample) => {
+      const label = formatDiscoveryPostingLabel(sample);
+      return sample.reason ? `${label} -> ${sample.reason}` : label;
+    }),
+  ).slice(0, DISCOVERY_ACTIVITY_SAMPLE_LIMIT);
+
+  return labels.length > 0
+    ? labels.map((label) => `"${label}"`).join("; ")
+    : null;
+}
+
 function getSourceIntelligenceProviderKey(
   intelligence: NonNullable<JobPosting["sourceIntelligence"]>,
-) {
+): SourceIntelligenceProviderKey | null {
   return intelligence.provider?.key ?? null;
+}
+
+function getDiscoveryProviderKey(input: {
+  target: JobDiscoveryTarget;
+  intelligence: NonNullable<JobPosting["sourceIntelligence"]>;
+}): SourceIntelligenceProviderKey | null {
+  return (
+    getSourceIntelligenceProviderKey(input.intelligence) ??
+    inferSourceIntelligenceFromTarget({
+      target: input.target,
+      currentArtifact: null,
+    }).provider?.key ??
+    null
+  );
 }
 
 function createInitialRunRecord(input: {
@@ -132,9 +195,9 @@ function createInitialRunRecord(input: {
     startedAt: new Date().toISOString(),
     completedAt: null,
     targetIds: input.targets.map((target) => target.id),
-      targetExecutions: input.targets.map((target) => ({
-        targetId: target.id,
-        adapterKind: target.adapterKind,
+    targetExecutions: input.targets.map((target) => ({
+      targetId: target.id,
+      adapterKind: target.adapterKind,
       resolvedAdapterKind: resolveAdapterKind(target),
       collectionMethod: null,
       sourceIntelligenceProvider: null,
@@ -142,13 +205,13 @@ function createInitialRunRecord(input: {
       startedAt: null,
       completedAt: null,
       jobsFound: 0,
-        jobsPersisted: 0,
-        jobsStaged: 0,
-        warning: null,
-        compactionState: null,
-        compactionUsedFallbackTrigger: false,
-        timing: null,
-      })),
+      jobsPersisted: 0,
+      jobsStaged: 0,
+      warning: null,
+      compactionState: null,
+      compactionUsedFallbackTrigger: false,
+      timing: null,
+    })),
     activity: [],
     summary: {
       targetsPlanned: input.targets.length,
@@ -194,21 +257,113 @@ function selectTargets(
   return activeTargets.filter((target) => target.id === options.targetId);
 }
 
+function getDiscoveryCollectionMethodPriority(method: string): number {
+  switch (method) {
+    case "api":
+      return 0;
+    case "listing_route":
+      return 1;
+    case "careers_page":
+      return 2;
+    case "fallback_search":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function getSourceInstructionPriority(
+  status: JobDiscoveryTarget["instructionStatus"] | null,
+): number {
+  switch (status) {
+    case "validated":
+      return 0;
+    case "draft":
+      return 1;
+    case "missing":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function prioritizeDiscoveryTargets(
+  targets: readonly JobDiscoveryTarget[],
+  sourceInstructionArtifacts: Awaited<
+    ReturnType<
+      WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]
+    >
+  >,
+  searchPreferences: JobSearchPreferences,
+): JobDiscoveryTarget[] {
+  return [...targets]
+    .map((target, index) => {
+      const activeInstruction = resolveActiveSourceInstructionArtifact(
+        target,
+        sourceInstructionArtifacts,
+      );
+      const collectionMethod = selectDiscoveryCollectionMethod(
+        target,
+        activeInstruction,
+      );
+      const startingUrls = buildDiscoveryStartingUrls(
+        target,
+        activeInstruction,
+        searchPreferences,
+      );
+
+      return {
+        target,
+        index,
+        collectionMethodPriority:
+          getDiscoveryCollectionMethodPriority(collectionMethod),
+        instructionPriority: getSourceInstructionPriority(
+          activeInstruction?.status ?? target.instructionStatus,
+        ),
+        learnedRoutePriority:
+          startingUrls[0] != null && startingUrls[0] !== target.startingUrl
+            ? 0
+            : 1,
+      };
+    })
+    .sort((left, right) => {
+      if (left.collectionMethodPriority !== right.collectionMethodPriority) {
+        return left.collectionMethodPriority - right.collectionMethodPriority;
+      }
+
+      if (left.instructionPriority !== right.instructionPriority) {
+        return left.instructionPriority - right.instructionPriority;
+      }
+
+      if (left.learnedRoutePriority !== right.learnedRoutePriority) {
+        return left.learnedRoutePriority - right.learnedRoutePriority;
+      }
+
+      return left.index - right.index;
+    })
+    .map((entry) => entry.target);
+}
+
 function createPostingWithTriage(
   posting: JobPosting,
   searchPreferences: JobSearchPreferences,
+  profile: CandidateProfile,
 ): {
   posting: JobPosting;
   triageReason: string | null;
 } {
-  const triage = applyDiscoveryTitleTriage({ posting, searchPreferences });
+  const triage = applyDiscoveryTitleTriage({
+    posting,
+    searchPreferences,
+    profile,
+  });
 
   return {
     posting: JobPostingSchema.parse({
       ...posting,
       titleTriageOutcome: triage.outcome,
     }),
-    triageReason: triage.reason,
+    triageReason: triage.outcome === "pass" ? null : triage.reason,
   };
 }
 
@@ -229,7 +384,8 @@ function toProviderAwarePosting(input: {
     collectionMethod: input.collectionMethod,
     company: input.posting.company || input.target.label,
     providerKey: input.posting.providerKey ?? provider?.key ?? null,
-    providerBoardToken: input.posting.providerBoardToken ?? provider?.boardToken ?? null,
+    providerBoardToken:
+      input.posting.providerBoardToken ?? provider?.boardToken ?? null,
     providerIdentifier:
       input.posting.providerIdentifier ?? provider?.providerIdentifier ?? null,
     atsProvider: input.posting.atsProvider ?? provider?.label ?? null,
@@ -241,9 +397,13 @@ async function collectTargetJobs(input: {
   ctx: WorkspaceServiceContext;
   target: JobDiscoveryTarget;
   sourceInstructionArtifacts: Awaited<
-    ReturnType<WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]>
+    ReturnType<
+      WorkspaceServiceContext["repository"]["listSourceInstructionArtifacts"]
+    >
   >;
-  profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
+  profile: Awaited<
+    ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>
+  >;
   searchPreferences: JobSearchPreferences;
   targetJobCount: number;
   maxSteps: number;
@@ -268,11 +428,21 @@ async function collectTargetJobs(input: {
     target,
     currentArtifact: activeInstruction,
   });
-  const collectionMethod = selectDiscoveryCollectionMethod(target, activeInstruction);
+  const collectionMethod = selectDiscoveryCollectionMethod(
+    target,
+    activeInstruction,
+  );
   const discoveryMethod = selectDiscoveryMethod(collectionMethod);
-  const startingUrls = buildDiscoveryStartingUrls(target, activeInstruction);
+  const startingUrls = buildDiscoveryStartingUrls(
+    target,
+    activeInstruction,
+    input.searchPreferences,
+  );
   const providerLabel = intelligence.provider?.label ?? "Unknown provider";
-  const sourceIntelligenceProvider = getSourceIntelligenceProviderKey(intelligence);
+  const sourceIntelligenceProvider = getDiscoveryProviderKey({
+    target,
+    intelligence,
+  });
 
   if (discoveryMethod === "public_api") {
     const startedAt = new Date().toISOString();
@@ -365,7 +535,7 @@ async function collectTargetJobs(input: {
     }
   })();
   const adapter = discoveryAdapters[adapterKind];
-  const instructionLines = buildInstructionGuidance(activeInstruction);
+  const instructionLines = buildDiscoveryInstructionGuidance(activeInstruction);
 
   if (input.useAgentRuntime && ctx.browserRuntime.runAgentDiscovery) {
     const result = await ctx.browserRuntime.runAgentDiscovery(adapterKind, {
@@ -380,10 +550,16 @@ async function collectTargetJobs(input: {
       targetJobCount: input.targetJobCount,
       maxSteps: input.maxSteps,
       startingUrls,
+      agentHints: {
+        widenReviewBudget: adapter.kind === "target_site",
+      },
       siteLabel: target.label,
       navigationHostnames: targetUrl ? [targetUrl.hostname] : [],
       siteInstructions: [...adapter.siteInstructions, ...instructionLines],
       toolUsageNotes: adapter.toolUsageNotes,
+      compactionHints: {
+        workflowKey: "browser_agent_live_discovery",
+      },
       relevantUrlSubstrings: adapter.relevantUrlSubstrings,
       experimental: adapter.experimental,
       aiClient: ctx.aiClient,
@@ -438,7 +614,10 @@ async function collectTargetJobs(input: {
     };
   }
 
-  const result = await ctx.browserRuntime.runDiscovery(adapterKind, input.searchPreferences);
+  const result = await ctx.browserRuntime.runDiscovery(
+    adapterKind,
+    input.searchPreferences,
+  );
   return {
     result: {
       ...result,
@@ -465,26 +644,72 @@ export function createWorkspaceDiscoveryMethods(
   JobFinderWorkspaceService,
   "runDiscovery" | "runAgentDiscovery" | "runDiscoveryForTarget"
 > {
+  function trackDiscoveryPromise<T>(promise: Promise<T>): Promise<T> {
+    ctx.activeDiscoveryPromiseRef.current = promise;
+    void promise
+      .finally(() => {
+        if (ctx.activeDiscoveryPromiseRef.current === promise) {
+          ctx.activeDiscoveryPromiseRef.current = null;
+        }
+      })
+      .catch(() => {});
+    return promise;
+  }
+
   async function executeDiscoveryPipeline(
     options: DiscoveryTargetPipelineOptions,
   ) {
+    if (ctx.activeDiscoveryAbortControllerRef.current) {
+      throw new Error(
+        "A discovery run is already in progress. Wait for it to finish or cancel it before starting another run.",
+      );
+    }
+
+    const executionController = new AbortController();
+    ctx.activeDiscoveryAbortControllerRef.current = executionController;
+    const onExternalAbort = () => executionController.abort();
+    if (options.signal?.aborted) {
+      executionController.abort();
+    } else {
+      options.signal?.addEventListener("abort", onExternalAbort);
+    }
+    const executionSignal = executionController.signal;
+    const clearActiveController = () => {
+      options.signal?.removeEventListener("abort", onExternalAbort);
+      if (
+        ctx.activeDiscoveryAbortControllerRef.current === executionController
+      ) {
+        ctx.activeDiscoveryAbortControllerRef.current = null;
+      }
+    };
+
     let terminalStatus: "cancelled" | "failed" | "completed" = "completed";
     let caughtError: unknown = null;
-    const [profile, searchPreferences, settings, startingSavedJobs, startingDiscovery] =
-      await Promise.all([
-        ctx.repository.getProfile(),
-        ctx.repository.getSearchPreferences(),
-        ctx.repository.getSettings(),
-        ctx.repository.listSavedJobs(),
-        ctx.repository.getDiscoveryState(),
-      ]);
+    const [
+      profile,
+      searchPreferences,
+      settings,
+      startingSavedJobs,
+      startingDiscovery,
+    ] = await Promise.all([
+      ctx.repository.getProfile(),
+      ctx.repository.getSearchPreferences(),
+      ctx.repository.getSettings(),
+      ctx.repository.listSavedJobs(),
+      ctx.repository.getDiscoveryState(),
+    ]).catch((error: unknown) => {
+      clearActiveController();
+      throw error;
+    });
     const enrichedPreferences = enrichSearchPreferencesFromProfile(
       searchPreferences,
       profile,
     );
-    const targets = selectTargets(enrichedPreferences, options);
+    const selectedTargets = selectTargets(enrichedPreferences, options);
 
-    if (targets.length === 0) {
+    if (selectedTargets.length === 0) {
+      clearActiveController();
+
       if (options.scope === "single_target") {
         throw new Error("single_target: target not found or unavailable");
       }
@@ -494,11 +719,27 @@ export function createWorkspaceDiscoveryMethods(
 
     let workingSavedJobs = [...startingSavedJobs];
     let workingPendingJobs = [...startingDiscovery.pendingDiscoveryJobs];
-    let workingLedger: DiscoveryLedgerEntry[] = [...startingDiscovery.discoveryLedger];
+    let workingLedger: DiscoveryLedgerEntry[] = [
+      ...startingDiscovery.discoveryLedger,
+    ];
     const touchedSavedJobIds = new Set<string>();
     const touchedPendingJobIds = new Set<string>();
     const openedSessionSources = new Set<JobSource>();
-    const sourceInstructionArtifacts = await ctx.repository.listSourceInstructionArtifacts();
+    const sourceInstructionArtifacts =
+      await ctx.repository
+        .listSourceInstructionArtifacts()
+        .catch((error: unknown) => {
+          clearActiveController();
+          throw error;
+        });
+    const targets =
+      options.scope === "run_all"
+        ? prioritizeDiscoveryTargets(
+            selectedTargets,
+            sourceInstructionArtifacts,
+            enrichedPreferences,
+          )
+        : selectedTargets;
     const runId = createUniqueId("discovery_run");
     const keepSessionAlive = settings.keepSessionAlive;
     let activeRun = createInitialRunRecord({
@@ -535,14 +776,19 @@ export function createWorkspaceDiscoveryMethods(
       }),
     );
 
-    await ctx.persistDiscoveryState((current) => ({
-      ...current,
-      runState: "running",
-      activeRun,
-      recentRuns: current.recentRuns,
-      pendingDiscoveryJobs: workingPendingJobs,
-      discoveryLedger: workingLedger,
-    }));
+    await ctx
+      .persistDiscoveryState((current) => ({
+        ...current,
+        runState: "running",
+        activeRun,
+        recentRuns: current.recentRuns,
+        pendingDiscoveryJobs: workingPendingJobs,
+        discoveryLedger: workingLedger,
+      }))
+      .catch((error: unknown) => {
+        clearActiveController();
+        throw error;
+      });
 
     try {
       for (const [index, target] of targets.entries()) {
@@ -578,9 +824,10 @@ export function createWorkspaceDiscoveryMethods(
               adapterKind: target.adapterKind,
               resolvedAdapterKind: resolveAdapterKind(target),
               collectionMethod: targetCollectionMethod,
-              sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-                targetIntelligence,
-              ),
+              sourceIntelligenceProvider: getDiscoveryProviderKey({
+                target,
+                intelligence: targetIntelligence,
+              }),
               terminalState: "skipped",
               message: `Skipping ${target.label} because the run already has enough jobs.`,
               url: target.startingUrl,
@@ -594,7 +841,7 @@ export function createWorkspaceDiscoveryMethods(
           continue;
         }
 
-        if (options.signal?.aborted) {
+        if (executionSignal.aborted) {
           throw new DOMException("Aborted", "AbortError");
         }
 
@@ -627,9 +874,10 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: resolveAdapterKind(target),
             collectionMethod: targetCollectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              targetIntelligence,
-            ),
+            sourceIntelligenceProvider: getDiscoveryProviderKey({
+              target,
+              intelligence: targetIntelligence,
+            }),
             message: `Starting target ${target.label}`,
             url: target.startingUrl,
             jobsFound: 0,
@@ -654,18 +902,24 @@ export function createWorkspaceDiscoveryMethods(
           maxSteps: discoveryBudget.maxSteps,
           activeRun,
           emitActivity,
-          ...(options.signal ? { signal: options.signal } : {}),
+          signal: executionSignal,
           openedSessionSources,
           useAgentRuntime: options.useAgentRuntime ?? false,
+        });
+        const collectedProviderKey = getDiscoveryProviderKey({
+          target,
+          intelligence: collected.intelligence,
         });
 
         activeRun = updateTargetExecution(activeRun, target.id, (entry) => ({
           ...entry,
           collectionMethod: collected.collectionMethod,
-          sourceIntelligenceProvider: collected.intelligence.provider?.key ?? null,
-          compactionState: collected.result.agentMetadata?.compactionState ?? null,
+          sourceIntelligenceProvider: collectedProviderKey,
+          compactionState:
+            collected.result.agentMetadata?.compactionState ?? null,
           compactionUsedFallbackTrigger:
-            collected.result.agentMetadata?.compactionUsedFallbackTrigger ?? false,
+            collected.result.agentMetadata?.compactionUsedFallbackTrigger ??
+            false,
         }));
 
         emitActivity(
@@ -679,12 +933,10 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
             collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              collected.intelligence,
-            ),
+            sourceIntelligenceProvider: collectedProviderKey,
             message: collected.result.warning
-              ? `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}. ${collected.result.warning}`
-              : `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}`,
+              ? `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(collected.result.jobs) ?? "none"}. ${collected.result.warning}`
+              : `Collected ${collected.result.jobs.length} candidate jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(collected.result.jobs) ?? "none"}`,
             url: target.startingUrl,
             jobsFound: collected.result.jobs.length,
             jobsPersisted: activeRun.summary.jobsPersisted,
@@ -696,20 +948,34 @@ export function createWorkspaceDiscoveryMethods(
 
         const targetSeenUrls: string[] = [];
         const triagedPostings: JobPosting[] = [];
+        const triageSkippedPostings: JobPosting[] = [];
         let skippedByTitleTriage = 0;
         let skippedByLedger = 0;
+        const titleTriageSkipSamples: Array<{
+          title: string;
+          company: string;
+          reason: string | null;
+        }> = [];
         const collectionSucceeded = collected.result.warning == null;
 
         for (const rawPosting of collected.result.jobs) {
           const posting = JobPostingSchema.parse(rawPosting);
           targetSeenUrls.push(posting.canonicalUrl);
-          const { posting: triagedPosting, triageReason } = createPostingWithTriage(
-            posting,
-            enrichedPreferences,
-          );
+          const { posting: triagedPosting, triageReason } =
+            createPostingWithTriage(posting, enrichedPreferences, profile);
 
           if (triagedPosting.titleTriageOutcome !== "pass") {
             skippedByTitleTriage += 1;
+            triageSkippedPostings.push(triagedPosting);
+            if (
+              titleTriageSkipSamples.length < DISCOVERY_ACTIVITY_SAMPLE_LIMIT
+            ) {
+              titleTriageSkipSamples.push({
+                title: triagedPosting.title,
+                company: triagedPosting.company,
+                reason: triageReason,
+              });
+            }
             workingLedger = recordDiscoveredPostingInLedger({
               ledger: workingLedger,
               posting: triagedPosting,
@@ -721,7 +987,10 @@ export function createWorkspaceDiscoveryMethods(
             continue;
           }
 
-          const ledgerEntry = findDiscoveryLedgerEntry(workingLedger, triagedPosting);
+          const ledgerEntry = findDiscoveryLedgerEntry(
+            workingLedger,
+            triagedPosting,
+          );
           const ledgerDecision = shouldSkipPostingFromLedger({
             ledgerEntry,
             posting: triagedPosting,
@@ -754,6 +1023,55 @@ export function createWorkspaceDiscoveryMethods(
           triagedPostings.push(triagedPosting);
         }
 
+        const technicalFallbackLimit = Math.max(
+          0,
+          LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR - triagedPostings.length,
+        );
+        const rescuedPostings =
+          technicalFallbackLimit > 0
+            ? selectLowYieldTechnicalFallbackPostings({
+                skippedPostings: triageSkippedPostings,
+                searchPreferences: enrichedPreferences,
+                profile,
+                limit: technicalFallbackLimit,
+              })
+            : [];
+
+        if (rescuedPostings.length > 0) {
+          for (const posting of rescuedPostings) {
+            workingLedger = recordDiscoveredPostingInLedger({
+              ledger: workingLedger,
+              posting,
+              targetId: target.id,
+              seenAt: posting.discoveredAt,
+              status: "seen",
+            });
+            triagedPostings.push(posting);
+          }
+
+          skippedByTitleTriage = Math.max(
+            0,
+            skippedByTitleTriage - rescuedPostings.length,
+          );
+          for (
+            let index = titleTriageSkipSamples.length - 1;
+            index >= 0;
+            index -= 1
+          ) {
+            const sample = titleTriageSkipSamples[index];
+            const rescuedPosting = sample
+              ? rescuedPostings.find(
+                  (posting) =>
+                    posting.title === sample.title &&
+                    posting.company === sample.company,
+                )
+              : null;
+            if (rescuedPosting) {
+              titleTriageSkipSamples.splice(index, 1);
+            }
+          }
+        }
+
         emitActivity(
           createDiscoveryEvent({
             runId,
@@ -765,10 +1083,11 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
             collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              collected.intelligence,
-            ),
-            message: `Reviewing ${triagedPostings.length} promising jobs from ${target.label}`,
+            sourceIntelligenceProvider: collectedProviderKey,
+            message:
+              triagedPostings.length > 0
+                ? `Reviewing ${triagedPostings.length} promising jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(triagedPostings) ?? "none"}${rescuedPostings.length > 0 ? ` Technical low-yield fallback kept ${rescuedPostings.length} additional job${rescuedPostings.length === 1 ? "" : "s"}.` : ""}`
+                : `Reviewing 0 promising jobs from ${target.label}. Title triage skipped ${skippedByTitleTriage}. Sample skips: ${formatDiscoverySkipSamples(titleTriageSkipSamples) ?? "none"}`,
             url: target.startingUrl,
             jobsFound: triagedPostings.length,
             jobsPersisted: activeRun.summary.jobsPersisted,
@@ -798,14 +1117,16 @@ export function createWorkspaceDiscoveryMethods(
               providerBoardToken: posting.providerBoardToken,
               titleTriageOutcome: posting.titleTriageOutcome,
             }),
-          options.signal,
+          executionSignal,
         );
         const changedJobIds = collectResumeAffectingChangedJobIds(
           workingSavedJobs,
           mergeResult.mergedJobs,
         );
 
-        const persistedSavedJobIds = new Set(workingSavedJobs.map((job) => job.id));
+        const persistedSavedJobIds = new Set(
+          workingSavedJobs.map((job) => job.id),
+        );
         let jobsPersisted = 0;
         let jobsStaged = 0;
 
@@ -818,13 +1139,18 @@ export function createWorkspaceDiscoveryMethods(
               persistedSavedJobIds.has(job.id) &&
               !mergeResult.newJobs.some((newJob) => newJob.id === job.id),
           );
-          workingPendingJobs = mergePendingJobs(workingPendingJobs, nextPendingJobs);
+          workingPendingJobs = mergePendingJobs(
+            workingPendingJobs,
+            nextPendingJobs,
+          );
           jobsStaged = nextPendingJobs.length;
           nextPendingJobs.forEach((job) => touchedPendingJobIds.add(job.id));
           workingSavedJobs.forEach((job) => touchedSavedJobIds.add(job.id));
         } else {
           workingSavedJobs = mergeResult.mergedJobs;
-          mergeResult.mergedJobs.forEach((job) => touchedSavedJobIds.add(job.id));
+          mergeResult.mergedJobs.forEach((job) =>
+            touchedSavedJobIds.add(job.id),
+          );
           jobsPersisted = mergeResult.newJobs.length;
         }
 
@@ -859,9 +1185,7 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
             collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              collected.intelligence,
-            ),
+            sourceIntelligenceProvider: collectedProviderKey,
             message: `Saving the kept jobs and updated discovery ledger for ${target.label}`,
             url: target.startingUrl,
             jobsFound: mergeResult.validatedCount,
@@ -873,7 +1197,8 @@ export function createWorkspaceDiscoveryMethods(
         );
 
         activeRun = updateRunSummary(activeRun, {
-          validJobsFound: activeRun.summary.validJobsFound + mergeResult.validatedCount,
+          validJobsFound:
+            activeRun.summary.validJobsFound + mergeResult.validatedCount,
           jobsPersisted: activeRun.summary.jobsPersisted + jobsPersisted,
           jobsStaged: activeRun.summary.jobsStaged + jobsStaged,
           jobsSkippedByLedger:
@@ -882,17 +1207,23 @@ export function createWorkspaceDiscoveryMethods(
             activeRun.summary.jobsSkippedByTitleTriage + skippedByTitleTriage,
           duplicatesMerged:
             activeRun.summary.duplicatesMerged + mergeResult.duplicatesMerged,
-          invalidSkipped: activeRun.summary.invalidSkipped + mergeResult.invalidSkipped,
+          invalidSkipped:
+            activeRun.summary.invalidSkipped + mergeResult.invalidSkipped,
         });
 
         const targetCompletedAt = new Date().toISOString();
-        activeRun = completeTargetExecution(activeRun, target.id, targetCompletedAt, {
-          state: "completed",
-          jobsFound: mergeResult.validatedCount,
-          jobsPersisted,
-          jobsStaged,
-          warning: collected.result.warning,
-        });
+        activeRun = completeTargetExecution(
+          activeRun,
+          target.id,
+          targetCompletedAt,
+          {
+            state: "completed",
+            jobsFound: mergeResult.validatedCount,
+            jobsPersisted,
+            jobsStaged,
+            warning: collected.result.warning,
+          },
+        );
         emitActivity(
           createDiscoveryEvent({
             runId,
@@ -904,9 +1235,7 @@ export function createWorkspaceDiscoveryMethods(
             adapterKind: target.adapterKind,
             resolvedAdapterKind: collected.adapterKind,
             collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: getSourceIntelligenceProviderKey(
-              collected.intelligence,
-            ),
+            sourceIntelligenceProvider: collectedProviderKey,
             terminalState: "completed",
             message: `Finished ${target.label} (${index + 1}/${targets.length})`,
             url: target.startingUrl,
@@ -949,7 +1278,8 @@ export function createWorkspaceDiscoveryMethods(
         );
       }
     } catch (error) {
-      const interrupted = error instanceof DOMException && error.name === "AbortError";
+      const interrupted =
+        error instanceof DOMException && error.name === "AbortError";
       terminalStatus = interrupted ? "cancelled" : "failed";
       caughtError = error;
       activeRun = finalizeRunningTargetExecutions(
@@ -965,11 +1295,12 @@ export function createWorkspaceDiscoveryMethods(
       }
 
       if (openedSessionSources.size > 0) {
-        const representativeSource = [...openedSessionSources].pop() ?? "target_site";
+        const representativeSource =
+          [...openedSessionSources].pop() ?? "target_site";
         const browserCloseoutOccurredAt = new Date().toISOString();
-        const session = await ctx.browserRuntime.getSessionState(representativeSource).catch(
-          () => null,
-        );
+        const session = await ctx.browserRuntime
+          .getSessionState(representativeSource)
+          .catch(() => null);
         if (session) {
           activeRun = updateRunSummary(activeRun, {
             browserCloseout: {
@@ -981,9 +1312,15 @@ export function createWorkspaceDiscoveryMethods(
           });
         }
       }
+
+      clearActiveController();
     }
 
-    activeRun = finalizeDiscoveryRun(activeRun, terminalStatus, new Date().toISOString());
+    activeRun = finalizeDiscoveryRun(
+      activeRun,
+      terminalStatus,
+      new Date().toISOString(),
+    );
 
     const latestDiscoveryState = await ctx.repository.getDiscoveryState();
     await ctx.repository.replaceSavedJobs(
@@ -1023,49 +1360,59 @@ export function createWorkspaceDiscoveryMethods(
   return {
     async runDiscovery(targetId) {
       if (targetId) {
-        return executeDiscoveryPipeline({
-          scope: "single_target",
-          targetId,
-          allowInactiveMarking: false,
-          useAgentRuntime: false,
-        });
+        return trackDiscoveryPromise(
+          executeDiscoveryPipeline({
+            scope: "single_target",
+            targetId,
+            allowInactiveMarking: false,
+            useAgentRuntime: false,
+          }),
+        );
       }
 
-      return executeDiscoveryPipeline({
-        scope: "run_all",
-        allowInactiveMarking: true,
-        useAgentRuntime: false,
-      });
+      return trackDiscoveryPromise(
+        executeDiscoveryPipeline({
+          scope: "run_all",
+          allowInactiveMarking: true,
+          useAgentRuntime: false,
+        }),
+      );
     },
     async runAgentDiscovery(onActivity, signal, targetId) {
       if (targetId) {
-        return executeDiscoveryPipeline({
+        return trackDiscoveryPromise(
+          executeDiscoveryPipeline({
+            scope: "single_target",
+            targetId,
+            ...(onActivity ? { onActivity } : {}),
+            ...(signal ? { signal } : {}),
+            allowInactiveMarking: false,
+            useAgentRuntime: true,
+          }),
+        );
+      }
+
+      return trackDiscoveryPromise(
+        executeDiscoveryPipeline({
+          scope: "run_all",
+          ...(onActivity ? { onActivity } : {}),
+          ...(signal ? { signal } : {}),
+          allowInactiveMarking: true,
+          useAgentRuntime: true,
+        }),
+      );
+    },
+    async runDiscoveryForTarget(targetId, onActivity, signal) {
+      return trackDiscoveryPromise(
+        executeDiscoveryPipeline({
           scope: "single_target",
           targetId,
           ...(onActivity ? { onActivity } : {}),
           ...(signal ? { signal } : {}),
           allowInactiveMarking: false,
           useAgentRuntime: true,
-        });
-      }
-
-      return executeDiscoveryPipeline({
-        scope: "run_all",
-        ...(onActivity ? { onActivity } : {}),
-        ...(signal ? { signal } : {}),
-        allowInactiveMarking: true,
-        useAgentRuntime: true,
-      });
-    },
-    async runDiscoveryForTarget(targetId, onActivity, signal) {
-      return executeDiscoveryPipeline({
-        scope: "single_target",
-        targetId,
-        ...(onActivity ? { onActivity } : {}),
-        ...(signal ? { signal } : {}),
-        allowInactiveMarking: false,
-        useAgentRuntime: true,
-      });
+        }),
+      );
     },
   };
 }

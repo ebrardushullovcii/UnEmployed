@@ -20,19 +20,17 @@ function buildClaudeMd() {
 
 # Claude-Specific
 
-- Start with @docs/README.md, then @docs/STATUS.md and @docs/TRACKS.md
-- Read only the smallest relevant doc set and the linked active or queued exec plan for the task
-- Prefer the nearest package-local @AGENTS.md before editing code in that area
-- Reference @docs/AGENT_CONTEXT.md and @.agents/registry.yaml only when changing repo guidance, generated adapters, or the handoff model
-- Reference @docs/ARCHITECTURE.md, @docs/CONTRACTS.md, and @docs/TESTING.md only when the task touches those concerns
+- Start with @docs/README.md
+- Read @docs/STATUS.md and @docs/TRACKS.md only for active feature work, broad repo changes, handoff updates, or unclear current state
+- Read linked exec plans and package-local @AGENTS.md only when relevant to the task
+- Use @docs/AGENT_CONTEXT.md and @.agents/registry.yaml only for repo-guidance or adapter changes
+- Use @docs/ARCHITECTURE.md, @docs/CONTRACTS.md, and @docs/TESTING.md only for those concerns
 - Project-local skills live in @.agents/skills
 - @.claude/skills is a compatibility symlink created by \`pnpm agents:sync\`
 - Update docs in the same task when behavior, contracts, architecture, or workflow change
-- When fixing PR or review feedback, prefer a root-cause or reusable pattern fix over a one-off patch when the broader correction is clear and safe
-- If preparing work for commit or PR handoff, update the relevant docs proactively in the same task
 - Never create a git commit or PR action unless the user explicitly asks for it
-- Run \`pnpm agents:sync\` after updating repo-wide guidance
-- After shared guidance changes, run \`pnpm agents:check\` and \`pnpm docs:check\`
+- For docs or guidance-only changes, run \`pnpm validate:docs-only\`
+- For package-local code, run \`pnpm validate:package <alias>\`
 `
 }
 
@@ -45,17 +43,18 @@ alwaysApply: true
 
 # UnEmployed
 
-- Start with \`AGENTS.md\`, then \`docs/README.md\`, \`docs/STATUS.md\`, \`docs/TRACKS.md\`, and the linked active or queued exec plan.
-- Read only the smallest relevant doc set for the task.
-- Prefer package-local \`AGENTS.md\` files when working inside one workspace.
+- Start with \`AGENTS.md\` and \`docs/README.md\`.
+- Read only the smallest relevant doc set.
+- Read \`docs/STATUS.md\` and \`docs/TRACKS.md\` only for active feature work, broad repo changes, handoff updates, or unclear current state.
+- Read linked exec plans only when relevant.
+- Use package-local \`AGENTS.md\` when editing that workspace.
 - Use \`docs/AGENT_CONTEXT.md\` and \`.agents/registry.yaml\` only when changing repo guidance or generated adapters.
 - Shared contracts live in \`packages/contracts\`; do not introduce untyped cross-package boundaries.
 - Update docs in the same task when behavior, contracts, architecture, or workflow change.
-- When fixing PR or review feedback, prefer a root-cause or reusable pattern fix over a one-off patch when the broader correction is clear and safe.
-- If preparing work for commit or PR handoff, update the relevant docs proactively in the same task.
 - Never create a git commit or PR action unless the user explicitly asks for it.
 - Run \`pnpm verify\` as the broad default check when the task does not call for something narrower.
-- After shared guidance changes, run \`pnpm agents:sync\`, \`pnpm agents:check\`, and \`pnpm docs:check\`.
+- For docs or guidance-only changes, run \`pnpm validate:docs-only\`.
+- For package-local code, run \`pnpm validate:package <alias>\`.
 `
 }
 

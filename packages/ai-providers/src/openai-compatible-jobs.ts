@@ -1,9 +1,16 @@
-import { JobPostingSchema, WorkModeListSchema, type JobPosting } from "@unemployed/contracts";
+import {
+  JobPostingSchema,
+  WorkModeListSchema,
+  type JobPosting,
+} from "@unemployed/contracts";
 import {
   buildGenericCanonicalUrl,
   buildGenericJobId,
   buildInvalidJobSample,
   describeInvalidFieldCounts,
+  inferCompanyFromCanonicalUrl,
+  normalizeCompositeTitle,
+  normalizeTitleCompanyPair,
 } from "./deterministic";
 
 const jobBoardHostFragments = [
@@ -68,11 +75,12 @@ function summarizeJobPosting(input: {
   minimumQualifications: readonly string[];
   preferredQualifications: readonly string[];
 }): string {
-  const firstStructuredLine = [
-    ...input.responsibilities,
-    ...input.minimumQualifications,
-    ...input.preferredQualifications,
-  ][0] ?? null;
+  const firstStructuredLine =
+    [
+      ...input.responsibilities,
+      ...input.minimumQualifications,
+      ...input.preferredQualifications,
+    ][0] ?? null;
 
   if (firstStructuredLine) {
     return firstStructuredLine;
@@ -88,7 +96,9 @@ function summarizeJobPosting(input: {
     .map((entry) => entry.trim())
     .find(Boolean);
 
-  return firstSentence ? firstSentence.slice(0, 280) : normalizedDescription.slice(0, 280);
+  return firstSentence
+    ? firstSentence.slice(0, 280)
+    : normalizedDescription.slice(0, 280);
 }
 
 function toHostnameOrNull(value: string | null): string | null {
@@ -125,7 +135,7 @@ export function buildJobsExtractionPrompt(input: {
         "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
         "Each job should include: sourceJobId when explicit, canonicalUrl when stable, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills when visible, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
         'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
-        'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
+        "Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.",
         'Use any "Relevant in-scope URLs found on page" entries to recover stable canonical job URLs whenever possible.',
         "If only a short search-results snippet is visible, reuse that grounded snippet for description instead of leaving description empty.",
         "Do not spend effort inventing detail-page-only fields that are not visible on the search page.",
@@ -140,7 +150,7 @@ export function buildJobsExtractionPrompt(input: {
         "Jobs may appear in any language. Preserve the original language of titles, companies, locations, and descriptions.",
         "Each job should include canonicalUrl, title, company, location, salaryText (or null), description, summary when confidently available, workMode, keySkills, responsibilities, minimumQualifications, preferredQualifications, seniority, employmentType, department, team, postedAt or postedAtText when visible, employerWebsiteUrl when proven, applyPath, and easyApplyEligible.",
         'Use only these applyPath values: "easy_apply", "external_redirect", or "unknown". Use "unknown" when the page does not prove the path.',
-        'Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.',
+        "Set easyApplyEligible to true only when the page clearly shows an inline easy-apply path; otherwise return false.",
         "Use the page URL as the source of truth for canonicalUrl whenever available.",
         "Do not fabricate posted dates. Use null when exact posting time is unknown and preserve any visible relative string in postedAtText.",
         'If the page is not clearly a job detail page, return { "jobs": [] }.',
@@ -172,7 +182,7 @@ export function normalizeExtractedJobs(input: {
     return normalized ? [normalized] : [];
   };
 
-const toWorkModeArray = (value: unknown): string[] => {
+  const toWorkModeArray = (value: unknown): string[] => {
     const parsed = WorkModeListSchema.safeParse(value);
     if (!parsed.success) {
       return [];
@@ -226,9 +236,9 @@ const toWorkModeArray = (value: unknown): string[] => {
     const rawSourceJobId = toStr(raw.sourceJobId);
     const rawCanonicalUrl =
       toStr(raw.canonicalUrl) || toStr(raw.url) || toStr(raw.link);
+    const originalRawTitle = trimToNull(raw.title);
 
-    const fallbackUrl =
-      input.pageType === "job_detail" ? input.pageUrl : "";
+    const fallbackUrl = input.pageType === "job_detail" ? input.pageUrl : "";
     const derivedCanonicalUrl = buildGenericCanonicalUrl(
       rawCanonicalUrl || fallbackUrl,
       input.pageUrl,
@@ -245,6 +255,14 @@ const toWorkModeArray = (value: unknown): string[] => {
       continue;
     }
 
+    const rawCompany = trimToNull(raw.company);
+    const normalizedPair = normalizeTitleCompanyPair({
+      title: originalRawTitle ?? "",
+      company: rawCompany,
+    });
+    const normalizedCompositeTitle = normalizeCompositeTitle(normalizedPair.title);
+    const normalizedJobTitle =
+      trimToNull(normalizedCompositeTitle.title) ?? normalizedPair.title;
     const responsibilities = toStringArray(raw.responsibilities);
     const minimumQualifications = toStringArray(
       raw.minimumQualifications ?? raw.requirements ?? raw.qualifications,
@@ -252,15 +270,22 @@ const toWorkModeArray = (value: unknown): string[] => {
     const preferredQualifications = toStringArray(
       raw.preferredQualifications ?? raw.preferredRequirements,
     );
-const rawDescription = trimToNull(toStr(raw.description));
+    const rawDescription = trimToNull(toStr(raw.description));
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
+    const normalizedCompany =
+      normalizedPair.company ?? inferCompanyFromCanonicalUrl(derivedCanonicalUrl);
+    const normalizedLocation =
+      trimToNull(raw.location) ?? normalizedCompositeTitle.location;
+    const normalizedPostedAtText =
+      trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative) ??
+      normalizedCompositeTitle.postedAtText;
     const summary =
       input.pageType === "search_results"
         ? trimToNull(raw.summary)
         : (trimToNull(raw.summary) ??
           summarizeJobPosting({
-            title: toStr(raw.title),
-            company: toStr(raw.company),
+            title: normalizedJobTitle,
+            company: normalizedCompany ?? "",
             description: rawDescription ?? "",
             responsibilities,
             minimumQualifications,
@@ -269,16 +294,19 @@ const rawDescription = trimToNull(toStr(raw.description));
     const description =
       rawDescription ??
       (input.pageType === "search_results"
-        ? (summary ?? `${toStr(raw.title)} opportunity at ${toStr(raw.company)}`)
-        : summary ?? "");
+        ? (summary ??
+          (normalizedCompany
+            ? `${normalizedJobTitle} opportunity at ${normalizedCompany}`
+            : `${normalizedJobTitle} opportunity`))
+        : (summary ?? ""));
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,
       discoveryMethod: "browser_agent" as const,
       canonicalUrl: derivedCanonicalUrl,
-      title: toStr(raw.title),
-      company: toStr(raw.company),
-      location: toStr(raw.location),
+      title: normalizedJobTitle,
+      company: normalizedCompany ?? "",
+      location: normalizedLocation ?? "",
       workMode: toWorkModeArray(raw.workMode),
       applyPath:
         raw.applyPath === "easy_apply" ||
@@ -288,7 +316,7 @@ const rawDescription = trimToNull(toStr(raw.description));
           : "unknown",
       easyApplyEligible: raw.easyApplyEligible === true,
       postedAt: toIsoDateTimeOrNull(raw.postedAt),
-      postedAtText: trimToNull(raw.postedAtText ?? raw.postedLabel ?? raw.postedRelative),
+      postedAtText: normalizedPostedAtText,
       discoveredAt: new Date().toISOString(),
       salaryText: raw.salaryText ? toStr(raw.salaryText) : null,
       summary,

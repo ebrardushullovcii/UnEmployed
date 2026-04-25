@@ -1,97 +1,20 @@
-# Design System Strategy: Tactical Command
+# Tactical Command Design Direction
 
-## 1. Overview & Creative North Star
-**The Creative North Star: "The Orchestrated Workspace"**
+Use this as visual direction, not literal product voice. For shipped UI, implement against the current desktop shell, renderer tokens, and active product patterns instead of copying prototype styling one-to-one.
 
-This design system is not a consumer-grade dashboard; it is a high-utility, supervised automation environment. It breaks from the "friendly SaaS" template by embracing **Instrumental Density** - a philosophy where information is treated as a critical asset rather than something to be hidden behind whitespace.
+## Keep
 
-The aesthetic is built on **Intentional Rigidity**. By leaning on sharp corners, restrained color, and intentional asymmetry, the UI can feel focused and trustworthy without drifting into a literal mission-console theme. Large display type can balance denser operational details, but the shipped product should still read as a grounded desktop workspace.
+- high information density when it improves workflow clarity
+- strong hierarchy, contrast, and desktop-workspace feel
+- surface shifts for grouping instead of shadow-heavy cards
+- sharper shapes over generic rounded-dashboard styling
 
-### Implementation Note
+## Avoid
 
-This document is strongest as a visual-direction reference, not as a literal shipped product voice guide.
+- literal mission-console or military styling in shipped UI
+- consumer SaaS whitespace for its own sake
+- treating prototype styling as implementation source-of-truth instead of the current product shell, tokens, and component patterns
 
-- Keep the density, contrast, hierarchy, and desktop-workspace clarity.
-- Soften the more extreme mission-console or military framing when turning these references into the real product UI.
-- Treat this system as a way to avoid bland dashboards, not as a requirement to preserve every thematic flourish verbatim.
+## Translation Rule
 
----
-
-## 2. Colors & Surface Logic
-
-The palette is engineered for low-light, high-focus environments, utilizing a deep `surface` base with precise accentuation.
-
-### Surface Hierarchy & Nesting
-We do not use drop shadows to define space. Depth is achieved via **Tonal Stacking**:
-*   **Base Layer:** `surface` (#0e0e0e) – The primary canvas.
-*   **Secondary Wells:** `surface_container_low` (#131313) – Used for inset grouping and large content blocks.
-*   **Active Panels:** `surface_container_high` (#1f2020) – Used for interactive modules or elevated state cards.
-*   **Floating/Modal Elements:** `surface_bright` (#2b2c2c) – For elements that require immediate visual prominence.
-
-### The "No-Line" Rule
-Avoid relying on 1px solid borders as the primary sectioning tool. Prefer background shifts first (for example, a `surface_container_low` sidebar against a `surface` main content area).
-
-### Signature Textures
-*   **Functional Glass:** Use `surface_variant` with a 60% opacity and `backdrop-blur: 12px` for floating navigation bars or tooltips. This allows the high-density grid to remain visible beneath, maintaining the "cockpit" feel.
-*   **The Status Glow:** For critical status indicators, use a subtle 4px blur on the `primary` or `error` text to mimic the phosphor glow of old-school CRT monitors.
-
----
-
-## 3. Typography: The Command Voice
-
-The system uses a pairing of **Space Grotesk** for structural authority and **Inter** for data readability.
-
-*   **Display & Headlines (Space Grotesk):** Set in uppercase with `letter-spacing: 0.05em`. This is the "Command Voice"—used for section titles and high-level status (e.g., `TACTICAL_CONTROL`).
-*   **Body & Labels (Inter):** The "Operator Readout." Highly legible, even at small scales. Use `font-weight: 500` for standard body to ensure it stands out against the dark `surface`.
-*   **The Monospaced Effect:** While Inter is the primary typeface, all numerical data and system IDs should utilize a monospaced stylistic set or a fallback to JetBrains Mono to reinforce the "terminal" aesthetic.
-
----
-
-## 4. Elevation & Depth
-
-We eschew traditional material depth in favor of **Tonal Layering**.
-
-*   **The Layering Principle:** Stack `surface_container_lowest` (#000000) cards on a `surface_container_low` (#131313) background to create "carved out" UI sections. This feels more industrial and integrated than "raised" cards.
-*   **The Ghost Border:** If a boundary is required for accessibility, use `outline_variant` (#484848) at 20% opacity. It should be barely perceptible—a suggestion of a line, not a container.
-*   **Ambient Shadows:** For rare floating states (e.g., a context menu), use a "Shadow Tint." Instead of black, use `on_surface` (#e7e5e5) at 4% opacity with a 32px blur. This creates a subtle grey "fog" that lifts the element without breaking the tactical vibe.
-
----
-
-## 5. Components
-
-### Buttons
-*   **Primary:** Solid `primary` (#c6c6c7) with `on_primary` (#3f4041) text. 0px corners. High-contrast.
-*   **Secondary (Tactical):** `outline` (#767575) border, transparent background. Text is `on_background`.
-*   **Critical Action:** `error` (#ee7d77) background with `on_error` (#490106) text. Reserved for "Kill Switch" or "Unlink" actions.
-
-### Input Fields
-*   **Command Inputs:** Use `surface_container_highest` background with a bottom-only `outline` border. 
-*   **Focus State:** Shift the border to `primary` (#c6c6c7) and add a 10% opacity `primary` fill to the entire field.
-
-### Status Indicators (Terminal Style)
-*   **Active:** `tertiary` (#eff8ff) dot with a pulsing animation.
-*   **Alert:** `error` (#ee7d77) background, white text, blinking at 1Hz.
-
-### Data Panels
-Forbid the use of divider lines. Separate job application entries or log rows using the **Spacing Scale `1` (0.2rem)** for micro-gaps or **Surface Shifting** (alternating between `surface` and `surface_container_low`).
-
----
-
-## 6. Do’s and Don’ts
-
-### Do
-*   **DO** keep technical labels compact when the surrounding context is already system-facing.
-*   **DO** maintain useful information density for a focused desktop workflow.
-*   **DO** use `tertiary` (muted blue) for non-critical telemetry and secondary data.
-*   **DO** utilize the `0.5` spacing (0.1rem) for tight "cockpit" groupings.
-
-### Don’t
-*   **DON’T** default to soft consumer-style rounding; prefer sharper shapes unless a small radius improves usability or aligns with the shipped component set.
-*   **DON’T** use standard blue for links. Use `primary` (off-white) with an underline or `tertiary` for a muted functional feel.
-*   **DON’T** use drop shadows for hierarchy. Use color shifts.
-*   **DON’T** let the exploratory console theme override product clarity or grounded shipped UX.
-
----
-
-## 7. Spacing & Grid
-The layout must follow a **Strict 8px Grid**, but the implementation should be **Asymmetrical**. Align primary controls to a rigid left-heavy column, while allowing data readouts to fill the remaining horizontal space in a "waterfall" of panels. Use `Spacing 16` (3.5rem) for major section breaks to ensure the density doesn't become claustrophobic.
+Borrow the density and structure, then translate it into the repo's existing product language: keep compact desktop spacing, strong hierarchy, and grouped surfaces, but use the current neutral palette, border treatment, and shell styling instead of harsh tactical or mission-console visuals.

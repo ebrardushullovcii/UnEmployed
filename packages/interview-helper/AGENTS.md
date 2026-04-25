@@ -1,10 +1,9 @@
-# Interview Helper Package
+# Interview Helper
 
-Owns interview prep, live session state, transcript context, and suggestion orchestration.
+Owns interview prep, live session state, transcript context, and suggestions.
 
 ## Rules
 
-- Keep live-session state machine testable and deterministic.
-- Treat overlay rendering as a consumer of session state, not the owner of it.
-- Keep OS-specific capture and hotkey behavior behind adapters.
-
+- Keep the live-session state machine deterministic and testable
+- Treat overlay rendering as a consumer of session state
+- Keep OS-specific capture and hotkeys behind adapters

@@ -184,6 +184,7 @@ async function captureResumeWorkspaceDirtyState() {
         )
       },
       'assistant messages after dirty save-before-send',
+      30000, // AI assistant responses can exceed the default 15s wait here.
     )
     const assistantMessages = await getAssistantMessages(window)
     results.assistant = {

@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron as electron } from 'playwright'
+import { selectApplicationRecord } from './ui-selectors.mjs'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(currentDir, '..')
@@ -177,6 +178,7 @@ async function captureApplyQueueControls() {
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '01-review-queue-multi-select.png') })
 
     await stageSelectedQueue(window)
+    await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-applications-queue-staged.png') })
 
     await approveCurrentRun(window)
@@ -187,6 +189,8 @@ async function captureApplyQueueControls() {
       },
       'queue consent pause after approval',
     )
+    await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
+    await window.getByText('Consent requests', { exact: true }).waitFor({ timeout: 20000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-applications-queue-consent-pause.png') })
     const consentPaused = await getSelectedApplyReviewData(window)
 
@@ -210,6 +214,7 @@ async function captureApplyQueueControls() {
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
     await selectQueueJobs(window, ['Senior Product Designer', 'Staff Product Designer'])
     await stageSelectedQueue(window)
+    await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
     await approveCurrentRun(window)
     await waitForCondition(
       async () => {
@@ -218,6 +223,8 @@ async function captureApplyQueueControls() {
       },
       'queue consent pause before decline',
     )
+    await selectApplicationRecord(window, 'Staff Product Designer', 'Consent Labs')
+    await window.getByText('Consent requests', { exact: true }).waitFor({ timeout: 20000 })
 
     const skipJobButton = window.getByRole('button', { name: 'Skip this job' })
     await skipJobButton.waitFor({ timeout: 10000 })
@@ -241,6 +248,7 @@ async function captureApplyQueueControls() {
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
     await selectQueueJobs(window, ['Senior Product Designer'])
     await stageSelectedQueue(window)
+    await selectApplicationRecord(window, 'Senior Product Designer', 'Signal Systems')
     const cancelButton = window.getByRole('button', { name: 'Cancel run' })
     await cancelButton.waitFor({ timeout: 10000 })
     await cancelButton.click()

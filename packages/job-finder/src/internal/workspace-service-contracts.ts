@@ -7,6 +7,8 @@ import type {
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
   ResumeDocumentBundle,
+  ResumeImportFieldCandidate,
+  ResumeImportRun,
   ResumeSourceDocument,
   JobFinderResumeWorkspace,
   JobFinderSettings,
@@ -33,7 +35,13 @@ import type { ResumeExportFileVerifier } from "./workspace-service-context";
 import type { ResumeRenderDocument } from "./resume-workspace-structure";
 
 export interface JobFinderWorkspaceService {
+  shutdown(): Promise<void>;
   getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot>;
+  getResumeImportState(): Promise<{
+    resumeImportRuns: readonly ResumeImportRun[];
+    resumeImportDocumentBundles: readonly ResumeDocumentBundle[];
+    resumeImportFieldCandidates: readonly ResumeImportFieldCandidate[];
+  }>;
   openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
   checkBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
   resetWorkspace(

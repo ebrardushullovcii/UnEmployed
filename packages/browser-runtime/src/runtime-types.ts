@@ -12,8 +12,8 @@ import type {
   ResumeExportArtifact,
   SharedAgentCompactionPolicy,
   SavedJob,
-} from '@unemployed/contracts'
-import type { JobFinderAiClient } from '@unemployed/ai-providers'
+} from "@unemployed/contracts";
+import type { JobFinderAiClient } from "@unemployed/ai-providers";
 
 export interface ExecuteEasyApplyInput {
   job: SavedJob;
@@ -24,7 +24,7 @@ export interface ExecuteEasyApplyInput {
   instructions?: readonly string[];
 }
 
-export type ApplicationExecutionMode = 'prepare_only' | 'submit_when_ready';
+export type ApplicationExecutionMode = "prepare_only" | "submit_when_ready";
 
 export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
   mode: ApplicationExecutionMode;
@@ -62,6 +62,9 @@ export interface AgentDiscoveryOptions {
   targetJobCount: number;
   maxSteps: number;
   startingUrls: string[];
+  agentHints?: {
+    widenReviewBudget?: boolean;
+  };
   siteLabel: string;
   navigationHostnames: string[];
   siteInstructions?: string[];
@@ -78,6 +81,9 @@ export interface AgentDiscoveryOptions {
   };
   compaction?: Partial<SharedAgentCompactionPolicy>;
   modelContextWindowTokens?: number | null;
+  compactionHints?: {
+    workflowKey?: string;
+  };
   relevantUrlSubstrings?: string[];
   experimental?: boolean;
   skipSessionValidation?: boolean;

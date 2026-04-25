@@ -16,6 +16,7 @@ import {
   buildBenchmarkRepositoryState,
   createJobFinderWorkspaceService,
   type JobFinderDocumentManager,
+  type JobFinderWorkspaceService,
 } from '@unemployed/job-finder'
 
 const currentFile = fileURLToPath(import.meta.url)
@@ -43,6 +44,30 @@ function getDefaultChromeExecutablePath(): string {
 
 const chromeExecutablePath =
   process.env.UNEMPLOYED_CHROME_PATH ?? getDefaultChromeExecutablePath()
+const rawChromeDebugPort = process.env.UNEMPLOYED_CHROME_DEBUG_PORT
+  ? Number.parseInt(process.env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
+  : null
+const chromeDebugPort =
+  rawChromeDebugPort !== null &&
+  Number.isInteger(rawChromeDebugPort) &&
+  rawChromeDebugPort > 0 &&
+  rawChromeDebugPort <= 65535
+    ? rawChromeDebugPort
+    : null
+const PARTIAL_STATE_POLL_DEADLINE_MS = 6_000
+const PARTIAL_STATE_POLL_INTERVAL_MS = 200
+
+const defaultBenchmarkTargetRoles = [
+  'Engineer',
+  'Developer',
+  'Designer',
+  'Product',
+  'Manager',
+  'Marketing',
+  'Sales',
+  'Data',
+  'Analyst',
+] as const
 
 const benchmarkTargets = [
   {
@@ -65,8 +90,49 @@ const benchmarkTargets = [
     startingUrl: 'https://kosovajob.com/',
     expectedProvider: null,
     expectedApiCapable: false,
+    benchmarkTargetRoles: [
+      ...defaultBenchmarkTargetRoles,
+      'Software',
+      'Backend',
+      'Frontend',
+      'React',
+      'QA',
+      'Inxhinier',
+      'Zhvillues',
+      'Programer',
+    ],
   },
 ] as const
+
+const availableBenchmarkTargetIds = benchmarkTargets.map((target) => target.id)
+
+function selectBenchmarkTargets(
+  requestedTargetIds: readonly string[],
+): Array<(typeof benchmarkTargets)[number]> {
+  if (requestedTargetIds.length === 0) {
+    return [...benchmarkTargets]
+  }
+
+  const unknownTargetIds = requestedTargetIds.filter((targetId) => !availableBenchmarkTargetIds.includes(targetId))
+  if (unknownTargetIds.length > 0) {
+    throw new Error(
+      `BENCHMARK_TARGET_IDS contained unknown benchmark targets. Unknown: ${unknownTargetIds.join(', ')}. Available: ${availableBenchmarkTargetIds.join(', ')}`,
+    )
+  }
+
+  return benchmarkTargets.filter((target) => requestedTargetIds.includes(target.id))
+}
+
+const requestedBenchmarkTargetIds = (process.env.BENCHMARK_TARGET_IDS ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
+
+const selectedBenchmarkTargets = selectBenchmarkTargets(requestedBenchmarkTargetIds)
+
+function getBenchmarkTargetRoles(target: (typeof benchmarkTargets)[number]): string[] {
+  return [...(target.benchmarkTargetRoles ?? defaultBenchmarkTargetRoles)]
+}
 
 function parseEnvFile(content: string): Record<string, string> {
   const parsed: Record<string, string> = {}
@@ -158,17 +224,7 @@ function buildSeed(fixture: Awaited<ReturnType<typeof loadFixture>>, target: (ty
     searchPreferences: {
       ...emptyState.searchPreferences,
       ...parsedSearchPreferences,
-      targetRoles: [
-        'Engineer',
-        'Developer',
-        'Designer',
-        'Product',
-        'Manager',
-        'Marketing',
-        'Sales',
-        'Data',
-        'Analyst',
-      ],
+      targetRoles: getBenchmarkTargetRoles(target),
       locations: [],
       excludedLocations: [],
       workModes: [],
@@ -240,26 +296,132 @@ function titleMatchRate(jobs: Array<Record<string, unknown>>, targetRoles: strin
 }
 
 type RunWithTimeoutResult<TValue> =
-  | {
-      value: TValue
-      wallClockMs: number
-      timedOut: false
-    }
-  | {
-      error: string
-      wallClockMs: number
-      timedOut: boolean
-    }
+  {
+    value: TValue | null
+    partial: TValue | null
+    wallClockMs: number
+    timedOut: boolean
+    error: string | null
+  }
 
 type SourceDebugBenchmarkRunResult = {
   snapshot: Record<string, unknown>
   details: Record<string, unknown> | null
 }
 
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function asArrayOfRecords(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const record = asRecord(entry)
+        return record ? [record] : []
+      })
+    : []
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+function findLatestSourceDebugRunSnapshot(
+  snapshot: Record<string, unknown> | null,
+  targetId: string,
+): Record<string, unknown> | null {
+  const recentRuns = asArrayOfRecords(snapshot?.recentSourceDebugRuns)
+  const activeRun = asRecord(snapshot?.activeSourceDebugRun)
+
+  return recentRuns.find((run) => run.targetId === targetId) ??
+    (activeRun?.targetId === targetId ? activeRun : null)
+}
+
+function findLatestDiscoveryRunSnapshot(
+  snapshot: Record<string, unknown> | null,
+  targetId: string,
+): Record<string, unknown> | null {
+  const recentRuns = asArrayOfRecords(snapshot?.recentDiscoveryRuns)
+  const activeRun = asRecord(snapshot?.activeDiscoveryRun)
+  const runMatchesTarget = (run: Record<string, unknown>) =>
+    asArrayOfRecords(run.targetExecutions).some((execution) => execution.targetId === targetId) ||
+    (Array.isArray(run.targetIds) && run.targetIds.includes(targetId))
+
+  return (activeRun && runMatchesTarget(activeRun) ? activeRun : null) ?? recentRuns.find(runMatchesTarget)
+}
+
+async function collectSourceDebugBenchmarkPartialState(
+  workspaceService: JobFinderWorkspaceService,
+  targetId: string,
+): Promise<SourceDebugBenchmarkRunResult | null> {
+  const deadline = Date.now() + PARTIAL_STATE_POLL_DEADLINE_MS
+  let latestSnapshot: Record<string, unknown> | null = null
+  let latestDetails: Record<string, unknown> | null = null
+
+  while (Date.now() <= deadline) {
+    latestSnapshot = (await workspaceService.getWorkspaceSnapshot().catch(() => null)) as Record<string, unknown> | null
+    const latestRun = findLatestSourceDebugRunSnapshot(latestSnapshot, targetId)
+    const latestRunId = readString(latestRun?.id)
+
+    if (latestRunId) {
+      latestDetails = (await workspaceService.getSourceDebugRunDetails(latestRunId).catch(() => null)) as Record<string, unknown> | null
+    }
+
+    const detailsRun = asRecord(latestDetails?.run)
+    const runState = readString(detailsRun?.state ?? latestRun?.state)
+    if (runState !== 'running') {
+      break
+    }
+
+    await sleep(PARTIAL_STATE_POLL_INTERVAL_MS)
+  }
+
+  return latestSnapshot
+    ? {
+        snapshot: latestSnapshot,
+        details: latestDetails,
+      }
+    : null
+}
+
+async function collectDiscoveryBenchmarkPartialState(
+  workspaceService: JobFinderWorkspaceService,
+  targetId: string,
+): Promise<Record<string, unknown> | null> {
+  const deadline = Date.now() + PARTIAL_STATE_POLL_DEADLINE_MS
+  let latestSnapshot: Record<string, unknown> | null = null
+
+  while (Date.now() <= deadline) {
+    latestSnapshot = (await workspaceService.getWorkspaceSnapshot().catch(() => null)) as Record<string, unknown> | null
+    const latestRun = findLatestDiscoveryRunSnapshot(latestSnapshot, targetId)
+    const discoveryRunState = readString(latestSnapshot?.discoveryRunState)
+    const runState = readString(latestRun?.state)
+
+    if (discoveryRunState !== 'running' && runState !== 'running') {
+      break
+    }
+
+    await sleep(PARTIAL_STATE_POLL_INTERVAL_MS)
+  }
+
+  return latestSnapshot
+}
+
 async function runWithTimeout<TValue>(
   label: string,
   timeoutMs: number,
   run: (signal: AbortSignal) => Promise<TValue>,
+  collectPartial?: () => Promise<TValue | null>,
 ): Promise<RunWithTimeoutResult<TValue>> {
   const controller = new AbortController()
   const startedAt = Date.now()
@@ -276,18 +438,97 @@ async function runWithTimeout<TValue>(
     const value = await Promise.race([run(controller.signal), timeoutPromise])
     return {
       value,
+      partial: null,
       wallClockMs: Date.now() - startedAt,
       timedOut: false,
+      error: null,
     } satisfies RunWithTimeoutResult<TValue>
   } catch (error) {
+    const partial = collectPartial ? await collectPartial().catch(() => null) : null
+
     return {
-      error: error instanceof Error ? error.message : String(error),
+      value: null,
+      partial,
       wallClockMs: Date.now() - startedAt,
       timedOut: controller.signal.aborted || (error instanceof Error && error.message === timeoutMessage),
+      error: error instanceof Error ? error.message : String(error),
     } satisfies RunWithTimeoutResult<TValue>
   } finally {
     clearTimeout(timeoutHandle)
   }
+}
+
+function buildDiscoveryBenchmarkVerdict(input: {
+  summary: Record<string, unknown> | null
+  jobsCount: number
+  timedOut: boolean
+}): string {
+  const jobsPersisted = readNumber(input.summary?.jobsPersisted) ?? 0
+  const validJobsFound = readNumber(input.summary?.validJobsFound) ?? 0
+  const invalidSkipped = readNumber(input.summary?.invalidSkipped) ?? 0
+  const jobsSkippedByTitleTriage = readNumber(input.summary?.jobsSkippedByTitleTriage) ?? 0
+
+  if (jobsPersisted > 0) {
+    return input.timedOut ? 'timed_out_with_kept_jobs' : 'kept_jobs'
+  }
+
+  if (validJobsFound > 0 || input.jobsCount > 0) {
+    return input.timedOut ? 'timed_out_with_partial_jobs' : 'partial_jobs_found'
+  }
+
+  if (invalidSkipped > 0 || jobsSkippedByTitleTriage > 0) {
+    return input.timedOut ? 'timed_out_with_quality_signals' : 'quality_signals_only'
+  }
+
+  return input.timedOut ? 'timed_out_without_quality' : 'no_usable_jobs'
+}
+
+function buildSourceDebugBenchmarkVerdict(input: {
+  artifact: Record<string, unknown> | null
+  details: Record<string, unknown> | null
+  timedOut: boolean
+}): string {
+  const verificationOutcome = readString(asRecord(input.artifact?.verification)?.outcome)
+  const attempts = asArrayOfRecords(input.details?.attempts)
+  const evidenceRefs = asArrayOfRecords(input.details?.evidenceRefs)
+
+  if (verificationOutcome === 'passed') {
+    return input.timedOut ? 'timed_out_with_verified_artifact' : 'verified_artifact'
+  }
+
+  if (input.artifact && (attempts.length > 0 || evidenceRefs.length > 0)) {
+    return input.timedOut ? 'timed_out_with_partial_artifact' : 'partial_artifact'
+  }
+
+  if (attempts.length > 0 || evidenceRefs.length > 0) {
+    return input.timedOut ? 'timed_out_with_partial_evidence' : 'partial_evidence_only'
+  }
+
+  return input.timedOut ? 'timed_out_without_artifact' : 'no_artifact'
+}
+
+const failingSourceDebugBenchmarkVerdicts = new Set(['no_artifact', 'timed_out_without_artifact'])
+const failingDiscoveryBenchmarkVerdicts = new Set(['no_usable_jobs', 'timed_out_without_quality'])
+
+function isPassingBenchmarkVerdict(
+  verdict: unknown,
+  failingVerdicts: ReadonlySet<string>,
+): boolean {
+  const normalizedVerdict = readString(verdict)
+  return normalizedVerdict !== null && !failingVerdicts.has(normalizedVerdict)
+}
+
+function isPassingBenchmarkResultEntry(entry: Record<string, unknown>): boolean {
+  const sourceDebug = asRecord(entry.sourceDebug)
+  const discovery = asRecord(entry.discovery)
+
+  return isPassingBenchmarkVerdict(
+    asRecord(sourceDebug?.qualitySignals)?.benchmarkVerdict,
+    failingSourceDebugBenchmarkVerdicts,
+  ) && isPassingBenchmarkVerdict(
+    asRecord(discovery?.qualitySignals)?.benchmarkVerdict,
+    failingDiscoveryBenchmarkVerdicts,
+  )
 }
 
 function summarizeSourceDebug(
@@ -299,22 +540,55 @@ function summarizeSourceDebug(
         details: Record<string, unknown> | null
       }
     | null,
-  wallClockMs: number,
+  meta: {
+    wallClockMs: number
+    timedOut: boolean
+    error: string | null
+    partialStateCaptured: boolean
+  },
 ) {
-  const details = result?.details ?? null
-  const run = (details?.run as Record<string, unknown> | undefined) ?? null
-  const artifact = (details?.instructionArtifact as Record<string, unknown> | undefined) ?? null
+  const details = asRecord(result?.details)
+  const run = asRecord(details?.run)
+  const artifact = asRecord(details?.instructionArtifact)
+  const attempts = asArrayOfRecords(details?.attempts)
+  const evidenceRefs = asArrayOfRecords(details?.evidenceRefs)
+  const verification = asRecord(artifact?.verification)
 
   return {
     targetId: target.id,
     targetLabel: target.label,
     targetUrl: target.startingUrl,
     expectedProvider: target.expectedProvider,
-    wallClockMs,
+    wallClockMs: meta.wallClockMs,
+    error: meta.error,
+    timedOut: meta.timedOut,
+    partialStateCaptured: meta.partialStateCaptured,
     state: run?.state ?? null,
     finalSummary: run?.finalSummary ?? null,
     manualPrerequisiteSummary: run?.manualPrerequisiteSummary ?? null,
     timing: run?.timing ?? null,
+    attemptCount: attempts.length,
+    evidenceRefCount: evidenceRefs.length,
+    attempts: attempts.map((attempt) => ({
+      phase: attempt.phase ?? null,
+      outcome: attempt.outcome ?? null,
+      completionMode: attempt.completionMode ?? null,
+      completionReason: attempt.completionReason ?? null,
+      resultSummary: attempt.resultSummary ?? null,
+      blockerSummary: attempt.blockerSummary ?? null,
+      attemptedActions: Array.isArray(attempt.attemptedActions)
+        ? attempt.attemptedActions.slice(0, 6)
+        : [],
+      confirmedFacts: Array.isArray(attempt.confirmedFacts)
+        ? attempt.confirmedFacts.slice(0, 6)
+        : [],
+    })),
+    evidenceRefs: evidenceRefs.slice(0, 8).map((evidenceRef) => ({
+      phase: evidenceRef.phase ?? null,
+      label: evidenceRef.label ?? null,
+      url: evidenceRef.url ?? null,
+      excerpt: evidenceRef.excerpt ?? null,
+    })),
     artifact: artifact
       ? {
           id: artifact.id ?? null,
@@ -330,6 +604,23 @@ function summarizeSourceDebug(
             typeof artifact.verification === 'object' && artifact.verification
               ? (artifact.verification as Record<string, unknown>).outcome ?? null
               : null,
+          guidanceSamples: {
+            navigation: Array.isArray(artifact.navigationGuidance)
+              ? artifact.navigationGuidance.slice(0, 8)
+              : [],
+            search: Array.isArray(artifact.searchGuidance)
+              ? artifact.searchGuidance.slice(0, 8)
+              : [],
+            detail: Array.isArray(artifact.detailGuidance)
+              ? artifact.detailGuidance.slice(0, 8)
+              : [],
+            apply: Array.isArray(artifact.applyGuidance)
+              ? artifact.applyGuidance.slice(0, 8)
+              : [],
+            warnings: Array.isArray(artifact.warnings)
+              ? artifact.warnings.slice(0, 8)
+              : [],
+          },
           intelligence:
             typeof artifact.intelligence === 'object' && artifact.intelligence
               ? {
@@ -350,6 +641,7 @@ function summarizeSourceDebug(
     qualitySignals: {
       hasArtifact: Boolean(artifact),
       hasTypedIntelligence: Boolean(artifact && 'intelligence' in artifact),
+      verificationOutcome: readString(verification?.outcome),
       preferredMethod:
         artifact &&
         typeof artifact.intelligence === 'object' &&
@@ -368,6 +660,11 @@ function summarizeSourceDebug(
             target.expectedProvider
           : null,
       targetRoles: searchPreferences.targetRoles,
+      benchmarkVerdict: buildSourceDebugBenchmarkVerdict({
+        artifact,
+        details,
+        timedOut: meta.timedOut,
+      }),
     },
   }
 }
@@ -376,22 +673,31 @@ function summarizeDiscovery(
   target: (typeof benchmarkTargets)[number],
   searchPreferences: { targetRoles: string[] },
   snapshot: Record<string, unknown> | null,
-  wallClockMs: number,
+  meta: {
+    wallClockMs: number
+    timedOut: boolean
+    error: string | null
+    partialStateCaptured: boolean
+  },
 ) {
-  const recentRuns = Array.isArray(snapshot?.recentDiscoveryRuns) ? (snapshot.recentDiscoveryRuns as Array<Record<string, unknown>>) : []
-  const run = recentRuns[0] ?? null
+  const run = findLatestDiscoveryRunSnapshot(snapshot, target.id)
+  const targetExecutions = asArrayOfRecords(run?.targetExecutions)
   const jobs = Array.isArray(snapshot?.discoveryJobs) ? (snapshot.discoveryJobs as Array<Record<string, unknown>>) : []
+  const summary = asRecord(run?.summary)
 
   return {
     targetId: target.id,
     targetLabel: target.label,
     targetUrl: target.startingUrl,
     expectedProvider: target.expectedProvider,
-    wallClockMs,
+    wallClockMs: meta.wallClockMs,
+    error: meta.error,
+    timedOut: meta.timedOut,
+    partialStateCaptured: meta.partialStateCaptured,
     state: run?.state ?? null,
     scope: run?.scope ?? null,
-    summary: run?.summary ?? null,
-    targetExecutions: Array.isArray(run?.targetExecutions) ? run?.targetExecutions : [],
+    summary: summary ?? null,
+    targetExecutions,
     jobs: {
       count: jobs.length,
       withSummary: jobs.filter((job) => Boolean(job.summary)).length,
@@ -415,23 +721,138 @@ function summarizeDiscovery(
     },
     qualitySignals: {
       usedExpectedApiFastPath:
-        target.expectedApiCapable === true ? jobs.some((job) => job.collectionMethod === 'api') : false,
+        target.expectedApiCapable === true
+          ? jobs.some((job) => job.collectionMethod === 'api') ||
+            targetExecutions.some((execution) => execution.collectionMethod === 'api')
+          : false,
       providerTaggedJobs:
         target.expectedProvider === null
           ? jobs.filter((job) => Boolean(job.providerKey)).length
           : jobs.filter((job) => job.providerKey === target.expectedProvider).length,
       typedSourceIntelligenceJobs: jobs.filter((job) => Boolean(job.sourceIntelligence)).length,
+      invalidSkipped: readNumber(summary?.invalidSkipped),
       jobsSkippedByLedger:
-        run && typeof run.summary === 'object' && run.summary
-          ? (run.summary as Record<string, unknown>).jobsSkippedByLedger ?? null
-          : null,
+        summary ? summary.jobsSkippedByLedger ?? null : null,
       jobsSkippedByTitleTriage:
-        run && typeof run.summary === 'object' && run.summary
-          ? (run.summary as Record<string, unknown>).jobsSkippedByTitleTriage ?? null
-          : null,
+        summary ? summary.jobsSkippedByTitleTriage ?? null : null,
+      benchmarkVerdict: buildDiscoveryBenchmarkVerdict({
+        summary,
+        jobsCount: jobs.length,
+        timedOut: meta.timedOut,
+      }),
     },
   }
 }
+
+test('summarizeDiscovery preserves timed-out partial quality signals', () => {
+  const target = benchmarkTargets[2]
+  const summary = summarizeDiscovery(
+    target,
+    { targetRoles: getBenchmarkTargetRoles(target) },
+    {
+      discoveryRunState: 'idle',
+      recentDiscoveryRuns: [
+        {
+          state: 'cancelled',
+          scope: 'single_target',
+          targetExecutions: [{ targetId: target.id, collectionMethod: 'browser_agent' }],
+          summary: {
+            jobsPersisted: 0,
+            validJobsFound: 0,
+            invalidSkipped: 3,
+            jobsSkippedByTitleTriage: 1,
+          },
+        },
+      ],
+      discoveryJobs: [],
+    },
+    {
+      wallClockMs: 180000,
+      timedOut: true,
+      error: 'discovery timed out',
+      partialStateCaptured: true,
+    },
+  )
+
+  expect(summary.partialStateCaptured).toBe(true)
+  expect(summary.state).toBe('cancelled')
+  expect(summary.qualitySignals.invalidSkipped).toBe(3)
+  expect(summary.qualitySignals.benchmarkVerdict).toBe('timed_out_with_quality_signals')
+})
+
+test('summarizeSourceDebug preserves timed-out partial artifact evidence', () => {
+  const target = benchmarkTargets[2]
+  const summary = summarizeSourceDebug(
+    target,
+    { targetRoles: getBenchmarkTargetRoles(target) },
+    {
+      snapshot: {},
+      details: {
+        run: {
+          state: 'cancelled',
+          finalSummary: 'Source debug run was interrupted before completion.',
+        },
+        attempts: [{ id: 'attempt_1' }],
+        evidenceRefs: [{ id: 'evidence_1' }],
+        instructionArtifact: {
+          id: 'artifact_1',
+          status: 'draft',
+          navigationGuidance: ['Use the jobs homepage first.'],
+          searchGuidance: [],
+          detailGuidance: [],
+          applyGuidance: [],
+          warnings: [],
+          intelligence: {
+            provider: null,
+            collection: { preferredMethod: 'careers_page' },
+          },
+          verification: { outcome: 'failed' },
+        },
+      },
+    },
+    {
+      wallClockMs: 240000,
+      timedOut: true,
+      error: 'source debug timed out',
+      partialStateCaptured: true,
+    },
+  )
+
+  expect(summary.partialStateCaptured).toBe(true)
+  expect(summary.attemptCount).toBe(1)
+  expect(summary.evidenceRefCount).toBe(1)
+  expect(summary.qualitySignals.benchmarkVerdict).toBe('timed_out_with_partial_artifact')
+})
+
+test('selectBenchmarkTargets rejects unknown ids even when some targets match', () => {
+  expect(() =>
+    selectBenchmarkTargets(['target_greenhouse_remote', 'typoed_target'])).toThrow(
+      /Unknown: typoed_target/u,
+    )
+})
+
+test('isPassingBenchmarkResultEntry rejects empty benchmark outcomes and keeps partial progress', () => {
+  expect(
+    isPassingBenchmarkResultEntry({
+      sourceDebug: { qualitySignals: { benchmarkVerdict: 'verified_artifact' } },
+      discovery: { qualitySignals: { benchmarkVerdict: 'no_usable_jobs' } },
+    }),
+  ).toBe(false)
+
+  expect(
+    isPassingBenchmarkResultEntry({
+      sourceDebug: { qualitySignals: { benchmarkVerdict: 'no_artifact' } },
+      discovery: { qualitySignals: { benchmarkVerdict: 'quality_signals_only' } },
+    }),
+  ).toBe(false)
+
+  expect(
+    isPassingBenchmarkResultEntry({
+      sourceDebug: { qualitySignals: { benchmarkVerdict: 'timed_out_with_partial_artifact' } },
+      discovery: { qualitySignals: { benchmarkVerdict: 'quality_signals_only' } },
+    }),
+  ).toBe(true)
+})
 
 describe.sequential('013 live before/after benchmark harness', () => {
   const benchmarkTest = runLiveBenchmark ? test : test.skip
@@ -449,7 +870,7 @@ describe.sequential('013 live before/after benchmark harness', () => {
       const fixture = await loadFixture()
       const results: Array<Record<string, unknown>> = []
 
-      for (const target of benchmarkTargets) {
+      for (const target of selectedBenchmarkTargets) {
         const seed = buildSeed(fixture, target)
         const repository = createInMemoryJobFinderRepository(seed)
         const userDataDir = await mkdtemp(
@@ -459,6 +880,7 @@ describe.sequential('013 live before/after benchmark harness', () => {
           userDataDir,
           headless,
           chromeExecutablePath,
+          ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {}),
           jobExtractor: (input) => aiClient.extractJobsFromPage(input),
           aiClient,
         })
@@ -486,47 +908,41 @@ describe.sequential('013 live before/after benchmark harness', () => {
                     details: details as unknown as Record<string, unknown> | null,
                   }
                 }),
+            () => collectSourceDebugBenchmarkPartialState(workspaceService, target.id),
           )
 
           const discoveryRun = await runWithTimeout(
             `discovery ${target.id}`,
             180_000,
             (signal) => workspaceService.runAgentDiscovery(undefined, signal, target.id),
+            () => collectDiscoveryBenchmarkPartialState(workspaceService, target.id),
           )
 
           results.push({
             variant: outputVariant,
             target,
-            sourceDebug:
-              'value' in sourceDebugRun
-                ? summarizeSourceDebug(
-                    target,
-                    seed.searchPreferences as { targetRoles: string[] },
-                    sourceDebugRun.value,
-                    sourceDebugRun.wallClockMs,
-                  )
-                : {
-                    targetId: target.id,
-                    targetLabel: target.label,
-                    wallClockMs: sourceDebugRun.wallClockMs,
-                    error: sourceDebugRun.error,
-                    timedOut: sourceDebugRun.timedOut,
-                  },
-            discovery:
-              'value' in discoveryRun
-                ? summarizeDiscovery(
-                    target,
-                    seed.searchPreferences as { targetRoles: string[] },
-                    discoveryRun.value as unknown as Record<string, unknown>,
-                    discoveryRun.wallClockMs,
-                  )
-                : {
-                    targetId: target.id,
-                    targetLabel: target.label,
-                    wallClockMs: discoveryRun.wallClockMs,
-                    error: discoveryRun.error,
-                    timedOut: discoveryRun.timedOut,
-                  },
+            sourceDebug: summarizeSourceDebug(
+              target,
+              seed.searchPreferences as { targetRoles: string[] },
+              sourceDebugRun.value ?? sourceDebugRun.partial,
+              {
+                wallClockMs: sourceDebugRun.wallClockMs,
+                timedOut: sourceDebugRun.timedOut,
+                error: sourceDebugRun.error,
+                partialStateCaptured: sourceDebugRun.value === null && sourceDebugRun.partial !== null,
+              },
+            ),
+            discovery: summarizeDiscovery(
+              target,
+              seed.searchPreferences as { targetRoles: string[] },
+              (discoveryRun.value ?? discoveryRun.partial) as Record<string, unknown> | null,
+              {
+                wallClockMs: discoveryRun.wallClockMs,
+                timedOut: discoveryRun.timedOut,
+                error: discoveryRun.error,
+                partialStateCaptured: discoveryRun.value === null && discoveryRun.partial !== null,
+              },
+            ),
           })
         } finally {
           await browserRuntime.closeSession('target_site').catch(() => undefined)
@@ -540,7 +956,7 @@ describe.sequential('013 live before/after benchmark harness', () => {
         variant: outputVariant,
         headless,
         chromeExecutablePath,
-        targets: benchmarkTargets,
+        targets: selectedBenchmarkTargets,
         results,
       }
 
@@ -551,12 +967,8 @@ describe.sequential('013 live before/after benchmark harness', () => {
         'utf8',
       )
 
-      expect(results.length).toBe(benchmarkTargets.length)
-      expect(results.some((entry) => {
-        const sourceDebug = entry.sourceDebug as Record<string, unknown>
-        const discovery = entry.discovery as Record<string, unknown>
-        return !sourceDebug.error && !discovery.error
-      })).toBe(true)
+      expect(results.length).toBe(selectedBenchmarkTargets.length)
+      expect(results.every(isPassingBenchmarkResultEntry)).toBe(true)
     },
   )
 })

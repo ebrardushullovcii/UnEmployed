@@ -4,6 +4,7 @@ import { runAgentDiscovery, type JobExtractor, type LLMClient } from "./agent";
 import {
   getCompactionBudgetWindow,
   maybeCompactConversation,
+  normalizeConversationContent,
   type ConversationTokenEstimate,
 } from "./agent/conversation";
 import { createUserPrompt } from "./agent/user-prompts";
@@ -116,7 +117,12 @@ describe("runAgentDiscovery compaction", () => {
       compactionWorkflowKey: "browser_agent_live_discovery",
     };
 
-    const result = await runAgentDiscovery(page, config, llmClient, jobExtractor);
+    const result = await runAgentDiscovery(
+      page,
+      config,
+      llmClient,
+      jobExtractor,
+    );
 
     expect(result.error).toBeUndefined();
     expect(result.compactionState).not.toBeNull();
@@ -308,6 +314,90 @@ describe("runAgentDiscovery compaction", () => {
     ).toHaveLength(1);
   });
 
+  test("compaction keeps one bootstrap pair and one summary after repeated rebuilds", () => {
+    const config = createConfig();
+    config.compaction = {
+      messageCountFallbackThreshold: 4,
+      preserveRecentMessages: 6,
+      minimumPreserveRecentMessages: 1,
+      maxToolPayloadChars: 48,
+      warningTokenBudget: 500,
+      targetTokenBudget: 700,
+      minimumResponseHeadroomTokens: 100,
+    };
+    config.compactionCapability = {
+      modelContextWindowTokens: null,
+      compactionWorkflowKey: "browser_agent_live_discovery",
+    };
+    const bootstrapUserPrompt = createUserPrompt(config);
+    const state: AgentState = {
+      conversation: [
+        { role: "system", content: "system prompt" },
+        { role: "user", content: bootstrapUserPrompt },
+        { role: "assistant", content: "step 1" },
+        {
+          role: "user",
+          content: bootstrapUserPrompt.replace(/\n/g, "  \n"),
+        },
+        { role: "assistant", content: "step 2" },
+      ],
+      reviewTranscript: [],
+      collectedJobs: [],
+      deferredSearchExtractions: new Map(),
+      visitedUrls: new Set(["https://www.linkedin.com/jobs/search/"]),
+      stepCount: 3,
+      currentUrl: "https://www.linkedin.com/jobs/search/",
+      lastStableUrl: "https://www.linkedin.com/jobs/search/",
+      isRunning: true,
+      phaseEvidence: {
+        visibleControls: [],
+        successfulInteractions: [],
+        routeSignals: [],
+        attemptedControls: [],
+        warnings: [],
+      },
+      compactionState: null,
+      compactionStatus: {
+        lastTriggerKind: null,
+        usedMessageCountFallback: false,
+        lastEstimatedTokensBefore: null,
+        lastEstimatedTokensAfter: null,
+      },
+    };
+
+    maybeCompactConversation(state, config, createUserPrompt);
+    maybeCompactConversation(state, config, createUserPrompt);
+
+    expect(
+      state.conversation.filter((message) => message.role === "system"),
+    ).toHaveLength(1);
+    expect(
+      state.conversation.filter(
+        (message) =>
+          message.role === "user" &&
+          normalizeConversationContent(message.content) ===
+            normalizeConversationContent(bootstrapUserPrompt),
+      ),
+    ).toHaveLength(1);
+    expect(
+      state.conversation.filter(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.startsWith("Compacted execution summary:"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("normalizes user prompt whitespace for bootstrap dedupe", () => {
+    const config = createConfig();
+    const prompt = createUserPrompt(config);
+    const whitespaceShiftedPrompt = `  ${prompt.replace(/\s+/g, "   ")}  `;
+
+    expect(normalizeConversationContent(prompt)).toBe(
+      normalizeConversationContent(whitespaceShiftedPrompt),
+    );
+  });
+
   test("message-count fallback still works when token estimation is unavailable", async () => {
     const page = createPage() as Page;
     const config = createConfig();
@@ -364,7 +454,12 @@ describe("runAgentDiscovery compaction", () => {
       },
     };
 
-    const result = await runAgentDiscovery(page, config, llmClient, jobExtractor);
+    const result = await runAgentDiscovery(
+      page,
+      config,
+      llmClient,
+      jobExtractor,
+    );
 
     expect(result.compactionState?.triggerKind).toBe("message_count_fallback");
     expect(result.compactionUsedFallbackTrigger).toBe(true);
@@ -407,7 +502,12 @@ describe("runAgentDiscovery compaction", () => {
       },
     };
 
-    const result = await runAgentDiscovery(page, config, llmClient, jobExtractor);
+    const result = await runAgentDiscovery(
+      page,
+      config,
+      llmClient,
+      jobExtractor,
+    );
 
     expect(llmCallCount).toBe(0);
     expect(result.error).toBe("Context budget exhausted after compaction.");

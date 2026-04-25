@@ -1,6 +1,7 @@
 import {
   JobPostingSchema,
   SourceIntelligenceArtifactSchema,
+  type CandidateProfile,
   type SourceIntelligenceArtifact,
   type JobDiscoveryCollectionMethod,
   type JobDiscoveryMethod,
@@ -11,33 +12,328 @@ import {
   type SourceDebugWorkerAttempt,
   type SourceInstructionArtifact,
 } from "@unemployed/contracts";
-import { matchesAnyPhrase } from "./matching";
+import {
+  matchesAnyPhrase,
+  matchesLocationPreference,
+  matchesTitlePreference,
+} from "./matching";
+import { isExplicitSearchProbeDisproof } from "./source-instruction-evidence";
 import { normalizeText, uniqueStrings } from "./shared";
 
-type GreenhouseJobPayload = {
-  id: number | string;
-  title?: string;
-  absolute_url?: string;
-  location?: { name?: string | null } | null;
-  updated_at?: string | null;
-  content?: string | null;
+const technicalRoleSignalPatterns = [
+  /\bsoftware\b/,
+  /\bdeveloper\b/,
+  /\bengineer\b/,
+  /\bfrontend\b/,
+  /\bbackend\b/,
+  /\bfull stack\b/,
+  /\bfullstack\b/,
+  /\bweb\b/,
+  /\bmobile\b/,
+  /\bdevops\b/,
+  /\bsdet\b/,
+  /\bqa automation\b/,
+  /\bplatform\b/,
+  /\bprogrammer\b/,
+  /\btypescript\b/,
+  /\bjavascript\b/,
+  /\breact\b/,
+  /\bnode\b/,
+  /\bdotnet\b/,
+  /\b(?:asp\s+)?net(?:\s+core|\s+framework)?\b/,
+  /\bcsharp\b/,
+  /\bpython\b/,
+  /\bjava\b/,
+] as const;
+
+const adjacentTechnicalRoleSignalPatterns = [
+  /\bsoftware\b/,
+  /\bdeveloper\b/,
+  /\bengineer\b/,
+  /\bfrontend\b/,
+  /\bbackend\b/,
+  /\bfull stack\b/,
+  /\bfullstack\b/,
+  /\bweb\b/,
+  /\bmobile\b/,
+  /\bplatform\b/,
+  /\bapplication\b/,
+  /\bqa\b/,
+  /\bsdet\b/,
+  /\bdevops\b/,
+  /\bsre\b/,
+  /\bsite reliability\b/,
+  /\bcloud\b/,
+  /\bdata\b/,
+  /\bmachine learning\b/,
+  /\bai\b/,
+  /\binfrastructure\b/,
+  /\bwordpress\b/,
+  /\bapi\b/,
+  /\bintegration\b/,
+  /\bintegrations\b/,
+  /\b(?:asp\s+)?net(?:\s+core|\s+framework)?\b/,
+] as const;
+
+const technicalRoleFamilyPatterns = [
+  ["software_engineering", [/\bsoftware\b/, /\bengineer\b/, /\bdeveloper\b/, /\bprogrammer\b/]],
+  ["frontend", [/\bfrontend\b/, /\breact\b/, /\bweb\b/, /\bui\b/]],
+  ["backend", [/\bbackend\b/, /\bapi\b/, /\bserver\b/, /\bservices\b/]],
+  ["fullstack", [/\bfull stack\b/, /\bfullstack\b/]],
+  ["platform", [/\bplatform\b/, /\bdevops\b/, /\bsre\b/, /\binfrastructure\b/, /\bcloud\b/]],
+  ["mobile", [/\bmobile\b/, /\breact native\b/, /\bios\b/, /\bandroid\b/]],
+  ["data_ai", [/\bdata\b/, /\bmachine learning\b/, /\bai\b/]],
+  ["qa", [/\bqa\b/, /\bsdet\b/, /\bautomation\b/]],
+] as const;
+
+type PublicApiFieldPath = readonly string[];
+type PublicApiFieldSelector = readonly PublicApiFieldPath[];
+type PublicApiResponseAdapter = {
+  itemsPath: PublicApiFieldPath | null;
+  invalidPayloadMessage: string;
+  fields: {
+    sourceJobId: PublicApiFieldSelector;
+    title: PublicApiFieldSelector;
+    canonicalUrl: PublicApiFieldSelector;
+    applicationUrl?: PublicApiFieldSelector;
+    location?: PublicApiFieldSelector;
+    description?: PublicApiFieldSelector;
+    postedAt?: PublicApiFieldSelector;
+    employmentType?: PublicApiFieldSelector;
+    department?: PublicApiFieldSelector;
+    team?: PublicApiFieldSelector;
+  };
 };
 
-type LeverJobPayload = {
-  id: string;
-  text?: string;
-  createdAt?: string | number | null;
-  hostedUrl?: string;
-  applyUrl?: string | null;
-  descriptionPlain?: string | null;
-  description?: string | null;
-  categories?: {
-    location?: string | null;
-    team?: string | null;
-    department?: string | null;
-    commitment?: string | null;
-  } | null;
+type NormalizedPublicApiJobRecord = {
+  sourceJobId: string | null;
+  title: string | null;
+  canonicalUrl: string | null;
+  applicationUrl: string | null;
+  location: string | null;
+  description: string | null;
+  postedAtValue: string | number | null;
+  employmentType: string | null;
+  department: string | null;
+  team: string | null;
 };
+
+type ResolvedSourceCapability = {
+  key: "greenhouse" | "lever" | "linkedin" | "ashby" | "workday" | "icims";
+  label: string;
+  confidence: number;
+  apiAvailability: "available" | "not_supported" | "unconfirmed";
+  publicApiUrlTemplate: string | null;
+  boardToken: string | null;
+  boardSlug: string | null;
+  providerIdentifier: string;
+};
+
+type SourceCapabilityRule = {
+  key: ResolvedSourceCapability["key"];
+  label: ResolvedSourceCapability["label"];
+  confidence: ResolvedSourceCapability["confidence"];
+  apiAvailability: ResolvedSourceCapability["apiAvailability"];
+  hostnames: {
+    exact?: readonly string[];
+    suffixes?: readonly string[];
+    contains?: readonly string[];
+  };
+  resolve: (url: URL) => Omit<ResolvedSourceCapability, "key" | "label" | "confidence" | "apiAvailability"> | null;
+};
+
+const PUBLIC_API_RESPONSE_ADAPTERS = {
+  greenhouse: {
+    itemsPath: ["jobs"],
+    invalidPayloadMessage: "Public provider API returned an invalid payload.",
+    fields: {
+      sourceJobId: [["id"]],
+      title: [["title"]],
+      canonicalUrl: [["absolute_url"]],
+      applicationUrl: [["absolute_url"]],
+      location: [["location", "name"]],
+      description: [["content"]],
+      postedAt: [["updated_at"]],
+    },
+  },
+  lever: {
+    itemsPath: null,
+    invalidPayloadMessage: "Public provider API returned an invalid payload.",
+    fields: {
+      sourceJobId: [["id"]],
+      title: [["text"]],
+      canonicalUrl: [["hostedUrl"]],
+      applicationUrl: [["applyUrl"], ["hostedUrl"]],
+      location: [["categories", "location"]],
+      description: [["descriptionPlain"], ["description"]],
+      postedAt: [["createdAt"]],
+      employmentType: [["categories", "commitment"]],
+      department: [["categories", "department"]],
+      team: [["categories", "team"]],
+    },
+  },
+} satisfies Record<string, PublicApiResponseAdapter>;
+
+const SOURCE_CAPABILITY_RULES = [
+  {
+    key: "greenhouse",
+    label: "Greenhouse",
+    confidence: 0.95,
+    apiAvailability: "available",
+    hostnames: {
+      exact: ["boards.greenhouse.io", "job-boards.greenhouse.io"],
+    },
+    resolve(url: URL) {
+      const boardKey = url.pathname.split("/").filter(Boolean)[0] ?? null;
+      if (!boardKey) {
+        return null;
+      }
+
+      return {
+        publicApiUrlTemplate: `https://boards-api.greenhouse.io/v1/boards/${boardKey}/jobs?content=true`,
+        boardToken: boardKey,
+        boardSlug: null,
+        providerIdentifier: boardKey,
+      };
+    },
+  },
+  {
+    key: "lever",
+    label: "Lever",
+    confidence: 0.95,
+    apiAvailability: "available",
+    hostnames: {
+      suffixes: ["lever.co"],
+    },
+    resolve(url: URL) {
+      const boardKey = url.pathname.split("/").filter(Boolean)[0] ?? null;
+      if (!boardKey) {
+        return null;
+      }
+
+      return {
+        publicApiUrlTemplate: `https://api.lever.co/v0/postings/${boardKey}?mode=json`,
+        boardToken: null,
+        boardSlug: boardKey,
+        providerIdentifier: boardKey,
+      };
+    },
+  },
+  {
+    key: "linkedin",
+    label: "LinkedIn Jobs",
+    confidence: 0.98,
+    apiAvailability: "not_supported",
+    hostnames: {
+      suffixes: ["linkedin.com"],
+    },
+    resolve() {
+      return {
+        publicApiUrlTemplate: null,
+        boardToken: null,
+        boardSlug: null,
+        providerIdentifier: "linkedin_jobs",
+      };
+    },
+  },
+  {
+    key: "ashby",
+    label: "Ashby",
+    confidence: 0.85,
+    apiAvailability: "unconfirmed",
+    hostnames: {
+      contains: ["ashby"],
+    },
+    resolve(url: URL) {
+      const hostname = url.hostname.toLowerCase();
+      return {
+        publicApiUrlTemplate: null,
+        boardToken: null,
+        boardSlug: null,
+        providerIdentifier: hostname,
+      };
+    },
+  },
+  {
+    key: "workday",
+    label: "Workday",
+    confidence: 0.84,
+    apiAvailability: "not_supported",
+    hostnames: {
+      suffixes: ["myworkdayjobs.com"],
+      contains: ["workday"],
+    },
+    resolve(url: URL) {
+      const hostname = url.hostname.toLowerCase();
+      return {
+        publicApiUrlTemplate: null,
+        boardToken: null,
+        boardSlug: null,
+        providerIdentifier: hostname,
+      };
+    },
+  },
+  {
+    key: "icims",
+    label: "iCIMS",
+    confidence: 0.82,
+    apiAvailability: "not_supported",
+    hostnames: {
+      contains: ["icims"],
+    },
+    resolve(url: URL) {
+      const hostname = url.hostname.toLowerCase();
+      return {
+        publicApiUrlTemplate: null,
+        boardToken: null,
+        boardSlug: null,
+        providerIdentifier: hostname,
+      };
+    },
+  },
+] satisfies readonly SourceCapabilityRule[];
+
+function matchesSourceCapabilityHostname(
+  hostname: string,
+  rule: SourceCapabilityRule,
+): boolean {
+  const normalizedHostname = hostname.toLowerCase();
+  return Boolean(
+    rule.hostnames.exact?.includes(normalizedHostname) ||
+      rule.hostnames.suffixes?.some(
+        (suffix) =>
+          normalizedHostname === suffix ||
+          normalizedHostname.endsWith(`.${suffix}`),
+      ) ||
+      rule.hostnames.contains?.some((fragment) =>
+        normalizedHostname.includes(fragment),
+      ),
+  );
+}
+
+export type ReusableRouteKind =
+  SourceIntelligenceArtifact["collection"]["startingRoutes"][number]["kind"];
+
+const LISTING_ROUTE_KEYWORDS = [
+  "job",
+  "jobs",
+  "career",
+  "careers",
+  "opening",
+  "openings",
+  "position",
+  "positions",
+  "vacancy",
+  "vacancies",
+  "konkurs",
+  "pune",
+  "pozit",
+  "karriere",
+  "apliko",
+];
+
+const GENERIC_KEYWORD_QUERY_PARAM_NAMES = ["keywords", "keyword", "q", "query", "search"] as const;
+const GENERIC_LOCATION_QUERY_PARAM_NAMES = ["location", "loc", "city", "region"] as const;
 
 function parseOptionalString(value: unknown): { value: string } | null {
   return typeof value === "string" ? { value } : null;
@@ -65,123 +361,94 @@ function parseNullableStringOrNumber(
   return typeof value === "number" && Number.isFinite(value) ? { value } : null;
 }
 
-function parseGreenhouseJobsResponse(value: unknown): { jobs: GreenhouseJobPayload[] } {
-  if (!value || typeof value !== "object") {
-    throw new Error("Greenhouse API returned an invalid payload.");
+function getValueAtPath(value: unknown, path: readonly string[] | null): unknown {
+  if (path == null) {
+    return value;
   }
 
-  const jobsValue = (value as { jobs?: unknown }).jobs;
-  if (jobsValue == null) {
-    return { jobs: [] };
+  let current: unknown = value;
+  for (const segment of path) {
+    if (!current || typeof current !== "object") {
+      return undefined;
+    }
+
+    current = (current as Record<string, unknown>)[segment];
   }
-  if (!Array.isArray(jobsValue)) {
-    throw new Error("Greenhouse API returned an invalid payload.");
-  }
 
-  const jobs = jobsValue.map((job) => {
-    if (!job || typeof job !== "object") {
-      throw new Error("Greenhouse API returned an invalid payload.");
-    }
-
-    const record = job as Record<string, unknown>;
-    const locationValue = record.location;
-    const parsedLocationName =
-      typeof locationValue === "object" && locationValue !== null
-        ? parseNullableString((locationValue as Record<string, unknown>).name)
-        : null;
-    const payload: GreenhouseJobPayload = {
-      id: typeof record.id === "number" || typeof record.id === "string" ? record.id : "",
-    };
-    const parsedTitle = parseOptionalString(record.title);
-    const parsedAbsoluteUrl = parseOptionalString(record.absolute_url);
-    const parsedUpdatedAt = parseNullableString(record.updated_at);
-    const parsedContent = parseNullableString(record.content);
-
-    if (parsedTitle) {
-      payload.title = parsedTitle.value;
-    }
-    if (parsedAbsoluteUrl) {
-      payload.absolute_url = parsedAbsoluteUrl.value;
-    }
-    if (locationValue == null) {
-      payload.location = null;
-    } else if (typeof locationValue === "object") {
-      payload.location = parsedLocationName ? { name: parsedLocationName.value } : {};
-    }
-    if (parsedUpdatedAt) {
-      payload.updated_at = parsedUpdatedAt.value;
-    }
-    if (parsedContent) {
-      payload.content = parsedContent.value;
-    }
-
-    return payload;
-  });
-
-  return { jobs };
+  return current;
 }
 
-function parseLeverJobsResponse(value: unknown): { jobs: LeverJobPayload[] } {
-  if (!Array.isArray(value)) {
-    throw new Error("Lever API returned an invalid payload.");
+function getFirstValueAtPaths(
+  record: Record<string, unknown>,
+  selectors: PublicApiFieldSelector | undefined,
+): unknown {
+  if (!selectors) {
+    return undefined;
   }
 
-  const jobs = value.map((job) => {
-    if (!job || typeof job !== "object") {
-      throw new Error("Lever API returned an invalid payload.");
+  for (const path of selectors) {
+    const value = getValueAtPath(record, path);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function parsePublicApiRecordArray(
+  value: unknown,
+  adapter: PublicApiResponseAdapter,
+): Record<string, unknown>[] {
+  const itemsValue = getValueAtPath(value, adapter.itemsPath);
+  if (itemsValue == null) {
+    return [];
+  }
+
+  if (!Array.isArray(itemsValue)) {
+    throw new Error(adapter.invalidPayloadMessage);
+  }
+
+  return itemsValue.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new Error(adapter.invalidPayloadMessage);
     }
 
-    const record = job as Record<string, unknown>;
-    const categoriesValue = record.categories;
-    const payload: LeverJobPayload = {
-      id: typeof record.id === "string" ? record.id : "",
-    };
-    const parsedText = parseOptionalString(record.text);
-    const parsedCreatedAt = parseNullableStringOrNumber(record.createdAt);
-    const parsedHostedUrl = parseOptionalString(record.hostedUrl);
-    const parsedApplyUrl = parseNullableString(record.applyUrl);
-    const parsedDescriptionPlain = parseNullableString(record.descriptionPlain);
-    const parsedDescription = parseNullableString(record.description);
-
-    if (parsedText) {
-      payload.text = parsedText.value;
-    }
-    if (parsedCreatedAt) {
-      payload.createdAt = parsedCreatedAt.value;
-    }
-    if (parsedHostedUrl) {
-      payload.hostedUrl = parsedHostedUrl.value;
-    }
-    if (parsedApplyUrl) {
-      payload.applyUrl = parsedApplyUrl.value;
-    }
-    if (parsedDescriptionPlain) {
-      payload.descriptionPlain = parsedDescriptionPlain.value;
-    }
-    if (parsedDescription) {
-      payload.description = parsedDescription.value;
-    }
-    if (categoriesValue == null) {
-      payload.categories = null;
-    } else if (typeof categoriesValue === "object") {
-      const categoryRecord = categoriesValue as Record<string, unknown>;
-      const parsedLocation = parseNullableString(categoryRecord.location);
-      const parsedTeam = parseNullableString(categoryRecord.team);
-      const parsedDepartment = parseNullableString(categoryRecord.department);
-      const parsedCommitment = parseNullableString(categoryRecord.commitment);
-
-      payload.categories = {
-        ...(parsedLocation ? { location: parsedLocation.value } : {}),
-        ...(parsedTeam ? { team: parsedTeam.value } : {}),
-        ...(parsedDepartment ? { department: parsedDepartment.value } : {}),
-        ...(parsedCommitment ? { commitment: parsedCommitment.value } : {}),
-      };
-    }
-
-    return payload;
+    return item as Record<string, unknown>;
   });
+}
 
-  return { jobs };
+function parsePublicApiJobRecords(
+  value: unknown,
+  adapter: PublicApiResponseAdapter,
+): NormalizedPublicApiJobRecord[] {
+  return parsePublicApiRecordArray(value, adapter).map((record) => {
+    const sourceJobIdValue = getFirstValueAtPaths(record, adapter.fields.sourceJobId);
+    const sourceJobId =
+      typeof sourceJobIdValue === "string" || typeof sourceJobIdValue === "number"
+        ? String(sourceJobIdValue)
+        : null;
+
+    return {
+      sourceJobId,
+      title: parseOptionalString(getFirstValueAtPaths(record, adapter.fields.title))?.value ?? null,
+      canonicalUrl:
+        parseOptionalString(getFirstValueAtPaths(record, adapter.fields.canonicalUrl))?.value ?? null,
+      applicationUrl:
+        parseNullableString(getFirstValueAtPaths(record, adapter.fields.applicationUrl))?.value ?? null,
+      location:
+        parseNullableString(getFirstValueAtPaths(record, adapter.fields.location))?.value ?? null,
+      description:
+        parseNullableString(getFirstValueAtPaths(record, adapter.fields.description))?.value ?? null,
+      postedAtValue:
+        parseNullableStringOrNumber(getFirstValueAtPaths(record, adapter.fields.postedAt))?.value ?? null,
+      employmentType:
+        parseNullableString(getFirstValueAtPaths(record, adapter.fields.employmentType))?.value ?? null,
+      department:
+        parseNullableString(getFirstValueAtPaths(record, adapter.fields.department))?.value ?? null,
+      team: parseNullableString(getFirstValueAtPaths(record, adapter.fields.team))?.value ?? null,
+    };
+  });
 }
 
 function tryParseUrl(value: string | null | undefined): URL | null {
@@ -223,29 +490,6 @@ function extractSameHostUrls(target: JobDiscoveryTarget, lines: readonly string[
   return uniqueStrings(values);
 }
 
-function parseGreenhouseToken(url: URL): string | null {
-  if (!url.hostname.includes("greenhouse")) {
-    return null;
-  }
-
-  const parts = url.pathname.split("/").filter(Boolean);
-  if (url.hostname.startsWith("boards.greenhouse.io")) {
-    return parts[0] ?? null;
-  }
-  if (url.hostname.startsWith("job-boards.greenhouse.io")) {
-    return parts[0] ?? null;
-  }
-  return null;
-}
-
-function parseLeverSite(url: URL): string | null {
-  if (!url.hostname.includes("lever.co")) {
-    return null;
-  }
-
-  return url.pathname.split("/").filter(Boolean)[0] ?? null;
-}
-
 function detectProvider(target: JobDiscoveryTarget, urls: readonly string[]) {
   const parsedUrls = [target.startingUrl, ...urls].flatMap((value) => {
     const parsed = tryParseUrl(value);
@@ -253,81 +497,22 @@ function detectProvider(target: JobDiscoveryTarget, urls: readonly string[]) {
   });
 
   for (const parsedUrl of parsedUrls) {
-    const greenhouseToken = parseGreenhouseToken(parsedUrl);
-    if (greenhouseToken) {
-      return {
-        key: "greenhouse" as const,
-        label: "Greenhouse",
-        confidence: 0.95,
-        apiAvailability: "available" as const,
-        publicApiUrlTemplate: `https://boards-api.greenhouse.io/v1/boards/${greenhouseToken}/jobs?content=true`,
-        boardToken: greenhouseToken,
-        boardSlug: null,
-        providerIdentifier: greenhouseToken,
-      };
-    }
+    for (const rule of SOURCE_CAPABILITY_RULES) {
+      if (!matchesSourceCapabilityHostname(parsedUrl.hostname, rule)) {
+        continue;
+      }
 
-    const leverSite = parseLeverSite(parsedUrl);
-    if (leverSite) {
-      return {
-        key: "lever" as const,
-        label: "Lever",
-        confidence: 0.95,
-        apiAvailability: "available" as const,
-        publicApiUrlTemplate: `https://api.lever.co/v0/postings/${leverSite}?mode=json`,
-        boardToken: null,
-        boardSlug: leverSite,
-        providerIdentifier: leverSite,
-      };
-    }
+      const resolved = rule.resolve(parsedUrl);
+      if (!resolved) {
+        continue;
+      }
 
-    const hostname = parsedUrl.hostname.toLowerCase();
-    if (hostname.includes("linkedin.com")) {
       return {
-        key: "linkedin" as const,
-        label: "LinkedIn Jobs",
-        confidence: 0.98,
-        apiAvailability: "not_supported" as const,
-        publicApiUrlTemplate: null,
-        boardToken: null,
-        boardSlug: null,
-        providerIdentifier: "linkedin_jobs",
-      };
-    }
-    if (hostname.includes("ashby")) {
-      return {
-        key: "ashby" as const,
-        label: "Ashby",
-        confidence: 0.85,
-        apiAvailability: "unconfirmed" as const,
-        publicApiUrlTemplate: null,
-        boardToken: null,
-        boardSlug: null,
-        providerIdentifier: hostname,
-      };
-    }
-    if (hostname.includes("myworkdayjobs.com") || hostname.includes("workday")) {
-      return {
-        key: "workday" as const,
-        label: "Workday",
-        confidence: 0.84,
-        apiAvailability: "not_supported" as const,
-        publicApiUrlTemplate: null,
-        boardToken: null,
-        boardSlug: null,
-        providerIdentifier: hostname,
-      };
-    }
-    if (hostname.includes("icims")) {
-      return {
-        key: "icims" as const,
-        label: "iCIMS",
-        confidence: 0.82,
-        apiAvailability: "not_supported" as const,
-        publicApiUrlTemplate: null,
-        boardToken: null,
-        boardSlug: null,
-        providerIdentifier: hostname,
+        key: rule.key,
+        label: rule.label,
+        confidence: rule.confidence,
+        apiAvailability: rule.apiAvailability,
+        ...resolved,
       };
     }
   }
@@ -335,21 +520,162 @@ function detectProvider(target: JobDiscoveryTarget, urls: readonly string[]) {
   return null;
 }
 
-function inferRouteKind(url: string) {
-  const normalized = normalizeText(url);
-  if (normalized.includes("search") || normalized.includes("filter")) {
-    return "search" as const;
+function decodeRoutePathname(pathname: string): string {
+  try {
+    return decodeURIComponent(pathname).toLowerCase();
+  } catch {
+    return pathname.toLowerCase();
   }
-  if (normalized.includes("collection") || normalized.includes("recommended")) {
-    return "collection" as const;
+}
+
+function isBrokenOrTemplatedRoutePath(pathname: string, search: string): boolean {
+  const routeText = `${pathname}${search}`;
+  return (
+    /(^|\/)404($|\/)/.test(pathname) ||
+    routeText.includes("not-found") ||
+    /(^|\/)\{[^/]+\}($|\/)/.test(pathname) ||
+    /(^|\/):[a-z0-9_-]+($|\/)/i.test(pathname)
+  );
+}
+
+function inferRouteKind(url: string): ReusableRouteKind {
+  const parsed = tryParseUrl(url);
+  const pathname = decodeRoutePathname(parsed?.pathname ?? "");
+  const search = (parsed?.search ?? "").toLowerCase();
+  const normalized = normalizeText(`${pathname} ${search}`);
+  const pathSegments = pathname.split("/").filter(Boolean);
+  const leafSegment = pathSegments[pathSegments.length - 1] ?? "";
+  const parentSegment = pathSegments[pathSegments.length - 2] ?? "";
+
+  if (isBrokenOrTemplatedRoutePath(pathname, search)) {
+    return "detail";
   }
-  if (normalized.includes("apply")) {
-    return "apply" as const;
+
+  if (pathname.includes("search") || pathname.includes("filter") || search.includes("search")) {
+    return "search";
   }
-  if (normalized.includes("job") || normalized.includes("career")) {
-    return "listing" as const;
+
+  if (
+    pathname.includes("collection") ||
+    pathname.includes("recommended") ||
+    pathname.includes("recommendation")
+  ) {
+    return "collection";
   }
-  return "anchor" as const;
+
+  if (pathname.includes("apply")) {
+    return "apply";
+  }
+
+  if (
+    pathname.includes("/view/") ||
+    (["job", "jobs", "opening", "openings", "position", "positions", "role", "roles"].includes(
+      parentSegment,
+    ) &&
+      ![
+        "search",
+        "filter",
+        "filters",
+        "results",
+        "recommended",
+        "recommendations",
+        "collection",
+        "collections",
+        "curated",
+        "all",
+        "list",
+        "listing",
+        "listings",
+        "careers",
+        "jobs",
+        "openings",
+        "positions",
+        "roles",
+      ].includes(leafSegment))
+  ) {
+    return "detail";
+  }
+
+  if (LISTING_ROUTE_KEYWORDS.some((keyword) => normalized.includes(keyword))) {
+    return "listing";
+  }
+
+  return "anchor";
+}
+
+export function resolveRouteKindForReuse(
+  url: string,
+  preferredKind: ReusableRouteKind | null = null,
+): ReusableRouteKind {
+  const inferredKind = inferRouteKind(url);
+
+  if (preferredKind === "detail" || inferredKind === "detail") {
+    return "detail";
+  }
+
+  if (preferredKind === "apply" || inferredKind === "apply") {
+    return "apply";
+  }
+
+  if (preferredKind === "search" || inferredKind === "search") {
+    return "search";
+  }
+
+  if (preferredKind === "collection" || inferredKind === "collection") {
+    return "collection";
+  }
+
+  if (inferredKind === "listing") {
+    return "listing";
+  }
+
+  return "anchor";
+}
+
+export function canonicalizeRouteForReuse(
+  value: string,
+  anchorUrl: URL | null,
+): string | null {
+  const parsed = tryParseUrl(value);
+  if (!parsed) {
+    return null;
+  }
+
+  if (anchorUrl && parsed.hostname !== anchorUrl.hostname) {
+    return null;
+  }
+
+  for (const key of [
+    "currentJobId",
+    "selectedJobId",
+    "jobId",
+    "trk",
+    "trackingId",
+  ]) {
+    parsed.searchParams.delete(key);
+  }
+
+  parsed.hash = "";
+
+  const pathname = decodeRoutePathname(parsed.pathname);
+  const search = parsed.search.toLowerCase();
+  if (isBrokenOrTemplatedRoutePath(pathname, search)) {
+    return null;
+  }
+
+  return parsed.toString();
+}
+
+export function shouldKeepRouteForReuse(input: {
+  url: string;
+  kind: ReturnType<typeof inferRouteKind>;
+  targetStartingUrl: string;
+}): boolean {
+  if (input.url === input.targetStartingUrl) {
+    return true;
+  }
+
+  return input.kind === "search" || input.kind === "collection" || input.kind === "listing";
 }
 
 function uniqueRoutes(
@@ -429,6 +755,7 @@ export function buildSourceIntelligenceArtifact(input: {
     ...(attempt.phaseEvidence?.routeSignals ?? []),
   ]);
   const discoveredUrls = extractSameHostUrls(input.target, routeLines);
+  const anchorUrl = tryParseUrl(input.target.startingUrl);
   const provider =
     input.currentArtifact?.intelligence.provider ??
     detectProvider(input.target, discoveredUrls);
@@ -439,13 +766,41 @@ export function buildSourceIntelligenceArtifact(input: {
       kind: inferRouteKind(input.target.startingUrl),
       confidence: 0.6,
     },
-    ...(input.currentArtifact?.intelligence.collection.startingRoutes ?? []),
-    ...discoveredUrls.map((url) => ({
-      url,
-      label: "Observed route",
-      kind: inferRouteKind(url),
-      confidence: 0.84,
+    ...((input.currentArtifact?.intelligence.collection.startingRoutes ?? []).flatMap((route) => {
+      const normalizedUrl = canonicalizeRouteForReuse(route.url, anchorUrl);
+      if (!normalizedUrl) {
+        return [];
+      }
+
+      const normalizedKind = resolveRouteKindForReuse(normalizedUrl, route.kind);
+      return shouldKeepRouteForReuse({
+        url: normalizedUrl,
+        kind: normalizedKind,
+        targetStartingUrl: input.target.startingUrl,
+      })
+        ? [{ ...route, url: normalizedUrl, kind: normalizedKind }]
+        : [];
     })),
+    ...discoveredUrls.flatMap((url) => {
+      const normalizedUrl = canonicalizeRouteForReuse(url, anchorUrl);
+      if (!normalizedUrl) {
+        return [];
+      }
+
+      const kind = inferRouteKind(normalizedUrl);
+      return shouldKeepRouteForReuse({
+        url: normalizedUrl,
+        kind,
+        targetStartingUrl: input.target.startingUrl,
+      })
+        ? [{
+            url: normalizedUrl,
+            label: "Observed route",
+            kind,
+            confidence: 0.84,
+          }]
+        : [];
+    }),
   ]);
   const searchRouteTemplates = uniqueRoutes(
     startingRoutes.filter((route) => route.kind === "search"),
@@ -596,19 +951,339 @@ export function inferSourceIntelligenceFromTarget(input: {
 export function buildDiscoveryStartingUrls(
   target: JobDiscoveryTarget,
   artifact: SourceInstructionArtifact | null,
+  searchPreferences?: JobSearchPreferences | null,
 ): string[] {
   if (!artifact) {
     return [target.startingUrl];
   }
 
-  const routes = uniqueStrings([
-    target.startingUrl,
-    ...(artifact.intelligence.overrides.extraStartingRoutes ?? []),
-    ...artifact.intelligence.collection.startingRoutes.map((route) => route.url),
-    ...artifact.intelligence.collection.searchRouteTemplates.map((route) => route.url),
-  ]);
+  const anchorUrl = tryParseUrl(target.startingUrl);
+  const normalizeRoute = (url: string) => canonicalizeRouteForReuse(url, anchorUrl);
+  const deniedRoutes = resolveDeniedDiscoveryRoutes(artifact, anchorUrl);
+  const isDeniedRoute = (url: string | null) =>
+    url != null && deniedRoutes.some((deniedRoute) => deniedRoute === url);
+  const synthesizedSearchRoute = buildEvidenceDrivenDiscoverySearchUrl(
+    target,
+    artifact,
+    searchPreferences,
+  );
+  const overrideRoutes = (artifact.intelligence.overrides.extraStartingRoutes ?? []).flatMap(
+    (route) => {
+      const normalized = normalizeRoute(route);
+      const kind = normalized ? inferRouteKind(normalized) : null;
+      return normalized && kind && shouldKeepRouteForReuse({
+        url: normalized,
+        kind,
+        targetStartingUrl: target.startingUrl,
+      }) && !isDeniedRoute(normalized)
+        ? [normalized]
+        : [];
+    },
+  );
+  const searchRoutes = artifact.intelligence.collection.searchRouteTemplates.flatMap((route) => {
+    const normalized = normalizeRoute(route.url);
+    const kind = normalized ? resolveRouteKindForReuse(normalized, route.kind) : null;
+    return normalized && kind && shouldKeepRouteForReuse({
+      url: normalized,
+      kind,
+      targetStartingUrl: target.startingUrl,
+    }) && !isDeniedRoute(normalized)
+      ? [normalized]
+      : [];
+  });
+  const learnedStartingRoutes = artifact.intelligence.collection.startingRoutes.flatMap((route) => {
+    const normalized = normalizeRoute(route.url);
+    const kind = normalized ? resolveRouteKindForReuse(normalized, route.kind) : null;
+    return normalized && kind && shouldKeepRouteForReuse({
+      url: normalized,
+      kind,
+      targetStartingUrl: target.startingUrl,
+    }) && !isDeniedRoute(normalized) && normalized !== target.startingUrl
+      ? [normalized]
+      : [];
+  });
+  const preferredMethod =
+    artifact.intelligence.overrides.forceMethod ??
+    artifact.intelligence.collection.preferredMethod;
+  const normalizedStartingUrl = normalizeRoute(target.startingUrl);
+  const startingUrlRoute =
+    normalizedStartingUrl && !isDeniedRoute(normalizedStartingUrl)
+      ? [target.startingUrl]
+      : [];
 
-  return routes.length > 0 ? routes : [target.startingUrl];
+  const routes = uniqueStrings(
+    (
+      synthesizedSearchRoute && !isDeniedRoute(synthesizedSearchRoute)
+        ? [
+            synthesizedSearchRoute,
+            ...overrideRoutes,
+            ...searchRoutes,
+            ...learnedStartingRoutes,
+            ...startingUrlRoute,
+          ]
+        : preferredMethod === "careers_page"
+          ? [
+              ...overrideRoutes,
+              ...learnedStartingRoutes,
+              ...searchRoutes,
+              ...startingUrlRoute,
+            ]
+          : [
+              ...overrideRoutes,
+              ...searchRoutes,
+              ...learnedStartingRoutes,
+              ...startingUrlRoute,
+            ]
+    ).filter(Boolean),
+  );
+
+  if (routes.length > 0) {
+    return routes;
+  }
+
+  return startingUrlRoute;
+}
+
+function resolveDeniedDiscoveryRoutes(
+  artifact: SourceInstructionArtifact,
+  anchorUrl: URL | null,
+): string[] {
+  const normalizeDeniedRoute = (value: string): string | null => {
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+      return null;
+    }
+
+    if (normalizedValue.startsWith("/") && anchorUrl) {
+      return canonicalizeRouteForReuse(new URL(normalizedValue, anchorUrl).toString(), anchorUrl);
+    }
+
+    return canonicalizeRouteForReuse(normalizedValue, anchorUrl);
+  };
+  const deniedRouteOverrides = (artifact.intelligence.overrides.deniedRoutePatterns ?? []).flatMap(
+    (pattern) => {
+      const normalized = normalizeDeniedRoute(pattern);
+      return normalized ? [normalized] : [];
+    },
+  );
+  const deniedRouteHints = [
+    ...artifact.searchGuidance,
+    ...artifact.navigationGuidance,
+    ...artifact.warnings,
+  ].flatMap((line) => {
+    const normalizedLine = normalizeText(line);
+    const lineDisprovesRoute =
+      isExplicitSearchProbeDisproof(line) ||
+      normalizedLine.includes("returns 404") ||
+      normalizedLine.includes("not a working search endpoint") ||
+      normalizedLine.includes("broken route");
+
+    if (!lineDisprovesRoute) {
+      return [] as string[];
+    }
+
+    const implicitDeniedRoutes = [
+      normalizedLine.includes("search route") || normalizedLine.includes("search endpoint")
+        ? normalizeDeniedRoute("/search")
+        : null,
+    ].filter((value): value is string => value !== null);
+
+    const absoluteUrlMatches = line.match(/https?:\/\/[^\s)\]>",]+/gi) ?? [];
+    const relativePathMatches =
+      line.match(/(?:^|[\s(])((?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)+(?:\/)?(?:\?[^\s)\]>",]+)?)/g) ?? [];
+
+    return uniqueStrings([
+      ...implicitDeniedRoutes,
+      ...absoluteUrlMatches,
+      ...relativePathMatches.map((match) => {
+        const trimmedMatch = match.trim();
+        return trimmedMatch.startsWith("/")
+          ? trimmedMatch
+          : trimmedMatch.slice(trimmedMatch.indexOf("/"));
+      }),
+    ])
+      .map((value) => value.replace(/[.,;:!?]+$/g, ""))
+      .flatMap((value) => {
+        const normalized = normalizeDeniedRoute(value);
+        return normalized ? [normalized] : [];
+      });
+  });
+
+  return uniqueStrings([...deniedRouteOverrides, ...deniedRouteHints]);
+}
+
+export function buildEvidenceDrivenDiscoverySearchUrl(
+  target: JobDiscoveryTarget,
+  artifact: SourceInstructionArtifact | null,
+  searchPreferences?: JobSearchPreferences | null,
+): string | null {
+  const anchorUrl = tryParseUrl(target.startingUrl);
+  if (!anchorUrl) {
+    return null;
+  }
+
+  return buildGuidedDiscoverySearchUrl(anchorUrl, artifact, searchPreferences);
+}
+
+function deriveGenericSearchKeyword(
+  searchPreferences?: JobSearchPreferences | null,
+): string | null {
+  if (!searchPreferences) {
+    return null;
+  }
+
+  const technicalSearchIntent =
+    searchPreferences.targetRoles.some(matchesTechnicalRoleSignal) ||
+    searchPreferences.jobFamilies.some(matchesTechnicalRoleSignal);
+  if (technicalSearchIntent) {
+    return "software";
+  }
+
+  const explicitKeyword =
+    searchPreferences.targetRoles.find((value) => value.trim().length > 0) ??
+    searchPreferences.jobFamilies.find((value) => value.trim().length > 0) ??
+    null;
+  if (!explicitKeyword) {
+    return null;
+  }
+
+  const keywordTokens = normalizeText(explicitKeyword)
+    .split(/\s+/)
+    .filter((token) =>
+      token.length >= 4 &&
+      ![
+        "senior",
+        "junior",
+        "lead",
+        "staff",
+        "principal",
+        "remote",
+        "hybrid",
+      ].includes(token),
+    );
+
+  return keywordTokens[0] ?? null;
+}
+
+function buildGuidedDiscoverySearchUrl(
+  anchorUrl: URL,
+  artifact: SourceInstructionArtifact | null,
+  searchPreferences?: JobSearchPreferences | null,
+): string | null {
+  if (!artifact || !searchPreferences) {
+    return null;
+  }
+
+  const supportedQueryParams = collectGuidedSearchQueryParamNames(artifact);
+  const keywordParam = findGuidedSearchQueryParamName(
+    supportedQueryParams,
+    GENERIC_KEYWORD_QUERY_PARAM_NAMES,
+  );
+  const locationParam = findGuidedSearchQueryParamName(
+    supportedQueryParams,
+    GENERIC_LOCATION_QUERY_PARAM_NAMES,
+  );
+  const keyword = keywordParam ? deriveGenericSearchKeyword(searchPreferences) : null;
+  const location =
+    locationParam &&
+    (searchPreferences.locations.find((value) => value.trim().length > 0) ?? null);
+
+  if (!keywordParam && !locationParam) {
+    return null;
+  }
+
+  if (!keyword && !location) {
+    return null;
+  }
+
+  const searchUrl = selectGuidedSearchBaseUrl(anchorUrl, artifact);
+  if (keywordParam && keyword) {
+    searchUrl.searchParams.set(keywordParam, keyword);
+  }
+  if (locationParam && location) {
+    searchUrl.searchParams.set(locationParam, location);
+  }
+
+  return canonicalizeRouteForReuse(searchUrl.toString(), anchorUrl);
+}
+
+function collectGuidedSearchQueryParamNames(
+  artifact: SourceInstructionArtifact,
+): string[] {
+  const paramNames = new Set<string>();
+  const collectFromText = (value: string | null | undefined) => {
+    if (!value) {
+      return;
+    }
+
+    for (const match of value.matchAll(/[?&]([a-zA-Z][a-zA-Z0-9_-]*)=/g)) {
+      const paramName = match[1]?.trim().toLowerCase();
+      if (paramName) {
+        paramNames.add(paramName);
+      }
+    }
+  };
+  const collectFromUrl = (value: string) => {
+    const parsed = tryParseUrl(value);
+    if (!parsed) {
+      return;
+    }
+
+    for (const key of parsed.searchParams.keys()) {
+      const paramName = key.trim().toLowerCase();
+      if (paramName) {
+        paramNames.add(paramName);
+      }
+    }
+  };
+
+  collectFromText(artifact.notes);
+  for (const line of [
+    ...artifact.navigationGuidance,
+    ...artifact.searchGuidance,
+    ...artifact.warnings,
+  ]) {
+    collectFromText(line);
+  }
+
+  for (const route of artifact.intelligence.collection.searchRouteTemplates) {
+    collectFromUrl(route.url);
+  }
+
+  for (const route of artifact.intelligence.collection.startingRoutes) {
+    collectFromUrl(route.url);
+  }
+
+  return [...paramNames];
+}
+
+function findGuidedSearchQueryParamName(
+  supportedQueryParams: readonly string[],
+  preferredNames: readonly string[],
+): string | null {
+  return (
+    preferredNames.find((paramName) => supportedQueryParams.includes(paramName)) ?? null
+  );
+}
+
+function selectGuidedSearchBaseUrl(
+  anchorUrl: URL,
+  artifact: SourceInstructionArtifact,
+): URL {
+  for (const route of artifact.intelligence.collection.searchRouteTemplates) {
+    const normalizedRoute = canonicalizeRouteForReuse(route.url, anchorUrl);
+    if (!normalizedRoute) {
+      continue;
+    }
+
+    const parsed = tryParseUrl(normalizedRoute);
+    if (parsed) {
+      parsed.search = "";
+      return new URL(parsed.toString());
+    }
+  }
+
+  return new URL(anchorUrl.toString());
 }
 
 export function selectDiscoveryCollectionMethod(
@@ -779,11 +1454,8 @@ export async function collectPublicProviderJobs(input: {
   }
 
   try {
-    if (
-      provider.key === "greenhouse" &&
-      provider.boardToken &&
-      provider.publicApiUrlTemplate
-    ) {
+    const responseAdapter = PUBLIC_API_RESPONSE_ADAPTERS[provider.key as keyof typeof PUBLIC_API_RESPONSE_ADAPTERS];
+    if (responseAdapter && provider.publicApiUrlTemplate) {
       const timeout = createProviderApiTimeoutSignal();
       const composedSignal = composeAbortSignals(timeout.signal, input.signal);
 
@@ -792,33 +1464,35 @@ export async function collectPublicProviderJobs(input: {
           signal: composedSignal.signal,
         });
         if (!response.ok) {
-          throw new Error(`Greenhouse API returned ${response.status}.`);
+          throw new Error(`Public provider API returned ${response.status}.`);
         }
 
-        const payload = parseGreenhouseJobsResponse(await response.json());
+        const jobs = parsePublicApiJobRecords(await response.json(), responseAdapter);
 
         return {
-          jobs: (payload.jobs ?? []).flatMap((job) => {
-            if (!job.id || !job.title || !job.absolute_url) {
+          jobs: jobs.flatMap((job) => {
+            if (!job.sourceJobId || !job.title || !job.canonicalUrl) {
               return [];
             }
 
-            const description = htmlToText(job.content);
+            const description = htmlToText(job.description);
+            const applicationUrl = job.applicationUrl ?? job.canonicalUrl;
+            const location = job.location?.trim() || "Unknown";
             return [
               JobPostingSchema.parse({
                 source: input.source,
-                sourceJobId: String(job.id),
+                sourceJobId: job.sourceJobId,
                 discoveryMethod: "public_api",
                 collectionMethod: "api",
-                canonicalUrl: job.absolute_url,
-                applicationUrl: job.absolute_url,
+                canonicalUrl: job.canonicalUrl,
+                applicationUrl,
                 title: job.title,
                 company: input.target.label,
-                location: job.location?.name?.trim() || "Unknown",
-                workMode: inferWorkModes(job.location?.name),
+                location,
+                workMode: inferWorkModes(location),
                 applyPath: "external_redirect",
                 easyApplyEligible: false,
-                postedAt: normalizeProviderDateTime(job.updated_at),
+                postedAt: normalizeProviderDateTime(job.postedAtValue),
                 postedAtText: null,
                 discoveredAt: new Date().toISOString(),
                 salaryText: null,
@@ -829,86 +1503,11 @@ export async function collectPublicProviderJobs(input: {
                 minimumQualifications: [],
                 preferredQualifications: [],
                 seniority: null,
-                employmentType: null,
-                department: null,
-                team: null,
+                employmentType: job.employmentType,
+                department: job.department,
+                team: job.team,
                 employerWebsiteUrl: null,
-                employerDomain: tryParseUrl(job.absolute_url)?.hostname ?? null,
-                atsProvider: provider.label,
-                providerKey: provider.key,
-                providerBoardToken: provider.boardToken,
-                providerIdentifier: provider.providerIdentifier,
-                titleTriageOutcome: "pass",
-                sourceIntelligence: input.artifact.intelligence,
-                screeningHints: {},
-                keywordSignals: [],
-                benefits: [],
-              }),
-            ];
-          }),
-          warning: null,
-        };
-      } finally {
-        composedSignal.cleanup();
-        timeout.cleanup?.();
-      }
-    }
-
-    if (
-      provider.key === "lever" &&
-      provider.providerIdentifier &&
-      provider.publicApiUrlTemplate
-    ) {
-      const timeout = createProviderApiTimeoutSignal();
-      const composedSignal = composeAbortSignals(timeout.signal, input.signal);
-
-      try {
-        const response = await fetch(provider.publicApiUrlTemplate, {
-          signal: composedSignal.signal,
-        });
-        if (!response.ok) {
-          throw new Error(`Lever API returned ${response.status}.`);
-        }
-
-        const payload = parseLeverJobsResponse(await response.json());
-
-        return {
-          jobs: payload.jobs.flatMap((job) => {
-            if (!job.id || !job.text || !job.hostedUrl) {
-              return [];
-            }
-
-            const description = htmlToText(job.descriptionPlain ?? job.description);
-            return [
-              JobPostingSchema.parse({
-                source: input.source,
-                sourceJobId: job.id,
-                discoveryMethod: "public_api",
-                collectionMethod: "api",
-                canonicalUrl: job.hostedUrl,
-                applicationUrl: job.applyUrl ?? job.hostedUrl,
-                title: job.text,
-                company: input.target.label,
-                location: job.categories?.location?.trim() || "Unknown",
-                workMode: inferWorkModes(job.categories?.location),
-                applyPath: "external_redirect",
-                easyApplyEligible: false,
-                postedAt: normalizeProviderDateTime(job.createdAt),
-                postedAtText: null,
-                discoveredAt: new Date().toISOString(),
-                salaryText: null,
-                summary: description.slice(0, SUMMARY_MAX_LENGTH) || null,
-                description: description || job.text,
-                keySkills: [],
-                responsibilities: [],
-                minimumQualifications: [],
-                preferredQualifications: [],
-                seniority: null,
-                employmentType: job.categories?.commitment ?? null,
-                department: job.categories?.department ?? null,
-                team: job.categories?.team ?? null,
-                employerWebsiteUrl: null,
-                employerDomain: tryParseUrl(job.hostedUrl)?.hostname ?? null,
+                employerDomain: tryParseUrl(job.canonicalUrl)?.hostname ?? null,
                 atsProvider: provider.label,
                 providerKey: provider.key,
                 providerBoardToken: provider.boardToken,
@@ -954,9 +1553,11 @@ export async function collectPublicProviderJobs(input: {
 export function applyDiscoveryTitleTriage(input: {
   posting: JobPosting;
   searchPreferences: JobSearchPreferences;
+  profile: CandidateProfile | null | undefined;
 }) {
-  const { posting, searchPreferences } = input;
+  const { posting, profile, searchPreferences } = input;
   const normalizedCompany = normalizeText(posting.company);
+  const postingEvidenceText = buildPostingEvidenceText(posting);
 
   if (
     searchPreferences.companyBlacklist.some(
@@ -971,7 +1572,14 @@ export function applyDiscoveryTitleTriage(input: {
 
   if (
     searchPreferences.targetRoles.length > 0 &&
-    !matchesAnyPhrase(posting.title, searchPreferences.targetRoles)
+    !matchesTitlePreference(posting.title, searchPreferences.targetRoles) &&
+    !matchesTitlePreference(postingEvidenceText, searchPreferences.targetRoles) &&
+    !matchesTechnicalRoleFallback({
+      posting,
+      postingEvidenceText,
+      profile,
+      searchPreferences,
+    })
   ) {
     return {
       outcome: "skip_title" as const,
@@ -981,7 +1589,13 @@ export function applyDiscoveryTitleTriage(input: {
 
   if (
     searchPreferences.locations.length > 0 &&
-    !matchesAnyPhrase(posting.location, searchPreferences.locations)
+    !matchesLocationPreference(posting.location, searchPreferences.locations) &&
+    !matchesRemoteFriendlyTechnicalLocationFallback({
+      posting,
+      postingEvidenceText,
+      profile,
+      searchPreferences,
+    })
   ) {
     return {
       outcome: "skip_location" as const,
@@ -1005,4 +1619,284 @@ export function applyDiscoveryTitleTriage(input: {
     outcome: "pass" as const,
     reason: null,
   };
+}
+
+function buildPostingEvidenceText(posting: JobPosting): string {
+  return uniqueStrings([
+    posting.title,
+    posting.company,
+    ...posting.keySkills,
+    ...(posting.summary ? [posting.summary] : []),
+    posting.description,
+    ...posting.responsibilities,
+    ...posting.minimumQualifications,
+    ...posting.preferredQualifications,
+  ]).join(" ");
+}
+
+function matchesTechnicalRoleSignal(value: string): boolean {
+  const normalized = normalizeText(value);
+  return technicalRoleSignalPatterns.some((pattern) => pattern.test(normalized));
+}
+
+function matchesAdjacentTechnicalRoleSignal(value: string): boolean {
+  const normalized = normalizeText(value);
+  return adjacentTechnicalRoleSignalPatterns.some((pattern) => pattern.test(normalized));
+}
+
+function hasTechnicalTargetRolePreference(searchPreferences: JobSearchPreferences): boolean {
+  return searchPreferences.targetRoles.some(matchesTechnicalRoleSignal);
+}
+
+function collectTechnicalRoleFamilies(value: string): string[] {
+  const normalized = normalizeText(value);
+  return technicalRoleFamilyPatterns.flatMap(([family, patterns]) =>
+    patterns.some((pattern) => pattern.test(normalized)) ? [family] : [],
+  );
+}
+
+function countTechnicalRoleSignals(value: string): number {
+  const normalized = normalizeText(value);
+  return adjacentTechnicalRoleSignalPatterns.reduce(
+    (count, pattern) => (pattern.test(normalized) ? count + 1 : count),
+    0,
+  );
+}
+
+function hasTechnicalRoleFamilyOverlap(input: {
+  postingEvidenceText: string;
+  searchPreferences: JobSearchPreferences;
+}): boolean {
+  const postingFamilies = new Set(collectTechnicalRoleFamilies(input.postingEvidenceText));
+  if (postingFamilies.size === 0) {
+    return false;
+  }
+
+  return input.searchPreferences.targetRoles.some((targetRole) =>
+    collectTechnicalRoleFamilies(targetRole).some((family) => postingFamilies.has(family)),
+  );
+}
+
+function collectProfileSkillSignals(profile: CandidateProfile): string[] {
+  return uniqueStrings([
+    ...profile.skills,
+    ...profile.skillGroups.coreSkills,
+    ...profile.skillGroups.tools,
+    ...profile.skillGroups.languagesAndFrameworks,
+    ...profile.skillGroups.highlightedSkills,
+    ...profile.experiences.flatMap((experience) => experience.skills),
+    ...profile.projects.flatMap((project) => project.skills),
+  ]);
+}
+
+function matchesTechnicalRoleFallback(input: {
+  posting: JobPosting;
+  postingEvidenceText?: string;
+  searchPreferences: JobSearchPreferences;
+  profile: CandidateProfile | null | undefined;
+}): boolean {
+  const { posting, profile, searchPreferences } = input;
+  if (!hasTechnicalTargetRolePreference(searchPreferences)) {
+    return false;
+  }
+
+  const postingEvidenceText = input.postingEvidenceText ?? buildPostingEvidenceText(posting);
+
+  if (!matchesAdjacentTechnicalRoleSignal(postingEvidenceText)) {
+    return false;
+  }
+
+  if (matchesAdjacentTechnicalRoleSignal(posting.title)) {
+    return true;
+  }
+
+  if (matchesTitlePreference(postingEvidenceText, searchPreferences.targetRoles)) {
+    return true;
+  }
+
+  if (hasTechnicalRoleFamilyOverlap({ postingEvidenceText, searchPreferences })) {
+    return true;
+  }
+
+  if (countTechnicalRoleSignals(postingEvidenceText) >= 2) {
+    return true;
+  }
+
+  if (!profile) {
+    return false;
+  }
+
+  const profileSkillSignals = collectProfileSkillSignals(profile);
+  if (profileSkillSignals.length === 0) {
+    return false;
+  }
+
+  return matchesAnyPhrase(postingEvidenceText, profileSkillSignals);
+}
+
+function matchesRemoteFriendlyTechnicalLocationFallback(input: {
+  posting: JobPosting;
+  postingEvidenceText?: string;
+  profile?: CandidateProfile | null | undefined;
+  searchPreferences: JobSearchPreferences;
+}): boolean {
+  const { posting, searchPreferences } = input;
+  if (!hasTechnicalTargetRolePreference(searchPreferences)) {
+    return false;
+  }
+
+  const postingEvidenceText = input.postingEvidenceText ?? buildPostingEvidenceText(posting);
+  if (
+    !matchesTechnicalRoleFallback({
+      posting,
+      postingEvidenceText,
+      profile: input.profile,
+      searchPreferences,
+    })
+  ) {
+    return false;
+  }
+
+  if (
+    searchPreferences.workModes.length > 0 &&
+    !searchPreferences.workModes.includes("flexible") &&
+    !searchPreferences.workModes.includes("remote") &&
+    !searchPreferences.workModes.includes("hybrid")
+  ) {
+    return false;
+  }
+
+  const normalizedLocation = normalizeText(posting.location);
+  const locationLooksRemote =
+    posting.workMode.includes("remote") ||
+    posting.workMode.includes("hybrid") ||
+    /\bremote\b|\bhybrid\b|\bworldwide\b|\banywhere\b|\bemea\b|\beurope\b/.test(
+      normalizedLocation,
+    );
+
+  if (locationLooksRemote) {
+    return true;
+  }
+
+  if (!normalizedLocation) {
+    return true;
+  }
+
+  if (posting.workMode.length === 0) {
+    return true;
+  }
+
+  return !posting.workMode.every((mode) => mode === "onsite");
+}
+
+export function selectLowYieldTechnicalFallbackPostings(input: {
+  skippedPostings: readonly JobPosting[];
+  searchPreferences: JobSearchPreferences;
+  profile: CandidateProfile | null | undefined;
+  limit?: number;
+}): JobPosting[] {
+  const { skippedPostings, searchPreferences, profile } = input;
+  if (skippedPostings.length === 0) {
+    return [];
+  }
+
+  if (!searchPreferences.targetRoles.some(matchesTechnicalRoleSignal)) {
+    return [];
+  }
+
+  const profileSkillSignals = profile ? collectProfileSkillSignals(profile) : [];
+  const rescueLimit = Math.max(0, input.limit ?? 6);
+
+  return skippedPostings
+    .flatMap((posting, index) => {
+      if (
+        posting.titleTriageOutcome !== "skip_title" &&
+        posting.titleTriageOutcome !== "skip_location"
+      ) {
+        return [];
+      }
+
+      const postingEvidenceText = buildPostingEvidenceText(posting);
+      const titleHasTechnicalSignal = matchesAdjacentTechnicalRoleSignal(posting.title);
+      const evidenceHasTechnicalSignal = matchesAdjacentTechnicalRoleSignal(postingEvidenceText);
+      const profileAlignedTechnicalRole = matchesTechnicalRoleFallback({
+        posting,
+        profile,
+        searchPreferences,
+      });
+
+      if (!titleHasTechnicalSignal && !evidenceHasTechnicalSignal && !profileAlignedTechnicalRole) {
+        return [];
+      }
+
+      const locationMatched = matchesLocationPreference(
+        posting.location,
+        searchPreferences.locations,
+      );
+      const remoteFriendlyLocation = matchesRemoteFriendlyTechnicalLocationFallback({
+        posting,
+        searchPreferences,
+      });
+      const titleMatched = matchesTitlePreference(
+        posting.title,
+        searchPreferences.targetRoles,
+      );
+      const profileSkillOverlap =
+        profileSkillSignals.length > 0 &&
+        matchesAnyPhrase(postingEvidenceText, profileSkillSignals);
+      const rescuePriorityWeights = {
+        skipLocationTriage: 6,
+        remoteFriendly: 5,
+        titleMatched: 4,
+        profileAligned: 4,
+        titleTechnicalSignal: 3,
+        evidenceTechnicalSignal: 2,
+        locationMatched: 2,
+        profileSkillOverlap: 1,
+        easyApply: 1,
+      } as const;
+      let priority = 0;
+
+      if (posting.titleTriageOutcome === "skip_location") {
+        priority += rescuePriorityWeights.skipLocationTriage;
+      }
+      if (remoteFriendlyLocation) {
+        priority += rescuePriorityWeights.remoteFriendly;
+      }
+      if (titleMatched) {
+        priority += rescuePriorityWeights.titleMatched;
+      }
+      if (profileAlignedTechnicalRole) {
+        priority += rescuePriorityWeights.profileAligned;
+      }
+      if (titleHasTechnicalSignal) {
+        priority += rescuePriorityWeights.titleTechnicalSignal;
+      }
+      if (evidenceHasTechnicalSignal) {
+        priority += rescuePriorityWeights.evidenceTechnicalSignal;
+      }
+      if (locationMatched) {
+        priority += rescuePriorityWeights.locationMatched;
+      }
+      if (profileSkillOverlap) {
+        priority += rescuePriorityWeights.profileSkillOverlap;
+      }
+      if (posting.easyApplyEligible) {
+        priority += rescuePriorityWeights.easyApply;
+      }
+
+      return [
+        {
+          index,
+          priority,
+          posting: JobPostingSchema.parse({
+            ...posting,
+            titleTriageOutcome: "pass",
+          }),
+        },
+      ];
+    })
+    .sort((left, right) => right.priority - left.priority || left.index - right.index)
+    .slice(0, rescueLimit)
+    .map((entry) => entry.posting);
 }

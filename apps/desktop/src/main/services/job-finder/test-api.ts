@@ -1,55 +1,114 @@
+import {
+  isDisabled,
+  isEnabled,
+  normalizeFlagValue,
+} from "./env-flags.mjs";
+
+export { isDisabled, isEnabled, normalizeFlagValue };
+
 export interface ResumeImportPathPayload {
-  sourcePath: string
+  sourcePath: string;
 }
 
-function isEnabled(value: string | undefined): boolean {
-  return value === '1' || value === 'true'
+const warnedInvalidEnvValues = new Set<string>();
+
+export function resetInvalidBooleanEnvWarnings() {
+  warnedInvalidEnvValues.clear();
 }
 
-function isDisabled(value: string | undefined): boolean {
-  return value === '0' || value === 'false'
-}
-
-export function isDesktopTestApiEnabled(): boolean {
-  return isEnabled(process.env.UNEMPLOYED_ENABLE_TEST_API)
-}
-
-export function isBrowserAgentEnabled(): boolean {
-  const configuredValue = process.env.UNEMPLOYED_BROWSER_AGENT ?? process.env.UNEMPLOYED_LINKEDIN_BROWSER_AGENT
-
-  if (configuredValue == null) {
-    return true
+function warnInvalidEnvValue(
+  variableName: string,
+  configuredValue: string,
+  fallbackDescription: string,
+) {
+  const normalizedConfiguredValue = normalizeFlagValue(configuredValue);
+  if (normalizedConfiguredValue == null) {
+    return;
+  }
+  const warningKey = `${variableName}:${normalizedConfiguredValue}`;
+  if (warnedInvalidEnvValues.has(warningKey)) {
+    return;
   }
 
-  if (isDisabled(configuredValue)) {
-    return false
+  warnedInvalidEnvValues.add(warningKey);
+  console.warn(
+    `[desktop test-api] Unrecognized ${variableName} value: ${JSON.stringify(configuredValue)}. Falling back to ${fallbackDescription}.`,
+  );
+}
+
+export function isDesktopTestApiEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isEnabled(env.UNEMPLOYED_ENABLE_TEST_API);
+}
+
+export function isBrowserAgentEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
+  const normalizedValue = normalizeFlagValue(configuredValue);
+
+  if (normalizedValue == null) {
+    return true;
   }
 
-  return isEnabled(configuredValue)
+  if (isDisabled(normalizedValue)) {
+    return false;
+  }
+
+  if (isEnabled(normalizedValue)) {
+    return true;
+  }
+
+  warnInvalidEnvValue(
+    "UNEMPLOYED_BROWSER_AGENT",
+    normalizedValue,
+    "the default enabled behavior",
+  );
+  return true;
 }
 
-export function isBrowserHeadlessEnabled(): boolean {
-  return isEnabled(process.env.UNEMPLOYED_BROWSER_HEADLESS)
+export function isBrowserHeadlessEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isEnabled(env.UNEMPLOYED_BROWSER_HEADLESS);
 }
 
-export function parseResumeImportPathPayload(payload: unknown): ResumeImportPathPayload {
+export function parseResumeImportPathPayload(
+  payload: unknown,
+): ResumeImportPathPayload {
   if (
     !payload ||
-    typeof payload !== 'object' ||
-    !('sourcePath' in payload) ||
-    typeof payload.sourcePath !== 'string' ||
+    typeof payload !== "object" ||
+    !("sourcePath" in payload) ||
+    typeof payload.sourcePath !== "string" ||
     payload.sourcePath.trim().length === 0
   ) {
-    throw new Error('A non-empty sourcePath string is required for scripted resume import.')
+    throw new Error(
+      "A non-empty sourcePath string is required for scripted resume import.",
+    );
   }
 
   return {
-    sourcePath: payload.sourcePath
-  }
+    sourcePath: payload.sourcePath.trim(),
+  };
 }
 
-export function getDesktopTestDelayMs(value: string | undefined): number {
-  const parsed = value ? Number.parseInt(value, 10) : 0
+export function getDesktopTestDelayMs(
+  value: string | undefined,
+  envVarName: string,
+): number {
+  const normalized = normalizeFlagValue(value);
+  if (normalized == null) {
+    return 0;
+  }
 
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+  if (!/^\d+$/.test(normalized)) {
+    warnInvalidEnvValue(envVarName, normalized, "the default disabled behavior");
+    return 0;
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }

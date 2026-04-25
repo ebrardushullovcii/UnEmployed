@@ -1,4 +1,3 @@
-import type { Page } from "playwright";
 import type { AgentState } from "../types";
 
 export const CLICK_TIMEOUT_MS = 5000;
@@ -11,9 +10,14 @@ type FailedInteractionState = Pick<
   "failedInteractionAttempts" | "failedInteractionPageStateToken"
 >;
 
-export async function readInteractionPageStateToken(page: Page): Promise<string> {
+type InteractionStatePage = {
+  url(): string;
+  evaluate<T>(callback: () => T | Promise<T>): Promise<T>;
+};
+
+export async function readInteractionPageStateToken(page: InteractionStatePage): Promise<string> {
   try {
-    return await page.evaluate(() => {
+    const token = await page.evaluate(() => {
       const elements = Array.from(
         document.querySelectorAll<HTMLElement>(
           'a[href], button, input, select, textarea, [role="button"], [role="link"], [role="textbox"], [role="checkbox"], [role="menuitem"], [role="option"], [role="tab"], [role="switch"], [role="slider"], [role="combobox"], [contenteditable="true"]',
@@ -59,13 +63,15 @@ export async function readInteractionPageStateToken(page: Page): Promise<string>
 
       return `${window.location.href}::${document.title}::${elements.join("|")}`;
     });
+
+    return typeof token === "string" && token.trim().length > 0 ? token : page.url();
   } catch {
     return page.url();
   }
 }
 
 export async function syncFailedInteractionAttemptsWithPageState(
-  page: Page,
+  page: InteractionStatePage,
   state: FailedInteractionState,
 ): Promise<void> {
   const nextToken = await readInteractionPageStateToken(page);

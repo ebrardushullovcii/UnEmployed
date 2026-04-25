@@ -18,7 +18,10 @@ const REFERENCE_ONLY_KEYS = new Set([
 
 function sanitizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    ? value.filter(
+        (entry): entry is string =>
+          typeof entry === "string" && entry.trim().length > 0,
+      )
     : [];
 }
 
@@ -47,41 +50,91 @@ function sanitizeStructuredEntries<TEntry extends Record<string, unknown>>(
     // This predicate intentionally treats only user-visible string content as meaningful.
     // Numeric or boolean fields do not currently count here, so revisit this block if
     // TEntry or TailoredResumeDraftSchema starts relying on non-string visible fields.
-    const hasMeaningfulContent = Object.entries(normalizedEntry).some(([fieldKey, fieldValue]) => {
-      if (REFERENCE_ONLY_KEYS.has(fieldKey)) {
+    const hasMeaningfulContent = Object.entries(normalizedEntry).some(
+      ([fieldKey, fieldValue]) => {
+        if (REFERENCE_ONLY_KEYS.has(fieldKey)) {
+          return false;
+        }
+
+        if (typeof fieldValue === "string") {
+          return fieldValue.trim().length > 0;
+        }
+
+        if (Array.isArray(fieldValue)) {
+          return fieldValue.some((item) => {
+            if (typeof item === "string") {
+              return item.trim().length > 0;
+            }
+
+            if (!item || typeof item !== "object" || Array.isArray(item)) {
+              return false;
+            }
+
+            const normalizedItem = item as Record<string, unknown>;
+
+            return Object.values(normalizedItem).some(
+              (nestedValue) =>
+                typeof nestedValue === "string" &&
+                nestedValue.trim().length > 0,
+            );
+          });
+        }
+
         return false;
-      }
-
-      if (typeof fieldValue === "string") {
-        return fieldValue.trim().length > 0;
-      }
-
-      if (Array.isArray(fieldValue)) {
-        return fieldValue.some((item) => {
-          if (typeof item === "string") {
-            return item.trim().length > 0;
-          }
-
-          if (!item || typeof item !== "object" || Array.isArray(item)) {
-            return false;
-          }
-
-          const normalizedItem = item as Record<string, unknown>;
-
-          return Object.values(normalizedItem).some(
-            (nestedValue) => typeof nestedValue === "string" && nestedValue.trim().length > 0,
-          );
-        });
-      }
-
-      return false;
-    });
+      },
+    );
 
     if (!hasMeaningfulContent) {
       return [];
     }
 
     return [normalizedEntry as TEntry];
+  });
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function normalizeExperienceEntries(
+  entries: Array<{
+    title?: string | null;
+    employer?: string | null;
+    location?: string | null;
+    dateRange?: string | null;
+    summary?: string | null;
+    bullets?: string[];
+    profileRecordId?: string | null;
+  }>,
+  fallbackEntries: ReturnType<
+    typeof buildDeterministicStructuredResumeDraft
+  >["experienceEntries"],
+) {
+  return entries.map((entry, index) => {
+    const fallbackEntry = fallbackEntries[index];
+
+    return {
+      title:
+        normalizeNullableString(entry.title) ?? fallbackEntry?.title ?? null,
+      employer:
+        normalizeNullableString(entry.employer) ??
+        fallbackEntry?.employer ??
+        null,
+      location:
+        normalizeNullableString(entry.location) ??
+        fallbackEntry?.location ??
+        null,
+      dateRange:
+        normalizeNullableString(entry.dateRange) ??
+        fallbackEntry?.dateRange ??
+        null,
+      summary: normalizeNullableString(entry.summary),
+      bullets: sanitizeStringArray(entry.bullets),
+      profileRecordId:
+        normalizeNullableString(entry.profileRecordId) ??
+        fallbackEntry?.profileRecordId ??
+        null,
+    };
   });
 }
 
@@ -147,7 +200,9 @@ export function completeTailoredResumeDraft(
     dateRange?: string | null;
     profileRecordId?: string | null;
   }>(normalizedPrimary.certificationEntries);
-  const sanitizedAdditionalSkills = sanitizeStringArray(normalizedPrimary.additionalSkills);
+  const sanitizedAdditionalSkills = sanitizeStringArray(
+    normalizedPrimary.additionalSkills,
+  );
   const sanitizedLanguages = sanitizeStringArray(normalizedPrimary.languages);
   const label =
     typeof normalizedPrimary.label === "string" &&
@@ -159,20 +214,22 @@ export function completeTailoredResumeDraft(
     normalizedPrimary.summary.trim().length > 0
       ? normalizedPrimary.summary
       : fallback.summary;
-  const experienceHighlights = sanitizedExperienceHighlights.length > 0
-    ? sanitizedExperienceHighlights
-    : fallback.experienceHighlights;
-  const coreSkills = sanitizedCoreSkills.length > 0
-    ? sanitizedCoreSkills
-    : fallback.coreSkills;
-  const targetedKeywords = sanitizedTargetedKeywords.length > 0
-    ? sanitizedTargetedKeywords
-    : fallback.targetedKeywords;
+  const experienceHighlights =
+    sanitizedExperienceHighlights.length > 0
+      ? sanitizedExperienceHighlights
+      : fallback.experienceHighlights;
+  const coreSkills =
+    sanitizedCoreSkills.length > 0 ? sanitizedCoreSkills : fallback.coreSkills;
+  const targetedKeywords =
+    sanitizedTargetedKeywords.length > 0
+      ? sanitizedTargetedKeywords
+      : fallback.targetedKeywords;
   const notes = uniqueStrings([
     ...fallback.notes,
     ...(Array.isArray(normalizedPrimary.notes)
       ? normalizedPrimary.notes.filter(
-          (note): note is string => typeof note === "string" && note.trim().length > 0,
+          (note): note is string =>
+            typeof note === "string" && note.trim().length > 0,
         )
       : []),
   ]);
@@ -183,14 +240,10 @@ export function completeTailoredResumeDraft(
     coreSkills,
     experienceEntries:
       sanitizedExperienceEntries.length > 0
-        ? sanitizedExperienceEntries.map((entry) => ({
-            title: typeof entry.title === "string" ? entry.title : null,
-            employer: typeof entry.employer === "string" ? entry.employer : null,
-            location: typeof entry.location === "string" ? entry.location : null,
-            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-            bullets: sanitizeStringArray(entry.bullets),
-          }))
+        ? normalizeExperienceEntries(
+            sanitizedExperienceEntries,
+            fallback.experienceEntries,
+          )
         : fallback.experienceEntries,
     projectEntries:
       sanitizedProjectEntries.length > 0
@@ -208,9 +261,13 @@ export function completeTailoredResumeDraft(
             school: typeof entry.school === "string" ? entry.school : null,
             degree: typeof entry.degree === "string" ? entry.degree : null,
             fieldOfStudy:
-              typeof entry.fieldOfStudy === "string" ? entry.fieldOfStudy : null,
-            location: typeof entry.location === "string" ? entry.location : null,
-            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+              typeof entry.fieldOfStudy === "string"
+                ? entry.fieldOfStudy
+                : null,
+            location:
+              typeof entry.location === "string" ? entry.location : null,
+            dateRange:
+              typeof entry.dateRange === "string" ? entry.dateRange : null,
             summary: typeof entry.summary === "string" ? entry.summary : null,
           }))
         : fallback.educationEntries,
@@ -219,14 +276,16 @@ export function completeTailoredResumeDraft(
         ? sanitizedCertificationEntries.map((entry) => ({
             name: typeof entry.name === "string" ? entry.name : null,
             issuer: typeof entry.issuer === "string" ? entry.issuer : null,
-            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+            dateRange:
+              typeof entry.dateRange === "string" ? entry.dateRange : null,
           }))
         : fallback.certificationEntries,
     additionalSkills:
       sanitizedAdditionalSkills.length > 0
         ? sanitizedAdditionalSkills
         : fallback.additionalSkills,
-    languages: sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
+    languages:
+      sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
     targetedKeywords,
     notes,
   });
@@ -240,16 +299,10 @@ export function completeTailoredResumeDraft(
     targetedKeywords,
     experienceEntries:
       sanitizedExperienceEntries.length > 0
-        ? sanitizedExperienceEntries.map((entry) => ({
-            title: typeof entry.title === "string" ? entry.title : null,
-            employer: typeof entry.employer === "string" ? entry.employer : null,
-            location: typeof entry.location === "string" ? entry.location : null,
-            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-            bullets: sanitizeStringArray(entry.bullets),
-            profileRecordId:
-              typeof entry.profileRecordId === "string" ? entry.profileRecordId : null,
-          }))
+        ? normalizeExperienceEntries(
+            sanitizedExperienceEntries,
+            fallback.experienceEntries,
+          )
         : fallback.experienceEntries,
     projectEntries:
       sanitizedProjectEntries.length > 0
@@ -260,7 +313,9 @@ export function completeTailoredResumeDraft(
             outcome: typeof entry.outcome === "string" ? entry.outcome : null,
             bullets: sanitizeStringArray(entry.bullets),
             profileRecordId:
-              typeof entry.profileRecordId === "string" ? entry.profileRecordId : null,
+              typeof entry.profileRecordId === "string"
+                ? entry.profileRecordId
+                : null,
           }))
         : fallback.projectEntries,
     educationEntries:
@@ -269,12 +324,18 @@ export function completeTailoredResumeDraft(
             school: typeof entry.school === "string" ? entry.school : null,
             degree: typeof entry.degree === "string" ? entry.degree : null,
             fieldOfStudy:
-              typeof entry.fieldOfStudy === "string" ? entry.fieldOfStudy : null,
-            location: typeof entry.location === "string" ? entry.location : null,
-            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+              typeof entry.fieldOfStudy === "string"
+                ? entry.fieldOfStudy
+                : null,
+            location:
+              typeof entry.location === "string" ? entry.location : null,
+            dateRange:
+              typeof entry.dateRange === "string" ? entry.dateRange : null,
             summary: typeof entry.summary === "string" ? entry.summary : null,
             profileRecordId:
-              typeof entry.profileRecordId === "string" ? entry.profileRecordId : null,
+              typeof entry.profileRecordId === "string"
+                ? entry.profileRecordId
+                : null,
           }))
         : fallback.educationEntries,
     certificationEntries:
@@ -282,16 +343,20 @@ export function completeTailoredResumeDraft(
         ? sanitizedCertificationEntries.map((entry) => ({
             name: typeof entry.name === "string" ? entry.name : null,
             issuer: typeof entry.issuer === "string" ? entry.issuer : null,
-            dateRange: typeof entry.dateRange === "string" ? entry.dateRange : null,
+            dateRange:
+              typeof entry.dateRange === "string" ? entry.dateRange : null,
             profileRecordId:
-              typeof entry.profileRecordId === "string" ? entry.profileRecordId : null,
+              typeof entry.profileRecordId === "string"
+                ? entry.profileRecordId
+                : null,
           }))
         : fallback.certificationEntries,
     additionalSkills:
       sanitizedAdditionalSkills.length > 0
         ? sanitizedAdditionalSkills
         : fallback.additionalSkills,
-    languages: sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
+    languages:
+      sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
     fullText,
     compatibilityScore:
       typeof normalizedPrimary.compatibilityScore === "number"

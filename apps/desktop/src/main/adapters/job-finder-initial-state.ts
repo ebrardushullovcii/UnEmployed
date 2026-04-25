@@ -116,7 +116,7 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       fontPreset: 'inter_requisite',
       appearanceTheme: 'system',
       humanReviewRequired: true,
-      keepSessionAlive: true,
+      keepSessionAlive: false,
       allowAutoSubmitOverride: false,
       discoveryOnly: false
     }),

@@ -1,33 +1,43 @@
 # Product
 
-## Suite Shape
-
 `UnEmployed` is one desktop app with two modules:
+
 - `Job Finder`
 - `Interview Helper`
 
-The shared platform owns profile data, document ingestion, search, AI providers, browser sessions, and local persistence.
+## Shared Product Baseline
+
+- shared local profile and document base
+- shared application history
+- shared browser and AI infrastructure
+- shared desktop shell and settings
 
 ## Job Finder
 
-- Import and normalize resumes and supporting documents
-- Discover jobs through browser-driven workflows across configured targets
-- Bootstrap unfamiliar job sources with a debug agent that learns auth, navigation, search, filter, and job-detail instructions for later runs
-- Draft and edit tailored application materials in a dedicated resume workspace
-- Current shipped behavior fills supported forms and routes applications through review before submission; queued follow-on work may widen this into more autonomous bounded automation later
-- Track statuses, notes, and reminders in a first-class application table
+Current product baseline:
+
+- resume import and profile editing
+- guided setup and profile copilot
+- browser-driven job discovery across configured targets
+- source-debug for learning reusable target instructions
+- resume workspace with ATS-first PDF approval
+- default resume output is the ATS-first `Classic ATS` PDF template; no additional resume templates ship in the current baseline, and any template roadmap or expansion requires a separate approved exec plan
+- apply flows that stop before final submission with Applications recovery
+- hard product rule: live submit remains intentionally disabled until explicitly re-authorized; see `docs/exec-plans/completed/015-job-finder-automatic-job-apply.md` for provenance
 
 ## Interview Helper
 
-- Build an interview prep workspace from resume, job description, emails, and notes
-- Run a live session with transcript-aware context
-- Show short cues in an overlay and deeper context in a full panel
-- Persist transcripts, captures, and generated suggestions locally
+Planned product baseline:
+
+- prep workspace from resume, job, notes, and application history
+- live session with transcript-aware context
+- compact overlay plus full panel
+- local transcript, capture, and suggestion history
 
 ## Product Defaults
 
-- Desktop shell: Electron
-- Browser runtime: Playwright with managed sessions first
-- Storage: local-first SQLite
-- AI runtime: provider abstraction with separate STT, chat, and vision roles
-
+- desktop shell: `Electron`
+- renderer: `React`
+- local persistence: `SQLite`
+- browser runtime: managed sessions first
+- AI: provider abstraction with separate chat, vision, STT, and embedding roles

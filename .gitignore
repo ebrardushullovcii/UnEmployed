@@ -22,3 +22,4 @@ apps/desktop/test-fixtures/local/
 !.cursor/rules/**
 .opencode/
 .claude/
+docs/reviews/*.txt

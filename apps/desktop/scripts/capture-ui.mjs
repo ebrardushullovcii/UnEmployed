@@ -1,3 +1,6 @@
+/* eslint-env node, browser */
+/* global document */
+
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -50,11 +53,18 @@ async function clickNavigationControl(window, name) {
   await window.getByRole('button', { name }).click()
 }
 
-async function waitForProfileOrSetupHeading(window) {
-  await window.waitForFunction(() => {
+async function waitForHeading(window, headings, options) {
+  const allowedHeadings = Array.isArray(headings) ? headings : [headings]
+
+  await window.waitForFunction((allowedHeadings) => {
     const heading = document.querySelector('h1')
-    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
-  }, undefined, { timeout: 15000 })
+    const text = heading?.textContent ?? ''
+    return allowedHeadings.some((allowedHeading) => text.includes(allowedHeading))
+  }, allowedHeadings, { timeout: 10000, ...options })
+}
+
+async function waitForProfileOrSetupHeading(window) {
+  await waitForHeading(window, ['Your profile', 'Guided setup'], { timeout: 15000 })
 }
 
 async function captureScreens() {
@@ -84,7 +94,11 @@ async function captureScreens() {
 
     for (const screen of screens) {
       await clickNavigationControl(window, screen.buttonName)
-      await window.getByRole('heading', { level: 1, name: screen.heading }).waitFor({ timeout: 10000 })
+      if (screen.heading === 'Your profile') {
+        await waitForProfileOrSetupHeading(window)
+      } else {
+        await waitForHeading(window, screen.heading)
+      }
       await window.screenshot({
         animations: 'disabled',
         path: path.join(outputDir, screen.fileName)

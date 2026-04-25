@@ -1,4 +1,48 @@
 import type { AgentConfig } from "./types";
+import {
+  getSeededQueryRuleParams,
+  isSeededQueryPlaceholderValue,
+  looksLikeSeededSearchSurfacePath,
+} from "./agent/seeded-query";
+
+const MAX_SEEDED_TERMS = 3;
+
+function describeSeededSearchQuery(config: AgentConfig): string | null {
+  for (const value of config.startingUrls) {
+    try {
+      const url = new URL(value);
+      if (!looksLikeSeededSearchSurfacePath(url.pathname)) {
+        continue;
+      }
+
+      const { ignoredParams } = getSeededQueryRuleParams(url.hostname);
+      const parts = [...url.searchParams.entries()]
+        .flatMap(([key, rawValue]) => {
+          if (ignoredParams.has(key)) {
+            return [];
+          }
+
+          const trimmedValue = rawValue.trim();
+          if (!trimmedValue || isSeededQueryPlaceholderValue(trimmedValue)) {
+            return [];
+          }
+
+          return [`${key}: ${trimmedValue}`];
+        })
+        .slice(0, MAX_SEEDED_TERMS);
+
+      if (parts.length === 0) {
+        continue;
+      }
+
+      return `This run starts from a concrete search query (${parts.join("; ")}). Preserve those seeded terms when using the visible search UI. Do not broaden them into more generic roles or locations unless that exact query clearly yields no usable results or the site proves it is invalid.`;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
 
 export function createSystemPrompt(config: AgentConfig): string {
   const targetRoles =
@@ -19,8 +63,9 @@ export function createSystemPrompt(config: AgentConfig): string {
     ? config.promptContext.toolUsageNotes
         .map((instruction) => `- ${instruction}`)
         .join("\n")
-    : "- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied";
+      : "- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied";
   const taskPacket = config.promptContext.taskPacket;
+  const seededSearchQuery = describeSeededSearchQuery(config);
   const taskPacketBlock = taskPacket
     ? [
         `PHASE GOAL: ${taskPacket.phaseGoal}`,
@@ -66,7 +111,8 @@ ${
 ${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.`
     : ""
 }
-Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
+${seededSearchQuery ? `${seededSearchQuery}
+` : ""}Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
 Your goal: ${taskPacket ? "Complete the current phase goal with proven evidence and a structured finish." : `Find up to ${config.targetJobCount} relevant job postings.`}
 ${taskPacket ? "When a TASK PACKET is present, the phase goal is more important than collecting a large job count. Do not stop at the first visible jobs if key controls, entry paths, or blockers still need to be proven." : ""}
 ${taskPacket ? "When a TASK PACKET is present, prior-phase summaries, known facts, and avoid lists are reference-only hints. Re-check important assumptions on the live page before you treat them as true." : ""}

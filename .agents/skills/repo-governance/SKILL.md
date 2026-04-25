@@ -1,6 +1,6 @@
 ---
 name: repo-governance
-description: Use when changing repo-wide structure, canonical docs, agent adapters, package boundaries, or validation scripts for the UnEmployed monorepo.
+description: Use when changing UnEmployed repo-wide structure, canonical docs, agent adapters, package boundaries, skills, or validation scripts.
 ---
 
 # Repo Governance
@@ -9,8 +9,9 @@ Use this skill when the task changes how the repository is organized or how agen
 
 ## Workflow
 
-1. Read `AGENTS.md`, `docs/README.md`, `docs/PLAN.md`, `docs/AGENT_CONTEXT.md`, `docs/STATUS.md`, and `.agents/registry.yaml`.
-2. If the change affects repo guidance, update canonical docs first.
-3. Run `pnpm agents:sync` after changing shared guidance or project-local skills.
-4. Run `pnpm agents:check` and `pnpm docs:check` before closing the task.
-5. Keep package-local `AGENTS.md` files aligned with any workspace changes.
+1. Read `AGENTS.md`, `docs/README.md`, `docs/PLAN.md`, `docs/AGENT_CONTEXT.md`, and `.agents/registry.yaml`.
+2. Read `docs/STATUS.md` and `docs/TRACKS.md` only when the change touches active handoff state or current feature work.
+3. If the change affects repo guidance, update canonical docs first.
+4. Run `pnpm validate:docs-only` after changing shared guidance or project-local skills.
+5. Run focused package validation when code changes are included.
+6. Keep package-local `AGENTS.md` files aligned with any workspace changes.

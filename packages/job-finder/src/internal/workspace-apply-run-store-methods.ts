@@ -80,15 +80,31 @@ export function createWorkspaceApplyRunStoreMethods(ctx: WorkspaceServiceContext
         result: latestResult,
         results,
         submitApproval: latestApproval,
-        questionRecords: sortByTimestamp(questionRecords, (record) => record.detectedAt),
-        answerRecords: sortByTimestamp(answerRecords, (record) => record.createdAt),
-        artifactRefs: sortByTimestamp(artifactRefs, (record) => record.createdAt),
+        questionRecords: sortByTimestamp(
+          questionRecords,
+          (record) => record.detectedAt,
+          (left, right) => left.id.localeCompare(right.id),
+        ),
+        answerRecords: sortByTimestamp(
+          answerRecords,
+          (record) => record.createdAt,
+          (left, right) => left.id.localeCompare(right.id),
+        ),
+        artifactRefs: sortByTimestamp(
+          artifactRefs,
+          (record) => record.createdAt,
+          (left, right) => left.id.localeCompare(right.id),
+        ),
         checkpoints: sortByTimestamp(
           checkpoints,
           (record) => record.createdAt,
           (left, right) => left.id.localeCompare(right.id),
         ),
-        consentRequests: sortByTimestamp(consentRequests, (record) => record.requestedAt),
+        consentRequests: sortByTimestamp(
+          consentRequests,
+          (record) => record.requestedAt,
+          (left, right) => left.id.localeCompare(right.id),
+        ),
       });
     },
   };

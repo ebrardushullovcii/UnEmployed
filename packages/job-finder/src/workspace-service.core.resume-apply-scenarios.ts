@@ -880,6 +880,146 @@ describe("createJobFinderWorkspaceService", () => {
     });
   });
 
+  test("keeps apply browser sessions warm across queue jobs when keepSessionAlive is enabled", async () => {
+    const seed = createSeed();
+    seed.settings.keepSessionAlive = true;
+    seed.savedJobs = [
+      {
+        ...seed.savedJobs[0]!,
+        id: "job_queue_first",
+        sourceJobId: "linkedin_queue_first",
+        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_queue_first",
+        applicationUrl: "https://www.linkedin.com/jobs/view/linkedin_queue_first/apply",
+        title: "Staff Product Designer",
+        company: "Queue Labs",
+        status: "ready_for_review",
+      },
+      {
+        ...seed.savedJobs[0]!,
+        id: "job_queue_second",
+        sourceJobId: "linkedin_queue_second",
+        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_queue_second",
+        applicationUrl: "https://www.linkedin.com/jobs/view/linkedin_queue_second/apply",
+        title: "Senior Product Designer",
+        company: "Queue Labs",
+        status: "ready_for_review",
+      },
+    ];
+    seed.tailoredAssets = [
+      {
+        ...seed.tailoredAssets[0]!,
+        id: "asset_queue_first",
+        jobId: "job_queue_first",
+        storagePath: "/tmp/job-queue-first-resume.pdf",
+      },
+      {
+        ...seed.tailoredAssets[0]!,
+        id: "asset_queue_second",
+        jobId: "job_queue_second",
+        storagePath: "/tmp/job-queue-second-resume.pdf",
+      },
+    ];
+    seed.resumeDrafts = [
+      {
+        id: "resume_draft_queue_first",
+        jobId: "job_queue_first",
+        status: "approved",
+        templateId: "classic_ats",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        approvedAt: "2026-03-20T10:04:00.000Z",
+        approvedExportId: "resume_export_queue_first",
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+      },
+      {
+        id: "resume_draft_queue_second",
+        jobId: "job_queue_second",
+        status: "approved",
+        templateId: "classic_ats",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        approvedAt: "2026-03-20T10:04:00.000Z",
+        approvedExportId: "resume_export_queue_second",
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+      },
+    ];
+    seed.resumeExportArtifacts = [
+      {
+        id: "resume_export_queue_first",
+        draftId: "resume_draft_queue_first",
+        jobId: "job_queue_first",
+        format: "pdf",
+        filePath: "/tmp/job-queue-first-resume.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:04:00.000Z",
+        isApproved: true,
+      },
+      {
+        id: "resume_export_queue_second",
+        draftId: "resume_draft_queue_second",
+        jobId: "job_queue_second",
+        format: "pdf",
+        filePath: "/tmp/job-queue-second-resume.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:04:00.000Z",
+        isApproved: true,
+      },
+    ];
+
+    let openSessionCalls = 0;
+    let closeSessionCalls = 0;
+    const fallbackRuntime = createBrowserRuntime();
+    const browserRuntime: BrowserSessionRuntime = {
+      ...fallbackRuntime,
+      async openSession(source) {
+        openSessionCalls += 1;
+        return fallbackRuntime.openSession(source);
+      },
+      async closeSession(source) {
+        closeSessionCalls += 1;
+        return fallbackRuntime.closeSession(source);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const startedSnapshot = await workspaceService.startAutoApplyQueueRun([
+      "job_queue_first",
+      "job_queue_second",
+    ]);
+    const runId = startedSnapshot.applyRuns[0]?.id;
+
+    expect(runId).toBeTruthy();
+
+    const approvedSnapshot = await workspaceService.approveApplyRun(runId!);
+
+    expect(approvedSnapshot.applyRuns[0]).toMatchObject({
+      id: runId,
+      state: "paused_for_user_review",
+      submittedJobs: 0,
+      pendingJobs: 2,
+    });
+    expect(approvedSnapshot.applyJobResults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ jobId: "job_queue_first", state: "awaiting_review" }),
+        expect.objectContaining({ jobId: "job_queue_second", state: "awaiting_review" }),
+      ]),
+    );
+    expect(openSessionCalls).toBe(1);
+    expect(closeSessionCalls).toBe(0);
+  });
+
   test("replaces an approved single-job auto apply run with a fresh pending approval when revoked", async () => {
     const { repository, workspaceService } = createWorkspaceServiceHarness();
 

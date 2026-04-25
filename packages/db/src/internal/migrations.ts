@@ -222,7 +222,45 @@ export function runMigrations(database: DatabaseSync): void {
     `);
   }
 
+  function rewritePersistedResultId(input: {
+    tableName: string;
+    rowId: string;
+    serializedValue: string;
+    survivorId: string;
+  }): string | null {
+    let parsedValue: unknown;
+
+    try {
+      parsedValue = JSON.parse(input.serializedValue) as unknown;
+    } catch {
+      console.warn(
+        `[DB migration] Skipping embedded resultId rewrite for ${input.tableName}.${input.rowId} because the persisted value is not valid JSON.`,
+      );
+      return null;
+    }
+
+    if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
+      console.warn(
+        `[DB migration] Skipping embedded resultId rewrite for ${input.tableName}.${input.rowId} because the persisted value is not a JSON object.`,
+      );
+      return null;
+    }
+
+    return JSON.stringify({
+      ...parsedValue,
+      resultId: input.survivorId,
+    });
+  }
+
   function dedupeApplyJobResultsByRunAndJob(): void {
+    const evidenceTables = [
+      'application_question_records',
+      'application_answer_records',
+      'application_artifact_refs',
+      'application_replay_checkpoints',
+      'application_consent_requests',
+    ] as const
+
     database.exec(`
       CREATE TEMP TABLE apply_job_result_dedupe_map AS
       WITH ranked_results AS (
@@ -243,52 +281,62 @@ export function runMigrations(database: DatabaseSync): void {
       SELECT id AS duplicate_id, survivor_id
       FROM ranked_results
       WHERE row_number > 1;
+    `)
 
-      UPDATE application_question_records
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_question_records.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+    for (const tableName of evidenceTables) {
+      if (!hasTable(tableName)) {
+        continue
+      }
 
-      UPDATE application_answer_records
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_answer_records.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+      const rows = database.prepare(`
+        SELECT
+          ${tableName}.id AS id,
+          ${tableName}.value AS value,
+          apply_job_result_dedupe_map.survivor_id AS survivor_id
+        FROM ${tableName}
+        INNER JOIN apply_job_result_dedupe_map
+          ON apply_job_result_dedupe_map.duplicate_id = ${tableName}.result_id;
+      `).all()
 
-      UPDATE application_artifact_refs
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_artifact_refs.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+      const updateStatement = database.prepare(`
+        UPDATE ${tableName}
+        SET value = ?, result_id = ?
+        WHERE id = ?
+      `)
 
-      UPDATE application_replay_checkpoints
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_replay_checkpoints.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+      for (const row of rows) {
+        if (
+          !row ||
+          typeof row !== "object" ||
+          typeof (row as { id?: unknown }).id !== "string" ||
+          typeof (row as { value?: unknown }).value !== "string" ||
+          typeof (row as { survivor_id?: unknown }).survivor_id !== "string"
+        ) {
+          throw new Error(`Invalid ${tableName} evidence row while rewriting apply result ids.`)
+        }
+        const typedRow = row as { id: string; value: string; survivor_id: string }
+        const rewrittenValue = rewritePersistedResultId({
+          tableName,
+          rowId: typedRow.id,
+          serializedValue: typedRow.value,
+          survivorId: typedRow.survivor_id,
+        })
 
-      UPDATE application_consent_requests
-      SET result_id = (
-        SELECT survivor_id
-        FROM apply_job_result_dedupe_map
-        WHERE duplicate_id = application_consent_requests.result_id
-      )
-      WHERE result_id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
+        updateStatement.run(
+          rewrittenValue ?? typedRow.value,
+          typedRow.survivor_id,
+          typedRow.id,
+        )
+      }
 
+    }
+
+    database.exec(`
       DELETE FROM apply_job_results
       WHERE id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
 
       DROP TABLE apply_job_result_dedupe_map;
-    `);
+    `)
   }
 
   database.exec(`
@@ -544,6 +592,10 @@ export function runMigrations(database: DatabaseSync): void {
     }
 
     if (currentVersion < 6) {
+      if (hasTable("apply_job_results")) {
+        dedupeApplyJobResultsByRunAndJob();
+      }
+
       ensureApplyFoundationTables();
 
       database

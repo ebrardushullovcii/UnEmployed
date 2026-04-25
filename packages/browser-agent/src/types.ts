@@ -106,11 +106,19 @@ export interface AgentConfig {
   userProfile: CandidateProfile;
   searchPreferences: AgentSearchPreferences;
   startingUrls: string[];
+  /**
+   * Enables the widened review budget for a weak same-host job board only after
+   * generic extraction has evidence that multiple jobs live on one host without
+   * durable detail URLs. This is an adapter capability signal, not a per-source
+   * route override.
+   */
+  weakSameHostBoard?: boolean;
   navigationPolicy: AgentNavigationPolicy;
   promptContext: AgentPromptContext;
   extractionContext?: AgentExtractionContext;
   compaction?: Partial<SharedAgentCompactionPolicy>;
   compactionCapability?: AgentCompactionCapability;
+  resolveLivePage?: () => Promise<Page>;
 }
 
 export interface AgentState {
@@ -128,6 +136,11 @@ export interface AgentState {
   phaseEvidence: SourceDebugPhaseEvidence;
   compactionState: SourceDebugCompactionState | null;
   compactionStatus: AgentCompactionStatus;
+  /**
+   * Dedupe key for the last seeded-query drift guard note, formatted as
+   * "blockedUrl|restoredUrl". Undefined until a drift recovery has been reported.
+   */
+  lastSeededDrift?: string;
 }
 
 export interface AgentResult {

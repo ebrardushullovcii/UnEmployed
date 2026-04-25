@@ -8,7 +8,12 @@ import {
   shouldTreatAsRepeatedFillFailure,
   syncFailedInteractionAttemptsWithPageState,
 } from "./interaction-state";
-import { FillSchema, recoverFromOffAllowlist, resolveRoleLocator } from "./shared";
+import {
+  FillSchema,
+  dismissObstructiveOverlays,
+  recoverFromOffAllowlist,
+  resolveRoleLocator,
+} from "./shared";
 
 export const fillTool: ToolDefinition = {
   name: "fill",
@@ -62,6 +67,7 @@ If multiple elements have the same role and name, use the index to disambiguate 
     }
 
     try {
+      await dismissObstructiveOverlays(page);
       const locator = await resolveRoleLocator(page, role, name, index);
       await locator.fill(text);
       if (submit) {

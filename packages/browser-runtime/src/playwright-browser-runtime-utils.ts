@@ -1,7 +1,158 @@
+import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
+import net from "node:net";
+import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { JobPostingSchema, type JobPosting } from "@unemployed/contracts";
+import type { Page } from "playwright";
+import type { AgentDiscoveryOptions } from "./runtime-types";
+
+// These query params vary per warm page instance and do not change the reusable
+// page surface we compare against for warm-session reuse.
+export const DEFAULT_WARM_REUSE_REMOVABLE_QUERY_PARAMS = [
+  "currentJobId",
+  "selectedJobId",
+  "jobId",
+  "trk",
+  "trackingId",
+];
+
+const execFileAsync = promisify(execFile);
+const REMOTE_DEBUGGING_PORT_PATTERN =
+  /(?:^|\s)--remote-debugging-port(?:=|\s+)(\d+)(?=\s|$)/iu;
+const USER_DATA_DIR_PATTERN =
+  /(?:^|\s)--user-data-dir(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))(?=\s|$)/iu;
+
+export interface RunningChromeDebugSession {
+  debugPort: number;
+  userDataDir: string;
+}
+
+function normalizeUserDataDir(value: string): string {
+  return value
+    .replace(/\\/g, "/")
+    .replace(/\/+$|\s+$/g, "")
+    .toLowerCase();
+}
+
+function parseProcessListOutput(value: string): string[] {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return [];
+  }
+
+  if (trimmedValue.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmedValue) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.filter((entry): entry is string => typeof entry === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return trimmedValue
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+async function listChromeProcessCommandLines(): Promise<string[]> {
+  try {
+    if (process.platform === "win32") {
+      const { stdout } = await execFileAsync(
+        "powershell",
+        [
+          "-NoProfile",
+          "-Command",
+          "ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process -Filter \"Name = 'chrome.exe'\" | Select-Object -ExpandProperty CommandLine)",
+        ],
+        {
+          windowsHide: true,
+          maxBuffer: 5 * 1024 * 1024,
+        },
+      );
+
+      return parseProcessListOutput(stdout);
+    }
+
+    const { stdout } = await execFileAsync("ps", ["-axww", "-o", "command="], {
+      maxBuffer: 5 * 1024 * 1024,
+    });
+
+    const chromeProcessOutput = stdout
+      .split("\n")
+      .filter((line) =>
+        /(^|\s)(chrome|chromium|google-chrome)(\s|$)/i.test(line),
+      )
+      .join("\n");
+
+    return parseProcessListOutput(chromeProcessOutput);
+  } catch {
+    return [];
+  }
+}
+
+export function parseRunningChromeDebugSession(
+  commandLine: string,
+): RunningChromeDebugSession | null {
+  const debugPortMatch = commandLine.match(REMOTE_DEBUGGING_PORT_PATTERN);
+  const userDataDirMatch = commandLine.match(USER_DATA_DIR_PATTERN);
+  const debugPort = debugPortMatch?.[1] ? Number(debugPortMatch[1]) : null;
+  const userDataDir =
+    userDataDirMatch?.[1] ??
+    userDataDirMatch?.[2] ??
+    userDataDirMatch?.[3] ??
+    null;
+
+  if (
+    !debugPort ||
+    !Number.isInteger(debugPort) ||
+    debugPort <= 0 ||
+    debugPort > 65535 ||
+    !userDataDir ||
+    userDataDir.trim().length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    debugPort,
+    userDataDir: userDataDir.trim(),
+  };
+}
+
+export function findRunningChromeDebugPortInCommandLines(
+  commandLines: readonly string[],
+  userDataDir: string,
+): number | null {
+  const normalizedUserDataDir = normalizeUserDataDir(userDataDir);
+  const sessions = uniqueByKey(
+    commandLines.flatMap((commandLine) => {
+      const session = parseRunningChromeDebugSession(commandLine);
+      return session ? [session] : [];
+    }),
+    (session) =>
+      `${normalizeUserDataDir(session.userDataDir)}:${session.debugPort}`,
+  );
+
+  const match = sessions.find(
+    (session) =>
+      normalizeUserDataDir(session.userDataDir) === normalizedUserDataDir,
+  );
+
+  return match?.debugPort ?? null;
+}
+
+export async function findRunningChromeDebugPortForUserDataDir(
+  userDataDir: string,
+): Promise<number | null> {
+  const commandLines = await listChromeProcessCommandLines();
+  return findRunningChromeDebugPortInCommandLines(commandLines, userDataDir);
+}
 
 export function uniqueByKey<TValue>(
   values: readonly TValue[],
@@ -21,7 +172,10 @@ export function uniqueByKey<TValue>(
   });
 }
 
-export function validateJobPostings(values: unknown, context: string): JobPosting[] {
+export function validateJobPostings(
+  values: unknown,
+  context: string,
+): JobPosting[] {
   if (!Array.isArray(values)) {
     console.warn(
       `[BrowserRuntime] Expected an array of job postings from ${context}, received ${typeof values}.`,
@@ -53,7 +207,178 @@ export async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-export function buildChromeExecutableCandidates(explicitPath?: string): string[] {
+export async function readDevToolsActivePort(
+  userDataDir: string,
+): Promise<number | null> {
+  try {
+    const fileContents = await readFile(
+      join(userDataDir, "DevToolsActivePort"),
+      "utf8",
+    );
+    const firstLine = fileContents.split(/\r?\n/u, 1)[0]?.trim() ?? "";
+
+    if (!/^\d+$/u.test(firstLine)) {
+      return null;
+    }
+
+    const port = Number(firstLine);
+    return Number.isInteger(port) && port > 0 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isHttpUrlLike(value: string | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return /^https?:\/\//iu.test(value.trim());
+}
+
+function is404LikeUrl(value: string): boolean {
+  try {
+    const parsedUrl = new URL(value);
+    return /(^|\/)(404|not-found)(\/|$)/iu.test(parsedUrl.pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeWarmReuseUrl(
+  value: string | null | undefined,
+  options?: { removableQueryParams?: readonly string[] },
+): string | null {
+  const normalizedValue = typeof value === "string" ? value.trim() : "";
+  if (!normalizedValue || !isHttpUrlLike(normalizedValue)) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedValue);
+    const removableQueryParams =
+      options?.removableQueryParams ??
+      DEFAULT_WARM_REUSE_REMOVABLE_QUERY_PARAMS;
+    for (const key of removableQueryParams) {
+      parsedUrl.searchParams.delete(key);
+    }
+    parsedUrl.hash = "";
+    return parsedUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function hostMatchesNavigationPolicy(
+  pageUrl: string,
+  navigationHostnames: readonly string[],
+): boolean {
+  if (navigationHostnames.length === 0) {
+    return true;
+  }
+
+  try {
+    const parsedPageUrl = new URL(pageUrl);
+    const pageHostname = parsedPageUrl.hostname.toLowerCase();
+
+    return navigationHostnames.some((hostname) => {
+      const normalizedHostname = hostname.trim().toLowerCase();
+      return (
+        pageHostname === normalizedHostname ||
+        pageHostname.endsWith(`.${normalizedHostname}`)
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function isWarmPageReusable(input: {
+  pageUrl: string;
+  options: Pick<
+    AgentDiscoveryOptions,
+    "startingUrls" | "navigationHostnames" | "relevantUrlSubstrings"
+  >;
+}): boolean {
+  const normalizedPageUrl = normalizeWarmReuseUrl(input.pageUrl);
+  if (!normalizedPageUrl || is404LikeUrl(normalizedPageUrl)) {
+    return false;
+  }
+
+  if (
+    !hostMatchesNavigationPolicy(
+      normalizedPageUrl,
+      input.options.navigationHostnames,
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    input.options.startingUrls.some(
+      (startingUrl) => normalizeWarmReuseUrl(startingUrl) === normalizedPageUrl,
+    )
+  ) {
+    return true;
+  }
+
+  const relevantUrlSubstrings =
+    input.options.relevantUrlSubstrings
+      ?.map((substring) => substring.trim().toLowerCase())
+      .filter(Boolean) ?? [];
+
+  if (relevantUrlSubstrings.length === 0) {
+    return false;
+  }
+
+  const normalizedCandidate = normalizedPageUrl.toLowerCase();
+  return relevantUrlSubstrings.some((substring) =>
+    normalizedCandidate.includes(substring),
+  );
+}
+
+export function isLikelyStalePage(
+  page: Pick<Page, "url" | "isClosed">,
+): boolean {
+  return page.isClosed() || !isHttpUrlLike(page.url());
+}
+
+export function selectLiveHttpPage<
+  TPage extends Pick<Page, "url" | "isClosed">,
+>(pages: readonly TPage[]): TPage | null {
+  for (let index = pages.length - 1; index >= 0; index -= 1) {
+    const candidate = pages[index];
+    if (candidate && !isLikelyStalePage(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+export async function isTcpPortReachable(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const socket = net.createConnection({
+      host: "127.0.0.1",
+      port,
+    });
+    const timeoutId = setTimeout(() => settle(false), 1_000);
+
+    const settle = (reachable: boolean) => {
+      clearTimeout(timeoutId);
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(reachable);
+    };
+
+    socket.once("connect", () => settle(true));
+    socket.once("error", () => settle(false));
+  });
+}
+
+export function buildChromeExecutableCandidates(
+  explicitPath?: string,
+): string[] {
   const candidates = explicitPath ? [explicitPath] : [];
 
   if (process.platform === "win32") {
@@ -67,7 +392,9 @@ export function buildChromeExecutableCandidates(explicitPath?: string): string[]
     );
 
     if (process.env.LOCALAPPDATA) {
-      candidates.push(`${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`);
+      candidates.push(
+        `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
+      );
     }
   } else if (process.platform === "darwin") {
     candidates.push(

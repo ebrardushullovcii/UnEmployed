@@ -55,6 +55,7 @@ describe("fill", () => {
 
     let currentUrl = "https://example.com/jobs";
     const page = {
+      evaluate: vi.fn().mockResolvedValue([]),
       getByRole: vi.fn(() => locator),
       goBack: vi.fn(async () => {
         currentUrl = "https://example.com/jobs";
@@ -100,5 +101,56 @@ describe("fill", () => {
       count: 1,
       lastError: "Navigation went to disallowed URL: https://malicious.example.net/phish",
     });
+  });
+
+  test("dismisses obstructive overlays before filling", async () => {
+    const locator = {
+      count: vi.fn().mockResolvedValue(1),
+      nth: vi.fn(),
+      isVisible: vi.fn().mockResolvedValue(true),
+      fill: vi.fn().mockResolvedValue(undefined),
+    };
+    locator.nth.mockReturnValue(locator);
+
+    const overlayButton = {
+      count: vi.fn().mockResolvedValue(1),
+      first: vi.fn(),
+      click: vi.fn().mockResolvedValue(undefined),
+    };
+    overlayButton.first.mockReturnValue(overlayButton);
+
+    const page = {
+      evaluate: vi.fn().mockResolvedValue([{ label: 'X', role: 'button' }]),
+      getByRole: vi.fn((role: string, options?: { name?: string; exact?: boolean }) => {
+        if (role === 'button' && String(options?.name ?? '').toLowerCase() === 'x') {
+          return overlayButton;
+        }
+
+        return locator;
+      }),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+      url: vi.fn(() => 'https://example.com/jobs'),
+    } as unknown as Page;
+
+    const result = await getInteractionTool('fill').execute(
+      {
+        role: 'searchbox',
+        name: 'Search jobs',
+        text: 'frontend engineer',
+        index: 0,
+        submit: false,
+      },
+      buildInteractionContext(page),
+    );
+
+    expect(result).toEqual({
+      success: true,
+      data: { role: 'searchbox', name: 'Search jobs', index: 0, submitted: false },
+    });
+    expect(overlayButton.click).toHaveBeenCalled();
+    expect(locator.fill).toHaveBeenCalledWith('frontend engineer');
+    expect(overlayButton.click.mock.invocationCallOrder[0]).toBeLessThan(
+      locator.fill.mock.invocationCallOrder[0],
+    );
   });
 });

@@ -6,7 +6,6 @@ import {
   type SourceIntelligenceArtifact,
   type JobDiscoveryTarget,
   type JobSource,
-  type SourceDebugPhase,
   type SourceDebugRunRecord,
   type SourceInstructionArtifact,
 } from "@unemployed/contracts";
@@ -19,15 +18,7 @@ import { extractJsonObjectString } from "./source-instruction-quality";
 import {
   compactSourceInstructionReviewPhaseContexts,
 } from "./shared-agent-handoff-compaction";
-
-const SOURCE_DEBUG_PHASES: SourceDebugPhase[] = [
-  "access_auth_probe",
-  "site_structure_mapping",
-  "search_filter_probe",
-  "job_detail_validation",
-  "apply_path_validation",
-  "replay_verification",
-];
+import { SOURCE_DEBUG_PHASES } from "./workspace-defaults";
 
 function resolveSourceInstructionReviewCompactionPolicy(input: {
   compactionPolicy: Partial<SharedAgentCompactionPolicy>;
@@ -89,6 +80,91 @@ const SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE = {
     },
   } satisfies SourceIntelligenceArtifact,
 } satisfies SourceInstructionReviewOverride;
+
+const MIN_SOURCE_INSTRUCTION_REVIEW_OUTPUT_TOKENS = 512;
+const SOURCE_INSTRUCTION_REVIEW_TIMEOUT_MS = 20_000;
+
+function buildReviewTimeoutSignal(signal?: AbortSignal): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    const timeoutSignal = AbortSignal.timeout(SOURCE_INSTRUCTION_REVIEW_TIMEOUT_MS);
+
+    if (!signal) {
+      return {
+        signal: timeoutSignal,
+        cleanup: () => undefined,
+      };
+    }
+
+    if (signal.aborted || timeoutSignal.aborted) {
+      const controller = new AbortController();
+      controller.abort();
+      return {
+        signal: controller.signal,
+        cleanup: () => undefined,
+      };
+    }
+
+    const controller = new AbortController();
+    const abort = () => {
+      cleanup();
+      controller.abort();
+    };
+    const cleanup = () => {
+      signal.removeEventListener("abort", abort);
+      timeoutSignal.removeEventListener("abort", abort);
+    };
+
+    signal.addEventListener("abort", abort, { once: true });
+    timeoutSignal.addEventListener("abort", abort, { once: true });
+
+    return {
+      signal: controller.signal,
+      cleanup,
+    };
+  }
+
+  if (!signal) {
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(
+      () => controller.abort(),
+      SOURCE_INSTRUCTION_REVIEW_TIMEOUT_MS,
+    );
+
+    return {
+      signal: controller.signal,
+      cleanup: () => clearTimeout(timeoutHandle),
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => {
+    cleanup();
+    controller.abort();
+  }, SOURCE_INSTRUCTION_REVIEW_TIMEOUT_MS);
+  const abort = () => {
+    cleanup();
+    controller.abort();
+  };
+  const cleanup = () => {
+    clearTimeout(timeoutHandle);
+    signal.removeEventListener("abort", abort);
+  };
+
+  if (signal.aborted) {
+    cleanup();
+    controller.abort();
+  } else {
+    signal.addEventListener("abort", abort, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup,
+  };
+}
 
 export function buildSourceInstructionFinalReviewPrompt(input: {
   target: JobDiscoveryTarget;
@@ -197,6 +273,11 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
     compactionPolicy: input.compactionPolicy,
     modelContextWindowTokens: input.modelContextWindowTokens,
   });
+  const chatWithTools = input.aiClient.chatWithTools;
+  const maxOutputTokens = Math.max(
+    MIN_SOURCE_INSTRUCTION_REVIEW_OUTPUT_TOKENS,
+    effectiveCompactionPolicy.minimumResponseHeadroomTokens,
+  );
 
   const compacted = compactSourceInstructionReviewPhaseContexts({
     phaseContexts: input.phaseContexts,
@@ -215,42 +296,57 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
   }
 
   try {
-    const response = await input.aiClient.chatWithTools(
-      [
-        {
-          role: "system",
-          content:
-            "You are the final organizer for learned source instructions. Review the full sequence of agent-led tests, reconcile conflicts, prefer stronger later evidence, and return strict JSON only.",
-        },
-        {
-          role: "user",
-          content: buildSourceInstructionFinalReviewPrompt({
-            target: input.target,
-            run: input.run,
-            adapterKind: input.adapterKind,
-            verification: input.verification,
-            instructionUnderReview: input.instructionUnderReview,
-            heuristicInstruction: input.heuristicInstruction,
-            phaseContexts: compacted.phaseContexts,
-            handoffCompaction: compacted.handoffCompaction,
-          }),
-        },
-      ],
-      [],
-      {
-        ...(input.signal ? { signal: input.signal } : {}),
-        maxOutputTokens: effectiveCompactionPolicy.minimumResponseHeadroomTokens,
-      },
-    );
+    const reviewTimeout = buildReviewTimeoutSignal(input.signal);
+    const response = await (async () => {
+      try {
+        return await chatWithTools(
+          [
+            {
+              role: "system",
+              content:
+                "You are the final organizer for learned source instructions. Review the full sequence of agent-led tests, reconcile conflicts, prefer stronger later evidence, and return strict JSON only.",
+            },
+            {
+              role: "user",
+              content: buildSourceInstructionFinalReviewPrompt({
+                target: input.target,
+                run: input.run,
+                adapterKind: input.adapterKind,
+                verification: input.verification,
+                instructionUnderReview: input.instructionUnderReview,
+                heuristicInstruction: input.heuristicInstruction,
+                phaseContexts: compacted.phaseContexts,
+                handoffCompaction: compacted.handoffCompaction,
+              }),
+            },
+          ],
+          [],
+          {
+            signal: reviewTimeout.signal,
+            maxOutputTokens,
+          },
+        );
+      } finally {
+        reviewTimeout.cleanup();
+      }
+    })();
 
     if (!response.content) {
+      return null;
+    }
+
+    if (!response.content.includes("{")) {
       return null;
     }
 
     return parseSourceInstructionReviewOverride(
       JSON.parse(extractJsonObjectString(response.content)) as unknown,
     );
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[Source Instruction Review] AI final review failed for run ${input.run.id} target ${input.target.id}:`,
+      error,
+    );
     return null;
   }
 }

@@ -121,6 +121,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     userPayload: unknown,
     options?: {
       timeoutMs?: number;
+      signal?: AbortSignal;
     },
   ): Promise<unknown> {
     if (!validatedOptions) {
@@ -142,6 +143,20 @@ export function createOpenAiCompatibleJobFinderAiClient(
       userPayload,
     });
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let onCallerAbort: (() => void) | null = null;
+
+    if (options?.signal?.aborted) {
+      clearTimeout(timeoutId);
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    if (options?.signal) {
+      onCallerAbort = () => {
+        clearTimeout(timeoutId);
+        controller.abort();
+      };
+      options.signal.addEventListener("abort", onCallerAbort, { once: true });
+    }
 
     try {
       const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
@@ -167,9 +182,16 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
       return parseModelJsonResponse(response);
     } catch (error) {
+      if (options?.signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+
       throw normalizeTimeoutLikeError(error, timeoutMs);
     } finally {
       clearTimeout(timeoutId);
+      if (onCallerAbort) {
+        options?.signal?.removeEventListener("abort", onCallerAbort);
+      }
     }
   }
 
@@ -394,6 +416,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
         pageText: input.pageText.slice(0, pageTextLimit),
       }, {
         timeoutMs,
+        ...(input.signal ? { signal: input.signal } : {}),
       });
 
       return normalizeExtractedJobs({

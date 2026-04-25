@@ -26,6 +26,7 @@ export interface JobExtractor {
     pageUrl: string
     pageType: AgentExtractorPageType
     maxJobs: number
+    signal?: AbortSignal
   }): Promise<Array<
     Pick<
       JobPosting,

@@ -2,27 +2,22 @@
 
 ## Purpose
 
-Owns interview prep, live transcript context, screenshot capture, and suggestion generation.
+Currently provides overlay UI types and helpers for interview session visualization.
 
-## Planned Scope
+Will own interview prep, live session state, transcript context, capture state, and suggestion generation once the full session module is implemented.
 
-- This module is planned but not yet driving any active or queued exec plan.
+## Current State
 
-- Prep workspace for interview context
-- Full chat/panel interface
-- Overlay with short cues
-- Session persistence for transcripts, screenshots, and suggestions
-- Global hotkeys and tray actions
+- overlay UI types/helpers exist; full session state is planned, not active focus
+- active runtime integration is limited to overlay-facing helpers and `packages/os-integration`
 
-## Package Boundaries
+## Design Principles
 
-- Contracts from `packages/contracts`
-- Audio and window integration from `packages/os-integration`
-- Retrieval from `packages/knowledge-base`
-- Provider abstractions from `packages/ai-providers`
+- future session flows should reuse shared profile and application history
+- document retrieval and AI dependencies should stay behind explicit adapters
 
-## Overlay Boundary
+## Boundaries
 
-- `packages/interview-helper` owns overlay content and state shape.
-- `packages/os-integration` owns the actual overlay window lifecycle and any platform-specific display/capture policy.
-- Keep these separate so future window-policy changes do not require rewrites through live session logic.
+- `packages/interview-helper` owns prep/session state
+- `packages/os-integration` owns overlay windows, hotkeys, and OS capture details
+- `packages/knowledge-base` and `packages/ai-providers` are optional future integrations, not hard current dependencies
