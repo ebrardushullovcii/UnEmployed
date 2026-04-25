@@ -46,6 +46,23 @@ function warnInvalidBooleanEnvValue(
   );
 }
 
+function warnInvalidEnvValue(variableName: string, configuredValue: string) {
+  const normalizedConfiguredValue = normalizeFlagValue(configuredValue);
+  if (normalizedConfiguredValue == null) {
+    return;
+  }
+
+  const warningKey = `${variableName}:${normalizedConfiguredValue}`;
+  if (warnedInvalidEnvValues.has(warningKey)) {
+    return;
+  }
+
+  warnedInvalidEnvValues.add(warningKey);
+  console.warn(
+    `[desktop test-api] Unrecognized ${variableName} value: ${JSON.stringify(configuredValue)}. Falling back to the default disabled behavior.`,
+  );
+}
+
 export function isDesktopTestApiEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -100,12 +117,22 @@ export function parseResumeImportPathPayload(
   }
 
   return {
-    sourcePath: payload.sourcePath,
+    sourcePath: payload.sourcePath.trim(),
   };
 }
 
 export function getDesktopTestDelayMs(value: string | undefined): number {
-  const parsed = value ? Number.parseInt(value, 10) : 0;
+  const normalized = normalizeFlagValue(value);
+  if (normalized == null) {
+    return 0;
+  }
+
+  if (!/^\d+$/.test(normalized)) {
+    warnInvalidEnvValue("UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS", value ?? "");
+    return 0;
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }

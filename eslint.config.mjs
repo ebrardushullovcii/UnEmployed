@@ -2,6 +2,10 @@ import js from '@eslint/js'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
+const disableTypeCheckedConfigs = Array.isArray(tseslint.configs.disableTypeChecked)
+  ? tseslint.configs.disableTypeChecked
+  : [tseslint.configs.disableTypeChecked]
+
 export default tseslint.config(
   {
     ignores: [
@@ -14,10 +18,10 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
-  {
-    files: ['**/*.{js,mjs,cjs}'],
-    ...tseslint.configs.disableTypeChecked
-  },
+  ...disableTypeCheckedConfigs.map((config) => ({
+    ...config,
+    files: ['**/*.{js,mjs,cjs}']
+  })),
   {
     files: ['apps/desktop/scripts/**', 'scripts/**'],
     languageOptions: {

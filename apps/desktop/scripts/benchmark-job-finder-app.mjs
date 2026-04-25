@@ -22,9 +22,16 @@ const perScenarioTimeoutMs =
   Number.isInteger(parsedPerScenarioTimeoutMs) && parsedPerScenarioTimeoutMs > 0
     ? parsedPerScenarioTimeoutMs
     : 900000;
+function isTruthyEnvFlag(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return normalized === "1" || normalized === "true";
+}
+
 const useCurrentWorkspace =
   process.argv.includes("--use-current-workspace") ||
-  process.env.JOB_FINDER_APP_BENCHMARK_USE_CURRENT_WORKSPACE === "1";
+  isTruthyEnvFlag(process.env.JOB_FINDER_APP_BENCHMARK_USE_CURRENT_WORKSPACE);
 
 if (useCurrentWorkspace) {
   // TODO(plan 017): Re-enable current-workspace benchmarking only after the live
@@ -288,13 +295,13 @@ async function resolveUsableWindow(app, preferredWindow = null) {
   }
 
   let timeoutHandle = null;
+  const firstWindowPromise = app.firstWindow().finally(() => {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  });
   const firstWindow = await Promise.race([
-    app.firstWindow().then((window) => {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-      return window;
-    }),
+    firstWindowPromise,
     new Promise((_, reject) => {
       timeoutHandle = setTimeout(() => {
         reject(new Error("Timed out waiting for a usable window."));

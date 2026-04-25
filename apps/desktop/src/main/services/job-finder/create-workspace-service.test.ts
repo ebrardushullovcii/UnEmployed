@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopJobFinderAiClient } from "./create-workspace-service";
 import {
+  getDesktopTestDelayMs,
   isBrowserAgentEnabled,
+  parseResumeImportPathPayload,
   resetInvalidBooleanEnvWarnings,
 } from "./test-api";
 
@@ -132,6 +134,41 @@ describe("isBrowserAgentEnabled", () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
       '[desktop test-api] Unrecognized UNEMPLOYED_BROWSER_AGENT value: " yes ". Falling back to the default enabled behavior.',
+    );
+  });
+});
+
+describe("parseResumeImportPathPayload", () => {
+  test("trims source paths at the test API boundary", () => {
+    expect(
+      parseResumeImportPathPayload({ sourcePath: "  C:/tmp/resume.pdf  " }),
+    ).toEqual({ sourcePath: "C:/tmp/resume.pdf" });
+  });
+});
+
+describe("getDesktopTestDelayMs", () => {
+  beforeEach(() => {
+    resetInvalidBooleanEnvWarnings();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    resetInvalidBooleanEnvWarnings();
+    vi.restoreAllMocks();
+  });
+
+  test("accepts trimmed numeric delay values", () => {
+    expect(getDesktopTestDelayMs(" 250 ")).toBe(250);
+  });
+
+  test("rejects numeric prefixes with a warning", () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    expect(getDesktopTestDelayMs("250ms")).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[desktop test-api] Unrecognized UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS value: "250ms". Falling back to the default disabled behavior.',
     );
   });
 });

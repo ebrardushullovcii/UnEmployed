@@ -24,6 +24,21 @@ describe("normalizeCompositeTitle", () => {
       location: "Prishtine",
       postedAtText: "11 ditë",
     });
+    expect(
+      normalizeCompositeTitle("Backend Engineer Prishtine 2 javë"),
+    ).toMatchObject({
+      title: "Backend Engineer",
+      location: "Prishtine",
+      postedAtText: "2 javë",
+    });
+  });
+
+  test("does not strip bare Albanian week words without a numeric prefix", () => {
+    expect(normalizeCompositeTitle("Marketing Specialist jave")).toMatchObject({
+      title: "Marketing Specialist jave",
+      location: null,
+      postedAtText: null,
+    });
   });
 
   test("does not treat a trailing role token with punctuation as a location", () => {
@@ -96,6 +111,11 @@ describe("inferCompanyFromCanonicalUrl", () => {
     expect(inferCompanyFromCanonicalUrl("https://example.com/acme/jobs")).toBe(
       "Acme",
     );
+    expect(
+      inferCompanyFromCanonicalUrl(
+        "https://example.com/jobs/acme/frontend-engineer",
+      ),
+    ).toBe("Acme");
   });
 
   test("does not treat pune as a generic company path segment", () => {

@@ -259,8 +259,10 @@ export async function runSourceDebugWorkflow(
       null,
   });
 
+  ctx.activeSourceDebugExecutionIdRef.current = runId;
   await ctx.persistSourceDebugRun(run).catch((error: unknown) => {
     clearActiveController();
+    ctx.activeSourceDebugExecutionIdRef.current = null;
     throw error;
   });
   await ctx
@@ -270,6 +272,7 @@ export async function runSourceDebugWorkflow(
     }))
     .catch((error: unknown) => {
       clearActiveController();
+      ctx.activeSourceDebugExecutionIdRef.current = null;
       throw error;
     });
 
@@ -291,8 +294,6 @@ export async function runSourceDebugWorkflow(
   let finalizationMs: number | null = null;
   let shouldKeepBrowserSessionOpen = false;
   let finishedEarlyAfterUsefulDraft = false;
-
-  ctx.activeSourceDebugExecutionIdRef.current = runId;
 
   try {
     const browserSetupStartedAtMs = Date.now();

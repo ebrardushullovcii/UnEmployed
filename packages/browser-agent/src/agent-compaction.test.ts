@@ -392,11 +392,8 @@ describe("runAgentDiscovery compaction", () => {
     const config = createConfig();
     const firstPrompt = createUserPrompt(config);
     const secondPrompt = createUserPrompt(config);
-    const whitespaceShiftedPrompt = secondPrompt.replace(/\n/g, " \n ");
+    const whitespaceShiftedPrompt = `  ${secondPrompt.replace(/\s+/g, "   ")}  `;
 
-    expect(normalizeConversationContent(firstPrompt)).toBe(
-      normalizeConversationContent(secondPrompt),
-    );
     expect(normalizeConversationContent(firstPrompt)).toBe(
       normalizeConversationContent(whitespaceShiftedPrompt),
     );
