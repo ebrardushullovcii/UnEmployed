@@ -200,6 +200,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const testDelayMs = isDesktopTestApiEnabled()
         ? getDesktopTestDelayMs(
             process.env.UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS,
+            "UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS",
           )
         : 0;
 

@@ -42,6 +42,7 @@ const GENERIC_JOB_PATH_SEGMENTS = new Set([
   "vacancies",
   "role",
   "roles",
+  "pune",
   "punes",
   "punesim",
   "pozita",

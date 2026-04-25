@@ -3,6 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright";
+import {
+  isDisabled,
+  isEnabled,
+  normalizeFlagValue,
+} from "../src/main/services/job-finder/env-flags.mjs";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(currentDir, "..");
@@ -22,21 +27,33 @@ const perScenarioTimeoutMs =
   Number.isInteger(parsedPerScenarioTimeoutMs) && parsedPerScenarioTimeoutMs > 0
     ? parsedPerScenarioTimeoutMs
     : 900000;
-function isTruthyEnvFlag(value) {
-  const normalized = String(value ?? "")
-    .trim()
-    .toLowerCase();
-  return normalized === "1" || normalized === "true";
-}
 
 const useCurrentWorkspace =
   process.argv.includes("--use-current-workspace") ||
-  isTruthyEnvFlag(process.env.JOB_FINDER_APP_BENCHMARK_USE_CURRENT_WORKSPACE);
+  isEnabled(process.env.JOB_FINDER_APP_BENCHMARK_USE_CURRENT_WORKSPACE);
+
+function resolveBrowserAgentEnabledEffective(env = process.env) {
+  const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
+  const normalizedValue = normalizeFlagValue(configuredValue);
+
+  if (normalizedValue == null) {
+    return true;
+  }
+
+  if (isDisabled(normalizedValue)) {
+    return false;
+  }
+
+  return true;
+}
 
 if (useCurrentWorkspace) {
   // TODO(plan 017): Re-enable current-workspace benchmarking only after the live
-  // reset/restore flow is field-preserving. Until then, keep the current-workspace
-  // branches in launchAppForScenario, resetDiscoveryState, restoreWorkspaceSnapshot,
+  // reset/restore flow captures and restores full repository state instead of the
+  // flattened workspace snapshot. The current snapshot omits full resume/apply/import
+  // artifacts, so piping it back through resetWorkspaceState is not a safe round-trip.
+  // Until then, keep the current-workspace branches in launchAppForScenario,
+  // resetDiscoveryState, restoreWorkspaceSnapshot,
   // withScopedCurrentWorkspaceTargets, resolveCurrentWorkspaceTargets,
   // toCurrentWorkspaceTarget, getPreferredCurrentTargets,
   // resolveRequestedCurrentWorkspaceTargets,
@@ -1133,8 +1150,10 @@ async function main() {
     useCurrentWorkspace,
     browserAgentEnabled:
       process.env.UNEMPLOYED_BROWSER_AGENT ?? "(default=true)",
+    browserAgentEnabledEffective: resolveBrowserAgentEnabledEffective(),
     browserHeadless:
       process.env.UNEMPLOYED_BROWSER_HEADLESS ?? "(default=false)",
+    browserHeadlessEffective: isEnabled(process.env.UNEMPLOYED_BROWSER_HEADLESS),
     outputLabel,
     results,
   };

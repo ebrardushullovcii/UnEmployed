@@ -1,3 +1,11 @@
+import {
+  isDisabled,
+  isEnabled,
+  normalizeFlagValue,
+} from "./env-flags.mjs";
+
+export { isDisabled, isEnabled, normalizeFlagValue };
+
 export interface ResumeImportPathPayload {
   sourcePath: string;
 }
@@ -8,28 +16,10 @@ export function resetInvalidBooleanEnvWarnings() {
   warnedInvalidEnvValues.clear();
 }
 
-function normalizeFlagValue(value: string | null | undefined): string | null {
-  if (value == null) {
-    return null;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return normalized.length > 0 ? normalized : null;
-}
-
-export function isEnabled(value: string | null | undefined): boolean {
-  const normalized = normalizeFlagValue(value);
-  return normalized === "1" || normalized === "true";
-}
-
-function isDisabled(value: string | null | undefined): boolean {
-  const normalized = normalizeFlagValue(value);
-  return normalized === "0" || normalized === "false";
-}
-
-function warnInvalidBooleanEnvValue(
+function warnInvalidEnvValue(
   variableName: string,
   configuredValue: string,
+  fallbackDescription: string,
 ) {
   const normalizedConfiguredValue = normalizeFlagValue(configuredValue);
   if (normalizedConfiguredValue == null) {
@@ -42,24 +32,7 @@ function warnInvalidBooleanEnvValue(
 
   warnedInvalidEnvValues.add(warningKey);
   console.warn(
-    `[desktop test-api] Unrecognized ${variableName} value: ${JSON.stringify(configuredValue)}. Falling back to the default enabled behavior.`,
-  );
-}
-
-function warnInvalidEnvValue(variableName: string, configuredValue: string) {
-  const normalizedConfiguredValue = normalizeFlagValue(configuredValue);
-  if (normalizedConfiguredValue == null) {
-    return;
-  }
-
-  const warningKey = `${variableName}:${normalizedConfiguredValue}`;
-  if (warnedInvalidEnvValues.has(warningKey)) {
-    return;
-  }
-
-  warnedInvalidEnvValues.add(warningKey);
-  console.warn(
-    `[desktop test-api] Unrecognized ${variableName} value: ${JSON.stringify(configuredValue)}. Falling back to the default disabled behavior.`,
+    `[desktop test-api] Unrecognized ${variableName} value: ${JSON.stringify(configuredValue)}. Falling back to ${fallbackDescription}.`,
   );
 }
 
@@ -87,11 +60,11 @@ export function isBrowserAgentEnabled(
     return true;
   }
 
-  if (configuredValue == null) {
-    return true;
-  }
-
-  warnInvalidBooleanEnvValue("UNEMPLOYED_BROWSER_AGENT", configuredValue);
+  warnInvalidEnvValue(
+    "UNEMPLOYED_BROWSER_AGENT",
+    normalizedValue,
+    "the default enabled behavior",
+  );
   return true;
 }
 
@@ -121,14 +94,17 @@ export function parseResumeImportPathPayload(
   };
 }
 
-export function getDesktopTestDelayMs(value: string | undefined): number {
+export function getDesktopTestDelayMs(
+  value: string | undefined,
+  envVarName: string,
+): number {
   const normalized = normalizeFlagValue(value);
   if (normalized == null) {
     return 0;
   }
 
   if (!/^\d+$/.test(normalized)) {
-    warnInvalidEnvValue("UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS", value ?? "");
+    warnInvalidEnvValue(envVarName, normalized, "the default disabled behavior");
     return 0;
   }
 

@@ -390,11 +390,10 @@ describe("runAgentDiscovery compaction", () => {
 
   test("normalizes user prompt whitespace for bootstrap dedupe", () => {
     const config = createConfig();
-    const firstPrompt = createUserPrompt(config);
-    const secondPrompt = createUserPrompt(config);
-    const whitespaceShiftedPrompt = `  ${secondPrompt.replace(/\s+/g, "   ")}  `;
+    const prompt = createUserPrompt(config);
+    const whitespaceShiftedPrompt = `  ${prompt.replace(/\s+/g, "   ")}  `;
 
-    expect(normalizeConversationContent(firstPrompt)).toBe(
+    expect(normalizeConversationContent(prompt)).toBe(
       normalizeConversationContent(whitespaceShiftedPrompt),
     );
   });

@@ -118,12 +118,12 @@ describe("inferCompanyFromCanonicalUrl", () => {
     ).toBe("Acme");
   });
 
-  test("does not treat pune as a generic company path segment", () => {
+  test("treats pune as a generic job path segment", () => {
     expect(
       inferCompanyFromCanonicalUrl(
         "https://example.com/pune/frontend-engineer",
       ),
-    ).toBe("Pune");
+    ).toBeNull();
   });
 });
 

@@ -8,24 +8,18 @@ import {
 } from "./test-api";
 
 describe("createDesktopJobFinderAiClient", () => {
-  test("forces the deterministic client when the desktop test API is enabled", () => {
-    const client = createDesktopJobFinderAiClient({
-      UNEMPLOYED_ENABLE_TEST_API: "1",
-      UNEMPLOYED_AI_API_KEY: "test-api-key",
-    });
+  test.each([
+    ["with an API key present", { UNEMPLOYED_ENABLE_TEST_API: "1", UNEMPLOYED_AI_API_KEY: "test-api-key" }],
+    ["without an API key configured", { UNEMPLOYED_ENABLE_TEST_API: "1" }],
+  ])(
+    "keeps the deterministic client when the desktop test API is enabled %s",
+    (_label, env) => {
+      const client = createDesktopJobFinderAiClient(env);
 
-    expect(client.chatWithTools).toBeUndefined();
-    expect(client.getStatus().kind).toBe("deterministic");
-  });
-
-  test("still falls back to deterministic behavior when no API key is configured", () => {
-    const client = createDesktopJobFinderAiClient({
-      UNEMPLOYED_ENABLE_TEST_API: "1",
-    });
-
-    expect(client.chatWithTools).toBeUndefined();
-    expect(client.getStatus().kind).toBe("deterministic");
-  });
+      expect(client.chatWithTools).toBeUndefined();
+      expect(client.getStatus().kind).toBe("deterministic");
+    },
+  );
 
   test("allows live AI when the test API explicitly requests it", () => {
     const client = createDesktopJobFinderAiClient({
@@ -115,8 +109,6 @@ describe("isBrowserAgentEnabled", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       '[desktop test-api] Unrecognized UNEMPLOYED_BROWSER_AGENT value: "yes". Falling back to the default enabled behavior.',
     );
-
-    warnSpy.mockRestore();
   });
 
   test("dedupes unknown values across casing and whitespace differences", () => {
@@ -133,7 +125,7 @@ describe("isBrowserAgentEnabled", () => {
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
-      '[desktop test-api] Unrecognized UNEMPLOYED_BROWSER_AGENT value: " yes ". Falling back to the default enabled behavior.',
+      '[desktop test-api] Unrecognized UNEMPLOYED_BROWSER_AGENT value: "yes". Falling back to the default enabled behavior.',
     );
   });
 });
@@ -158,7 +150,9 @@ describe("getDesktopTestDelayMs", () => {
   });
 
   test("accepts trimmed numeric delay values", () => {
-    expect(getDesktopTestDelayMs(" 250 ")).toBe(250);
+    expect(
+      getDesktopTestDelayMs(" 250 ", "UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS"),
+    ).toBe(250);
   });
 
   test("rejects numeric prefixes with a warning", () => {
@@ -166,7 +160,9 @@ describe("getDesktopTestDelayMs", () => {
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
 
-    expect(getDesktopTestDelayMs("250ms")).toBe(0);
+    expect(
+      getDesktopTestDelayMs("250ms", "UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS"),
+    ).toBe(0);
     expect(warnSpy).toHaveBeenCalledWith(
       '[desktop test-api] Unrecognized UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS value: "250ms". Falling back to the default disabled behavior.',
     );
