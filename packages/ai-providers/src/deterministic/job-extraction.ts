@@ -138,6 +138,8 @@ export function normalizeCompositeTitle(value: string): {
   const location = inferTrailingCompositeLocation(content);
   let title = content;
   if (location) {
+    // Location comes from escaped trailing content tokens, so this regex should
+    // match for non-empty locations inferred by inferTrailingCompositeLocation.
     const locationPattern = new RegExp(
       `\\s+${location
         .split(/\s+/)
@@ -149,14 +151,6 @@ export function normalizeCompositeTitle(value: string): {
     if (match && typeof match.index === "number") {
       title = content
         .slice(0, match.index)
-        .replace(/[\s–—-]+$/, "")
-        .trim();
-    } else if (
-      location.length > 0 &&
-      content.toLowerCase().endsWith(location.toLowerCase())
-    ) {
-      title = content
-        .slice(0, Math.max(0, content.length - location.length))
         .replace(/[\s–—-]+$/, "")
         .trim();
     }
@@ -196,10 +190,7 @@ export function inferCompanyFromCanonicalUrl(url: string): string | null {
         continue;
       }
 
-      if (
-        companySegment.length <= 2 ||
-        !/[a-z\p{L}]/iu.test(companySegment)
-      ) {
+      if (companySegment.length < 2 || !/\p{L}/u.test(companySegment)) {
         continue;
       }
 

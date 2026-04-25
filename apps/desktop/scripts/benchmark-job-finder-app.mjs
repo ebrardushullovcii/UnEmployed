@@ -23,6 +23,15 @@ const useCurrentWorkspace =
   process.env.JOB_FINDER_APP_BENCHMARK_USE_CURRENT_WORKSPACE === "1";
 
 if (useCurrentWorkspace) {
+  // TODO(plan 017): Re-enable current-workspace benchmarking only after the live
+  // reset/restore flow is field-preserving. Until then, keep the current-workspace
+  // branches in launchAppForScenario, resetDiscoveryState, restoreWorkspaceSnapshot,
+  // withScopedCurrentWorkspaceTargets, resolveCurrentWorkspaceTargets,
+  // toCurrentWorkspaceTarget, getPreferredCurrentTargets,
+  // resolveRequestedCurrentWorkspaceTargets,
+  // runCurrentWorkspaceSingleTargetBenchmarkPair,
+  // runCurrentWorkspaceRunAllScenario, and the useCurrentWorkspace scenario block
+  // disabled to avoid deleting live workspace data.
   throw new Error(
     "--use-current-workspace is disabled because the benchmark reset flow is not safe for live workspace data.",
   );
@@ -130,7 +139,11 @@ function getPreferredCurrentTargets(enabledTargets) {
   return [...preferred, ...remaining];
 }
 
-function resolveRequestedCurrentWorkspaceTargets(allTargets, requestedIds, mode) {
+function resolveRequestedCurrentWorkspaceTargets(
+  allTargets,
+  requestedIds,
+  mode,
+) {
   return requestedIds.map((id) => {
     const match = allTargets.find((target) => target.id === id);
     if (!match) {
@@ -386,7 +399,8 @@ async function withScopedCurrentWorkspaceTargets(
     return runner(window);
   }
 
-  const originalWorkspace = originalWorkspaceOverride ?? (await getWorkspace(window));
+  const originalWorkspace =
+    originalWorkspaceOverride ?? (await getWorkspace(window));
   const originalSearchPreferences = originalWorkspace?.searchPreferences;
   const originalTargets = Array.isArray(
     originalSearchPreferences?.discovery?.targets,
@@ -489,7 +503,9 @@ async function resolveCurrentWorkspaceTargets(
       requestedSingleTargetIds.length === 0 &&
       requestedRunAllTargetIds.length === 0
     ) {
-      throw new Error("The current workspace has no enabled discovery targets.");
+      throw new Error(
+        "The current workspace has no enabled discovery targets.",
+      );
     }
   }
 
@@ -761,7 +777,8 @@ async function executeBenchmarkPairScenarios({
         `check_source:${target.id}`,
         async () => {
           const snapshot = await scopedWindow.evaluate(
-            async (targetId) => window.unemployed.jobFinder.runSourceDebug(targetId),
+            async (targetId) =>
+              window.unemployed.jobFinder.runSourceDebug(targetId),
             target.id,
           );
           const latestRunId = snapshot?.recentSourceDebugRuns?.[0]?.id ?? null;
@@ -806,7 +823,10 @@ async function executeBenchmarkPairScenarios({
         () =>
           scopedWindow.evaluate(
             async (targetId) =>
-              window.unemployed.jobFinder.runAgentDiscovery(undefined, targetId),
+              window.unemployed.jobFinder.runAgentDiscovery(
+                undefined,
+                targetId,
+              ),
             target.id,
           ),
       );
@@ -834,7 +854,11 @@ async function executeBenchmarkPairScenarios({
   );
 }
 
-async function runCurrentWorkspaceSingleTargetBenchmarkPair(app, window, target) {
+async function runCurrentWorkspaceSingleTargetBenchmarkPair(
+  app,
+  window,
+  target,
+) {
   let activeWindow = await resolveUsableWindow(app, window);
   const resetWorkspaceSnapshot = await resetDiscoveryState(activeWindow);
   let pairResults;
@@ -886,7 +910,9 @@ async function runCurrentWorkspaceRunAllScenario(app, window, targets) {
   }
 
   const snapshot = result.value ?? null;
-  const effectiveTargetRoles = Array.isArray(snapshot?.searchPreferences?.targetRoles)
+  const effectiveTargetRoles = Array.isArray(
+    snapshot?.searchPreferences?.targetRoles,
+  )
     ? snapshot.searchPreferences.targetRoles
     : targetRoles;
   activeWindow = await resolveUsableWindow(app, activeWindow);
@@ -1024,7 +1050,11 @@ async function main() {
     }
 
     for (const target of singleTargets) {
-      if (useCurrentWorkspace && currentWorkspaceApp && currentWorkspaceWindow) {
+      if (
+        useCurrentWorkspace &&
+        currentWorkspaceApp &&
+        currentWorkspaceWindow
+      ) {
         const pairRun = await runCurrentWorkspaceSingleTargetBenchmarkPair(
           currentWorkspaceApp,
           currentWorkspaceWindow,
@@ -1039,7 +1069,11 @@ async function main() {
     }
 
     if (runAllTargets.length > 0) {
-      if (useCurrentWorkspace && currentWorkspaceApp && currentWorkspaceWindow) {
+      if (
+        useCurrentWorkspace &&
+        currentWorkspaceApp &&
+        currentWorkspaceWindow
+      ) {
         const runAll = await runCurrentWorkspaceRunAllScenario(
           currentWorkspaceApp,
           currentWorkspaceWindow,

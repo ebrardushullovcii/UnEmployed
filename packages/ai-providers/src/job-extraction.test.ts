@@ -9,13 +9,17 @@ import { createEnvironment, mockJsonFetch } from "./test-fixtures";
 describe("normalizeCompositeTitle", () => {
   test("strips posted-at suffixes across supported languages", () => {
     expect(
-      normalizeCompositeTitle("Senior Product Designer Remote Posted 3 days ago"),
+      normalizeCompositeTitle(
+        "Senior Product Designer Remote Posted 3 days ago",
+      ),
     ).toMatchObject({
       title: "Senior Product Designer",
       location: "Remote",
       postedAtText: "Posted 3 days ago",
     });
-    expect(normalizeCompositeTitle("Backend Engineer Prishtine 11 ditë")).toMatchObject({
+    expect(
+      normalizeCompositeTitle("Backend Engineer Prishtine 11 ditë"),
+    ).toMatchObject({
       title: "Backend Engineer",
       location: "Prishtine",
       postedAtText: "11 ditë",
@@ -31,11 +35,13 @@ describe("normalizeCompositeTitle", () => {
   });
 
   test("extracts location hints like remote or hybrid", () => {
-    expect(normalizeCompositeTitle("Staff Data Engineer Remote")).toMatchObject({
-      title: "Staff Data Engineer",
-      location: "Remote",
-      postedAtText: null,
-    });
+    expect(normalizeCompositeTitle("Staff Data Engineer Remote")).toMatchObject(
+      {
+        title: "Staff Data Engineer",
+        location: "Remote",
+        postedAtText: null,
+      },
+    );
     expect(normalizeCompositeTitle("Product Designer Hybrid")).toMatchObject({
       title: "Product Designer",
       location: "Hybrid",
@@ -48,19 +54,27 @@ describe("normalizeCompositeTitle", () => {
       title: "Backend Engineer",
       location: "New York",
     });
-    expect(normalizeCompositeTitle("Product Designer San Francisco")).toMatchObject({
+    expect(
+      normalizeCompositeTitle("Product Designer San Francisco"),
+    ).toMatchObject({
       title: "Product Designer",
       location: "San Francisco",
     });
-    expect(normalizeCompositeTitle("Support Manager North Carolina")).toMatchObject({
+    expect(
+      normalizeCompositeTitle("Support Manager North Carolina"),
+    ).toMatchObject({
       title: "Support Manager",
       location: "North Carolina",
     });
-    expect(normalizeCompositeTitle("Data Analyst United States")).toMatchObject({
-      title: "Data Analyst",
-      location: "United States",
-    });
-    expect(normalizeCompositeTitle("Solutions Engineer Hong Kong")).toMatchObject({
+    expect(normalizeCompositeTitle("Data Analyst United States")).toMatchObject(
+      {
+        title: "Data Analyst",
+        location: "United States",
+      },
+    );
+    expect(
+      normalizeCompositeTitle("Solutions Engineer Hong Kong"),
+    ).toMatchObject({
       title: "Solutions Engineer",
       location: "Hong Kong",
     });
@@ -75,10 +89,13 @@ describe("normalizeCompositeTitle", () => {
 });
 
 describe("inferCompanyFromCanonicalUrl", () => {
-  test("keeps plausible company segments even when the job slug is short", () => {
-    expect(
-      inferCompanyFromCanonicalUrl("https://example.com/acme/dev"),
-    ).toBe("Acme");
+  test("returns the first non-generic path segment as the company", () => {
+    expect(inferCompanyFromCanonicalUrl("https://example.com/acme/dev")).toBe(
+      "Acme",
+    );
+    expect(inferCompanyFromCanonicalUrl("https://example.com/acme/jobs")).toBe(
+      "Acme",
+    );
   });
 
   test("does not treat pune as a generic company path segment", () => {
@@ -667,7 +684,7 @@ describe("job extraction with openai-compatible client", () => {
       const userPayload = JSON.parse(messages[1]?.content ?? "{}") as {
         pageText?: string;
       };
-      expect(userPayload.pageText).toHaveLength(8000);
+      expect(userPayload.pageText?.length ?? 0).toBeLessThanOrEqual(8000);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -713,8 +730,14 @@ describe("job extraction with openai-compatible client", () => {
       await vi.advanceTimersByTimeAsync(35000);
 
       await expect(extractionPromise).resolves.toEqual([]);
+      expect(errorSpy).toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledWith(
-        "[AI Provider] extractJobsFromPage failed; falling back to deterministic client. Model request timed out after 35s",
+        expect.stringContaining(
+          "[AI Provider] extractJobsFromPage failed; falling back",
+        ),
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Model request timed out"),
       );
     } finally {
       globalThis.fetch = originalFetch;

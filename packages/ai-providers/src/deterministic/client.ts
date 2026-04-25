@@ -21,7 +21,9 @@ function buildDeterministicStatus(detail: string) {
   });
 }
 
-export function createDeterministicJobFinderAiClient(detail?: string): JobFinderAiClient {
+export function createDeterministicJobFinderAiClient(
+  detail?: string,
+): JobFinderAiClient {
   const status = buildDeterministicStatus(
     detail ??
       "Deterministic fallback is active. Set UNEMPLOYED_AI_API_KEY to use the configured OpenAI-compatible provider for resume extraction and tailoring.",
@@ -33,7 +35,11 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
     },
     extractProfileFromResume(input) {
       return Promise.resolve(
-        buildDeterministicResumeProfileExtraction(input, "deterministic", status.label),
+        buildDeterministicResumeProfileExtraction(
+          input,
+          "deterministic",
+          status.label,
+        ),
       );
     },
     extractResumeImportStage(input) {
@@ -58,7 +64,7 @@ export function createDeterministicJobFinderAiClient(detail?: string): JobFinder
     },
     extractJobsFromPage(input) {
       if (input.signal?.aborted) {
-        throw new DOMException("Aborted", "AbortError");
+        return Promise.reject(new DOMException("Aborted", "AbortError"));
       }
 
       return Promise.resolve([]);

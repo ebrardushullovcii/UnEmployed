@@ -54,20 +54,24 @@ export function isBrowserAgentEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
+  const normalizedValue = normalizeFlagValue(configuredValue);
 
-  if (configuredValue == null) {
+  if (normalizedValue == null) {
     return true;
   }
 
-  if (isDisabled(configuredValue)) {
+  if (isDisabled(normalizedValue)) {
     return false;
   }
 
-  if (isEnabled(configuredValue)) {
+  if (isEnabled(normalizedValue)) {
     return true;
   }
 
-  warnInvalidBooleanEnvValue("UNEMPLOYED_BROWSER_AGENT", configuredValue);
+  warnInvalidBooleanEnvValue(
+    "UNEMPLOYED_BROWSER_AGENT",
+    configuredValue ?? normalizedValue,
+  );
   return true;
 }
 
