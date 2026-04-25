@@ -31,6 +31,13 @@ describe("normalizeCompositeTitle", () => {
       location: "Prishtine",
       postedAtText: "2 javë",
     });
+    expect(
+      normalizeCompositeTitle("Backend Engineer Prishtine 5 orë"),
+    ).toMatchObject({
+      title: "Backend Engineer",
+      location: "Prishtine",
+      postedAtText: "5 orë",
+    });
   });
 
   test("does not strip bare Albanian week words without a numeric prefix", () => {

@@ -33,18 +33,7 @@ const useCurrentWorkspace =
   isEnabled(process.env.JOB_FINDER_APP_BENCHMARK_USE_CURRENT_WORKSPACE);
 
 function resolveBrowserAgentEnabledEffective(env = process.env) {
-  const configuredValue = env.UNEMPLOYED_BROWSER_AGENT;
-  const normalizedValue = normalizeFlagValue(configuredValue);
-
-  if (normalizedValue == null) {
-    return true;
-  }
-
-  if (isDisabled(normalizedValue)) {
-    return false;
-  }
-
-  return true;
+  return !isDisabled(env.UNEMPLOYED_BROWSER_AGENT);
 }
 
 if (useCurrentWorkspace) {
