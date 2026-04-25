@@ -3,7 +3,7 @@ import { titleCaseWords } from "./utils";
 const COMPOSITE_POSTED_SUFFIX_PATTERN =
   /(?:posted\s+)?(?:\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?)(?:\s+ago)?|today|yesterday|just posted|sot|dje)$/iu;
 const ROLE_TOKEN_PATTERN =
-  /^(?:engineer|engineering|developer|architect|manager|designer|writer|scientist|researcher|analyst|specialist|representative|accountant|technician|nurse|lawyer|operator|agent|recruiter|planner|strategist|controller|auditor|officer|assistant|supervisor|president|partner|support|sales|marketing|data|software|product|qa|frontend|backend|react|category|customer|experience|work|senior|junior|lead|principal|staff|intern|associate|director|head|chief|coordinator|consultant|administrator|executive|trainee|apprentice|sr|jr|ii|iii)$/i;
+  /^(?:engineer|engineering|developer|architect|manager|designer|writer|scientist|researcher|analyst|specialist|representative|accountant|technician|nurse|lawyer|operator|operations|agent|recruiter|planner|strategist|controller|auditor|officer|assistant|supervisor|president|partner|support|sales|marketing|data|software|product|qa|frontend|backend|react|category|customer|experience|work|senior|junior|lead|principal|staff|intern|associate|director|head|chief|coordinator|consultant|administrator|executive|trainee|apprentice|sr|jr|ii|iii)$/i;
 const LOCATION_HINT_PATTERN =
   /\b(remote|hybrid|on[- ]site|onsite|work from home|home office|worldwide|global|anywhere)\b/i;
 const GENERIC_JOB_PATH_SEGMENTS = new Set([
@@ -99,7 +99,7 @@ function stripTrailingPostedAtText(value: string): {
 function inferTrailingCompositeLocation(value: string): string | null {
   const tokens = value.trim().split(/\s+/).filter(Boolean);
 
-  for (let width = 1; width <= Math.min(3, tokens.length - 1); width += 1) {
+  for (let width = Math.min(3, tokens.length - 1); width >= 1; width -= 1) {
     const candidate = tokens.slice(-width).join(" ");
     const candidateTokens = tokens.slice(-width);
     const normalizedCandidate = candidate.replace(/[^\p{L}\p{N}]+/gu, "");

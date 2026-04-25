@@ -136,6 +136,32 @@ describe('seeded search query guard', () => {
     ).toBeNull()
   })
 
+  test('blocks equivalent search urls on a different search surface after evidence exists', () => {
+    const config = createConfig()
+    config.startingUrls = [
+      'https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+    ]
+    config.searchPreferences = {
+      targetRoles: ['Senior Full-Stack Software Engineer'],
+      locations: ['Prishtina, Kosovo'],
+    }
+    const seededUrl = config.startingUrls[0] ?? ''
+
+    expect(
+      detectSeededSearchQueryDrift({
+        config,
+        state: {
+          collectedJobs: [],
+          deferredSearchExtractions: new Map([
+            ['seed', { key: 'seed', pageUrl: seededUrl, pageText: '...', capturedAt: '2026-04-21T00:00:00.000Z' }],
+          ]),
+        },
+        url: 'https://other.example.com/search?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
+        previousUrl: seededUrl,
+      }),
+    ).toContain('Blocked a route change away from the seeded search results')
+  })
+
   test('does not block broader seeded-query rewrites before any evidence exists', () => {
     const config = createConfig()
     config.startingUrls = [

@@ -477,7 +477,7 @@ export function createSeed(): JobFinderRepositorySeed {
       appearanceTheme: "system",
       humanReviewRequired: true,
       allowAutoSubmitOverride: false,
-      keepSessionAlive: true,
+      keepSessionAlive: false,
       discoveryOnly: false,
     },
     discovery: JobFinderDiscoveryStateSchema.parse({

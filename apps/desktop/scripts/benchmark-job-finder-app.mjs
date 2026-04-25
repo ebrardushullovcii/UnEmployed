@@ -22,6 +22,12 @@ const useCurrentWorkspace =
   process.argv.includes("--use-current-workspace") ||
   process.env.JOB_FINDER_APP_BENCHMARK_USE_CURRENT_WORKSPACE === "1";
 
+if (useCurrentWorkspace) {
+  throw new Error(
+    "--use-current-workspace is disabled because the benchmark reset flow is not safe for live workspace data.",
+  );
+}
+
 const defaultBenchmarkTargetRoles = [
   "Engineer",
   "Developer",

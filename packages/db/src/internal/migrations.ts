@@ -592,6 +592,10 @@ export function runMigrations(database: DatabaseSync): void {
     }
 
     if (currentVersion < 6) {
+      if (hasTable("apply_job_results")) {
+        dedupeApplyJobResultsByRunAndJob();
+      }
+
       ensureApplyFoundationTables();
 
       database

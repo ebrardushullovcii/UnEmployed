@@ -1,4 +1,3 @@
-import { rm } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, test } from "vitest";
 import {
@@ -1218,6 +1217,131 @@ describe("createFileJobFinderRepository", () => {
       await expect(
         repository.listApplicationArtifactRefs({ resultId: duplicateResultId }),
       ).resolves.toEqual([]);
+    } finally {
+      if (repository) {
+        await repository.close();
+      }
+      if (initialRepository) {
+        await initialRepository.close();
+      }
+      await cleanupTempDirectoryWithRetry(temp.tempDirectory);
+    }
+  }, 15000);
+
+  test("dedupe migration runs before rebuilding apply indexes for legacy sqlite files", async () => {
+    const temp = await createTempRepository(
+      "unemployed-db-apply-dedupe-legacy-migration-",
+    );
+    let repository: FileRepository | null = null;
+    let initialRepository: FileRepository | null = null;
+    const duplicateResultId = "apply_result_legacy_duplicate";
+    const survivorResult = ApplyJobResultSchema.parse({
+      id: "apply_result_legacy_survivor",
+      runId: "apply_run_legacy_dedupe",
+      jobId: "job_legacy_dedupe",
+      queuePosition: 0,
+      state: "awaiting_review",
+      summary: "Migration kept the newest legacy job result.",
+      detail: "A newer result superseded the older duplicate.",
+      startedAt: "2026-04-18T10:01:00.000Z",
+      updatedAt: "2026-04-18T10:01:30.000Z",
+      completedAt: null,
+      blockerReason: null,
+      blockerSummary: null,
+      latestQuestionCount: 0,
+      latestAnswerCount: 0,
+      pendingConsentRequestCount: 0,
+      artifactCount: 0,
+      latestCheckpointId: null,
+    });
+
+    try {
+      initialRepository = await temp.createRepository();
+
+      await initialRepository.upsertApplyRun(
+        ApplyRunSchema.parse({
+          id: "apply_run_legacy_dedupe",
+          mode: "copilot",
+          state: "paused_for_user_review",
+          jobIds: ["job_legacy_dedupe"],
+          currentJobId: "job_legacy_dedupe",
+          submitApprovalId: null,
+          createdAt: "2026-04-18T10:00:00.000Z",
+          updatedAt: "2026-04-18T10:01:30.000Z",
+          completedAt: null,
+          summary: "Legacy apply dedupe migration fixture.",
+          detail: "Creates duplicate results before replaying old migrations.",
+          totalJobs: 1,
+          pendingJobs: 0,
+          submittedJobs: 0,
+          skippedJobs: 0,
+          blockedJobs: 0,
+          failedJobs: 0,
+        }),
+      );
+      await initialRepository.upsertApplyJobResult(
+        ApplyJobResultSchema.parse({
+          id: duplicateResultId,
+          runId: "apply_run_legacy_dedupe",
+          jobId: "job_legacy_dedupe",
+          queuePosition: 0,
+          state: "awaiting_review",
+          summary: "Older duplicate apply result.",
+          detail: "This row should be deduped in favor of the newer one.",
+          startedAt: "2026-04-18T10:00:10.000Z",
+          updatedAt: "2026-04-18T10:00:40.000Z",
+          completedAt: null,
+          blockerReason: null,
+          blockerSummary: null,
+          latestQuestionCount: 0,
+          latestAnswerCount: 0,
+          pendingConsentRequestCount: 0,
+          artifactCount: 0,
+          latestCheckpointId: null,
+        }),
+      );
+
+      await initialRepository.close();
+      initialRepository = null;
+
+      const database = new DatabaseSync(temp.filePath);
+      try {
+        database.exec("DROP INDEX IF EXISTS apply_job_results_run_job_unique_idx");
+        database
+          .prepare(
+            `INSERT INTO apply_job_results (
+              id,
+              run_id,
+              job_id,
+              queue_position,
+              updated_at,
+              state,
+              value
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            survivorResult.id,
+            survivorResult.runId,
+            survivorResult.jobId,
+            survivorResult.queuePosition,
+            survivorResult.updatedAt,
+            survivorResult.state,
+            JSON.stringify(survivorResult),
+          );
+        database.prepare("DELETE FROM schema_migrations WHERE version >= ?").run(4);
+      } finally {
+        database.close();
+      }
+
+      repository = await temp.createRepository();
+
+      await expect(repository.listApplyJobResults()).resolves.toEqual([
+        expect.objectContaining({
+          id: survivorResult.id,
+          runId: survivorResult.runId,
+          jobId: survivorResult.jobId,
+        }),
+      ]);
     } finally {
       if (repository) {
         await repository.close();

@@ -139,10 +139,10 @@ export function SettingsEditableDefaults({
           <div className="grid gap-(--gap-content) md:grid-cols-2">
             <ToggleField
               checked={settingsForm.keepSessionAlive}
-              description="Reuse your browser session between searches and application steps."
+              description="Leave the browser open after searches and application steps instead of closing it when a run finishes."
               disabled={busy}
-              hint="Turn this off on a shared computer."
-              label="Keep browser signed in"
+              hint="Keep this off if you want the browser to fully close after each run."
+              label="Keep browser open after runs"
               onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
             />
             <ToggleField

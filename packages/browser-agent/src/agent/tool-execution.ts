@@ -278,6 +278,9 @@ export function detectSeededSearchQueryDrift(input: {
       : "Blocked a route change away from the seeded search results after this run already captured evidence. Stay on the seeded search surface unless it is clearly broken.";
   }
 
+  const leftSeededSearchSurface =
+    candidateQuery.hostname !== seededQuery.seedHostname ||
+    candidateQuery.pathname !== seededQuery.seedPathname;
   const dropsSeededQuery = [...seededQuery.paramTokens.entries()].some(
     ([key, seededTokens]) =>
       queryDropsSeededTokens(
@@ -286,11 +289,15 @@ export function detectSeededSearchQueryDrift(input: {
       ),
   );
 
-  if (!dropsSeededQuery) {
-    return null;
+  if (dropsSeededQuery) {
+    return "Blocked a broader seeded query because this run already captured evidence from the original search. Keep using the seeded search terms unless that exact query is clearly invalid.";
   }
 
-  return "Blocked a broader seeded query because this run already captured evidence from the original search. Keep using the seeded search terms unless that exact query is clearly invalid.";
+  if (leftSeededSearchSurface) {
+    return "Blocked a route change away from the seeded search results after this run already captured evidence. Stay on the seeded search surface unless it is clearly broken.";
+  }
+
+  return null;
 }
 
 function getCurrentPageUrl(page: Page, fallbackUrl: string): string {
@@ -1009,12 +1016,13 @@ export async function executeToolCall(
         !shouldSkipSlowSearchResultsExtraction;
       const extractedJobs = !shouldRunSlowExtraction
         ? []
-        : await jobExtractor.extractJobsFromPage({
-            pageText: extractData.pageText,
-            pageUrl: extractData.pageUrl,
-            pageType: normalizedPageType,
-            maxJobs: remainingSearchResultsBudget,
-          });
+          : await jobExtractor.extractJobsFromPage({
+              pageText: extractData.pageText,
+              pageUrl: extractData.pageUrl,
+              pageType: normalizedPageType,
+              maxJobs: remainingSearchResultsBudget,
+              ...(signal ? { signal } : {}),
+            });
       const addedCount = addExtractedJobsToState(
         extractedJobs,
         state,

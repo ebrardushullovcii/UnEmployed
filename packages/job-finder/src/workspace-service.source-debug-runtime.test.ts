@@ -251,7 +251,7 @@ describe("createJobFinderWorkspaceService", () => {
     ].join("\n");
 
     expect(openSessionCalls).toBe(1);
-    expect(closeSessionCalls).toBe(0);
+    expect(closeSessionCalls).toBe(1);
     expect(skipSessionValidationFlags.length).toBeGreaterThan(0);
     expect(skipSessionValidationFlags.every(Boolean)).toBe(true);
     expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("failed");
@@ -260,6 +260,76 @@ describe("createJobFinderWorkspaceService", () => {
     expect(learnedLines.toLowerCase()).not.toContain(
       "discovery encountered an error",
     );
+  });
+
+  test("closes the browser session after a successful source-debug run by default", async () => {
+    const baseRuntime = createAgentBrowserRuntime(
+      [
+        {
+          source: "target_site",
+          sourceJobId: "linkedin_source_debug_keepalive",
+          discoveryMethod: "catalog_seed",
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/linkedin_source_debug_keepalive",
+          title: "Senior Product Designer",
+          company: "Signal Systems",
+          location: "Remote",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          postedAt: "2026-03-20T09:00:00.000Z",
+          discoveredAt: "2026-03-20T10:04:00.000Z",
+          salaryText: "$180k - $220k",
+          summary: "Validate keepalive on a successful source-debug run.",
+          description: "Validate keepalive on a successful source-debug run.",
+          keySkills: ["Figma", "React"],
+        },
+      ],
+      {
+        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+      },
+    );
+    let openSessionCalls = 0;
+    let closeSessionCalls = 0;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      openSession(source) {
+        openSessionCalls += 1;
+
+        return Promise.resolve({
+          source,
+          status: "ready",
+          driver: "catalog_seed",
+          label: "Browser session ready",
+          detail: "Opened for source debug.",
+          lastCheckedAt: "2026-03-20T10:05:00.000Z",
+        });
+      },
+      closeSession(source) {
+        closeSessionCalls += 1;
+        return Promise.resolve({
+          source,
+          status: "unknown",
+          driver: "catalog_seed",
+          label: "Browser session closed",
+          detail: "Closed after source debug.",
+          lastCheckedAt: "2026-03-20T10:06:00.000Z",
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createSeed(),
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    const snapshot = await workspaceService.runSourceDebug(
+      "target_linkedin_default",
+    );
+
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
+    expect(openSessionCalls).toBe(1);
+    expect(closeSessionCalls).toBe(1);
   });
 
   test("keeps the browser session open after a successful source-debug run when keepSessionAlive is enabled", async () => {
@@ -317,8 +387,10 @@ describe("createJobFinderWorkspaceService", () => {
         });
       },
     };
+    const seed = createSeed();
+    seed.settings.keepSessionAlive = true;
     const { workspaceService } = createWorkspaceServiceHarness({
-      seed: createSeed(),
+      seed,
       browserRuntime,
       aiClient: createAgentAiClient(),
     });

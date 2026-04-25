@@ -42,6 +42,36 @@ describe("normalizeCompositeTitle", () => {
       postedAtText: null,
     });
   });
+
+  test("prefers multi-token trailing locations over single-token suffixes", () => {
+    expect(normalizeCompositeTitle("Backend Engineer New York")).toMatchObject({
+      title: "Backend Engineer",
+      location: "New York",
+    });
+    expect(normalizeCompositeTitle("Product Designer San Francisco")).toMatchObject({
+      title: "Product Designer",
+      location: "San Francisco",
+    });
+    expect(normalizeCompositeTitle("Support Manager North Carolina")).toMatchObject({
+      title: "Support Manager",
+      location: "North Carolina",
+    });
+    expect(normalizeCompositeTitle("Data Analyst United States")).toMatchObject({
+      title: "Data Analyst",
+      location: "United States",
+    });
+    expect(normalizeCompositeTitle("Solutions Engineer Hong Kong")).toMatchObject({
+      title: "Solutions Engineer",
+      location: "Hong Kong",
+    });
+  });
+
+  test("does not treat trailing role phrases as locations", () => {
+    expect(normalizeCompositeTitle("Manager Field Operations")).toMatchObject({
+      title: "Manager Field Operations",
+      location: null,
+    });
+  });
 });
 
 describe("inferCompanyFromCanonicalUrl", () => {

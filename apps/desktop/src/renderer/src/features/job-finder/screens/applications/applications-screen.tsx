@@ -323,6 +323,9 @@ export function ApplicationsScreen(props: {
     if (
       lastFetchedApplyRunRef.current?.jobId === effectiveSelectedJobId &&
       lastFetchedApplyRunRef.current?.runId === effectiveSelectedRunId &&
+      applyRunDetailsStatus === 'ready' &&
+      applyRunDetailsTarget?.jobId === effectiveSelectedJobId &&
+      applyRunDetailsTarget?.runId === effectiveSelectedRunId &&
       (effectiveSelectedRunUpdatedAt == null ||
         (lastFetchedUpdatedAt != null &&
           hasValidParsedUpdatedAt &&
@@ -383,6 +386,8 @@ export function ApplicationsScreen(props: {
     effectiveSelectedJobId,
     effectiveSelectedRunId,
     effectiveSelectedRunUpdatedAt,
+    applyRunDetailsStatus,
+    applyRunDetailsTarget,
     onGetApplyRunDetails,
   ])
 

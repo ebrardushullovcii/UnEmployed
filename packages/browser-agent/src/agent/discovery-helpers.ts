@@ -295,12 +295,13 @@ export async function flushDeferredSearchExtractions(input: {
     const extractedJobs =
       remainingSearchResultsBudget === 0
         ? []
-        : await input.jobExtractor.extractJobsFromPage({
-            pageText: deferredSearchPage.pageText,
-            pageUrl: deferredSearchPage.pageUrl,
-            pageType: "search_results",
-            maxJobs: remainingSearchResultsBudget,
-          });
+          : await input.jobExtractor.extractJobsFromPage({
+              pageText: deferredSearchPage.pageText,
+              pageUrl: deferredSearchPage.pageUrl,
+              pageType: "search_results",
+              maxJobs: remainingSearchResultsBudget,
+              ...(input.signal ? { signal: input.signal } : {}),
+            });
     const addedCount = addExtractedJobsToState(
       extractedJobs,
       input.state,
@@ -496,11 +497,12 @@ export async function getLlmResponse(
       });
       break;
     } catch (llmError) {
-      if (
-        (llmError instanceof DOMException && llmError.name === "AbortError") ||
-        signal?.aborted
-      ) {
+      if (llmError instanceof DOMException && llmError.name === "AbortError") {
         throw llmError;
+      }
+
+      if (signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
       }
 
       lastLlmError = llmError;

@@ -312,7 +312,7 @@ function rebuildConversationFromSummary(input: {
       return false
     }
 
-    return message.content !== bootstrapSystemPrompt && message.content !== bootstrapUserPrompt
+    return !(message.role === 'user' && message.content === bootstrapUserPrompt)
   })
   const stickyMessages = extractStickyUserMessages(input.state.conversation).filter(
     (stickyMessage) => !preservedMessages.some(

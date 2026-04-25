@@ -31,7 +31,6 @@ import {
   isHttpUrlLike,
   isWarmPageReusable,
   isTcpPortReachable,
-  isLikelyStalePage,
   pathExists,
   readDevToolsActivePort,
   selectLiveHttpPage,
@@ -43,6 +42,7 @@ export interface JobPageExtractionInput {
   pageUrl: string;
   pageType: "search_results" | "job_detail";
   maxJobs: number;
+  signal?: AbortSignal;
 }
 
 export type JobPageExtractor = (
@@ -271,7 +271,8 @@ async function waitForDebuggerEndpoint(
 
 async function getPrimaryPage(context: BrowserContext): Promise<Page> {
   const pages = context.pages();
-  return pages[pages.length - 1] ?? context.newPage();
+  const openPages = pages.filter((page) => !page.isClosed());
+  return openPages[openPages.length - 1] ?? context.newPage();
 }
 
 async function resolveLivePageForContext(
@@ -282,22 +283,6 @@ async function resolveLivePageForContext(
   const currentPages = context.pages();
   const liveHttpPage = selectLiveHttpPage(currentPages);
   const page = liveHttpPage ?? (await getPrimaryPage(context));
-
-  if (isLikelyStalePage(page)) {
-    const refreshedLiveHttpPage = selectLiveHttpPage(context.pages());
-    if (refreshedLiveHttpPage) {
-      if (bringToFront) {
-        await refreshedLiveHttpPage.bringToFront().catch(() => undefined);
-      }
-      return refreshedLiveHttpPage;
-    }
-
-    const freshPage = await context.newPage();
-    if (bringToFront) {
-      await freshPage.bringToFront().catch(() => undefined);
-    }
-    return freshPage;
-  }
 
   if (bringToFront) {
     await page.bringToFront().catch(() => undefined);
@@ -840,14 +825,20 @@ export function createBrowserAgentRuntime(
               pageUrl: string;
               pageType: AgentExtractorPageType;
               maxJobs: number;
+              signal?: AbortSignal;
             }) => {
+              const extractionInput: JobPageExtractionInput = {
+                pageText: input.pageText,
+                pageUrl: input.pageUrl,
+                pageType: input.pageType,
+                maxJobs: input.maxJobs,
+              };
+              if (input.signal) {
+                extractionInput.signal = input.signal;
+              }
+
               const jobs = validateJobPostings(
-                await jobExtractor({
-                  pageText: input.pageText,
-                  pageUrl: input.pageUrl,
-                  pageType: input.pageType,
-                  maxJobs: input.maxJobs,
-                }),
+                await jobExtractor(extractionInput),
                 input.pageUrl,
               );
 

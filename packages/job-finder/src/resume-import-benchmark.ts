@@ -166,7 +166,11 @@ function buildBenchmarkAiClient(
     assessJobFit() {
       return Promise.resolve(null);
     },
-    extractJobsFromPage() {
+    extractJobsFromPage(input) {
+      if (input.signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+
       return Promise.resolve([]);
     },
   } satisfies JobFinderAiClient;

@@ -882,6 +882,7 @@ describe("createJobFinderWorkspaceService", () => {
 
   test("keeps apply browser sessions warm across queue jobs when keepSessionAlive is enabled", async () => {
     const seed = createSeed();
+    seed.settings.keepSessionAlive = true;
     seed.savedJobs = [
       {
         ...seed.savedJobs[0]!,

@@ -27,8 +27,12 @@ function isDisabled(value: string | null | undefined): boolean {
   return normalized === "0" || normalized === "false";
 }
 
-function warnInvalidBooleanEnvValue(variableName: string, configuredValue: string) {
-  const normalizedConfiguredValue = normalizeFlagValue(configuredValue) ?? configuredValue.trim().toLowerCase();
+function warnInvalidBooleanEnvValue(
+  variableName: string,
+  configuredValue: string,
+) {
+  const normalizedConfiguredValue =
+    normalizeFlagValue(configuredValue) ?? configuredValue.trim().toLowerCase();
   const warningKey = `${variableName}:${normalizedConfiguredValue}`;
   if (warnedInvalidEnvValues.has(warningKey)) {
     return;

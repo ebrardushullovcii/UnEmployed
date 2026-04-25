@@ -282,6 +282,7 @@ export interface ExtractJobsFromPageInput {
   pageUrl: string;
   pageType: "search_results" | "job_detail";
   maxJobs: number;
+  signal?: AbortSignal;
 }
 
 export interface ExtractResumeImportStageTransportInput
