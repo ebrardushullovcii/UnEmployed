@@ -14,10 +14,14 @@ const fixturePath = path.join(
 );
 const outputLabel = process.env.UI_CAPTURE_LABEL ?? "job-finder-app-benchmark";
 const outputDir = path.join(desktopDir, "test-artifacts", "ui", outputLabel);
-const perScenarioTimeoutMs = Number.parseInt(
+const parsedPerScenarioTimeoutMs = Number.parseInt(
   process.env.JOB_FINDER_APP_BENCHMARK_TIMEOUT_MS ?? "900000",
   10,
 );
+const perScenarioTimeoutMs =
+  Number.isInteger(parsedPerScenarioTimeoutMs) && parsedPerScenarioTimeoutMs > 0
+    ? parsedPerScenarioTimeoutMs
+    : 900000;
 const useCurrentWorkspace =
   process.argv.includes("--use-current-workspace") ||
   process.env.JOB_FINDER_APP_BENCHMARK_USE_CURRENT_WORKSPACE === "1";
@@ -321,6 +325,7 @@ async function getWorkspace(window) {
 
 async function resetDiscoveryState(window) {
   const workspace = await getWorkspace(window);
+  const originalWorkspaceSnapshot = structuredClone(workspace);
   const resetState = {
     profile: workspace.profile,
     searchPreferences: workspace.searchPreferences,
@@ -372,7 +377,7 @@ async function resetDiscoveryState(window) {
     return window.unemployed.jobFinder.test.resetWorkspaceState(state);
   }, resetState);
 
-  return resetState;
+  return originalWorkspaceSnapshot;
 }
 
 async function restoreWorkspaceSnapshot(window, snapshot) {

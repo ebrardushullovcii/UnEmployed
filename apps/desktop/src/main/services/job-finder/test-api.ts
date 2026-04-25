@@ -31,8 +31,10 @@ function warnInvalidBooleanEnvValue(
   variableName: string,
   configuredValue: string,
 ) {
-  const normalizedConfiguredValue =
-    normalizeFlagValue(configuredValue) ?? configuredValue.trim().toLowerCase();
+  const normalizedConfiguredValue = normalizeFlagValue(configuredValue);
+  if (normalizedConfiguredValue == null) {
+    return;
+  }
   const warningKey = `${variableName}:${normalizedConfiguredValue}`;
   if (warnedInvalidEnvValues.has(warningKey)) {
     return;
@@ -68,10 +70,11 @@ export function isBrowserAgentEnabled(
     return true;
   }
 
-  warnInvalidBooleanEnvValue(
-    "UNEMPLOYED_BROWSER_AGENT",
-    configuredValue ?? normalizedValue,
-  );
+  if (configuredValue == null) {
+    return true;
+  }
+
+  warnInvalidBooleanEnvValue("UNEMPLOYED_BROWSER_AGENT", configuredValue);
   return true;
 }
 

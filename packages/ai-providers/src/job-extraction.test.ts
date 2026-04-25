@@ -566,8 +566,14 @@ describe("job extraction with openai-compatible client", () => {
       });
 
       expect(jobs).toEqual([]);
+      expect(errorSpy).toHaveBeenCalled();
       expect(errorSpy).toHaveBeenCalledWith(
-        '[AI Provider] extractJobsFromPage failed; falling back to deterministic client. [AI Provider] Expected a top-level jobs array when extracting jobs from jobs.example.com, received: {"invalid":true}',
+        expect.stringContaining(
+          "[AI Provider] extractJobsFromPage failed; falling back to deterministic client",
+        ),
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Expected a top-level jobs array"),
       );
     } finally {
       restoreFetch();

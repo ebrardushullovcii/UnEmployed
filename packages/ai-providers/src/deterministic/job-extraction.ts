@@ -1,7 +1,7 @@
 import { titleCaseWords } from "./utils";
 
 const COMPOSITE_POSTED_SUFFIX_PATTERN =
-  /(?:posted\s+)?(?:\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?)(?:\s+ago)?|today|yesterday|just posted|sot|dje)$/iu;
+  /(?:posted\s+)?(?:\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|muaj(?:sh)?|ore?)(?:\s+ago)?|\b(?:today|yesterday|just posted|sot|dje|jav[eë]?))$/iu;
 const ROLE_TOKEN_PATTERN =
   /^(?:engineer|engineering|developer|architect|manager|designer|writer|scientist|researcher|analyst|specialist|representative|accountant|technician|nurse|lawyer|operator|operations|agent|recruiter|planner|strategist|controller|auditor|officer|assistant|supervisor|president|partner|support|sales|marketing|data|software|product|qa|frontend|backend|react|category|customer|experience|work|senior|junior|lead|principal|staff|intern|associate|director|head|chief|coordinator|consultant|administrator|executive|trainee|apprentice|sr|jr|ii|iii)$/i;
 const LOCATION_HINT_PATTERN =

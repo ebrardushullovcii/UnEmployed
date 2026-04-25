@@ -337,7 +337,7 @@ describe("runAgentDiscovery compaction", () => {
         { role: "assistant", content: "step 1" },
         {
           role: "user",
-          content: `${bootstrapUserPrompt.replace(/\n/g, "  \n")}`,
+          content: bootstrapUserPrompt.replace(/\n/g, "  \n"),
         },
         { role: "assistant", content: "step 2" },
       ],
