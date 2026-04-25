@@ -6,6 +6,7 @@ export { buildDeterministicResumeProfileExtraction } from "./deterministic/resum
 export {
   inferCompanyFromCanonicalUrl,
   normalizeCompositeTitle,
+  normalizeTitleCompanyPair,
 } from "./deterministic/job-extraction";
 export {
   composeDeterministicFullText,

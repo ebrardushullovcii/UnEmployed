@@ -603,10 +603,7 @@ export function shouldFinishSourceDebugEarly(input: {
   attempts: readonly SourceDebugWorkerAttempt[];
   currentPhase: SourceDebugPhase;
 }): boolean {
-  if (
-    input.currentPhase !== "job_detail_validation" &&
-    input.currentPhase !== "apply_path_validation"
-  ) {
+  if (input.currentPhase === "access_auth_probe") {
     return false;
   }
 
@@ -641,11 +638,26 @@ export function shouldFinishSourceDebugEarly(input: {
     );
   }
 
+  if (
+    input.currentPhase !== "apply_path_validation" &&
+    input.currentPhase !== "replay_verification"
+  ) {
+    return false;
+  }
+
   const applyAttempt = byPhase.get("apply_path_validation");
   const applyProven = applyAttempt?.completionMode === "forced_finish";
+  const replayAttempt = byPhase.get("replay_verification");
+  const replayFailedWithoutNewEvidence =
+    replayAttempt?.outcome === "exhausted_no_progress" ||
+    replayAttempt?.completionMode === "timed_out_with_partial_evidence";
 
   if (!accessAttempt || accessAttempt.outcome !== "succeeded") {
     return false;
+  }
+
+  if (input.currentPhase === "replay_verification") {
+    return structureProven && searchProven && detailProven && replayFailedWithoutNewEvidence;
   }
 
   return structureProven && searchProven && detailProven && applyProven;

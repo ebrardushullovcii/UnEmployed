@@ -1,16 +1,646 @@
 import {
+  ApplyExecutionResultSchema,
   BrowserSessionStateSchema,
+  DiscoveryRunResultSchema,
   JobPostingSchema,
+  type ApplyExecutionResult,
+  type ApplicationAttemptQuestion,
   type BrowserSessionState,
+  type JobPosting,
   type JobSource,
 } from '@unemployed/contracts'
-import { createCatalogSessionAgent } from '@unemployed/browser-agent'
 import type {
+  AgentDiscoveryOptions,
   BrowserSessionRuntime,
   CatalogBrowserSessionRuntimeSeed,
+  ExecuteApplicationFlowInput,
+  ExecuteEasyApplyInput,
   StubBrowserSessionRuntimeSeed,
 } from './runtime-types'
-import { cloneValue } from './catalog-runtime-utils'
+import {
+  buildDiscoveryQuerySummary,
+  buildSessionBlockedResult,
+  cloneValue,
+  matchesAnyPhrase,
+  parseSalaryFloor,
+} from './catalog-runtime-utils'
+
+function filterCatalogDiscoveryJobs(
+  jobs: readonly JobPosting[],
+  searchPreferences: Parameters<BrowserSessionRuntime["runDiscovery"]>[1],
+) {
+  return jobs.filter((job) => {
+    if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
+      return false
+    }
+
+    if (
+      searchPreferences.companyBlacklist.some(
+        (company) => company.toLowerCase() === job.company.toLowerCase(),
+      )
+    ) {
+      return false
+    }
+
+    const matchesRole = matchesAnyPhrase(job.title, searchPreferences.targetRoles)
+    const matchesLocation = matchesAnyPhrase(job.location, searchPreferences.locations)
+    const matchesWorkMode =
+      searchPreferences.workModes.length === 0 ||
+      searchPreferences.workModes.includes('flexible') ||
+      job.workMode.some((mode) => searchPreferences.workModes.includes(mode))
+    const salaryFloor = parseSalaryFloor(job.salaryText)
+    const meetsSalaryExpectation =
+      searchPreferences.minimumSalaryUsd === null ||
+      salaryFloor === null ||
+      salaryFloor >= searchPreferences.minimumSalaryUsd
+
+    return matchesRole && matchesLocation && matchesWorkMode && meetsSalaryExpectation
+  })
+}
+
+function filterCatalogAgentDiscoveryJobs(
+  jobs: readonly JobPosting[],
+  options: AgentDiscoveryOptions,
+) {
+  return jobs
+    .filter((job) => {
+      if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
+        return false
+      }
+
+      const matchesRole = matchesAnyPhrase(job.title, options.searchPreferences.targetRoles)
+      const matchesLocation = matchesAnyPhrase(job.location, options.searchPreferences.locations)
+      return matchesRole && matchesLocation
+    })
+    .slice(0, options.targetJobCount)
+}
+
+function getStartingUrl(options: AgentDiscoveryOptions): string {
+  const startingUrl = options.startingUrls
+    .map((url) => url.trim())
+    .find((url) => url.length > 0)
+
+  if (!startingUrl) {
+    throw new Error(
+      `Catalog browser runtime requires at least one starting URL for ${options.siteLabel}.`,
+    )
+  }
+
+  return startingUrl
+}
+
+function buildApplyReplay(
+  job: ExecuteApplicationFlowInput["job"],
+  recoveryContext?: ExecuteApplicationFlowInput["recoveryContext"],
+) {
+  const lastUrl = job.applicationUrl ?? job.canonicalUrl
+  const checkpointUrls = Array.from(
+    new Set([
+      ...(recoveryContext?.latestCheckpoint?.url ? [recoveryContext.latestCheckpoint.url] : []),
+      ...(recoveryContext?.checkpointUrls ?? []),
+      ...(lastUrl ? [lastUrl] : []),
+    ]),
+  )
+
+  return {
+    sourceInstructionArtifactId: null,
+    sourceDebugEvidenceRefIds: [],
+    lastUrl:
+      recoveryContext?.latestCheckpoint?.url ??
+      recoveryContext?.checkpointUrls?.[0] ??
+      lastUrl,
+    checkpointUrls,
+  }
+}
+
+function inferConsentInterruptKind(
+  description: string,
+): 'signup' | 'existing_account_decision' | 'manual_verification' | null {
+  const normalizedDescription = description.toLowerCase()
+
+  if (
+    normalizedDescription.includes('sign up') ||
+    normalizedDescription.includes('signup') ||
+    normalizedDescription.includes('create an account')
+  ) {
+    return 'signup'
+  }
+
+  if (normalizedDescription.includes('already have an account')) {
+    return 'existing_account_decision'
+  }
+
+  if (normalizedDescription.includes('manual verification')) {
+    return 'manual_verification'
+  }
+
+  return null
+}
+
+function buildProfileAnswerQuestion(input: {
+  id: string
+  prompt: string
+  kind: ApplicationAttemptQuestion["kind"]
+  answerText: string | null
+  sourceId: string
+  now: string
+}): ApplicationAttemptQuestion {
+  return {
+    id: input.id,
+    prompt: input.prompt,
+    kind: input.kind,
+    isRequired: true,
+    detectedAt: input.now,
+    answerOptions: [],
+    suggestedAnswers: input.answerText
+      ? [
+          {
+            id: `suggested_answer_${input.id}`,
+            text: input.answerText,
+            sourceKind: 'profile',
+            sourceId: input.sourceId,
+            confidenceLabel: 'profile default',
+            provenance: [
+              {
+                id: `answer_provenance_${input.id}`,
+                sourceKind: 'profile',
+                sourceId: input.sourceId,
+                label: 'Profile answer bank',
+                snippet: input.answerText,
+              },
+            ],
+          },
+        ]
+      : [],
+    submittedAnswer: null,
+    status: 'detected',
+  }
+}
+
+function buildScreeningQuestions(input: {
+  job: ExecuteApplicationFlowInput["job"]
+  profile: ExecuteApplicationFlowInput["profile"]
+  now: string
+}): ApplicationAttemptQuestion[] {
+  const normalizedDescription = input.job.description.toLowerCase()
+  const questions: ApplicationAttemptQuestion[] = []
+
+  if (
+    normalizedDescription.includes('work authorization') ||
+    normalizedDescription.includes('visa sponsorship')
+  ) {
+    const questionId = `question_${input.job.id}_work_auth`
+    const suggestedAnswerTexts = [
+      input.profile.answerBank.workAuthorization,
+      input.profile.answerBank.visaSponsorship,
+    ].filter((value): value is string => Boolean(value))
+
+    questions.push({
+      id: questionId,
+      prompt: 'Can you confirm your work authorization or visa sponsorship status?',
+      kind: 'work_authorization',
+      isRequired: true,
+      detectedAt: input.now,
+      answerOptions: [],
+      suggestedAnswers: suggestedAnswerTexts.map((text, index) => ({
+        id: `suggested_answer_${questionId}_${index + 1}`,
+        text,
+        sourceKind: 'profile',
+        sourceId: input.profile.id,
+        confidenceLabel: 'profile default',
+        provenance: [
+          {
+            id: `answer_provenance_${questionId}_${index + 1}`,
+            sourceKind: 'profile',
+            sourceId: input.profile.id,
+            label: 'Profile answer bank',
+            snippet: text,
+          },
+        ],
+      })),
+      submittedAnswer: null,
+      status: 'detected',
+    })
+  }
+
+  if (normalizedDescription.includes('salary expectation')) {
+    questions.push(
+      buildProfileAnswerQuestion({
+        id: `question_${input.job.id}_salary`,
+        prompt: 'What are your salary expectations for this role?',
+        kind: 'salary_expectation',
+        answerText: input.profile.answerBank.salaryExpectations,
+        sourceId: input.profile.id,
+        now: input.now,
+      }),
+    )
+  }
+
+  if (normalizedDescription.includes('portfolio')) {
+    questions.push(
+      buildProfileAnswerQuestion({
+        id: `question_${input.job.id}_portfolio`,
+        prompt: 'Please share a portfolio, case study, or public work sample.',
+        kind: 'portfolio',
+        answerText: input.profile.portfolioUrl,
+        sourceId: input.profile.id,
+        now: input.now,
+      }),
+    )
+  }
+
+  return questions
+}
+
+function executeCatalogApplicationFlow(
+  input: ExecuteApplicationFlowInput,
+): ApplyExecutionResult {
+  const now = new Date().toISOString()
+  const { job, resumeExport, resumeFilePath } = input
+  const questions = buildScreeningQuestions({ job, profile: input.profile, now })
+  const replay = buildApplyReplay(job, input.recoveryContext)
+  const consentInterruptKind = inferConsentInterruptKind(job.description)
+  const requiresConsentInterrupt = consentInterruptKind !== null
+  const recoveryCheckpoint = input.recoveryContext?.latestCheckpoint
+    ? {
+        id: `checkpoint_${job.id}_recovery_resume`,
+        at: now,
+        label: 'Resumed from retained apply context',
+        detail: input.recoveryContext.latestCheckpoint.detail
+          ? `Retry started from retained context after '${input.recoveryContext.latestCheckpoint.label}'. ${input.recoveryContext.latestCheckpoint.detail}`
+          : `Retry started from retained context after '${input.recoveryContext.latestCheckpoint.label}'.`,
+        state: 'in_progress' as const,
+      }
+    : null
+
+  if (!resumeFilePath.trim()) {
+    return ApplyExecutionResultSchema.parse({
+      state: 'failed',
+      summary: 'Approved resume export is missing',
+      detail:
+        'The apply flow cannot continue until an approved tailored resume export path is available.',
+      submittedAt: null,
+      outcome: null,
+      questions: [],
+      blocker: {
+        code: 'missing_resume',
+        summary: 'The approved tailored resume export is missing.',
+        detail:
+          'The catalog runtime refused to continue without an approved resume export file path.',
+        questionIds: [],
+        sourceDebugEvidenceRefIds: [],
+        url: job.applicationUrl ?? job.canonicalUrl,
+      },
+      consentDecisions: [],
+      replay,
+      nextActionLabel: 'Re-export and approve the tailored resume',
+      checkpoints: [
+        ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+        {
+          id: `checkpoint_${job.id}_asset_missing`,
+          at: now,
+          label: 'Resume export missing',
+          detail:
+            'The catalog runtime refused to continue without an approved resume export file path.',
+          state: 'failed',
+        },
+      ],
+    })
+  }
+
+  const resumeQuestion: ApplicationAttemptQuestion = {
+    id: `question_${job.id}_resume_upload`,
+    prompt: 'Upload the approved tailored resume.',
+    kind: 'resume',
+    isRequired: true,
+    detectedAt: now,
+    answerOptions: [],
+    suggestedAnswers: [
+      {
+        id: `suggested_answer_${job.id}_resume_upload`,
+        text: resumeFilePath,
+        sourceKind: 'resume',
+        sourceId: resumeExport.id,
+        confidenceLabel: 'approved export',
+        provenance: [
+          {
+            id: `answer_provenance_resume_${resumeExport.id}`,
+            sourceKind: 'resume',
+            sourceId: resumeExport.id,
+            label: 'Approved tailored resume export',
+            snippet: resumeFilePath,
+          },
+        ],
+      },
+    ],
+    submittedAnswer: resumeFilePath,
+    status: 'submitted',
+  }
+  const capturedQuestions = [resumeQuestion, ...questions]
+
+  if (job.applyPath !== 'easy_apply' || !job.easyApplyEligible) {
+    return ApplyExecutionResultSchema.parse({
+      state: 'unsupported',
+      summary: 'Easy Apply path is unsupported',
+      detail: `${job.title} at ${job.company} no longer exposes a supported Easy Apply path for this slice.`,
+      submittedAt: null,
+      outcome: null,
+      questions: [],
+      blocker: {
+        code: 'unsupported_apply_path',
+        summary: 'The saved job no longer exposes a supported Easy Apply path.',
+        detail:
+          'The deterministic catalog runtime stopped before entering an unsupported or external branch.',
+        questionIds: [],
+        sourceDebugEvidenceRefIds: [],
+        url: job.applicationUrl ?? job.canonicalUrl,
+      },
+      consentDecisions: [],
+      replay,
+      nextActionLabel: 'Inspect the listing manually',
+      checkpoints: [
+        ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+        {
+          id: `checkpoint_${job.id}_unsupported`,
+          at: now,
+          label: 'Unsupported apply path',
+          detail:
+            'The deterministic catalog runtime stopped before entering an unsupported or external branch.',
+          state: 'unsupported',
+        },
+      ],
+    })
+  }
+
+  if (requiresConsentInterrupt) {
+    const consentDecisionLabel =
+      consentInterruptKind === 'signup'
+        ? 'Continue into a sign-up step for this application'
+        : consentInterruptKind === 'existing_account_decision'
+          ? 'Choose whether to continue through an existing-account path'
+          : 'Continue through the manual verification step for this application'
+    const consentDecisionDetail =
+      consentInterruptKind === 'signup'
+        ? 'The page indicates that a sign-up step is required before the application can continue.'
+        : consentInterruptKind === 'existing_account_decision'
+          ? 'The page asks whether you already have an account, and the run cannot assume that answer.'
+          : 'The page requires a manual verification step before the application can continue.'
+
+    return ApplyExecutionResultSchema.parse({
+      state: 'paused',
+      summary: 'Apply run paused for live consent',
+      detail:
+        'The application flow reached a consent-gated step that requires an explicit user decision before the run can continue.',
+      submittedAt: null,
+      outcome: null,
+      questions: capturedQuestions,
+      blocker: {
+        code: 'missing_consent',
+        summary: 'A consent-gated step needs a live user decision.',
+        detail:
+          'The deterministic catalog runtime stopped before any consent-gated branch such as sign-up, account-choice, or manual verification.',
+        questionIds: [],
+        sourceDebugEvidenceRefIds: [],
+        url: job.applicationUrl ?? job.canonicalUrl,
+      },
+      consentDecisions: [
+        {
+          id: `consent_${job.id}_resume_use`,
+          kind: 'resume_use',
+          label: 'Use the approved tailored resume for this apply flow',
+          status: 'approved',
+          decidedAt: now,
+          detail: `Approved export ${resumeExport.id} stayed selected for this run.`,
+        },
+        {
+          id: `consent_${job.id}_consent_interrupt`,
+          kind: 'manual_follow_up',
+          label: consentDecisionLabel,
+          status: 'requested',
+          decidedAt: null,
+          detail: consentDecisionDetail,
+        },
+      ],
+      replay,
+      nextActionLabel:
+        'Review the consent request and decide whether to continue or skip this job',
+      checkpoints: [
+        ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+        {
+          id: `checkpoint_${job.id}_open_listing`,
+          at: now,
+          label: 'Opened Easy Apply',
+          detail:
+            'The catalog runtime validated the listing and started the Easy Apply flow.',
+          state: 'in_progress',
+        },
+        {
+          id: `checkpoint_${job.id}_resume_attached`,
+          at: now,
+          label: 'Attached tailored resume',
+          detail: `Attached approved resume export from ${resumeFilePath}.`,
+          state: 'in_progress',
+        },
+        {
+          id: `checkpoint_${job.id}_consent_pause`,
+          at: now,
+          label: 'Paused for consent',
+          detail:
+            'The run reached a consent-gated step and stopped before any consent-required branch continued.',
+          state: 'paused',
+        },
+      ],
+    })
+  }
+
+  const requiresHumanPause = questions.length > 0
+
+  if (input.mode === 'prepare_only') {
+    return ApplyExecutionResultSchema.parse({
+      state: 'paused',
+      summary:
+        requiresHumanPause
+          ? 'Apply copilot paused for review-ready questions'
+          : 'Apply copilot paused before final submit',
+      detail:
+        requiresHumanPause
+          ? `${job.company} asks for additional information. The copilot captured grounded suggestions, attached the approved resume, and paused for review before any final submit.`
+          : 'The approved tailored resume is attached and grounded profile answers are prepared. The copilot stopped before the final submit step.',
+      submittedAt: null,
+      outcome: null,
+      questions: capturedQuestions,
+      blocker: requiresHumanPause
+        ? {
+            code: 'requires_manual_review',
+            summary: 'Additional questions are ready for review before final submit.',
+            detail:
+              'The deterministic catalog runtime captured grounded suggestions, then paused without clicking the final submit button.',
+            questionIds: questions.map((question) => question.id),
+            sourceDebugEvidenceRefIds: [],
+            url: job.applicationUrl ?? job.canonicalUrl,
+          }
+        : null,
+      consentDecisions: [
+        {
+          id: `consent_${job.id}_resume_use`,
+          kind: 'resume_use',
+          label: 'Use the approved tailored resume for this apply flow',
+          status: 'approved',
+          decidedAt: now,
+          detail: `Approved export ${resumeExport.id} stayed selected for this copilot run.`,
+        },
+        {
+          id: `consent_${job.id}_autofill_profile`,
+          kind: 'autofill_profile',
+          label: 'Use saved profile details where the form requests them',
+          status: 'approved',
+          decidedAt: now,
+          detail: requiresHumanPause
+            ? 'Grounded suggestions were prepared for review-ready questions.'
+            : 'Grounded profile fields were prepared without needing extra review.',
+        },
+      ],
+      replay,
+      nextActionLabel: requiresHumanPause
+        ? 'Review the prepared answers and continue manually when ready'
+        : 'Review the prepared application and submit manually when ready',
+      checkpoints: [
+        ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+        {
+          id: `checkpoint_${job.id}_open_listing`,
+          at: now,
+          label: 'Opened Easy Apply',
+          detail:
+            'The catalog runtime validated the listing and started the Easy Apply flow.',
+          state: 'in_progress',
+        },
+        {
+          id: `checkpoint_${job.id}_resume_attached`,
+          at: now,
+          label: 'Attached tailored resume',
+          detail: `Attached approved resume export from ${resumeFilePath}.`,
+          state: 'in_progress',
+        },
+        {
+          id: `checkpoint_${job.id}_prepared_for_review`,
+          at: now,
+          label: requiresHumanPause
+            ? 'Captured review-ready questions'
+            : 'Prepared application for final review',
+          detail: requiresHumanPause
+            ? 'Grounded answer suggestions were captured and the run paused before final submit.'
+            : 'The supported path reached the review step and paused before final submit.',
+          state: 'paused',
+        },
+      ],
+    })
+  }
+
+  if (requiresHumanPause) {
+    return ApplyExecutionResultSchema.parse({
+      state: 'paused',
+      summary: 'Easy Apply needs manual review',
+      detail: `${job.company} asks for additional information that the safe automation path will not guess.`,
+      submittedAt: null,
+      outcome: null,
+      questions: capturedQuestions,
+      blocker: {
+        code: 'requires_manual_review',
+        summary: 'Extra application questions need manual review.',
+        detail:
+          'The deterministic catalog runtime detected unsupported questions before submission.',
+        questionIds: questions.map((question) => question.id),
+        sourceDebugEvidenceRefIds: [],
+        url: job.applicationUrl ?? job.canonicalUrl,
+      },
+      consentDecisions: [
+        {
+          id: `consent_${job.id}_resume_use`,
+          kind: 'resume_use',
+          label: 'Use the approved tailored resume for this apply flow',
+          status: 'approved',
+          decidedAt: now,
+          detail: `Approved export ${resumeExport.id} stayed selected for this attempt.`,
+        },
+        {
+          id: `consent_${job.id}_manual_follow_up`,
+          kind: 'manual_follow_up',
+          label: 'Finish unsupported answers manually',
+          status: 'requested',
+          decidedAt: null,
+          detail: 'The remaining questions need a human answer before submission.',
+        },
+      ],
+      replay,
+      nextActionLabel:
+        'Open the application and finish the unsupported fields manually',
+      checkpoints: [
+        ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+        {
+          id: `checkpoint_${job.id}_open_listing`,
+          at: now,
+          label: 'Opened Easy Apply',
+          detail:
+            'The catalog runtime validated the listing and started the Easy Apply flow.',
+          state: 'in_progress',
+        },
+        {
+          id: `checkpoint_${job.id}_resume_attached`,
+          at: now,
+          label: 'Attached tailored resume',
+          detail: `Attached approved resume export from ${resumeFilePath}.`,
+          state: 'in_progress',
+        },
+        {
+          id: `checkpoint_${job.id}_manual_review`,
+          at: now,
+          label: 'Paused for manual review',
+          detail: 'Unsupported questions were detected before submission.',
+          state: 'paused',
+        },
+      ],
+    })
+  }
+
+  return ApplyExecutionResultSchema.parse({
+    state: 'submitted',
+    summary: 'Application submitted through supported Easy Apply path',
+    detail: `${job.title} at ${job.company} was submitted using the deterministic catalog runtime.`,
+    submittedAt: now,
+    outcome: 'submitted',
+    questions: capturedQuestions,
+    blocker: null,
+    consentDecisions: [
+      {
+        id: `consent_${job.id}_resume_use`,
+        kind: 'resume_use',
+        label: 'Use approved resume for this application',
+        status: 'approved',
+        decidedAt: now,
+        detail: 'Approved by the deterministic catalog runtime for seeded tests.',
+      },
+    ],
+    replay,
+    nextActionLabel: null,
+    checkpoints: [
+      ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
+      {
+        id: `checkpoint_${job.id}_started`,
+        at: now,
+        label: 'Application started',
+        detail: 'The supported Easy Apply path was opened.',
+        state: 'in_progress',
+      },
+      {
+        id: `checkpoint_${job.id}_submitted`,
+        at: now,
+        label: 'Submission confirmed',
+        detail: 'The supported Easy Apply path completed successfully.',
+        state: 'submitted',
+      },
+    ],
+  })
+}
 
 export function createCatalogBrowserSessionRuntime(
   seed: CatalogBrowserSessionRuntimeSeed,
@@ -41,14 +671,10 @@ export function createCatalogBrowserSessionRuntime(
     })
   }
 
-  const catalogSessionAgent = createCatalogSessionAgent({
-    getSessionState: getSession,
-    listCatalogJobs(source) {
-      return catalog
-        .filter((job) => job.source === source)
-        .map((job) => cloneValue(job))
-    },
-  })
+  const listCatalogJobs = (source: JobSource) =>
+    catalog
+      .filter((job) => job.source === source)
+      .map((job) => cloneValue(job))
 
   return {
     getSessionState(source) {
@@ -83,14 +709,108 @@ export function createCatalogBrowserSessionRuntime(
       sessions.set(source, closedState)
       return Promise.resolve(closedState)
     },
-    runDiscovery: (source, searchPreferences) =>
-      catalogSessionAgent.runDiscovery(source, searchPreferences),
-    executeEasyApply: (source, input) =>
-      catalogSessionAgent.executeEasyApply(source, input),
-    executeApplicationFlow: (source, input) =>
-      catalogSessionAgent.executeApplicationFlow(source, input),
-    runAgentDiscovery: (source, options) =>
-      catalogSessionAgent.runAgentDiscovery(source, options),
+    runDiscovery(source, searchPreferences) {
+      const session = getSession(source)
+
+      if (session.status !== 'ready') {
+        return Promise.reject(buildSessionBlockedResult(session))
+      }
+
+      const startedAt = new Date().toISOString()
+      const filteredJobs = filterCatalogDiscoveryJobs(
+        listCatalogJobs(source),
+        searchPreferences,
+      )
+
+      return Promise.resolve(
+        DiscoveryRunResultSchema.parse({
+          source,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          querySummary: buildDiscoveryQuerySummary(searchPreferences),
+          warning:
+            filteredJobs.length === 0
+              ? 'No supported listings matched the current preferences in the configured discovery target.'
+              : null,
+          jobs: filteredJobs,
+        }),
+      )
+    },
+    executeEasyApply(source, input: ExecuteEasyApplyInput) {
+      const session = getSession(source)
+
+      if (session.status !== 'ready') {
+        return Promise.reject(buildSessionBlockedResult(session))
+      }
+
+      return Promise.resolve(executeCatalogApplicationFlow({
+        ...input,
+        mode: 'submit_when_ready',
+      }))
+    },
+    executeApplicationFlow(source, input: ExecuteApplicationFlowInput) {
+      const session = getSession(source)
+
+      if (session.status !== 'ready') {
+        return Promise.reject(buildSessionBlockedResult(session))
+      }
+
+      return Promise.resolve(executeCatalogApplicationFlow(input))
+    },
+    runAgentDiscovery(source, options) {
+      const session = getSession(source)
+
+      if (!options.skipSessionValidation && session.status !== 'ready') {
+        return Promise.reject(buildSessionBlockedResult(session))
+      }
+
+      const startingUrl = getStartingUrl(options)
+      options.onProgress?.({
+        currentUrl: startingUrl,
+        jobsFound: 0,
+        stepCount: 1,
+        currentAction: 'navigate',
+        targetId: null,
+        adapterKind: source,
+      })
+      const filteredJobs = filterCatalogAgentDiscoveryJobs(
+        listCatalogJobs(source),
+        options,
+      )
+      options.onProgress?.({
+        currentUrl: startingUrl,
+        jobsFound: filteredJobs.length,
+        stepCount: 2,
+        currentAction: 'extract_jobs',
+        targetId: null,
+        adapterKind: source,
+      })
+
+      return Promise.resolve(
+        DiscoveryRunResultSchema.parse({
+          source,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          querySummary: `${options.searchPreferences.targetRoles.join(', ') || 'all roles'} | ${options.searchPreferences.locations.join(', ') || 'all locations'} | ${options.siteLabel}`,
+          warning:
+            filteredJobs.length === 0
+              ? `No catalog jobs matched the current ${options.siteLabel} target.`
+              : null,
+          jobs: filteredJobs,
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 0,
+            reviewTranscript: [],
+            compactionState: null,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        }),
+      )
+    },
   }
 }
 

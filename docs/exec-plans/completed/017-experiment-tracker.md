@@ -52,15 +52,18 @@ This file retains the working log for completed plan `017`: current baselines, c
 - Added evidence-driven query-first starts and removed brittle KosovaJob city/industry mappings
 - Improved weak-board review budgets and technical-role fallback for KosovaJob-like sources
 - Reduced one source-debug cost by skipping final AI review for first-run draft-only failures
+- Completed proven-draft source-debug runs instead of marking them failed when replay adds no new evidence
+- Moved deterministic catalog-session behavior into `browser-runtime` so the seeded runtime no longer imports catalog behavior from `browser-agent`
+- Added generic extraction repair for reversed `company at role` title/company pollution
 
 ## Accepted Residuals
 
 - Default seeded benchmark runs are not a truthful proxy for the `017` product bar because the committed fixture uses a London/design profile that does not match the current-workspace LinkedIn and KosovaJob targets used in truthful reruns
-- shared discovery still contains some source-named helper debt from the LinkedIn recovery work, even after the first cleanup pass
-- LinkedIn now persists multiple candidates in the rebuilt real app, but some extracted titles and companies remain polluted
-- `Check source` still does too much work before returning control
+- source-named labels may remain where they are provider metadata, profile fields, fixtures, benchmark targets, or reusable adapter data
+- LinkedIn can still surface future title/company quality edge cases; fix only concrete observed patterns
+- `Check source` may still warrant future speed work if fresh full-app evidence shows product friction
 - KosovaJob is now starting from a better homepage query route, but `0` persisted jobs can be valid when the board has few suitable matches for the current resume; judge future work by visible-fit evidence, not count alone
-- Provider-backed source-debug still needs restabilization
+- Provider-backed source-debug should be re-tested when a new browser-loop plan opens
 
 ## Reopenable Follow-Ups
 

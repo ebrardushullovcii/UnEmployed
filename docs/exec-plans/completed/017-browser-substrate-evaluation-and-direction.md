@@ -38,17 +38,19 @@ Primary user-facing bar:
 - Several source-generic cleanup passes landed: no LinkedIn-only direct pass, generic low-yield rescue, generic search-surface naming, reusable adapter tables, centralized route handling, denied-route-aware start reuse, and faster review stop conditions
 - Source-debug now uses generic phase selection and step-budget reduction when existing evidence makes full exploration lower value
 - Desktop benchmark harness fixes are landed: single-session single-target flows, temporary disabled-target scoping, and end-to-end current-workspace session reuse
+- Source-debug now leaves proven draft-guidance runs completed instead of failed when replay adds no new evidence
+- Generic title/company extraction now repairs observed `company at role` pollution without adding source-specific core flow
+- The seeded catalog runtime no longer imports catalog-session behavior from `browser-agent`; `browser-runtime` owns that deterministic session primitive directly
 - Truthful rebuilt desktop benchmarks moved LinkedIn from the old `0`/`1 persisted` ceiling to `5` in single-target `Search now` and `6` in LinkedIn-only `run_all`
 - Kosovajob remains the weakest real target for speed and quality, but `0` persisted jobs is acceptable when few visible jobs match the current resume
 - Full app-triggered flows are the benchmark source of truth, not narrower service slices
 
 ## Accepted Residuals
 
-1. `Check source` can still be optimized, but further work should be scoped as a concrete product-speed task
-2. Some extracted title/company pollution can be cleaned when it affects user-visible quality
+1. `Check source` can still be optimized with fresh full-app evidence, but known finish-state cleanup for proven draft guidance is landed
+2. Title/company quality can be improved for new concrete patterns when observed
 3. Kosovajob should be judged by visible-fit evidence, not persisted count alone, because the board can have few suitable matches
-4. `browser-runtime` still has a catalog-session seam that depends on `browser-agent`; fix it when touching runtime ownership
-5. Future truthful desktop benchmarks must run against a rebuilt desktop bundle; `benchmark-job-finder-app.mjs` launches `out/main/index.cjs` and does not rebuild automatically
+4. Future truthful desktop benchmarks must run against a rebuilt desktop bundle; `benchmark-job-finder-app.mjs` launches `out/main/index.cjs` and does not rebuild automatically
 
 ## Latest Truthful Checkpoints
 

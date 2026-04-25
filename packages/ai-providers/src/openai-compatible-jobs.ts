@@ -10,6 +10,7 @@ import {
   describeInvalidFieldCounts,
   inferCompanyFromCanonicalUrl,
   normalizeCompositeTitle,
+  normalizeTitleCompanyPair,
 } from "./deterministic";
 
 const jobBoardHostFragments = [
@@ -259,6 +260,15 @@ export function normalizeExtractedJobs(input: {
       continue;
     }
 
+    const rawCompany = trimToNull(raw.company);
+    const normalizedPair = normalizeTitleCompanyPair({
+      title: originalRawTitle ?? normalizedTitle,
+      company: rawCompany,
+    });
+    const pairChanged =
+      normalizedPair.title !== (originalRawTitle ?? normalizedTitle) ||
+      normalizedPair.company !== rawCompany;
+    const normalizedJobTitle = pairChanged ? normalizedPair.title : normalizedTitle;
     const responsibilities = toStringArray(raw.responsibilities);
     const minimumQualifications = toStringArray(
       raw.minimumQualifications ?? raw.requirements ?? raw.qualifications,
@@ -269,7 +279,7 @@ export function normalizeExtractedJobs(input: {
     const rawDescription = trimToNull(toStr(raw.description));
     const employerWebsiteUrl = toUrlOrNull(raw.employerWebsiteUrl);
     const normalizedCompany =
-      trimToNull(raw.company) ?? inferCompanyFromCanonicalUrl(derivedCanonicalUrl);
+      normalizedPair.company ?? inferCompanyFromCanonicalUrl(derivedCanonicalUrl);
     const normalizedLocation =
       trimToNull(raw.location) ?? normalizedCompositeTitle.location;
     const normalizedPostedAtText =
@@ -280,7 +290,7 @@ export function normalizeExtractedJobs(input: {
         ? trimToNull(raw.summary)
         : (trimToNull(raw.summary) ??
           summarizeJobPosting({
-            title: normalizedTitle,
+            title: normalizedJobTitle,
             company: normalizedCompany ?? "",
             description: rawDescription ?? "",
             responsibilities,
@@ -292,15 +302,15 @@ export function normalizeExtractedJobs(input: {
       (input.pageType === "search_results"
         ? (summary ??
           (normalizedCompany
-            ? `${normalizedTitle} opportunity at ${normalizedCompany}`
-            : `${normalizedTitle} opportunity`))
+            ? `${normalizedJobTitle} opportunity at ${normalizedCompany}`
+            : `${normalizedJobTitle} opportunity`))
         : (summary ?? ""));
     const candidate = {
       source: "target_site" as const,
       sourceJobId: derivedSourceJobId,
       discoveryMethod: "browser_agent" as const,
       canonicalUrl: derivedCanonicalUrl,
-      title: normalizedTitle,
+      title: normalizedJobTitle,
       company: normalizedCompany ?? "",
       location: normalizedLocation ?? "",
       workMode: toWorkModeArray(raw.workMode),

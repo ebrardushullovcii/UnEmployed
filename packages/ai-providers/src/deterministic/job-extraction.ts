@@ -58,6 +58,10 @@ function trimStringToNull(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function trimOptionalStringToNull(value: string | null | undefined): string | null {
+  return typeof value === "string" ? trimStringToNull(value) : null;
+}
+
 function isLocationLike(value: string): boolean {
   const normalized = trimStringToNull(value);
   if (!normalized || normalized.length > 80) {
@@ -162,6 +166,53 @@ export function normalizeCompositeTitle(value: string): {
     location,
     postedAtText,
   };
+}
+
+export function normalizeTitleCompanyPair(input: {
+  title: string;
+  company: string | null;
+}): { title: string; company: string | null } {
+  const title = trimStringToNull(input.title) ?? "";
+  const company = trimOptionalStringToNull(input.company);
+  const atMatch = title.match(/^(.+?)\s+at\s+(.+)$/i);
+
+  if (!atMatch) {
+    return { title, company };
+  }
+
+  const beforeAt = trimStringToNull(atMatch[1] ?? "");
+  const afterAt = trimStringToNull(atMatch[2] ?? "");
+
+  if (!beforeAt || !afterAt) {
+    return { title, company };
+  }
+
+  const beforeLooksRole = beforeAt
+    .split(/\s+/)
+    .some((token) => ROLE_TOKEN_PATTERN.test(token.replace(/[^\p{L}\p{N}]+/gu, "")));
+  const afterLooksRole = afterAt
+    .split(/\s+/)
+    .some((token) => ROLE_TOKEN_PATTERN.test(token.replace(/[^\p{L}\p{N}]+/gu, "")));
+
+  if (company && afterAt.toLowerCase() === company.toLowerCase()) {
+    return { title: beforeAt, company };
+  }
+
+  if (company && beforeAt.toLowerCase() === company.toLowerCase() && afterLooksRole) {
+    return { title: afterAt, company };
+  }
+
+  if (!company) {
+    if (beforeLooksRole && !afterLooksRole) {
+      return { title: beforeAt, company: afterAt };
+    }
+
+    if (afterLooksRole && !beforeLooksRole) {
+      return { title: afterAt, company: beforeAt };
+    }
+  }
+
+  return { title, company };
 }
 
 export function inferCompanyFromCanonicalUrl(url: string): string | null {

@@ -3,6 +3,7 @@ import { createJobFinderAiClientFromEnvironment } from "./index";
 import {
   inferCompanyFromCanonicalUrl,
   normalizeCompositeTitle,
+  normalizeTitleCompanyPair,
 } from "./deterministic/job-extraction";
 import { createEnvironment, mockJsonFetch } from "./test-fixtures";
 
@@ -106,6 +107,32 @@ describe("normalizeCompositeTitle", () => {
     expect(normalizeCompositeTitle("Manager Field Operations")).toMatchObject({
       title: "Manager Field Operations",
       location: null,
+    });
+  });
+});
+
+describe("normalizeTitleCompanyPair", () => {
+  test("repairs reversed title and company text around at separators", () => {
+    expect(
+      normalizeTitleCompanyPair({
+        title: "Crossing Hurdles EMEA Remote at Software Engineer Fullstack",
+        company: "Crossing Hurdles EMEA Remote",
+      }),
+    ).toMatchObject({
+      title: "Software Engineer Fullstack",
+      company: "Crossing Hurdles EMEA Remote",
+    });
+  });
+
+  test("derives missing company from normal title at company text", () => {
+    expect(
+      normalizeTitleCompanyPair({
+        title: "Backend Engineer at Signal Systems",
+        company: null,
+      }),
+    ).toMatchObject({
+      title: "Backend Engineer",
+      company: "Signal Systems",
     });
   });
 });
@@ -505,6 +532,53 @@ describe("job extraction with openai-compatible client", () => {
         postedAtText: "11 ditë",
         description:
           "Category Manager, Fashion, Sports & Outdoor (E-Commerce) opportunity at Shopaz",
+      });
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("repairs reversed company-at-title search results before validation", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              jobs: [
+                {
+                  title:
+                    "Crossing Hurdles EMEA Remote at Software Engineer Fullstack",
+                  company: "Crossing Hurdles EMEA Remote",
+                  location: "Remote",
+                  canonicalUrl:
+                    "https://www.linkedin.com/jobs/view/software-engineer-fullstack",
+                  description: "Build distributed product systems.",
+                  applyPath: "unknown",
+                  easyApplyEligible: false,
+                  workMode: ["remote"],
+                  keySkills: ["TypeScript"],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+
+      const jobs = await client.extractJobsFromPage({
+        pageText: "LinkedIn search results",
+        pageUrl: "https://www.linkedin.com/jobs/search/",
+        pageType: "search_results",
+        maxJobs: 5,
+      });
+
+      expect(jobs[0]).toMatchObject({
+        title: "Software Engineer Fullstack",
+        company: "Crossing Hurdles EMEA Remote",
       });
     } finally {
       restoreFetch();

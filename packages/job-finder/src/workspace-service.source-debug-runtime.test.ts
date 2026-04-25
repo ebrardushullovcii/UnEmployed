@@ -955,7 +955,7 @@ describe("createJobFinderWorkspaceService", () => {
       await repository.listSourceInstructionArtifacts()
     ).at(-1);
 
-    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("failed");
+    expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("completed");
     expect(latestArtifact?.status).toBe("draft");
     expect(latestRunId).toBeTruthy();
 
