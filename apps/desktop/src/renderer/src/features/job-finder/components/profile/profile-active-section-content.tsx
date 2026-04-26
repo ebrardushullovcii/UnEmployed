@@ -17,8 +17,12 @@ import type { ProfileSection } from '../../lib/profile-screen-progress'
 interface ProfileActiveSectionContentProps {
   activeSection: ProfileSection
   backgroundArrays: ProfileBackgroundArrays
-  busy: boolean
   experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', ProfileFieldArrayKeyName>
+  isProfileMutationPending: boolean
+  isSourceDebugPending: (targetId: string) => boolean
+  isSourceInstructionPending: (targetId: string) => boolean
+  isSourceInstructionVerifyPending: (instructionId: string) => boolean
+  isTargetDiscoveryPending: (targetId: string) => boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
@@ -33,8 +37,12 @@ interface ProfileActiveSectionContentProps {
 export function ProfileActiveSectionContent({
   activeSection,
   backgroundArrays,
-  busy,
   experienceArray,
+  isProfileMutationPending,
+  isSourceDebugPending,
+  isSourceInstructionPending,
+  isSourceInstructionVerifyPending,
+  isTargetDiscoveryPending,
   onGetSourceDebugRunDetails,
   onRunDiscoveryForTarget,
   onRunSourceDebug,
@@ -47,11 +55,15 @@ export function ProfileActiveSectionContent({
 }: ProfileActiveSectionContentProps) {
   const content: Record<ProfileSection, ReactNode> = {
     basics: <ProfileCoreTab profileForm={profileForm} />,
-    experience: <ProfileExperienceTab busy={busy} experienceArray={experienceArray} profileForm={profileForm} />,
-    background: <ProfileBackgroundTab backgroundArrays={backgroundArrays} busy={busy} profileForm={profileForm} />,
+    experience: <ProfileExperienceTab busy={isProfileMutationPending} experienceArray={experienceArray} profileForm={profileForm} />,
+    background: <ProfileBackgroundTab backgroundArrays={backgroundArrays} busy={isProfileMutationPending} profileForm={profileForm} />,
     preferences: (
       <ProfilePreferencesTab
-        busy={busy}
+        busy={isProfileMutationPending}
+        isSourceDebugPending={isSourceDebugPending}
+        isSourceInstructionPending={isSourceInstructionPending}
+        isSourceInstructionVerifyPending={isSourceInstructionVerifyPending}
+        isTargetDiscoveryPending={isTargetDiscoveryPending}
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
         {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
         onRunSourceDebug={onRunSourceDebug}

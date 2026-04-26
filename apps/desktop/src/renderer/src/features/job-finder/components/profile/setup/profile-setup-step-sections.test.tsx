@@ -63,8 +63,9 @@ describe('ProfileSetupImportStep', () => {
     act(() => {
       root?.render(
         <ProfileSetupImportStep
-          busy={false}
           importDisabledReason="Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten."
+          isImportResumePending={false}
+          isProfileSetupPending={false}
           latestResumeImportReviewCandidates={[]}
           onContinueToProfile={vi.fn()}
           onImportResume={vi.fn()}

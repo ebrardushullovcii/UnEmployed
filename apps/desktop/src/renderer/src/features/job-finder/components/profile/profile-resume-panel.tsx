@@ -13,8 +13,9 @@ import { PreferenceList } from '../preference-list'
 import { StatusBadge } from '../status-badge'
 
 interface ProfileResumePanelProps {
-  busy: boolean
   importDisabledReason?: string | null
+  isAnalyzeProfilePending: boolean
+  isImportResumePending: boolean
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
   latestResumeImportRun: ResumeImportRun | null
   onAnalyzeProfileFromResume: () => void
@@ -102,8 +103,9 @@ function getResumePanelCopy(input: {
 }
 
 export function ProfileResumePanel({
-  busy,
   importDisabledReason,
+  isAnalyzeProfilePending,
+  isImportResumePending,
   latestResumeImportReviewCandidates,
   latestResumeImportRun,
   onAnalyzeProfileFromResume,
@@ -194,13 +196,14 @@ export function ProfileResumePanel({
             </div>
 
             <div className="flex flex-wrap gap-2.5">
-              <Button className="h-11 px-4" disabled={busy || Boolean(importDisabledReason)} onClick={onImportResume} type="button" variant="secondary">
+              <Button className="h-11 px-4" disabled={Boolean(importDisabledReason)} pending={isImportResumePending} onClick={onImportResume} type="button" variant="secondary">
                 <Upload className="size-4" />
                 {hasImportedResume ? 'Replace resume' : 'Import resume'}
               </Button>
               <Button
                 className="h-11 px-4"
-                disabled={busy || !resumeTextReadyToAnalyze || Boolean(importDisabledReason)}
+                disabled={isAnalyzeProfilePending || !resumeTextReadyToAnalyze || Boolean(importDisabledReason)}
+                pending={isAnalyzeProfilePending}
                 onClick={onAnalyzeProfileFromResume}
                 type="button"
                 variant="primary"

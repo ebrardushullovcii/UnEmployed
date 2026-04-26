@@ -15,6 +15,10 @@ import type { ProfileFieldArrayKeyName } from './profile-field-array-types'
 interface ProfilePreferencesTabProps {
   busy: boolean
   customAnswerArray: UseFieldArrayReturn<ProfileEditorValues, 'answerBank.customAnswers', ProfileFieldArrayKeyName>
+  isSourceDebugPending: (targetId: string) => boolean
+  isSourceInstructionPending: (targetId: string) => boolean
+  isSourceInstructionVerifyPending: (instructionId: string) => boolean
+  isTargetDiscoveryPending: (targetId: string) => boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
@@ -29,6 +33,10 @@ interface ProfilePreferencesTabProps {
 export function ProfilePreferencesTab({
   busy,
   customAnswerArray,
+  isSourceDebugPending,
+  isSourceInstructionPending,
+  isSourceInstructionVerifyPending,
+  isTargetDiscoveryPending,
   onGetSourceDebugRunDetails,
   onRunDiscoveryForTarget,
   onRunSourceDebug,
@@ -82,6 +90,10 @@ export function ProfilePreferencesTab({
         addDiscoveryTarget={addDiscoveryTarget}
         busy={busy}
         discoveryTargets={discoveryTargets}
+        isSourceDebugPending={isSourceDebugPending}
+        isSourceInstructionPending={isSourceInstructionPending}
+        isSourceInstructionVerifyPending={isSourceInstructionVerifyPending}
+        isTargetDiscoveryPending={isTargetDiscoveryPending}
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
         {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
         onRunSourceDebug={onRunSourceDebug}

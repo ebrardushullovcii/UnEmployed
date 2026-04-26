@@ -257,6 +257,5 @@ export type BadgeTone =
   | "positive";
 
 export interface ActionState {
-  busy: boolean;
   message: string | null;
 }

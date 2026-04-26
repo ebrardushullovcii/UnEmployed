@@ -73,8 +73,9 @@ interface FooterOptions {
 export type RenderFooter = (options?: FooterOptions) => ReactNode
 
 export function ProfileSetupImportStep(props: {
-  busy: boolean
   importDisabledReason?: string | null
+  isImportResumePending: boolean
+  isProfileSetupPending: boolean
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
   onContinueToProfile: () => void
   onImportResume: () => void
@@ -119,9 +120,9 @@ export function ProfileSetupImportStep(props: {
         ) : null}
 
         <div className="flex flex-wrap gap-3">
-          <Button disabled={props.busy || Boolean(props.importDisabledReason)} onClick={props.onImportResume} type="button">Import or refresh resume</Button>
-          <Button disabled={props.busy} onClick={() => props.onSaveAndGoToStep('essentials')} type="button" variant="secondary">Continue without resume</Button>
-          <Button disabled={props.busy} onClick={props.onContinueToProfile} type="button" variant="ghost">Open full Profile instead</Button>
+          <Button disabled={Boolean(props.importDisabledReason)} pending={props.isImportResumePending} onClick={props.onImportResume} type="button">Import or refresh resume</Button>
+          <Button pending={props.isProfileSetupPending} onClick={() => props.onSaveAndGoToStep('essentials')} type="button" variant="secondary">Continue without resume</Button>
+          <Button pending={props.isProfileSetupPending} onClick={props.onContinueToProfile} type="button" variant="ghost">Open full Profile instead</Button>
         </div>
         {props.importDisabledReason ? (
           <p className="text-sm leading-6 text-foreground-soft">{props.importDisabledReason}</p>

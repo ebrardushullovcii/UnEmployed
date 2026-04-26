@@ -16,7 +16,8 @@ import {
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
   browserSession: BrowserSessionState
-  busy: boolean
+  isApplyPending: boolean
+  isJobPending: (jobId: string) => boolean
   onClearQueueSelection: () => void
   onApproveApply: (jobId: string) => void
   onStartAutoApply: (jobId: string) => void
@@ -181,7 +182,8 @@ function getReadinessDescription(input: {
 export function ReviewQueueMissionPanel({
   actionMessage,
   browserSession,
-  busy,
+  isApplyPending,
+  isJobPending,
   onClearQueueSelection,
   onApproveApply,
   onStartAutoApply,
@@ -297,6 +299,8 @@ export function ReviewQueueMissionPanel({
   const selectedQueueBlockedCount = selectedQueueItems.length - selectedQueueReadyItems.length
   const queueReadyCount = queue.filter((item) => isQueueStageReady(item)).length
   const canStageSelectedQueue = selectedQueueReadyItems.length > 0 && selectedQueueBlockedCount === 0
+  const isSelectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
+  const isSelectedQueuePending = selectedQueueReadyItems.some((item) => isJobPending(item.jobId))
   const queueSummary = selectedQueueItems.length === 0
     ? queueReadyCount === 0
       ? 'No shortlisted jobs currently meet the approved-PDF requirement for queue staging.'
@@ -406,8 +410,9 @@ export function ReviewQueueMissionPanel({
             <div className="grid min-w-0 gap-2.5">
               <Button
                 className="h-11 w-full"
+                pending={isSelectedJobPending || isApplyPending}
                 variant="primary"
-                disabled={busy || isGenerating || (needsGeneration || hasGenerationFailure ? false : !canApproveApply)}
+                disabled={isSelectedJobPending || isApplyPending || isGenerating || (needsGeneration || hasGenerationFailure ? false : !canApproveApply)}
                 onClick={() => {
                   if (needsGeneration || hasGenerationFailure) {
                     onGenerateResume(selectedItem.jobId)
@@ -422,7 +427,8 @@ export function ReviewQueueMissionPanel({
               </Button>
               <Button
                 className="h-11 w-full"
-                disabled={busy || isGenerating || !canApproveApply}
+                pending={isSelectedJobPending || isApplyPending}
+                disabled={isSelectedJobPending || isApplyPending || isGenerating || !canApproveApply}
                 onClick={() => onStartAutoApply(selectedItem.jobId)}
                 type="button"
                 variant="secondary"
@@ -431,7 +437,8 @@ export function ReviewQueueMissionPanel({
               </Button>
               <Button
                 className="h-11 w-full"
-                disabled={busy || !canStageSelectedQueue}
+                pending={isApplyPending || isSelectedQueuePending}
+                disabled={isApplyPending || isSelectedQueuePending || !canStageSelectedQueue}
                 onClick={() => onStartAutoApplyQueue(selectedQueueReadyItems.map((item) => item.jobId))}
                 type="button"
                 variant="secondary"
@@ -442,7 +449,8 @@ export function ReviewQueueMissionPanel({
               </Button>
               <Button
                 className="h-11 w-full"
-                disabled={busy || isGenerating || !canApproveApply}
+                pending={isSelectedJobPending || isApplyPending}
+                disabled={isSelectedJobPending || isApplyPending || isGenerating || !canApproveApply}
                 onClick={() => onApproveApply(selectedItem.jobId)}
                 type="button"
                 variant="ghost"

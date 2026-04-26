@@ -25,8 +25,10 @@ const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
 interface DiscoveryFiltersPanelProps {
   activeRun: DiscoveryRunRecord | null;
   actionMessage: string | null;
-  busy: boolean;
   discoverySessions: readonly DiscoveryAdapterSessionState[];
+  isBrowserSessionPending: boolean;
+  isDiscoveryAllPending: boolean;
+  isTargetPending: (targetId: string) => boolean;
   onOpenBrowserSession: () => void;
   onRunAgentDiscovery: (() => void) | undefined;
   onRunDiscoveryForTarget?: (targetId: string) => void;
@@ -57,8 +59,10 @@ function getBrowserStatusLabel(status: BrowserSessionState["status"]): string {
 export function DiscoveryFiltersPanel({
   activeRun,
   actionMessage,
-  busy,
   discoverySessions,
+  isBrowserSessionPending,
+  isDiscoveryAllPending,
+  isTargetPending,
   onOpenBrowserSession,
   onRunAgentDiscovery,
   onRunDiscoveryForTarget,
@@ -128,7 +132,7 @@ export function DiscoveryFiltersPanel({
   const needsLogin = displaySessionSnapshot.status === "login_required";
   const isBlocked = displaySessionSnapshot.status === "blocked";
   const canRunDiscovery =
-    Boolean(onRunAgentDiscovery) && hasRunnableTarget && !busy;
+    Boolean(onRunAgentDiscovery) && hasRunnableTarget && !isDiscoveryAllPending;
   const activeTargetId =
     activeRun?.state === "running" && activeRun.scope === "single_target"
       ? activeRun.targetIds[0] ?? null
@@ -260,7 +264,7 @@ export function DiscoveryFiltersPanel({
                         aria-label={`Run discovery for ${target.label}`}
                         aria-pressed={isActiveSingleTarget}
                         className="h-auto min-h-11 w-full justify-between whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
-                        disabled={busy}
+                        pending={isTargetPending(target.id)}
                         key={target.id}
                         onClick={() => onRunDiscoveryForTarget(target.id)}
                         size="sm"
@@ -284,7 +288,7 @@ export function DiscoveryFiltersPanel({
           <div className="grid gap-2">
             <Button
               className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
-              disabled={busy}
+              pending={isBrowserSessionPending}
               onClick={onOpenBrowserSession}
               size="sm"
               type="button"
@@ -310,6 +314,7 @@ export function DiscoveryFiltersPanel({
             <Button
               className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-(--tracking-normal)"
               disabled={!canRunDiscovery}
+              pending={isDiscoveryAllPending}
               onClick={onRunAgentDiscovery}
               size="sm"
               type="button"

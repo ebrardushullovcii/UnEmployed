@@ -29,8 +29,8 @@ function getNewestExport(
 
 export function ResumeWorkspaceScreen(props: {
   actionMessage: string | null;
-  busy: boolean;
   jobId: string;
+  isWorkspacePending: boolean;
   workspace: JobFinderResumeWorkspace | null;
   assistantMessages: readonly ResumeAssistantMessage[];
   assistantPending: boolean;
@@ -224,9 +224,9 @@ export function ResumeWorkspaceScreen(props: {
           actionMessage={props.actionMessage}
           approvedExportId={approvedExport?.id ?? null}
           availableExportIdToApprove={availableExportToApprove?.id ?? null}
-          busy={props.busy}
           draft={draft}
           hasUnsavedChanges={hasUnsavedChanges}
+          isWorkspacePending={props.isWorkspacePending}
           jobId={props.jobId}
           onApplyPatch={props.onApplyPatch}
           onApproveResume={props.onApproveResume}
@@ -256,7 +256,7 @@ export function ResumeWorkspaceScreen(props: {
           <ResumeWorkspaceSecondaryRail
             assistantMessages={props.assistantMessages}
             assistantPending={props.assistantPending}
-            busy={props.busy}
+            isWorkspacePending={props.isWorkspacePending}
             onSendAssistantMessage={(content) =>
               runWithSavedDraftAsync(
                 () => props.onSendAssistantMessage(props.jobId, content),

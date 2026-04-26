@@ -18,7 +18,12 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Active
 
-- none
+- `020 Job Finder Scoped Button Pending State And Feedback`
+
+- status: `in_progress`
+- linked plan: `docs/exec-plans/active/020-job-finder-scoped-button-pending-state-and-feedback.md`
+- replace global Job Finder button busy fan-out with scoped pending state and stronger disabled/in-progress feedback
+- keep concurrency safe by preserving discovery/source-debug single-flight behavior and scoping other locks to the smallest real conflict surface
 
 ## Reopenable Baselines
 

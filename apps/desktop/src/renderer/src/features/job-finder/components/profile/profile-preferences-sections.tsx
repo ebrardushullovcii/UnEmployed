@@ -24,6 +24,10 @@ export function ProfilePreferencesTargetingSection(props: {
   addDiscoveryTarget: () => void
   busy: boolean
   discoveryTargets: SearchPreferencesEditorValues['discoveryTargets']
+  isSourceDebugPending: (targetId: string) => boolean
+  isSourceInstructionPending: (targetId: string) => boolean
+  isSourceInstructionVerifyPending: (instructionId: string) => boolean
+  isTargetDiscoveryPending: (targetId: string) => boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
@@ -172,6 +176,10 @@ export function ProfilePreferencesTargetingSection(props: {
                 discoveryTargets={props.discoveryTargets}
                 index={index}
                 instructionArtifact={instructionArtifact}
+                isSourceDebugPending={props.isSourceDebugPending}
+                isSourceInstructionPending={props.isSourceInstructionPending}
+                isSourceInstructionVerifyPending={props.isSourceInstructionVerifyPending}
+                isTargetDiscoveryPending={props.isTargetDiscoveryPending}
                 key={target.id}
                 onGetSourceDebugRunDetails={props.onGetSourceDebugRunDetails}
                 {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}

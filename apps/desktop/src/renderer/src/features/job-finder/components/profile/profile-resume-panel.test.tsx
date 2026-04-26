@@ -64,8 +64,9 @@ describe('ProfileResumePanel', () => {
     act(() => {
       root?.render(
         <ProfileResumePanel
-          busy={false}
           importDisabledReason="Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten."
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
           latestResumeImportReviewCandidates={[]}
           latestResumeImportRun={null}
           onAnalyzeProfileFromResume={vi.fn()}
@@ -124,8 +125,9 @@ describe('ProfileResumePanel', () => {
     act(() => {
       root?.render(
         <ProfileResumePanel
-          busy={false}
           importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
           latestResumeImportReviewCandidates={[]}
           latestResumeImportRun={null}
           onAnalyzeProfileFromResume={vi.fn()}

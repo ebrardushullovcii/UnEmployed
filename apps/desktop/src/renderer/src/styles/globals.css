@@ -52,6 +52,7 @@
 
   --job-finder-side-width: 15.5rem;
   --job-finder-side-width-sm: 18.5rem;
+  --button-pending-rail: rgba(255, 255, 255, 0.85);
 
   background: var(--background);
   color: var(--foreground);
@@ -258,6 +259,7 @@
   --surface-overlay-subtle: rgba(255, 255, 255, 0.56);
   --surface-overlay-soft: rgba(24, 24, 22, 0.04);
   --surface-overlay-medium: rgba(24, 24, 22, 0.06);
+  --button-pending-rail: rgba(255, 255, 255, 0.92);
   --surface-overlay-list: rgba(24, 24, 22, 0.045);
   --surface-overlay-strong: rgba(24, 24, 22, 0.08);
   --surface-overlay-heavy: rgba(24, 24, 22, 0.12);
@@ -458,6 +460,20 @@ strong {
 
 .job-finder-shell-grid {
   grid-template-columns: var(--job-finder-side-width) minmax(0, 1fr) auto;
+}
+
+@keyframes button-pending-rail-slide {
+  0% {
+    transform: translateX(0%);
+  }
+
+  100% {
+    transform: translateX(390%);
+  }
+}
+
+.button-pending-rail {
+  animation: button-pending-rail-slide 1.05s linear infinite;
 }
 
 @media (min-width: 640px) {

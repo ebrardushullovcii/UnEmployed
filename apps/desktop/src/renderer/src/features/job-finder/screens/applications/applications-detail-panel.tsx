@@ -34,7 +34,6 @@ interface ApplicationsDetailPanelProps {
   applyRunDetailsStatus: "idle" | "loading" | "ready" | "error";
   applicationRecords: readonly ApplicationRecord[];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
-  busy: boolean;
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
   applyRunHistory: Array<{
     result: JobFinderWorkspaceSnapshot["applyJobResults"][number];
@@ -45,6 +44,9 @@ interface ApplicationsDetailPanelProps {
     | null;
   hasAnyApplications: boolean;
   hasVisibleApplications: boolean;
+  isApplyPending: boolean;
+  isApplyRequestPending: (requestId: string) => boolean;
+  isApplyRunPending: (runId: string) => boolean;
   onApproveApplyRun: (runId: string) => void;
   onCancelApplyRun: (runId: string) => void;
   onResolveApplyConsentRequest: (
@@ -196,12 +198,14 @@ export function ApplicationsDetailPanel({
   applyRunDetailsStatus,
   applicationRecords,
   applyJobResults,
-  busy,
   discoveryJobs,
   applyRunHistory,
   effectiveSelectedApplyResult,
   hasAnyApplications,
   hasVisibleApplications,
+  isApplyPending,
+  isApplyRequestPending,
+  isApplyRunPending,
   onApproveApplyRun,
   onCancelApplyRun,
   onResolveApplyConsentRequest,
@@ -300,6 +304,10 @@ export function ApplicationsDetailPanel({
     selectedRun?.mode === "queue_auto" &&
     selectedQueueRecoveryJobIds.length > 0;
   const selectedQueueOutcomeEntries = selectedQueueEntries;
+  const isSelectedRecordApplyPending = selectedRecord
+    ? isApplyPending
+    : false;
+  const isSelectedRunPending = selectedRun ? isApplyRunPending(selectedRun.id) : false;
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
@@ -493,9 +501,10 @@ export function ApplicationsDetailPanel({
                     onStartApplyCopilot(selectedRecord.jobId);
                   }
                 }}
+                pending={isSelectedRecordApplyPending}
                 type="button"
                 variant="secondary"
-                disabled={busy}
+                disabled={isSelectedRecordApplyPending}
               >
                 Rerun apply copilot
               </Button>
@@ -505,9 +514,10 @@ export function ApplicationsDetailPanel({
                     onStartAutoApply(selectedRecord.jobId);
                   }
                 }}
+                pending={isSelectedRecordApplyPending}
                 type="button"
                 variant="ghost"
-                disabled={busy || !canRestageAutoRun}
+                disabled={isSelectedRecordApplyPending || !canRestageAutoRun}
               >
                 Restage auto run
               </Button>
@@ -515,9 +525,10 @@ export function ApplicationsDetailPanel({
                 onClick={() =>
                   onStartAutoApplyQueue(selectedQueueRecoveryJobIds)
                 }
+                pending={isApplyPending}
                 type="button"
                 variant="ghost"
-                disabled={busy || !canRestageQueueRun}
+                disabled={isApplyPending || !canRestageQueueRun}
               >
                 Restage remaining queue
               </Button>
@@ -801,9 +812,10 @@ export function ApplicationsDetailPanel({
                           onClick={() =>
                             onApproveApplyRun(submitApproval.runId)
                           }
+                          pending={isApplyRunPending(submitApproval.runId)}
                           type="button"
                           variant="secondary"
-                          disabled={busy}
+                          disabled={isApplyRunPending(submitApproval.runId)}
                         >
                           Record submit approval
                         </Button>
@@ -816,9 +828,10 @@ export function ApplicationsDetailPanel({
                           onClick={() =>
                             onRevokeApplyRunApproval(submitApproval.runId)
                           }
+                          pending={isApplyRunPending(submitApproval.runId)}
                           type="button"
                           variant="ghost"
-                          disabled={busy}
+                          disabled={isApplyRunPending(submitApproval.runId)}
                         >
                           Revoke approval
                         </Button>
@@ -829,9 +842,10 @@ export function ApplicationsDetailPanel({
                           onClick={() =>
                             onCancelApplyRun(selectedApplyRunDetails.run.id)
                           }
+                          pending={isSelectedRunPending}
                           type="button"
                           variant="ghost"
-                          disabled={busy}
+                          disabled={isSelectedRunPending}
                         >
                           Cancel run
                         </Button>
@@ -1072,9 +1086,10 @@ export function ApplicationsDetailPanel({
                                     "approve",
                                   )
                                 }
+                                pending={isApplyRequestPending(request.id)}
                                 type="button"
                                 variant="secondary"
-                                disabled={busy}
+                                disabled={isApplyRequestPending(request.id)}
                               >
                                 Continue safely
                               </Button>
@@ -1085,9 +1100,10 @@ export function ApplicationsDetailPanel({
                                     "decline",
                                   )
                                 }
+                                pending={isApplyRequestPending(request.id)}
                                 type="button"
                                 variant="ghost"
-                                disabled={busy}
+                                disabled={isApplyRequestPending(request.id)}
                               >
                                 Skip this job
                               </Button>

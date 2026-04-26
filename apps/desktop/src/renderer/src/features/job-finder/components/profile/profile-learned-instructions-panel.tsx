@@ -9,9 +9,9 @@ import {
 } from './profile-source-debug-instruction-utils'
 
 interface ProfileLearnedInstructionsPanelProps {
-  busy: boolean
   editingInstruction: { field: LearnedInstructionSection['field']; normalizedKey: string } | null
   editingInstructionValue: string
+  isInstructionSavePending: boolean
   instructionArtifactDescription: string
   onBeginEditingInstruction: (
     section: LearnedInstructionSection,
@@ -30,9 +30,9 @@ interface ProfileLearnedInstructionsPanelProps {
 }
 
 export function ProfileLearnedInstructionsPanel({
-  busy,
   editingInstruction,
   editingInstructionValue,
+  isInstructionSavePending,
   instructionArtifactDescription,
   onBeginEditingInstruction,
   onCancelEditingInstruction,
@@ -96,14 +96,15 @@ export function ProfileLearnedInstructionsPanel({
                         />
                         <div className="flex flex-wrap gap-2">
                           <Button
-                            disabled={busy || normalizeEditableInstructionInput(section.field, editingInstructionValue).length === 0}
+                            disabled={normalizeEditableInstructionInput(section.field, editingInstructionValue).length === 0}
+                            pending={isInstructionSavePending}
                             onClick={onPersistEditedInstruction}
                             type="button"
                             variant="secondary"
                           >
                             Save
                           </Button>
-                          <Button disabled={busy} onClick={onCancelEditingInstruction} type="button" variant="ghost">
+                          <Button pending={isInstructionSavePending} onClick={onCancelEditingInstruction} type="button" variant="ghost">
                             Cancel
                           </Button>
                         </div>
@@ -114,7 +115,7 @@ export function ProfileLearnedInstructionsPanel({
                         <div className="flex shrink-0 flex-wrap gap-2">
                           <Button
                             aria-label={`Edit ${section.label.toLowerCase()}: ${line.displayText}`}
-                            disabled={busy}
+                            pending={isInstructionSavePending}
                             onClick={() => onBeginEditingInstruction(section, line)}
                             type="button"
                             variant="ghost"
@@ -123,7 +124,7 @@ export function ProfileLearnedInstructionsPanel({
                           </Button>
                           <Button
                             aria-label={`Remove ${section.label.toLowerCase()}: ${line.displayText}`}
-                            disabled={busy}
+                            pending={isInstructionSavePending}
                             onClick={() => onRemoveInstructionLine(section, line)}
                             type="button"
                             variant="ghost"

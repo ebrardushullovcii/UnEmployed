@@ -5,7 +5,7 @@ import { Slot } from "radix-ui"
 import { cn } from "@renderer/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap transition-[background-color,border-color,color,opacity,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-45 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "relative inline-flex shrink-0 items-center justify-center gap-2 overflow-hidden whitespace-nowrap transition-[background-color,border-color,color,opacity,box-shadow,transform] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:border-border/55 disabled:text-foreground-muted disabled:shadow-none disabled:saturate-75 disabled:opacity-65 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -41,25 +41,43 @@ const buttonVariants = cva(
 )
 
 function Button({
+  children,
   className,
   variant = "primary",
   size = "default",
   asChild = false,
+  disabled,
+  pending = false,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    pending?: boolean
   }) {
   const Comp = asChild ? Slot.Root : "button"
+  const isDisabled = disabled || pending
 
   return (
     <Comp
+      aria-busy={pending || undefined}
       data-slot="button"
+      data-pending={pending ? "true" : undefined}
       data-variant={variant}
       data-size={size}
       className={cn(buttonVariants({ variant, size, className }))}
+      disabled={isDisabled}
       {...props}
-    />
+    >
+      <span className={cn("relative z-10 inline-flex items-center justify-center gap-2", pending && "translate-y-[-0.5px]")}>{children}</span>
+      {pending ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] overflow-hidden bg-white/10"
+        >
+          <span className="button-pending-rail absolute inset-y-0 left-[-35%] w-[35%] rounded-full bg-[linear-gradient(90deg,transparent,var(--button-pending-rail),transparent)]" />
+        </span>
+      ) : null}
+    </Comp>
   )
 }
 

@@ -52,9 +52,9 @@ function formatInstructionActionLabel(artifact: SourceInstructionArtifact | null
 
 interface ProfileSourceDebugReviewModalContentProps {
   artifact: SourceInstructionArtifact | null
-  busy: boolean
   details: SourceDebugRunDetails | null
   errorMessage: string | null
+  isVerifyPending: (instructionId: string) => boolean
   loading: boolean
   onLoadRun: (runId: string) => void
   onVerify: (instructionId: string) => void
@@ -65,9 +65,9 @@ interface ProfileSourceDebugReviewModalContentProps {
 
 export function ProfileSourceDebugReviewModalContent({
   artifact,
-  busy,
   details,
   errorMessage,
+  isVerifyPending,
   loading,
   onLoadRun,
   onVerify,
@@ -160,7 +160,7 @@ export function ProfileSourceDebugReviewModalContent({
                 {artifact ? (
                   <div className="flex flex-wrap gap-2">
                     {primaryActionLabel ? (
-                      <Button disabled={busy} onClick={() => onVerify(artifact.id)} type="button" variant="ghost">
+                      <Button pending={isVerifyPending(artifact.id)} onClick={() => onVerify(artifact.id)} type="button" variant="ghost">
                         {primaryActionLabel}
                       </Button>
                     ) : null}

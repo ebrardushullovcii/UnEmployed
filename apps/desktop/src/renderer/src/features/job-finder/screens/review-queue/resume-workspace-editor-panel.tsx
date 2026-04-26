@@ -9,9 +9,9 @@ interface ResumeWorkspaceEditorPanelProps {
   actionMessage: string | null
   approvedExportId: string | null
   availableExportIdToApprove: string | null
-  busy: boolean
   draft: ResumeDraft
   hasUnsavedChanges: boolean
+  isWorkspacePending: boolean
   jobId: string
   onApplyPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void
   onApproveResume: (jobId: string, exportId: string) => void
@@ -40,7 +40,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
     <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-(--surface-panel-border) p-4">
         <Button
-          disabled={props.busy}
+          pending={props.isWorkspacePending}
           onClick={() => props.onSaveDraft(props.draft)}
           type="button"
           variant="primary"
@@ -48,7 +48,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
           Save draft
         </Button>
         <Button
-          disabled={props.busy}
+          pending={props.isWorkspacePending}
           onClick={() =>
             props.runWithSavedDraft(
               () => props.onRegenerateDraft(props.jobId),
@@ -62,7 +62,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
           Refresh draft
         </Button>
         <Button
-          disabled={props.busy}
+          pending={props.isWorkspacePending}
           onClick={() =>
             props.runWithSavedDraft(
               () => props.onExportPdf(props.jobId),
@@ -77,7 +77,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
         </Button>
         {props.approvedExportId ? (
           <Button
-            disabled={props.busy}
+            pending={props.isWorkspacePending}
             onClick={() =>
               props.runWithSavedDraftAsync(
                 () => props.onClearResumeApproval(props.jobId),
@@ -92,7 +92,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
         ) : null}
         {!props.approvedExportId && exportIdToApprove ? (
           <Button
-            disabled={props.busy}
+            pending={props.isWorkspacePending}
             onClick={() =>
               props.runWithSavedDraft(
                 () => props.onApproveResume(props.jobId, exportIdToApprove),
@@ -115,7 +115,7 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
         {props.draft.sections.map((section) => (
           <ResumeSectionEditor
             key={section.id}
-            disabled={props.busy}
+            disabled={props.isWorkspacePending}
             section={section}
             onChange={props.onSectionChange}
             onPatch={(patch, revisionReason) =>

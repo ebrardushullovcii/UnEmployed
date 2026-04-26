@@ -24,14 +24,14 @@ const fontPresetOptions: ReadonlyArray<{
 
 interface SettingsEditableDefaultsProps {
   actionMessage: string | null
-  busy: boolean
+  isSavePending: boolean
   onSaveSettings: (settings: JobFinderSettings) => void
   settings: JobFinderSettings
 }
 
 export function SettingsEditableDefaults({
   actionMessage,
-  busy,
+  isSavePending,
   onSaveSettings,
   settings
 }: SettingsEditableDefaultsProps) {
@@ -48,7 +48,7 @@ export function SettingsEditableDefaults({
   const isAppearanceThemeOption = (value: string): value is JobFinderSettings['appearanceTheme'] =>
     appearanceThemeOptions.some((option) => option.value === value)
   const updateSettingsForm = (updater: (current: JobFinderSettings) => JobFinderSettings) => {
-    if (busy) {
+    if (isSavePending) {
       return
     }
 
@@ -81,7 +81,7 @@ export function SettingsEditableDefaults({
             <Field>
               <FieldLabel htmlFor={appearanceId}>Appearance</FieldLabel>
               <FormSelect
-                disabled={busy}
+                disabled={isSavePending}
                 onValueChange={(value) => updateSettingsForm((current) => ({
                   ...current,
                   appearanceTheme: isAppearanceThemeOption(value) ? value : current.appearanceTheme
@@ -95,7 +95,7 @@ export function SettingsEditableDefaults({
             <Field className="md:col-span-2">
               <FieldLabel htmlFor={fontPresetId}>Resume font</FieldLabel>
               <FormSelect
-                disabled={busy}
+                disabled={isSavePending}
                 onValueChange={(value) => updateSettingsForm((current) => ({
                   ...current,
                   fontPreset: isFontPresetOption(value) ? value : current.fontPreset
@@ -140,7 +140,7 @@ export function SettingsEditableDefaults({
             <ToggleField
               checked={settingsForm.keepSessionAlive}
               description="Leave the browser open after searches and application steps instead of closing it when a run finishes."
-              disabled={busy}
+              disabled={isSavePending}
               hint="Keep this off if you want the browser to fully close after each run."
               label="Keep browser open after runs"
               onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, keepSessionAlive: checked }))}
@@ -148,7 +148,7 @@ export function SettingsEditableDefaults({
             <ToggleField
               checked={settingsForm.discoveryOnly}
               description="Keep new search results temporary until you shortlist them."
-              disabled={busy}
+              disabled={isSavePending}
               hint="Useful if you want a cleaner workspace with fewer saved jobs."
               label="Only keep jobs I shortlist"
               onCheckedChange={(checked) => updateSettingsForm((current) => ({ ...current, discoveryOnly: checked }))}
@@ -159,7 +159,7 @@ export function SettingsEditableDefaults({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-end gap-4 border-t border-border/10 pt-6">
-        <Button variant="primary" disabled={busy} onClick={() => onSaveSettings(settingsForm)} type="button">
+        <Button variant="primary" pending={isSavePending} onClick={() => onSaveSettings(settingsForm)} type="button">
           Save settings
         </Button>
       </div>

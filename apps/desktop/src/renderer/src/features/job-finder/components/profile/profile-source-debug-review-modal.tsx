@@ -10,9 +10,10 @@ import { ProfileSourceDebugReviewModalContent } from "./profile-source-debug-rev
 import { useModalFocusTrap } from "./use-modal-focus-trap";
 
 export function ProfileSourceDebugReviewModal(props: {
-  busy: boolean;
   details: SourceDebugRunDetails | null;
   errorMessage: string | null;
+  isSourceDebugPending: boolean;
+  isVerifyPending: (instructionId: string) => boolean;
   loading: boolean;
   onClose: () => void;
   onLoadRun: (runId: string) => void;
@@ -74,7 +75,7 @@ export function ProfileSourceDebugReviewModal(props: {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              disabled={props.busy}
+              pending={props.isSourceDebugPending}
               onClick={props.onRerun}
               type="button"
               variant="secondary"
@@ -96,9 +97,9 @@ export function ProfileSourceDebugReviewModal(props: {
 
         <ProfileSourceDebugReviewModalContent
           artifact={artifact}
-          busy={props.busy}
           details={details}
           errorMessage={props.errorMessage}
+          isVerifyPending={props.isVerifyPending}
           loading={props.loading}
           onLoadRun={props.onLoadRun}
           onVerify={props.onVerify}

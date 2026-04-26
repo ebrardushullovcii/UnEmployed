@@ -8,16 +8,16 @@ import { formatOptionalDateOnly, formatStatusLabel, getApplicationTone } from '.
 import { formatNormalizedCompensation } from '../../lib/normalized-compensation'
 
 interface DiscoveryDetailPanelProps {
-  busy: boolean
   discoveryTargets: readonly JobDiscoveryTarget[]
+  isJobPending: (jobId: string) => boolean
   onDismissJob: (jobId: string) => void
   onQueueJob: (jobId: string) => void
   selectedJob: SavedJob | null
 }
 
 export function DiscoveryDetailPanel({
-  busy,
   discoveryTargets,
+  isJobPending,
   onDismissJob,
   onQueueJob,
   selectedJob
@@ -27,6 +27,7 @@ export function DiscoveryDetailPanel({
   const intelligenceSummaries = buildIntelligenceSummaries(
     selectedJob?.sourceIntelligence ?? null,
   )
+  const isSelectedJobPending = selectedJob ? isJobPending(selectedJob.id) : false
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
@@ -164,10 +165,10 @@ export function DiscoveryDetailPanel({
             ) : null}
 
             <div className="grid gap-2.5 sm:grid-cols-2">
-              <Button className="h-11 w-full" disabled={busy} onClick={() => onQueueJob(selectedJob.id)} type="button" variant="primary">
+              <Button className="h-11 w-full" pending={isSelectedJobPending} onClick={() => onQueueJob(selectedJob.id)} type="button" variant="primary">
                 Shortlist job
               </Button>
-              <Button className="h-11 w-full" disabled={busy} onClick={() => onDismissJob(selectedJob.id)} type="button" variant="secondary">
+              <Button className="h-11 w-full" pending={isSelectedJobPending} onClick={() => onDismissJob(selectedJob.id)} type="button" variant="secondary">
                 Hide result
               </Button>
             </div>

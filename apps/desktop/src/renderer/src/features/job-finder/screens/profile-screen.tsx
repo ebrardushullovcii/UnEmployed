@@ -34,9 +34,16 @@ const unsavedProfileCopilotActionsMessage =
   'Save this page before applying, rejecting, or undoing copilot changes so your current profile draft stays intact.'
 
 export function ProfileScreen(props: {
-  actionState: { busy: boolean; message: string | null }
-  busy: boolean
+  actionState: { message: string | null }
   importResumeGuardMessage: string | null
+  isAnalyzeProfilePending: boolean
+  isImportResumePending: boolean
+  isProfileMutationPending: boolean
+  isProfileSetupPending: boolean
+  isSourceDebugPending: (targetId: string) => boolean
+  isSourceInstructionPending: (targetId: string) => boolean
+  isSourceInstructionVerifyPending: (instructionId: string) => boolean
+  isTargetDiscoveryPending: (targetId: string) => boolean
   profileCopilotBusy: boolean
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
   onAnalyzeProfileFromResume: () => void
@@ -64,8 +71,15 @@ export function ProfileScreen(props: {
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
 }) {
   const {
-    busy,
     importResumeGuardMessage,
+    isAnalyzeProfilePending,
+    isImportResumePending,
+    isProfileMutationPending,
+    isProfileSetupPending,
+    isSourceDebugPending,
+    isSourceInstructionPending,
+    isSourceInstructionVerifyPending,
+    isTargetDiscoveryPending,
     profileCopilotBusy,
     onApplyProfileCopilotPatchGroup,
     onAnalyzeProfileFromResume,
@@ -167,8 +181,9 @@ export function ProfileScreen(props: {
             />
 
           <ProfileResumePanel
-            busy={busy}
             importDisabledReason={importResumeGuardMessage}
+            isAnalyzeProfilePending={isAnalyzeProfilePending}
+            isImportResumePending={isImportResumePending}
             latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
             latestResumeImportRun={latestResumeImportRun}
             onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
@@ -187,7 +202,7 @@ export function ProfileScreen(props: {
                 </p>
               </div>
               <Button
-                disabled={busy}
+                disabled={isProfileSetupPending}
                 onClick={() => onResumeProfileSetup(profileSetupState.currentStep)}
                 type="button"
                 variant="secondary"
@@ -214,8 +229,12 @@ export function ProfileScreen(props: {
                 <ProfileActiveSectionContent
                   activeSection={activeSection}
                   backgroundArrays={backgroundArrays}
-                  busy={busy}
                   experienceArray={experienceArray}
+                  isProfileMutationPending={isProfileMutationPending}
+                  isSourceDebugPending={isSourceDebugPending}
+                  isSourceInstructionPending={isSourceInstructionPending}
+                  isSourceInstructionVerifyPending={isSourceInstructionVerifyPending}
+                  isTargetDiscoveryPending={isTargetDiscoveryPending}
                   onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
                   {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
                   onRunSourceDebug={onRunSourceDebug}
@@ -232,7 +251,7 @@ export function ProfileScreen(props: {
             <ProfileSaveFooter
               actionMessage={props.actionState.message}
               hasUnsavedChanges={hasUnsavedChanges}
-              busy={busy}
+              isSavePending={isProfileMutationPending}
               onSave={handleSaveAll}
               validationMessage={validationMessage}
             />

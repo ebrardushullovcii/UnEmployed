@@ -16,7 +16,7 @@ import { formatTimestamp } from "./resume-workspace-utils";
 export function ResumeWorkspaceSecondaryRail(props: {
   assistantMessages: readonly ResumeAssistantMessage[];
   assistantPending: boolean;
-  busy: boolean;
+  isWorkspacePending: boolean;
   onSendAssistantMessage: (content: string) => void;
 }) {
   const [assistantInput, setAssistantInput] = useState("");
@@ -36,7 +36,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
   function handleSend() {
     const nextInput = assistantInput.trim();
 
-    if (props.busy || props.assistantPending || nextInput.length === 0) {
+    if (props.isWorkspacePending || props.assistantPending || nextInput.length === 0) {
       return;
     }
 
@@ -132,7 +132,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
               <Textarea
                 className="min-w-0"
                 id={assistantId}
-                disabled={props.busy || props.assistantPending}
+                disabled={props.isWorkspacePending || props.assistantPending}
                 onChange={(event) => setAssistantInput(event.currentTarget.value)}
                 onKeyDown={handleComposerKeyDown}
                 placeholder="Example: tighten the summary, strengthen one experience bullet, or rewrite a section for this job..."
@@ -146,7 +146,8 @@ export function ResumeWorkspaceSecondaryRail(props: {
               </p>
               <Button
                 className="min-w-28 px-4"
-                disabled={props.busy || props.assistantPending || assistantInput.trim().length === 0}
+                disabled={props.isWorkspacePending || props.assistantPending || assistantInput.trim().length === 0}
+                pending={props.assistantPending}
                 onClick={handleSend}
                 type="button"
                 variant="primary"

@@ -28,8 +28,9 @@ const stepIconById = {
 
 export function ProfileSetupSummaryCards(props: {
   actionMessage: string | null
-  busy: boolean
   importDisabledReason?: string | null
+  isImportResumePending: boolean
+  isProfileSetupPending: boolean
   onImportResume: () => void
   onOpenProfile: () => void
   onResumeCurrentStep: () => void
@@ -65,11 +66,11 @@ export function ProfileSetupSummaryCards(props: {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={props.onImportResume} disabled={props.busy || Boolean(props.importDisabledReason)}>Import or refresh resume</Button>
-            <Button variant="secondary" onClick={props.onResumeCurrentStep} disabled={props.busy}>
+            <Button onClick={props.onImportResume} disabled={Boolean(props.importDisabledReason)} pending={props.isImportResumePending}>Import or refresh resume</Button>
+            <Button variant="secondary" onClick={props.onResumeCurrentStep} pending={props.isProfileSetupPending}>
               {hasPendingReviewItems ? 'Review current step' : 'Open current step'}
             </Button>
-            <Button variant="ghost" onClick={props.onOpenProfile} disabled={props.busy}>Open full Profile</Button>
+            <Button variant="ghost" onClick={props.onOpenProfile} pending={props.isProfileSetupPending}>Open full Profile</Button>
           </div>
           {props.importDisabledReason ? (
             <p className="text-sm leading-6 text-foreground-soft">{props.importDisabledReason}</p>
@@ -156,7 +157,7 @@ export function ProfileSetupPathCard(props: {
 
 export function ProfileSetupReviewQueueCard(props: {
   actionsDisabledReason?: string | null
-  busy: boolean
+  isReviewItemPending: (reviewItemId: string) => boolean
   items: readonly ProfileSetupReviewItemDisplay[]
   onApplyReviewAction: (reviewItemId: string, action: 'confirm' | 'dismiss' | 'clear_value') => void
   onEditReviewItem: (item: ProfileSetupReviewItemDisplay) => void
@@ -221,14 +222,14 @@ export function ProfileSetupReviewQueueCard(props: {
                   ) : null}
                   {item.status === 'pending' ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button aria-label={`Edit ${item.label}`} disabled={props.busy} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
+                      <Button aria-label={`Edit ${item.label}`} pending={props.isReviewItemPending(item.id)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
                       {canConfirmReviewItem(item) ? (
-                        <Button disabled={props.busy || Boolean(props.actionsDisabledReason)} onClick={() => props.onApplyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
                       ) : null}
                       {canClearReviewItem(item) ? (
-                        <Button disabled={props.busy || Boolean(props.actionsDisabledReason)} onClick={() => props.onApplyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
                       ) : null}
-                      <Button disabled={props.busy || Boolean(props.actionsDisabledReason)} onClick={() => props.onApplyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
+                      <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
                     </div>
                   ) : null}
                   {item.status === 'pending' && props.actionsDisabledReason ? (

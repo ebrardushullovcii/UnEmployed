@@ -11,6 +11,11 @@ import type {
   ActionState,
   JobFinderShellActions,
 } from '@renderer/features/job-finder/lib/job-finder-types'
+import type {
+  PendingActionScope,
+  PendingActionState,
+} from './job-finder-pending-actions'
+import { jobFinderPendingActions } from './job-finder-pending-actions'
 import { type JobFinderPageContext } from './job-finder-page-routes'
 import {
   createActionRunners,
@@ -26,6 +31,8 @@ type BuildJobFinderPageContextArgs = {
   canImportResume: boolean
   confirmLeaveDirtyResumeWorkspace: () => boolean
   importResumeGuardMessage: string | null
+  isAnyPendingAction: (scopes: readonly PendingActionScope[]) => boolean
+  isPendingAction: (scope: PendingActionScope) => boolean
   isCurrentResumeAssistantRequest: (jobId: string, requestToken: number) => boolean
   isCurrentResumeWorkspaceJob: (jobId: string) => boolean
   liveDiscoveryEvents: readonly DiscoveryActivityEvent[]
@@ -48,6 +55,7 @@ type BuildJobFinderPageContextArgs = {
   selectedReviewItem: JobFinderPageContext['selectedReviewItem']
   selectedReviewJob: JobFinderPageContext['selectedReviewJob']
   selectedTailoredAsset: JobFinderPageContext['selectedTailoredAsset']
+  setPendingActionState: Dispatch<SetStateAction<PendingActionState>>
   setActionState: Dispatch<SetStateAction<ActionState>>
   setLiveDiscoveryEvents: Dispatch<SetStateAction<DiscoveryActivityEvent[]>>
   setOptimisticProfileCopilotMessages: Dispatch<
@@ -81,6 +89,8 @@ export function buildJobFinderPageContext(
     canImportResume,
     confirmLeaveDirtyResumeWorkspace,
     importResumeGuardMessage,
+    isAnyPendingAction,
+    isPendingAction,
     isCurrentResumeAssistantRequest,
     isCurrentResumeWorkspaceJob,
     liveDiscoveryEvents,
@@ -98,6 +108,7 @@ export function buildJobFinderPageContext(
     selectedReviewItem,
     selectedReviewJob,
     selectedTailoredAsset,
+    setPendingActionState,
     setActionState,
     setLiveDiscoveryEvents,
     setOptimisticProfileCopilotMessages,
@@ -117,6 +128,7 @@ export function buildJobFinderPageContext(
 
   const { runAction, runResumeWorkspaceAction } = createActionRunners({
     setActionState,
+    setPendingActionState,
   })
 
   const primaryActions = createPrimaryPageActions({
@@ -135,6 +147,7 @@ export function buildJobFinderPageContext(
     resumeAssistantRequestTokenRef,
     runAction,
     runResumeWorkspaceAction,
+    setPendingActionState,
     setActionState,
     setLiveDiscoveryEvents,
     setOptimisticProfileCopilotMessages,
@@ -151,9 +164,10 @@ export function buildJobFinderPageContext(
 
   return {
     actionState,
-    busy: actionState.busy,
     canImportResume,
     importResumeGuardMessage,
+    isAnyPending: isAnyPendingAction,
+    isPending: isPendingAction,
     profileCopilotBusy,
     ...primaryActions,
     onProfileSurfaceDirtyChange: setProfileSurfaceDirty,
@@ -165,12 +179,14 @@ export function buildJobFinderPageContext(
         () => actions.saveSourceInstructionArtifact(targetId, artifact),
         () => undefined,
         'Saved guidance updated.',
+        { scope: jobFinderPendingActions.sourceInstruction(targetId) },
       ),
     onVerifySourceInstructions: (targetId: string, instructionId: string) =>
       void runAction(
         () => actions.verifySourceInstructions(targetId, instructionId),
         () => undefined,
         'Saved guidance checked.',
+        { scope: jobFinderPendingActions.sourceInstructionVerify(instructionId) },
       ),
     onResetWorkspace: () => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -187,6 +203,7 @@ export function buildJobFinderPageContext(
           )
         },
         'Workspace reset. Your profile, resume, jobs, and browser session were cleared on this device.',
+        { scope: jobFinderPendingActions.workspaceReset() },
       )
     },
     onResumeWorkspaceDirtyChange: setResumeWorkspaceDirty,

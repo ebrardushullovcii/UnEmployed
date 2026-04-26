@@ -1,11 +1,11 @@
 import { Button } from '@renderer/components/ui/button'
 
 interface SettingsWorkspaceControlsProps {
-  busy: boolean
+  isWorkspaceResetPending: boolean
   onResetWorkspace: () => void
 }
 
-export function SettingsWorkspaceControls({ busy, onResetWorkspace }: SettingsWorkspaceControlsProps) {
+export function SettingsWorkspaceControls({ isWorkspaceResetPending, onResetWorkspace }: SettingsWorkspaceControlsProps) {
   return (
     <section className="surface-panel-shell relative grid gap-5 rounded-(--radius-field) border border-(--surface-panel-border) px-6 py-6">
       <div className="grid gap-2.5">
@@ -16,7 +16,7 @@ export function SettingsWorkspaceControls({ busy, onResetWorkspace }: SettingsWo
         </p>
       </div>
       <div className="grid justify-items-start gap-2.5">
-        <Button variant="destructive" disabled={busy} onClick={onResetWorkspace} type="button">
+        <Button variant="destructive" pending={isWorkspaceResetPending} onClick={onResetWorkspace} type="button">
           Reset everything
         </Button>
       </div>

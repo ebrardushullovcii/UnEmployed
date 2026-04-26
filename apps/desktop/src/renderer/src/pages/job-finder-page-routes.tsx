@@ -16,6 +16,8 @@ import type {
   ResumeDraftPatch,
   SourceDebugRunDetails
 } from '@unemployed/contracts'
+import type { PendingActionScope } from './job-finder-pending-actions'
+import { jobFinderPendingActions } from './job-finder-pending-actions'
 import { ProfileSetupScreen } from '@renderer/features/job-finder/components/profile/setup/profile-setup-screen'
 import { ProfileScreen } from '@renderer/features/job-finder/screens/profile-screen'
 import { ApplicationsScreen } from '@renderer/features/job-finder/screens/applications-screen'
@@ -29,9 +31,10 @@ import { Navigate, useLocation, useOutletContext, useParams } from 'react-router
 
 export interface JobFinderPageContext {
   actionState: ActionState
-  busy: boolean
   canImportResume: boolean
   importResumeGuardMessage: string | null
+  isPending: (scope: PendingActionScope) => boolean
+  isAnyPending: (scopes: readonly PendingActionScope[]) => boolean
   profileCopilotBusy: boolean
   liveDiscoveryEvents: readonly DiscoveryActivityEvent[]
   onAnalyzeProfileFromResume: () => void
@@ -244,8 +247,21 @@ export function JobFinderProfileRoute() {
   return (
     <ProfileScreen
       actionState={context.actionState}
-      busy={context.busy}
       importResumeGuardMessage={context.importResumeGuardMessage}
+      isAnalyzeProfilePending={context.isPending(jobFinderPendingActions.profileAnalyze())}
+      isImportResumePending={context.isPending(jobFinderPendingActions.profileImport())}
+      isProfileMutationPending={context.isPending(jobFinderPendingActions.profileMutation())}
+      isProfileSetupPending={context.isPending(jobFinderPendingActions.profileSetup())}
+      isSourceDebugPending={(targetId) => context.isPending(jobFinderPendingActions.sourceDebug(targetId))}
+      isSourceInstructionPending={(targetId) =>
+        context.isPending(jobFinderPendingActions.sourceInstruction(targetId))
+      }
+      isSourceInstructionVerifyPending={(instructionId) =>
+        context.isPending(jobFinderPendingActions.sourceInstructionVerify(instructionId))
+      }
+      isTargetDiscoveryPending={(targetId) =>
+        context.isPending(jobFinderPendingActions.discoveryTarget(targetId))
+      }
       profileCopilotBusy={context.profileCopilotBusy}
       onApplyProfileCopilotPatchGroup={context.onApplyProfileCopilotPatchGroup}
       onAnalyzeProfileFromResume={context.onAnalyzeProfileFromResume}
@@ -285,8 +301,12 @@ export function JobFinderProfileSetupRoute() {
   return (
     <ProfileSetupScreen
       actionState={context.actionState}
-      busy={context.busy}
       importResumeGuardMessage={context.importResumeGuardMessage}
+      isImportResumePending={context.isPending(jobFinderPendingActions.profileImport())}
+      isProfileSetupPending={context.isPending(jobFinderPendingActions.profileSetup())}
+      isReviewItemPending={(reviewItemId) =>
+        context.isPending(jobFinderPendingActions.profileReviewItem(reviewItemId))
+      }
       profileCopilotBusy={context.profileCopilotBusy}
       latestResumeImportReviewCandidates={context.workspace.latestResumeImportReviewCandidates}
       onApplyProfileCopilotPatchGroup={context.onApplyProfileCopilotPatchGroup}
@@ -317,10 +337,25 @@ export function JobFinderDiscoveryRoute() {
       actionState={context.actionState}
       activeRun={context.workspace.activeDiscoveryRun}
       browserSession={context.workspace.browserSession}
-      busy={context.busy}
+      isBrowserSessionPending={context.isPending(jobFinderPendingActions.browserSession())}
+      isDiscoveryAllPending={context.isPending(jobFinderPendingActions.discoveryAll())}
       discoverySessions={context.workspace.discoverySessions}
       jobs={context.workspace.discoveryJobs}
       liveEvents={context.liveDiscoveryEvents}
+      isJobPending={(jobId) =>
+        context.isAnyPending([
+          jobFinderPendingActions.discoveryJob(jobId),
+          jobFinderPendingActions.resumeJob(jobId),
+          jobFinderPendingActions.apply(),
+        ])
+      }
+      isTargetPending={(targetId) =>
+        context.isAnyPending([
+          jobFinderPendingActions.discoveryTarget(targetId),
+          jobFinderPendingActions.sourceDebug(targetId),
+          jobFinderPendingActions.sourceInstruction(targetId),
+        ])
+      }
       onDismissJob={context.onDismissJob}
       onOpenBrowserSession={context.onOpenBrowserSession}
       onQueueJob={context.onQueueJob}
@@ -341,13 +376,14 @@ export function JobFinderReviewQueueRoute() {
     <ReviewQueueScreen
       actionState={context.actionState}
       browserSession={context.workspace.browserSession}
-      busy={context.busy}
+      isApplyPending={context.isPending(jobFinderPendingActions.apply())}
       onApproveApply={context.onApproveApply}
       onStartAutoApply={context.onStartAutoApply}
       onStartAutoApplyQueue={context.onStartAutoApplyQueue}
       onStartApplyCopilot={context.onStartApplyCopilot}
       onEditResumeWorkspace={context.onEditResumeWorkspace}
       onGenerateResume={context.onGenerateResume}
+      isJobPending={(jobId) => context.isPending(jobFinderPendingActions.resumeJob(jobId))}
       onSelectItem={context.onSelectReviewItem}
       queue={context.workspace.reviewQueue}
       selectedAsset={context.selectedTailoredAsset}
@@ -376,7 +412,7 @@ export function JobFinderResumeWorkspaceRoute() {
       actionMessage={context.actionState.message}
       assistantMessages={context.resumeAssistantMessages}
       assistantPending={context.resumeAssistantPending}
-      busy={context.busy}
+      isWorkspacePending={context.isPending(jobFinderPendingActions.resumeJob(jobId))}
       jobId={jobId}
       onApproveResume={context.onApproveResume}
       onBack={() => context.onEditResumeWorkspace('')}
@@ -404,8 +440,12 @@ export function JobFinderApplicationsRoute() {
       applicationRecords={context.workspace.applicationRecords}
       applyRuns={context.workspace.applyRuns}
       applyJobResults={context.workspace.applyJobResults}
-      busy={context.busy}
       discoveryJobs={context.workspace.discoveryJobs}
+      isApplyPending={context.isPending(jobFinderPendingActions.apply())}
+      isApplyRequestPending={(requestId) =>
+        context.isPending(jobFinderPendingActions.applyRequest(requestId))
+      }
+      isApplyRunPending={(runId) => context.isPending(jobFinderPendingActions.applyRun(runId))}
       onApproveApplyRun={context.onApproveApplyRun}
       onCancelApplyRun={context.onCancelApplyRun}
       onGetApplyRunDetails={context.onGetApplyRunDetails}
@@ -429,7 +469,8 @@ export function JobFinderSettingsRoute() {
     <SettingsScreen
       actionState={context.actionState}
       browserSession={context.workspace.browserSession}
-      busy={context.busy}
+      isSavePending={context.isPending(jobFinderPendingActions.settingsSave())}
+      isWorkspaceResetPending={context.isPending(jobFinderPendingActions.workspaceReset())}
       onResetWorkspace={context.onResetWorkspace}
       onSaveSettings={context.onSaveSettings}
       settings={context.workspace.settings}

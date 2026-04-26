@@ -49,6 +49,10 @@ interface ProfileDiscoveryTargetRowProps {
   discoveryTargets: readonly DiscoveryTargetValue[]
   index: number
   instructionArtifact: SourceInstructionArtifact | null
+  isSourceDebugPending: (targetId: string) => boolean
+  isSourceInstructionPending: (targetId: string) => boolean
+  isSourceInstructionVerifyPending: (instructionId: string) => boolean
+  isTargetDiscoveryPending: (targetId: string) => boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
@@ -104,6 +108,9 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     normalizedKey: string
   } | null>(null)
   const [editingInstructionValue, setEditingInstructionValue] = useState('')
+  const isTargetDiscoveryPending = props.isTargetDiscoveryPending(props.target.id)
+  const isTargetSourceDebugPending = props.isSourceDebugPending(props.target.id)
+  const isInstructionSavePending = props.isSourceInstructionPending(props.target.id)
 
   const updateTarget = (nextTarget: DiscoveryTargetValue) => {
     const existingTarget = props.discoveryTargets[props.index]
@@ -235,7 +242,8 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           {props.onRunDiscoveryForTarget ? (
             <Button
               aria-label={`Run search now for ${accessibleLabel}`}
-              disabled={props.busy || !props.target.enabled || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
+              disabled={!props.target.enabled || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
+              pending={isTargetDiscoveryPending}
               onClick={handleRunDiscoveryForTarget}
               type="button"
               variant="primary"
@@ -245,7 +253,8 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           ) : null}
           <Button
             aria-label={`Check this source for ${accessibleLabel}`}
-            disabled={props.busy || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
+            disabled={!hasValidAbsoluteStartingUrl(props.target.startingUrl)}
+            pending={isTargetSourceDebugPending}
             onClick={handleRunSourceDebug}
             type="button"
             variant="secondary"
@@ -314,7 +323,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
               </p>
               <Button
                 aria-label={`Review the latest source check for ${accessibleLabel}`}
-                disabled={props.busy}
+                pending={isTargetSourceDebugPending}
                 onClick={handleReviewLatestRun}
                 type="button"
                 variant="ghost"
@@ -340,10 +349,10 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           </div>
         ) : null}
         <ProfileLearnedInstructionsPanel
-          busy={props.busy}
           editingInstruction={editingInstruction}
           editingInstructionValue={editingInstructionValue}
           intelligenceSummaries={learnedInstructionIntelligenceSummaries}
+          isInstructionSavePending={isInstructionSavePending}
           instructionArtifactDescription={describeLearnedInstructionUsage(props.instructionArtifact)}
           onBeginEditingInstruction={beginEditingInstruction}
           onCancelEditingInstruction={cancelEditingInstruction}
@@ -365,9 +374,10 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         </div>
       </div>
       <ProfileSourceDebugReviewModal
-        busy={props.busy}
         details={reviewDetails}
         errorMessage={reviewError}
+        isSourceDebugPending={isTargetSourceDebugPending}
+        isVerifyPending={props.isSourceInstructionVerifyPending}
         loading={reviewLoading}
         onClose={handleCloseReview}
         onLoadRun={handleLoadRun}

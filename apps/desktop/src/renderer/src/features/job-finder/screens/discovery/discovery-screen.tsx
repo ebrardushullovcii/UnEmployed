@@ -18,11 +18,14 @@ import { DiscoveryFiltersPanel } from './discovery-filters-panel'
 import { DiscoveryResultsPanel } from './discovery-results-panel'
 
 export function DiscoveryScreen(props: {
-  actionState: { busy: boolean; message: string | null }
+  actionState: { message: string | null }
   activeRun: DiscoveryRunRecord | null
-  busy: boolean
   browserSession: BrowserSessionState
   discoverySessions: readonly DiscoveryAdapterSessionState[]
+  isBrowserSessionPending: boolean
+  isDiscoveryAllPending: boolean
+  isJobPending: (jobId: string) => boolean
+  isTargetPending: (targetId: string) => boolean
   jobs: readonly SavedJob[]
   liveEvents: readonly DiscoveryActivityEvent[]
   onDismissJob: (jobId: string) => void
@@ -39,8 +42,11 @@ export function DiscoveryScreen(props: {
     actionState,
     activeRun,
     browserSession,
-    busy,
     discoverySessions,
+    isBrowserSessionPending,
+    isDiscoveryAllPending,
+    isJobPending,
+    isTargetPending,
     jobs,
     liveEvents,
     onDismissJob,
@@ -90,13 +96,15 @@ export function DiscoveryScreen(props: {
       >
         {showEmptyDiscoveryState ? (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
-            <DiscoveryFiltersPanel
-              activeRun={activeRun}
-              actionMessage={actionState.message}
-              busy={busy}
-              discoverySessions={discoverySessions}
-              onOpenBrowserSession={onOpenBrowserSession}
-              onRunAgentDiscovery={onRunAgentDiscovery}
+              <DiscoveryFiltersPanel
+                activeRun={activeRun}
+                actionMessage={actionState.message}
+                discoverySessions={discoverySessions}
+                isBrowserSessionPending={isBrowserSessionPending}
+                isDiscoveryAllPending={isDiscoveryAllPending}
+                isTargetPending={isTargetPending}
+                onOpenBrowserSession={onOpenBrowserSession}
+                onRunAgentDiscovery={onRunAgentDiscovery}
               {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
               onViewProgress={() => setShowHistory(true)}
               searchPreferences={searchPreferences}
@@ -119,13 +127,15 @@ export function DiscoveryScreen(props: {
           </div>
         ) : (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
-            <DiscoveryFiltersPanel
-              activeRun={activeRun}
-              actionMessage={actionState.message}
-              busy={busy}
-              discoverySessions={discoverySessions}
-              onOpenBrowserSession={onOpenBrowserSession}
-              onRunAgentDiscovery={onRunAgentDiscovery}
+              <DiscoveryFiltersPanel
+                activeRun={activeRun}
+                actionMessage={actionState.message}
+                discoverySessions={discoverySessions}
+                isBrowserSessionPending={isBrowserSessionPending}
+                isDiscoveryAllPending={isDiscoveryAllPending}
+                isTargetPending={isTargetPending}
+                onOpenBrowserSession={onOpenBrowserSession}
+                onRunAgentDiscovery={onRunAgentDiscovery}
               {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
               onViewProgress={() => setShowHistory(true)}
               searchPreferences={searchPreferences}
@@ -137,8 +147,8 @@ export function DiscoveryScreen(props: {
               selectedJob={selectedJob}
             />
             <DiscoveryDetailPanel
-              busy={busy}
               discoveryTargets={searchPreferences.discovery.targets}
+              isJobPending={isJobPending}
               onDismissJob={onDismissJob}
               onQueueJob={onQueueJob}
               selectedJob={selectedJob}

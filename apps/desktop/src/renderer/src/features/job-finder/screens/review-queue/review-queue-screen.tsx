@@ -7,9 +7,10 @@ import { ReviewQueueMissionPanel } from './review-queue-mission-panel'
 import { ReviewQueuePreviewPanel } from './review-queue-preview-panel'
 
 export function ReviewQueueScreen(props: {
-  actionState: { busy: boolean; message: string | null }
-  busy: boolean
+  actionState: { message: string | null }
   browserSession: BrowserSessionState
+  isApplyPending: boolean
+  isJobPending: (jobId: string) => boolean
   onApproveApply: (jobId: string) => void
   onStartAutoApply: (jobId: string) => void
   onStartAutoApplyQueue: (jobIds: string[]) => void
@@ -25,7 +26,8 @@ export function ReviewQueueScreen(props: {
   const {
     actionState,
     browserSession,
-    busy,
+    isApplyPending,
+    isJobPending,
     onApproveApply,
     onStartAutoApply,
     onStartAutoApplyQueue,
@@ -87,7 +89,8 @@ export function ReviewQueueScreen(props: {
         <ReviewQueueMissionPanel
           actionMessage={actionState.message}
           browserSession={browserSession}
-          busy={busy}
+          isApplyPending={isApplyPending}
+          isJobPending={isJobPending}
           onClearQueueSelection={handleClearQueueSelection}
           onApproveApply={onApproveApply}
           onStartAutoApply={onStartAutoApply}
