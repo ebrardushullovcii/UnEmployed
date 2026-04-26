@@ -131,7 +131,7 @@ function buildExperienceBullets(input: {
 
   const supportingContextBullets = uniqueStrings(
     matchedProofs.flatMap((proof) =>
-      shouldKeepSupportingContext(proof.supportingContext)
+      proof.supportingContext && shouldKeepSupportingContext(proof.supportingContext)
         ? [proof.supportingContext]
         : [],
     ),
