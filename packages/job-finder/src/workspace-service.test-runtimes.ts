@@ -8,7 +8,11 @@ import type {
   AgentDiscoveryOptions,
   BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
-import { JobPostingSchema } from "@unemployed/contracts";
+import {
+  JobPostingSchema,
+  ResumeTemplateDefinitionSchema,
+  type ResumeTemplateId,
+} from "@unemployed/contracts";
 import type {
   AgentDebugFindings,
   AgentDiscoveryProgress,
@@ -547,7 +551,7 @@ export function createExtractionAiClient(
 export function createDocumentManager() {
   return {
     listResumeTemplates() {
-      return [
+      return ResumeTemplateDefinitionSchema.array().parse([
         {
           id: "classic_ats" as const,
           label: "Classic ATS",
@@ -596,9 +600,9 @@ export function createDocumentManager() {
           bestFor: ["Regulated industries", "Certification-heavy roles", "Academic backgrounds"],
           density: "balanced" as const,
         },
-      ];
+      ]);
     },
-    renderResumeArtifact(input: { templateId: string }) {
+    renderResumeArtifact(input: { templateId: ResumeTemplateId }) {
       const fileStem = `generated-${input.templateId}`
       return Promise.resolve({
         fileName: `${fileStem}.pdf`,

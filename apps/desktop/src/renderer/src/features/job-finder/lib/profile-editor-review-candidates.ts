@@ -262,6 +262,19 @@ function scoreEducationEntryCompleteness(entry: EducationFormEntry) {
   ])
 }
 
+function shouldReplaceCandidateEntry(
+  existingScore: number,
+  nextScore: number,
+  existingKey: string,
+  nextKey: string
+) {
+  if (existingScore !== nextScore) {
+    return existingScore < nextScore
+  }
+
+  return nextKey.localeCompare(existingKey) < 0
+}
+
 function mergeExperienceReviewCandidates(
   existing: ExperienceFormEntry[],
   candidates: readonly ResumeImportFieldCandidateSummary[]
@@ -312,7 +325,12 @@ function mergeExperienceReviewCandidates(
       continue
     }
 
-    if ((existingEntry ? scoreExperienceEntryCompleteness(existingEntry) : 0) < scoreExperienceEntryCompleteness(nextEntry)) {
+    const existingScore = existingEntry ? scoreExperienceEntryCompleteness(existingEntry) : 0
+    const nextScore = scoreExperienceEntryCompleteness(nextEntry)
+    const existingKey = existingEntry?.sourceCandidateId ?? existingEntry?.id ?? ''
+    const nextKey = nextEntry.sourceCandidateId ?? nextEntry.id
+
+    if (shouldReplaceCandidateEntry(existingScore, nextScore, existingKey, nextKey)) {
       merged.splice(matchingIndex, 1, nextEntry)
     }
   }
@@ -362,7 +380,12 @@ function mergeEducationReviewCandidates(
       continue
     }
 
-    if ((existingEntry ? scoreEducationEntryCompleteness(existingEntry) : 0) < scoreEducationEntryCompleteness(nextEntry)) {
+    const existingScore = existingEntry ? scoreEducationEntryCompleteness(existingEntry) : 0
+    const nextScore = scoreEducationEntryCompleteness(nextEntry)
+    const existingKey = existingEntry?.sourceCandidateId ?? existingEntry?.id ?? ''
+    const nextKey = nextEntry.sourceCandidateId ?? nextEntry.id
+
+    if (shouldReplaceCandidateEntry(existingScore, nextScore, existingKey, nextKey)) {
       merged.splice(matchingIndex, 1, nextEntry)
     }
   }

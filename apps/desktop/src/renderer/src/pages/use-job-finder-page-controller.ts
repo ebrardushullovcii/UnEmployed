@@ -12,6 +12,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   hasAnyPendingAction,
   hasPendingAction,
+  type PendingActionScope,
   type PendingActionState,
 } from './job-finder-pending-actions'
 import { type JobFinderPageContext } from './job-finder-page-routes'
@@ -88,11 +89,12 @@ export function useJobFinderPageController() {
     : false
   const [profileSurfaceDirty, setProfileSurfaceDirty] = useState(false)
   const isPendingAction = useCallback(
-    (scope: string) => hasPendingAction(pendingActionState, scope),
+    (scope: PendingActionScope) => hasPendingAction(pendingActionState, scope),
     [pendingActionState],
   )
   const isAnyPendingAction = useCallback(
-    (scopes: readonly string[]) => hasAnyPendingAction(pendingActionState, scopes),
+    (scopes: readonly PendingActionScope[]) =>
+      hasAnyPendingAction(pendingActionState, scopes),
     [pendingActionState],
   )
 
@@ -343,9 +345,9 @@ export function useJobFinderPageController() {
       actions,
       activeRouteResumeAssistantMessages,
       activeRouteResumeAssistantPending,
-       activeRouteResumeWorkspace,
-       canImportResume,
-       confirmLeaveDirtyResumeWorkspace,
+      activeRouteResumeWorkspace,
+      canImportResume,
+      confirmLeaveDirtyResumeWorkspace,
       importResumeGuardMessage,
       isAnyPendingAction,
       isPendingAction,
@@ -402,7 +404,6 @@ export function useJobFinderPageController() {
     navigate,
     optimisticProfileCopilotMessages,
     canImportResume,
-    pendingActionState,
     profileCopilotBusy,
     profileSetupState,
     profileCopilotPendingContextKey,

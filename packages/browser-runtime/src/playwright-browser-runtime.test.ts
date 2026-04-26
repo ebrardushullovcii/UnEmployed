@@ -692,4 +692,149 @@ describe("playwright browser runtime", () => {
       await rm(userDataDir, { recursive: true, force: true });
     }
   });
+
+  test("openSession skips navigation when the current and target urls are structurally equivalent", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-equivalent-target-open-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 57575 });
+
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "https://example.com/jobs/search/?keywords=frontend&currentJobId=123#top",
+      };
+      const fakeContext = {
+        newPage: vi.fn().mockResolvedValue(fakePage),
+        pages: () => [fakePage],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      let debuggerReadyChecks = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => {
+          debuggerReadyChecks += 1;
+          if (debuggerReadyChecks === 1) {
+            return Promise.reject(new Error("debugger not ready yet"));
+          }
+
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          } as Response);
+        }),
+      );
+
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      await runtime.openSession("target_site", {
+        targetUrl: "https://example.com/jobs/search/?keywords=frontend",
+      });
+
+      expect(fakePage.goto).not.toHaveBeenCalled();
+      expect(fakePage.bringToFront).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("openSession marks the session blocked when navigation fails", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-target-open-failure-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 58585 });
+
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn().mockRejectedValue(new Error("navigation failed")),
+        isClosed: () => false,
+        url: () => "about:blank",
+      };
+      const fakeContext = {
+        newPage: vi.fn().mockResolvedValue(fakePage),
+        pages: () => [fakePage],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      let debuggerReadyChecks = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => {
+          debuggerReadyChecks += 1;
+          if (debuggerReadyChecks === 1) {
+            return Promise.reject(new Error("debugger not ready yet"));
+          }
+
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          } as Response);
+        }),
+      );
+
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      await expect(
+        runtime.openSession("target_site", {
+          targetUrl: "https://example.com/jobs/sign-in",
+        }),
+      ).rejects.toThrow("navigation failed");
+      await expect(runtime.getSessionState("target_site")).resolves.toEqual(
+        expect.objectContaining({
+          status: "blocked",
+          label: "Browser navigation failed",
+        }),
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
 });

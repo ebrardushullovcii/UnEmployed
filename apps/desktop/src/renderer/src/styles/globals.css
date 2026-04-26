@@ -52,7 +52,6 @@
 
   --job-finder-side-width: 15.5rem;
   --job-finder-side-width-sm: 18.5rem;
-  --button-pending-rail: rgba(255, 255, 255, 0.85);
 
   background: var(--background);
   color: var(--foreground);
@@ -111,6 +110,8 @@
   --surface-overlay-heavy: rgba(12, 12, 12, 0.38);
   --surface-overlay-track: rgba(0, 0, 0, 0.26);
   --surface-progress-track: rgba(0, 0, 0, 0.4);
+  --button-pending-rail: rgba(255, 255, 255, 0.85);
+  --button-pending-rail-track: rgba(255, 255, 255, 0.1);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.22);
   --foreground-soft: #b7b2ab;
@@ -260,6 +261,7 @@
   --surface-overlay-soft: rgba(24, 24, 22, 0.04);
   --surface-overlay-medium: rgba(24, 24, 22, 0.06);
   --button-pending-rail: rgba(255, 255, 255, 0.92);
+  --button-pending-rail-track: rgba(24, 24, 22, 0.12);
   --surface-overlay-list: rgba(24, 24, 22, 0.045);
   --surface-overlay-strong: rgba(24, 24, 22, 0.08);
   --surface-overlay-heavy: rgba(24, 24, 22, 0.12);
@@ -474,6 +476,13 @@ strong {
 
 .button-pending-rail {
   animation: button-pending-rail-slide 1.05s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-pending-rail {
+    animation: none;
+    transform: translateX(180%);
+  }
 }
 
 @media (min-width: 640px) {

@@ -36,7 +36,7 @@ function buildYearsExperienceEvidenceCandidates(
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const datedExperienceLines = lines.filter((line) =>
-    /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{2}\/)?\d{4})\b/i.test(
+    /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\b/i.test(
       line,
     ),
   );
@@ -78,16 +78,37 @@ function buildRelaxedEvidenceCandidates(value: string): string[] {
   return [...candidates].filter((entry) => entry.length > 0);
 }
 
+function buildOrderedEvidenceCandidates(candidates: readonly string[]): string[] {
+  const orderedCandidates: string[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    const trimmedCandidate = candidate.trim();
+    if (!trimmedCandidate) {
+      continue;
+    }
+
+    for (const relaxedCandidate of buildRelaxedEvidenceCandidates(trimmedCandidate)) {
+      if (seen.has(relaxedCandidate)) {
+        continue;
+      }
+
+      seen.add(relaxedCandidate);
+      orderedCandidates.push(relaxedCandidate);
+    }
+  }
+
+  return orderedCandidates;
+}
+
 function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[]) {
   const nonEmptyCandidates = candidates
     .map((candidate) => candidate.trim())
     .filter((candidate) => candidate.length > 0);
-  const normalizedCandidates = nonEmptyCandidates.flatMap((candidate) =>
-    buildRelaxedEvidenceCandidates(candidate),
-  );
+  const orderedCandidates = buildOrderedEvidenceCandidates(nonEmptyCandidates);
   const matchedBlocks = bundle.blocks.filter((block) => {
     const blockText = normalizeText(block.text);
-    return normalizedCandidates.some(
+    return orderedCandidates.some(
       (candidate) => candidate.length > 0 && blockText.includes(candidate),
     );
   });
@@ -115,7 +136,7 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
   // Helper to safely escape candidate strings for RegExp
   const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  for (const candidate of nonEmptyCandidates) {
+  for (const candidate of orderedCandidates) {
     if (!candidate) continue;
     try {
       const re = new RegExp(`(.{0,80}{CAND}.{0,240})`.replace("{CAND}", escapeRegExp(candidate)), "is");

@@ -44,7 +44,7 @@ type BuildDeterministicResumeProfileExtractionOptions = {
   preserveExistingValues?: boolean;
 };
 
-const experienceDateTokenPattern = /(?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:(\d{2})\/)?(\d{4})/i;
+const experienceDateTokenPattern = /(?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:(\d{1,2})\/)?(\d{4})/i;
 
 function toMonthIndex(month: string | undefined): number {
   switch ((month ?? "").toLowerCase()) {
@@ -170,7 +170,11 @@ function inferYearsExperienceFromEntries(
     coveredMonths += currentRange.endTotalMonths - currentRange.startTotalMonths + 1;
   }
 
-  return Math.max(0, Math.floor(coveredMonths / 12));
+  if (coveredMonths < 12) {
+    return null;
+  }
+
+  return Math.floor(coveredMonths / 12);
 }
 
 const nonNamePhrasePattern =
@@ -551,7 +555,10 @@ function inferSummary(lines: readonly string[]): string | null {
     return cleanLine(aboutLines.join(" "));
   }
 
-  const fallbackStartIndex = lines.findIndex(
+  const firstSectionIndex = lines.findIndex((line) => isResumeSectionHeading(line));
+  const fallbackSearchLines =
+    firstSectionIndex === -1 ? lines : lines.slice(0, firstSectionIndex);
+  const fallbackStartIndex = fallbackSearchLines.findIndex(
     (line) =>
       line.length >= 48 &&
       !line.includes("@") &&
@@ -564,9 +571,9 @@ function inferSummary(lines: readonly string[]): string | null {
     return null;
   }
 
-  const collectedLines = [lines[fallbackStartIndex]!];
+  const collectedLines = [fallbackSearchLines[fallbackStartIndex]!];
 
-  for (const line of lines.slice(fallbackStartIndex + 1, fallbackStartIndex + 4)) {
+  for (const line of fallbackSearchLines.slice(fallbackStartIndex + 1, fallbackStartIndex + 4)) {
     if (
       isResumeSectionHeading(line) ||
       line.includes("@") ||

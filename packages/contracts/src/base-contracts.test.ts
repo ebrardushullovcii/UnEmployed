@@ -27,18 +27,18 @@ describe("contracts base schemas", () => {
     );
     expect(ApplyJobStateSchema.parse("awaiting_review")).toBe("awaiting_review");
     expect(ApplySubmitApprovalStatusSchema.parse("approved")).toBe("approved");
-    expect(SourceAccessPromptStateSchema.parse("login_required")).toBe(
-      "login_required",
+    expect(SourceAccessPromptStateSchema.parse("prompt_login_required")).toBe(
+      "prompt_login_required",
     );
   });
 
   test("supports the full source access prompt state list", () => {
     expect(sourceAccessPromptStateValues).toEqual([
-      "login_required",
-      "login_recommended",
+      "prompt_login_required",
+      "prompt_login_recommended",
     ]);
-    expect(SourceAccessPromptStateSchema.parse("login_recommended")).toBe(
-      "login_recommended",
+    expect(SourceAccessPromptStateSchema.parse("prompt_login_recommended")).toBe(
+      "prompt_login_recommended",
     );
   });
 

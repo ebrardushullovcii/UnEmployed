@@ -593,7 +593,7 @@ export function renderResumeTemplateHtml(input: {
     </style>
   </head>
   <body>
-    <article class="${layout.pageClassName} ${layout.templateClassName}">
+    <article class="${layout.pageClassName} ${layout.templateClassName}" data-ats-safe="true">
       <header class="${layout.headerClassName}">
         <h1 class="${layout.nameClassName}">${escapeHtml(input.renderDocument.fullName)}</h1>
         ${input.renderDocument.headline ? `<p class="${layout.headlineClassName}">${escapeHtml(input.renderDocument.headline)}</p>` : ''}

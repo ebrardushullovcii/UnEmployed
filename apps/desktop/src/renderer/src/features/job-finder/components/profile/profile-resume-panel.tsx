@@ -150,7 +150,16 @@ export function ProfileResumePanel({
   const latestRunSummary = latestResumeImportRun
     ? latestResumeImportRun.status === 'review_ready'
       ? `${latestResumeImportRun.candidateCounts.autoApplied} auto-applied, ${latestResumeImportRun.candidateCounts.needsReview} waiting for review.`
-      : `${latestResumeImportRun.candidateCounts.autoApplied} auto-applied, import ready to use.`
+      : latestResumeImportRun.status === 'applied'
+        ? `${latestResumeImportRun.candidateCounts.autoApplied} auto-applied, import ready to use.`
+        : latestResumeImportRun.status === 'failed'
+          ? 'The latest resume import failed. Replace the file or refresh the import before relying on these details.'
+          : latestResumeImportRun.status === 'queued' ||
+              latestResumeImportRun.status === 'parsing' ||
+              latestResumeImportRun.status === 'extracting' ||
+              latestResumeImportRun.status === 'reconciling'
+            ? 'The latest resume import is still in progress.'
+            : null
     : null
   const visibleAnalysisWarnings = profile.baseResume.analysisWarnings.filter(
     (warning) => !shouldHideAnalysisWarning(warning)

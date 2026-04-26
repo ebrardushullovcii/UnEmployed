@@ -237,12 +237,7 @@ function isGroundedVisibleSkill(
   }
 
   return candidateSkillBank.some((skill) => {
-    const normalizedSkill = normalizeText(skill);
-    return (
-      normalizedSkill === normalized ||
-      normalizedSkill.includes(normalized) ||
-      normalized.includes(normalizedSkill)
-    );
+    return matchesWholePhrase(skill, content) || matchesWholePhrase(content, skill);
   });
 }
 
@@ -273,12 +268,7 @@ function isGroundedVisibleLanguage(
   }
 
   return candidateLanguageBank.some((language) => {
-    const normalizedLanguage = normalizeText(language);
-    return (
-      normalizedLanguage === normalized ||
-      normalizedLanguage.includes(normalized) ||
-      normalized.includes(normalizedLanguage)
-    );
+    return matchesWholePhrase(language, content) || matchesWholePhrase(content, language);
   });
 }
 

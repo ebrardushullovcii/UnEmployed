@@ -41,7 +41,7 @@ export function normalizeHeadlineText(value: string): string {
   const normalized = cleanLine(
     value
       .replace(
-        /\s+[–—-]\s+(?:\d{2}\/\d{4}|\d{4})\s+[–—-]\s+(?:current|present|\d{2}\/\d{4}|\d{4}).*$/i,
+        /\s+[–—-]\s+(?:\d{1,2}\/\d{4}|\d{4})\s+[–—-]\s+(?:current|present|\d{1,2}\/\d{4}|\d{4}).*$/i,
         "",
       )
       .replace(/\s+[–—-]\s+current$/i, ""),

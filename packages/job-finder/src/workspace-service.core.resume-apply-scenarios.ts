@@ -567,9 +567,8 @@ describe("createJobFinderWorkspaceService", () => {
       .flatMap((section) => section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text));
 
     expect(skillBullets).toEqual(expect.arrayContaining(["Figma", "Design Systems"]));
-    expect(skillBullets).not.toEqual(
-      expect.arrayContaining(["Signal Systems", "Remote-first collaboration"]),
-    );
+    expect(skillBullets).not.toContain("Signal Systems");
+    expect(skillBullets).not.toContain("Remote-first collaboration");
   });
 
   test("fails assistant edits as a batch when one patch targets missing content", async () => {

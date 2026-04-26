@@ -1,11 +1,10 @@
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { Slot } from "radix-ui";
 
 import { cn } from "@renderer/lib/utils";
 
 const buttonVariants = cva(
-  "relative inline-flex shrink-0 items-center justify-center gap-2 overflow-hidden whitespace-nowrap transition-[background-color,border-color,color,opacity,box-shadow,transform] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:border-border/55 disabled:text-foreground-muted disabled:shadow-none disabled:saturate-75 disabled:opacity-65 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "relative inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap transition-[background-color,border-color,color,opacity,box-shadow,transform] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:border-border/55 disabled:text-foreground-muted disabled:shadow-none disabled:saturate-75 disabled:opacity-65 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -56,19 +55,95 @@ function Button({
     asChild?: boolean;
     pending?: boolean;
   }) {
-  const Comp = asChild ? Slot.Root : "button";
+  const resolvedVariant = variant ?? "primary";
+  const resolvedSize = size ?? "default";
   const isDisabled = disabled || pending;
+  const { onClick, onKeyDown, tabIndex, ...restProps } = props;
+  const sharedClassName = cn(
+    buttonVariants({ variant: resolvedVariant, size: resolvedSize }),
+    pending && "overflow-hidden",
+    className,
+  );
+  const handlePendingClick = React.useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      if (!isDisabled) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    [isDisabled],
+  );
+  const handlePendingKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (!isDisabled) {
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+    [isDisabled],
+  );
+  const pendingRail = pending ? (
+    <span
+      key="pending-rail"
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-(--button-pending-rail-track)"
+    >
+      <span className="button-pending-rail absolute inset-y-0 left-[-35%] w-[35%] rounded-full bg-[linear-gradient(90deg,transparent,var(--button-pending-rail),transparent)]" />
+    </span>
+  ) : null;
+
+  if (asChild && React.isValidElement(children)) {
+    const child = children as React.ReactElement<
+      React.HTMLAttributes<HTMLElement> & {
+        children?: React.ReactNode;
+        className?: string;
+        [key: `data-${string}`]: string | undefined;
+      }
+    >;
+    const childProps = child.props;
+    const resolvedOnClick = isDisabled
+      ? handlePendingClick
+      : childProps.onClick ?? onClick;
+    const resolvedOnKeyDown = isDisabled
+      ? handlePendingKeyDown
+      : childProps.onKeyDown ?? onKeyDown;
+    const clonedChildProps = {
+      ...(pending ? { "aria-busy": true as const, "data-pending": "true" } : {}),
+      ...(isDisabled ? { "aria-disabled": true as const, tabIndex: -1 } : {}),
+      "data-slot": "button",
+      "data-variant": resolvedVariant,
+      "data-size": resolvedSize,
+      className: cn(sharedClassName, childProps.className),
+      ...(resolvedOnClick ? { onClick: resolvedOnClick } : {}),
+      ...(resolvedOnKeyDown ? { onKeyDown: resolvedOnKeyDown } : {}),
+      ...(!isDisabled && tabIndex !== undefined ? { tabIndex } : {}),
+    };
+
+    return React.cloneElement(child, {
+      ...clonedChildProps,
+      children: [childProps.children, pendingRail],
+    });
+  }
 
   return (
-    <Comp
+    <button
       aria-busy={pending || undefined}
       data-slot="button"
       data-pending={pending ? "true" : undefined}
-      data-variant={variant}
-      data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-variant={resolvedVariant}
+      data-size={resolvedSize}
+      className={sharedClassName}
       disabled={isDisabled}
-      {...props}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      tabIndex={tabIndex}
+      {...restProps}
     >
       <span
         className={cn(
@@ -78,15 +153,8 @@ function Button({
       >
         {children}
       </span>
-      {pending ? (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-white/10"
-        >
-          <span className="button-pending-rail absolute inset-y-0 left-[-35%] w-[35%] rounded-full bg-[linear-gradient(90deg,transparent,var(--button-pending-rail),transparent)]" />
-        </span>
-      ) : null}
-    </Comp>
+      {pendingRail}
+    </button>
   );
 }
 

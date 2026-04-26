@@ -37,9 +37,9 @@ describe('desktop resume quality benchmark', () => {
     expect(report.cases).toHaveLength(6)
     for (const result of report.cases) {
       expect(result.visibleSkills).toEqual(expect.arrayContaining(['Figma']))
-      expect(result.visibleSkills).not.toEqual(
-        expect.arrayContaining(['Signal Systems', 'Greenhouse', 'Remote-first collaboration']),
-      )
+      expect(result.visibleSkills).not.toContain('Signal Systems')
+      expect(result.visibleSkills).not.toContain('Greenhouse')
+      expect(result.visibleSkills).not.toContain('Remote-first collaboration')
       expect(result.metrics.groundedVisibleSkillRate).toBe(1)
       expect(result.metrics.bleedFreeCaseRate).toBe(1)
     }

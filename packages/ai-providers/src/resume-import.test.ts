@@ -174,4 +174,43 @@ describe("selectBlocksForResumeImportStage", () => {
     expect(yearsCandidate?.sourceBlockIds.length).toBeGreaterThan(0);
     expect(yearsCandidate?.evidenceText).toContain("2021");
   });
+
+  test("extracts focused evidence snippets from relaxed candidates while preserving raw-first order", () => {
+    const longSummary = [
+      "Senior software engineer with platform modernization experience across distributed systems and cloud migration programs.",
+      "Partners with product, security, and infrastructure teams to deliver resilient releases.",
+    ].join(" ");
+    const result = buildDeterministicResumeImportStageExtraction(
+      {
+        stage: "identity_summary",
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle: {
+          ...bundle,
+          blocks: [
+            { id: "b1", pageNumber: 1, readingOrder: 0, text: "Jordan Avery", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.96 },
+            {
+              id: "b2",
+              pageNumber: 1,
+              readingOrder: 1,
+              text: `${longSummary.split(" ").slice(0, 8).join(" ")} ${"Additional delivery detail ".repeat(40)}`,
+              kind: "paragraph",
+              sectionHint: "summary",
+              bbox: null,
+              sourceParserKinds: ["local_pdf_layout"],
+              sourceConfidence: 0.88,
+            },
+          ],
+          fullText: ["Jordan Avery", longSummary].join("\n"),
+        },
+      },
+      "Test provider",
+    );
+
+    const summaryCandidate = result.candidates.find((candidate) => candidate.target.key === "summary");
+
+    expect(summaryCandidate?.sourceBlockIds).toEqual(["b2"]);
+    expect(summaryCandidate?.evidenceText).toContain("Senior software engineer with platform modernization experience");
+    expect(summaryCandidate?.evidenceText?.endsWith("...")).toBe(false);
+  });
 });

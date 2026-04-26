@@ -139,7 +139,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.latestResumeImportRun?.status).toBe("applied");
     expect(snapshot.latestResumeImportRun?.candidateCounts.needsReview).toBe(1);
     expect(snapshot.profile.baseResume.analysisWarnings).toEqual([
-      "1 optional proof suggestion is available to review before using them in tailored resume narratives.",
+      "1 optional proof suggestion is available to review before using it in tailored resume narratives.",
     ]);
     expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toEqual([
       "Platform migration proof",
@@ -279,7 +279,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.fullName).toBe("Jamie Rivers");
     expect(snapshot.profile.firstName).toBe("Jamie");
     expect(snapshot.profile.lastName).toBe("Rivers");
-    expect(snapshot.profile.headline).toBe("Staff Frontend Engineer");
+    expect(snapshot.profile.headline).toBe("Import your resume to begin");
     expect(snapshot.profile.email).toBe("jamie@example.com");
     expect(snapshot.profile.phone).toBe("+49 555 1234");
     expect(snapshot.profile.linkedinUrl).toBe("https://www.linkedin.com/in/jamie-rivers");
@@ -290,7 +290,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toContain(
       "Staff Frontend Engineer at Signal Labs",
     );
-    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).not.toContain(
+    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toContain(
       "Headline",
     );
 

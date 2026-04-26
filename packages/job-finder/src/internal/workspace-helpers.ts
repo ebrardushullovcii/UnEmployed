@@ -128,11 +128,25 @@ export function normalizeJobFinderSettings(
   });
 }
 
+export function wasResumeDraftApproved(
+  draft:
+    | Pick<ResumeDraft, "status" | "approvedAt" | "approvedExportId">
+    | null
+    | undefined,
+): boolean {
+  return Boolean(
+    draft?.status === "approved" || draft?.approvedAt || draft?.approvedExportId,
+  );
+}
+
 export function normalizeResumeDraftTemplate(
   draft: ResumeDraft,
   availableResumeTemplates: readonly ResumeTemplateDefinition[],
 ): ResumeDraft {
-  const fallbackTemplateId = availableResumeTemplates[0]?.id ?? "classic_ats";
+  const fallbackTemplate = availableResumeTemplates[0] ?? {
+    id: "classic_ats",
+    label: "Classic ATS",
+  };
   const selectedTemplateAvailable = availableResumeTemplates.some(
     (template) => template.id === draft.templateId,
   );
@@ -141,18 +155,16 @@ export function normalizeResumeDraftTemplate(
     return draft;
   }
 
-  const shouldClearApproval =
-    draft.status === "approved" ||
-    Boolean(draft.approvedAt || draft.approvedExportId);
+  const shouldClearApproval = wasResumeDraftApproved(draft);
 
   return ResumeDraftSchema.parse({
     ...draft,
-    templateId: fallbackTemplateId,
+    templateId: fallbackTemplate.id,
     status: shouldClearApproval ? "stale" : draft.status,
     approvedAt: shouldClearApproval ? null : draft.approvedAt,
     approvedExportId: shouldClearApproval ? null : draft.approvedExportId,
     staleReason: shouldClearApproval
-      ? `This resume used a retired theme. Export a fresh ${availableResumeTemplates[0]?.label ?? "Classic ATS"} PDF before applying.`
+      ? `This resume used a retired theme. Export a fresh ${fallbackTemplate.label} PDF before applying.`
       : draft.staleReason,
   });
 }

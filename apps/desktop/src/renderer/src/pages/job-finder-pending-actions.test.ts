@@ -42,6 +42,7 @@ describe('jobFinderPendingActions helpers', () => {
     const state = {
       [jobFinderPendingActions.browserSession()]: 1,
       [jobFinderPendingActions.sourceDebug('target_1')]: 1,
+      [jobFinderPendingActions.discoveryAll()]: 0,
     }
 
     expect(listPendingActionScopes(state)).toEqual([

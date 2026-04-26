@@ -27,9 +27,13 @@ function normalizeRecordDate(value: unknown): string {
     return `${isoMonthMatch[1]}-${isoMonthMatch[2]}`;
   }
 
-  const slashMonthMatch = trimmed.match(/^(\d{2})\/(\d{4})$/);
+  const slashMonthMatch = trimmed.match(/^(\d{1,2})\/(\d{4})$/);
   if (slashMonthMatch) {
-    return `${slashMonthMatch[2]}-${slashMonthMatch[1]}`;
+    const month = Number.parseInt(slashMonthMatch[1] ?? "", 10);
+
+    if (Number.isInteger(month) && month >= 1 && month <= 12) {
+      return `${slashMonthMatch[2]}-${String(month).padStart(2, "0")}`;
+    }
   }
 
   const monthByName: Record<string, string> = {
@@ -143,7 +147,7 @@ export function areEquivalentExperienceRecords(
   return (
     (strongTitle && strongStart && companyCompatible && (strongCompany || strongEnd || locationCompatible)) ||
     (strongCompany && strongStart && titleCompatible && (strongTitle || strongEnd || locationCompatible)) ||
-    (strongTitle && strongCompany && startCompatible && endCompatible)
+    (strongTitle && strongCompany && (strongStart || strongEnd) && startCompatible && endCompatible)
   );
 }
 

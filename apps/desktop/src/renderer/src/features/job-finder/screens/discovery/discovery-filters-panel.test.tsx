@@ -3,15 +3,30 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { JobSearchPreferences, SourceAccessPrompt } from '@unemployed/contracts'
 import { DiscoveryFiltersPanel } from './discovery-filters-panel'
 
 describe('DiscoveryFiltersPanel', () => {
+  const globalScope = globalThis as typeof globalThis & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean
+  }
+  const originalActEnvironment = globalScope.IS_REACT_ACT_ENVIRONMENT
   let container: HTMLDivElement | null = null
   let root: Root | null = null
 
-  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  beforeAll(() => {
+    globalScope.IS_REACT_ACT_ENVIRONMENT = true
+  })
+
+  afterAll(() => {
+    if (originalActEnvironment === undefined) {
+      delete globalScope.IS_REACT_ACT_ENVIRONMENT
+      return
+    }
+
+    globalScope.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
+  })
 
   afterEach(() => {
     if (root) {
@@ -69,7 +84,7 @@ describe('DiscoveryFiltersPanel', () => {
       targetId: 'target_linkedin_default',
       targetLabel: 'LinkedIn',
       targetUrl: 'https://www.linkedin.com/jobs/search/',
-      state: 'login_required',
+      state: 'prompt_login_required',
       summary: 'Sign in to LinkedIn before the next search can continue.',
       detail: 'Please sign in first.',
       actionLabel: 'Sign in to LinkedIn',
@@ -106,6 +121,7 @@ describe('DiscoveryFiltersPanel', () => {
               },
             ]}
             isBrowserSessionPending={false}
+            isBrowserSessionPendingForTarget={() => false}
             isDiscoveryAllPending={false}
             isTargetPending={() => false}
             onOpenBrowserSession={vi.fn()}
@@ -130,7 +146,7 @@ describe('DiscoveryFiltersPanel', () => {
     expect(signInButton).not.toBeNull()
 
     act(() => {
-      signInButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      signInButton?.click()
     })
 
     expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith('target_linkedin_default')

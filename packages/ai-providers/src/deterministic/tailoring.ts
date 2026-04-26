@@ -86,7 +86,11 @@ function buildProofBullet(input: {
     return claim;
   }
 
-  return `${claim}${/[.!?]$/.test(claim) ? "" : "."} ${heroMetric}`;
+  const normalizedHeroMetric = /[.!?]$/.test(heroMetric)
+    ? heroMetric
+    : `${heroMetric}.`;
+
+  return `${claim}${/[.!?]$/.test(claim) ? "" : "."} ${normalizedHeroMetric}`;
 }
 
 function shouldKeepSupportingContext(value: string | null | undefined): boolean {
@@ -95,16 +99,63 @@ function shouldKeepSupportingContext(value: string | null | undefined): boolean 
 
 function formatMonthYear(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
-  const match = /^(\d{4})-(\d{2})$/.exec(trimmed);
+  if (!trimmed) {
+    return null;
+  }
 
-  if (!match) {
-    return trimmed || null;
+  if (/^present$/i.test(trimmed)) {
+    return "Present";
   }
 
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const month = monthNames[Number(match[2]) - 1];
+  const monthByName: Record<string, number> = {
+    jan: 1,
+    january: 1,
+    feb: 2,
+    february: 2,
+    mar: 3,
+    march: 3,
+    apr: 4,
+    april: 4,
+    may: 5,
+    jun: 6,
+    june: 6,
+    jul: 7,
+    july: 7,
+    aug: 8,
+    august: 8,
+    sep: 9,
+    sept: 9,
+    september: 9,
+    oct: 10,
+    october: 10,
+    nov: 11,
+    november: 11,
+    dec: 12,
+    december: 12,
+  };
 
-  return month ? `${month} ${match[1]}` : trimmed;
+  const yearMonthMatch = /^(\d{4})-(\d{2})$/.exec(trimmed);
+  const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
+  const namedMonthMatch = /^([a-zA-Z]+)\.?\s+(\d{4})$/.exec(trimmed);
+
+  if (yearMonthMatch) {
+    const month = monthNames[Number(yearMonthMatch[2]) - 1];
+    return month ? `${month} ${yearMonthMatch[1]}` : null;
+  }
+
+  if (monthYearSlashMatch) {
+    const month = monthNames[Number(monthYearSlashMatch[1]) - 1];
+    return month ? `${month} ${monthYearSlashMatch[2]}` : null;
+  }
+
+  if (namedMonthMatch) {
+    const monthNumber = monthByName[namedMonthMatch[1]?.toLowerCase().replace(/\./g, '') ?? ''];
+    const month = monthNumber ? monthNames[monthNumber - 1] : null;
+    return month ? `${month} ${namedMonthMatch[2]}` : null;
+  }
+
+  return /^([A-Z][a-z]{2})\s+(\d{4})$/.test(trimmed) ? trimmed : null;
 }
 
 function formatDateRange(start: string | null | undefined, end: string | null | undefined): string | null {
@@ -125,18 +176,27 @@ function buildExperienceBullets(input: {
 }): string[] {
   const baseBullets = uniqueStrings(input.experience.achievements);
   const matchedProofs: Array<CandidateProfile["proofBank"][number]> = [];
+  const usedProofIds = new Set<string>();
 
   const enrichedBullets = uniqueStrings(
     baseBullets.map((bullet) => {
-      const matchingProof = input.proofBank.find((proof) => {
-        const proofText = [proof.claim, proof.heroMetric].filter(Boolean).join(" ");
-        return calculateQualityOverlap(proofText, bullet) >= 0.72;
-      });
+      const matchingProof = input.proofBank
+        .filter((proof) => !usedProofIds.has(proof.id))
+        .map((proof) => ({
+          overlap: calculateQualityOverlap(
+            [proof.claim, proof.heroMetric].filter(Boolean).join(" "),
+            bullet,
+          ),
+          proof,
+        }))
+        .filter(({ overlap }) => overlap >= 0.72)
+        .sort((left, right) => right.overlap - left.overlap)[0]?.proof;
 
       if (!matchingProof) {
         return bullet;
       }
 
+      usedProofIds.add(matchingProof.id);
       matchedProofs.push(matchingProof);
 
       return buildProofBullet({
@@ -147,13 +207,20 @@ function buildExperienceBullets(input: {
     }),
   );
 
-  const supportingContextBullets = uniqueStrings(
-    matchedProofs.flatMap((proof) =>
-      proof.supportingContext && shouldKeepSupportingContext(proof.supportingContext)
-        ? [proof.supportingContext]
-        : [],
-    ),
-  ).filter((line) => isDistinctQualityLine(line, enrichedBullets));
+  const supportingContextBullets: string[] = [];
+
+  for (const proof of matchedProofs) {
+    const candidate = proof.supportingContext?.trim();
+    if (!candidate || !shouldKeepSupportingContext(candidate)) {
+      continue;
+    }
+
+    if (!isDistinctQualityLine(candidate, [...enrichedBullets, ...supportingContextBullets])) {
+      continue;
+    }
+
+    supportingContextBullets.push(candidate);
+  }
 
   return uniqueStrings([...enrichedBullets, ...supportingContextBullets]).slice(0, 3);
 }
@@ -498,7 +565,10 @@ export function buildDeterministicStructuredResumeDraft(
     evidence?.candidateSummary[0] ??
     evidence?.summary[0] ??
     baseDraft.summary;
-  const experienceHighlights = uniqueStrings(baseDraft.experienceHighlights).slice(0, 4);
+  const experienceHighlights = uniqueStrings([
+    ...(input.researchContext?.priorityThemes ?? []),
+    ...baseDraft.experienceEntries.flatMap((entry) => entry.bullets),
+  ]).slice(0, 4);
   const coreSkills = filterGroundedVisibleSkills(
     input.profile,
     [

@@ -19,19 +19,7 @@ export function areEquivalentRecordCandidates(
   left: ResumeImportFieldCandidate,
   right: ResumeImportFieldCandidate,
 ): boolean {
-  if (
-    left.target.section !== right.target.section ||
-    left.target.key !== right.target.key ||
-    left.target.section === "identity" ||
-    left.target.section === "contact" ||
-    left.target.section === "location" ||
-    left.target.section === "search_preferences" ||
-    left.target.section === "skill" ||
-    left.target.section === "narrative" ||
-    left.target.section === "proof_point" ||
-    left.target.section === "answer_bank" ||
-    left.target.section === "application_identity"
-  ) {
+  if (left.target.section !== right.target.section || left.target.key !== right.target.key) {
     return false;
   }
 

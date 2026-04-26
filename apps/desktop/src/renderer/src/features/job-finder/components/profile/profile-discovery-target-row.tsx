@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState, type ChangeEvent } from 'react'
 import type {
   EditableSourceInstructionArtifact,
   SourceAccessPrompt,
@@ -46,11 +46,10 @@ function formatInstructionStatusSummary(target: DiscoveryTargetValue): string {
 }
 
 interface ProfileDiscoveryTargetRowProps {
-  busy: boolean
   discoveryTargets: readonly DiscoveryTargetValue[]
   index: number
   instructionArtifact: SourceInstructionArtifact | null
-  isBrowserSessionPending: boolean
+  isBrowserSessionPending: (targetId: string) => boolean
   isSourceDebugPending: (targetId: string) => boolean
   isSourceInstructionPending: (targetId: string) => boolean
   isSourceInstructionVerifyPending: (instructionId: string) => boolean
@@ -113,13 +112,25 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   } | null>(null)
   const [editingInstructionValue, setEditingInstructionValue] = useState('')
   const isTargetDiscoveryPending = props.isTargetDiscoveryPending(props.target.id)
+  const isTargetBrowserSessionPending = props.isBrowserSessionPending(props.target.id)
   const isTargetSourceDebugPending = props.isSourceDebugPending(props.target.id)
   const isInstructionSavePending = props.isSourceInstructionPending(props.target.id)
+  const [pendingInstructionAction, setPendingInstructionAction] = useState<{
+    field: LearnedInstructionField
+    kind: 'edit' | 'remove'
+    normalizedKey: string
+  } | null>(null)
   const sourceAccessPrompt = props.sourceAccessPrompt
   const signInToneClassName =
-    sourceAccessPrompt?.state === 'login_required'
+    sourceAccessPrompt?.state === 'prompt_login_required'
       ? 'border-(--warning-border) bg-(--warning-surface) text-(--warning-text)'
       : 'border-(--info-border) bg-(--info-surface) text-(--info-text)'
+
+  useEffect(() => {
+    if (!isInstructionSavePending) {
+      setPendingInstructionAction(null)
+    }
+  }, [isInstructionSavePending])
 
   const updateTarget = (nextTarget: DiscoveryTargetValue) => {
     const existingTarget = props.discoveryTargets[props.index]
@@ -169,6 +180,11 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         nextValue
       )
     )
+    setPendingInstructionAction({
+      field: editingInstruction.field,
+      kind: 'edit',
+      normalizedKey: editingInstruction.normalizedKey,
+    })
     cancelEditingInstruction()
   }
 
@@ -183,6 +199,11 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     saveInstructionArtifact(
       updateArtifactInstructionSection(props.instructionArtifact, section.field, line.normalizedKey, null)
     )
+    setPendingInstructionAction({
+      field: section.field,
+      kind: 'remove',
+      normalizedKey: line.normalizedKey,
+    })
 
     if (editingInstruction?.field === section.field && editingInstruction.normalizedKey === line.normalizedKey) {
       cancelEditingInstruction()
@@ -254,12 +275,12 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
         <div className="flex flex-wrap items-start gap-2 lg:justify-end">
           {sourceAccessPrompt ? (
             <Button
-              aria-label={sourceAccessPrompt.actionLabel}
+              aria-label={`${sourceAccessPrompt.actionLabel} for ${displayName}`}
               onClick={handleOpenBrowserSessionForTarget}
-              pending={props.isBrowserSessionPending}
+              pending={isTargetBrowserSessionPending}
               type="button"
               size="sm"
-              variant={sourceAccessPrompt.state === 'login_required' ? 'primary' : 'secondary'}
+              variant={sourceAccessPrompt.state === 'prompt_login_required' ? 'primary' : 'secondary'}
             >
               {sourceAccessPrompt.actionLabel}
             </Button>
@@ -327,7 +348,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           role="status"
         >
           <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label)">
-            {sourceAccessPrompt.state === 'login_required' ? 'Sign-in required' : 'Sign-in recommended'}
+            {sourceAccessPrompt.state === 'prompt_login_required' ? 'Sign-in required' : 'Sign-in recommended'}
           </p>
           <p className="text-[0.88rem] leading-6">{sourceAccessPrompt.summary}</p>
           {sourceAccessPrompt.detail ? (
@@ -403,6 +424,24 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           editingInstruction={editingInstruction}
           editingInstructionValue={editingInstructionValue}
           intelligenceSummaries={learnedInstructionIntelligenceSummaries}
+          isEditingInstructionPending={
+            isInstructionSavePending &&
+            pendingInstructionAction?.kind === 'edit' &&
+            pendingInstructionAction.field === editingInstruction?.field &&
+            pendingInstructionAction.normalizedKey === editingInstruction?.normalizedKey
+          }
+          isInstructionEditPending={(section, line) =>
+            isInstructionSavePending &&
+            pendingInstructionAction?.kind === 'edit' &&
+            pendingInstructionAction.field === section.field &&
+            pendingInstructionAction.normalizedKey === line.normalizedKey
+          }
+          isInstructionRemovePending={(section, line) =>
+            isInstructionSavePending &&
+            pendingInstructionAction?.kind === 'remove' &&
+            pendingInstructionAction.field === section.field &&
+            pendingInstructionAction.normalizedKey === line.normalizedKey
+          }
           isInstructionSavePending={isInstructionSavePending}
           instructionArtifactDescription={describeLearnedInstructionUsage(props.instructionArtifact)}
           onBeginEditingInstruction={beginEditingInstruction}

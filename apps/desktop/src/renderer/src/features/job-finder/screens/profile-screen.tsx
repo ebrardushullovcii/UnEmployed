@@ -38,19 +38,23 @@ const unsavedProfileSourceActionMessage =
 const unsavedProfileSourceSignInMessage =
   'Save this source before opening a sign-in session so the browser uses the latest saved source entry.'
 
+type ProfileScreenPendingActions = {
+  analyzeProfile: boolean
+  browserSession: (targetId: string) => boolean
+  importResume: boolean
+  profileCopilotBusy: boolean
+  profileMutation: boolean
+  profileSetup: boolean
+  sourceDebug: (targetId: string) => boolean
+  sourceInstruction: (targetId: string) => boolean
+  sourceInstructionVerify: (instructionId: string) => boolean
+  targetDiscovery: (targetId: string) => boolean
+}
+
 export function ProfileScreen(props: {
   actionState: { message: string | null }
   importResumeGuardMessage: string | null
-  isAnalyzeProfilePending: boolean
-  isBrowserSessionPending: boolean
-  isImportResumePending: boolean
-  isProfileMutationPending: boolean
-  isProfileSetupPending: boolean
-  isSourceDebugPending: (targetId: string) => boolean
-  isSourceInstructionPending: (targetId: string) => boolean
-  isSourceInstructionVerifyPending: (instructionId: string) => boolean
-  isTargetDiscoveryPending: (targetId: string) => boolean
-  profileCopilotBusy: boolean
+  pendingActions: ProfileScreenPendingActions
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
   onAnalyzeProfileFromResume: () => void
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
@@ -80,16 +84,7 @@ export function ProfileScreen(props: {
 }) {
   const {
     importResumeGuardMessage,
-    isAnalyzeProfilePending,
-    isBrowserSessionPending,
-    isImportResumePending,
-    isProfileMutationPending,
-    isProfileSetupPending,
-    isSourceDebugPending,
-    isSourceInstructionPending,
-    isSourceInstructionVerifyPending,
-    isTargetDiscoveryPending,
-    profileCopilotBusy,
+    pendingActions,
     onApplyProfileCopilotPatchGroup,
     onAnalyzeProfileFromResume,
     onGetSourceDebugRunDetails,
@@ -260,8 +255,8 @@ export function ProfileScreen(props: {
 
           <ProfileResumePanel
             importDisabledReason={importResumeGuardMessage}
-            isAnalyzeProfilePending={isAnalyzeProfilePending}
-            isImportResumePending={isImportResumePending}
+            isAnalyzeProfilePending={pendingActions.analyzeProfile}
+            isImportResumePending={pendingActions.importResume}
             latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
             latestResumeImportRun={latestResumeImportRun}
             onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
@@ -280,7 +275,7 @@ export function ProfileScreen(props: {
                 </p>
               </div>
               <Button
-                disabled={isProfileSetupPending}
+                pending={pendingActions.profileSetup}
                 onClick={() => onResumeProfileSetup(profileSetupState.currentStep)}
                 type="button"
                 variant="secondary"
@@ -308,12 +303,12 @@ export function ProfileScreen(props: {
                   activeSection={activeSection}
                   backgroundArrays={backgroundArrays}
                   experienceArray={experienceArray}
-                  isProfileMutationPending={isProfileMutationPending}
-                  isBrowserSessionPending={isBrowserSessionPending}
-                  isSourceDebugPending={isSourceDebugPending}
-                  isSourceInstructionPending={isSourceInstructionPending}
-                  isSourceInstructionVerifyPending={isSourceInstructionVerifyPending}
-                  isTargetDiscoveryPending={isTargetDiscoveryPending}
+                  isBrowserSessionPending={pendingActions.browserSession}
+                  isProfileMutationPending={pendingActions.profileMutation}
+                  isSourceDebugPending={pendingActions.sourceDebug}
+                  isSourceInstructionPending={pendingActions.sourceInstruction}
+                  isSourceInstructionVerifyPending={pendingActions.sourceInstructionVerify}
+                  isTargetDiscoveryPending={pendingActions.targetDiscovery}
                   onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
                   onOpenBrowserSessionForTarget={handleSignInForTarget}
                   {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: handleRunDiscoveryForTarget } : {})}
@@ -332,7 +327,7 @@ export function ProfileScreen(props: {
             <ProfileSaveFooter
               actionMessage={props.actionState.message}
               hasUnsavedChanges={hasUnsavedChanges}
-              isSavePending={isProfileMutationPending}
+              isSavePending={pendingActions.profileMutation}
               onSave={handleSaveAll}
               validationMessage={validationMessage}
             />
@@ -341,7 +336,7 @@ export function ProfileScreen(props: {
 
       </section>
       <ProfileCopilotRail
-        busy={profileCopilotBusy}
+        busy={pendingActions.profileCopilotBusy}
         actionsDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null}
         context={profileCopilotContext}
         emptyStateDescription="Ask for a tighter headline, a stronger summary, or a structured profile edit for this section."

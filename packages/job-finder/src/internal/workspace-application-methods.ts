@@ -42,6 +42,7 @@ import {
   nextJobStatusFromAttempt,
   resolveActiveSourceInstructionArtifact,
   toApplicationEvents,
+  wasResumeDraftApproved,
 } from "./workspace-helpers";
 import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 import {
@@ -1040,18 +1041,13 @@ export function createWorkspaceApplicationMethods(
     },
     async saveResumeDraft(draft) {
       const parsedDraft = ResumeDraftSchema.parse(draft);
-      const { job, profile, tailoredAsset } = await ensureResumeDraft(
+      const { job, profile, tailoredAsset, templates } = await ensureResumeDraft(
         ctx,
         parsedDraft.jobId,
       );
-      const templates = ctx.documentManager.listResumeTemplates();
       const now = new Date().toISOString();
       const currentDraft = await ctx.repository.getResumeDraftByJobId(parsedDraft.jobId);
-      const hadApprovedExport = Boolean(
-        currentDraft?.status === "approved" ||
-        currentDraft?.approvedAt ||
-        currentDraft?.approvedExportId,
-      );
+      const hadApprovedExport = wasResumeDraftApproved(currentDraft);
       const nextDraft = ResumeDraftSchema.parse({
         ...parsedDraft,
         status:
@@ -1181,7 +1177,7 @@ export function createWorkspaceApplicationMethods(
       return this.applyResumePatch(sectionPatch, "Regenerated section");
     },
     async exportResumePdf(jobId, outputPath) {
-      const { draft, job, profile, settings, tailoredAsset } =
+      const { draft, job, profile, settings, tailoredAsset, templates } =
         await ensureResumeDraft(ctx, jobId);
       const renderedArtifact = await renderDraftToPdf(ctx, {
         job,
@@ -1219,7 +1215,7 @@ export function createWorkspaceApplicationMethods(
         existingAsset: tailoredAsset,
         storagePath: renderedArtifact.storagePath,
         pageCount: renderedArtifact.pageCount ?? null,
-        templates: ctx.documentManager.listResumeTemplates(),
+        templates,
         notes: uniqueStrings([
           ...(renderedArtifact.fileName
             ? [`Generated PDF resume artifact ${renderedArtifact.fileName}.`]
@@ -1243,7 +1239,7 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async approveResume(jobId, exportId) {
-      const { draft, job, profile, tailoredAsset } = await ensureResumeDraft(
+      const { draft, job, profile, tailoredAsset, templates } = await ensureResumeDraft(
         ctx,
         jobId,
       );
@@ -1299,7 +1295,7 @@ export function createWorkspaceApplicationMethods(
         existingAsset: tailoredAsset,
         storagePath: targetExport.filePath,
         pageCount: targetExport.pageCount,
-        templates: ctx.documentManager.listResumeTemplates(),
+        templates,
       });
 
       await ctx.repository.approveResumeExport({
@@ -1315,7 +1311,7 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async clearResumeApproval(jobId) {
-      const { draft, job, profile, tailoredAsset } = await ensureResumeDraft(
+      const { draft, job, profile, tailoredAsset, templates } = await ensureResumeDraft(
         ctx,
         jobId,
       );
@@ -1333,7 +1329,7 @@ export function createWorkspaceApplicationMethods(
         profile,
         existingAsset: tailoredAsset,
         clearStoragePath: true,
-        templates: ctx.documentManager.listResumeTemplates(),
+        templates,
       });
 
       await ctx.repository.clearResumeApproval({
@@ -1387,7 +1383,7 @@ export function createWorkspaceApplicationMethods(
         profile: state.profile,
         existingAsset: state.tailoredAsset,
         clearStoragePath: true,
-        templates: ctx.documentManager.listResumeTemplates(),
+        templates: state.templates,
       });
 
       await ctx.repository.applyResumePatchWithRevision({
@@ -1498,7 +1494,7 @@ export function createWorkspaceApplicationMethods(
           profile: workspaceState.profile,
           existingAsset: workspaceState.tailoredAsset,
           clearStoragePath: true,
-          templates: ctx.documentManager.listResumeTemplates(),
+          templates: workspaceState.templates,
         });
 
         await ctx.repository.applyResumePatchWithRevision({

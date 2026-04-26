@@ -180,7 +180,7 @@ describe("contracts workspace snapshot schema", () => {
           targetId: "target_1",
           targetLabel: "KosovaJob",
           targetUrl: "https://kosovajob.com/",
-          state: "login_required",
+          state: "prompt_login_required",
           summary: "Sign in before the next search can continue.",
           detail: "Please sign in first.",
           actionLabel: "Sign in to KosovaJob",
@@ -385,7 +385,7 @@ describe("contracts workspace snapshot schema", () => {
     expect(workspace.applyRuns[0]?.state).toBe("paused_for_user_review");
     expect(workspace.selectedApplyRunId).toBe("apply_run_1");
     expect(workspace.activeSourceDebugRun?.state).toBe("paused_manual");
-    expect(workspace.sourceAccessPrompts[0]?.state).toBe("login_required");
+    expect(workspace.sourceAccessPrompts[0]?.state).toBe("prompt_login_required");
   });
 
   test("parses open-browser-session payloads with optional target scope", () => {

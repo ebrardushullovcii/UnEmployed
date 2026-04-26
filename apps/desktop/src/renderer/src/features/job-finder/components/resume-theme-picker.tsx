@@ -1,40 +1,51 @@
-import type { ResumeTemplateDefinition, ResumeTemplateId } from '@unemployed/contracts'
-import { Badge } from '@renderer/components/ui/badge'
-import { cn } from '@renderer/lib/utils'
+import type {
+  ResumeTemplateDefinition,
+  ResumeTemplateId,
+} from "@unemployed/contracts";
+import { Badge } from "@renderer/components/ui/badge";
+import { cn } from "@renderer/lib/utils";
+
+function assertNever(value: never, message: string): never {
+  throw new Error(`${message}: ${String(value)}`);
+}
 
 interface ResumeThemePickerProps {
-  disabled?: boolean
-  id?: string
-  selectedThemeId: ResumeTemplateId
-  themes: readonly ResumeTemplateDefinition[]
-  onChange: (themeId: ResumeTemplateId) => void
+  disabled?: boolean;
+  id?: string;
+  selectedThemeId: ResumeTemplateId;
+  themes: readonly ResumeTemplateDefinition[];
+  onChange: (themeId: ResumeTemplateId) => void;
 }
 
 function getThemePreviewTone(themeId: ResumeTemplateId) {
   switch (themeId) {
-    case 'classic_ats':
-      return 'from-slate-200/80 via-slate-100/80 to-white'
-    case 'compact_exec':
-      return 'from-slate-300/80 via-slate-100/70 to-white'
-    case 'modern_split':
-      return 'from-blue-200/80 via-slate-100/70 to-white'
-    case 'technical_matrix':
-      return 'from-teal-200/80 via-slate-100/70 to-white'
-    case 'project_showcase':
-      return 'from-amber-200/80 via-orange-100/70 to-white'
-    case 'credentials_focus':
-      return 'from-violet-200/80 via-fuchsia-100/70 to-white'
+    case "classic_ats":
+      return "from-slate-200/80 via-slate-100/80 to-white";
+    case "compact_exec":
+      return "from-slate-300/80 via-slate-100/70 to-white";
+    case "modern_split":
+      return "from-blue-200/80 via-slate-100/70 to-white";
+    case "technical_matrix":
+      return "from-teal-200/80 via-slate-100/70 to-white";
+    case "project_showcase":
+      return "from-amber-200/80 via-orange-100/70 to-white";
+    case "credentials_focus":
+      return "from-violet-200/80 via-fuchsia-100/70 to-white";
+    default:
+      return assertNever(themeId, "Unknown resume theme preview tone");
   }
 }
 
-function getDensityLabel(density: ResumeTemplateDefinition['density']) {
+function getDensityLabel(density: ResumeTemplateDefinition["density"]) {
   switch (density) {
-    case 'comfortable':
-      return 'Comfortable'
-    case 'balanced':
-      return 'Balanced'
-    case 'compact':
-      return 'Compact'
+    case "comfortable":
+      return "Comfortable";
+    case "balanced":
+      return "Balanced";
+    case "compact":
+      return "Compact";
+    default:
+      return assertNever(density, "Unknown resume theme density");
   }
 }
 
@@ -45,6 +56,40 @@ export function ResumeThemePicker({
   themes,
   onChange,
 }: ResumeThemePickerProps) {
+  const handleKeyDown =
+    (index: number) => (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (disabled || themes.length === 0) {
+        return;
+      }
+
+      const direction =
+        event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? -1
+          : event.key === "ArrowRight" || event.key === "ArrowDown"
+            ? 1
+            : 0;
+
+      if (direction === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      const nextIndex = (index + direction + themes.length) % themes.length;
+      const nextTheme = themes[nextIndex];
+
+      if (!nextTheme) {
+        return;
+      }
+
+      onChange(nextTheme.id);
+      queueMicrotask(() => {
+        const nextButton = document.querySelector<HTMLButtonElement>(
+          `[data-resume-theme-id="${nextTheme.id}"]`,
+        );
+        nextButton?.focus();
+      });
+    };
+
   return (
     <div
       aria-disabled={disabled || undefined}
@@ -52,22 +97,25 @@ export function ResumeThemePicker({
       className="grid gap-3"
       role="radiogroup"
     >
-      {themes.map((theme) => {
-        const selected = theme.id === selectedThemeId
+      {themes.map((theme, index) => {
+        const selected = theme.id === selectedThemeId;
 
         return (
           <button
             key={theme.id}
             aria-checked={selected}
+            data-resume-theme-id={theme.id}
             className={cn(
-              'group grid w-full gap-4 rounded-(--radius-field) border px-4 py-4 text-left transition-[border-color,background-color,box-shadow,transform] outline-none focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-60',
+              "group grid w-full gap-4 rounded-(--radius-field) border px-4 py-4 text-left transition-[border-color,background-color,box-shadow,transform] outline-none focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-60",
               selected
-                ? 'border-primary/45 bg-primary/8 shadow-[inset_0_1px_0_var(--focus-inset-highlight)]'
-                : 'border-(--surface-panel-border) bg-(--surface-panel) hover:border-primary/30 hover:bg-(--surface-overlay-subtle)',
+                ? "border-primary/45 bg-primary/8 shadow-[inset_0_1px_0_var(--focus-inset-highlight)]"
+                : "border-(--surface-panel-border) bg-(--surface-panel) hover:border-primary/30 hover:bg-(--surface-overlay-subtle)",
             )}
             disabled={disabled}
+            onKeyDown={handleKeyDown(index)}
             onClick={() => onChange(theme.id)}
             role="radio"
+            tabIndex={selected ? 0 : -1}
             type="button"
           >
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_11rem] md:items-start">
@@ -76,7 +124,7 @@ export function ResumeThemePicker({
                   <span className="text-(length:--text-body) font-semibold text-foreground">
                     {theme.label}
                   </span>
-                  <Badge variant={selected ? 'default' : 'section'}>
+                  <Badge variant={selected ? "default" : "section"}>
                     {getDensityLabel(theme.density)}
                   </Badge>
                   {selected ? <Badge variant="default">Selected</Badge> : null}
@@ -97,7 +145,7 @@ export function ResumeThemePicker({
               <div
                 aria-hidden="true"
                 className={cn(
-                  'relative min-h-24 overflow-hidden rounded-(--radius-field) border border-border/40 bg-gradient-to-br p-3',
+                  "relative min-h-24 overflow-hidden rounded-(--radius-field) border border-border/40 bg-linear-to-br p-3",
                   getThemePreviewTone(theme.id),
                 )}
               >
@@ -119,8 +167,8 @@ export function ResumeThemePicker({
               </div>
             </div>
           </button>
-        )
+        );
       })}
     </div>
-  )
+  );
 }

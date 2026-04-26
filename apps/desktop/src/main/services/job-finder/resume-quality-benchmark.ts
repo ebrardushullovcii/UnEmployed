@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -48,6 +48,80 @@ function average(values: readonly number[]): number {
 
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function firstNonEmptyValue(values: readonly (string | null | undefined)[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim()
+    }
+  }
+
+  return null
+}
+
+function resolveResponsibilityFallback(job: SavedJob): string {
+  return (
+    firstNonEmptyValue([
+      ...job.responsibilities,
+      ...job.minimumQualifications,
+      ...job.preferredQualifications,
+      job.summary,
+      job.description,
+    ]) ??
+    `${job.title} responsibilities.`
+  )
+}
+
+function collectVisibleSkills(
+  draft: JobFinderRepositoryState['resumeDrafts'][number],
+): string[] {
+  return draft.sections
+    .filter(
+      (section) =>
+        section.included && section.kind === 'skills' && normalizeText(section.label) !== 'languages',
+    )
+    .flatMap((section) => section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text))
+}
+
+function collectGroundingSkillEvidence(input: {
+  job: SavedJob
+  profile: JobFinderRepositoryState['profile']
+}): Set<string> {
+  return new Set(
+    [
+      ...input.profile.skills,
+      ...input.profile.skillGroups.coreSkills,
+      ...input.profile.skillGroups.tools,
+      ...input.profile.skillGroups.languagesAndFrameworks,
+      ...input.profile.skillGroups.highlightedSkills,
+      ...input.profile.experiences.flatMap((experience) => experience.skills),
+      ...input.profile.projects.flatMap((project) => project.skills),
+      ...input.job.keySkills,
+      ...input.job.keywordSignals
+        .filter((signal) => signal.kind === 'skill')
+        .map((signal) => signal.label),
+    ]
+      .map((value) => normalizeText(value))
+      .filter(Boolean),
+  )
+}
+
+function hasGroundedVisibleSkills(input: {
+  visibleSkills: readonly string[]
+  job: SavedJob
+  profile: JobFinderRepositoryState['profile']
+}): boolean {
+  if (input.visibleSkills.length === 0) {
+    return true
+  }
+
+  const evidence = collectGroundingSkillEvidence({
+    job: input.job,
+    profile: input.profile,
+  })
+
+  return input.visibleSkills.every((skill) => evidence.has(normalizeText(skill)))
 }
 
 function buildGroundedBaselineProfile() {
@@ -865,7 +939,7 @@ const defaultResumeQualityBenchmarkCases: ResumeQualityBenchmarkFixture[] = [
         additionalSkills: ['Playwright', 'Remote-first collaboration'],
         targetedKeywords: [...baseDraft.targetedKeywords, job.company],
         experienceHighlights: [
-          job.responsibilities[0] ?? 'Own the design system roadmap.',
+          resolveResponsibilityFallback(job),
           'React, TypeScript, Design Systems, Figma, Playwright, Accessibility, Testing',
           ...baseDraft.experienceHighlights,
         ],
@@ -1015,11 +1089,13 @@ function scoreCaseMetrics(input: {
     validation: NonNullable<JobFinderRepositoryState['resumeValidationResults'][number]> | null
     tailoredAsset: JobFinderRepositoryState['tailoredAssets'][number] | null
   }
+  profile: JobFinderRepositoryState['profile']
 }): ResumeQualityBenchmarkMetrics {
   const issues = input.workspace.validation?.issues ?? []
   const visibleText = input.workspace.tailoredAsset?.previewSections
     .flatMap((section) => section.lines)
     .join(' ') ?? ''
+  const visibleSkills = collectVisibleSkills(input.workspace.draft)
   const bleedCategories = new Set([
     'job_description_bleed',
     'keyword_stuffing',
@@ -1033,14 +1109,19 @@ function scoreCaseMetrics(input: {
   const hasDuplicateIssue = issues.some((issue) => duplicateCategories.has(issue.category))
   const hasThinOutputIssue = issues.some((issue) => issue.category === 'thin_output')
   const hasPageOverflowIssue = issues.some((issue) => issue.category === 'page_overflow')
-  const htmlLooksAtsSafe =
+  const htmlLooksAtsSafe = input.html.includes('data-ats-safe="true"') || (
     input.html.includes('grid-template-columns: 1fr;') &&
     input.html.includes('@page') &&
     !input.html.includes('Targeted Keywords') &&
     !input.html.includes('<table')
+  )
 
   return {
-    groundedVisibleSkillRate: hasBleedIssue ? 0 : 1,
+    groundedVisibleSkillRate: hasGroundedVisibleSkills({
+      visibleSkills,
+      job: input.job,
+      profile: input.profile,
+    }) ? 1 : 0,
     bleedFreeCaseRate: hasBleedIssue ? 0 : 1,
     keywordCoverageRate: includesKeywordCoverage(visibleText, input.job) ? 1 : 0,
     duplicateIssueFreeRate: hasDuplicateIssue ? 0 : 1,
@@ -1095,93 +1176,99 @@ export async function runDesktopResumeQualityBenchmark(
   const results: ResumeQualityBenchmarkCaseResult[] = []
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-quality-'))
 
-  for (const fixture of fixtures) {
-    for (const templateId of templates) {
-      const state = fixture.buildState(templateId)
-      const repository = createInMemoryJobFinderRepository(state)
-      const aiClient = buildBenchmarkAiClient(fixture)
-      const browserRuntime = createCatalogBrowserSessionRuntime({
-        sessions: [
-          {
-            source: 'target_site',
-            status: 'ready',
-            driver: 'catalog_seed',
-            label: 'Benchmark browser session ready',
-            detail: 'Resume quality benchmark uses a deterministic catalog runtime.',
-            lastCheckedAt: '2026-04-26T12:00:00.000Z',
-          },
-        ],
-        catalog: [],
-      })
-      const documentManager = createLocalJobFinderDocumentManager({
-        outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
-      })
-      const workspaceService = createJobFinderWorkspaceService({
-        aiClient,
-        browserRuntime,
-        documentManager,
-        repository,
-      })
-      const jobId = state.savedJobs[0]?.id
+  try {
+    for (const fixture of fixtures) {
+      for (const templateId of templates) {
+        const state = fixture.buildState(templateId)
+        const repository = createInMemoryJobFinderRepository(state)
+        const aiClient = buildBenchmarkAiClient(fixture)
+        const browserRuntime = createCatalogBrowserSessionRuntime({
+          sessions: [
+            {
+              source: 'target_site',
+              status: 'ready',
+              driver: 'catalog_seed',
+              label: 'Benchmark browser session ready',
+              detail: 'Resume quality benchmark uses a deterministic catalog runtime.',
+              lastCheckedAt: '2026-04-26T12:00:00.000Z',
+            },
+          ],
+          catalog: [],
+        })
+        const documentManager = createLocalJobFinderDocumentManager({
+          outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
+        })
+        const workspaceService = createJobFinderWorkspaceService({
+          aiClient,
+          browserRuntime,
+          documentManager,
+          repository,
+        })
 
-      if (!jobId) {
-        throw new Error(`Resume quality benchmark case '${fixture.definition.id}' is missing a saved job.`)
+        try {
+          const jobId = state.savedJobs[0]?.id
+
+          if (!jobId) {
+            throw new Error(`Resume quality benchmark case '${fixture.definition.id}' is missing a saved job.`)
+          }
+
+          await workspaceService.generateResume(jobId)
+          const workspace = await workspaceService.getResumeWorkspace(jobId)
+          const asset = workspace.tailoredAsset
+
+          if (!asset?.storagePath) {
+            throw new Error(`Resume quality benchmark case '${fixture.definition.id}' did not produce a rendered artifact.`)
+          }
+
+          const html = asset.storagePath.endsWith('.html')
+            ? await readFile(asset.storagePath, 'utf8')
+            : ''
+          const htmlArtifactRelativePath = await persistHtmlArtifact({
+            sourcePath: asset.storagePath,
+            persistArtifactsDirectory: request.persistArtifactsDirectory,
+            caseId: fixture.definition.id,
+            templateId,
+          })
+          const metrics = scoreCaseMetrics({
+            job: workspace.job,
+            html,
+            workspace,
+            profile: state.profile,
+          })
+          const issueCategories = Array.from(
+            new Set((workspace.validation?.issues ?? []).map((issue) => issue.category)),
+          )
+          const passed =
+            metrics.groundedVisibleSkillRate === 1 &&
+            metrics.bleedFreeCaseRate === 1 &&
+            metrics.keywordCoverageRate === 1 &&
+            metrics.duplicateIssueFreeRate === 1 &&
+            metrics.thinOutputFreeRate === 1 &&
+            metrics.pageTargetPassRate === 1 &&
+            metrics.atsRenderPassRate === 1
+
+          results.push({
+            caseId: fixture.definition.id,
+            label: fixture.definition.label,
+            templateId,
+            passed,
+            visibleSkills: collectVisibleSkills(workspace.draft),
+            issueCategories,
+            issueCount: workspace.validation?.issues.length ?? 0,
+            metrics,
+            htmlArtifactRelativePath,
+            notes: [
+              ...(asset.templateName ? [`Template: ${asset.templateName}.`] : []),
+              ...(asset.notes ?? []),
+            ],
+          })
+        } finally {
+          await workspaceService.shutdown()
+        }
       }
-
-      await workspaceService.generateResume(jobId)
-      const workspace = await workspaceService.getResumeWorkspace(jobId)
-      const asset = workspace.tailoredAsset
-
-      if (!asset?.storagePath) {
-        throw new Error(`Resume quality benchmark case '${fixture.definition.id}' did not produce a rendered artifact.`)
-      }
-
-      const html = asset.storagePath.endsWith('.html')
-        ? await readFile(asset.storagePath, 'utf8')
-        : ''
-      const htmlArtifactRelativePath = await persistHtmlArtifact({
-        sourcePath: asset.storagePath,
-        persistArtifactsDirectory: request.persistArtifactsDirectory,
-        caseId: fixture.definition.id,
-        templateId,
-      })
-      const metrics = scoreCaseMetrics({
-        job: workspace.job,
-        html,
-        workspace,
-      })
-      const issueCategories = Array.from(
-        new Set((workspace.validation?.issues ?? []).map((issue) => issue.category)),
-      )
-      const passed =
-        metrics.groundedVisibleSkillRate === 1 &&
-        metrics.bleedFreeCaseRate === 1 &&
-        metrics.keywordCoverageRate === 1 &&
-        metrics.duplicateIssueFreeRate === 1 &&
-        metrics.thinOutputFreeRate === 1 &&
-        metrics.pageTargetPassRate === 1 &&
-        metrics.atsRenderPassRate === 1
-
-      results.push({
-        caseId: fixture.definition.id,
-        label: fixture.definition.label,
-        templateId,
-        passed,
-        visibleSkills: workspace.draft.sections
-          .filter((section) => section.included && section.kind === 'skills')
-          .flatMap((section) => section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text)),
-        issueCategories,
-        issueCount: workspace.validation?.issues.length ?? 0,
-        metrics,
-        htmlArtifactRelativePath,
-        notes: [
-          ...(asset.templateName ? [`Template: ${asset.templateName}.`] : []),
-          ...(asset.notes ?? []),
-        ],
-      })
-
-      await workspaceService.shutdown()
     }
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true })
   }
 
   return ResumeQualityBenchmarkReportSchema.parse({

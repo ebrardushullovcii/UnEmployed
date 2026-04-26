@@ -127,25 +127,26 @@ function tokenOverlap(left: string, right: string): number {
   }
 
   const matched = leftTokens.filter((token) => rightTokens.has(token)).length;
-  return matched / Math.max(Math.min(leftTokens.length, rightTokens.size), 1);
+  return matched / Math.min(leftTokens.length, rightTokens.size);
 }
 
 function dedupeLongResumeLines(lines: readonly string[]): string[] {
-  const kept: string[] = [];
+  const kept: Array<{ text: string; tokens: Set<string> }> = [];
 
   for (const line of uniqueStrings(lines)) {
-    const tokenCount = tokenSet(line).size;
+    const candidateTokens = tokenSet(line);
+    const tokenCount = candidateTokens.size;
     const duplicatesExisting = tokenCount >= 7 && kept.some((existing) => {
-      const existingTokenCount = tokenSet(existing).size;
-      return existingTokenCount >= 7 && tokenOverlap(line, existing) >= 0.62 && tokenOverlap(existing, line) >= 0.62;
+      const existingTokenCount = existing.tokens.size;
+      return existingTokenCount >= 7 && tokenOverlap(line, existing.text) >= 0.62;
     });
 
     if (!duplicatesExisting) {
-      kept.push(line);
+      kept.push({ text: line, tokens: candidateTokens });
     }
   }
 
-  return kept;
+  return kept.map((entry) => entry.text);
 }
 
 export function createEntry(input: {

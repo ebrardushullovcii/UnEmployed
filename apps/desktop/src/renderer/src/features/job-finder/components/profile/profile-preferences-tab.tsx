@@ -16,7 +16,7 @@ import type { ProfileFieldArrayKeyName } from './profile-field-array-types'
 interface ProfilePreferencesTabProps {
   busy: boolean
   customAnswerArray: UseFieldArrayReturn<ProfileEditorValues, 'answerBank.customAnswers', ProfileFieldArrayKeyName>
-  isBrowserSessionPending: boolean
+  isBrowserSessionPending: (targetId: string) => boolean
   isSourceDebugPending: (targetId: string) => boolean
   isSourceInstructionPending: (targetId: string) => boolean
   isSourceInstructionVerifyPending: (instructionId: string) => boolean
@@ -95,7 +95,6 @@ export function ProfilePreferencesTab({
       <ProfilePreferencesEligibilitySection busy={busy} customAnswerArray={customAnswerArray} profileForm={profileForm} />
       <ProfilePreferencesTargetingSection
         addDiscoveryTarget={addDiscoveryTarget}
-        busy={busy}
         discoveryTargets={discoveryTargets}
         isBrowserSessionPending={isBrowserSessionPending}
         isSourceDebugPending={isSourceDebugPending}

@@ -214,6 +214,55 @@ describe("resume import deduplication", () => {
     });
   });
 
+  test("mergeExperienceRecords dedupes equivalent records across single-digit slash and iso month formats", () => {
+    const merged = mergeExperienceRecords([], [
+      {
+        companyName: "Mercury",
+        companyUrl: null,
+        title: "Senior Software Engineer",
+        employmentType: null,
+        location: "Remote",
+        workMode: [],
+        startDate: "7/2023",
+        endDate: "6/2024",
+        isCurrent: false,
+        summary: null,
+        achievements: [],
+        skills: [],
+        domainTags: [],
+        peopleManagementScope: null,
+        ownershipScope: null,
+      },
+      {
+        companyName: "Mercury",
+        companyUrl: null,
+        title: "Senior Software Engineer",
+        employmentType: null,
+        location: "Remote",
+        workMode: ["remote"],
+        startDate: "2023-07",
+        endDate: "2024-06",
+        isCurrent: false,
+        summary: "Led core product work.",
+        achievements: ["Improved frontend performance."],
+        skills: ["React"],
+        domainTags: [],
+        peopleManagementScope: null,
+        ownershipScope: null,
+      },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      companyName: "Mercury",
+      title: "Senior Software Engineer",
+      startDate: "2023-07",
+      endDate: "2024-06",
+      summary: "Led core product work.",
+      workMode: ["remote"],
+    });
+  });
+
   test("auto-applies grounded placeholder replacements on a fresh-start profile while leaving experience review-first", async () => {
     const seed = createSeed();
     const { workspaceService } = createWorkspaceServiceHarness({

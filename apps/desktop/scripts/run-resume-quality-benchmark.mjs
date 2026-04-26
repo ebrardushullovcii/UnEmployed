@@ -14,14 +14,20 @@ function readCliOption(flag) {
     return null
   }
 
-  return process.argv[index + 1] ?? null
+  const value = process.argv[index + 1]
+
+  if (!value || value.startsWith('--')) {
+    return null
+  }
+
+  return value
 }
 
 const canaryOnly = process.argv.includes('--canary-only')
 const benchmarkVersion =
   readCliOption('--benchmark-version') ?? process.env.UI_RESUME_QUALITY_BENCHMARK_VERSION ?? '023-local-benchmark-v1'
 const runLabel = readCliOption('--label') ?? process.env.UI_CAPTURE_LABEL ?? 'resume-quality-benchmark'
-const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel)
+const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel, benchmarkVersion)
 
 async function main() {
   await rm(outputDir, { recursive: true, force: true })
@@ -78,4 +84,8 @@ async function main() {
   }
 }
 
-void main()
+main().catch((error) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error)
+  process.stderr.write(`${message}\n`)
+  process.exit(1)
+})

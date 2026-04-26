@@ -3,6 +3,7 @@ import {
   type JobFinderResumeWorkspace,
   type CandidateProfile,
   type ResumeDraft,
+  type ResumeTemplateDefinition,
   type SavedJob,
   type TailoredAsset,
 } from "@unemployed/contracts";
@@ -52,6 +53,7 @@ function buildResumeWorkspaceSharedProfile(profile: CandidateProfile) {
 export interface LoadedResumeWorkspaceState {
   profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
   settings: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>>;
+  templates: readonly ResumeTemplateDefinition[];
   job: SavedJob;
   draft: ResumeDraft | null;
   tailoredAsset: TailoredAsset | null;
@@ -65,6 +67,7 @@ export async function loadResumeWorkspaceState(
   ctx: WorkspaceServiceContext,
   jobId: string,
 ): Promise<LoadedResumeWorkspaceState> {
+  const templates = ctx.documentManager.listResumeTemplates();
   const [profile, rawSettings, savedJobs, tailoredAssets, draft] = await Promise.all([
     ctx.repository.getProfile(),
     ctx.repository.getSettings(),
@@ -74,7 +77,7 @@ export async function loadResumeWorkspaceState(
   ]);
   const settings = normalizeJobFinderSettings(
     rawSettings,
-    ctx.documentManager.listResumeTemplates(),
+    templates,
   );
   const job = savedJobs.find((entry) => entry.id === jobId);
 
@@ -85,6 +88,7 @@ export async function loadResumeWorkspaceState(
   return {
     profile,
     settings,
+    templates,
     job,
     draft,
     tailoredAsset: tailoredAssets.find((entry) => entry.jobId === jobId) ?? null,
@@ -96,12 +100,11 @@ export async function ensureResumeDraft(
   jobId: string,
 ): Promise<EnsuredResumeDraftState> {
   const state = await loadResumeWorkspaceState(ctx, jobId);
-  const templates = ctx.documentManager.listResumeTemplates();
 
   if (state.draft) {
     const normalizedDraft = normalizeResumeDraftTemplate(
       state.draft,
-      templates,
+      state.templates,
     );
 
     return {
@@ -133,7 +136,7 @@ export async function ensureResumeDraft(
     profile: state.profile,
     existingAsset: state.tailoredAsset,
     storagePath: state.tailoredAsset?.storagePath ?? null,
-    templates,
+    templates: state.templates,
   });
 
   await ctx.repository.saveResumeDraftWithValidation({

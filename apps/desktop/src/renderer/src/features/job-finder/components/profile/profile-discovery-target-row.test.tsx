@@ -2,15 +2,30 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { EditableSourceInstructionArtifact, SourceAccessPrompt, SourceDebugRunDetails, SourceDebugRunRecord } from '@unemployed/contracts'
 import { ProfileDiscoveryTargetRow } from './profile-discovery-target-row'
 
 describe('ProfileDiscoveryTargetRow', () => {
+  const globalScope = globalThis as typeof globalThis & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean
+  }
+  const originalActEnvironment = globalScope.IS_REACT_ACT_ENVIRONMENT
   let container: HTMLDivElement | null = null
   let root: Root | null = null
 
-  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  beforeAll(() => {
+    globalScope.IS_REACT_ACT_ENVIRONMENT = true
+  })
+
+  afterAll(() => {
+    if (originalActEnvironment === undefined) {
+      delete globalScope.IS_REACT_ACT_ENVIRONMENT
+      return
+    }
+
+    globalScope.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
+  })
 
   afterEach(() => {
     if (root) {
@@ -45,7 +60,7 @@ describe('ProfileDiscoveryTargetRow', () => {
       targetId: 'target_linkedin_default',
       targetLabel: 'LinkedIn',
       targetUrl: 'https://www.linkedin.com/jobs/search/',
-      state: 'login_required',
+      state: 'prompt_login_required',
       summary: 'Sign in to LinkedIn before the next search can continue.',
       detail: 'Please sign in first.',
       actionLabel: 'Sign in to LinkedIn',
@@ -60,16 +75,15 @@ describe('ProfileDiscoveryTargetRow', () => {
     act(() => {
       root?.render(
         <ProfileDiscoveryTargetRow
-          busy={false}
           discoveryTargets={[target]}
           index={0}
           instructionArtifact={null}
-          isBrowserSessionPending={false}
+          isBrowserSessionPending={() => false}
           isSourceDebugPending={() => false}
           isSourceInstructionPending={() => false}
           isSourceInstructionVerifyPending={() => false}
           isTargetDiscoveryPending={() => false}
-          onGetSourceDebugRunDetails={vi.fn<() => Promise<SourceDebugRunDetails>>(() => Promise.reject(new Error('not used')))}
+          onGetSourceDebugRunDetails={vi.fn(() => Promise.resolve(undefined as unknown as SourceDebugRunDetails))}
           onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
           onRunDiscoveryForTarget={vi.fn()}
           onRunSourceDebug={vi.fn()}

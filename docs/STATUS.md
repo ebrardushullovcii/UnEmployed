@@ -13,8 +13,8 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 - `024` is completed: Job Finder now ships six ATS-safe resume themes with default-theme settings, per-draft theme selection in Resume Workspace, draft-owned export and approval behavior, and expanded renderer plus benchmark coverage; the latest UI harness artifacts live under `apps/desktop/test-artifacts/ui/resume-workspace/` and the latest benchmark report lives under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/`
 - `023` is completed: candidate-backed visible-skill grounding, broader low-level sanitizer and validator coverage, two ATS-safe templates, and the replayable desktop benchmark now protect the resume-generation path; the latest benchmark report and persisted HTML artifacts live under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/`
 - `022` is completed: source sign-in prompts and source-aware browser entry now surface in `Profile` and `Find jobs`, with screenshot-reviewed desktop QA artifacts under `apps/desktop/test-artifacts/ui/source-sign-in-prompts/`
-- `020` is completed: Job Finder routes now use scoped pending lanes with clearer disabled and in-progress button feedback across desktop flows
 - `021` is completed: resume-import duplicate records, fresh-start placeholder replacement, optional-proof warning cleanup, and date-derived years-of-experience fallback are now part of the landed import baseline
+- `020` is completed: Job Finder routes now use scoped pending lanes with clearer disabled and in-progress button feedback across desktop flows
 - `017` completed the current-stack browser loop evaluation and did not justify a substrate change yet
 - Future discovery/browser work should start from completed `017` evidence and stay source-generic
 - Preserve evidence, replayability, approvals, consent interrupts, typed boundaries, and source-generic discovery

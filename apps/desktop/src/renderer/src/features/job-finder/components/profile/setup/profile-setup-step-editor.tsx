@@ -218,7 +218,7 @@ export function ProfileSetupStepEditor(props: {
             </CardContent>
           </Card>
           <ProfileExperienceTab
-            busy={props.isProfileSetupPending}
+            isProfileSetupPending={props.isProfileSetupPending}
             experienceArray={props.experienceArray}
             focusRecordId={focusExperienceRecordId}
             focusRecordOpenSignal={focusExperienceOpenSignal}
@@ -226,7 +226,7 @@ export function ProfileSetupStepEditor(props: {
           />
           <ProfileBackgroundTab
             backgroundArrays={props.backgroundArrays}
-            busy={props.isProfileSetupPending}
+            isProfileSetupPending={props.isProfileSetupPending}
             profileForm={props.profileForm}
           />
           {renderFooter({
@@ -249,7 +249,7 @@ export function ProfileSetupStepEditor(props: {
       return (
         <ProfileSetupNarrativeStep
           backgroundArrays={props.backgroundArrays}
-          busy={props.isProfileSetupPending}
+          isProfileSetupPending={props.isProfileSetupPending}
           nextStep={nextStep}
           onSaveAndGoToStep={props.onSaveAndGoToStep}
           profileForm={props.profileForm}
@@ -260,7 +260,7 @@ export function ProfileSetupStepEditor(props: {
       return (
         <ProfileSetupAnswersStep
           backgroundArrays={props.backgroundArrays}
-          busy={props.isProfileSetupPending}
+          isProfileSetupPending={props.isProfileSetupPending}
           nextStep={nextStep}
           onSaveAndGoToStep={props.onSaveAndGoToStep}
           profileForm={props.profileForm}

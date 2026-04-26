@@ -49,7 +49,7 @@ function looksLikeContinuationPrefix(lines: readonly string[]): boolean {
       return false;
     }
 
-    if (/\b\d{2}\/\d{4}\b/.test(line)) {
+    if (/\b\d{1,2}\/\d{4}\b/.test(line)) {
       return false;
     }
 

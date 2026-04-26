@@ -25,6 +25,7 @@ import type {
   ExecuteEasyApplyInput,
 } from "./runtime-types";
 import {
+  areStructurallyEquivalentHttpUrls,
   buildChromeExecutableCandidates,
   buildQuerySummary,
   findRunningChromeDebugPortForUserDataDir,
@@ -579,14 +580,37 @@ export function createBrowserAgentRuntime(
     source: JobSource;
     targetUrl?: string | null;
   }): Promise<BrowserSessionState> {
+    const sessionWasReady = currentSessionState.status === "ready";
     const page = await getReadyPage(input.source);
     const normalizedTargetUrl =
       typeof input.targetUrl === "string" ? input.targetUrl.trim() : "";
+    let navigatedToTarget = false;
 
-    if (isHttpUrlLike(normalizedTargetUrl) && page.url() !== normalizedTargetUrl) {
-      await page.goto(normalizedTargetUrl, {
-        waitUntil: "domcontentloaded",
-      });
+    if (
+      isHttpUrlLike(normalizedTargetUrl) &&
+      !areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl)
+    ) {
+      try {
+        await page.goto(normalizedTargetUrl, {
+          waitUntil: "domcontentloaded",
+        });
+        navigatedToTarget = true;
+      } catch (error) {
+        const detail =
+          error instanceof Error
+            ? error.message
+            : `The dedicated browser profile could not open ${normalizedTargetUrl}.`;
+        setSessionState(
+          input.source,
+          "blocked",
+          "Browser navigation failed",
+          detail,
+        );
+        throw error;
+      }
+    }
+
+    if (sessionWasReady || navigatedToTarget) {
       await page.bringToFront().catch(() => undefined);
     }
 

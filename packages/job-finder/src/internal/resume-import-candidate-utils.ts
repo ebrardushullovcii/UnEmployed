@@ -123,7 +123,7 @@ export function summarizeCandidateWarnings(
 
   if (blockingReviewCandidates.length === 0) {
     return [
-      `${optionalProofCandidates.length} optional proof suggestion${optionalProofCandidates.length === 1 ? " is" : "s are"} available to review before using them in tailored resume narratives.`,
+      `${optionalProofCandidates.length} optional proof suggestion${optionalProofCandidates.length === 1 ? " is" : "s are"} available to review before using ${optionalProofCandidates.length === 1 ? "it" : "them"} in tailored resume narratives.`,
     ];
   }
 

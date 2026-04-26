@@ -249,22 +249,25 @@ export function JobFinderProfileRoute() {
     <ProfileScreen
       actionState={context.actionState}
       importResumeGuardMessage={context.importResumeGuardMessage}
-      isAnalyzeProfilePending={context.isPending(jobFinderPendingActions.profileAnalyze())}
-      isBrowserSessionPending={context.isPending(jobFinderPendingActions.browserSession())}
-      isImportResumePending={context.isPending(jobFinderPendingActions.profileImport())}
-      isProfileMutationPending={context.isPending(jobFinderPendingActions.profileMutation())}
-      isProfileSetupPending={context.isPending(jobFinderPendingActions.profileSetup())}
-      isSourceDebugPending={(targetId) => context.isPending(jobFinderPendingActions.sourceDebug(targetId))}
-      isSourceInstructionPending={(targetId) =>
-        context.isPending(jobFinderPendingActions.sourceInstruction(targetId))
-      }
-      isSourceInstructionVerifyPending={(instructionId) =>
-        context.isPending(jobFinderPendingActions.sourceInstructionVerify(instructionId))
-      }
-      isTargetDiscoveryPending={(targetId) =>
-        context.isPending(jobFinderPendingActions.discoveryTarget(targetId))
-      }
-      profileCopilotBusy={context.profileCopilotBusy}
+      pendingActions={{
+        analyzeProfile: context.isPending(jobFinderPendingActions.profileAnalyze()),
+        browserSession: (targetId) =>
+          context.isPending(jobFinderPendingActions.browserSessionTarget(targetId)),
+        importResume: context.isPending(jobFinderPendingActions.profileImport()),
+        profileCopilotBusy: context.profileCopilotBusy,
+        profileMutation: context.isPending(jobFinderPendingActions.profileMutation()),
+        profileSetup: context.isPending(jobFinderPendingActions.profileSetup()),
+        sourceDebug: (targetId) =>
+          context.isPending(jobFinderPendingActions.sourceDebug(targetId)),
+        sourceInstruction: (targetId) =>
+          context.isPending(jobFinderPendingActions.sourceInstruction(targetId)),
+        sourceInstructionVerify: (instructionId) =>
+          context.isPending(
+            jobFinderPendingActions.sourceInstructionVerify(instructionId),
+          ),
+        targetDiscovery: (targetId) =>
+          context.isPending(jobFinderPendingActions.discoveryTarget(targetId)),
+      }}
       onApplyProfileCopilotPatchGroup={context.onApplyProfileCopilotPatchGroup}
       onAnalyzeProfileFromResume={context.onAnalyzeProfileFromResume}
       onGetSourceDebugRunDetails={context.onGetSourceDebugRunDetails}
@@ -342,6 +345,9 @@ export function JobFinderDiscoveryRoute() {
       activeRun={context.workspace.activeDiscoveryRun}
       browserSession={context.workspace.browserSession}
       isBrowserSessionPending={context.isPending(jobFinderPendingActions.browserSession())}
+      isBrowserSessionPendingForTarget={(targetId) =>
+        context.isPending(jobFinderPendingActions.browserSessionTarget(targetId))
+      }
       isDiscoveryAllPending={context.isPending(jobFinderPendingActions.discoveryAll())}
       discoverySessions={context.workspace.discoverySessions}
       jobs={context.workspace.discoveryJobs}
@@ -350,7 +356,6 @@ export function JobFinderDiscoveryRoute() {
         context.isAnyPending([
           jobFinderPendingActions.discoveryJob(jobId),
           jobFinderPendingActions.resumeJob(jobId),
-          jobFinderPendingActions.apply(),
         ])
       }
       isTargetPending={(targetId) =>

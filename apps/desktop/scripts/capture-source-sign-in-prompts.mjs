@@ -1,5 +1,5 @@
 /* eslint-env node, browser */
-/* global document */
+/* global document, HTMLElement */
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -35,36 +35,36 @@ async function writeJson(fileName, value) {
   await writeFile(path.join(outputDir, fileName), `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
-async function waitForHeading(window, headings, options) {
+async function waitForHeading(page, headings, options) {
   const allowedHeadings = Array.isArray(headings) ? headings : [headings]
 
-  await window.waitForFunction((nextAllowedHeadings) => {
+  await page.waitForFunction((nextAllowedHeadings) => {
     const heading = document.querySelector('h1')
     const text = heading?.textContent ?? ''
     return nextAllowedHeadings.some((allowedHeading) => text.includes(allowedHeading))
   }, allowedHeadings, { timeout: 10000, ...options })
 }
 
-async function waitForProfileOrSetupHeading(window) {
-  await waitForHeading(window, ['Your profile', 'Guided setup'], { timeout: 15000 })
+async function waitForProfileOrSetupHeading(page) {
+  await waitForHeading(page, ['Your profile', 'Guided setup'], { timeout: 15000 })
 }
 
-async function clickNavigationControl(window, name) {
-  const control = window.locator('button, [role="tab"]').filter({ hasText: name }).first()
+async function clickNavigationControl(page, name) {
+  const control = page.locator('button, [role="tab"]').filter({ hasText: name }).first()
 
   if (await control.count()) {
     await control.click()
     return
   }
 
-  await window.getByRole('button', { name }).click()
+  await page.getByRole('button', { name }).click()
 }
 
-async function clickProfilePreferencesTab(window) {
+async function clickProfilePreferencesTab(page) {
   const tabPatterns = [/^Preferences$/, /Preferences/i]
 
   for (const pattern of tabPatterns) {
-    const tab = window.getByRole('tab', { name: pattern }).first()
+    const tab = page.getByRole('tab', { name: pattern }).first()
 
     if (await tab.isVisible().catch(() => false)) {
       await tab.click()
@@ -72,14 +72,14 @@ async function clickProfilePreferencesTab(window) {
     }
   }
 
-  await window.locator('[role="tab"]').filter({ hasText: 'Preferences' }).first().click()
+  await page.locator('[role="tab"]').filter({ hasText: 'Preferences' }).first().click()
 }
 
-async function clickProfileNavigation(window) {
+async function clickProfileNavigation(page) {
   const navPatterns = [/^Profile$/, /Your profile/i]
 
   for (const pattern of navPatterns) {
-    const button = window.getByRole('button', { name: pattern }).first()
+    const button = page.getByRole('button', { name: pattern }).first()
 
     if (await button.isVisible().catch(() => false)) {
       await button.click()
@@ -87,7 +87,7 @@ async function clickProfileNavigation(window) {
     }
   }
 
-  const fallbackButton = window.locator('button').filter({ hasText: 'Profile' }).first()
+  const fallbackButton = page.locator('button').filter({ hasText: 'Profile' }).first()
 
   if (await fallbackButton.isVisible().catch(() => false)) {
     await fallbackButton.click()
@@ -97,13 +97,13 @@ async function clickProfileNavigation(window) {
   return false
 }
 
-async function setViewport(window, viewport) {
-  await window.setViewportSize({ width: viewport.width, height: viewport.height })
-  await window.waitForTimeout(180)
+async function setViewport(page, viewport) {
+  await page.setViewportSize({ width: viewport.width, height: viewport.height })
+  await page.waitForTimeout(180)
 }
 
-async function setScrollAreaOffset(window, offset) {
-  await window.evaluate(
+async function setScrollAreaOffset(page, offset) {
+  await page.evaluate(
     ({ selector, nextOffset }) => {
       const element = document.querySelector(selector)
 
@@ -117,9 +117,9 @@ async function setScrollAreaOffset(window, offset) {
   )
 }
 
-async function scrollAreaToTop(window) {
-  await setScrollAreaOffset(window, 0)
-  await window.waitForTimeout(160)
+async function scrollAreaToTop(page) {
+  await setScrollAreaOffset(page, 0)
+  await page.waitForTimeout(160)
 }
 
 async function scrollIntoView(locator) {
@@ -129,47 +129,47 @@ async function scrollIntoView(locator) {
   await locator.page().waitForTimeout(180)
 }
 
-async function captureProfilePreferences(window, viewport, report) {
-  await setViewport(window, viewport)
-  await clickNavigationControl(window, /^Profile$/)
-  await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 10000 })
-  await clickProfilePreferencesTab(window)
-  await scrollAreaToTop(window)
+async function captureProfilePreferences(page, viewport, report) {
+  await setViewport(page, viewport)
+  await clickNavigationControl(page, /^Profile$/)
+  await page.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 10000 })
+  await clickProfilePreferencesTab(page)
+  await scrollAreaToTop(page)
 
-  const jobSourcesHeading = window.getByText('Job sources', { exact: true }).first()
+  const jobSourcesHeading = page.getByText('Job sources', { exact: true }).first()
   await scrollIntoView(jobSourcesHeading)
-  await window.getByText('Sign-in required', { exact: true }).first().waitFor({ timeout: 10000 })
-  await window.getByText('Sign-in recommended', { exact: true }).first().waitFor({ timeout: 10000 })
+  await page.getByText('Sign-in required', { exact: true }).first().waitFor({ timeout: 10000 })
+  await page.getByText('Sign-in recommended', { exact: true }).first().waitFor({ timeout: 10000 })
 
   const fileName = `profile-preferences-${viewport.slug}.png`
-  await window.screenshot({ animations: 'disabled', path: path.join(outputDir, fileName) })
+  await page.screenshot({ animations: 'disabled', path: path.join(outputDir, fileName) })
   report.profilePreferences[viewport.slug] = fileName
 }
 
-async function captureFindJobsTop(window, viewport, report) {
-  await setViewport(window, viewport)
-  await clickNavigationControl(window, /^Find jobs\s+\d+$/)
-  await window.getByRole('heading', { level: 1, name: 'Find jobs' }).waitFor({ timeout: 10000 })
-  await scrollAreaToTop(window)
-  await window.getByText('Then search again after sign-in.', { exact: true }).waitFor({ timeout: 10000 })
+async function captureFindJobsTop(page, viewport, report) {
+  await setViewport(page, viewport)
+  await clickNavigationControl(page, /^Find jobs\s+\d+$/)
+  await page.getByRole('heading', { level: 1, name: 'Find jobs' }).waitFor({ timeout: 10000 })
+  await scrollAreaToTop(page)
+  await page.getByText('Then search again after sign-in.', { exact: true }).waitFor({ timeout: 10000 })
 
   const fileName = `find-jobs-${viewport.slug}.png`
-  await window.screenshot({ animations: 'disabled', path: path.join(outputDir, fileName) })
+  await page.screenshot({ animations: 'disabled', path: path.join(outputDir, fileName) })
   report.findJobs[viewport.slug] = fileName
 }
 
-async function captureFindJobsRunOneSource(window, viewport, report) {
-  await setViewport(window, viewport)
-  await clickNavigationControl(window, /^Find jobs\s+\d+$/)
-  await window.getByRole('heading', { level: 1, name: 'Find jobs' }).waitFor({ timeout: 10000 })
-  await scrollAreaToTop(window)
+async function captureFindJobsRunOneSource(page, viewport, report) {
+  await setViewport(page, viewport)
+  await clickNavigationControl(page, /^Find jobs\s+\d+$/)
+  await page.getByRole('heading', { level: 1, name: 'Find jobs' }).waitFor({ timeout: 10000 })
+  await scrollAreaToTop(page)
 
-  const runOneSourceHeading = window.getByRole('heading', { name: 'Run one source' }).first()
+  const runOneSourceHeading = page.getByRole('heading', { name: 'Run one source' }).first()
   await scrollIntoView(runOneSourceHeading)
-  await window.getByText('Sign in to Wellfound for better search coverage on the next run.', { exact: true }).waitFor({ timeout: 10000 })
+  await page.getByText(/sign in to wellfound.*better search coverage.*next run/i).waitFor({ timeout: 10000 })
 
   const fileName = `find-jobs-run-one-source-${viewport.slug}.png`
-  await window.screenshot({ animations: 'disabled', path: path.join(outputDir, fileName) })
+  await page.screenshot({ animations: 'disabled', path: path.join(outputDir, fileName) })
   report.findJobsRunOneSource[viewport.slug] = fileName
 }
 
@@ -195,14 +195,14 @@ async function captureSourceSignInPrompts() {
       }
     })
 
-    const window = await app.firstWindow()
-    await window.waitForLoadState('domcontentloaded')
-    await window.evaluate(async (theme) => {
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await page.evaluate(async (theme) => {
       await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
     }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
 
     const state = JSON.parse(await readFile(snapshotPath, 'utf8'))
-    await window.evaluate(async (workspaceState) => {
+    await page.evaluate(async (workspaceState) => {
       if (!window.unemployed.jobFinder.test) {
         throw new Error('Desktop test API is not available in the renderer context.')
       }
@@ -210,19 +210,19 @@ async function captureSourceSignInPrompts() {
       return window.unemployed.jobFinder.test.resetWorkspaceState(workspaceState)
     }, state)
 
-    await window.reload()
-    await window.waitForLoadState('domcontentloaded')
-    await waitForProfileOrSetupHeading(window)
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+    await waitForProfileOrSetupHeading(page)
 
-    const initialHeading = (await window.locator('h1').first().textContent())?.trim() ?? ''
+    const initialHeading = (await page.locator('h1').first().textContent())?.trim() ?? ''
     if (initialHeading !== 'Your profile') {
-      const navigatedToProfile = await clickProfileNavigation(window)
+      const navigatedToProfile = await clickProfileNavigation(page)
 
       if (!navigatedToProfile) {
         throw new Error('Could not find a visible Profile navigation control after loading the seeded workspace.')
       }
 
-      await window.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 10000 })
+      await page.getByRole('heading', { level: 1, name: 'Your profile' }).waitFor({ timeout: 10000 })
     }
 
     const report = {
@@ -236,9 +236,9 @@ async function captureSourceSignInPrompts() {
     }
 
     for (const viewport of viewports) {
-      await captureProfilePreferences(window, viewport, report)
-      await captureFindJobsTop(window, viewport, report)
-      await captureFindJobsRunOneSource(window, viewport, report)
+      await captureProfilePreferences(page, viewport, report)
+      await captureFindJobsTop(page, viewport, report)
+      await captureFindJobsRunOneSource(page, viewport, report)
     }
 
     await writeJson('capture-report.json', report)
@@ -256,4 +256,8 @@ async function captureSourceSignInPrompts() {
   }
 }
 
-void captureSourceSignInPrompts()
+captureSourceSignInPrompts().catch((error) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error)
+  process.stderr.write(`${message}\n`)
+  process.exit(1)
+})

@@ -40,7 +40,7 @@ export function SettingsEditableDefaults({
 }: SettingsEditableDefaultsProps) {
   const appearanceId = useId()
   const fontPresetId = useId()
-  const resumeTemplateId = useId()
+  const resumeTemplateDomId = useId()
   const [settingsForm, setSettingsForm] = useState(settings)
   const appearanceThemeOptions: ReadonlyArray<{ label: string; value: JobFinderSettings['appearanceTheme'] }> = [
     { label: 'System', value: 'system' },
@@ -102,9 +102,30 @@ export function SettingsEditableDefaults({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor={resumeTemplateId}>Default resume theme</FieldLabel>
+              <FieldLabel htmlFor={resumeTemplateDomId}>Default resume theme</FieldLabel>
+              <div className="grid gap-3">
+                <p className="text-(length:--text-description) leading-6 text-foreground-soft">
+                  Choose the default ATS-safe theme Job Finder should seed into new
+                  resume drafts. Existing drafts keep their own selected theme until
+                  you change them in the resume workspace.
+                </p>
+                <ResumeThemePicker
+                  disabled={isSavePending}
+                  id={resumeTemplateDomId}
+                  onChange={(value) =>
+                    updateSettingsForm((current) => ({
+                      ...current,
+                      resumeTemplateId: isResumeTemplateOption(value)
+                        ? value
+                        : current.resumeTemplateId,
+                    }))
+                  }
+                  selectedThemeId={settingsForm.resumeTemplateId}
+                  themes={availableResumeTemplates}
+                />
+              </div>
             </Field>
-            <Field className="md:col-span-2">
+            <Field>
               <FieldLabel htmlFor={fontPresetId}>Resume font</FieldLabel>
               <FormSelect
                 disabled={isSavePending}
@@ -118,24 +139,6 @@ export function SettingsEditableDefaults({
                 value={settingsForm.fontPreset}
               />
             </Field>
-          </div>
-
-          <div className="grid gap-3">
-            <p className="text-(length:--text-description) leading-6 text-foreground-soft">
-              Choose the default ATS-safe theme Job Finder should seed into new resume drafts. Existing drafts keep their own selected theme until you change them in the resume workspace.
-            </p>
-            <ResumeThemePicker
-              disabled={isSavePending}
-              id={resumeTemplateId}
-              onChange={(value) =>
-                updateSettingsForm((current) => ({
-                  ...current,
-                  resumeTemplateId: isResumeTemplateOption(value) ? value : current.resumeTemplateId,
-                }))
-              }
-              selectedThemeId={settingsForm.resumeTemplateId}
-              themes={availableResumeTemplates}
-            />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">

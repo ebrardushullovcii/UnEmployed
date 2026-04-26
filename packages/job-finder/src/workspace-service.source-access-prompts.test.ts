@@ -90,7 +90,7 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
       expect.objectContaining({
         targetId: "target_linkedin_default",
         targetLabel: "LinkedIn",
-        state: "login_required",
+        state: "prompt_login_required",
         detail: "Please sign in first.",
       }),
     ]);
@@ -260,12 +260,13 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
     expect(snapshot.sourceAccessPrompts).toEqual([
       expect.objectContaining({
         targetId: "target_linkedin_default",
-        state: "login_recommended",
+        state: "prompt_login_recommended",
       }),
     ]);
   });
 
   test("opens the browser session at the resolved source entry url for a targeted sign-in action", async () => {
+    const baseHarness = createWorkspaceServiceHarness();
     const openSession = vi.fn((source: string, options?: { targetUrl?: string | null }) => Promise.resolve({
       source: source as "target_site",
       status: "ready" as const,
@@ -275,7 +276,7 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
       lastCheckedAt: "2026-03-20T10:05:00.000Z",
     }));
     const browserRuntime: BrowserSessionRuntime = {
-      ...createWorkspaceServiceHarness().browserRuntime,
+      ...baseHarness.browserRuntime,
       openSession,
     };
     const seed = createSeed();
@@ -373,6 +374,54 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
 
     expect(openSession).toHaveBeenCalledWith("target_site", {
       targetUrl: "https://www.linkedin.com/jobs/collections/recommended/",
+    });
+  });
+
+  test("persists blocked browser status when a targeted browser open fails", async () => {
+    const baseHarness = createWorkspaceServiceHarness();
+    const openSession = vi.fn(() =>
+      Promise.reject(new Error("navigation failed")),
+    );
+    const getSessionState = vi.fn(() =>
+      Promise.resolve({
+        source: "target_site" as const,
+        status: "blocked" as const,
+        driver: "chrome_profile_agent" as const,
+        label: "Browser navigation failed",
+        detail: "navigation failed",
+        lastCheckedAt: "2026-03-20T10:05:00.000Z",
+      }),
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseHarness.browserRuntime,
+      openSession,
+      getSessionState,
+    };
+    const seed = createSeed();
+    const linkedinTarget = seed.searchPreferences.discovery.targets[0];
+    if (!linkedinTarget) {
+      throw new Error("Expected the default LinkedIn target in the test seed.");
+    }
+
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAgentAiClient(),
+    });
+
+    await expect(
+      workspaceService.openBrowserSession({
+        targetId: linkedinTarget.id,
+      }),
+    ).rejects.toThrow("navigation failed");
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot();
+
+    expect(getSessionState).toHaveBeenCalledWith("target_site");
+    expect(snapshot.browserSession).toMatchObject({
+      status: "blocked",
+      label: "Browser navigation failed",
+      detail: "navigation failed",
     });
   });
 });

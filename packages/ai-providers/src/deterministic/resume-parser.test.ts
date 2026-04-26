@@ -86,6 +86,72 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(extraction.yearsExperience).toBeGreaterThanOrEqual(10);
   });
 
+  test("returns null for inferred years of experience when coverage is under one year", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Avery Stone",
+          "Product Designer",
+          "EXPERIENCE",
+          "Northwind Labs — Product Designer",
+          "Jan 2025 - Jun 2025",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.yearsExperience).toBeNull();
+  });
+
+  test("does not treat leading experience content as a summary fallback", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Jordan Avery",
+          "Senior Software Engineer",
+          "EXPERIENCE",
+          "Signal Systems — Senior Software Engineer",
+          "Jan 2021 - Present",
+          "Led platform migration work across shared services.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.summary).toBeNull();
+  });
+
+  test("derives years of experience from single-digit slash month ranges", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Jordan Avery",
+          "Senior Software Engineer",
+          "EXPERIENCE",
+          "Signal Systems — Senior Software Engineer",
+          "7/2023 - Present",
+          "Northwind Labs — Software Engineer",
+          "6/2021 - 6/2023",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.yearsExperience).toBeGreaterThanOrEqual(2);
+  });
+
   test("splits inline company and location details from combined experience headers", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {

@@ -281,20 +281,34 @@ export function createWorkspaceSnapshotProfileMethods(
       const sessionSource = target
         ? resolveAdapterKind(target)
         : getPreferredSessionAdapter(searchPreferences);
-      const session = await ctx.browserRuntime.openSession(
-        sessionSource,
-        target
-          ? {
-              targetUrl: resolveSourceBrowserEntryUrl({
-                target,
-                searchPreferences,
-                sourceInstructionArtifacts,
-              }),
-            }
-          : undefined,
-      );
-      await ctx.persistBrowserSessionState(session);
-      return getWorkspaceSnapshot();
+      try {
+        const session = await ctx.browserRuntime.openSession(
+          sessionSource,
+          target
+            ? {
+                targetUrl: resolveSourceBrowserEntryUrl({
+                  target,
+                  searchPreferences,
+                  sourceInstructionArtifacts,
+                }),
+              }
+            : undefined,
+        );
+        await ctx.persistBrowserSessionState(session);
+        return getWorkspaceSnapshot();
+      } catch (error) {
+        if (target) {
+          const session = await ctx.browserRuntime
+            .getSessionState(sessionSource)
+            .catch(() => null);
+
+          if (session) {
+            await ctx.persistBrowserSessionState(session);
+          }
+        }
+
+        throw error;
+      }
     },
     async checkBrowserSession() {
       const searchPreferences = normalizeSearchPreferences(

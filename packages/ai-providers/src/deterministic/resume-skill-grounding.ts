@@ -25,8 +25,9 @@ function matchesCandidateSkill(candidateSkill: string, proposedSkill: string): b
   const proposedTokens = tokenizeSkillPhrase(proposedSkill);
   const smallerCount = Math.min(candidateTokens.length, proposedTokens.length);
   const largerCount = Math.max(candidateTokens.length, proposedTokens.length);
+  const allowedDelta = smallerCount <= 3 ? 1 : 2;
 
-  if (smallerCount === 0 || largerCount > 3) {
+  if (smallerCount === 0 || largerCount > 5) {
     return false;
   }
 
@@ -36,7 +37,7 @@ function matchesCandidateSkill(candidateSkill: string, proposedSkill: string): b
     proposedTokenSet.has(token),
   ).length;
 
-  return sharedCount === smallerCount && largerCount - smallerCount <= 1;
+  return sharedCount === smallerCount && largerCount - smallerCount <= allowedDelta;
 }
 
 export function buildCandidateSkillBank(

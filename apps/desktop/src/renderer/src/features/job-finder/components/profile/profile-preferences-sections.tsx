@@ -23,9 +23,8 @@ import { ProfileSectionHeader } from './profile-section-header'
 
 export function ProfilePreferencesTargetingSection(props: {
   addDiscoveryTarget: () => void
-  busy: boolean
   discoveryTargets: SearchPreferencesEditorValues['discoveryTargets']
-  isBrowserSessionPending: boolean
+  isBrowserSessionPending: (targetId: string) => boolean
   isSourceDebugPending: (targetId: string) => boolean
   isSourceInstructionPending: (targetId: string) => boolean
   isSourceInstructionVerifyPending: (instructionId: string) => boolean
@@ -176,7 +175,6 @@ export function ProfilePreferencesTargetingSection(props: {
 
             return (
               <ProfileDiscoveryTargetRow
-                busy={props.busy}
                 discoveryTargets={props.discoveryTargets}
                 index={index}
                 instructionArtifact={instructionArtifact}

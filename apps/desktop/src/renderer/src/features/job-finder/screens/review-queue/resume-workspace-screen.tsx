@@ -194,6 +194,9 @@ export function ResumeWorkspaceScreen(props: {
   const selectedTheme = props.availableResumeTemplates.find(
     (template) => template.id === draft.templateId,
   ) ?? null
+  const fallbackThemeLabel =
+    props.availableResumeTemplates[0]?.label ||
+    'Classic ATS'
 
   return (
     <LockedScreenLayout
@@ -213,7 +216,7 @@ export function ResumeWorkspaceScreen(props: {
               'Saved your changes before reloading the latest version.',
             )
           }
-          selectedThemeLabel={selectedTheme?.label ?? 'Theme unavailable'}
+          selectedThemeLabel={selectedTheme?.label ?? fallbackThemeLabel}
           researchCount={research.length}
           validationIssueCount={validation?.issues.length ?? 0}
         />

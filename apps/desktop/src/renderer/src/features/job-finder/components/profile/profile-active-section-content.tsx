@@ -19,7 +19,7 @@ interface ProfileActiveSectionContentProps {
   activeSection: ProfileSection
   backgroundArrays: ProfileBackgroundArrays
   experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', ProfileFieldArrayKeyName>
-  isBrowserSessionPending: boolean
+  isBrowserSessionPending: (targetId: string) => boolean
   isProfileMutationPending: boolean
   isSourceDebugPending: (targetId: string) => boolean
   isSourceInstructionPending: (targetId: string) => boolean
@@ -62,8 +62,8 @@ export function ProfileActiveSectionContent({
 }: ProfileActiveSectionContentProps) {
   const content: Record<ProfileSection, ReactNode> = {
     basics: <ProfileCoreTab profileForm={profileForm} />,
-    experience: <ProfileExperienceTab busy={isProfileMutationPending} experienceArray={experienceArray} profileForm={profileForm} />,
-    background: <ProfileBackgroundTab backgroundArrays={backgroundArrays} busy={isProfileMutationPending} profileForm={profileForm} />,
+    experience: <ProfileExperienceTab experienceArray={experienceArray} profileForm={profileForm} />,
+    background: <ProfileBackgroundTab backgroundArrays={backgroundArrays} profileForm={profileForm} />,
     preferences: (
       <ProfilePreferencesTab
         busy={isProfileMutationPending}

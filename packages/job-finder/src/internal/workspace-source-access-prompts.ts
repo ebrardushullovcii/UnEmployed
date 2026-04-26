@@ -87,7 +87,7 @@ function summarizePrompt(input: {
 }): { summary: string; actionLabel: string; rerunLabel: string } {
   const targetLabel = input.target.label.trim();
 
-  if (input.state === "login_required") {
+  if (input.state === "prompt_login_required") {
     return {
       summary: `Sign in to ${targetLabel} before the next search can continue.`,
       actionLabel: `Sign in to ${targetLabel}`,
@@ -155,8 +155,6 @@ export function deriveSourceAccessPrompts(input: {
       ]),
       ...(activeInstruction?.intelligence.apply.authMarkers ?? []),
       ...(activeInstruction?.warnings ?? []),
-      ...activeInstruction?.searchGuidance ?? [],
-      ...activeInstruction?.navigationGuidance ?? [],
     ].filter((value): value is string => Boolean(value)));
 
     const requiredDetail = hardLoginSignals.find(isHardLoginRequirement) ?? null;
@@ -164,7 +162,7 @@ export function deriveSourceAccessPrompts(input: {
     if (requiredDetail) {
       const promptCopy = summarizePrompt({
         target,
-        state: "login_required",
+        state: "prompt_login_required",
         detail: requiredDetail,
       });
 
@@ -173,7 +171,7 @@ export function deriveSourceAccessPrompts(input: {
           targetId: target.id,
           targetLabel: target.label,
           targetUrl: target.startingUrl,
-          state: "login_required" as const,
+          state: "prompt_login_required" as const,
           summary: promptCopy.summary,
           detail: requiredDetail,
           actionLabel: promptCopy.actionLabel,
@@ -206,7 +204,7 @@ export function deriveSourceAccessPrompts(input: {
 
     const promptCopy = summarizePrompt({
       target,
-      state: "login_recommended",
+      state: "prompt_login_recommended",
       detail: recommendationDetail,
     });
 
@@ -215,7 +213,7 @@ export function deriveSourceAccessPrompts(input: {
         targetId: target.id,
         targetLabel: target.label,
         targetUrl: target.startingUrl,
-        state: "login_recommended" as const,
+        state: "prompt_login_recommended" as const,
         summary: promptCopy.summary,
         detail: recommendationDetail,
         actionLabel: promptCopy.actionLabel,

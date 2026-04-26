@@ -25,8 +25,8 @@ Eliminate intermittent duplicate resume-import records, with the highest priorit
 
 - `pnpm --filter @unemployed/ai-providers test -- deterministic/resume-parser.test.ts resume-import.test.ts`
 - `pnpm validate:package job-finder`
-- `pnpm --filter @unemployed/desktop ui:resume-import -- --resume "D:\Projects-Personal\UnEmployed\docs\resume-tests\Ryan Holstien Resume.pdf"`
-- `pnpm --filter @unemployed/desktop ui:resume-import -- --resume "D:\Projects-Personal\UnEmployed\docs\resume-tests\Aaron Murphy Resume.pdf"`
+- `pnpm --filter @unemployed/desktop ui:resume-import -- --resume "docs/resume-tests/Ryan Holstien Resume.pdf"`
+- `pnpm --filter @unemployed/desktop ui:resume-import -- --resume "docs/resume-tests/Aaron Murphy Resume.pdf"`
 
 ## What It Means Now
 

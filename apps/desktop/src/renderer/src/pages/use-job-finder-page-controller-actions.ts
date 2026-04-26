@@ -27,9 +27,9 @@ import {
 import { getProfileCopilotContextKey } from '@renderer/features/job-finder/lib/profile-copilot-context'
 import { buildSourceDebugOutcomeMessage } from './job-finder-page-routes'
 
-type ActionOptions<TResult> = {
+type ActionOptions = {
   clearMessageOnStart?: boolean
-  scope?: PendingActionScope | ((result?: TResult) => PendingActionScope)
+  scope?: PendingActionScope
 }
 
 type BaseActionArgs = {
@@ -70,17 +70,34 @@ type BaseActionArgs = {
   workspace: JobFinderWorkspaceSnapshot
 }
 
-function resolvePendingScope<TResult>(
-  options: ActionOptions<TResult> | undefined,
-  result?: TResult,
+const handledRefreshErrorTag = Symbol('handledRefreshError')
+
+type HandledRefreshError = Error & {
+  [handledRefreshErrorTag]: true
+}
+
+function resolvePendingScope(
+  options: ActionOptions | undefined,
 ): PendingActionScope | null {
-  const scope = options?.scope
+  return options?.scope ?? null
+}
 
-  if (!scope) {
-    return null
-  }
+function markHandledRefreshError(error: unknown): HandledRefreshError {
+  const handledError =
+    error instanceof Error
+      ? error
+      : new Error('The resume editor could not refresh automatically.')
 
-  return typeof scope === 'function' ? scope(result) : scope
+  ;(handledError as HandledRefreshError)[handledRefreshErrorTag] = true
+  return handledError as HandledRefreshError
+}
+
+function isHandledRefreshError(error: unknown): error is HandledRefreshError {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      handledRefreshErrorTag in (error as Record<PropertyKey, unknown>),
+  )
 }
 
 function incrementPendingScope(
@@ -121,11 +138,28 @@ export function createActionRunners(args: {
 }) {
   const { setActionState, setPendingActionState } = args
 
+  const withPendingScope = async <TResult,>(
+    scope: PendingActionScope | null,
+    action: () => Promise<TResult>,
+  ) => {
+    if (!scope) {
+      return action()
+    }
+
+    setPendingActionState((current) => incrementPendingScope(current, scope))
+
+    try {
+      return await action()
+    } finally {
+      setPendingActionState((current) => decrementPendingScope(current, scope))
+    }
+  }
+
   const runAction = async <TResult,>(
     action: () => Promise<TResult>,
     onSuccess: (result: TResult) => void | Promise<void>,
     successMessage: string | null | ((result: TResult) => string | null),
-    options?: ActionOptions<TResult>,
+    options?: ActionOptions,
   ) => {
     const pendingScope = resolvePendingScope(options)
 
@@ -136,13 +170,7 @@ export function createActionRunners(args: {
         )
       }
 
-      if (pendingScope) {
-        setPendingActionState((current) =>
-          incrementPendingScope(current, pendingScope),
-        )
-      }
-
-      const result = await action()
+      const result = await withPendingScope(pendingScope, action)
       const resolvedSuccessMessage =
         typeof successMessage === 'function'
           ? successMessage(result)
@@ -165,17 +193,15 @@ export function createActionRunners(args: {
         message: resolvedSuccessMessage,
       })
     } catch (error) {
+      if (isHandledRefreshError(error)) {
+        return
+      }
+
       const message =
         error instanceof Error
           ? error.message
           : 'The requested Job Finder action failed.'
       setActionState({ message })
-    } finally {
-      if (pendingScope) {
-        setPendingActionState((current) =>
-          decrementPendingScope(current, pendingScope),
-        )
-      }
     }
   }
 
@@ -183,7 +209,7 @@ export function createActionRunners(args: {
     action: () => Promise<TResult>,
     onSuccess: (result: TResult) => void | Promise<void>,
     successMessage: string | null,
-    options?: ActionOptions<TResult>,
+    options?: ActionOptions,
   ) => {
     await runAction(
       action,
@@ -198,7 +224,7 @@ export function createActionRunners(args: {
           setActionState({
             message: `Resume action succeeded, but the editor could not refresh automatically. ${detail}`,
           })
-          throw error
+          throw markHandledRefreshError(error)
         }
       },
       successMessage,
@@ -208,7 +234,7 @@ export function createActionRunners(args: {
     })
   }
 
-  return { runAction, runResumeWorkspaceAction }
+  return { runAction, runResumeWorkspaceAction, withPendingScope }
 }
 
 export function createPrimaryPageActions(
@@ -217,14 +243,18 @@ export function createPrimaryPageActions(
       action: () => Promise<TResult>,
       onSuccess: (result: TResult) => void | Promise<void>,
       successMessage: string | null | ((result: TResult) => string | null),
-      options?: ActionOptions<TResult>,
+      options?: ActionOptions,
     ) => Promise<void>
     runResumeWorkspaceAction: <TResult>(
       action: () => Promise<TResult>,
       onSuccess: (result: TResult) => void | Promise<void>,
       successMessage: string | null,
-      options?: ActionOptions<TResult>,
+      options?: ActionOptions,
     ) => Promise<void>
+    withPendingScope: <TResult>(
+      scope: PendingActionScope | null,
+      action: () => Promise<TResult>,
+    ) => Promise<TResult>
   },
 ) {
   const {
@@ -243,6 +273,7 @@ export function createPrimaryPageActions(
     resumeAssistantRequestTokenRef,
     runAction,
     runResumeWorkspaceAction,
+    withPendingScope,
     setActionState,
     setLiveDiscoveryEvents,
     setOptimisticProfileCopilotMessages,
@@ -487,7 +518,11 @@ export function createPrimaryPageActions(
             ? 'Browser refreshed.'
             : 'Browser opened and status refreshed.'
         },
-        { scope: jobFinderPendingActions.browserSession() },
+        {
+          scope: input?.targetId
+            ? jobFinderPendingActions.browserSessionTarget(input.targetId)
+            : jobFinderPendingActions.browserSession(),
+        },
       ),
     onOpenProfile: () => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -558,21 +593,22 @@ export function createPrimaryPageActions(
       const runId = sourceDebugRunIdRef.current + 1
       const scope = jobFinderPendingActions.sourceDebug(targetId)
       sourceDebugRunIdRef.current = runId
-      setPendingActionState((current) => incrementPendingScope(current, scope))
-      setActionState({
-        message: 'Starting source debug and attaching the browser profile...',
-      })
-      void actions
-        .runSourceDebug(targetId, (progressEvent) => {
-          if (sourceDebugRunIdRef.current !== runId) {
-            return
-          }
-
-          setActionState({
-            message: progressEvent.message,
-          })
+      void withPendingScope(scope, async () => {
+        setActionState({
+          message: 'Starting source debug and attaching the browser profile...',
         })
-        .then((nextWorkspace) => {
+
+        try {
+          const nextWorkspace = await actions.runSourceDebug(targetId, (progressEvent) => {
+            if (sourceDebugRunIdRef.current !== runId) {
+              return
+            }
+
+            setActionState({
+              message: progressEvent.message,
+            })
+          })
+
           if (sourceDebugRunIdRef.current !== runId) {
             return
           }
@@ -581,8 +617,7 @@ export function createPrimaryPageActions(
           setActionState({
             message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
           })
-        })
-        .catch((error) => {
+        } catch (error) {
           if (sourceDebugRunIdRef.current !== runId) {
             return
           }
@@ -593,10 +628,8 @@ export function createPrimaryPageActions(
               ? error.message
               : 'The requested Job Finder action failed.'
           setActionState({ message })
-        })
-        .finally(() => {
-          setPendingActionState((current) => decrementPendingScope(current, scope))
-        })
+        }
+      })
     },
     onResumeProfileSetup: (step?: ProfileSetupStep) =>
       void runAction(

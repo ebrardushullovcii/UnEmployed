@@ -25,6 +25,8 @@ const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
 
 function buildCatalogSessionLabel(status: BrowserSessionState['status']): string {
   switch (status) {
+    case 'ready':
+      return 'Browser session ready'
     case 'login_required':
       return 'Browser session needs sign-in'
     case 'blocked':
@@ -41,6 +43,10 @@ function buildCatalogSessionDetail(
   desktopTestApiEnabled: boolean,
 ): string {
   switch (status) {
+    case 'ready':
+      return desktopTestApiEnabled
+        ? 'Deterministic desktop test runtime is ready.'
+        : 'Deterministic catalog runtime is ready.'
     case 'login_required':
       return 'A saved source needs sign-in before the next search can continue.'
     case 'blocked':

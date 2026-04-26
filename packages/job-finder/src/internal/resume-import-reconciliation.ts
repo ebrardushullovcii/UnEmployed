@@ -127,13 +127,13 @@ function isPlaceholderScalarValue(
         isFreshStartProfile(profile) && normalizeText(currentValue) === "candidate"
       );
     case "fullName":
-      return normalizeText(currentValue) === "new candidate";
+      return isFreshStartProfile(profile) && normalizeText(currentValue) === "new candidate";
     case "headline":
-      return currentValue === PROFILE_PLACEHOLDER_HEADLINE;
+      return isFreshStartProfile(profile) && currentValue === PROFILE_PLACEHOLDER_HEADLINE;
     case "summary":
-      return currentValue === PROFILE_PLACEHOLDER_SUMMARY;
+      return isFreshStartProfile(profile) && currentValue === PROFILE_PLACEHOLDER_SUMMARY;
     case "currentLocation":
-      return currentValue === PROFILE_PLACEHOLDER_LOCATION;
+      return isFreshStartProfile(profile) && currentValue === PROFILE_PLACEHOLDER_LOCATION;
     default:
       return false;
   }
@@ -663,27 +663,6 @@ function compareRecordCandidates(
   return left.id.localeCompare(right.id);
 }
 
-function partitionLogicalRecordDuplicates(
-  candidates: readonly ResumeImportFieldCandidate[],
-): ResumeImportFieldCandidate[][] {
-  const partitions: ResumeImportFieldCandidate[][] = [];
-
-  for (const candidate of candidates) {
-    const partition = partitions.find((group) =>
-      group.some((existing) => areEquivalentRecordCandidates(existing, candidate)),
-    );
-
-    if (partition) {
-      partition.push(candidate);
-      continue;
-    }
-
-    partitions.push([candidate]);
-  }
-
-  return partitions;
-}
-
 function groupCandidatesForReconciliation(
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[][] {
@@ -807,40 +786,36 @@ export function reconcileCandidates(
 
     if (isRecordTarget(first) || isListTarget(first)) {
       if (isRecordTarget(first)) {
-        const logicalGroups = partitionLogicalRecordDuplicates(sorted);
+        const rankedGroup = [...sorted].sort(compareRecordCandidates);
+        let hasAutoAppliedCollectionCandidate = false;
 
-        for (const logicalGroup of logicalGroups) {
-          const rankedGroup = [...logicalGroup].sort(compareRecordCandidates);
-          let hasAutoAppliedCollectionCandidate = false;
+        rankedGroup.forEach((candidate, index) => {
+          const recommendation = recommendationForCandidate(candidate);
+          const shouldAutoApplyCollectionCandidate =
+            !hasAutoAppliedCollectionCandidate &&
+            shouldMergeRecordCandidate(profile, candidate);
+          const resolution =
+            recommendation === "abstain"
+              ? "abstained"
+              : shouldAutoApplyCollectionCandidate
+                ? "auto_applied"
+                : index === 0
+                  ? "needs_review"
+                  : "rejected";
 
-          rankedGroup.forEach((candidate, index) => {
-            const recommendation = recommendationForCandidate(candidate);
-            const shouldAutoApplyCollectionCandidate =
-              !hasAutoAppliedCollectionCandidate &&
-              shouldMergeRecordCandidate(profile, candidate);
-            const resolution =
-              recommendation === "abstain"
-                ? "abstained"
-                : shouldAutoApplyCollectionCandidate
-                  ? "auto_applied"
-                  : index === 0
-                    ? "needs_review"
-                    : "rejected";
+          if (resolution === "auto_applied") {
+            hasAutoAppliedCollectionCandidate = true;
+          }
 
-            if (resolution === "auto_applied") {
-              hasAutoAppliedCollectionCandidate = true;
-            }
-
-            resolved.push(
-              applyCandidateResolution(
-                profile,
-                searchPreferences,
-                candidate,
-                resolution,
-              ),
-            );
-          });
-        }
+          resolved.push(
+            applyCandidateResolution(
+              profile,
+              searchPreferences,
+              candidate,
+              resolution,
+            ),
+          );
+        });
         continue;
       }
 

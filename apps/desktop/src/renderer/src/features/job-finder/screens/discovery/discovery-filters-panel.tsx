@@ -29,6 +29,7 @@ interface DiscoveryFiltersPanelProps {
   browserSession: BrowserSessionState;
   discoverySessions: readonly DiscoveryAdapterSessionState[];
   isBrowserSessionPending: boolean;
+  isBrowserSessionPendingForTarget: (targetId: string) => boolean;
   isDiscoveryAllPending: boolean;
   isTargetPending: (targetId: string) => boolean;
   onOpenBrowserSession: () => void;
@@ -66,6 +67,7 @@ export function DiscoveryFiltersPanel({
   browserSession,
   discoverySessions,
   isBrowserSessionPending,
+  isBrowserSessionPendingForTarget,
   isDiscoveryAllPending,
   isTargetPending,
   onOpenBrowserSession,
@@ -122,12 +124,13 @@ export function DiscoveryFiltersPanel({
     discoverySessions.find(
       (session) => session.driver === "chrome_profile_agent",
     ) ?? null;
-  const browserSessionSnapshot =
+  const isNeutralBrowserSessionSnapshot =
     browserSession.driver === "catalog_seed" &&
     browserSession.status === "unknown" &&
-    browserSession.label === "Session status unavailable"
-      ? NEUTRAL_SESSION_SNAPSHOT
-      : browserSession;
+    browserSession.label === "Session status unavailable";
+  const browserSessionSnapshot = isNeutralBrowserSessionSnapshot
+    ? NEUTRAL_SESSION_SNAPSHOT
+    : browserSession;
   const displaySessionSnapshot: BrowserSessionState = chromeProfileSession
     ? {
         source: chromeProfileSession.adapterKind,
@@ -141,7 +144,7 @@ export function DiscoveryFiltersPanel({
   const sessionDetail = displaySessionSnapshot.detail?.trim() ?? "";
   const isBrowserSessionVisible =
     displaySessionSnapshot.driver === "chrome_profile_agent" ||
-    displaySessionSnapshot !== NEUTRAL_SESSION_SNAPSHOT;
+    !isNeutralBrowserSessionSnapshot;
   const isReady = displaySessionSnapshot.status === "ready";
   const needsLogin = displaySessionSnapshot.status === "login_required";
   const isBlocked = displaySessionSnapshot.status === "blocked";
@@ -187,7 +190,7 @@ export function DiscoveryFiltersPanel({
                 <div
                   aria-live="polite"
                   className={
-                    primarySourceAccessPrompt.state === "login_required"
+                    primarySourceAccessPrompt.state === "prompt_login_required"
                       ? "rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--warning-text)"
                       : "rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
                   }
@@ -198,13 +201,13 @@ export function DiscoveryFiltersPanel({
                     <p className="mt-1 opacity-90">{primarySourceAccessPrompt.detail}</p>
                   ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      onClick={() => onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId)}
-                      pending={isBrowserSessionPending}
-                      size="sm"
-                      type="button"
+                      <Button
+                        onClick={() => onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId)}
+                        pending={isBrowserSessionPendingForTarget(primarySourceAccessPrompt.targetId)}
+                        size="sm"
+                        type="button"
                       variant={
-                        primarySourceAccessPrompt.state === "login_required"
+                        primarySourceAccessPrompt.state === "prompt_login_required"
                           ? "primary"
                           : "secondary"
                       }
@@ -332,7 +335,7 @@ export function DiscoveryFiltersPanel({
                         {targetPrompt ? (
                           <div
                             className={
-                              targetPrompt.state === "login_required"
+                              targetPrompt.state === "prompt_login_required"
                                 ? "rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-small) leading-6 text-(--warning-text)"
                                 : "rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-small) leading-6 text-(--info-text)"
                             }
@@ -340,12 +343,12 @@ export function DiscoveryFiltersPanel({
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span>{targetPrompt.summary}</span>
-                               <Button
-                                 onClick={() => onOpenBrowserSessionForTarget(target.id)}
-                                 pending={isBrowserSessionPending}
-                                 size="sm"
-                                 type="button"
-                                 variant={targetPrompt.state === "login_required" ? "secondary" : "outline"}
+                                <Button
+                                  onClick={() => onOpenBrowserSessionForTarget(target.id)}
+                                  pending={isBrowserSessionPendingForTarget(target.id)}
+                                  size="sm"
+                                  type="button"
+                                  variant={targetPrompt.state === "prompt_login_required" ? "secondary" : "outline"}
                                >
                                  {targetPrompt.actionLabel}
                                </Button>
@@ -365,8 +368,19 @@ export function DiscoveryFiltersPanel({
           <div className="grid gap-2">
             <Button
               className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
-              pending={isBrowserSessionPending}
-              onClick={onOpenBrowserSession}
+              pending={
+                primarySourceAccessPrompt
+                  ? isBrowserSessionPendingForTarget(primarySourceAccessPrompt.targetId)
+                  : isBrowserSessionPending
+              }
+              onClick={() => {
+                if (primarySourceAccessPrompt) {
+                  onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId)
+                  return
+                }
+
+                onOpenBrowserSession()
+              }}
               size="sm"
               type="button"
               variant="secondary"

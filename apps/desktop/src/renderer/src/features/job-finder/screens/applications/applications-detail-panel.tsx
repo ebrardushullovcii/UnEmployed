@@ -304,9 +304,6 @@ export function ApplicationsDetailPanel({
     selectedRun?.mode === "queue_auto" &&
     selectedQueueRecoveryJobIds.length > 0;
   const selectedQueueOutcomeEntries = selectedQueueEntries;
-  const isSelectedRecordApplyPending = selectedRecord
-    ? isApplyPending
-    : false;
   const isSelectedRunPending = selectedRun ? isApplyRunPending(selectedRun.id) : false;
 
   return (
@@ -501,10 +498,10 @@ export function ApplicationsDetailPanel({
                     onStartApplyCopilot(selectedRecord.jobId);
                   }
                 }}
-                pending={isSelectedRecordApplyPending}
+                pending={isApplyPending}
                 type="button"
                 variant="secondary"
-                disabled={isSelectedRecordApplyPending}
+                disabled={isApplyPending}
               >
                 Rerun apply copilot
               </Button>
@@ -514,10 +511,10 @@ export function ApplicationsDetailPanel({
                     onStartAutoApply(selectedRecord.jobId);
                   }
                 }}
-                pending={isSelectedRecordApplyPending}
+                pending={isApplyPending}
                 type="button"
                 variant="ghost"
-                disabled={isSelectedRecordApplyPending || !canRestageAutoRun}
+                disabled={isApplyPending || !canRestageAutoRun}
               >
                 Restage auto run
               </Button>

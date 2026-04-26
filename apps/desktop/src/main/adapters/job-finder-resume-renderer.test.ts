@@ -116,6 +116,7 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('@page')
     expect(html).toContain('size: Letter;')
     expect(html).toContain('grid-template-columns: 1fr;')
+    expect(html).toContain('data-ats-safe="true"')
     expect(html).toContain('Alex &lt;Vanguard&gt;')
     expect(html).toContain('Improved designer-engineer handoff &lt;quality&gt; by 30%.')
     expect(html).toContain('<span class="entry-primary">Senior systems designer — Signal Systems</span>')

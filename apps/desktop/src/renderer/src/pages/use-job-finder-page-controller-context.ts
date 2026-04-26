@@ -126,7 +126,7 @@ export function buildJobFinderPageContext(
     workspace,
   } = args
 
-  const { runAction, runResumeWorkspaceAction } = createActionRunners({
+  const { runAction, runResumeWorkspaceAction, withPendingScope } = createActionRunners({
     setActionState,
     setPendingActionState,
   })
@@ -147,6 +147,7 @@ export function buildJobFinderPageContext(
     resumeAssistantRequestTokenRef,
     runAction,
     runResumeWorkspaceAction,
+    withPendingScope,
     setPendingActionState,
     setActionState,
     setLiveDiscoveryEvents,

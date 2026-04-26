@@ -122,7 +122,7 @@ export function ProfileSetupImportStep(props: {
         <div className="flex flex-wrap gap-3">
           <Button disabled={Boolean(props.importDisabledReason)} pending={props.isImportResumePending} onClick={props.onImportResume} type="button">Import or refresh resume</Button>
           <Button pending={props.isProfileSetupPending} onClick={() => props.onSaveAndGoToStep('essentials')} type="button" variant="secondary">Continue without resume</Button>
-          <Button pending={props.isProfileSetupPending} onClick={props.onContinueToProfile} type="button" variant="ghost">Open full Profile instead</Button>
+          <Button onClick={props.onContinueToProfile} type="button" variant="ghost">Open full Profile instead</Button>
         </div>
         {props.importDisabledReason ? (
           <p className="text-sm leading-6 text-foreground-soft">{props.importDisabledReason}</p>

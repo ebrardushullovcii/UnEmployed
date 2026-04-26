@@ -14,14 +14,14 @@ import { ProfileRecordCard } from './profile-record-card'
 import { ProfileSectionHeader } from './profile-section-header'
 
 interface ProfileExperienceTabProps {
-  busy: boolean
+  isProfileSetupPending?: boolean
   experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', ProfileFieldArrayKeyName>
   focusRecordOpenSignal?: string | null
   focusRecordId?: string | null
   profileForm: UseFormReturn<ProfileEditorValues>
 }
 
-export function ProfileExperienceTab({ busy, experienceArray, focusRecordId = null, focusRecordOpenSignal = null, profileForm }: ProfileExperienceTabProps) {
+export function ProfileExperienceTab({ isProfileSetupPending = false, experienceArray, focusRecordId = null, focusRecordOpenSignal = null, profileForm }: ProfileExperienceTabProps) {
   const { control, register, setValue, watch } = profileForm
 
   function buildExperienceFieldId(recordId: string, field: string) {
@@ -53,7 +53,7 @@ export function ProfileExperienceTab({ busy, experienceArray, focusRecordId = nu
         description="Keep one role per card so you can review it quickly, then expand only the entries that need more detail."
         action={
           <Button
-            disabled={busy}
+            disabled={isProfileSetupPending}
             onClick={() =>
               experienceArray.append({
                 id: `experience_${crypto.randomUUID().slice(0, 8)}`,
@@ -99,7 +99,7 @@ export function ProfileExperienceTab({ busy, experienceArray, focusRecordId = nu
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Role details</p>
-                  <Button disabled={busy} onClick={() => experienceArray.remove(index)} size="compact" type="button" variant="ghost">
+                  <Button disabled={isProfileSetupPending} onClick={() => experienceArray.remove(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
                 </div>

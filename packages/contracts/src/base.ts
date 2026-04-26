@@ -191,8 +191,8 @@ export const BrowserSessionStatusSchema = z.enum(browserSessionStatusValues);
 export type BrowserSessionStatus = z.infer<typeof BrowserSessionStatusSchema>;
 
 export const sourceAccessPromptStateValues = [
-  "login_required",
-  "login_recommended",
+  "prompt_login_required",
+  "prompt_login_recommended",
 ] as const;
 
 export const SourceAccessPromptStateSchema = z.enum(

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileOptions } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import net from "node:net";
@@ -21,7 +21,7 @@ export const DEFAULT_WARM_REUSE_REMOVABLE_QUERY_PARAMS = [
 function execFileAsync(
   file: string,
   args: readonly string[],
-  options?: Parameters<typeof execFile>[2],
+  options?: ExecFileOptions,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(file, [...args], options ?? {}, (error, stdout, stderr) => {
@@ -284,6 +284,17 @@ export function normalizeWarmReuseUrl(
   } catch {
     return null;
   }
+}
+
+export function areStructurallyEquivalentHttpUrls(
+  left: string | null | undefined,
+  right: string | null | undefined,
+  options?: { removableQueryParams?: readonly string[] },
+): boolean {
+  const normalizedLeft = normalizeWarmReuseUrl(left, options);
+  const normalizedRight = normalizeWarmReuseUrl(right, options);
+
+  return normalizedLeft !== null && normalizedLeft === normalizedRight;
 }
 
 function hostMatchesNavigationPolicy(

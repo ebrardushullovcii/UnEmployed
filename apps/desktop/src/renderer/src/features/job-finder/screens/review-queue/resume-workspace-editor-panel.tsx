@@ -31,6 +31,7 @@ interface ResumeWorkspaceEditorPanelProps {
 
 export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProps) {
   const exportIdToApprove = props.availableExportIdToApprove
+  const resumeThemeLabelId = 'resume-theme-label'
   const helperMessage = props.hasUnsavedChanges
     ? 'Unsaved edits will be saved before you export, approve, reload, or send a request to the assistant.'
     : props.approvedExportId
@@ -115,13 +116,14 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">{helperMessage}</p>
           <div className="grid gap-2">
             <div className="grid gap-1">
-              <p className="label-mono-xs">Resume theme</p>
+              <p className="label-mono-xs" id={resumeThemeLabelId}>Resume theme</p>
               <p className="text-(length:--text-description) leading-6 text-foreground-soft">
                 This theme belongs to this draft. Changing it creates a new review state and the next export plus approval will use that exact theme.
               </p>
             </div>
             <ResumeThemePicker
               disabled={props.isWorkspacePending}
+              id={resumeThemeLabelId}
               onChange={props.onThemeChange}
               selectedThemeId={props.draft.templateId}
               themes={props.availableResumeTemplates}
