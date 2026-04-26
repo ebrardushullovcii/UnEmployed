@@ -246,7 +246,14 @@ describe("contracts resume workspace schemas", () => {
     const report = ResumeQualityBenchmarkReportSchema.parse({
       benchmarkVersion: "023-local-benchmark-v1",
       generatedAt: "2026-04-26T12:00:00.000Z",
-      templates: ["classic_ats", "compact_exec"],
+        templates: [
+          "classic_ats",
+          "compact_exec",
+          "modern_split",
+          "technical_matrix",
+          "project_showcase",
+          "credentials_focus",
+        ],
       persistedArtifactsDirectory: "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
       cases: [
         {
@@ -284,7 +291,14 @@ describe("contracts resume workspace schemas", () => {
       notes: [],
     });
 
-    expect(report.templates).toEqual(["classic_ats", "compact_exec"]);
+    expect(report.templates).toEqual([
+      "classic_ats",
+      "compact_exec",
+      "modern_split",
+      "technical_matrix",
+      "project_showcase",
+      "credentials_focus",
+    ]);
     expect(report.persistedArtifactsDirectory).toBe(
       "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
     );

@@ -9,18 +9,18 @@ import {
   ResumeValidationResultSchema,
   TailoredAssetSchema,
   type CandidateProfile,
-  type JobFinderSettings,
   type ResumeAssistantMessage,
     type ResumeDraft,
     type ResumeDraftBullet,
     type ResumeDraftPatch,
     type ResumeDraftRevision,
-  type ResumeExportArtifact,
-  type ResumeResearchArtifact,
-  type ResumeValidationIssue,
-  type ResumeValidationResult,
-  type SavedJob,
-  type TailoredAsset,
+   type ResumeExportArtifact,
+   type ResumeResearchArtifact,
+  type ResumeTemplateDefinition,
+   type ResumeValidationIssue,
+   type ResumeValidationResult,
+   type SavedJob,
+   type TailoredAsset,
 } from "@unemployed/contracts";
 import { createLocalKnowledgeIndex } from "@unemployed/knowledge-base";
 import { createUniqueId, normalizeText, tokenize, uniqueStrings } from "./shared";
@@ -87,7 +87,7 @@ export function buildTailoredResumeTextFromResumeDraft(
 
 export function buildResumeDraftFromTailoredDraft(input: {
   job: SavedJob;
-  settings: JobFinderSettings;
+  templateId: ResumeDraft["templateId"];
   draft: TailoredResumeDraft;
   createdAt: string;
   existingDraftId?: string | null;
@@ -101,10 +101,22 @@ export function buildResumeDraftFromTailoredDraft(input: {
 export function seedResumeDraft(input: {
   profile: CandidateProfile;
   job: SavedJob;
-  settings: JobFinderSettings;
+  templateId: ResumeDraft["templateId"];
   tailoredAsset?: TailoredAsset | null;
 }): ResumeDraft {
   return seedStructuredResumeDraft(input);
+}
+
+export function resolveResumeTemplateLabel(input: {
+  templateId: ResumeDraft["templateId"];
+  templates?: readonly ResumeTemplateDefinition[] | undefined;
+  fallbackLabel?: string | null;
+}): string {
+  return (
+    input.templates?.find((template) => template.id === input.templateId)?.label ??
+    input.fallbackLabel ??
+    input.templateId
+  );
 }
 
 function toTokenSet(value: string): Set<string> {
@@ -791,6 +803,7 @@ export function buildTailoredAssetBridge(input: {
   pageCount?: number | null;
   notes?: readonly string[];
   compatibilityScore?: number | null;
+  templates?: readonly ResumeTemplateDefinition[];
 }): TailoredAsset {
   const updatedAt = input.draft.updatedAt;
   const shouldClearStoragePath =
@@ -813,7 +826,11 @@ export function buildTailoredAssetBridge(input: {
     status: resolvedStoragePath ? "ready" : fallbackStatus,
     label: input.existingAsset?.label ?? "Tailored Resume",
     version: input.existingAsset?.version ?? "v1",
-    templateName: input.existingAsset?.templateName ?? input.draft.templateId,
+    templateName: resolveResumeTemplateLabel({
+      templateId: input.draft.templateId,
+      templates: input.templates,
+      fallbackLabel: input.existingAsset?.templateName ?? null,
+    }),
     compatibilityScore:
       input.compatibilityScore ?? input.existingAsset?.compatibilityScore ?? input.job.matchAssessment.score,
     progressPercent: resolvedStoragePath ? 100 : fallbackProgressPercent,

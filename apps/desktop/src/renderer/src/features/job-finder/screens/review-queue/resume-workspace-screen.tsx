@@ -4,6 +4,7 @@ import type {
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
+  ResumeTemplateDefinition,
 } from "@unemployed/contracts";
 import { EmptyState } from "../../components/empty-state";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
@@ -32,6 +33,7 @@ export function ResumeWorkspaceScreen(props: {
   jobId: string;
   isWorkspacePending: boolean;
   workspace: JobFinderResumeWorkspace | null;
+  availableResumeTemplates: readonly ResumeTemplateDefinition[];
   assistantMessages: readonly ResumeAssistantMessage[];
   assistantPending: boolean;
   onBack: () => void;
@@ -189,6 +191,9 @@ export function ResumeWorkspaceScreen(props: {
   }
 
   const { job, research, validation } = props.workspace;
+  const selectedTheme = props.availableResumeTemplates.find(
+    (template) => template.id === draft.templateId,
+  ) ?? null
 
   return (
     <LockedScreenLayout
@@ -208,6 +213,7 @@ export function ResumeWorkspaceScreen(props: {
               'Saved your changes before reloading the latest version.',
             )
           }
+          selectedThemeLabel={selectedTheme?.label ?? 'Theme unavailable'}
           researchCount={research.length}
           validationIssueCount={validation?.issues.length ?? 0}
         />
@@ -224,6 +230,7 @@ export function ResumeWorkspaceScreen(props: {
           actionMessage={props.actionMessage}
           approvedExportId={approvedExport?.id ?? null}
           availableExportIdToApprove={availableExportToApprove?.id ?? null}
+          availableResumeTemplates={props.availableResumeTemplates}
           draft={draft}
           hasUnsavedChanges={hasUnsavedChanges}
           isWorkspacePending={props.isWorkspacePending}
@@ -243,6 +250,16 @@ export function ResumeWorkspaceScreen(props: {
                     sections: currentDraft.sections.map((entry) =>
                       entry.id === nextSection.id ? nextSection : entry,
                     ),
+                  }
+                : currentDraft,
+            )
+          }
+          onThemeChange={(templateId) =>
+            setDraft((currentDraft) =>
+              currentDraft
+                ? {
+                    ...currentDraft,
+                    templateId,
                   }
                 : currentDraft,
             )

@@ -93,6 +93,24 @@ function shouldKeepSupportingContext(value: string | null | undefined): boolean 
   return tokenizeForQuality(value).length >= 8;
 }
 
+function formatMonthYear(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  const match = /^(\d{4})-(\d{2})$/.exec(trimmed);
+
+  if (!match) {
+    return trimmed || null;
+  }
+
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const month = monthNames[Number(match[2]) - 1];
+
+  return month ? `${month} ${match[1]}` : trimmed;
+}
+
+function formatDateRange(start: string | null | undefined, end: string | null | undefined): string | null {
+  return [formatMonthYear(start), formatMonthYear(end)].filter(Boolean).join(" – ") || null;
+}
+
 function isDistinctQualityLine(value: string, existing: readonly string[]): boolean {
   return existing.every((entry) => {
     const overlap = calculateQualityOverlap(value, entry);
@@ -317,9 +335,7 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
       title: experience.title,
       employer: experience.companyName,
       location: experience.location,
-      dateRange: [experience.startDate, experience.isCurrent ? "Present" : experience.endDate]
-        .filter(Boolean)
-        .join(" – ") || null,
+      dateRange: formatDateRange(experience.startDate, experience.isCurrent ? "Present" : experience.endDate),
       summary: shouldKeepExperienceSummary({
         summary: experience.summary,
         bullets,
@@ -343,14 +359,14 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     degree: entry.degree,
     fieldOfStudy: entry.fieldOfStudy,
     location: entry.location,
-    dateRange: [entry.startDate, entry.endDate].filter(Boolean).join(" – ") || null,
+    dateRange: formatDateRange(entry.startDate, entry.endDate),
     summary: entry.summary,
     profileRecordId: entry.id,
   }));
   const certificationEntries = input.profile.certifications.slice(0, 3).map((entry) => ({
     name: entry.name,
     issuer: entry.issuer,
-    dateRange: [entry.issueDate, entry.expiryDate].filter(Boolean).join(" – ") || null,
+    dateRange: formatDateRange(entry.issueDate, entry.expiryDate),
     profileRecordId: null,
   }));
   const fullText = buildDeterministicResumeText(

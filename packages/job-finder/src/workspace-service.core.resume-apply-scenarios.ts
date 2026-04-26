@@ -52,11 +52,11 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationAttempts[0]?.replay.lastUrl).toContain("/apply");
     expect(snapshot.applicationRecords[0]?.questionSummary.total).toBe(1);
     expect(snapshot.applicationRecords[0]?.replaySummary.lastUrl).toContain("/apply");
-    expect(tailoredAsset?.storagePath).toBe("/tmp/generated-resume.pdf");
+    expect(tailoredAsset?.storagePath).toBe("/tmp/generated-classic_ats.pdf");
     expect(tailoredAsset?.notes).toEqual(
       expect.arrayContaining([
-        "Generated PDF resume artifact generated-resume.pdf.",
-        "Saved HTML debug render generated-resume.html.",
+        "Generated PDF resume artifact generated-classic_ats.pdf.",
+        "Saved HTML debug render generated-classic_ats.html.",
         "Generated PDF page count: 2.",
       ]),
     );
@@ -155,7 +155,7 @@ describe("createJobFinderWorkspaceService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "resume",
-          submittedAnswer: "/tmp/generated-resume.pdf",
+          submittedAnswer: "/tmp/generated-classic_ats.pdf",
         }),
       ]),
     );
@@ -649,13 +649,13 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       documentManager: {
         ...createDocumentManager(),
-        renderResumeArtifact() {
+        renderResumeArtifact(input: { templateId: string }) {
           return Promise.resolve({
-            fileName: "generated-resume.pdf",
-            storagePath: "/tmp/generated-resume.pdf",
+            fileName: `generated-${input.templateId}.pdf`,
+            storagePath: `/tmp/generated-${input.templateId}.pdf`,
             format: "pdf" as const,
-            intermediateFileName: "generated-resume.html",
-            intermediateStoragePath: "/tmp/generated-resume.html",
+            intermediateFileName: `generated-${input.templateId}.html`,
+            intermediateStoragePath: `/tmp/generated-${input.templateId}.html`,
             pageCount: 3,
             warnings: [],
           });
@@ -1523,7 +1523,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(workspace.exports.some((artifact) => artifact.isApproved)).toBe(false);
   });
 
-  test("normalizes unsupported resume template settings back to Classic ATS", async () => {
+  test("accepts Modern Split ATS as a supported default theme", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     const snapshot = await workspaceService.saveSettings({
@@ -1531,8 +1531,8 @@ describe("createJobFinderWorkspaceService", () => {
       resumeTemplateId: "modern_split",
     });
 
-    expect(snapshot.settings.resumeTemplateId).toBe("classic_ats");
-    expect(snapshot.availableResumeTemplates).toHaveLength(2);
+    expect(snapshot.settings.resumeTemplateId).toBe("modern_split");
+    expect(snapshot.availableResumeTemplates).toHaveLength(6);
     expect(snapshot.availableResumeTemplates).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1543,11 +1543,27 @@ describe("createJobFinderWorkspaceService", () => {
           id: "compact_exec",
           label: "Compact ATS",
         }),
+        expect.objectContaining({
+          id: "modern_split",
+          label: "Modern Split ATS",
+        }),
+        expect.objectContaining({
+          id: "technical_matrix",
+          label: "Technical Matrix",
+        }),
+        expect.objectContaining({
+          id: "project_showcase",
+          label: "Project Showcase",
+        }),
+        expect.objectContaining({
+          id: "credentials_focus",
+          label: "Credentials Focus",
+        }),
       ]),
     );
   });
 
-  test("keeps Compact ATS when it is part of the supported template set", async () => {
+  test("keeps Compact ATS when it is part of the supported theme set", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     const snapshot = await workspaceService.saveSettings({
@@ -1558,7 +1574,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.settings.resumeTemplateId).toBe("compact_exec");
   });
 
-  test("normalizes legacy resume drafts that still point at retired layouts", async () => {
+  test("keeps existing Modern Split drafts because the theme is shipped", async () => {
     const seed = createSeed();
     seed.resumeDrafts = [
       {
@@ -1609,11 +1625,11 @@ describe("createJobFinderWorkspaceService", () => {
 
     const workspace = await workspaceService.getResumeWorkspace("job_ready");
 
-    expect(workspace.draft.templateId).toBe("classic_ats");
-    expect(workspace.draft.status).toBe("stale");
-    expect(workspace.draft.approvedAt).toBeNull();
-    expect(workspace.draft.approvedExportId).toBeNull();
-    expect(workspace.draft.staleReason).toMatch(/retired layout/i);
+    expect(workspace.draft.templateId).toBe("modern_split");
+    expect(workspace.draft.status).toBe("approved");
+    expect(workspace.draft.approvedAt).toBe("2026-04-18T12:00:00.000Z");
+    expect(workspace.draft.approvedExportId).toBe("resume_export_legacy");
+    expect(workspace.draft.staleReason).toBeNull();
   });
 
   test("stales approved resume drafts when saved job details change materially", async () => {

@@ -38,11 +38,15 @@ describe('SettingsEditableDefaults', () => {
               id: 'classic_ats',
               label: 'Classic ATS',
               description: 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
+              bestFor: ['General applications', 'Recruiter-heavy funnels'],
+              density: 'balanced',
             },
             {
               id: 'compact_exec',
               label: 'Compact ATS',
               description: 'Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.',
+              bestFor: ['Experienced candidates', 'Content-dense resumes'],
+              density: 'compact',
             },
           ]}
           isSavePending={false}
@@ -61,8 +65,9 @@ describe('SettingsEditableDefaults', () => {
       )
     })
 
-    expect(container?.textContent).toContain('Resume layout')
+    expect(container?.textContent).toContain('Default resume theme')
     expect(container?.textContent).toContain('Compact ATS')
     expect(container?.textContent).toContain('Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.')
+    expect(container?.textContent).toContain('Content-dense resumes')
   })
 })

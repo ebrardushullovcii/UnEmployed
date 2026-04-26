@@ -96,11 +96,12 @@ export async function ensureResumeDraft(
   jobId: string,
 ): Promise<EnsuredResumeDraftState> {
   const state = await loadResumeWorkspaceState(ctx, jobId);
+  const templates = ctx.documentManager.listResumeTemplates();
 
   if (state.draft) {
     const normalizedDraft = normalizeResumeDraftTemplate(
       state.draft,
-      ctx.documentManager.listResumeTemplates(),
+      templates,
     );
 
     return {
@@ -112,7 +113,7 @@ export async function ensureResumeDraft(
   const seededDraft = seedResumeDraft({
     profile: state.profile,
     job: state.job,
-    settings: state.settings,
+    templateId: state.settings.resumeTemplateId,
     tailoredAsset: state.tailoredAsset,
   });
   const sanitizedDraft = sanitizeResumeDraft({
@@ -132,6 +133,7 @@ export async function ensureResumeDraft(
     profile: state.profile,
     existingAsset: state.tailoredAsset,
     storagePath: state.tailoredAsset?.storagePath ?? null,
+    templates,
   });
 
   await ctx.repository.saveResumeDraftWithValidation({
@@ -167,6 +169,7 @@ export async function renderDraftToPdf(
     job: input.job,
     profile: input.profile,
     renderDocument: buildResumeRenderDocument(input.profile, sanitizedDraft),
+    templateId: sanitizedDraft.templateId,
     settings: input.settings,
     targetPath: input.outputPath ?? null,
   });

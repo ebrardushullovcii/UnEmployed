@@ -22,6 +22,7 @@ import type {
   ResumeDraft,
   ResumeDraftPatch,
   ResumeResearchArtifact,
+  ResumeTemplateId,
   ResumeTemplateDefinition,
   SavedJob,
   SourceDebugProgressEvent,
@@ -198,6 +199,7 @@ export interface JobFinderDocumentManager {
     job: SavedJob;
     profile: CandidateProfile;
     renderDocument: ResumeRenderDocument;
+    templateId: ResumeTemplateId;
     settings: JobFinderSettings;
     targetPath?: string | null;
   }): Promise<RenderedResumeArtifact>;

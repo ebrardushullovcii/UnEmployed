@@ -11,6 +11,7 @@ interface ResumeWorkspaceHeaderProps {
   jobCompany: string
   jobLocation: string
   jobTitle: string
+  selectedThemeLabel: string
   researchCount: number
   validationIssueCount: number
   onBack: () => void
@@ -23,6 +24,7 @@ export function ResumeWorkspaceHeader({
   jobCompany,
   jobLocation,
   jobTitle,
+  selectedThemeLabel,
   researchCount,
   validationIssueCount,
   onBack,
@@ -49,6 +51,7 @@ export function ResumeWorkspaceHeader({
           </StatusBadge>
           <Badge variant="section">{validationIssueCount} {validationIssueCount === 1 ? 'check' : 'checks'}</Badge>
           <Badge variant="section">{researchCount} {researchCount === 1 ? 'source' : 'sources'}</Badge>
+          <Badge variant="section">{selectedThemeLabel}</Badge>
           {hasUnsavedChanges ? <StatusBadge tone="active">Unsaved draft</StatusBadge> : null}
         </div>
       </div>
@@ -66,7 +69,7 @@ export function ResumeWorkspaceHeader({
             ) : null}
           </div>
           <p className="max-w-[72ch] text-(length:--type-body-md) leading-7 text-foreground-soft">
-            Save your draft, export a PDF, and approve the version you want Job Finder to use before starting Apply Copilot.
+            Pick the theme that fits this job, save your draft, then export and approve the exact PDF you want Job Finder to use before starting Apply Copilot.
           </p>
         </div>
 

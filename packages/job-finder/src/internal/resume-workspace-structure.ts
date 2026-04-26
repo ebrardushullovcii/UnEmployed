@@ -1,12 +1,12 @@
 import type { TailoredResumeDraft } from "@unemployed/ai-providers";
 import type {
   CandidateProfile,
-  JobFinderSettings,
   ResumeDraft,
   ResumeDraftOrigin,
   ResumeResearchArtifact,
   ResumeDraftSection,
   ResumeDraftSourceRef,
+  ResumeTemplateId,
   SavedJob,
   TailoredAsset,
 } from "@unemployed/contracts";
@@ -25,9 +25,51 @@ function joinCompact(parts: ReadonlyArray<string | null | undefined>, separator:
   return values.length > 0 ? values.join(separator) : null;
 }
 
+function normalizeUrl(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed || null;
+}
+
+function normalizeContactIdentity(value: string): string {
+  return normalizeText(value.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, ""));
+}
+
+function pickProjectLink(project: CandidateProfile["projects"][number] | null | undefined): string | null {
+  return normalizeUrl(project?.caseStudyUrl) ?? normalizeUrl(project?.projectUrl) ?? normalizeUrl(project?.repositoryUrl);
+}
+
+function formatProjectSummary(input: {
+  summary: string | null | undefined;
+  outcome: string | null | undefined;
+  skills: readonly string[] | undefined;
+}): string | null {
+  return joinCompact(
+    [
+      joinCompact([input.summary, input.outcome], " "),
+      input.skills && input.skills.length > 0 ? `Technologies: ${uniqueStrings(input.skills).join(", ")}.` : null,
+    ],
+    " ",
+  );
+}
+
 function formatDateRange(start: string | null | undefined, end: string | null | undefined, isCurrent?: boolean): string | null {
-  const from = start?.trim() || null;
-  const to = isCurrent ? "Present" : end?.trim() || null;
+  const formatMonthYear = (value: string | null | undefined): string | null => {
+    const trimmed = value?.trim() ?? "";
+    const match = /^(\d{4})-(\d{2})$/.exec(trimmed);
+
+    if (!match) {
+      return trimmed || null;
+    }
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthIndex = Number(match[2]) - 1;
+    const month = monthNames[monthIndex];
+
+    return month ? `${month} ${match[1]}` : trimmed;
+  };
+
+  const from = formatMonthYear(start);
+  const to = isCurrent ? "Present" : formatMonthYear(end);
 
   if (from && to) {
     return `${from} – ${to}`;
@@ -197,21 +239,28 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
     );
   }
 
-  const projectEntries = draft.projectEntries.map((entry, index) =>
-    createEntry({
+  const projectEntries = draft.projectEntries.map((entry, index) => {
+    const profileProject = profile?.projects.find((project) => project.id === entry.profileRecordId);
+
+    return createEntry({
       id: entry.profileRecordId ? `project_${entry.profileRecordId}` : `project_entry_${index + 1}`,
       entryType: "project",
       title: entry.name,
       subtitle: entry.role,
-      summary: joinCompact([entry.summary, entry.outcome], " "),
+      location: pickProjectLink(profileProject),
+      summary: formatProjectSummary({
+        summary: entry.summary,
+        outcome: entry.outcome,
+        skills: profileProject?.skills,
+      }),
       bullets: entry.bullets,
       updatedAt: createdAt,
       origin,
       sortOrder: index,
       profileRecordId: entry.profileRecordId,
       sourceRefs: sharedRefs,
-    }),
-  );
+    });
+  });
 
   if (projectEntries.length > 0) {
     sections.push(
@@ -390,13 +439,25 @@ export function buildResumeRenderDocument(
   profile: CandidateProfile,
   draft: ResumeDraft,
 ): ResumeRenderDocument {
+  const preferredLinks = profile.applicationIdentity.preferredLinkIds
+    .map((linkId) => profile.links.find((link) => link.id === linkId && link.url))
+    .filter((link): link is NonNullable<typeof link> => Boolean(link?.url));
+  const fallbackLinks = profile.links.filter((link) =>
+    link.url &&
+    ["portfolio", "github", "website", "case_study"].includes(link.kind ?? "") &&
+    !preferredLinks.some((preferredLink) => preferredLink.id === link.id),
+  );
   const contactItems = [
-    profile.email,
-    profile.phone,
+    profile.applicationIdentity.preferredEmail ?? profile.email,
+    profile.applicationIdentity.preferredPhone ?? profile.phone,
     profile.portfolioUrl,
     profile.linkedinUrl,
     profile.githubUrl,
-  ].filter((value): value is string => Boolean(value && value.trim()));
+    profile.personalWebsiteUrl,
+    ...[...preferredLinks, ...fallbackLinks].map((link) => link.url),
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .filter((value, index, values) => values.findIndex((entry) => normalizeContactIdentity(entry) === normalizeContactIdentity(value)) === index);
 
   return {
     fullName: profile.fullName,
@@ -444,7 +505,7 @@ export function buildResumeRenderDocument(
 
 export function buildResumeDraftFromTailoredDraft(input: {
   job: SavedJob;
-  settings: JobFinderSettings;
+  templateId: ResumeTemplateId;
   draft: TailoredResumeDraft;
   createdAt: string;
   existingDraftId?: string | null;
@@ -452,7 +513,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   profile?: CandidateProfile;
   research?: readonly ResumeResearchArtifact[];
 }): ResumeDraft {
-  const { createdAt, draft, existingDraftId, generationMethod, job, settings } = input;
+  const { createdAt, draft, existingDraftId, generationMethod, job, templateId } = input;
   const jobRef = createSourceRef(
     "job",
     job.id,
@@ -474,7 +535,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
     id: existingDraftId ?? `resume_draft_${job.id}`,
     jobId: job.id,
     status: "needs_review",
-    templateId: settings.resumeTemplateId,
+    templateId,
     sections: buildDraftSectionsFromStructuredTailoredDraft({
       createdAt,
       draft,
@@ -495,7 +556,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
 export function seedResumeDraft(input: {
   profile: CandidateProfile;
   job: SavedJob;
-  settings: JobFinderSettings;
+  templateId: ResumeTemplateId;
   tailoredAsset?: TailoredAsset | null;
 }): ResumeDraft {
   const now = input.tailoredAsset?.updatedAt ?? new Date().toISOString();
@@ -534,7 +595,7 @@ export function seedResumeDraft(input: {
         id: `resume_draft_${input.job.id}`,
         jobId: input.job.id,
         status: "draft",
-        templateId: input.settings.resumeTemplateId,
+        templateId: input.templateId,
         sections: seededSections,
         targetPageCount: 2,
         generationMethod:
@@ -579,8 +640,13 @@ export function seedResumeDraft(input: {
       entryType: "project",
       title: project.name,
       subtitle: project.role,
-      summary: joinCompact([project.summary, project.outcome], " "),
-      bullets: project.skills,
+      location: pickProjectLink(project),
+      summary: formatProjectSummary({
+        summary: project.summary,
+        outcome: project.outcome,
+        skills: project.skills,
+      }),
+      bullets: [],
       updatedAt: now,
       origin: "imported",
       sortOrder: index,
@@ -623,7 +689,7 @@ export function seedResumeDraft(input: {
     id: `resume_draft_${input.job.id}`,
     jobId: input.job.id,
     status: "draft",
-    templateId: input.settings.resumeTemplateId,
+    templateId: input.templateId,
     sections: [
       createSection({
         id: "section_summary",

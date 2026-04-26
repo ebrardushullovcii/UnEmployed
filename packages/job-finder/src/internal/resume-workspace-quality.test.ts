@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 
 import type { ResumeDraft, ResumeDraftEntry, SavedJob } from '@unemployed/contracts'
 import { sanitizeResumeDraft, validateResumeDraft } from './resume-workspace-helpers'
+import { createEntry } from './resume-workspace-primitives'
 import { createSeed } from '../workspace-service.test-support'
 
 function createBullets(prefix: string, texts: string[]) {
@@ -426,5 +427,27 @@ describe('resume workspace quality helpers', () => {
         }),
       ]),
     )
+  })
+
+  test('createEntry removes near-duplicate long bullets without dropping short skills', () => {
+    const entry = createEntry({
+      id: 'experience_net_migration',
+      entryType: 'experience',
+      title: '.NET Developer',
+      subtitle: 'CREA-KO',
+      bullets: [
+        'Assisted in migrating a web-based ERP system from .NET Framework to .NET Core MVC, refactoring both front-end and back-end code to enhance performance, scalability, and alignment with the .NET Core MVC architecture.',
+        'Refactored front-end and back-end code to align with .NET Core MVC architecture, improving the performance and scalability of the web application.',
+        'Replaced 12 deprecated NuGet packages, eliminating 100+ security warnings in CI builds.',
+      ],
+      updatedAt: '2026-03-20T10:04:00.000Z',
+      origin: 'imported',
+      sortOrder: 0,
+    })
+
+    expect(entry.bullets.map((bullet) => bullet.text)).toEqual([
+      'Assisted in migrating a web-based ERP system from .NET Framework to .NET Core MVC, refactoring both front-end and back-end code to enhance performance, scalability, and alignment with the .NET Core MVC architecture.',
+      'Replaced 12 deprecated NuGet packages, eliminating 100+ security warnings in CI builds.',
+    ])
   })
 })

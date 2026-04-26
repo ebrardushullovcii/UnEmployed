@@ -378,6 +378,9 @@ describe("resume generation quality", () => {
       "Improved accessibility review coverage across customer-facing releases.",
       "Partnered with product, design, and platform engineering to standardize components, testing, and performance budgets.",
     ]);
+    expect(result.experienceEntries[0]?.dateRange).toBe("Mar 2021 – Present");
+    expect(result.fullText).toContain("Toronto, Canada | Mar 2021 – Present");
+    expect(result.fullText).not.toContain("2021-03 – Present");
   });
 
   test("filters model-supplied job and company terms out of visible skills", () => {

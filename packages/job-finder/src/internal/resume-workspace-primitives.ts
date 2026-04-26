@@ -74,7 +74,7 @@ export function createSection(
     kind: input.kind,
     label: input.label,
     text: normalizeNullableText(input.text),
-    bullets: (input.bullets ?? []).map((bullet, index) =>
+    bullets: dedupeLongResumeLines(input.bullets ?? []).map((bullet, index) =>
       createBullet(
         `${input.id}_bullet_${index + 1}`,
         bullet,
@@ -114,6 +114,40 @@ export function normalizeNullableText(value: string | null | undefined): string 
   return trimmed === "" ? null : trimmed;
 }
 
+function tokenSet(value: string): Set<string> {
+  return new Set(normalizeText(value).split(" ").filter(Boolean));
+}
+
+function tokenOverlap(left: string, right: string): number {
+  const leftTokens = [...tokenSet(left)];
+  const rightTokens = tokenSet(right);
+
+  if (leftTokens.length === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+
+  const matched = leftTokens.filter((token) => rightTokens.has(token)).length;
+  return matched / Math.max(Math.min(leftTokens.length, rightTokens.size), 1);
+}
+
+function dedupeLongResumeLines(lines: readonly string[]): string[] {
+  const kept: string[] = [];
+
+  for (const line of uniqueStrings(lines)) {
+    const tokenCount = tokenSet(line).size;
+    const duplicatesExisting = tokenCount >= 7 && kept.some((existing) => {
+      const existingTokenCount = tokenSet(existing).size;
+      return existingTokenCount >= 7 && tokenOverlap(line, existing) >= 0.62 && tokenOverlap(existing, line) >= 0.62;
+    });
+
+    if (!duplicatesExisting) {
+      kept.push(line);
+    }
+  }
+
+  return kept;
+}
+
 export function createEntry(input: {
   id: string;
   entryType: ResumeDraftEntry["entryType"];
@@ -137,7 +171,7 @@ export function createEntry(input: {
     location: normalizeNullableText(input.location),
     dateRange: normalizeNullableText(input.dateRange),
     summary: normalizeNullableText(input.summary),
-    bullets: (input.bullets ?? []).map((bullet, index) =>
+    bullets: dedupeLongResumeLines(input.bullets ?? []).map((bullet, index) =>
       createBullet(
         `${input.id}_bullet_${index + 1}`,
         bullet,

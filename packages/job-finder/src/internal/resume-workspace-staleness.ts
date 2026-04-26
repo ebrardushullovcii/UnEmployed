@@ -53,7 +53,6 @@ function toProfileResumeStalenessSignature(profile: CandidateProfile) {
 function toSettingsResumeStalenessSignature(settings: JobFinderSettings) {
   return {
     resumeFormat: settings.resumeFormat,
-    resumeTemplateId: settings.resumeTemplateId,
     fontPreset: settings.fontPreset,
   };
 }

@@ -3,6 +3,7 @@ import type { JobFinderSettings, ResumeTemplateDefinition } from '@unemployed/co
 import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
+import { ResumeThemePicker } from '../../components/resume-theme-picker'
 import { ToggleField } from '../../components/toggle-field'
 
 const fontPresetOptions: ReadonlyArray<{
@@ -101,18 +102,7 @@ export function SettingsEditableDefaults({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor={resumeTemplateId}>Resume layout</FieldLabel>
-              <FormSelect
-                disabled={isSavePending}
-                onValueChange={(value) => updateSettingsForm((current) => ({
-                  ...current,
-                  resumeTemplateId: isResumeTemplateOption(value) ? value : current.resumeTemplateId
-                }))}
-                options={availableResumeTemplates.map((template) => ({ label: template.label, value: template.id }))}
-                placeholder="Select layout"
-                triggerId={resumeTemplateId}
-                value={settingsForm.resumeTemplateId}
-              />
+              <FieldLabel htmlFor={resumeTemplateId}>Default resume theme</FieldLabel>
             </Field>
             <Field className="md:col-span-2">
               <FieldLabel htmlFor={fontPresetId}>Resume font</FieldLabel>
@@ -130,14 +120,32 @@ export function SettingsEditableDefaults({
             </Field>
           </div>
 
+          <div className="grid gap-3">
+            <p className="text-(length:--text-description) leading-6 text-foreground-soft">
+              Choose the default ATS-safe theme Job Finder should seed into new resume drafts. Existing drafts keep their own selected theme until you change them in the resume workspace.
+            </p>
+            <ResumeThemePicker
+              disabled={isSavePending}
+              id={resumeTemplateId}
+              onChange={(value) =>
+                updateSettingsForm((current) => ({
+                  ...current,
+                  resumeTemplateId: isResumeTemplateOption(value) ? value : current.resumeTemplateId,
+                }))
+              }
+              selectedThemeId={settingsForm.resumeTemplateId}
+              themes={availableResumeTemplates}
+            />
+          </div>
+
           <div className="grid gap-3 md:grid-cols-2">
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-              <span className="label-mono-xs">Resume layout</span>
+              <span className="label-mono-xs">Default theme</span>
               <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
-                {selectedResumeTemplate?.label ?? 'Layout not available'}
+                {selectedResumeTemplate?.label ?? 'Theme not available'}
               </strong>
               <p className="mt-2 text-(length:--text-description) leading-6 text-foreground-soft">
-                {selectedResumeTemplate?.description ?? 'Choose the default ATS-safe resume layout for exports.'}
+                {selectedResumeTemplate?.description ?? 'Choose the default ATS-safe resume theme for new drafts.'}
               </p>
             </div>
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">

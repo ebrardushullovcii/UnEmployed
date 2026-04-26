@@ -15,8 +15,15 @@ describe('desktop resume quality benchmark', () => {
       canaryOnly: true,
     })
 
-    expect(report.templates).toEqual(['classic_ats', 'compact_exec'])
-    expect(report.cases.length).toBe(defaultResumeQualityBenchmarkCases.filter((entry) => entry.definition.canary).length * 2)
+    expect(report.templates).toEqual([
+      'classic_ats',
+      'compact_exec',
+      'modern_split',
+      'technical_matrix',
+      'project_showcase',
+      'credentials_focus',
+    ])
+    expect(report.cases.length).toBe(defaultResumeQualityBenchmarkCases.filter((entry) => entry.definition.canary).length * 6)
     expect(report.aggregate.groundedVisibleSkillRate).toBe(1)
     expect(report.aggregate.atsRenderPassRate).toBe(1)
   })
@@ -27,7 +34,7 @@ describe('desktop resume quality benchmark', () => {
       caseIds: ['contamination_guard'],
     })
 
-    expect(report.cases).toHaveLength(2)
+    expect(report.cases).toHaveLength(6)
     for (const result of report.cases) {
       expect(result.visibleSkills).toEqual(expect.arrayContaining(['Figma']))
       expect(result.visibleSkills).not.toEqual(
@@ -44,7 +51,7 @@ describe('desktop resume quality benchmark', () => {
       caseIds: ['thin_profile'],
     })
 
-    expect(report.cases).toHaveLength(2)
+    expect(report.cases).toHaveLength(6)
     for (const result of report.cases) {
       expect(result.passed).toBe(false)
       expect(result.issueCategories).toContain('thin_output')
@@ -66,7 +73,7 @@ describe('desktop resume quality benchmark', () => {
       })
 
       expect(report.persistedArtifactsDirectory).toBe(persistArtifactsDirectory)
-      expect(report.cases).toHaveLength(2)
+      expect(report.cases).toHaveLength(6)
 
       for (const result of report.cases) {
         expect(result.htmlArtifactRelativePath).toBeTruthy()
@@ -90,7 +97,7 @@ describe('desktop resume quality benchmark', () => {
       caseIds: ['frontend_platform', 'analytics_lead'],
     })
 
-    expect(report.cases).toHaveLength(4)
+    expect(report.cases).toHaveLength(12)
 
     for (const result of report.cases) {
       expect(result.passed).toBe(true)

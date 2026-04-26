@@ -417,6 +417,7 @@ export function JobFinderResumeWorkspaceRoute() {
     <ResumeWorkspaceScreen
       actionMessage={context.actionState.message}
       assistantMessages={context.resumeAssistantMessages}
+      availableResumeTemplates={context.workspace.availableResumeTemplates}
       assistantPending={context.resumeAssistantPending}
       isWorkspacePending={context.isPending(jobFinderPendingActions.resumeJob(jobId))}
       jobId={jobId}

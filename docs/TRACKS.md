@@ -29,6 +29,13 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - candidate-backed visible-skill grounding, broader sanitizer and validator coverage, two shipped ATS-safe templates, and the replayable `benchmark:resume-quality` harness are landed
 - reopen only for a new real resume-quality regression class, a new ATS-safe template candidate, or a renderer safety/parsing regression
 
+### `024 Job Finder Resume Theme Catalog And Selection`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/024-job-finder-resume-theme-catalog-and-selection.md`
+- six ATS-safe themes now ship with default-theme settings, per-draft theme selection, draft-owned export and approval behavior, and widened renderer plus benchmark coverage
+- reopen only for a new ATS-safe theme candidate, a per-draft theme ownership regression, or a renderer safety/parsing regression backed by fresh evidence
+
 ### `017 Browser Substrate Evaluation And Direction`
 
 - status: `done`

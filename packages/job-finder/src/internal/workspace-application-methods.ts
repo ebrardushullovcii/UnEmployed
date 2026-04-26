@@ -55,6 +55,7 @@ import {
   buildTailoredAssetBridge,
   collectResearchContext,
   collectResumeWorkspaceEvidence,
+  resolveResumeTemplateLabel,
   sanitizeResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
@@ -896,6 +897,7 @@ export function createWorkspaceApplicationMethods(
         (asset) => asset.jobId === jobId,
       );
       const existingDraft = await ctx.repository.getResumeDraftByJobId(jobId);
+      const templates = ctx.documentManager.listResumeTemplates();
       const research = await fetchAndPersistResearch(ctx, job);
       const evidence = collectResumeWorkspaceEvidence({
         profile,
@@ -922,7 +924,7 @@ export function createWorkspaceApplicationMethods(
       const now = new Date().toISOString();
       const resumeDraft = buildResumeDraftFromTailoredDraft({
         job,
-        settings,
+        templateId: existingDraft?.templateId ?? settings.resumeTemplateId,
         draft,
         createdAt: existingDraft?.createdAt ?? now,
         existingDraftId: existingDraft?.id ?? null,
@@ -953,6 +955,7 @@ export function createWorkspaceApplicationMethods(
           profile,
           sanitizedResumeDraft,
         ),
+        templateId: sanitizedResumeDraft.templateId,
         settings,
       });
 
@@ -962,9 +965,6 @@ export function createWorkspaceApplicationMethods(
         );
       }
 
-      const selectedTemplate = ctx.documentManager
-        .listResumeTemplates()
-        .find((template) => template.id === settings.resumeTemplateId);
       const validation = validateResumeDraft({
         draft: sanitizedResumeDraft,
         job,
@@ -980,9 +980,11 @@ export function createWorkspaceApplicationMethods(
         label: draft.label ?? "Tailored Resume",
         version: nextAssetVersion(existingAsset),
         templateName:
-          selectedTemplate?.label ??
-          existingAsset?.templateName ??
-          "Classic ATS",
+          resolveResumeTemplateLabel({
+            templateId: sanitizedResumeDraft.templateId,
+            templates,
+            fallbackLabel: existingAsset?.templateName ?? "Classic ATS",
+          }),
         compatibilityScore:
           draft.compatibilityScore ??
           Math.min(100, job.matchAssessment.score + 3),
@@ -1042,17 +1044,24 @@ export function createWorkspaceApplicationMethods(
         ctx,
         parsedDraft.jobId,
       );
+      const templates = ctx.documentManager.listResumeTemplates();
       const now = new Date().toISOString();
+      const currentDraft = await ctx.repository.getResumeDraftByJobId(parsedDraft.jobId);
+      const hadApprovedExport = Boolean(
+        currentDraft?.status === "approved" ||
+        currentDraft?.approvedAt ||
+        currentDraft?.approvedExportId,
+      );
       const nextDraft = ResumeDraftSchema.parse({
         ...parsedDraft,
         status:
-          parsedDraft.approvedAt || parsedDraft.approvedExportId
+          hadApprovedExport
             ? "stale"
             : "needs_review",
         approvedAt: null,
         approvedExportId: null,
         staleReason:
-          parsedDraft.approvedAt || parsedDraft.approvedExportId
+          hadApprovedExport
             ? "Draft changed after approval and needs a fresh review."
             : null,
         updatedAt: now,
@@ -1074,6 +1083,7 @@ export function createWorkspaceApplicationMethods(
         profile,
         existingAsset: tailoredAsset,
         storagePath: tailoredAsset?.storagePath ?? null,
+        templates,
       });
 
       await ctx.repository.saveResumeDraftWithValidation({
@@ -1209,6 +1219,7 @@ export function createWorkspaceApplicationMethods(
         existingAsset: tailoredAsset,
         storagePath: renderedArtifact.storagePath,
         pageCount: renderedArtifact.pageCount ?? null,
+        templates: ctx.documentManager.listResumeTemplates(),
         notes: uniqueStrings([
           ...(renderedArtifact.fileName
             ? [`Generated PDF resume artifact ${renderedArtifact.fileName}.`]
@@ -1288,6 +1299,7 @@ export function createWorkspaceApplicationMethods(
         existingAsset: tailoredAsset,
         storagePath: targetExport.filePath,
         pageCount: targetExport.pageCount,
+        templates: ctx.documentManager.listResumeTemplates(),
       });
 
       await ctx.repository.approveResumeExport({
@@ -1321,6 +1333,7 @@ export function createWorkspaceApplicationMethods(
         profile,
         existingAsset: tailoredAsset,
         clearStoragePath: true,
+        templates: ctx.documentManager.listResumeTemplates(),
       });
 
       await ctx.repository.clearResumeApproval({
@@ -1374,6 +1387,7 @@ export function createWorkspaceApplicationMethods(
         profile: state.profile,
         existingAsset: state.tailoredAsset,
         clearStoragePath: true,
+        templates: ctx.documentManager.listResumeTemplates(),
       });
 
       await ctx.repository.applyResumePatchWithRevision({
@@ -1484,6 +1498,7 @@ export function createWorkspaceApplicationMethods(
           profile: workspaceState.profile,
           existingAsset: workspaceState.tailoredAsset,
           clearStoragePath: true,
+          templates: ctx.documentManager.listResumeTemplates(),
         });
 
         await ctx.repository.applyResumePatchWithRevision({

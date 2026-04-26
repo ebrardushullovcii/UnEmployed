@@ -21,7 +21,7 @@ Current product baseline:
 - browser-driven job discovery across configured targets
 - source-debug for learning reusable target instructions
 - resume workspace with ATS-first PDF approval
-- default resume output is the ATS-first `Classic ATS` PDF template; no additional resume templates ship in the current baseline, and any template roadmap or expansion requires a separate approved exec plan
+- default resume output is the ATS-first `Classic ATS` PDF template; five more ATS-safe themes also ship today: `Compact ATS`, `Modern Split ATS`, `Technical Matrix`, `Project Showcase`, and `Credentials Focus`
 - apply flows that stop before final submission with Applications recovery
 - hard product rule: live submit remains intentionally disabled until explicitly re-authorized; see `docs/exec-plans/completed/015-job-finder-automatic-job-apply.md` for provenance
 

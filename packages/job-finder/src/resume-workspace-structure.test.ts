@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import type { ResumeDraft } from "@unemployed/contracts";
-import { buildResumeRenderDocument } from "./internal/resume-workspace-structure";
+import {
+  buildResumeRenderDocument,
+  seedResumeDraft,
+} from "./internal/resume-workspace-structure";
 import { createSeed } from "./workspace-service.test-support";
 
 describe("buildResumeRenderDocument", () => {
@@ -74,6 +77,80 @@ describe("buildResumeRenderDocument", () => {
         "Senior systems designer — Signal Systems | London, UK | 2020-01 – Present",
       summary: "Tailored workflow platform summary.",
       bullets: ["Tailored workflow platform impact."],
+    });
+  });
+
+  test("seedResumeDraft formats imported year-month ranges for recruiter-facing output", () => {
+    const seed = createSeed();
+    const draft = seedResumeDraft({
+      profile: seed.profile,
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+    });
+
+    const experience = draft.sections.find((section) => section.kind === "experience")?.entries[0];
+
+    expect(experience?.dateRange).toMatch(/^[A-Z][a-z]{2} \d{4} – Present$/);
+  });
+
+  test("surfaces preferred links and project URLs without turning project skills into bullets", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      githubUrl: "https://github.com/alex-vanguard",
+      personalWebsiteUrl: "https://alex.dev",
+      applicationIdentity: {
+        ...seed.profile.applicationIdentity,
+        preferredEmail: "apply@example.com",
+        preferredLinkIds: ["link_case_study"],
+      },
+      links: [
+        ...seed.profile.links,
+        {
+          id: "link_case_study",
+          label: "Case Study",
+          url: "https://alex.example.com/case-study",
+          kind: "case_study" as const,
+          isDraft: false,
+        },
+      ],
+      projects: [
+        {
+          id: "project_workflow_os",
+          name: "Workflow OS",
+          projectType: "product",
+          summary: "Scaled a workflow design system.",
+          role: "Design lead",
+          skills: ["Figma", "React"],
+          outcome: "Reduced release churn.",
+          projectUrl: "https://alex.example.com/workflow-os",
+          repositoryUrl: "https://github.com/alex-vanguard/workflow-os",
+          caseStudyUrl: "https://alex.example.com/workflow-os-case-study",
+        },
+      ],
+    };
+    const draft = seedResumeDraft({
+      profile,
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+    });
+    const document = buildResumeRenderDocument(profile, draft);
+    const project = document.sections.find((section) => section.kind === "projects")?.entries[0];
+
+    expect(document.contactItems).toEqual([
+      "apply@example.com",
+      "+44 7700 900123",
+      "https://alex.example.com",
+      "https://www.linkedin.com/in/alex-vanguard",
+      "https://github.com/alex-vanguard",
+      "https://alex.dev",
+      "https://alex.example.com/case-study",
+    ]);
+    expect(project).toEqual({
+      id: "project_project_workflow_os",
+      heading: "Workflow OS — Design lead | https://alex.example.com/workflow-os-case-study",
+      summary: "Scaled a workflow design system. Reduced release churn. Technologies: Figma, React.",
+      bullets: [],
     });
   });
 });

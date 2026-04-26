@@ -553,22 +553,59 @@ export function createDocumentManager() {
           label: "Classic ATS",
           description:
             "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
+          bestFor: ["General applications", "Recruiter-heavy funnels"],
+          density: "balanced" as const,
         },
         {
           id: "compact_exec" as const,
           label: "Compact ATS",
           description:
             "Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.",
+          bestFor: ["Experienced candidates", "Content-dense resumes"],
+          density: "compact" as const,
+        },
+        {
+          id: "modern_split" as const,
+          label: "Modern Split ATS",
+          description:
+            "Single-column with a sharper modern header and restrained accents for polished but ATS-safe exports.",
+          bestFor: ["Product roles", "Design-adjacent teams", "Startup hiring loops"],
+          density: "balanced" as const,
+        },
+        {
+          id: "technical_matrix" as const,
+          label: "Technical Matrix",
+          description:
+            "Skills-forward single-column layout that highlights technical depth before chronology.",
+          bestFor: ["Engineering roles", "Data roles", "Security roles"],
+          density: "compact" as const,
+        },
+        {
+          id: "project_showcase" as const,
+          label: "Project Showcase",
+          description:
+            "Project-forward single-column layout for candidates whose proof lands best through shipped work.",
+          bestFor: ["Portfolio-heavy candidates", "Career changers", "Product builders"],
+          density: "comfortable" as const,
+        },
+        {
+          id: "credentials_focus" as const,
+          label: "Credentials Focus",
+          description:
+            "Credentials-first single-column layout that surfaces certifications and education earlier without leaving ATS-safe structure.",
+          bestFor: ["Regulated industries", "Certification-heavy roles", "Academic backgrounds"],
+          density: "balanced" as const,
         },
       ];
     },
-    renderResumeArtifact() {
+    renderResumeArtifact(input: { templateId: string }) {
+      const fileStem = `generated-${input.templateId}`
       return Promise.resolve({
-        fileName: "generated-resume.pdf",
-        storagePath: "/tmp/generated-resume.pdf",
+        fileName: `${fileStem}.pdf`,
+        storagePath: `/tmp/${fileStem}.pdf`,
         format: "pdf" as const,
-        intermediateFileName: "generated-resume.html",
-        intermediateStoragePath: "/tmp/generated-resume.html",
+        intermediateFileName: `${fileStem}.html`,
+        intermediateStoragePath: `/tmp/${fileStem}.html`,
         pageCount: 2,
         warnings: [],
       });

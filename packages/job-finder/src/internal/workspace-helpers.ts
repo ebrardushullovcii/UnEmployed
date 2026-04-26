@@ -152,7 +152,7 @@ export function normalizeResumeDraftTemplate(
     approvedAt: shouldClearApproval ? null : draft.approvedAt,
     approvedExportId: shouldClearApproval ? null : draft.approvedExportId,
     staleReason: shouldClearApproval
-      ? "This resume used a retired layout. Export a fresh Classic ATS PDF before applying."
+      ? `This resume used a retired theme. Export a fresh ${availableResumeTemplates[0]?.label ?? "Classic ATS"} PDF before applying.`
       : draft.staleReason,
   });
 }

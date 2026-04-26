@@ -34,6 +34,8 @@ describe("contracts workspace snapshot schema", () => {
           label: "Classic ATS",
           description:
             "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
+          bestFor: ["General applications", "Recruiter-heavy funnels"],
+          density: "balanced",
         },
       ],
       profile: {

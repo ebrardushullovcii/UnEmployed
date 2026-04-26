@@ -277,6 +277,8 @@ export const ResumeTemplateDefinitionSchema = z.object({
   id: ResumeTemplateIdSchema,
   label: NonEmptyStringSchema,
   description: NonEmptyStringSchema,
+  bestFor: z.array(NonEmptyStringSchema).default([]),
+  density: z.enum(["comfortable", "balanced", "compact"]),
 });
 export type ResumeTemplateDefinition = z.infer<
   typeof ResumeTemplateDefinitionSchema

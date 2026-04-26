@@ -556,6 +556,9 @@ export const resumeTemplateIdValues = [
   "classic_ats",
   "modern_split",
   "compact_exec",
+  "technical_matrix",
+  "project_showcase",
+  "credentials_focus",
 ] as const;
 
 export const ResumeTemplateIdSchema = z.enum(resumeTemplateIdValues);
