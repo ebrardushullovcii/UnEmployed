@@ -2,6 +2,7 @@ import { TailoredResumeDraftSchema } from "./shared";
 import {
   buildDeterministicStructuredResumeDraft,
   composeDeterministicFullText,
+  filterGroundedVisibleSkills,
   uniqueStrings,
 } from "./deterministic";
 
@@ -220,10 +221,27 @@ export function completeTailoredResumeDraft(
       : fallback.experienceHighlights;
   const coreSkills =
     sanitizedCoreSkills.length > 0 ? sanitizedCoreSkills : fallback.coreSkills;
+  const groundedCoreSkills = filterGroundedVisibleSkills(
+    fallbackInput.profile,
+    coreSkills,
+    8,
+  );
   const targetedKeywords =
     sanitizedTargetedKeywords.length > 0
       ? sanitizedTargetedKeywords
       : fallback.targetedKeywords;
+  const groundedAdditionalSkills = filterGroundedVisibleSkills(
+    fallbackInput.profile,
+    sanitizedAdditionalSkills.length > 0
+      ? sanitizedAdditionalSkills
+      : fallback.additionalSkills,
+    8,
+  ).filter(
+    (skill) =>
+      !groundedCoreSkills.some(
+        (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
+      ),
+  );
   const notes = uniqueStrings([
     ...fallback.notes,
     ...(Array.isArray(normalizedPrimary.notes)
@@ -237,7 +255,7 @@ export function completeTailoredResumeDraft(
     label,
     summary,
     experienceHighlights,
-    coreSkills,
+    coreSkills: groundedCoreSkills,
     experienceEntries:
       sanitizedExperienceEntries.length > 0
         ? normalizeExperienceEntries(
@@ -280,10 +298,7 @@ export function completeTailoredResumeDraft(
               typeof entry.dateRange === "string" ? entry.dateRange : null,
           }))
         : fallback.certificationEntries,
-    additionalSkills:
-      sanitizedAdditionalSkills.length > 0
-        ? sanitizedAdditionalSkills
-        : fallback.additionalSkills,
+    additionalSkills: groundedAdditionalSkills,
     languages:
       sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
     targetedKeywords,
@@ -295,7 +310,7 @@ export function completeTailoredResumeDraft(
     label,
     summary,
     experienceHighlights,
-    coreSkills,
+    coreSkills: groundedCoreSkills,
     targetedKeywords,
     experienceEntries:
       sanitizedExperienceEntries.length > 0
@@ -351,10 +366,7 @@ export function completeTailoredResumeDraft(
                 : null,
           }))
         : fallback.certificationEntries,
-    additionalSkills:
-      sanitizedAdditionalSkills.length > 0
-        ? sanitizedAdditionalSkills
-        : fallback.additionalSkills,
+    additionalSkills: groundedAdditionalSkills,
     languages:
       sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
     fullText,

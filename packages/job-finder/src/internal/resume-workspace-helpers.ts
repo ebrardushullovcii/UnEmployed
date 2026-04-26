@@ -1,4 +1,7 @@
-import type { TailoredResumeDraft } from "@unemployed/ai-providers";
+import {
+  buildCandidateSkillBank,
+  type TailoredResumeDraft,
+} from "@unemployed/ai-providers";
 import {
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
@@ -192,12 +195,113 @@ function isSupportedByProfile(content: string, profileSupportBank: readonly stri
 
   return profileSupportBank.some((entry) => {
     const normalizedEntry = normalizeText(entry);
+    const entryTokenCount = tokenize(entry).length;
+    const contentTokenCount = tokenize(content).length;
+
+    if (!normalizedEntry) {
+      return false;
+    }
+
+    if (entryTokenCount <= 1 || contentTokenCount <= 1) {
+      return normalizedEntry === normalized;
+    }
+
     return (
-      normalizedEntry.includes(normalized) ||
-      normalized.includes(normalizedEntry) ||
+      matchesWholePhrase(entry, content) ||
+      matchesWholePhrase(content, entry) ||
       calculateTokenOverlap(content, entry) >= 0.72
     );
   });
+}
+
+function isGroundedVisibleSkill(
+  content: string,
+  candidateSkillBank: readonly string[],
+): boolean {
+  const normalized = normalizeText(content);
+
+  if (!normalized) {
+    return false;
+  }
+
+  return candidateSkillBank.some((skill) => {
+    const normalizedSkill = normalizeText(skill);
+    return (
+      normalizedSkill === normalized ||
+      normalizedSkill.includes(normalized) ||
+      normalized.includes(normalizedSkill)
+    );
+  });
+}
+
+function buildCandidateLanguageBank(
+  profile: CandidateProfile | null | undefined,
+): string[] {
+  if (!profile) {
+    return [];
+  }
+
+  return uniqueStrings(
+    profile.spokenLanguages.flatMap((entry) =>
+      [entry.language, [entry.language, entry.proficiency].filter(Boolean).join(" — ")].filter(
+        (value): value is string => Boolean(value && value.trim()),
+      ),
+    ),
+  );
+}
+
+function isGroundedVisibleLanguage(
+  content: string,
+  candidateLanguageBank: readonly string[],
+): boolean {
+  const normalized = normalizeText(content);
+
+  if (!normalized) {
+    return false;
+  }
+
+  return candidateLanguageBank.some((language) => {
+    const normalizedLanguage = normalizeText(language);
+    return (
+      normalizedLanguage === normalized ||
+      normalizedLanguage.includes(normalized) ||
+      normalized.includes(normalizedLanguage)
+    );
+  });
+}
+
+function isLanguageSection(section: Pick<ResumeDraft["sections"][number], "kind" | "label">): boolean {
+  return section.kind === "skills" && normalizeText(section.label).includes("language");
+}
+
+function isShortJobTermBleed(
+  content: string,
+  job: SavedJob,
+  profileSupportBank: readonly string[],
+): boolean {
+  const normalizedContent = normalizeText(content);
+
+  if (!normalizedContent || tokenize(content).length > 4) {
+    return false;
+  }
+
+  if (isSupportedByProfile(content, profileSupportBank)) {
+    return false;
+  }
+
+  const shortJobTerms = uniqueStrings([
+    job.company,
+    job.title,
+    job.team ?? "",
+    job.department ?? "",
+    job.atsProvider ?? "",
+    ...job.benefits,
+    ...job.screeningHints.remoteGeographies,
+  ].filter(Boolean));
+
+  return shortJobTerms.some(
+    (term) => normalizeText(term) && normalizeText(term) === normalizedContent,
+  );
 }
 
 function isJobDescriptionBleed(
@@ -226,7 +330,7 @@ function isJobDescriptionBleed(
 function looksLikeKeywordStuffing(content: string): boolean {
   const commaCount = (content.match(/,/g) ?? []).length;
   const tokenCount = tokenize(content).length;
-  return commaCount >= 4 && tokenCount >= 8 && !/\b(led|built|designed|shipped|managed|improved|created|owned|delivered|launched)\b/i.test(content);
+  return commaCount >= 4 && tokenCount >= 8 && !/\b(led|built|designed|shipped|managed|improved|created|owned|delivered|launched|partnered|collaborated|standardized|reduced|increased|drove|implemented)\b/i.test(content);
 }
 
 function looksLikeVagueFiller(content: string): boolean {
@@ -260,6 +364,8 @@ export function sanitizeResumeDraft(input: {
 }): ResumeDraft {
   const jobPhraseBank = buildJobPhraseBank(input.job);
   const profileSupportBank = buildProfileSupportBank(input.profile);
+  const candidateSkillBank = buildCandidateSkillBank(input.profile);
+  const candidateLanguageBank = buildCandidateLanguageBank(input.profile);
   const seenLines = new Set<string>();
 
   const nextSections = input.draft.sections.map((section) => {
@@ -301,7 +407,19 @@ export function sanitizeResumeDraft(input: {
         if (seenLines.has(normalized)) {
           return false;
         }
+        if (section.kind === "skills") {
+          if (isLanguageSection(section)) {
+            if (!isGroundedVisibleLanguage(bullet.text, candidateLanguageBank)) {
+              return false;
+            }
+          } else if (!isGroundedVisibleSkill(bullet.text, candidateSkillBank)) {
+            return false;
+          }
+        }
         if (isJobDescriptionBleed(bullet.text, jobPhraseBank, profileSupportBank)) {
+          return false;
+        }
+        if (isShortJobTermBleed(bullet.text, input.job, profileSupportBank)) {
           return false;
         }
         if (looksLikeKeywordStuffing(bullet.text)) {
@@ -408,63 +526,77 @@ export function validateResumeDraft(input: {
         )),
   );
 
-  function pushBulletIssues(input: {
+  function pushBulletIssues(args: {
     bullet: ResumeDraftBullet;
     sectionId: string;
     entryId?: string | null;
   }) {
-    const normalizedBullet = normalizeText(input.bullet.text);
+    const normalizedBullet = normalizeText(args.bullet.text);
     const existing = seenBullets.get(normalizedBullet);
 
     if (existing) {
       issues.push({
-        id: `issue_duplicate_${input.bullet.id}`,
+        id: `issue_duplicate_${args.bullet.id}`,
         severity: "warning",
         category: "duplicate_bullet",
-        sectionId: input.sectionId,
-        entryId: input.entryId ?? null,
-        bulletId: input.bullet.id,
+        sectionId: args.sectionId,
+        entryId: args.entryId ?? null,
+        bulletId: args.bullet.id,
         message: "This bullet duplicates another included bullet.",
       });
     } else {
       seenBullets.set(normalizedBullet, {
-        sectionId: input.sectionId,
-        bulletId: input.bullet.id,
+        sectionId: args.sectionId,
+        bulletId: args.bullet.id,
       });
     }
 
-    if (isJobDescriptionBleed(input.bullet.text, jobPhraseBank, profileSupportBank)) {
+    if (isJobDescriptionBleed(args.bullet.text, jobPhraseBank, profileSupportBank)) {
       issues.push({
-        id: `issue_job_bleed_${input.bullet.id}`,
+        id: `issue_job_bleed_${args.bullet.id}`,
         severity: "warning",
         category: "job_description_bleed",
-        sectionId: input.sectionId,
-        entryId: input.entryId ?? null,
-        bulletId: input.bullet.id,
-        message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
+        sectionId: args.sectionId,
+        entryId: args.entryId ?? null,
+        bulletId: args.bullet.id,
+        message:
+          "This bullet reads like copied job-description language instead of grounded candidate evidence.",
       });
     }
 
-    if (looksLikeKeywordStuffing(input.bullet.text)) {
+    if (isShortJobTermBleed(args.bullet.text, input.job, profileSupportBank)) {
       issues.push({
-        id: `issue_keyword_stuffing_${input.bullet.id}`,
+        id: `issue_short_job_bleed_${args.bullet.id}`,
+        severity: "warning",
+        category: "job_description_bleed",
+        sectionId: args.sectionId,
+        entryId: args.entryId ?? null,
+        bulletId: args.bullet.id,
+        message:
+          "This bullet uses short job-only language that is not grounded in the candidate profile.",
+      });
+    }
+
+    if (looksLikeKeywordStuffing(args.bullet.text)) {
+      issues.push({
+        id: `issue_keyword_stuffing_${args.bullet.id}`,
         severity: "warning",
         category: "keyword_stuffing",
-        sectionId: input.sectionId,
-        entryId: input.entryId ?? null,
-        bulletId: input.bullet.id,
+        sectionId: args.sectionId,
+        entryId: args.entryId ?? null,
+        bulletId: args.bullet.id,
         message: "This line reads like keyword packing instead of resume content.",
       });
     }
 
-    if (looksLikeVagueFiller(input.bullet.text)) {
+    if (looksLikeVagueFiller(args.bullet.text)) {
       issues.push({
-        id: `issue_filler_${input.bullet.id}`,
+        id: `issue_filler_${args.bullet.id}`,
         severity: "info",
         category: "vague_filler",
-        sectionId: input.sectionId,
-        entryId: input.entryId ?? null,
-        bulletId: input.bullet.id,
+        sectionId: args.sectionId,
+        entryId: args.entryId ?? null,
+        bulletId: args.bullet.id,
         message: "Replace generic filler language with a grounded accomplishment or skill example.",
       });
     }
@@ -740,8 +872,8 @@ export function collectResumeWorkspaceEvidence(input: {
 }): ResumeWorkspaceEvidence {
   const index = createLocalKnowledgeIndex();
   const candidateSummaryEvidence = uniqueStrings([
-    input.profile.professionalSummary.shortValueProposition ?? "",
     input.profile.professionalSummary.fullSummary ?? "",
+    input.profile.professionalSummary.shortValueProposition ?? "",
     input.profile.summary ?? "",
     input.profile.narrative.professionalStory ?? "",
     input.profile.narrative.nextChapterSummary ?? "",

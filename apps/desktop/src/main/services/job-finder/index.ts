@@ -8,6 +8,10 @@ export { createJobFinderWorkspaceServiceAsync } from './create-workspace-service
 export { getJobFinderWorkspaceService, shutdownJobFinderWorkspaceService } from './workspace-service'
 export { importResumeFromSourcePath } from './import-resume'
 export { runDesktopResumeImportBenchmark, defaultBenchmarkCases } from './resume-import-benchmark'
+export {
+  runDesktopResumeQualityBenchmark,
+  defaultResumeQualityBenchmarkCases,
+} from './resume-quality-benchmark'
 export { loadApplyQueueDemoState, loadResumeWorkspaceDemoState } from './load-demo-state'
 export { resetJobFinderWorkspace } from './reset-workspace'
 export {

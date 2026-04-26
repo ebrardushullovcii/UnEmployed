@@ -4,14 +4,14 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 
 ## Current Truth
 
-- Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`
+- Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`, `020`, `021`, `022`, `023`
 - Active work: none
 - Baseline landed: desktop app, typed Electron boundaries, SQLite persistence, guided setup, profile copilot, discovery, resume workspace, safe non-submitting apply
 
 ## What Matters Now
 
+- `023` is completed: candidate-backed visible-skill grounding, broader low-level sanitizer and validator coverage, two ATS-safe templates, and the replayable desktop benchmark now protect the resume-generation path; the latest benchmark report and persisted HTML artifacts live under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/`
 - `022` is completed: source sign-in prompts and source-aware browser entry now surface in `Profile` and `Find jobs`, with screenshot-reviewed desktop QA artifacts under `apps/desktop/test-artifacts/ui/source-sign-in-prompts/`
-- `023` is queued: resume generation quality has a defined next plan, but it is not the active execution track yet
 - `020` is completed: Job Finder routes now use scoped pending lanes with clearer disabled and in-progress button feedback across desktop flows
 - `021` is completed: resume-import duplicate records, fresh-start placeholder replacement, optional-proof warning cleanup, and date-derived years-of-experience fallback are now part of the landed import baseline
 - `017` completed the current-stack browser loop evaluation and did not justify a substrate change yet
@@ -24,6 +24,7 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 - Continue reducing real-app `Check source` cost when fresh full-app evidence shows product friction
 - Clean persisted title/company quality when extracted jobs are otherwise useful and a concrete pattern is observed
 - Treat Kosovajob `0` persisted jobs as context-dependent, not automatically a failure, because the board can have few suitable matches for the current resume
+- Add new resume-quality benchmark corpus cases only when fresh real outputs expose a missing regression class
 
 ## Latest 017 Snapshot
 
@@ -49,7 +50,7 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 ## Key References
 
 - `docs/TRACKS.md`
-- `docs/exec-plans/queued/023-job-finder-world-class-resume-generation-quality.md`
+- `docs/exec-plans/completed/023-job-finder-world-class-resume-generation-quality.md`
 - `docs/exec-plans/completed/022-job-finder-source-sign-in-prompts-and-source-aware-browser-entry.md`
 - `docs/exec-plans/completed/020-job-finder-scoped-button-pending-state-and-feedback.md`
 - `docs/exec-plans/completed/017-browser-substrate-evaluation-and-direction.md`

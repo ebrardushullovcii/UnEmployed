@@ -153,7 +153,7 @@ export type ResumeProfileExtraction = z.infer<
 export const TailoredResumeDraftSchema = z.object({
   label: NullableStringSchema,
   summary: NonEmptyStringSchema,
-  experienceHighlights: z.array(NonEmptyStringSchema).min(1),
+  experienceHighlights: z.array(NonEmptyStringSchema).default([]),
   coreSkills: z.array(NonEmptyStringSchema).default([]),
   targetedKeywords: z.array(NonEmptyStringSchema).default([]),
   experienceEntries: z.array(z.object({

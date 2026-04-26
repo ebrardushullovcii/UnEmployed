@@ -11,6 +11,8 @@ import type {
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   JobFinderPerformanceSnapshot,
+  ResumeQualityBenchmarkReport,
+  ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkRequest,
   JobFinderResumeWorkspace,
@@ -456,6 +458,13 @@ const desktopApi = {
                 "job-finder:test-run-resume-import-benchmark",
                 input ?? {},
               ) as Promise<ResumeImportBenchmarkReport>,
+            runResumeQualityBenchmark: (
+              input?: Partial<ResumeQualityBenchmarkRequest>,
+            ) =>
+              ipcRenderer.invoke(
+                "job-finder:test-run-resume-quality-benchmark",
+                input ?? {},
+              ) as Promise<ResumeQualityBenchmarkReport>,
             importResumeFromPath: (sourcePath: string) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
                 sourcePath,

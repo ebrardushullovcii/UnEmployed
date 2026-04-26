@@ -1,4 +1,8 @@
-import type { BrowserSessionState, JobFinderSettings } from '@unemployed/contracts'
+import type {
+  BrowserSessionState,
+  JobFinderSettings,
+  ResumeTemplateDefinition,
+} from '@unemployed/contracts'
 import { PageHeader } from '../../components/page-header'
 import { SettingsEditableDefaults } from './settings-editable-defaults'
 import { SettingsRuntimeSummary } from './settings-runtime-summary'
@@ -6,6 +10,7 @@ import { SettingsWorkspaceControls } from './settings-workspace-controls'
 
 export function SettingsScreen(props: {
   actionState: { message: string | null }
+  availableResumeTemplates: readonly ResumeTemplateDefinition[]
   browserSession: BrowserSessionState
   isSavePending: boolean
   isWorkspaceResetPending: boolean
@@ -15,6 +20,7 @@ export function SettingsScreen(props: {
 }) {
   const {
     actionState,
+    availableResumeTemplates,
     browserSession,
     isSavePending,
     isWorkspaceResetPending,
@@ -34,6 +40,7 @@ export function SettingsScreen(props: {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,24rem)] xl:items-start">
         <SettingsEditableDefaults
           actionMessage={actionState.message}
+          availableResumeTemplates={availableResumeTemplates}
           isSavePending={isSavePending}
           onSaveSettings={onSaveSettings}
           settings={settings}

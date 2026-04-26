@@ -474,6 +474,7 @@ export function JobFinderSettingsRoute() {
   return (
     <SettingsScreen
       actionState={context.actionState}
+      availableResumeTemplates={context.workspace.availableResumeTemplates}
       browserSession={context.workspace.browserSession}
       isSavePending={context.isPending(jobFinderPendingActions.settingsSave())}
       isWorkspaceResetPending={context.isPending(jobFinderPendingActions.workspaceReset())}

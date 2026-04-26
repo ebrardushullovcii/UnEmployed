@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react'
-import type { JobFinderSettings } from '@unemployed/contracts'
+import type { JobFinderSettings, ResumeTemplateDefinition } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
@@ -24,6 +24,7 @@ const fontPresetOptions: ReadonlyArray<{
 
 interface SettingsEditableDefaultsProps {
   actionMessage: string | null
+  availableResumeTemplates: readonly ResumeTemplateDefinition[]
   isSavePending: boolean
   onSaveSettings: (settings: JobFinderSettings) => void
   settings: JobFinderSettings
@@ -31,12 +32,14 @@ interface SettingsEditableDefaultsProps {
 
 export function SettingsEditableDefaults({
   actionMessage,
+  availableResumeTemplates,
   isSavePending,
   onSaveSettings,
   settings
 }: SettingsEditableDefaultsProps) {
   const appearanceId = useId()
   const fontPresetId = useId()
+  const resumeTemplateId = useId()
   const [settingsForm, setSettingsForm] = useState(settings)
   const appearanceThemeOptions: ReadonlyArray<{ label: string; value: JobFinderSettings['appearanceTheme'] }> = [
     { label: 'System', value: 'system' },
@@ -45,6 +48,8 @@ export function SettingsEditableDefaults({
   ]
   const isFontPresetOption = (value: string): value is JobFinderSettings['fontPreset'] =>
     fontPresetOptions.some((fontPreset) => fontPreset.value === value)
+  const isResumeTemplateOption = (value: string): value is JobFinderSettings['resumeTemplateId'] =>
+    availableResumeTemplates.some((template) => template.id === value)
   const isAppearanceThemeOption = (value: string): value is JobFinderSettings['appearanceTheme'] =>
     appearanceThemeOptions.some((option) => option.value === value)
   const updateSettingsForm = (updater: (current: JobFinderSettings) => JobFinderSettings) => {
@@ -56,6 +61,9 @@ export function SettingsEditableDefaults({
   }
   const selectedFontPreset = fontPresetOptions.find(
     (fontPreset) => fontPreset.value === settingsForm.fontPreset
+  )
+  const selectedResumeTemplate = availableResumeTemplates.find(
+    (template) => template.id === settingsForm.resumeTemplateId
   )
 
   useEffect(() => {
@@ -92,6 +100,20 @@ export function SettingsEditableDefaults({
                 value={settingsForm.appearanceTheme}
               />
             </Field>
+            <Field>
+              <FieldLabel htmlFor={resumeTemplateId}>Resume layout</FieldLabel>
+              <FormSelect
+                disabled={isSavePending}
+                onValueChange={(value) => updateSettingsForm((current) => ({
+                  ...current,
+                  resumeTemplateId: isResumeTemplateOption(value) ? value : current.resumeTemplateId
+                }))}
+                options={availableResumeTemplates.map((template) => ({ label: template.label, value: template.id }))}
+                placeholder="Select layout"
+                triggerId={resumeTemplateId}
+                value={settingsForm.resumeTemplateId}
+              />
+            </Field>
             <Field className="md:col-span-2">
               <FieldLabel htmlFor={fontPresetId}>Resume font</FieldLabel>
               <FormSelect
@@ -112,10 +134,10 @@ export function SettingsEditableDefaults({
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
               <span className="label-mono-xs">Resume layout</span>
               <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
-                Classic ATS
+                {selectedResumeTemplate?.label ?? 'Layout not available'}
               </strong>
               <p className="mt-2 text-(length:--text-description) leading-6 text-foreground-soft">
-                Job Finder now ships one default single-column export so new resumes stay optimized for parser reliability and recruiter readability.
+                {selectedResumeTemplate?.description ?? 'Choose the default ATS-safe resume layout for exports.'}
               </p>
             </div>
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">

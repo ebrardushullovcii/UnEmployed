@@ -97,3 +97,11 @@ Track-specific validation and product-bar requirements live in the handoff layer
 
 - replay with `pnpm --filter @unemployed/desktop benchmark:resume-import`
 - corpus is declared in `apps/desktop/src/main/services/job-finder/resume-import-benchmark.ts`
+
+## Resume-Quality Benchmark
+
+- replay with `pnpm --filter @unemployed/desktop benchmark:resume-quality`
+- canary-only replay: `pnpm --filter @unemployed/desktop benchmark:resume-quality -- --canary-only`
+- corpus is declared in `apps/desktop/src/main/services/job-finder/resume-quality-benchmark.ts`
+- latest report path: `apps/desktop/test-artifacts/ui/resume-quality-benchmark/resume-quality-benchmark-report.json`
+- latest persisted HTML artifacts are written under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/<caseId>/<templateId>/`

@@ -4,6 +4,7 @@ import {
   ResumeDraftSectionSchema,
   ResumeAssistantMessageSchema,
   ResumeExportArtifactSchema,
+  ResumeQualityBenchmarkReportSchema,
   ResumeValidationResultSchema,
 } from "./index";
 
@@ -239,5 +240,54 @@ describe("contracts resume workspace schemas", () => {
         validatedAt: "2026-03-20T10:02:35.000Z",
       }).pageCount,
     ).toBe(2);
+  });
+
+  test("parses resume quality benchmark reports", () => {
+    const report = ResumeQualityBenchmarkReportSchema.parse({
+      benchmarkVersion: "023-local-benchmark-v1",
+      generatedAt: "2026-04-26T12:00:00.000Z",
+      templates: ["classic_ats", "compact_exec"],
+      persistedArtifactsDirectory: "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
+      cases: [
+        {
+          caseId: "grounded_baseline",
+          label: "Grounded baseline",
+          templateId: "classic_ats",
+          passed: true,
+          visibleSkills: ["Figma", "Design Systems"],
+          issueCategories: [],
+          issueCount: 0,
+          metrics: {
+            groundedVisibleSkillRate: 1,
+            bleedFreeCaseRate: 1,
+            keywordCoverageRate: 1,
+            duplicateIssueFreeRate: 1,
+            thinOutputFreeRate: 1,
+            pageTargetPassRate: 1,
+            atsRenderPassRate: 1,
+            issueFreeCaseRate: 1,
+          },
+          htmlArtifactRelativePath: "grounded_baseline/classic_ats/sample.html",
+          notes: [],
+        },
+      ],
+      aggregate: {
+        groundedVisibleSkillRate: 1,
+        bleedFreeCaseRate: 1,
+        keywordCoverageRate: 1,
+        duplicateIssueFreeRate: 1,
+        thinOutputFreeRate: 1,
+        pageTargetPassRate: 1,
+        atsRenderPassRate: 1,
+        issueFreeCaseRate: 1,
+      },
+      notes: [],
+    });
+
+    expect(report.templates).toEqual(["classic_ats", "compact_exec"]);
+    expect(report.persistedArtifactsDirectory).toBe(
+      "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
+    );
+    expect(report.cases[0]?.metrics.atsRenderPassRate).toBe(1);
   });
 });

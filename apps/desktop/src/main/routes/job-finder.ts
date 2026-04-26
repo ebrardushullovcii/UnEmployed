@@ -17,6 +17,7 @@ import {
   JobFinderProfileSetupReviewActionInputSchema,
   JobFinderResumeAssistantMessageInputSchema,
   JobFinderRepositoryStateSchema,
+  ResumeQualityBenchmarkRequestSchema,
   ResumeImportBenchmarkRequestSchema,
   JobFinderResumeWorkspaceQuerySchema,
   JobFinderSaveResumeDraftInputSchema,
@@ -48,6 +49,7 @@ import {
   loadResumeWorkspaceDemoState,
   parseResumeImportPathPayload,
   resetJobFinderWorkspace,
+  runDesktopResumeQualityBenchmark,
   runDesktopResumeImportBenchmark,
 } from "../services/job-finder";
 
@@ -402,6 +404,35 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       };
 
       return runDesktopResumeImportBenchmark(options);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:test-run-resume-quality-benchmark",
+    async (_event, payload: unknown) => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      const parsed = ResumeQualityBenchmarkRequestSchema.partial().parse(
+        payload ?? {},
+      );
+      const options = {
+        ...(parsed.benchmarkVersion !== undefined
+          ? { benchmarkVersion: parsed.benchmarkVersion }
+          : {}),
+        ...(parsed.caseIds !== undefined ? { caseIds: parsed.caseIds } : {}),
+        ...(parsed.canaryOnly !== undefined
+          ? { canaryOnly: parsed.canaryOnly }
+          : {}),
+        ...(parsed.persistArtifactsDirectory !== undefined
+          ? { persistArtifactsDirectory: parsed.persistArtifactsDirectory }
+          : {}),
+      };
+
+      return runDesktopResumeQualityBenchmark(options);
     },
   );
 

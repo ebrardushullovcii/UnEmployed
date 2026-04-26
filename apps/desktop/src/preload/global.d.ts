@@ -9,6 +9,8 @@ import type {
   DiscoveryActivityEvent,
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
+  ResumeQualityBenchmarkReport,
+  ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkRequest,
   JobFinderPerformanceSnapshot,
@@ -187,6 +189,9 @@ declare global {
           runResumeImportBenchmark: (
             input?: Partial<ResumeImportBenchmarkRequest>,
           ) => Promise<ResumeImportBenchmarkReport>;
+          runResumeQualityBenchmark: (
+            input?: Partial<ResumeQualityBenchmarkRequest>,
+          ) => Promise<ResumeQualityBenchmarkReport>;
           importResumeFromPath: (
             sourcePath: string,
           ) => Promise<JobFinderWorkspaceSnapshot>;

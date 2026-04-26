@@ -11,6 +11,134 @@ import type {
 } from "../shared";
 import { ResumeAssistantReplySchema, TailoredResumeDraftSchema } from "../shared";
 import { clampScore, uniqueStrings } from "./utils";
+import { filterGroundedVisibleSkills } from "./resume-skill-grounding";
+
+function tokenizeForQuality(value: string | null | undefined): string[] {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function hasStrongRoleSignal(value: string | null | undefined, roleTarget: string): boolean {
+  const tokens = new Set(tokenizeForQuality(value));
+  if (tokens.size === 0) {
+    return false;
+  }
+
+  return tokenizeForQuality(roleTarget).some((token) => token.length >= 4 && tokens.has(token));
+}
+
+function shouldPreferStoredSummary(input: {
+  storedSummary: string | null | undefined;
+  roleTarget: string;
+}): boolean {
+  const tokens = tokenizeForQuality(input.storedSummary);
+  return tokens.length >= 12 || hasStrongRoleSignal(input.storedSummary, input.roleTarget);
+}
+
+function shouldKeepExperienceSummary(input: {
+  summary: string | null | undefined;
+  bullets: readonly string[];
+}): boolean {
+  const tokens = tokenizeForQuality(input.summary);
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  if (tokens.length >= 5) {
+    return true;
+  }
+
+  return input.bullets.length === 0;
+}
+
+function calculateQualityOverlap(left: string | null | undefined, right: string | null | undefined): number {
+  const leftTokens = [...new Set(tokenizeForQuality(left))];
+  const rightTokens = new Set(tokenizeForQuality(right));
+
+  if (leftTokens.length === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+
+  const matched = leftTokens.filter((token) => rightTokens.has(token)).length;
+  return matched / Math.max(Math.min(leftTokens.length, rightTokens.size), 1);
+}
+
+function buildProofBullet(input: {
+  claim: string | null | undefined;
+  heroMetric: string | null | undefined;
+  fallback: string;
+}): string {
+  const claim = input.claim?.trim() || input.fallback.trim();
+  const heroMetric = input.heroMetric?.trim() || "";
+
+  if (!heroMetric) {
+    return claim;
+  }
+
+  const normalizedClaim = tokenizeForQuality(claim).join(" ");
+  const normalizedMetric = tokenizeForQuality(heroMetric).join(" ");
+
+  if (!normalizedMetric || normalizedClaim.includes(normalizedMetric)) {
+    return claim;
+  }
+
+  return `${claim}${/[.!?]$/.test(claim) ? "" : "."} ${heroMetric}`;
+}
+
+function shouldKeepSupportingContext(value: string | null | undefined): boolean {
+  return tokenizeForQuality(value).length >= 8;
+}
+
+function isDistinctQualityLine(value: string, existing: readonly string[]): boolean {
+  return existing.every((entry) => {
+    const overlap = calculateQualityOverlap(value, entry);
+    const reverseOverlap = calculateQualityOverlap(entry, value);
+    return overlap < 0.72 && reverseOverlap < 0.72;
+  });
+}
+
+function buildExperienceBullets(input: {
+  experience: CandidateProfile["experiences"][number];
+  proofBank: CandidateProfile["proofBank"];
+}): string[] {
+  const baseBullets = uniqueStrings(input.experience.achievements);
+  const matchedProofs: Array<CandidateProfile["proofBank"][number]> = [];
+
+  const enrichedBullets = uniqueStrings(
+    baseBullets.map((bullet) => {
+      const matchingProof = input.proofBank.find((proof) => {
+        const proofText = [proof.claim, proof.heroMetric].filter(Boolean).join(" ");
+        return calculateQualityOverlap(proofText, bullet) >= 0.72;
+      });
+
+      if (!matchingProof) {
+        return bullet;
+      }
+
+      matchedProofs.push(matchingProof);
+
+      return buildProofBullet({
+        claim: matchingProof.claim,
+        heroMetric: matchingProof.heroMetric,
+        fallback: bullet,
+      });
+    }),
+  );
+
+  const supportingContextBullets = uniqueStrings(
+    matchedProofs.flatMap((proof) =>
+      shouldKeepSupportingContext(proof.supportingContext)
+        ? [proof.supportingContext]
+        : [],
+    ),
+  ).filter((line) => isDistinctQualityLine(line, enrichedBullets));
+
+  return uniqueStrings([...enrichedBullets, ...supportingContextBullets]).slice(0, 3);
+}
 
 function createPatchId(prefix: string): string {
   return `${prefix}_${typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`}`;
@@ -62,6 +190,21 @@ export function buildDeterministicResumeText(
     return left || right || null;
   };
 
+  const experienceSection =
+    experienceEntries.length > 0 || experienceHighlights.length > 0
+      ? [
+          "Experience",
+          ...experienceEntries.flatMap((entry) => [
+            formatHeading([entry.title, entry.employer], formatHeading([entry.location], entry.dateRange)),
+            entry.summary,
+            ...entry.bullets.map((line) => `- ${line}`),
+            "",
+          ]),
+          ...experienceHighlights.map((line) => `- ${line}`),
+          "",
+        ]
+      : [];
+
   return [
     profile.fullName,
     profile.headline,
@@ -70,15 +213,7 @@ export function buildDeterministicResumeText(
     "Summary",
     summary,
     "",
-    "Experience",
-    ...experienceEntries.flatMap((entry) => [
-      formatHeading([entry.title, entry.employer], formatHeading([entry.location], entry.dateRange)),
-      entry.summary,
-      ...entry.bullets.map((line) => `- ${line}`),
-      "",
-    ]),
-    ...experienceHighlights.map((line) => `- ${line}`),
-    "",
+    ...experienceSection,
     coreSkills.length > 0 ? `Core Skills: ${coreSkills.join(", ")}` : null,
     additionalSkills.length > 0 ? `Additional Skills: ${additionalSkills.join(", ")}` : null,
     languages.length > 0 ? `Languages: ${languages.join(", ")}` : null,
@@ -123,16 +258,27 @@ export function buildDeterministicResumeText(
 }
 
 export function buildDeterministicTailoredResume(input: TailorResumeInput) {
-  const coreSkills = uniqueStrings([
-    ...input.profile.skills.slice(0, 6),
-    ...input.job.keySkills.slice(0, 6),
-  ]).slice(0, 8);
+  const coreSkills = filterGroundedVisibleSkills(
+    input.profile,
+    [
+      ...input.profile.skills.slice(0, 6),
+      ...input.profile.skillGroups.coreSkills.slice(0, 6),
+      ...input.job.keySkills.slice(0, 6),
+    ],
+    8,
+  );
   const targetedKeywords = uniqueStrings(input.job.keySkills).slice(0, 6);
-  const additionalSkills = uniqueStrings([
-    ...input.profile.skillGroups.tools,
-    ...input.profile.skillGroups.languagesAndFrameworks,
-    ...input.profile.skillGroups.highlightedSkills,
-  ])
+  const additionalSkills = filterGroundedVisibleSkills(
+    input.profile,
+    [
+      ...input.profile.skillGroups.tools,
+      ...input.profile.skillGroups.languagesAndFrameworks,
+      ...input.profile.skillGroups.highlightedSkills,
+      ...input.profile.projects.flatMap((project) => project.skills),
+      ...input.job.keySkills,
+    ],
+    12,
+  )
     .filter(
       (skill) =>
         !coreSkills.some(
@@ -146,34 +292,50 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
       .filter(Boolean),
   ).slice(0, 6);
   const workModeSummary = input.job.workMode.join(", ") || "flexible";
-  const headline = input.profile.headline ?? input.job.title ?? "the candidate";
-  const summary = `${headline} aligned to ${input.job.title} at ${input.job.company}, emphasizing ${targetedKeywords.slice(0, 3).join(", ") || "role alignment"} and ${workModeSummary} delivery.`;
-  const experienceHighlights = uniqueStrings([
-    ...(input.profile.yearsExperience
-      ? [`${input.profile.yearsExperience}+ years of experience aligned to ${(input.job.summary ?? input.job.title).toLowerCase()}`]
-      : []),
-    `Grounded in ${input.searchPreferences.tailoringMode} tailoring with saved preferences for ${input.searchPreferences.targetRoles.slice(0, 2).join(" and ") || input.job.title}.`,
-    input.resumeText
-      ? "Tailoring references the stored base resume text and saved profile details."
-      : "Tailoring references the saved structured profile because base resume text is not stored yet.",
-  ]).slice(0, 3);
-  const experienceEntries = input.profile.experiences.slice(0, 3).map((experience) => ({
-    title: experience.title,
-    employer: experience.companyName,
-    location: experience.location,
-    dateRange: [experience.startDate, experience.isCurrent ? "Present" : experience.endDate]
-      .filter(Boolean)
-      .join(" – ") || null,
-    summary: experience.summary,
-    bullets: uniqueStrings(experience.achievements).slice(0, 3),
-    profileRecordId: experience.id,
-  }));
+  const roleTarget = input.job.title || input.searchPreferences.targetRoles[0] || "the target role";
+  const headline = input.profile.headline ?? roleTarget;
+  const synthesizedSummary = `${headline} with ${input.profile.yearsExperience ? `${input.profile.yearsExperience}+ years of experience` : "relevant experience"} building delivery across ${targetedKeywords.slice(0, 3).join(", ") || "core role requirements"} in ${workModeSummary} environments.`;
+  const preferredStoredSummary =
+    input.profile.professionalSummary.fullSummary ??
+    input.profile.professionalSummary.shortValueProposition ??
+    input.profile.summary ??
+    null;
+  const summary = shouldPreferStoredSummary({
+    storedSummary: preferredStoredSummary,
+    roleTarget,
+  })
+    ? (preferredStoredSummary ?? synthesizedSummary)
+    : synthesizedSummary;
+  const experienceHighlights: string[] = [];
+  const experienceEntries = input.profile.experiences.slice(0, 3).map((experience) => {
+    const bullets = buildExperienceBullets({
+      experience,
+      proofBank: input.profile.proofBank,
+    });
+
+    return {
+      title: experience.title,
+      employer: experience.companyName,
+      location: experience.location,
+      dateRange: [experience.startDate, experience.isCurrent ? "Present" : experience.endDate]
+        .filter(Boolean)
+        .join(" – ") || null,
+      summary: shouldKeepExperienceSummary({
+        summary: experience.summary,
+        bullets,
+      })
+        ? experience.summary
+        : null,
+      bullets,
+      profileRecordId: experience.id,
+    };
+  });
   const projectEntries = input.profile.projects.slice(0, 2).map((project) => ({
     name: project.name,
     role: project.role,
     summary: project.summary,
     outcome: project.outcome,
-    bullets: uniqueStrings(project.skills).slice(0, 3),
+    bullets: [],
     profileRecordId: project.id,
   }));
   const educationEntries = input.profile.education.slice(0, 2).map((entry) => ({
@@ -319,16 +481,16 @@ export function buildDeterministicStructuredResumeDraft(
   const summary =
     evidence?.candidateSummary[0] ??
     evidence?.summary[0] ??
-    input.researchContext?.companyNotes[0] ??
     baseDraft.summary;
-  const experienceHighlights = uniqueStrings([
-    ...(evidence?.experience ?? []),
-    ...baseDraft.experienceHighlights,
-  ]).slice(0, 4);
-  const coreSkills = uniqueStrings([
-    ...(evidence?.skills ?? []),
-    ...baseDraft.coreSkills,
-  ]).slice(0, 8);
+  const experienceHighlights = uniqueStrings(baseDraft.experienceHighlights).slice(0, 4);
+  const coreSkills = filterGroundedVisibleSkills(
+    input.profile,
+    [
+      ...(evidence?.skills ?? []),
+      ...baseDraft.coreSkills,
+    ],
+    8,
+  );
   const targetedKeywords = uniqueStrings([
     ...(evidence?.keywords ?? []),
     ...researchTerms,

@@ -6,6 +6,8 @@ import {
   ResumeTemplateIdSchema,
 } from "./base";
 
+const ProbabilitySchema = z.number().min(0).max(1);
+
 export const resumeExportFormatValues = ["html", "pdf"] as const;
 
 export const ResumeExportFormatSchema = z.enum(resumeExportFormatValues);
@@ -336,6 +338,69 @@ export const ResumeDraftSummarySchema = ResumeDraftSchema.pick({
   updatedAt: true,
 });
 export type ResumeDraftSummary = z.infer<typeof ResumeDraftSummarySchema>;
+
+export const ResumeQualityBenchmarkCaseSchema = z.object({
+  id: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  canary: z.boolean().default(false),
+  tags: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeQualityBenchmarkCase = z.infer<
+  typeof ResumeQualityBenchmarkCaseSchema
+>;
+
+export const ResumeQualityBenchmarkRequestSchema = z.object({
+  benchmarkVersion: NonEmptyStringSchema.default("023-local-benchmark-v1"),
+  caseIds: z.array(NonEmptyStringSchema).default([]),
+  canaryOnly: z.boolean().default(false),
+  persistArtifactsDirectory: NonEmptyStringSchema.nullable().default(null),
+});
+export type ResumeQualityBenchmarkRequest = z.infer<
+  typeof ResumeQualityBenchmarkRequestSchema
+>;
+
+export const ResumeQualityBenchmarkMetricsSchema = z.object({
+  groundedVisibleSkillRate: ProbabilitySchema.default(0),
+  bleedFreeCaseRate: ProbabilitySchema.default(0),
+  keywordCoverageRate: ProbabilitySchema.default(0),
+  duplicateIssueFreeRate: ProbabilitySchema.default(0),
+  thinOutputFreeRate: ProbabilitySchema.default(0),
+  pageTargetPassRate: ProbabilitySchema.default(0),
+  atsRenderPassRate: ProbabilitySchema.default(0),
+  issueFreeCaseRate: ProbabilitySchema.default(0),
+});
+export type ResumeQualityBenchmarkMetrics = z.infer<
+  typeof ResumeQualityBenchmarkMetricsSchema
+>;
+
+export const ResumeQualityBenchmarkCaseResultSchema = z.object({
+  caseId: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  templateId: ResumeTemplateIdSchema,
+  passed: z.boolean(),
+  visibleSkills: z.array(NonEmptyStringSchema).default([]),
+  issueCategories: z.array(ResumeValidationCategorySchema).default([]),
+  issueCount: z.number().int().min(0).default(0),
+  metrics: ResumeQualityBenchmarkMetricsSchema,
+  htmlArtifactRelativePath: NonEmptyStringSchema.nullable().default(null),
+  notes: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeQualityBenchmarkCaseResult = z.infer<
+  typeof ResumeQualityBenchmarkCaseResultSchema
+>;
+
+export const ResumeQualityBenchmarkReportSchema = z.object({
+  benchmarkVersion: NonEmptyStringSchema,
+  generatedAt: IsoDateTimeSchema,
+  templates: z.array(ResumeTemplateIdSchema).default([]),
+  persistedArtifactsDirectory: NonEmptyStringSchema.nullable().default(null),
+  cases: z.array(ResumeQualityBenchmarkCaseResultSchema).default([]),
+  aggregate: ResumeQualityBenchmarkMetricsSchema,
+  notes: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeQualityBenchmarkReport = z.infer<
+  typeof ResumeQualityBenchmarkReportSchema
+>;
 
 export const ResumeExportArtifactSummarySchema = ResumeExportArtifactSchema.pick({
   id: true,

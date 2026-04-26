@@ -22,6 +22,13 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Reopenable Baselines
 
+### `023 Job Finder World-Class Resume Generation Quality`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/023-job-finder-world-class-resume-generation-quality.md`
+- candidate-backed visible-skill grounding, broader sanitizer and validator coverage, two shipped ATS-safe templates, and the replayable `benchmark:resume-quality` harness are landed
+- reopen only for a new real resume-quality regression class, a new ATS-safe template candidate, or a renderer safety/parsing regression
+
 ### `017 Browser Substrate Evaluation And Direction`
 
 - status: `done`
@@ -77,6 +84,7 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Baselines
 
+- `023`: resume generation quality
 - `013`: source intelligence/discovery
 - `011`, `018`, `019`: shared profile/import
 - `014`: resume quality
@@ -87,12 +95,7 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
-- `023 Job Finder World-Class Resume Generation Quality`
-
-- status: `ready`
-- linked plan: `docs/exec-plans/queued/023-job-finder-world-class-resume-generation-quality.md`
-- take full ownership of resume generation quality, fix ungrounded or unusable outputs, and ship a world-class ATS-safe baseline for at least `1` to `2` basic templates
-- prioritize end-to-end deterministic quality coverage across generation, sanitation, validation, and rendered output; prefer stronger architecture over preserving weak current flows
+- none
 
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling

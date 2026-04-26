@@ -1,0 +1,34 @@
+# 023 Job Finder World-Class Resume Generation Quality
+
+Status: completed
+
+## Goal
+
+Ship grounded, ATS-safe resume generation that real users can trust, with deterministic protection against visible-skill contamination and unusable output.
+
+## What Landed
+
+- candidate-backed visible-skill grounding now filters deterministic and provider-generated drafts in `packages/ai-providers`
+- deterministic summary fallback no longer turns employer or company research notes into visible candidate summary prose
+- `sanitizeResumeDraft` and `validateResumeDraft` now cover company and job bleed, copied JD prose, keyword stuffing, vague filler, duplicate content, thin drafts, and page overflow
+- direct low-level regression coverage lives in `packages/job-finder/src/internal/resume-workspace-quality.test.ts`
+- desktop resume rendering is extracted and directly tested in `apps/desktop/src/main/adapters/job-finder-resume-renderer.ts`
+- two ATS-safe templates are now shipped and selectable: `Classic ATS` and `Compact ATS`
+- replayable end-to-end benchmark coverage now exists at `pnpm --filter @unemployed/desktop benchmark:resume-quality`, exercising the real generation, sanitation, validation, and HTML render path across a fixed corpus and both ATS-safe templates
+
+## Latest Evidence
+
+- `pnpm validate:package contracts`
+- `pnpm validate:package ai-providers`
+- `pnpm validate:package job-finder`
+- `pnpm validate:package desktop`
+- `pnpm --filter @unemployed/desktop ui:resume-workspace`
+- `pnpm --filter @unemployed/desktop benchmark:resume-quality`
+- latest benchmark artifact: `apps/desktop/test-artifacts/ui/resume-quality-benchmark/resume-quality-benchmark-report.json`
+
+## What It Means Now
+
+- visible skills are filtered to candidate-backed content before rendered output is produced
+- the shipped ATS-safe templates are protected by renderer tests and the replayable quality benchmark, not just spot checks
+- the benchmark intentionally keeps a thin-profile sentinel case, so the quality loop still proves it can surface incomplete resumes instead of falsely marking every corpus case issue-free
+- reopen this track only for a new real regression class, a new ATS-safe template candidate, or a renderer safety/parsing regression

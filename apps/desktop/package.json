@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "benchmark:resume-import": "pnpm build && node ./scripts/run-resume-import-benchmark.mjs",
+    "benchmark:resume-quality": "pnpm build && node ./scripts/run-resume-quality-benchmark.mjs",
     "ui:capture": "pnpm build && node ./scripts/capture-ui.mjs",
     "ui:profile-copilot-preferences": "pnpm build && node ./scripts/capture-profile-copilot-preferences.mjs",
     "ui:source-sign-in-prompts": "pnpm build && node ./scripts/capture-source-sign-in-prompts.mjs",

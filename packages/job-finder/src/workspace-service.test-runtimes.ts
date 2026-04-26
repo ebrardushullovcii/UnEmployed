@@ -554,6 +554,12 @@ export function createDocumentManager() {
           description:
             "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
         },
+        {
+          id: "compact_exec" as const,
+          label: "Compact ATS",
+          description:
+            "Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.",
+        },
       ];
     },
     renderResumeArtifact() {
