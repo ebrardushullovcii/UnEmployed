@@ -5,12 +5,12 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 ## Current Truth
 
 - Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`
-- Active work: `023`
+- Active work: none
 - Baseline landed: desktop app, typed Electron boundaries, SQLite persistence, guided setup, profile copilot, discovery, resume workspace, safe non-submitting apply
 
 ## What Matters Now
 
-- `023` is active: take full ownership of resume generation quality, eliminate unusable and ungrounded output, and ship a stronger ATS-safe baseline with deterministic quality coverage
+- `023` is queued: resume generation quality has a defined next plan, but it is not the active execution track yet
 - `020` is completed: Job Finder routes now use scoped pending lanes with clearer disabled and in-progress button feedback across desktop flows
 - `021` is completed: resume-import duplicate records, fresh-start placeholder replacement, optional-proof warning cleanup, and date-derived years-of-experience fallback are now part of the landed import baseline
 - `017` completed the current-stack browser loop evaluation and did not justify a substrate change yet
@@ -43,12 +43,12 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 ## Next Step
 
 - Work from `docs/TRACKS.md`
-- Execute `docs/exec-plans/active/023-job-finder-world-class-resume-generation-quality.md`
+- Pull the next explicit active plan from `docs/TRACKS.md`
 
 ## Key References
 
 - `docs/TRACKS.md`
-- `docs/exec-plans/active/023-job-finder-world-class-resume-generation-quality.md`
+- `docs/exec-plans/queued/023-job-finder-world-class-resume-generation-quality.md`
 - `docs/exec-plans/completed/020-job-finder-scoped-button-pending-state-and-feedback.md`
 - `docs/exec-plans/completed/017-browser-substrate-evaluation-and-direction.md`
 - `docs/exec-plans/completed/017-experiment-tracker.md`

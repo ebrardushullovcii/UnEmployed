@@ -18,12 +18,7 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Active
 
-- `023 Job Finder World-Class Resume Generation Quality`
-
-- status: `in_progress`
-- linked plan: `docs/exec-plans/active/023-job-finder-world-class-resume-generation-quality.md`
-- take full ownership of resume generation quality, fix ungrounded or unusable outputs, and ship a world-class ATS-safe baseline for at least `1` to `2` basic templates
-- prioritize end-to-end deterministic quality coverage across generation, sanitation, validation, and rendered output; prefer stronger architecture over preserving weak current flows
+- none
 
 ## Reopenable Baselines
 
@@ -91,6 +86,13 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - linked plan: `docs/exec-plans/queued/022-job-finder-source-sign-in-prompts-and-source-aware-browser-entry.md`
 - surface source-level sign-in prompts and direct browser entry from `Profile` and `Find jobs` when auth is required or clearly recommended
 - keep auth detection source-generic, typed, and grounded in source-debug and intelligence evidence rather than board-specific branches
+
+- `023 Job Finder World-Class Resume Generation Quality`
+
+- status: `ready`
+- linked plan: `docs/exec-plans/queued/023-job-finder-world-class-resume-generation-quality.md`
+- take full ownership of resume generation quality, fix ungrounded or unusable outputs, and ship a world-class ATS-safe baseline for at least `1` to `2` basic templates
+- prioritize end-to-end deterministic quality coverage across generation, sanitation, validation, and rendered output; prefer stronger architecture over preserving weak current flows
 
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling

@@ -1,6 +1,6 @@
 # 023 Job Finder World-Class Resume Generation Quality
 
-Status: active
+Status: ready
 
 ## Goal
 
