@@ -148,7 +148,11 @@ function createDuplicateExperienceEntry(source: ResumeDraftEntry): ResumeDraftEn
 function getSeedContext() {
   const seed = createSeed()
   const profile = seed.profile
-  const job = seed.savedJobs.find((entry) => entry.id === 'job_ready') as SavedJob
+  const job = seed.savedJobs.find((entry) => entry.id === 'job_ready')
+
+  if (!job) {
+    throw new Error('job not found: job_ready')
+  }
 
   return { profile, job }
 }

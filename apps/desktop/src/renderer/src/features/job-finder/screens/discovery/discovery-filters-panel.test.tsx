@@ -1,43 +1,13 @@
 // @vitest-environment jsdom
 
-import { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import { fireEvent, render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { JobSearchPreferences, SourceAccessPrompt } from '@unemployed/contracts'
 import { DiscoveryFiltersPanel } from './discovery-filters-panel'
 
 describe('DiscoveryFiltersPanel', () => {
-  const globalScope = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  const originalActEnvironment = globalScope.IS_REACT_ACT_ENVIRONMENT
-  let container: HTMLDivElement | null = null
-  let root: Root | null = null
-
-  beforeAll(() => {
-    globalScope.IS_REACT_ACT_ENVIRONMENT = true
-  })
-
-  afterAll(() => {
-    if (originalActEnvironment === undefined) {
-      delete globalScope.IS_REACT_ACT_ENVIRONMENT
-      return
-    }
-
-    globalScope.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
-  })
-
   afterEach(() => {
-    if (root) {
-      act(() => {
-        root?.unmount()
-      })
-    }
-
-    root = null
-    container?.remove()
-    container = null
     vi.clearAllMocks()
   })
 
@@ -92,62 +62,58 @@ describe('DiscoveryFiltersPanel', () => {
       updatedAt: '2026-03-20T10:01:00.000Z',
     }
 
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
-
-    act(() => {
-      root?.render(
-        <MemoryRouter>
-          <DiscoveryFiltersPanel
-            activeRun={null}
-            actionMessage={null}
-            browserSession={{
-              source: 'target_site',
+    const { container } = render(
+      <MemoryRouter>
+        <DiscoveryFiltersPanel
+          activeRun={null}
+          actionMessage={null}
+          browserSession={{
+            source: 'target_site',
+            status: 'login_required',
+            driver: 'catalog_seed',
+            label: 'Browser session needs sign-in',
+            detail: 'A saved source needs sign-in.',
+            lastCheckedAt: '2026-03-20T10:00:00.000Z',
+          }}
+          discoverySessions={[
+            {
+              adapterKind: 'target_site',
               status: 'login_required',
-              driver: 'catalog_seed',
+              driver: 'chrome_profile_agent',
               label: 'Browser session needs sign-in',
               detail: 'A saved source needs sign-in.',
               lastCheckedAt: '2026-03-20T10:00:00.000Z',
-            }}
-            discoverySessions={[
-              {
-                adapterKind: 'target_site',
-                status: 'login_required',
-                driver: 'chrome_profile_agent',
-                label: 'Browser session needs sign-in',
-                detail: 'A saved source needs sign-in.',
-                lastCheckedAt: '2026-03-20T10:00:00.000Z',
-              },
-            ]}
-            isBrowserSessionPending={false}
-            isBrowserSessionPendingForTarget={() => false}
-            isDiscoveryAllPending={false}
-            isTargetPending={() => false}
-            onOpenBrowserSession={vi.fn()}
-            onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
-            onRunAgentDiscovery={vi.fn()}
-            onRunDiscoveryForTarget={vi.fn()}
-            onViewProgress={vi.fn()}
-            searchPreferences={searchPreferences}
-            sourceAccessPrompts={[sourceAccessPrompt]}
-          />
-        </MemoryRouter>,
-      )
-    })
+            },
+          ]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isTargetPending={() => false}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
+          onRunAgentDiscovery={vi.fn()}
+          onRunDiscoveryForTarget={vi.fn()}
+          onViewProgress={vi.fn()}
+          searchPreferences={searchPreferences}
+          sourceAccessPrompts={[sourceAccessPrompt]}
+        />
+      </MemoryRouter>,
+    )
 
-    expect(container?.textContent).toContain('Sign in to LinkedIn before the next search can continue.')
-    expect(container?.textContent).toContain('Please sign in first.')
-    expect(container?.textContent).toContain('Then search again after sign-in.')
+    expect(container.textContent).toContain('Sign in to LinkedIn before the next search can continue.')
+    expect(container.textContent).toContain('Please sign in first.')
+    expect(container.textContent).toContain('Then search again after sign-in.')
 
-    const signInButton = [...(container?.querySelectorAll('button') ?? [])].find(
+    const signInButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent?.includes('Sign in to LinkedIn'),
     )
     expect(signInButton).not.toBeNull()
 
-    act(() => {
-      signInButton?.click()
-    })
+    if (!signInButton) {
+      throw new Error('Expected sign-in button to be rendered.')
+    }
+
+    fireEvent.click(signInButton)
 
     expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith('target_linkedin_default')
   })

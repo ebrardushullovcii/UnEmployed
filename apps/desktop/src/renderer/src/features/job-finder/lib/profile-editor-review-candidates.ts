@@ -1,4 +1,10 @@
 import { normalizeWorkModeList, type CandidateProfile, type ResumeImportFieldCandidateSummary } from '@unemployed/contracts'
+import {
+  areEquivalentEducationRecords,
+  areEquivalentExperienceRecords,
+  scoreEducationRecordCompleteness,
+  scoreExperienceRecordCompleteness,
+} from '@unemployed/job-finder'
 import type { EducationFormEntry, ExperienceFormEntry } from './job-finder-types'
 import { joinListInput } from './job-finder-utils'
 import type { ProfileEditorValues } from './profile-editor-types'
@@ -153,115 +159,6 @@ function buildEducationIdentity(entry: EducationFormEntry) {
   ].join('|')
 }
 
-function fieldsMatch(left: string, right: string) {
-  return left.length > 0 && right.length > 0 && left === right
-}
-
-function fieldsCompatible(left: string, right: string) {
-  return !left || !right || left === right
-}
-
-function scoreTruthyFields(values: readonly unknown[]) {
-  return values.reduce<number>((count, value) => {
-    if (typeof value === 'string') {
-      return value.trim().length > 0 ? count + 1 : count
-    }
-
-    if (typeof value === 'boolean') {
-      return value ? count + 1 : count
-    }
-
-    if (Array.isArray(value)) {
-      return value.length > 0 ? count + 1 : count
-    }
-
-    return value !== null && value !== undefined ? count + 1 : count
-  }, 0)
-}
-
-function areEquivalentExperienceEntries(left: ExperienceFormEntry, right: ExperienceFormEntry) {
-  const leftCompany = normalizeIdentityText(left.companyName)
-  const rightCompany = normalizeIdentityText(right.companyName)
-  const leftTitle = normalizeIdentityText(left.title)
-  const rightTitle = normalizeIdentityText(right.title)
-  const leftLocation = normalizeIdentityText(left.location)
-  const rightLocation = normalizeIdentityText(right.location)
-  const leftStart = normalizeIdentityDate(left.startDate)
-  const rightStart = normalizeIdentityDate(right.startDate)
-  const leftEnd = left.isCurrent ? 'present' : normalizeIdentityDate(left.endDate)
-  const rightEnd = right.isCurrent ? 'present' : normalizeIdentityDate(right.endDate)
-
-  return (
-    (fieldsMatch(leftTitle, rightTitle) &&
-      fieldsMatch(leftStart, rightStart) &&
-      fieldsCompatible(leftCompany, rightCompany) &&
-      (fieldsMatch(leftCompany, rightCompany) || fieldsMatch(leftEnd, rightEnd) || fieldsCompatible(leftLocation, rightLocation))) ||
-    (fieldsMatch(leftCompany, rightCompany) &&
-      fieldsMatch(leftStart, rightStart) &&
-      fieldsCompatible(leftTitle, rightTitle) &&
-      (fieldsMatch(leftTitle, rightTitle) || fieldsMatch(leftEnd, rightEnd) || fieldsCompatible(leftLocation, rightLocation))) ||
-    (fieldsMatch(leftTitle, rightTitle) &&
-      fieldsMatch(leftCompany, rightCompany) &&
-      fieldsCompatible(leftStart, rightStart) &&
-      fieldsCompatible(leftEnd, rightEnd))
-  )
-}
-
-function areEquivalentEducationEntries(left: EducationFormEntry, right: EducationFormEntry) {
-  const leftSchool = normalizeIdentityText(left.schoolName)
-  const rightSchool = normalizeIdentityText(right.schoolName)
-  const leftDegree = normalizeIdentityText(left.degree)
-  const rightDegree = normalizeIdentityText(right.degree)
-  const leftField = normalizeIdentityText(left.fieldOfStudy)
-  const rightField = normalizeIdentityText(right.fieldOfStudy)
-  const leftStart = normalizeIdentityDate(left.startDate)
-  const rightStart = normalizeIdentityDate(right.startDate)
-  const leftEnd = normalizeIdentityDate(left.endDate)
-  const rightEnd = normalizeIdentityDate(right.endDate)
-
-  return (
-    (fieldsMatch(leftSchool, rightSchool) &&
-      fieldsMatch(leftDegree, rightDegree) &&
-      (fieldsMatch(leftStart, rightStart) || fieldsMatch(leftEnd, rightEnd) || fieldsCompatible(leftField, rightField))) ||
-    (fieldsMatch(leftSchool, rightSchool) &&
-      fieldsMatch(leftStart, rightStart) &&
-      fieldsCompatible(leftDegree, rightDegree) &&
-      fieldsCompatible(leftField, rightField))
-  )
-}
-
-function scoreExperienceEntryCompleteness(entry: ExperienceFormEntry) {
-  return scoreTruthyFields([
-    entry.companyName,
-    entry.companyUrl,
-    entry.title,
-    entry.employmentType,
-    entry.location,
-    entry.startDate,
-    entry.endDate,
-    entry.isCurrent,
-    entry.summary,
-    entry.peopleManagementScope,
-    entry.ownershipScope,
-    entry.workMode,
-    entry.achievements,
-    entry.skills,
-    entry.domainTags,
-  ])
-}
-
-function scoreEducationEntryCompleteness(entry: EducationFormEntry) {
-  return scoreTruthyFields([
-    entry.schoolName,
-    entry.degree,
-    entry.fieldOfStudy,
-    entry.location,
-    entry.startDate,
-    entry.endDate,
-    entry.summary,
-  ])
-}
-
 function shouldReplaceCandidateEntry(
   existingScore: number,
   nextScore: number,
@@ -312,7 +209,7 @@ function mergeExperienceReviewCandidates(
 
     const matchingIndex = merged.findIndex((entry) =>
       buildExperienceIdentity(entry) === buildExperienceIdentity(nextEntry) ||
-      areEquivalentExperienceEntries(entry, nextEntry)
+      areEquivalentExperienceRecords(entry, nextEntry)
     )
 
     if (matchingIndex === -1) {
@@ -325,8 +222,8 @@ function mergeExperienceReviewCandidates(
       continue
     }
 
-    const existingScore = existingEntry ? scoreExperienceEntryCompleteness(existingEntry) : 0
-    const nextScore = scoreExperienceEntryCompleteness(nextEntry)
+    const existingScore = existingEntry ? scoreExperienceRecordCompleteness(existingEntry) : 0
+    const nextScore = scoreExperienceRecordCompleteness(nextEntry)
     const existingKey = existingEntry?.sourceCandidateId ?? existingEntry?.id ?? ''
     const nextKey = nextEntry.sourceCandidateId ?? nextEntry.id
 
@@ -367,7 +264,7 @@ function mergeEducationReviewCandidates(
 
     const matchingIndex = merged.findIndex((entry) =>
       buildEducationIdentity(entry) === buildEducationIdentity(nextEntry) ||
-      areEquivalentEducationEntries(entry, nextEntry)
+      areEquivalentEducationRecords(entry, nextEntry)
     )
 
     if (matchingIndex === -1) {
@@ -380,8 +277,8 @@ function mergeEducationReviewCandidates(
       continue
     }
 
-    const existingScore = existingEntry ? scoreEducationEntryCompleteness(existingEntry) : 0
-    const nextScore = scoreEducationEntryCompleteness(nextEntry)
+    const existingScore = existingEntry ? scoreEducationRecordCompleteness(existingEntry) : 0
+    const nextScore = scoreEducationRecordCompleteness(nextEntry)
     const existingKey = existingEntry?.sourceCandidateId ?? existingEntry?.id ?? ''
     const nextKey = nextEntry.sourceCandidateId ?? nextEntry.id
 

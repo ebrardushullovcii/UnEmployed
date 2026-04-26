@@ -10,6 +10,7 @@ import {
 import { createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import {
   CandidateProfileSchema,
+  JobPostingSchema,
   ResumeQualityBenchmarkReportSchema,
   ResumeQualityBenchmarkRequestSchema,
   SavedJobSchema,
@@ -1045,12 +1046,13 @@ function buildBenchmarkAiClient(
     ...baseClient,
     async createResumeDraft(input) {
       const baseDraft = await baseClient.createResumeDraft(input)
+      const validatedJob = JobPostingSchema.parse(input.job)
 
       return fixture.overrideDraft!({
         baseDraft,
         job: SavedJobSchema.parse({
-          ...input.job,
-          id: input.job.sourceJobId,
+          ...validatedJob,
+          id: validatedJob.sourceJobId,
           status: 'ready_for_review',
           matchAssessment: {
             score: 80,
