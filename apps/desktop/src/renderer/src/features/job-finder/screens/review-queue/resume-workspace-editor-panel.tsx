@@ -110,8 +110,8 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
         ) : null}
       </div>
 
-      <div className="border-b border-(--surface-panel-border) px-4 py-3">
-        <div className="grid gap-4">
+      <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto p-4 pr-3">
+        <div className="grid gap-4 border-b border-(--surface-panel-border) pb-4">
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">{helperMessage}</p>
           <div className="grid gap-2">
             <div className="grid gap-1">
@@ -128,9 +128,6 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
             />
           </div>
         </div>
-      </div>
-
-      <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto p-4 pr-3">
         {props.draft.sections.map((section) => (
           <ResumeSectionEditor
             key={section.id}
