@@ -29,6 +29,63 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(extraction.currentLocation).toBe("Prishtina, Kosovo");
   });
 
+  test("captures wrapped intro summaries and 10+ years markers from real-style header text", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ryan Holstien",
+          "+1 650-353-7911",
+          "Cedar Park, TX 78613",
+          "linkedin.com/in/ryan-holstien-7954b665",
+          "Senior Software Engineer",
+          "ryanholstien993@outlook.com",
+          "Senior Software Engineer with 10+ years of experience building secure, scalable healthcare and SaaS platforms with C#,.NET, ASP.NET Core, REST APIs, MongoDB, SQL Server, and cloud-native services on Azure and AWS. Proven record",
+          "delivering microservices, third-party integrations, CI/CD automation, observability, and production support in Agile teams.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.headline).toBe("Senior Software Engineer");
+    expect(extraction.summary).toContain("10+ years of experience");
+    expect(extraction.summary).toContain("delivering microservices");
+    expect(extraction.yearsExperience).toBe(10);
+  });
+
+  test("derives years of experience from dated work history when the summary does not state it explicitly", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Aaron Murphy",
+          "Tampa, FL",
+          "Senior Software Engineer",
+          "PROFESSIONAL SUMMARY",
+          "Experienced Staff Engineer with a focus on leading complex, high-impact initiatives across full-stack systems.",
+          "EXPERIENCE",
+          "EdSights, Remote, NY — Staff/Senior Software Engineer",
+          "Sep 2021 – Feb 2026",
+          "Agile Thought, Tampa, FL — Senior Software Developer",
+          "Jul 2019 - Sep 2021",
+          "Agile Thought, Tampa, FL — Software Developer",
+          "Sep 2016 - Jul 2019",
+          "Three Five Two, Tampa, FL — Software Developer",
+          "Jun 2015 - Aug 2016",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.yearsExperience).toBeGreaterThanOrEqual(10);
+  });
+
   test("splits inline company and location details from combined experience headers", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {

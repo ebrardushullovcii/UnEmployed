@@ -111,7 +111,8 @@ async function loadQueueDemo(window) {
 
 async function selectQueueJobs(window, titles) {
   for (const title of titles) {
-    const checkbox = window.getByLabel(`Select ${title} for queue automation`).first()
+    const jobCard = window.getByRole('button', { name: new RegExp(title, 'i') }).locator('xpath=ancestor::div[contains(@class, "surface-card-tint") or contains(@class, "bg-(--field)")][1]')
+    const checkbox = jobCard.getByLabel('Queue').first()
     await checkbox.waitFor({ timeout: 10000 })
     await checkbox.click()
   }

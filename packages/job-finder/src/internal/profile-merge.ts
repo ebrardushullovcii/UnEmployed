@@ -6,6 +6,12 @@ import {
   type JobSearchPreferences,
   type SavedJob,
 } from "@unemployed/contracts";
+import {
+  areEquivalentEducationRecords,
+  areEquivalentExperienceRecords,
+  scoreEducationRecordCompleteness,
+  scoreExperienceRecordCompleteness,
+} from "./resume-record-identity";
 import { normalizeText, uniqueStrings } from "./shared";
 
 const KNOWN_COUNTRY_LIKE_LOCATION_PARTS = new Set([
@@ -205,26 +211,34 @@ export function mergeExperienceRecords(
   existing: CandidateProfile["experiences"],
   extracted: ResumeProfileExtraction["experiences"],
 ): CandidateProfile["experiences"] {
-  if (extracted.length === 0) {
-    return existing;
-  }
-
-  const existingByKey = new Map(
-    existing.map((entry) => [
-      normalizeRecordKey([entry.companyName, entry.title, entry.startDate]),
-      entry,
-    ]),
+  const normalizedExisting = [...existing].sort((left, right) =>
+    scoreExperienceRecordCompleteness(right) - scoreExperienceRecordCompleteness(left),
   );
+  const merged = normalizedExisting.reduce<CandidateProfile["experiences"]>((accumulator, entry) => {
+    if (accumulator.some((existingEntry) => areEquivalentExperienceRecords(existingEntry, entry))) {
+      return accumulator;
+    }
 
-  return extracted.map((entry, index) => {
+    accumulator.push(entry);
+    return accumulator;
+  }, []);
+
+  extracted.forEach((entry, index) => {
     const key = normalizeRecordKey([
       entry.companyName,
       entry.title,
       entry.startDate,
     ]);
-    const match = existingByKey.get(key);
-
-    return {
+    const matchIndex = merged.findIndex(
+      (existingEntry) =>
+        normalizeRecordKey([
+          existingEntry.companyName,
+          existingEntry.title,
+          existingEntry.startDate,
+        ]) === key || areEquivalentExperienceRecords(existingEntry, entry),
+    );
+    const match = matchIndex === -1 ? null : merged[matchIndex] ?? null;
+    const nextEntry = {
       id:
         match?.id ??
         buildExtractionId("experience", index, [
@@ -249,33 +263,50 @@ export function mergeExperienceRecords(
       peopleManagementScope: entry.peopleManagementScope,
       ownershipScope: entry.ownershipScope,
     };
+
+    if (matchIndex === -1) {
+      merged.push(nextEntry);
+      return;
+    }
+
+    merged.splice(matchIndex, 1, nextEntry);
   });
+
+  return merged;
 }
 
 export function mergeEducationRecords(
   existing: CandidateProfile["education"],
   extracted: ResumeProfileExtraction["education"],
 ): CandidateProfile["education"] {
-  if (extracted.length === 0) {
-    return existing;
-  }
-
-  const existingByKey = new Map(
-    existing.map((entry) => [
-      normalizeRecordKey([entry.schoolName, entry.degree, entry.startDate]),
-      entry,
-    ]),
+  const normalizedExisting = [...existing].sort((left, right) =>
+    scoreEducationRecordCompleteness(right) - scoreEducationRecordCompleteness(left),
   );
+  const merged = normalizedExisting.reduce<CandidateProfile["education"]>((accumulator, entry) => {
+    if (accumulator.some((existingEntry) => areEquivalentEducationRecords(existingEntry, entry))) {
+      return accumulator;
+    }
 
-  return extracted.map((entry, index) => {
+    accumulator.push(entry);
+    return accumulator;
+  }, []);
+
+  extracted.forEach((entry, index) => {
     const key = normalizeRecordKey([
       entry.schoolName,
       entry.degree,
       entry.startDate,
     ]);
-    const match = existingByKey.get(key);
-
-    return {
+    const matchIndex = merged.findIndex(
+      (existingEntry) =>
+        normalizeRecordKey([
+          existingEntry.schoolName,
+          existingEntry.degree,
+          existingEntry.startDate,
+        ]) === key || areEquivalentEducationRecords(existingEntry, entry),
+    );
+    const match = matchIndex === -1 ? null : merged[matchIndex] ?? null;
+    const nextEntry = {
       id:
         match?.id ??
         buildExtractionId("education", index, [
@@ -292,7 +323,16 @@ export function mergeEducationRecords(
       isDraft: !entry.schoolName,
       summary: entry.summary,
     };
+
+    if (matchIndex === -1) {
+      merged.push(nextEntry);
+      return;
+    }
+
+    merged.splice(matchIndex, 1, nextEntry);
   });
+
+  return merged;
 }
 
 export function mergeCertificationRecords(

@@ -18,11 +18,73 @@ function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function buildYearsExperienceEvidenceCandidates(
+  yearsExperience: number,
+  resumeText: string,
+): string[] {
+  const normalizedResumeText = normalizeText(resumeText);
+  const explicitCandidates = [`${yearsExperience} years`, `${yearsExperience}+ years`].filter(
+    (candidate) => normalizedResumeText.includes(normalizeText(candidate)),
+  );
+
+  if (explicitCandidates.length > 0) {
+    return explicitCandidates;
+  }
+
+  const lines = resumeText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const datedExperienceLines = lines.filter((line) =>
+    /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{2}\/)?\d{4})\b/i.test(
+      line,
+    ),
+  );
+
+  return datedExperienceLines.slice(0, 6);
+}
+
+function buildRelaxedEvidenceCandidates(value: string): string[] {
+  const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return [];
+  }
+
+  const candidates = new Set<string>([normalized]);
+
+  const withoutPlus = normalized.replace(/(\d)\+\s+years?/i, "$1 years");
+  if (withoutPlus && withoutPlus !== normalized) {
+    candidates.add(withoutPlus);
+  }
+
+  if (normalized.length >= 64) {
+    const sentences = normalized
+      .split(/[.!?]\s+/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length >= 24);
+
+    for (const sentence of sentences) {
+      candidates.add(sentence);
+    }
+
+    const words = normalized.split(/\s+/).filter(Boolean);
+    if (words.length >= 8) {
+      candidates.add(words.slice(0, 12).join(" "));
+      candidates.add(words.slice(0, 8).join(" "));
+    }
+  }
+
+  return [...candidates].filter((entry) => entry.length > 0);
+}
+
 function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[]) {
   const nonEmptyCandidates = candidates
     .map((candidate) => candidate.trim())
     .filter((candidate) => candidate.length > 0);
-  const normalizedCandidates = nonEmptyCandidates.map((candidate) => normalizeText(candidate));
+  const normalizedCandidates = nonEmptyCandidates.flatMap((candidate) =>
+    buildRelaxedEvidenceCandidates(candidate),
+  );
   const matchedBlocks = bundle.blocks.filter((block) => {
     const blockText = normalizeText(block.text);
     return normalizedCandidates.some(
@@ -198,6 +260,8 @@ export function buildDeterministicResumeImportStageExtraction(
   };
 
   if (input.stage === "identity_summary") {
+    const yearsExperience = extraction.yearsExperience;
+
     add({ section: "identity", key: "fullName", recordId: null }, "Full name", extraction.fullName, 0.96, [extraction.fullName ?? ""]);
     add({ section: "identity", key: "firstName", recordId: null }, "First name", extraction.firstName, 0.92, [extraction.firstName ?? "", extraction.fullName ?? ""]);
     add({ section: "identity", key: "middleName", recordId: null }, "Middle name", extraction.middleName, 0.85, [extraction.middleName ?? "", extraction.fullName ?? ""]);
@@ -215,9 +279,14 @@ export function buildDeterministicResumeImportStageExtraction(
     add(
       { section: "identity", key: "yearsExperience", recordId: null },
       "Years of experience",
-      extraction.yearsExperience,
-      extraction.yearsExperience !== null ? 0.82 : 0.7,
-      [`${extraction.yearsExperience ?? ""} years`],
+      yearsExperience,
+      yearsExperience !== null && yearsExperience !== undefined ? 0.82 : 0.7,
+      yearsExperience !== null && yearsExperience !== undefined
+        ? buildYearsExperienceEvidenceCandidates(
+            yearsExperience,
+            toResumeText(input.documentBundle),
+          )
+        : [],
     );
     add({ section: "contact", key: "email", recordId: null }, "Email", extraction.email, 0.98, [extraction.email ?? ""]);
     add({ section: "contact", key: "phone", recordId: null }, "Phone", extraction.phone, 0.94, [extraction.phone ?? ""]);

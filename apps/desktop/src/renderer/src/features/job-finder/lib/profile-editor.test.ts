@@ -199,6 +199,79 @@ describe('profile editor application identity defaults', () => {
     })
   })
 
+  test('dedupes duplicate imported experience review candidates when record ids differ', () => {
+    const profile = createProfile()
+
+    const values = createProfileEditorValues(profile, [
+      ResumeImportFieldCandidateSummarySchema.parse({
+        id: 'experience_candidate_duplicate_1',
+        target: { section: 'experience', key: 'record', recordId: 'experience_1' },
+        label: 'Senior Software Engineer at Mercury',
+        value: {
+          companyName: 'Mercury',
+          companyUrl: null,
+          title: 'Senior Software Engineer',
+          employmentType: null,
+          location: 'New York City Metropolitan Area',
+          workMode: [],
+          startDate: 'Aug 2024',
+          endDate: '',
+          isCurrent: true,
+          summary: '',
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        },
+        valuePreview: 'Mercury | Senior Software Engineer | Aug 2024',
+        evidenceText: 'Senior Software Engineer - Mercury',
+        confidence: 0.8,
+        resolution: 'needs_review',
+        resolutionReason: null,
+        notes: []
+      }),
+      ResumeImportFieldCandidateSummarySchema.parse({
+        id: 'experience_candidate_duplicate_2',
+        target: { section: 'experience', key: 'record', recordId: 'experience_9' },
+        label: 'Senior Software Engineer at Mercury',
+        value: {
+          companyName: 'Mercury',
+          companyUrl: null,
+          title: 'Senior Software Engineer',
+          employmentType: null,
+          location: 'New York City Metropolitan Area',
+          workMode: ['remote'],
+          startDate: '2024-08',
+          endDate: null,
+          isCurrent: true,
+          summary: 'Leads core product work.',
+          achievements: ['Improved frontend performance.'],
+          skills: ['React'],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null
+        },
+        valuePreview: 'Mercury | Senior Software Engineer | 2024-08',
+        evidenceText: 'Senior Software Engineer - Mercury',
+        confidence: 0.86,
+        resolution: 'needs_review',
+        resolutionReason: null,
+        notes: []
+      })
+    ])
+
+    expect(values.records.experiences).toHaveLength(1)
+    expect(values.records.experiences[0]).toMatchObject({
+      companyName: 'Mercury',
+      title: 'Senior Software Engineer',
+      startDate: '2024-08',
+      isCurrent: true,
+      summary: 'Leads core product work.',
+      workMode: ['remote']
+    })
+  })
+
   test('prefills unresolved years-of-experience candidates when the profile is still fresh start', () => {
     const profile = CandidateProfileSchema.parse({
       ...createProfile(),

@@ -6,11 +6,13 @@ export {
 } from "./resume-import-apply";
 export {
   countResumeImportCandidates,
+  hasBlockingResumeImportCandidates,
   summarizeCandidateWarnings,
 } from "./resume-import-candidate-utils";
 import { applyResolvedResumeImportCandidatesToWorkspace } from "./resume-import-apply";
 import {
   countResumeImportCandidates,
+  hasBlockingResumeImportCandidates,
   RESUME_IMPORT_STAGES,
   summarizeCandidateWarnings,
   toCandidate,
@@ -160,13 +162,12 @@ export async function runResumeImportWorkflow(
       analysisWarnings,
     });
     const candidateCounts = countResumeImportCandidates(reconciledCandidates);
+    const hasBlockingReviewCandidates =
+      hasBlockingResumeImportCandidates(reconciledCandidates);
 
     run = ResumeImportRunSchema.parse({
       ...run,
-      status:
-        candidateCounts.needsReview > 0 || candidateCounts.abstained > 0
-          ? "review_ready"
-          : "applied",
+      status: hasBlockingReviewCandidates ? "review_ready" : "applied",
       completedAt: new Date().toISOString(),
       warnings: analysisWarnings,
       candidateCounts,

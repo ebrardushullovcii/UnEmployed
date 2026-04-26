@@ -148,7 +148,9 @@ export function ProfileResumePanel({
   })
   const experienceLabel = visibleYearsExperience === 1 ? '1 year' : `${visibleYearsExperience} years`
   const latestRunSummary = latestResumeImportRun
-    ? `${latestResumeImportRun.candidateCounts.autoApplied} auto-applied, ${latestResumeImportRun.candidateCounts.needsReview} waiting for review.`
+    ? latestResumeImportRun.status === 'review_ready'
+      ? `${latestResumeImportRun.candidateCounts.autoApplied} auto-applied, ${latestResumeImportRun.candidateCounts.needsReview} waiting for review.`
+      : `${latestResumeImportRun.candidateCounts.autoApplied} auto-applied, import ready to use.`
     : null
   const visibleAnalysisWarnings = profile.baseResume.analysisWarnings.filter(
     (warning) => !shouldHideAnalysisWarning(warning)

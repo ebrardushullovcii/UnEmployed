@@ -74,6 +74,78 @@ describe("createJobFinderWorkspaceService", () => {
     );
   });
 
+  test("marks the import applied when only optional proof suggestions remain unresolved", async () => {
+    const seed = createSeed();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage === "shared_memory") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [
+                createStageCandidate({
+                  target: { section: "proof_point", key: "record", recordId: "proof_1" },
+                  label: "Platform migration proof",
+                  value: {
+                    title: "Platform migration",
+                    claim: "Cut migration time by 40% across three services.",
+                    heroMetric: "40% faster",
+                    supportingContext: "Shipped a staged rollout with validation checkpoints.",
+                    roleFamilies: [],
+                    projectIds: [],
+                    linkIds: [],
+                  },
+                  sourceBlockIds: ["page_1_block_2"],
+                  confidence: 0.74,
+                  recommendation: "needs_review",
+                  overall: 0.74,
+                }),
+              ],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [],
+            notes: [],
+          });
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_optional_proof_only",
+        fileName: "resume.txt",
+        textContent: ["Alex Vanguard", "Cut migration time by 40% across three services."].join("\n"),
+      },
+      documentBundle: createTestBundle({
+        fullText: ["Alex Vanguard", "Cut migration time by 40% across three services."].join("\n"),
+        blocks: [
+          { id: "page_1_block_1", pageNumber: 1, readingOrder: 0, text: "Alex Vanguard", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.98, parserLineage: ["plain_text"], readingOrderConfidence: 0.98, lineIds: ["line_1"], textSpan: null },
+          { id: "page_1_block_2", pageNumber: 1, readingOrder: 1, text: "Cut migration time by 40% across three services.", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.86, parserLineage: ["plain_text"], readingOrderConfidence: 0.9, lineIds: ["line_2"], textSpan: null },
+        ],
+      }),
+    });
+
+    expect(snapshot.latestResumeImportRun?.status).toBe("applied");
+    expect(snapshot.latestResumeImportRun?.candidateCounts.needsReview).toBe(1);
+    expect(snapshot.profile.baseResume.analysisWarnings).toEqual([
+      "1 optional proof suggestion is available to review before using them in tailored resume narratives.",
+    ]);
+    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toEqual([
+      "Platform migration proof",
+    ]);
+  });
+
   test("only auto-applies low-risk literal fields while routing experience records to review", async () => {
     const seed = createSeed();
     const { repository, workspaceService } = createWorkspaceServiceHarness({
@@ -81,10 +153,13 @@ describe("createJobFinderWorkspaceService", () => {
         ...seed,
         profile: {
           ...seed.profile,
+          id: "candidate_review_existing_profile",
           experiences: [],
-          fullName: "New Candidate",
+          firstName: "Jamie",
+          lastName: "Rivers",
+          fullName: "Jamie Rivers",
           headline: "Import your resume to begin",
-          currentLocation: "Set your preferred location",
+          currentLocation: "Berlin, Germany",
           email: null,
           phone: null,
           portfolioUrl: null,
@@ -204,14 +279,19 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.fullName).toBe("Jamie Rivers");
     expect(snapshot.profile.firstName).toBe("Jamie");
     expect(snapshot.profile.lastName).toBe("Rivers");
+    expect(snapshot.profile.headline).toBe("Staff Frontend Engineer");
     expect(snapshot.profile.email).toBe("jamie@example.com");
     expect(snapshot.profile.phone).toBe("+49 555 1234");
     expect(snapshot.profile.linkedinUrl).toBe("https://www.linkedin.com/in/jamie-rivers");
+    expect(snapshot.profile.id).toBe("candidate_review_existing_profile");
     expect(snapshot.profile.experiences).toEqual([]);
     expect(snapshot.latestResumeImportRun?.candidateCounts.autoApplied).toBeGreaterThanOrEqual(4);
-    expect(snapshot.latestResumeImportRun?.candidateCounts.needsReview).toBeGreaterThanOrEqual(2);
+    expect(snapshot.latestResumeImportRun?.candidateCounts.needsReview).toBeGreaterThanOrEqual(1);
     expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toContain(
       "Staff Frontend Engineer at Signal Labs",
+    );
+    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).not.toContain(
+      "Headline",
     );
 
     const run = await repository.getLatestResumeImportRun();
@@ -228,6 +308,123 @@ describe("createJobFinderWorkspaceService", () => {
           candidate.resolutionReason === "record_candidates_require_review",
       ),
     ).toBe(true);
+  });
+
+  test("auto-applies strong experience records on a fresh-start profile", async () => {
+    const seed = createSeed();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          id: "candidate_fresh_start",
+          firstName: "New",
+          lastName: "Candidate",
+          fullName: "New Candidate",
+          headline: "Import your resume to begin",
+          summary:
+            "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+          currentLocation: "Set your preferred location",
+          yearsExperience: 0,
+          experiences: [],
+          email: null,
+          phone: null,
+        },
+      },
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage === "experience") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [
+                createStageCandidate({
+                  target: { section: "experience", key: "record", recordId: "experience_1" },
+                  label: "Staff Frontend Engineer at Signal Labs",
+                  value: {
+                    companyName: "Signal Labs",
+                    companyUrl: null,
+                    title: "Staff Frontend Engineer",
+                    employmentType: "Full-time",
+                    location: "Berlin, Germany",
+                    workMode: ["remote"],
+                    startDate: "2021-02",
+                    endDate: null,
+                    isCurrent: true,
+                    summary: "Leads design system adoption.",
+                    achievements: ["Built accessible shared components."],
+                    skills: ["React", "TypeScript"],
+                    domainTags: ["design systems"],
+                    peopleManagementScope: null,
+                    ownershipScope: null,
+                  },
+                  sourceBlockIds: ["page_1_block_7"],
+                  confidence: 0.91,
+                  recommendation: "needs_review",
+                  overall: 0.76,
+                }),
+              ],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [],
+            notes: [],
+          });
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_fresh_start_experience_auto_apply",
+        fileName: "resume.pdf",
+        textContent: [
+          "Jamie Rivers",
+          "Staff Frontend Engineer",
+          "Berlin, Germany",
+          "SIGNAL LABS – BERLIN, GERMANY",
+          "STAFF FRONTEND ENGINEER – 2021-02 – Current",
+        ].join("\n"),
+      },
+      documentBundle: createTestBundle({
+        fullText: [
+          "Jamie Rivers",
+          "Staff Frontend Engineer",
+          "Berlin, Germany",
+          "SIGNAL LABS – BERLIN, GERMANY",
+          "STAFF FRONTEND ENGINEER – 2021-02 – Current",
+        ].join("\n"),
+        blocks: [
+          { id: "page_1_block_1", pageNumber: 1, readingOrder: 0, text: "Jamie Rivers", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.98, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.98, lineIds: ["line_1"], textSpan: null },
+          { id: "page_1_block_2", pageNumber: 1, readingOrder: 1, text: "Staff Frontend Engineer", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.9, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.95, lineIds: ["line_2"], textSpan: null },
+          { id: "page_1_block_3", pageNumber: 1, readingOrder: 2, text: "Berlin, Germany", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.92, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.95, lineIds: ["line_3"], textSpan: null },
+          { id: "page_1_block_7", pageNumber: 1, readingOrder: 6, text: "SIGNAL LABS – BERLIN, GERMANY", kind: "heading", sectionHint: "experience", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.86, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.9, lineIds: ["line_7"], textSpan: null },
+          { id: "page_1_block_8", pageNumber: 1, readingOrder: 7, text: "STAFF FRONTEND ENGINEER – 2021-02 – Current", kind: "experience_header", sectionHint: "experience", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.86, parserLineage: ["pdfjs_text"], readingOrderConfidence: 0.9, lineIds: ["line_8"], textSpan: null },
+        ],
+      }),
+    });
+
+    expect(snapshot.profile.experiences).toEqual([
+      expect.objectContaining({
+        companyName: "Signal Labs",
+        title: "Staff Frontend Engineer",
+        location: "Berlin, Germany",
+        isCurrent: true,
+      }),
+    ]);
+    expect(snapshot.latestResumeImportRun?.status).toBe("applied");
+    expect(snapshot.latestResumeImportReviewCandidates).toEqual([]);
+    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
+      "Work history",
+    );
   });
 
   test("abstains low-confidence scalar conflicts instead of overwriting existing profile values", async () => {

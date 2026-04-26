@@ -4,6 +4,8 @@ import type { JobSource, SourceDebugPhase } from "@unemployed/contracts";
 // These are set when no resume has been imported yet
 export const PROFILE_PLACEHOLDER_HEADLINE = "Import your resume to begin";
 export const PROFILE_PLACEHOLDER_LOCATION = "Set your preferred location";
+export const PROFILE_PLACEHOLDER_SUMMARY =
+  "Import a resume or paste resume text to build your profile, targeting, and tailored documents.";
 
 // Agent discovery defaults
 export const DEFAULT_ROLE = "software engineer";

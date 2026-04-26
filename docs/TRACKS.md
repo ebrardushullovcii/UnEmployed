@@ -18,12 +18,12 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Active
 
-- `020 Job Finder Scoped Button Pending State And Feedback`
+- `023 Job Finder World-Class Resume Generation Quality`
 
 - status: `in_progress`
-- linked plan: `docs/exec-plans/active/020-job-finder-scoped-button-pending-state-and-feedback.md`
-- replace global Job Finder button busy fan-out with scoped pending state and stronger disabled/in-progress feedback
-- keep concurrency safe by preserving discovery/source-debug single-flight behavior and scoping other locks to the smallest real conflict surface
+- linked plan: `docs/exec-plans/active/023-job-finder-world-class-resume-generation-quality.md`
+- take full ownership of resume generation quality, fix ungrounded or unusable outputs, and ship a world-class ATS-safe baseline for at least `1` to `2` basic templates
+- prioritize end-to-end deterministic quality coverage across generation, sanitation, validation, and rendered output; prefer stronger architecture over preserving weak current flows
 
 ## Reopenable Baselines
 
@@ -40,6 +40,20 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - status: `done`
 - linked plan: `docs/exec-plans/completed/019-job-finder-world-class-resume-import.md`
 - reopen only for packaging regressions, supported-platform changes, or newly supported release targets
+
+### `020 Job Finder Scoped Button Pending State And Feedback`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/020-job-finder-scoped-button-pending-state-and-feedback.md`
+- scoped pending lanes and clearer disabled/in-progress button feedback are landed across desktop Job Finder routes
+- reopen only for a concrete control-locking regression, unsafe concurrent-mutation gap, or stronger page-specific pending UX improvement backed by fresh real-app evidence
+
+### `021 Resume Import Duplicate Record Deduplication`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/021-job-finder-resume-import-duplicate-record-deduplication.md`
+- duplicate-record handling, fresh-start placeholder replacement, optional-proof warning cleanup, and date-derived `yearsExperience` fallback are landed
+- reopen only for a new real import regression, supported parser/platform changes, or a concrete source-generic import-quality improvement
 
 ### `015 Automatic Job Apply`
 
@@ -70,6 +84,13 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - `007`: resume workspace
 
 ## Ready Queue
+
+- `022 Job Finder Source Sign-In Prompts And Source-Aware Browser Entry`
+
+- status: `ready`
+- linked plan: `docs/exec-plans/queued/022-job-finder-source-sign-in-prompts-and-source-aware-browser-entry.md`
+- surface source-level sign-in prompts and direct browser entry from `Profile` and `Find jobs` when auth is required or clearly recommended
+- keep auth detection source-generic, typed, and grounded in source-debug and intelligence evidence rather than board-specific branches
 
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling

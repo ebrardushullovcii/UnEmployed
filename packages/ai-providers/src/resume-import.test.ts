@@ -4,6 +4,7 @@ import {
   sanitizeStageCandidates,
   selectBlocksForResumeImportStage,
 } from "./resume-import";
+import { buildDeterministicResumeImportStageExtraction } from "./deterministic/resume-import";
 import { createPreferences, createProfile } from "./test-fixtures";
 
 const bundle: ResumeDocumentBundle = {
@@ -94,5 +95,83 @@ describe("selectBlocksForResumeImportStage", () => {
 
     expect(result.candidates[0]?.confidenceBreakdown?.overall).toBeGreaterThan(0.8);
     expect(result.candidates[0]?.confidenceBreakdown?.recommendation).toBe("auto_apply");
+  });
+
+  test("grounds deterministic summary and years-of-experience candidates from wrapped intro text", () => {
+    const result = buildDeterministicResumeImportStageExtraction(
+      {
+        stage: "identity_summary",
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle: {
+          ...bundle,
+          blocks: [
+            { id: "b1", pageNumber: 1, readingOrder: 0, text: "Ryan Holstien", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.96 },
+            { id: "b2", pageNumber: 1, readingOrder: 1, text: "Senior Software Engineer", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.92 },
+            { id: "b3", pageNumber: 1, readingOrder: 2, text: "Senior Software Engineer with 10+ years of experience building secure, scalable healthcare and SaaS platforms with C#,.NET, ASP.NET Core, REST APIs, MongoDB, SQL Server, and cloud-native services on Azure and AWS. Proven record", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b4", pageNumber: 1, readingOrder: 3, text: "delivering microservices, third-party integrations, CI/CD automation, observability, and production support in Agile teams.", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+          ],
+          fullText: [
+            "Ryan Holstien",
+            "Senior Software Engineer",
+            "Senior Software Engineer with 10+ years of experience building secure, scalable healthcare and SaaS platforms with C#,.NET, ASP.NET Core, REST APIs, MongoDB, SQL Server, and cloud-native services on Azure and AWS. Proven record",
+            "delivering microservices, third-party integrations, CI/CD automation, observability, and production support in Agile teams.",
+          ].join("\n"),
+        },
+      },
+      "Test provider",
+    );
+
+    const summaryCandidate = result.candidates.find((candidate) => candidate.target.key === "summary");
+    const yearsCandidate = result.candidates.find((candidate) => candidate.target.key === "yearsExperience");
+
+    expect(summaryCandidate?.sourceBlockIds.length).toBeGreaterThan(0);
+    expect(summaryCandidate?.evidenceText).toContain("10+ years of experience");
+    expect(yearsCandidate?.sourceBlockIds.length).toBeGreaterThan(0);
+    expect(yearsCandidate?.evidenceText).toContain("10+");
+  });
+
+  test("grounds derived years-of-experience candidates from dated experience ranges when no explicit years text exists", () => {
+    const result = buildDeterministicResumeImportStageExtraction(
+      {
+        stage: "identity_summary",
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle: {
+          ...bundle,
+          blocks: [
+            { id: "b1", pageNumber: 1, readingOrder: 0, text: "Aaron Murphy", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.96 },
+            { id: "b2", pageNumber: 1, readingOrder: 1, text: "Senior Software Engineer", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.92 },
+            { id: "b3", pageNumber: 1, readingOrder: 2, text: "Experienced Staff Engineer with a focus on leading complex, high-impact initiatives across full-stack systems.", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b4", pageNumber: 1, readingOrder: 3, text: "EXPERIENCE", kind: "heading", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b5", pageNumber: 1, readingOrder: 4, text: "EdSights, Remote, NY — Staff/Senior Software Engineer", kind: "heading", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b6", pageNumber: 1, readingOrder: 5, text: "Sep 2021 – Feb 2026", kind: "paragraph", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b7", pageNumber: 1, readingOrder: 6, text: "Agile Thought, Tampa, FL — Senior Software Developer", kind: "heading", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b8", pageNumber: 1, readingOrder: 7, text: "Jul 2019 - Sep 2021", kind: "paragraph", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b9", pageNumber: 1, readingOrder: 8, text: "Agile Thought, Tampa, FL — Software Developer", kind: "heading", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b10", pageNumber: 1, readingOrder: 9, text: "Sep 2016 - Jul 2019", kind: "paragraph", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+          ],
+          fullText: [
+            "Aaron Murphy",
+            "Senior Software Engineer",
+            "Experienced Staff Engineer with a focus on leading complex, high-impact initiatives across full-stack systems.",
+            "EXPERIENCE",
+            "EdSights, Remote, NY — Staff/Senior Software Engineer",
+            "Sep 2021 – Feb 2026",
+            "Agile Thought, Tampa, FL — Senior Software Developer",
+            "Jul 2019 - Sep 2021",
+            "Agile Thought, Tampa, FL — Software Developer",
+            "Sep 2016 - Jul 2019",
+          ].join("\n"),
+        },
+      },
+      "Test provider",
+    );
+
+    const yearsCandidate = result.candidates.find((candidate) => candidate.target.key === "yearsExperience");
+
+    expect(yearsCandidate?.value).toBeGreaterThanOrEqual(9);
+    expect(yearsCandidate?.sourceBlockIds.length).toBeGreaterThan(0);
+    expect(yearsCandidate?.evidenceText).toContain("2021");
   });
 });

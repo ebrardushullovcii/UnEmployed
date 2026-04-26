@@ -153,12 +153,121 @@ function buildEducationIdentity(entry: EducationFormEntry) {
   ].join('|')
 }
 
+function fieldsMatch(left: string, right: string) {
+  return left.length > 0 && right.length > 0 && left === right
+}
+
+function fieldsCompatible(left: string, right: string) {
+  return !left || !right || left === right
+}
+
+function scoreTruthyFields(values: readonly unknown[]) {
+  return values.reduce<number>((count, value) => {
+    if (typeof value === 'string') {
+      return value.trim().length > 0 ? count + 1 : count
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? count + 1 : count
+    }
+
+    if (Array.isArray(value)) {
+      return value.length > 0 ? count + 1 : count
+    }
+
+    return value !== null && value !== undefined ? count + 1 : count
+  }, 0)
+}
+
+function areEquivalentExperienceEntries(left: ExperienceFormEntry, right: ExperienceFormEntry) {
+  const leftCompany = normalizeIdentityText(left.companyName)
+  const rightCompany = normalizeIdentityText(right.companyName)
+  const leftTitle = normalizeIdentityText(left.title)
+  const rightTitle = normalizeIdentityText(right.title)
+  const leftLocation = normalizeIdentityText(left.location)
+  const rightLocation = normalizeIdentityText(right.location)
+  const leftStart = normalizeIdentityDate(left.startDate)
+  const rightStart = normalizeIdentityDate(right.startDate)
+  const leftEnd = left.isCurrent ? 'present' : normalizeIdentityDate(left.endDate)
+  const rightEnd = right.isCurrent ? 'present' : normalizeIdentityDate(right.endDate)
+
+  return (
+    (fieldsMatch(leftTitle, rightTitle) &&
+      fieldsMatch(leftStart, rightStart) &&
+      fieldsCompatible(leftCompany, rightCompany) &&
+      (fieldsMatch(leftCompany, rightCompany) || fieldsMatch(leftEnd, rightEnd) || fieldsCompatible(leftLocation, rightLocation))) ||
+    (fieldsMatch(leftCompany, rightCompany) &&
+      fieldsMatch(leftStart, rightStart) &&
+      fieldsCompatible(leftTitle, rightTitle) &&
+      (fieldsMatch(leftTitle, rightTitle) || fieldsMatch(leftEnd, rightEnd) || fieldsCompatible(leftLocation, rightLocation))) ||
+    (fieldsMatch(leftTitle, rightTitle) &&
+      fieldsMatch(leftCompany, rightCompany) &&
+      fieldsCompatible(leftStart, rightStart) &&
+      fieldsCompatible(leftEnd, rightEnd))
+  )
+}
+
+function areEquivalentEducationEntries(left: EducationFormEntry, right: EducationFormEntry) {
+  const leftSchool = normalizeIdentityText(left.schoolName)
+  const rightSchool = normalizeIdentityText(right.schoolName)
+  const leftDegree = normalizeIdentityText(left.degree)
+  const rightDegree = normalizeIdentityText(right.degree)
+  const leftField = normalizeIdentityText(left.fieldOfStudy)
+  const rightField = normalizeIdentityText(right.fieldOfStudy)
+  const leftStart = normalizeIdentityDate(left.startDate)
+  const rightStart = normalizeIdentityDate(right.startDate)
+  const leftEnd = normalizeIdentityDate(left.endDate)
+  const rightEnd = normalizeIdentityDate(right.endDate)
+
+  return (
+    (fieldsMatch(leftSchool, rightSchool) &&
+      fieldsMatch(leftDegree, rightDegree) &&
+      (fieldsMatch(leftStart, rightStart) || fieldsMatch(leftEnd, rightEnd) || fieldsCompatible(leftField, rightField))) ||
+    (fieldsMatch(leftSchool, rightSchool) &&
+      fieldsMatch(leftStart, rightStart) &&
+      fieldsCompatible(leftDegree, rightDegree) &&
+      fieldsCompatible(leftField, rightField))
+  )
+}
+
+function scoreExperienceEntryCompleteness(entry: ExperienceFormEntry) {
+  return scoreTruthyFields([
+    entry.companyName,
+    entry.companyUrl,
+    entry.title,
+    entry.employmentType,
+    entry.location,
+    entry.startDate,
+    entry.endDate,
+    entry.isCurrent,
+    entry.summary,
+    entry.peopleManagementScope,
+    entry.ownershipScope,
+    entry.workMode,
+    entry.achievements,
+    entry.skills,
+    entry.domainTags,
+  ])
+}
+
+function scoreEducationEntryCompleteness(entry: EducationFormEntry) {
+  return scoreTruthyFields([
+    entry.schoolName,
+    entry.degree,
+    entry.fieldOfStudy,
+    entry.location,
+    entry.startDate,
+    entry.endDate,
+    entry.summary,
+  ])
+}
+
 function mergeExperienceReviewCandidates(
   existing: ExperienceFormEntry[],
   candidates: readonly ResumeImportFieldCandidateSummary[]
 ): ExperienceFormEntry[] {
   const merged = [...existing]
-  const seen = new Set(merged.map(buildExperienceIdentity))
+  const canonicalEntryIds = new Set(existing.filter((entry) => !entry.sourceCandidateId).map((entry) => entry.id))
 
   for (const candidate of candidates) {
     if (candidate.target.section !== 'experience' || candidate.target.key !== 'record' || !isObject(candidate.value)) {
@@ -188,10 +297,23 @@ function mergeExperienceReviewCandidates(
     nextEntry.sourceCandidateId = candidate.id
     nextEntry.sourceCandidateFingerprint = nextFingerprint
 
-    const identity = buildExperienceIdentity(nextEntry)
-    if (!seen.has(identity)) {
+    const matchingIndex = merged.findIndex((entry) =>
+      buildExperienceIdentity(entry) === buildExperienceIdentity(nextEntry) ||
+      areEquivalentExperienceEntries(entry, nextEntry)
+    )
+
+    if (matchingIndex === -1) {
       merged.push(nextEntry)
-      seen.add(identity)
+      continue
+    }
+
+    const existingEntry = merged[matchingIndex]
+    if (existingEntry && canonicalEntryIds.has(existingEntry.id)) {
+      continue
+    }
+
+    if ((existingEntry ? scoreExperienceEntryCompleteness(existingEntry) : 0) < scoreExperienceEntryCompleteness(nextEntry)) {
+      merged.splice(matchingIndex, 1, nextEntry)
     }
   }
 
@@ -203,7 +325,7 @@ function mergeEducationReviewCandidates(
   candidates: readonly ResumeImportFieldCandidateSummary[]
 ): EducationFormEntry[] {
   const merged = [...existing]
-  const seen = new Set(merged.map(buildEducationIdentity))
+  const canonicalEntryIds = new Set(existing.filter((entry) => !entry.sourceCandidateId).map((entry) => entry.id))
 
   for (const candidate of candidates) {
     if (candidate.target.section !== 'education' || candidate.target.key !== 'record' || !isObject(candidate.value)) {
@@ -225,10 +347,23 @@ function mergeEducationReviewCandidates(
     nextEntry.sourceCandidateId = candidate.id
     nextEntry.sourceCandidateFingerprint = nextFingerprint
 
-    const identity = buildEducationIdentity(nextEntry)
-    if (!seen.has(identity)) {
+    const matchingIndex = merged.findIndex((entry) =>
+      buildEducationIdentity(entry) === buildEducationIdentity(nextEntry) ||
+      areEquivalentEducationEntries(entry, nextEntry)
+    )
+
+    if (matchingIndex === -1) {
       merged.push(nextEntry)
-      seen.add(identity)
+      continue
+    }
+
+    const existingEntry = merged[matchingIndex]
+    if (existingEntry && canonicalEntryIds.has(existingEntry.id)) {
+      continue
+    }
+
+    if ((existingEntry ? scoreEducationEntryCompleteness(existingEntry) : 0) < scoreEducationEntryCompleteness(nextEntry)) {
+      merged.splice(matchingIndex, 1, nextEntry)
     }
   }
 
