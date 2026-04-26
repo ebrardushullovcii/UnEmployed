@@ -1,0 +1,248 @@
+import {
+  type JobDiscoveryTarget,
+  type JobFinderWorkspaceSnapshot,
+  type SourceAccessPrompt,
+  type SourceDebugRunRecord,
+  type SourceDebugWorkerAttempt,
+  type SourceInstructionArtifact,
+} from "@unemployed/contracts";
+import {
+  warningSuggestsAuthRestriction,
+} from "./source-instruction-evidence";
+import {
+  buildDiscoveryStartingUrls,
+} from "./workspace-source-intelligence";
+import {
+  resolveActiveSourceInstructionArtifact,
+} from "./workspace-helpers";
+import { uniqueStrings } from "./shared";
+
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function includesAny(normalized: string, candidates: readonly string[]): boolean {
+  return candidates.some((candidate) => normalized.includes(candidate));
+}
+
+function isLoginImprovementSignal(value: string | null | undefined): boolean {
+  const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (warningSuggestsAuthRestriction(normalized)) {
+    return true;
+  }
+
+  return includesAny(normalized, [
+    "broader access",
+    "broader visibility",
+    "broader coverage",
+    "broader results",
+    "sign in prompts",
+    "sign in is needed",
+    "sign-in is needed",
+    "sign in is recommended",
+    "sign-in is recommended",
+    "login improves",
+    "login unlocks",
+    "guest session has limited visibility",
+    "guest access is limited",
+    "auth-limited",
+    "authenticated surface",
+    "authenticated view",
+    "logged in",
+  ]);
+}
+
+function isHardLoginRequirement(value: string | null | undefined): boolean {
+  const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return false;
+  }
+
+  return includesAny(normalized, [
+    "login required",
+    "sign in first",
+    "sign in before",
+    "authentication required",
+    "requires login",
+    "requires authentication",
+    "session is not ready",
+    "no guest access",
+    "hidden behind a sign in",
+    "gated behind authentication",
+    "without being logged in",
+    "without target site account",
+  ]);
+}
+
+function summarizePrompt(input: {
+  target: JobDiscoveryTarget;
+  state: SourceAccessPrompt["state"];
+  detail: string | null;
+}): { summary: string; actionLabel: string; rerunLabel: string } {
+  const targetLabel = input.target.label.trim();
+
+  if (input.state === "login_required") {
+    return {
+      summary: `Sign in to ${targetLabel} before the next search can continue.`,
+      actionLabel: `Sign in to ${targetLabel}`,
+      rerunLabel: "Search again after sign-in",
+    };
+  }
+
+  return {
+    summary: `Sign in to ${targetLabel} for better search coverage on the next run.`,
+    actionLabel: `Sign in to ${targetLabel}`,
+    rerunLabel: "Search again for fuller results",
+  };
+}
+
+export function deriveSourceAccessPrompts(input: {
+  targets: readonly JobDiscoveryTarget[];
+  recentSourceDebugRuns: readonly SourceDebugRunRecord[];
+  activeSourceDebugRun: SourceDebugRunRecord | null;
+  sourceDebugAttempts: readonly SourceDebugWorkerAttempt[];
+  sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
+  searchPreferences: JobFinderWorkspaceSnapshot["searchPreferences"];
+}): SourceAccessPrompt[] {
+  const attemptsByRunId = new Map<string, SourceDebugWorkerAttempt[]>();
+
+  for (const attempt of input.sourceDebugAttempts) {
+    const existingAttempts = attemptsByRunId.get(attempt.runId) ?? [];
+    existingAttempts.push(attempt);
+    attemptsByRunId.set(attempt.runId, existingAttempts);
+  }
+
+  return input.targets.flatMap<SourceAccessPrompt>((target) => {
+    const activeInstruction = resolveActiveSourceInstructionArtifact(
+      target,
+      input.sourceInstructionArtifacts,
+    );
+    const latestRun = target.lastDebugRunId
+      ? input.activeSourceDebugRun?.id === target.lastDebugRunId
+        ? input.activeSourceDebugRun
+        : (input.recentSourceDebugRuns.find(
+            (run) => run.id === target.lastDebugRunId,
+          ) ?? null)
+      : null;
+    const targetAttempts = latestRun
+      ? attemptsByRunId.get(latestRun.id) ?? []
+      : [];
+    const hardLoginSignals = uniqueStrings([
+      ...(latestRun?.state === "paused_manual" && latestRun.manualPrerequisiteSummary
+        ? [latestRun.manualPrerequisiteSummary]
+        : []),
+      ...targetAttempts.flatMap((attempt) =>
+        attempt.outcome === "blocked_auth"
+          ? [attempt.blockerSummary, attempt.resultSummary]
+          : [attempt.blockerSummary],
+      ),
+      ...(activeInstruction?.intelligence.apply.authMarkers ?? []),
+      ...(activeInstruction?.warnings ?? []),
+    ].filter((value): value is string => Boolean(value)));
+    const recommendationSignals = uniqueStrings([
+      ...(latestRun?.finalSummary ? [latestRun.finalSummary] : []),
+      ...targetAttempts.flatMap((attempt) => [
+        attempt.resultSummary,
+        attempt.blockerSummary,
+        ...attempt.confirmedFacts,
+        ...(attempt.phaseEvidence?.warnings ?? []),
+      ]),
+      ...(activeInstruction?.intelligence.apply.authMarkers ?? []),
+      ...(activeInstruction?.warnings ?? []),
+      ...activeInstruction?.searchGuidance ?? [],
+      ...activeInstruction?.navigationGuidance ?? [],
+    ].filter((value): value is string => Boolean(value)));
+
+    const requiredDetail = hardLoginSignals.find(isHardLoginRequirement) ?? null;
+
+    if (requiredDetail) {
+      const promptCopy = summarizePrompt({
+        target,
+        state: "login_required",
+        detail: requiredDetail,
+      });
+
+      return [
+        {
+          targetId: target.id,
+          targetLabel: target.label,
+          targetUrl: target.startingUrl,
+          state: "login_required" as const,
+          summary: promptCopy.summary,
+          detail: requiredDetail,
+          actionLabel: promptCopy.actionLabel,
+          rerunLabel: promptCopy.rerunLabel,
+          updatedAt:
+            latestRun?.updatedAt ??
+            activeInstruction?.updatedAt ??
+            new Date(0).toISOString(),
+        },
+      ];
+    }
+
+    const recommendationDetail = recommendationSignals.find(
+      isLoginImprovementSignal,
+    );
+
+    if (!recommendationDetail) {
+      return [];
+    }
+
+    const learnedStartingUrls = buildDiscoveryStartingUrls(
+      target,
+      activeInstruction,
+      input.searchPreferences,
+    );
+
+    if (learnedStartingUrls.length === 0) {
+      return [];
+    }
+
+    const promptCopy = summarizePrompt({
+      target,
+      state: "login_recommended",
+      detail: recommendationDetail,
+    });
+
+    return [
+      {
+        targetId: target.id,
+        targetLabel: target.label,
+        targetUrl: target.startingUrl,
+        state: "login_recommended" as const,
+        summary: promptCopy.summary,
+        detail: recommendationDetail,
+        actionLabel: promptCopy.actionLabel,
+        rerunLabel: promptCopy.rerunLabel,
+        updatedAt:
+          latestRun?.updatedAt ??
+          activeInstruction?.updatedAt ??
+          new Date(0).toISOString(),
+      },
+    ];
+  });
+}
+
+export function resolveSourceBrowserEntryUrl(input: {
+  target: JobDiscoveryTarget;
+  searchPreferences: JobFinderWorkspaceSnapshot["searchPreferences"];
+  sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
+}): string {
+  const activeInstruction = resolveActiveSourceInstructionArtifact(
+    input.target,
+    input.sourceInstructionArtifacts,
+  );
+  const startingUrls = buildDiscoveryStartingUrls(
+    input.target,
+    activeInstruction,
+    input.searchPreferences,
+  );
+
+  return startingUrls[0] ?? input.target.startingUrl;
+}

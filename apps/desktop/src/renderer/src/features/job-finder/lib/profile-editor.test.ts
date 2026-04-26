@@ -45,6 +45,17 @@ function createProfile() {
 }
 
 describe('profile editor application identity defaults', () => {
+  test('does not mark a saved profile dirty when professionalSummary.fullSummary is missing', () => {
+    const profile = createProfile()
+    const values = createProfileEditorValues(profile)
+    const result = buildProfilePayload(profile, values)
+
+    expect(result.payload).toBeDefined()
+    expect(hasProfileDraftChanges(profile, result.payload)).toBe(false)
+    expect(result.payload?.professionalSummary.fullSummary).toBeNull()
+    expect(result.payload?.summary).toBe(profile.summary)
+  })
+
   test('keeps application contact overrides null when the user is only inheriting main contact info', () => {
     const profile = createProfile()
     const values = createProfileEditorValues(profile)

@@ -229,6 +229,7 @@ export function useProfileScreenForms(input: {
 
   return {
     backgroundArrays,
+    draftSearchPreferencesResult,
     experienceArray,
     hasUnsavedChanges,
     hasUserDraftChanges,

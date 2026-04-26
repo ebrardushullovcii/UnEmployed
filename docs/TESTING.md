@@ -66,6 +66,7 @@ Common package aliases:
 - `pnpm --filter @unemployed/desktop ui:profile-setup`
 - `pnpm --filter @unemployed/desktop ui:profile-baseline`
 - `pnpm --filter @unemployed/desktop ui:profile-copilot-preferences`
+- `pnpm --filter @unemployed/desktop ui:source-sign-in-prompts`
 - `pnpm --filter @unemployed/desktop ui:resume-workspace`
 - `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
 - `pnpm --filter @unemployed/desktop ui:applications-copilot-review`

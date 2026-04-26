@@ -1,6 +1,7 @@
 import { useCallback, useId, useMemo, useState, type ChangeEvent } from 'react'
 import type {
   EditableSourceInstructionArtifact,
+  SourceAccessPrompt,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
   SourceInstructionArtifact
@@ -49,16 +50,19 @@ interface ProfileDiscoveryTargetRowProps {
   discoveryTargets: readonly DiscoveryTargetValue[]
   index: number
   instructionArtifact: SourceInstructionArtifact | null
+  isBrowserSessionPending: boolean
   isSourceDebugPending: (targetId: string) => boolean
   isSourceInstructionPending: (targetId: string) => boolean
   isSourceInstructionVerifyPending: (instructionId: string) => boolean
   isTargetDiscoveryPending: (targetId: string) => boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onOpenBrowserSessionForTarget: (targetId: string) => void
   onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
+  sourceAccessPrompt: SourceAccessPrompt | null
   target: DiscoveryTargetValue
   updateDiscoveryTargets: (nextTargets: SearchPreferencesEditorValues['discoveryTargets']) => void
 }
@@ -111,6 +115,11 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
   const isTargetDiscoveryPending = props.isTargetDiscoveryPending(props.target.id)
   const isTargetSourceDebugPending = props.isSourceDebugPending(props.target.id)
   const isInstructionSavePending = props.isSourceInstructionPending(props.target.id)
+  const sourceAccessPrompt = props.sourceAccessPrompt
+  const signInToneClassName =
+    sourceAccessPrompt?.state === 'login_required'
+      ? 'border-(--warning-border) bg-(--warning-surface) text-(--warning-text)'
+      : 'border-(--info-border) bg-(--info-surface) text-(--info-text)'
 
   const updateTarget = (nextTarget: DiscoveryTargetValue) => {
     const existingTarget = props.discoveryTargets[props.index]
@@ -203,6 +212,10 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     props.onRunDiscoveryForTarget?.(props.target.id)
   }, [props.onRunDiscoveryForTarget, props.target.id])
 
+  const handleOpenBrowserSessionForTarget = useCallback(() => {
+    props.onOpenBrowserSessionForTarget(props.target.id)
+  }, [props.onOpenBrowserSessionForTarget, props.target.id])
+
   const handleMoveTargetUp = useCallback(() => {
     moveTarget(-1)
   }, [moveTarget])
@@ -233,12 +246,24 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
 
   return (
     <article className="surface-card-tint grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-      <header className="flex flex-wrap items-center justify-between gap-2">
+      <header className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
         <div className="grid gap-1">
           <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">{displayName}</h3>
           <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Source {props.index + 1}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+          {sourceAccessPrompt ? (
+            <Button
+              aria-label={sourceAccessPrompt.actionLabel}
+              onClick={handleOpenBrowserSessionForTarget}
+              pending={props.isBrowserSessionPending}
+              type="button"
+              size="sm"
+              variant={sourceAccessPrompt.state === 'login_required' ? 'primary' : 'secondary'}
+            >
+              {sourceAccessPrompt.actionLabel}
+            </Button>
+          ) : null}
           {props.onRunDiscoveryForTarget ? (
             <Button
               aria-label={`Run search now for ${accessibleLabel}`}
@@ -246,6 +271,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
               pending={isTargetDiscoveryPending}
               onClick={handleRunDiscoveryForTarget}
               type="button"
+              size="sm"
               variant="primary"
             >
               Search now
@@ -257,6 +283,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             pending={isTargetSourceDebugPending}
             onClick={handleRunSourceDebug}
             type="button"
+            size="sm"
             variant="secondary"
           >
             Check source
@@ -266,6 +293,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             disabled={props.index === 0}
             onClick={handleMoveTargetUp}
             type="button"
+            size="sm"
             variant="ghost"
           >
             Move up
@@ -275,6 +303,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             disabled={props.index === props.discoveryTargets.length - 1}
             onClick={handleMoveTargetDown}
             type="button"
+            size="sm"
             variant="ghost"
           >
             Move down
@@ -283,12 +312,34 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             aria-label={`Remove ${accessibleLabel}`}
             onClick={handleRemoveTarget}
             type="button"
+            size="sm"
             variant="ghost"
           >
             Remove
           </Button>
         </div>
       </header>
+
+      {sourceAccessPrompt ? (
+        <div
+          aria-live="polite"
+          className={`grid gap-2 rounded-(--radius-field) border px-3 py-3 ${signInToneClassName}`}
+          role="status"
+        >
+          <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label)">
+            {sourceAccessPrompt.state === 'login_required' ? 'Sign-in required' : 'Sign-in recommended'}
+          </p>
+          <p className="text-[0.88rem] leading-6">{sourceAccessPrompt.summary}</p>
+          {sourceAccessPrompt.detail ? (
+            <p className="text-[0.82rem] leading-6 opacity-90">{sourceAccessPrompt.detail}</p>
+          ) : null}
+          {sourceAccessPrompt.rerunLabel ? (
+            <p className="text-[0.78rem] leading-6 opacity-80">
+              {`After sign-in: ${sourceAccessPrompt.rerunLabel}.`}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-(--gap-content) md:grid-cols-2">
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">

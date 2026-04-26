@@ -6,6 +6,7 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderOpenBrowserSessionInput,
   ResumeDocumentBundle,
   ResumeImportFieldCandidate,
   ResumeImportRun,
@@ -42,7 +43,9 @@ export interface JobFinderWorkspaceService {
     resumeImportDocumentBundles: readonly ResumeDocumentBundle[];
     resumeImportFieldCandidates: readonly ResumeImportFieldCandidate[];
   }>;
-  openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
+  openBrowserSession(
+    input?: JobFinderOpenBrowserSessionInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   checkBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
   resetWorkspace(
     seed: JobFinderRepositorySeed,

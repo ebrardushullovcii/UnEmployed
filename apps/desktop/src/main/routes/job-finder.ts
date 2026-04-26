@@ -23,6 +23,7 @@ import {
   JobFinderResumeWorkspaceSchema,
   JobFinderResumeSectionActionInputSchema,
   JobFinderJobActionInputSchema,
+  JobFinderOpenBrowserSessionInputSchema,
   JobFinderPerformanceSnapshotSchema,
   JobFinderSaveSourceInstructionInputSchema,
   JobFinderSourceDebugActionInputSchema,
@@ -95,9 +96,10 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
   });
 
-  ipcMain.handle("job-finder:open-browser-session", async () => {
+  ipcMain.handle("job-finder:open-browser-session", async (_event, payload: unknown) => {
+    const input = JobFinderOpenBrowserSessionInputSchema.parse(payload ?? {});
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-    const snapshot = await jobFinderWorkspaceService.openBrowserSession();
+    const snapshot = await jobFinderWorkspaceService.openBrowserSession(input);
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
   });

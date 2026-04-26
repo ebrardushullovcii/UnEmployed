@@ -7,6 +7,7 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkRequest,
@@ -41,7 +42,9 @@ declare global {
       };
       jobFinder: {
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
-        openBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
+        openBrowserSession: (
+          input?: JobFinderOpenBrowserSessionInput,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         checkBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
         saveProfile: (
           profile: CandidateProfile,

@@ -13,6 +13,7 @@ import type {
   SourceInstructionArtifact
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import { buildComparableValueFingerprint } from '../lib/profile-editor-review-candidates'
 import { LockedScreenLayout } from '../components/locked-screen-layout'
 import { ProfileActiveSectionContent } from '../components/profile/profile-active-section-content'
 import { ProfileCopilotRail } from '../components/profile/profile-copilot-rail'
@@ -32,11 +33,16 @@ const unsavedProfileCopilotMessage =
   'Save this page before asking Profile Copilot to edit it so your current profile draft does not get overwritten.'
 const unsavedProfileCopilotActionsMessage =
   'Save this page before applying, rejecting, or undoing copilot changes so your current profile draft stays intact.'
+const unsavedProfileSourceActionMessage =
+  'Save your current profile and source setup before running source checks or searches so those actions use the latest saved configuration.'
+const unsavedProfileSourceSignInMessage =
+  'Save this source before opening a sign-in session so the browser uses the latest saved source entry.'
 
 export function ProfileScreen(props: {
   actionState: { message: string | null }
   importResumeGuardMessage: string | null
   isAnalyzeProfilePending: boolean
+  isBrowserSessionPending: boolean
   isImportResumePending: boolean
   isProfileMutationPending: boolean
   isProfileSetupPending: boolean
@@ -49,6 +55,7 @@ export function ProfileScreen(props: {
   onAnalyzeProfileFromResume: () => void
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
+  onOpenBrowserSessionForTarget: (targetId: string) => void
   onProfileSurfaceDirtyChange: (dirty: boolean) => void
   profileCopilotPendingContextKey: string | null
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void
@@ -68,11 +75,13 @@ export function ProfileScreen(props: {
   profileSetupState: ProfileSetupState
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   searchPreferences: JobSearchPreferences
+  sourceAccessPrompts: JobFinderWorkspaceSnapshot['sourceAccessPrompts']
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
 }) {
   const {
     importResumeGuardMessage,
     isAnalyzeProfilePending,
+    isBrowserSessionPending,
     isImportResumePending,
     isProfileMutationPending,
     isProfileSetupPending,
@@ -85,6 +94,7 @@ export function ProfileScreen(props: {
     onAnalyzeProfileFromResume,
     onGetSourceDebugRunDetails,
     onImportResume,
+    onOpenBrowserSessionForTarget,
     onProfileSurfaceDirtyChange,
     profileCopilotPendingContextKey,
     onRejectProfileCopilotPatchGroup,
@@ -104,12 +114,14 @@ export function ProfileScreen(props: {
     profileSetupState,
     recentSourceDebugRuns,
     searchPreferences,
+    sourceAccessPrompts,
     sourceInstructionArtifacts
   } = props
 
   const [activeSection, setActiveSection] = useState<ProfileSection>('basics')
   const {
     backgroundArrays,
+    draftSearchPreferencesResult,
     experienceArray,
     hasUnsavedChanges,
     hasUserDraftChanges,
@@ -148,6 +160,72 @@ export function ProfileScreen(props: {
     profileSetupState.reviewItems,
     activeSection,
   )
+
+  const savedTargetsById = new Map(
+    searchPreferences.discovery.targets.map((target) => [target.id, target]),
+  )
+  const draftTargets = preferencesForm.watch('discoveryTargets')
+  const hasUnsavedSearchPreferenceChanges =
+    preferencesForm.formState.isDirty ||
+    buildComparableValueFingerprint(searchPreferences) !==
+      buildComparableValueFingerprint(draftSearchPreferencesResult.payload ?? searchPreferences)
+
+  function hasUnsavedSourceRowChanges(targetId: string) {
+    const savedTarget = savedTargetsById.get(targetId)
+    const draftTarget = draftTargets.find((target) => target.id === targetId)
+
+    if (!savedTarget || !draftTarget) {
+      return false
+    }
+
+    return (
+      buildComparableValueFingerprint(savedTarget) !==
+      buildComparableValueFingerprint({
+        id: draftTarget.id,
+        label: draftTarget.label,
+        startingUrl: draftTarget.startingUrl,
+        enabled: draftTarget.enabled,
+        adapterKind: draftTarget.adapterKind,
+        customInstructions: draftTarget.customInstructions,
+        instructionStatus: draftTarget.instructionStatus,
+        validatedInstructionId: draftTarget.validatedInstructionId,
+        draftInstructionId: draftTarget.draftInstructionId,
+        lastDebugRunId: draftTarget.lastDebugRunId,
+        lastVerifiedAt: draftTarget.lastVerifiedAt,
+        staleReason: draftTarget.staleReason,
+      })
+    )
+  }
+
+  function handleSignInForTarget(targetId: string) {
+    if (hasUnsavedSourceRowChanges(targetId)) {
+      setValidationMessage(unsavedProfileSourceSignInMessage)
+      return
+    }
+
+    setValidationMessage(null)
+    onOpenBrowserSessionForTarget(targetId)
+  }
+
+  function handleRunDiscoveryForTarget(targetId: string) {
+    if (hasUnsavedSearchPreferenceChanges) {
+      setValidationMessage(unsavedProfileSourceActionMessage)
+      return
+    }
+
+    setValidationMessage(null)
+    onRunDiscoveryForTarget?.(targetId)
+  }
+
+  function handleRunSourceDebug(targetId: string) {
+    if (hasUnsavedSearchPreferenceChanges) {
+      setValidationMessage(unsavedProfileSourceActionMessage)
+      return
+    }
+
+    setValidationMessage(null)
+    onRunSourceDebug(targetId)
+  }
 
   function handleSaveAll() {
     const profileResult = buildProfilePayload(profile, profileForm.getValues())
@@ -231,18 +309,21 @@ export function ProfileScreen(props: {
                   backgroundArrays={backgroundArrays}
                   experienceArray={experienceArray}
                   isProfileMutationPending={isProfileMutationPending}
+                  isBrowserSessionPending={isBrowserSessionPending}
                   isSourceDebugPending={isSourceDebugPending}
                   isSourceInstructionPending={isSourceInstructionPending}
                   isSourceInstructionVerifyPending={isSourceInstructionVerifyPending}
                   isTargetDiscoveryPending={isTargetDiscoveryPending}
                   onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-                  {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
-                  onRunSourceDebug={onRunSourceDebug}
+                  onOpenBrowserSessionForTarget={handleSignInForTarget}
+                  {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: handleRunDiscoveryForTarget } : {})}
+                  onRunSourceDebug={handleRunSourceDebug}
                   onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
                   onVerifySourceInstructions={onVerifySourceInstructions}
                   preferencesForm={preferencesForm}
                   profileForm={profileForm}
                   recentSourceDebugRuns={recentSourceDebugRuns}
+                  sourceAccessPrompts={sourceAccessPrompts}
                   sourceInstructionArtifacts={sourceInstructionArtifacts}
                 />
               </div>

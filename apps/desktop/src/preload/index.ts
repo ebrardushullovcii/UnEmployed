@@ -8,6 +8,7 @@ import type {
   DiscoveryActivityEvent,
   JobFinderApplyConsentActionInput,
   JobFinderApplyQueueActionInput,
+  JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   JobFinderPerformanceSnapshot,
   ResumeImportBenchmarkReport,
@@ -115,9 +116,10 @@ const desktopApi = {
       ipcRenderer.invoke(
         "job-finder:get-workspace",
       ) as Promise<JobFinderWorkspaceSnapshot>,
-    openBrowserSession: () =>
+    openBrowserSession: (input?: JobFinderOpenBrowserSessionInput) =>
       ipcRenderer.invoke(
         "job-finder:open-browser-session",
+        input ?? {},
       ) as Promise<JobFinderWorkspaceSnapshot>,
     checkBrowserSession: () =>
       ipcRenderer.invoke(

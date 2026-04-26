@@ -575,6 +575,27 @@ export function createBrowserAgentRuntime(
     return page;
   }
 
+  async function openSessionAtTarget(input: {
+    source: JobSource;
+    targetUrl?: string | null;
+  }): Promise<BrowserSessionState> {
+    const page = await getReadyPage(input.source);
+    const normalizedTargetUrl =
+      typeof input.targetUrl === "string" ? input.targetUrl.trim() : "";
+
+    if (isHttpUrlLike(normalizedTargetUrl) && page.url() !== normalizedTargetUrl) {
+      await page.goto(normalizedTargetUrl, {
+        waitUntil: "domcontentloaded",
+      });
+      await page.bringToFront().catch(() => undefined);
+    }
+
+    return BrowserSessionStateSchema.parse({
+      ...currentSessionState,
+      source: input.source,
+    });
+  }
+
   return {
     getSessionState(source) {
       return Promise.resolve(
@@ -584,11 +605,10 @@ export function createBrowserAgentRuntime(
         }),
       );
     },
-    async openSession(source) {
-      await getReadyPage(source);
-      return BrowserSessionStateSchema.parse({
-        ...currentSessionState,
+    async openSession(source, options) {
+      return openSessionAtTarget({
         source,
+        targetUrl: options?.targetUrl ?? null,
       });
     },
     async closeSession(source) {

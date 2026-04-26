@@ -1,6 +1,7 @@
 import {
   workModeValues,
   type EditableSourceInstructionArtifact,
+  type SourceAccessPrompt,
   type SourceDebugRunDetails,
   type SourceDebugRunRecord,
   type SourceInstructionArtifact
@@ -24,17 +25,20 @@ export function ProfilePreferencesTargetingSection(props: {
   addDiscoveryTarget: () => void
   busy: boolean
   discoveryTargets: SearchPreferencesEditorValues['discoveryTargets']
+  isBrowserSessionPending: boolean
   isSourceDebugPending: (targetId: string) => boolean
   isSourceInstructionPending: (targetId: string) => boolean
   isSourceInstructionVerifyPending: (instructionId: string) => boolean
   isTargetDiscoveryPending: (targetId: string) => boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onOpenBrowserSessionForTarget: (targetId: string) => void
   onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
+  sourceAccessPrompts: readonly SourceAccessPrompt[]
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
   updateDiscoveryTargets: (nextTargets: SearchPreferencesEditorValues['discoveryTargets']) => void
 }) {
@@ -176,17 +180,20 @@ export function ProfilePreferencesTargetingSection(props: {
                 discoveryTargets={props.discoveryTargets}
                 index={index}
                 instructionArtifact={instructionArtifact}
+                isBrowserSessionPending={props.isBrowserSessionPending}
                 isSourceDebugPending={props.isSourceDebugPending}
                 isSourceInstructionPending={props.isSourceInstructionPending}
                 isSourceInstructionVerifyPending={props.isSourceInstructionVerifyPending}
                 isTargetDiscoveryPending={props.isTargetDiscoveryPending}
                 key={target.id}
                 onGetSourceDebugRunDetails={props.onGetSourceDebugRunDetails}
+                onOpenBrowserSessionForTarget={props.onOpenBrowserSessionForTarget}
                 {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
                 onRunSourceDebug={props.onRunSourceDebug}
                 onSaveSourceInstructionArtifact={props.onSaveSourceInstructionArtifact}
                 onVerifySourceInstructions={props.onVerifySourceInstructions}
                 recentSourceDebugRuns={props.recentSourceDebugRuns}
+                sourceAccessPrompt={props.sourceAccessPrompts.find((prompt) => prompt.targetId === target.id) ?? null}
                 target={target}
                 updateDiscoveryTargets={props.updateDiscoveryTargets}
               />

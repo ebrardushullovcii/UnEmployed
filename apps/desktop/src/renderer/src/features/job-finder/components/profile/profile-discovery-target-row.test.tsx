@@ -1,0 +1,101 @@
+// @vitest-environment jsdom
+
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { EditableSourceInstructionArtifact, SourceAccessPrompt, SourceDebugRunDetails, SourceDebugRunRecord } from '@unemployed/contracts'
+import { ProfileDiscoveryTargetRow } from './profile-discovery-target-row'
+
+describe('ProfileDiscoveryTargetRow', () => {
+  let container: HTMLDivElement | null = null
+  let root: Root | null = null
+
+  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+  afterEach(() => {
+    if (root) {
+      act(() => {
+        root?.unmount()
+      })
+    }
+
+    root = null
+    container?.remove()
+    container = null
+    vi.clearAllMocks()
+  })
+
+  it('renders a source sign-in prompt and CTA near source actions', () => {
+    const onOpenBrowserSessionForTarget = vi.fn()
+    const target = {
+      id: 'target_linkedin_default',
+      label: 'LinkedIn',
+      startingUrl: 'https://www.linkedin.com/jobs/search/',
+      enabled: true,
+      adapterKind: 'auto' as const,
+      customInstructions: '',
+      instructionStatus: 'draft' as const,
+      validatedInstructionId: null,
+      draftInstructionId: 'instruction_1',
+      lastDebugRunId: null,
+      lastVerifiedAt: null,
+      staleReason: null,
+    }
+    const sourceAccessPrompt: SourceAccessPrompt = {
+      targetId: 'target_linkedin_default',
+      targetLabel: 'LinkedIn',
+      targetUrl: 'https://www.linkedin.com/jobs/search/',
+      state: 'login_required',
+      summary: 'Sign in to LinkedIn before the next search can continue.',
+      detail: 'Please sign in first.',
+      actionLabel: 'Sign in to LinkedIn',
+      rerunLabel: 'Search again after sign-in',
+      updatedAt: '2026-03-20T10:01:00.000Z',
+    }
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ProfileDiscoveryTargetRow
+          busy={false}
+          discoveryTargets={[target]}
+          index={0}
+          instructionArtifact={null}
+          isBrowserSessionPending={false}
+          isSourceDebugPending={() => false}
+          isSourceInstructionPending={() => false}
+          isSourceInstructionVerifyPending={() => false}
+          isTargetDiscoveryPending={() => false}
+          onGetSourceDebugRunDetails={vi.fn<() => Promise<SourceDebugRunDetails>>(() => Promise.reject(new Error('not used')))}
+          onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
+          onRunDiscoveryForTarget={vi.fn()}
+          onRunSourceDebug={vi.fn()}
+          onSaveSourceInstructionArtifact={vi.fn<(targetId: string, artifact: EditableSourceInstructionArtifact) => void>()}
+          onVerifySourceInstructions={vi.fn()}
+          recentSourceDebugRuns={[] as readonly SourceDebugRunRecord[]}
+          sourceAccessPrompt={sourceAccessPrompt}
+          target={target}
+          updateDiscoveryTargets={vi.fn()}
+        />,
+      )
+    })
+
+    expect(container?.textContent).toContain('Sign-in required')
+    expect(container?.textContent).toContain('Sign in to LinkedIn before the next search can continue.')
+    expect(container?.textContent).toContain('After sign-in: Search again after sign-in.')
+
+    const signInButton = [...(container?.querySelectorAll('button') ?? [])].find(
+      (button) => button.textContent?.trim() === 'Sign in to LinkedIn',
+    )
+    expect(signInButton).not.toBeNull()
+
+    act(() => {
+      signInButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith('target_linkedin_default')
+  })
+})

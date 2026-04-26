@@ -190,6 +190,18 @@ export const browserSessionStatusValues = [
 export const BrowserSessionStatusSchema = z.enum(browserSessionStatusValues);
 export type BrowserSessionStatus = z.infer<typeof BrowserSessionStatusSchema>;
 
+export const sourceAccessPromptStateValues = [
+  "login_required",
+  "login_recommended",
+] as const;
+
+export const SourceAccessPromptStateSchema = z.enum(
+  sourceAccessPromptStateValues,
+);
+export type SourceAccessPromptState = z.infer<
+  typeof SourceAccessPromptStateSchema
+>;
+
 export const browserDriverValues = [
   "catalog_seed",
   "chrome_profile_agent",

@@ -1,5 +1,6 @@
 import type {
   EditableSourceInstructionArtifact,
+  SourceAccessPrompt,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
   SourceInstructionArtifact
@@ -18,12 +19,14 @@ interface ProfileActiveSectionContentProps {
   activeSection: ProfileSection
   backgroundArrays: ProfileBackgroundArrays
   experienceArray: UseFieldArrayReturn<ProfileEditorValues, 'records.experiences', ProfileFieldArrayKeyName>
+  isBrowserSessionPending: boolean
   isProfileMutationPending: boolean
   isSourceDebugPending: (targetId: string) => boolean
   isSourceInstructionPending: (targetId: string) => boolean
   isSourceInstructionVerifyPending: (instructionId: string) => boolean
   isTargetDiscoveryPending: (targetId: string) => boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onOpenBrowserSessionForTarget: (targetId: string) => void
   onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
@@ -31,6 +34,7 @@ interface ProfileActiveSectionContentProps {
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>
   profileForm: UseFormReturn<ProfileEditorValues>
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
+  sourceAccessPrompts: readonly SourceAccessPrompt[]
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
 }
 
@@ -38,12 +42,14 @@ export function ProfileActiveSectionContent({
   activeSection,
   backgroundArrays,
   experienceArray,
+  isBrowserSessionPending,
   isProfileMutationPending,
   isSourceDebugPending,
   isSourceInstructionPending,
   isSourceInstructionVerifyPending,
   isTargetDiscoveryPending,
   onGetSourceDebugRunDetails,
+  onOpenBrowserSessionForTarget,
   onRunDiscoveryForTarget,
   onRunSourceDebug,
   onSaveSourceInstructionArtifact,
@@ -51,6 +57,7 @@ export function ProfileActiveSectionContent({
   preferencesForm,
   profileForm,
   recentSourceDebugRuns,
+  sourceAccessPrompts,
   sourceInstructionArtifacts
 }: ProfileActiveSectionContentProps) {
   const content: Record<ProfileSection, ReactNode> = {
@@ -60,11 +67,13 @@ export function ProfileActiveSectionContent({
     preferences: (
       <ProfilePreferencesTab
         busy={isProfileMutationPending}
+        isBrowserSessionPending={isBrowserSessionPending}
         isSourceDebugPending={isSourceDebugPending}
         isSourceInstructionPending={isSourceInstructionPending}
         isSourceInstructionVerifyPending={isSourceInstructionVerifyPending}
         isTargetDiscoveryPending={isTargetDiscoveryPending}
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+        onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
         {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
         onRunSourceDebug={onRunSourceDebug}
         onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
@@ -73,6 +82,7 @@ export function ProfileActiveSectionContent({
         profileForm={profileForm}
         customAnswerArray={backgroundArrays.customAnswerArray}
         recentSourceDebugRuns={recentSourceDebugRuns}
+        sourceAccessPrompts={sourceAccessPrompts}
         sourceInstructionArtifacts={sourceInstructionArtifacts}
       />
     )

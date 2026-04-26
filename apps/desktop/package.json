@@ -15,6 +15,7 @@
     "benchmark:resume-import": "pnpm build && node ./scripts/run-resume-import-benchmark.mjs",
     "ui:capture": "pnpm build && node ./scripts/capture-ui.mjs",
     "ui:profile-copilot-preferences": "pnpm build && node ./scripts/capture-profile-copilot-preferences.mjs",
+    "ui:source-sign-in-prompts": "pnpm build && node ./scripts/capture-source-sign-in-prompts.mjs",
     "ui:resume-import": "pnpm build && node ./scripts/capture-resume-import.mjs",
     "ui:profile-baseline": "pnpm build && node ./scripts/capture-profile-baseline.mjs",
     "ui:profile-setup": "pnpm build && node ./scripts/capture-profile-setup.mjs",

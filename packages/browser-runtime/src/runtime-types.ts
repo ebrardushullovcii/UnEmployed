@@ -15,6 +15,10 @@ import type {
 } from "@unemployed/contracts";
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 
+export interface OpenBrowserSessionOptions {
+  targetUrl?: string | null;
+}
+
 export interface ExecuteEasyApplyInput {
   job: SavedJob;
   resumeExport: ResumeExportArtifact;
@@ -33,7 +37,10 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
 
 export interface BrowserSessionRuntime {
   getSessionState(source: JobSource): Promise<BrowserSessionState>;
-  openSession(source: JobSource): Promise<BrowserSessionState>;
+  openSession(
+    source: JobSource,
+    options?: OpenBrowserSessionOptions,
+  ): Promise<BrowserSessionState>;
   closeSession(source: JobSource): Promise<BrowserSessionState>;
   runDiscovery(
     source: JobSource,

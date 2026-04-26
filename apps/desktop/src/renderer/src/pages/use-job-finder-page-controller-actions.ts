@@ -3,6 +3,7 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   JobFinderResumeWorkspace,
+  JobFinderOpenBrowserSessionInput,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   ProfileCopilotMessage,
@@ -257,6 +258,13 @@ export function createPrimaryPageActions(
     workspace,
   } = args
 
+  function getConfiguredSourceTarget(targetId: string) {
+    return (
+      workspace.searchPreferences.discovery.targets.find((target) => target.id === targetId) ??
+      null
+    )
+  }
+
   const runDiscoveryAction = (targetId?: string) => {
     setLiveDiscoveryEvents([])
     void runAction(
@@ -463,13 +471,22 @@ export function createPrimaryPageActions(
         scope: jobFinderPendingActions.profileImport(),
       })
     },
-    onOpenBrowserSession: () =>
+    onOpenBrowserSession: (input?: JobFinderOpenBrowserSessionInput) =>
       void runAction(
-        actions.openBrowserSession,
+        () => actions.openBrowserSession(input),
         () => undefined,
-        workspace.browserSession.status === 'ready'
-          ? 'Browser refreshed.'
-          : 'Browser opened and status refreshed.',
+        () => {
+          if (input?.targetId) {
+            const target = getConfiguredSourceTarget(input.targetId)
+            return target
+              ? `Opened the browser for ${target.label}. Sign in there, then return to continue.`
+              : 'Browser opened and status refreshed.'
+          }
+
+          return workspace.browserSession.status === 'ready'
+            ? 'Browser refreshed.'
+            : 'Browser opened and status refreshed.'
+        },
         { scope: jobFinderPendingActions.browserSession() },
       ),
     onOpenProfile: () => {

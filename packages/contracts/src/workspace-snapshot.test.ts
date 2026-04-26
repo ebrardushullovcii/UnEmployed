@@ -6,6 +6,7 @@ import {
   JobFinderApplyRunActionInputSchema,
   JobFinderApplyRunDetailsQuerySchema,
   JobFinderAgentDiscoveryActionInputSchema,
+  JobFinderOpenBrowserSessionInputSchema,
   ApplicationAttemptSchema,
   JobFinderWorkspaceSnapshotSchema,
 } from "./index";
@@ -172,6 +173,19 @@ describe("contracts workspace snapshot schema", () => {
         detail: "Validated recently.",
         lastCheckedAt: "2026-03-20T10:04:00.000Z",
       },
+      sourceAccessPrompts: [
+        {
+          targetId: "target_1",
+          targetLabel: "KosovaJob",
+          targetUrl: "https://kosovajob.com/",
+          state: "login_required",
+          summary: "Sign in before the next search can continue.",
+          detail: "Please sign in first.",
+          actionLabel: "Sign in to KosovaJob",
+          rerunLabel: "Search again after sign-in",
+          updatedAt: "2026-03-20T10:01:00.000Z",
+        },
+      ],
       discoveryJobs: [
         {
           id: "job_1",
@@ -369,6 +383,23 @@ describe("contracts workspace snapshot schema", () => {
     expect(workspace.applyRuns[0]?.state).toBe("paused_for_user_review");
     expect(workspace.selectedApplyRunId).toBe("apply_run_1");
     expect(workspace.activeSourceDebugRun?.state).toBe("paused_manual");
+    expect(workspace.sourceAccessPrompts[0]?.state).toBe("login_required");
+  });
+
+  test("parses open-browser-session payloads with optional target scope", () => {
+    expect(
+      JobFinderOpenBrowserSessionInputSchema.parse({}),
+    ).toEqual({
+      targetId: null,
+    });
+
+    expect(
+      JobFinderOpenBrowserSessionInputSchema.parse({
+        targetId: "target_linkedin_default",
+      }),
+    ).toEqual({
+      targetId: "target_linkedin_default",
+    });
   });
 
   test("parses agent discovery action payloads with optional single-target scope", () => {

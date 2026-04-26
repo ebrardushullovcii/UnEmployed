@@ -13,6 +13,7 @@ import {
   JobSourceSchema,
   NonEmptyStringSchema,
   ResumeTemplateIdSchema,
+  SourceAccessPromptStateSchema,
   SourceDebugPhaseSchema,
 } from "./base";
 import {
@@ -170,6 +171,13 @@ export type JobFinderSourceDebugActionInput = z.infer<
   typeof JobFinderSourceDebugActionInputSchema
 >;
 
+export const JobFinderOpenBrowserSessionInputSchema = z.object({
+  targetId: NonEmptyStringSchema.nullable().default(null),
+});
+export type JobFinderOpenBrowserSessionInput = z.infer<
+  typeof JobFinderOpenBrowserSessionInputSchema
+>;
+
 export const JobFinderDiscoveryTargetActionInputSchema = z.object({
   targetId: NonEmptyStringSchema,
 });
@@ -240,6 +248,19 @@ export const BrowserSessionStateSchema = z.object({
   lastCheckedAt: IsoDateTimeSchema,
 });
 export type BrowserSessionState = z.infer<typeof BrowserSessionStateSchema>;
+
+export const SourceAccessPromptSchema = z.object({
+  targetId: NonEmptyStringSchema,
+  targetLabel: NonEmptyStringSchema,
+  targetUrl: NonEmptyStringSchema,
+  state: SourceAccessPromptStateSchema,
+  summary: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema.nullable().default(null),
+  actionLabel: NonEmptyStringSchema,
+  rerunLabel: NonEmptyStringSchema.nullable().default(null),
+  updatedAt: IsoDateTimeSchema,
+});
+export type SourceAccessPrompt = z.infer<typeof SourceAccessPromptSchema>;
 
 export const AgentProviderStatusSchema = z.object({
   kind: AiProviderKindSchema,
@@ -381,6 +402,7 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   searchPreferences: JobSearchPreferencesSchema,
   profileSetupState: ProfileSetupStateSchema,
   browserSession: BrowserSessionStateSchema,
+  sourceAccessPrompts: z.array(SourceAccessPromptSchema).default([]),
   discoverySessions: z.array(DiscoveryAdapterSessionStateSchema).default([]),
   discoveryRunState: DiscoveryRunStateSchema.default("idle"),
   activeDiscoveryRun: DiscoveryRunRecordSchema.nullable().default(null),

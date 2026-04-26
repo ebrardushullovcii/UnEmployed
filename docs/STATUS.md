@@ -10,6 +10,7 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 
 ## What Matters Now
 
+- `022` is completed: source sign-in prompts and source-aware browser entry now surface in `Profile` and `Find jobs`, with screenshot-reviewed desktop QA artifacts under `apps/desktop/test-artifacts/ui/source-sign-in-prompts/`
 - `023` is queued: resume generation quality has a defined next plan, but it is not the active execution track yet
 - `020` is completed: Job Finder routes now use scoped pending lanes with clearer disabled and in-progress button feedback across desktop flows
 - `021` is completed: resume-import duplicate records, fresh-start placeholder replacement, optional-proof warning cleanup, and date-derived years-of-experience fallback are now part of the landed import baseline
@@ -49,6 +50,7 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 
 - `docs/TRACKS.md`
 - `docs/exec-plans/queued/023-job-finder-world-class-resume-generation-quality.md`
+- `docs/exec-plans/completed/022-job-finder-source-sign-in-prompts-and-source-aware-browser-entry.md`
 - `docs/exec-plans/completed/020-job-finder-scoped-button-pending-state-and-feedback.md`
 - `docs/exec-plans/completed/017-browser-substrate-evaluation-and-direction.md`
 - `docs/exec-plans/completed/017-experiment-tracker.md`

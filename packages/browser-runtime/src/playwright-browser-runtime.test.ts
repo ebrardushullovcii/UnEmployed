@@ -619,4 +619,77 @@ describe("playwright browser runtime", () => {
       await rm(userDataDir, { recursive: true, force: true });
     }
   });
+
+  test("openSession can navigate the shared browser profile to a specific target url", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-target-open-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 56565 });
+
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "about:blank",
+      };
+      const fakeContext = {
+        newPage: vi.fn().mockResolvedValue(fakePage),
+        pages: () => [fakePage],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      let debuggerReadyChecks = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => {
+          debuggerReadyChecks += 1;
+          if (debuggerReadyChecks === 1) {
+            return Promise.reject(new Error("debugger not ready yet"));
+          }
+
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          } as Response);
+        }),
+      );
+
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      await runtime.openSession("target_site", {
+        targetUrl: "https://example.com/jobs/sign-in",
+      });
+
+      expect(fakePage.goto).toHaveBeenCalledWith(
+        "https://example.com/jobs/sign-in",
+        { waitUntil: "domcontentloaded" },
+      );
+      expect(fakePage.bringToFront).toHaveBeenCalled();
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
 });

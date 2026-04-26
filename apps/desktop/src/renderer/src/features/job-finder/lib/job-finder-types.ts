@@ -7,6 +7,7 @@ import type {
   EditableSourceInstructionArtifact,
   JobFinderApplyConsentActionInput,
   JobFinderApplyQueueActionInput,
+  JobFinderOpenBrowserSessionInput,
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobSearchPreferences,
@@ -32,7 +33,9 @@ export type JobFinderScreen =
 
 export interface JobFinderShellActions {
   analyzeProfileFromResume: () => Promise<JobFinderWorkspaceSnapshot>;
-  openBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
+  openBrowserSession: (
+    input?: JobFinderOpenBrowserSessionInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   checkBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
   refreshWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
   resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;

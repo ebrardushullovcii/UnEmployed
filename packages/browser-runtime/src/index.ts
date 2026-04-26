@@ -5,6 +5,7 @@ export type {
   CatalogBrowserSessionRuntimeSeed,
   ExecuteApplicationFlowInput,
   ExecuteEasyApplyInput,
+  OpenBrowserSessionOptions,
   StubBrowserSessionRuntimeSeed,
 } from './runtime-types'
 

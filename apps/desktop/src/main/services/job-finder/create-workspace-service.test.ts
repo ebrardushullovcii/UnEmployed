@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopJobFinderAiClient } from "./create-workspace-service";
 import {
   getDesktopTestDelayMs,
+  getTestBrowserSessionStatus,
   isBrowserAgentEnabled,
   parseResumeImportPathPayload,
   resetInvalidBooleanEnvWarnings,
@@ -135,6 +136,64 @@ describe("parseResumeImportPathPayload", () => {
     expect(
       parseResumeImportPathPayload({ sourcePath: "  C:/tmp/resume.pdf  " }),
     ).toEqual({ sourcePath: "C:/tmp/resume.pdf" });
+  });
+});
+
+describe("getTestBrowserSessionStatus", () => {
+  beforeEach(() => {
+    resetInvalidBooleanEnvWarnings();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    resetInvalidBooleanEnvWarnings();
+    vi.restoreAllMocks();
+  });
+
+  test("returns null when the override is unset or blank", () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    expect(getTestBrowserSessionStatus({})).toBeNull();
+    expect(
+      getTestBrowserSessionStatus({ UNEMPLOYED_TEST_BROWSER_SESSION_STATUS: "   " }),
+    ).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("parses valid browser session statuses", () => {
+    expect(
+      getTestBrowserSessionStatus({
+        UNEMPLOYED_TEST_BROWSER_SESSION_STATUS: "login_required",
+      }),
+    ).toBe("login_required");
+    expect(
+      getTestBrowserSessionStatus({
+        UNEMPLOYED_TEST_BROWSER_SESSION_STATUS: " blocked ",
+      }),
+    ).toBe("blocked");
+  });
+
+  test("warns once and ignores invalid overrides", () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    expect(
+      getTestBrowserSessionStatus({
+        UNEMPLOYED_TEST_BROWSER_SESSION_STATUS: "needs_login",
+      }),
+    ).toBeNull();
+    expect(
+      getTestBrowserSessionStatus({
+        UNEMPLOYED_TEST_BROWSER_SESSION_STATUS: "needs_login",
+      }),
+    ).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[desktop test-api] Unrecognized UNEMPLOYED_TEST_BROWSER_SESSION_STATUS value: "needs_login". Falling back to the default no-override behavior.',
+    );
   });
 });
 

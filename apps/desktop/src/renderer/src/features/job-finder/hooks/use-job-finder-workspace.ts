@@ -5,6 +5,7 @@ import type {
   EditableSourceInstructionArtifact,
   JobFinderApplyConsentActionInput,
   JobFinderApplyQueueActionInput,
+  JobFinderOpenBrowserSessionInput,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
@@ -57,9 +58,9 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.analyzeProfileFromResume(),
         ),
-      openBrowserSession: () =>
+      openBrowserSession: (input?: JobFinderOpenBrowserSessionInput) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.openBrowserSession(),
+          window.unemployed.jobFinder.openBrowserSession(input),
         ),
       checkBrowserSession: () =>
         runWorkspaceAction(() =>

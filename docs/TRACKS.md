@@ -50,6 +50,13 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - duplicate-record handling, fresh-start placeholder replacement, optional-proof warning cleanup, and date-derived `yearsExperience` fallback are landed
 - reopen only for a new real import regression, supported parser/platform changes, or a concrete source-generic import-quality improvement
 
+### `022 Job Finder Source Sign-In Prompts And Source-Aware Browser Entry`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/022-job-finder-source-sign-in-prompts-and-source-aware-browser-entry.md`
+- source-level sign-in prompts and source-aware browser entry are now surfaced in `Profile` and `Find jobs` with typed contracts, source-generic evidence derivation, and desktop screenshot QA coverage
+- reopen only for a concrete auth-prompt misclassification, source-aware browser-entry regression, or a new screenshot-backed UX issue in these sign-in flows
+
 ### `015 Automatic Job Apply`
 
 - status: `done`
@@ -79,13 +86,6 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - `007`: resume workspace
 
 ## Ready Queue
-
-- `022 Job Finder Source Sign-In Prompts And Source-Aware Browser Entry`
-
-- status: `ready`
-- linked plan: `docs/exec-plans/queued/022-job-finder-source-sign-in-prompts-and-source-aware-browser-entry.md`
-- surface source-level sign-in prompts and direct browser entry from `Profile` and `Find jobs` when auth is required or clearly recommended
-- keep auth detection source-generic, typed, and grounded in source-debug and intelligence evidence rather than board-specific branches
 
 - `023 Job Finder World-Class Resume Generation Quality`
 

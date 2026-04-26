@@ -5,6 +5,7 @@ import type {
   EditableSourceInstructionArtifact,
   JobFinderApplyQueueActionInput,
   JobFinderApplyConsentActionInput,
+  JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   JobFinderResumeWorkspace,
   JobFinderSettings,
@@ -64,7 +65,7 @@ export interface JobFinderPageContext {
   onGetApplyRunDetails: (runId: string, jobId: string) => Promise<ApplyRunDetails>
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
-  onOpenBrowserSession: () => void
+  onOpenBrowserSession: (input?: JobFinderOpenBrowserSessionInput) => void
   onOpenProfile: () => void
   onProfileSurfaceDirtyChange: (dirty: boolean) => void
   profileCopilotPendingContextKey: string | null
@@ -249,6 +250,7 @@ export function JobFinderProfileRoute() {
       actionState={context.actionState}
       importResumeGuardMessage={context.importResumeGuardMessage}
       isAnalyzeProfilePending={context.isPending(jobFinderPendingActions.profileAnalyze())}
+      isBrowserSessionPending={context.isPending(jobFinderPendingActions.browserSession())}
       isImportResumePending={context.isPending(jobFinderPendingActions.profileImport())}
       isProfileMutationPending={context.isPending(jobFinderPendingActions.profileMutation())}
       isProfileSetupPending={context.isPending(jobFinderPendingActions.profileSetup())}
@@ -267,6 +269,7 @@ export function JobFinderProfileRoute() {
       onAnalyzeProfileFromResume={context.onAnalyzeProfileFromResume}
       onGetSourceDebugRunDetails={context.onGetSourceDebugRunDetails}
       onImportResume={context.onImportResume}
+      onOpenBrowserSessionForTarget={(targetId) => context.onOpenBrowserSession({ targetId })}
       onProfileSurfaceDirtyChange={context.onProfileSurfaceDirtyChange}
       profileCopilotPendingContextKey={context.profileCopilotPendingContextKey}
       onResumeProfileSetup={context.onResumeProfileSetup}
@@ -286,6 +289,7 @@ export function JobFinderProfileRoute() {
       profileSetupState={context.workspace.profileSetupState}
       recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       searchPreferences={context.workspace.searchPreferences}
+      sourceAccessPrompts={context.workspace.sourceAccessPrompts}
       sourceInstructionArtifacts={context.workspace.sourceInstructionArtifacts}
     />
   )
@@ -358,6 +362,7 @@ export function JobFinderDiscoveryRoute() {
       }
       onDismissJob={context.onDismissJob}
       onOpenBrowserSession={context.onOpenBrowserSession}
+      onOpenBrowserSessionForTarget={(targetId) => context.onOpenBrowserSession({ targetId })}
       onQueueJob={context.onQueueJob}
       onRunAgentDiscovery={context.onRunAgentDiscovery}
       {...(context.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: context.onRunDiscoveryForTarget } : {})}
@@ -365,6 +370,7 @@ export function JobFinderDiscoveryRoute() {
       recentRuns={context.workspace.recentDiscoveryRuns}
       searchPreferences={context.workspace.searchPreferences}
       selectedJob={context.selectedDiscoveryJob}
+      sourceAccessPrompts={context.workspace.sourceAccessPrompts}
     />
   )
 }

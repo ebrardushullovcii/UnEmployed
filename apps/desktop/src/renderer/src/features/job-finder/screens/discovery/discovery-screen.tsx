@@ -5,6 +5,7 @@ import type {
   DiscoveryActivityEvent,
   DiscoveryRunRecord,
   JobSearchPreferences,
+  SourceAccessPrompt,
   SavedJob
 } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
@@ -30,6 +31,7 @@ export function DiscoveryScreen(props: {
   liveEvents: readonly DiscoveryActivityEvent[]
   onDismissJob: (jobId: string) => void
   onOpenBrowserSession: () => void
+  onOpenBrowserSessionForTarget: (targetId: string) => void
   onQueueJob: (jobId: string) => void
   onRunAgentDiscovery: (() => void) | undefined
   onRunDiscoveryForTarget?: (targetId: string) => void
@@ -37,6 +39,7 @@ export function DiscoveryScreen(props: {
   recentRuns: readonly DiscoveryRunRecord[]
   searchPreferences: JobSearchPreferences
   selectedJob: SavedJob | null
+  sourceAccessPrompts: readonly SourceAccessPrompt[]
 }) {
   const {
     actionState,
@@ -51,12 +54,14 @@ export function DiscoveryScreen(props: {
     liveEvents,
     onDismissJob,
     onOpenBrowserSession,
+    onOpenBrowserSessionForTarget,
     onQueueJob,
     onRunAgentDiscovery,
     onSelectJob,
     recentRuns,
     searchPreferences,
-    selectedJob
+    selectedJob,
+    sourceAccessPrompts,
   } = props
   const [showHistory, setShowHistory] = useState(false)
 
@@ -99,16 +104,19 @@ export function DiscoveryScreen(props: {
               <DiscoveryFiltersPanel
                 activeRun={activeRun}
                 actionMessage={actionState.message}
+                browserSession={browserSession}
                 discoverySessions={discoverySessions}
                 isBrowserSessionPending={isBrowserSessionPending}
                 isDiscoveryAllPending={isDiscoveryAllPending}
                 isTargetPending={isTargetPending}
                 onOpenBrowserSession={onOpenBrowserSession}
+                onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
                 onRunAgentDiscovery={onRunAgentDiscovery}
-              {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
-              onViewProgress={() => setShowHistory(true)}
-              searchPreferences={searchPreferences}
-            />
+               {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
+               onViewProgress={() => setShowHistory(true)}
+                searchPreferences={searchPreferences}
+                sourceAccessPrompts={sourceAccessPrompts}
+             />
             <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-6 xl:h-full xl:min-h-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Job results</p>
@@ -130,16 +138,19 @@ export function DiscoveryScreen(props: {
               <DiscoveryFiltersPanel
                 activeRun={activeRun}
                 actionMessage={actionState.message}
+                browserSession={browserSession}
                 discoverySessions={discoverySessions}
                 isBrowserSessionPending={isBrowserSessionPending}
                 isDiscoveryAllPending={isDiscoveryAllPending}
                 isTargetPending={isTargetPending}
                 onOpenBrowserSession={onOpenBrowserSession}
+                onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
                 onRunAgentDiscovery={onRunAgentDiscovery}
-              {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
-              onViewProgress={() => setShowHistory(true)}
-              searchPreferences={searchPreferences}
-            />
+               {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
+               onViewProgress={() => setShowHistory(true)}
+                searchPreferences={searchPreferences}
+                sourceAccessPrompts={sourceAccessPrompts}
+             />
             <DiscoveryResultsPanel
               browserSession={browserSession}
               jobs={jobs}

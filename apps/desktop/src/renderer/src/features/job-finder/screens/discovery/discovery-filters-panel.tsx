@@ -4,6 +4,7 @@ import type {
   BrowserSessionState,
   DiscoveryAdapterSessionState,
   DiscoveryRunRecord,
+  SourceAccessPrompt,
   JobSearchPreferences,
 } from "@unemployed/contracts";
 import { Chip } from "@renderer/components/ui/chip";
@@ -25,15 +26,18 @@ const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
 interface DiscoveryFiltersPanelProps {
   activeRun: DiscoveryRunRecord | null;
   actionMessage: string | null;
+  browserSession: BrowserSessionState;
   discoverySessions: readonly DiscoveryAdapterSessionState[];
   isBrowserSessionPending: boolean;
   isDiscoveryAllPending: boolean;
   isTargetPending: (targetId: string) => boolean;
   onOpenBrowserSession: () => void;
+  onOpenBrowserSessionForTarget: (targetId: string) => void;
   onRunAgentDiscovery: (() => void) | undefined;
   onRunDiscoveryForTarget?: (targetId: string) => void;
   onViewProgress: () => void;
   searchPreferences: JobSearchPreferences;
+  sourceAccessPrompts: readonly SourceAccessPrompt[];
 }
 
 type SectionValue =
@@ -59,15 +63,18 @@ function getBrowserStatusLabel(status: BrowserSessionState["status"]): string {
 export function DiscoveryFiltersPanel({
   activeRun,
   actionMessage,
+  browserSession,
   discoverySessions,
   isBrowserSessionPending,
   isDiscoveryAllPending,
   isTargetPending,
   onOpenBrowserSession,
+  onOpenBrowserSessionForTarget,
   onRunAgentDiscovery,
   onRunDiscoveryForTarget,
   onViewProgress,
   searchPreferences,
+  sourceAccessPrompts,
 }: DiscoveryFiltersPanelProps) {
   const searchControlsHeadingId = useId();
   const sectionHeadingPrefix = useId();
@@ -115,6 +122,12 @@ export function DiscoveryFiltersPanel({
     discoverySessions.find(
       (session) => session.driver === "chrome_profile_agent",
     ) ?? null;
+  const browserSessionSnapshot =
+    browserSession.driver === "catalog_seed" &&
+    browserSession.status === "unknown" &&
+    browserSession.label === "Session status unavailable"
+      ? NEUTRAL_SESSION_SNAPSHOT
+      : browserSession;
   const displaySessionSnapshot: BrowserSessionState = chromeProfileSession
     ? {
         source: chromeProfileSession.adapterKind,
@@ -124,10 +137,11 @@ export function DiscoveryFiltersPanel({
         detail: chromeProfileSession.detail ?? "",
         lastCheckedAt: chromeProfileSession.lastCheckedAt,
       }
-    : NEUTRAL_SESSION_SNAPSHOT;
+    : browserSessionSnapshot;
   const sessionDetail = displaySessionSnapshot.detail?.trim() ?? "";
-  const isChromeAgent =
-    displaySessionSnapshot.driver === "chrome_profile_agent";
+  const isBrowserSessionVisible =
+    displaySessionSnapshot.driver === "chrome_profile_agent" ||
+    displaySessionSnapshot !== NEUTRAL_SESSION_SNAPSHOT;
   const isReady = displaySessionSnapshot.status === "ready";
   const needsLogin = displaySessionSnapshot.status === "login_required";
   const isBlocked = displaySessionSnapshot.status === "blocked";
@@ -137,6 +151,7 @@ export function DiscoveryFiltersPanel({
     activeRun?.state === "running" && activeRun.scope === "single_target"
       ? activeRun.targetIds[0] ?? null
       : null;
+  const primarySourceAccessPrompt = sourceAccessPrompts[0] ?? null;
 
   return (
     <section
@@ -156,19 +171,55 @@ export function DiscoveryFiltersPanel({
               <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
                 {getBrowserStatusLabel(displaySessionSnapshot.status)}
               </StatusBadge>
-              <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
-                {isChromeAgent ? "Browser" : "Search"}
-              </span>
-            </div>
+                <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
+                  {isBrowserSessionVisible ? "Browser" : "Search"}
+                </span>
+              </div>
             {sessionDetail ? (
             <p className="max-w-full wrap-break-word text-(length:--text-field) leading-7 text-foreground-soft">
               {sessionDetail}
             </p>
           ) : null}
 
-          {isChromeAgent ? (
+          {isBrowserSessionVisible ? (
             <div className="grid gap-2">
-              {needsLogin || isBlocked ? (
+              {primarySourceAccessPrompt ? (
+                <div
+                  aria-live="polite"
+                  className={
+                    primarySourceAccessPrompt.state === "login_required"
+                      ? "rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--warning-text)"
+                      : "rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
+                  }
+                  role="status"
+                >
+                  <p className="font-medium">{primarySourceAccessPrompt.summary}</p>
+                  {primarySourceAccessPrompt.detail ? (
+                    <p className="mt-1 opacity-90">{primarySourceAccessPrompt.detail}</p>
+                  ) : null}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId)}
+                      pending={isBrowserSessionPending}
+                      size="sm"
+                      type="button"
+                      variant={
+                        primarySourceAccessPrompt.state === "login_required"
+                          ? "primary"
+                          : "secondary"
+                      }
+                    >
+                      {primarySourceAccessPrompt.actionLabel}
+                    </Button>
+                    {primarySourceAccessPrompt.rerunLabel ? (
+                      <span className="self-center text-(length:--text-small) opacity-80">
+                        {`Then ${primarySourceAccessPrompt.rerunLabel.toLowerCase()}.`}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {(needsLogin || isBlocked) && !primarySourceAccessPrompt ? (
                 <div
                   role="status"
                   className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--warning-text)"
@@ -258,24 +309,50 @@ export function DiscoveryFiltersPanel({
                 <div className="grid gap-2">
                   {enabledTargets.map((target) => {
                     const isActiveSingleTarget = activeTargetId === target.id;
+                    const targetPrompt =
+                      sourceAccessPrompts.find((prompt) => prompt.targetId === target.id) ?? null;
 
                     return (
-                      <Button
-                        aria-label={`Run discovery for ${target.label}`}
-                        aria-pressed={isActiveSingleTarget}
-                        className="h-auto min-h-11 w-full justify-between whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
-                        pending={isTargetPending(target.id)}
-                        key={target.id}
-                        onClick={() => onRunDiscoveryForTarget(target.id)}
-                        size="sm"
-                        type="button"
-                        variant={isActiveSingleTarget ? "secondary" : "ghost"}
-                      >
-                        <span className="truncate">{target.label}</span>
-                        <span className="text-(length:--text-small) text-foreground-muted">
-                          {isActiveSingleTarget ? "Running now" : "Search only this source"}
-                        </span>
-                      </Button>
+                      <div className="grid gap-2" key={target.id}>
+                        <Button
+                          aria-label={`Run discovery for ${target.label}`}
+                          aria-pressed={isActiveSingleTarget}
+                          className="h-auto min-h-11 w-full justify-between whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
+                          pending={isTargetPending(target.id)}
+                          onClick={() => onRunDiscoveryForTarget(target.id)}
+                          size="sm"
+                          type="button"
+                          variant={isActiveSingleTarget ? "secondary" : "ghost"}
+                        >
+                          <span className="truncate">{target.label}</span>
+                          <span className="text-(length:--text-small) text-foreground-muted">
+                            {isActiveSingleTarget ? "Running now" : "Search only this source"}
+                          </span>
+                        </Button>
+                        {targetPrompt ? (
+                          <div
+                            className={
+                              targetPrompt.state === "login_required"
+                                ? "rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-small) leading-6 text-(--warning-text)"
+                                : "rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-small) leading-6 text-(--info-text)"
+                            }
+                            role="status"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span>{targetPrompt.summary}</span>
+                               <Button
+                                 onClick={() => onOpenBrowserSessionForTarget(target.id)}
+                                 pending={isBrowserSessionPending}
+                                 size="sm"
+                                 type="button"
+                                 variant={targetPrompt.state === "login_required" ? "secondary" : "outline"}
+                               >
+                                 {targetPrompt.actionLabel}
+                               </Button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                     );
                   })}
                 </div>
@@ -295,7 +372,7 @@ export function DiscoveryFiltersPanel({
               variant="secondary"
             >
               <Search className="size-4" />
-              {isReady ? "Reopen browser" : "Open browser"}
+              {primarySourceAccessPrompt ? primarySourceAccessPrompt.actionLabel : isReady ? "Reopen browser" : "Open browser"}
             </Button>
           </div>
 

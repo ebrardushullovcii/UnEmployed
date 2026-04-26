@@ -1,4 +1,5 @@
 import {
+  type JobDiscoveryTarget,
   CandidateProfileSchema,
   JobFinderDiscoveryStateSchema,
   JobFinderWorkspaceSnapshotSchema,
@@ -22,9 +23,14 @@ import { normalizeProfileBeforeSave } from "./profile-merge";
 import { runResumeImportWorkflow } from "./resume-import-workflow";
 import { hasResumeAffectingProfileChange, hasResumeAffectingSettingsChange } from "./resume-workspace-staleness";
 import { selectLatestApplyRunId } from "./workspace-apply-run-support";
+import {
+  deriveSourceAccessPrompts,
+  resolveSourceBrowserEntryUrl,
+} from "./workspace-source-access-prompts";
 import { createBrowserSessionSnapshot } from "./workspace-service-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import {
+  resolveAdapterKind,
   getPreferredSessionAdapter,
   normalizeJobFinderSettings,
   normalizeResumeDraftTemplate,
@@ -61,6 +67,24 @@ export function createWorkspaceSnapshotProfileMethods(
   const { buildBundleFromStoredResume, getCurrentSetupStateContext } =
     createWorkspaceProfileSetupContextHelpers(ctx);
 
+  function resolveBrowserSessionTarget(input: {
+    targets: readonly JobDiscoveryTarget[];
+    targetId: string | null | undefined;
+  }): JobDiscoveryTarget | null {
+    if (!input.targetId) {
+      return null;
+    }
+
+    const target =
+      input.targets.find((candidate) => candidate.id === input.targetId) ?? null;
+
+    if (!target) {
+      throw new Error("The requested job source is no longer available.");
+    }
+
+    return target;
+  }
+
   async function getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot> {
     if (!ctx.activeSourceDebugExecutionIdRef.current) {
       const discoveryState = await ctx.repository.getDiscoveryState();
@@ -94,23 +118,24 @@ export function createWorkspaceSnapshotProfileMethods(
       }
     }
 
-      const [
-        setupContext,
-        savedJobs,
-        tailoredAssets,
-        resumeDrafts,
+    const [
+      setupContext,
+      savedJobs,
+      tailoredAssets,
+      resumeDrafts,
       resumeExportArtifacts,
-        resumeResearchArtifacts,
-        applyRuns,
-        applyJobResults,
-        applicationRecords,
-        applicationAttempts,
+      resumeResearchArtifacts,
+      applyRuns,
+      applyJobResults,
+      applicationRecords,
+      applicationAttempts,
       sourceInstructionArtifacts,
+      sourceDebugAttempts,
       profileCopilotMessages,
       profileRevisions,
-        rawSettings,
-        discovery,
-      ] = await Promise.all([
+      rawSettings,
+      discovery,
+    ] = await Promise.all([
       getCurrentSetupStateContext(),
       ctx.repository.listSavedJobs(),
       ctx.repository.listTailoredAssets(),
@@ -122,28 +147,37 @@ export function createWorkspaceSnapshotProfileMethods(
       ctx.repository.listApplicationRecords(),
       ctx.repository.listApplicationAttempts(),
       ctx.repository.listSourceInstructionArtifacts(),
+      ctx.repository.listSourceDebugAttempts(),
       ctx.repository.listProfileCopilotMessages(),
       ctx.repository.listProfileRevisions(),
       ctx.repository.getSettings(),
       ctx.repository.getDiscoveryState(),
     ]);
 
-      const availableResumeTemplates = ctx.documentManager.listResumeTemplates();
-      const settings = normalizeJobFinderSettings(
-        rawSettings,
-        availableResumeTemplates,
-      );
-      const normalizedResumeDrafts = resumeDrafts.map((draft) =>
-        normalizeResumeDraftTemplate(draft, availableResumeTemplates),
-      );
+    const availableResumeTemplates = ctx.documentManager.listResumeTemplates();
+    const settings = normalizeJobFinderSettings(
+      rawSettings,
+      availableResumeTemplates,
+    );
+    const normalizedResumeDrafts = resumeDrafts.map((draft) =>
+      normalizeResumeDraftTemplate(draft, availableResumeTemplates),
+    );
 
-      const discoverySessions = await ctx.refreshDiscoverySessions(
-        setupContext.searchPreferences,
-      );
+    const discoverySessions = await ctx.refreshDiscoverySessions(
+      setupContext.searchPreferences,
+    );
     const browserSession = createBrowserSessionSnapshot(
       discoverySessions,
       getPreferredSessionAdapter(setupContext.searchPreferences),
     );
+    const sourceAccessPrompts = deriveSourceAccessPrompts({
+      targets: setupContext.searchPreferences.discovery.targets,
+      recentSourceDebugRuns: discovery.recentSourceDebugRuns,
+      activeSourceDebugRun: discovery.activeSourceDebugRun,
+      sourceDebugAttempts,
+      sourceInstructionArtifacts,
+      searchPreferences: setupContext.searchPreferences,
+    });
 
     const persistedDiscoveryJobs = buildDiscoveryJobs(savedJobs);
     const savedJobIds = new Set(savedJobs.map((job) => job.id));
@@ -153,23 +187,24 @@ export function createWorkspaceSnapshotProfileMethods(
     const discoveryJobs = [...persistedDiscoveryJobs, ...mergedPendingJobs].sort(
       (left, right) => right.matchAssessment.score - left.matchAssessment.score,
     );
-      const reviewQueue = buildReviewQueue(
-        savedJobs,
-        tailoredAssets,
-        normalizedResumeDrafts,
-        resumeExportArtifacts,
-      );
+    const reviewQueue = buildReviewQueue(
+      savedJobs,
+      tailoredAssets,
+      normalizedResumeDrafts,
+      resumeExportArtifacts,
+    );
     const orderedApplicationRecords = buildApplicationRecords(applicationRecords);
 
     return JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
       generatedAt: new Date().toISOString(),
       agentProvider: ctx.aiClient.getStatus(),
-        availableResumeTemplates,
+      availableResumeTemplates,
       profile: setupContext.profile,
       searchPreferences: setupContext.searchPreferences,
       profileSetupState: setupContext.profileSetupState,
       browserSession,
+      sourceAccessPrompts,
       discoverySessions,
       discoveryRunState: discovery.runState,
       activeDiscoveryRun: discovery.activeRun,
@@ -181,7 +216,7 @@ export function createWorkspaceSnapshotProfileMethods(
       reviewQueue,
       selectedReviewJobId: reviewQueue[0]?.jobId ?? null,
       tailoredAssets,
-        resumeDrafts: normalizedResumeDrafts,
+      resumeDrafts: normalizedResumeDrafts,
       resumeExportArtifacts,
       resumeResearchArtifacts,
       applyRuns,
@@ -232,12 +267,31 @@ export function createWorkspaceSnapshotProfileMethods(
       await ctx.repository.reset(seed);
       return getWorkspaceSnapshot();
     },
-    async openBrowserSession() {
+    async openBrowserSession(input) {
       const searchPreferences = normalizeSearchPreferences(
         await ctx.repository.getSearchPreferences(),
       );
+      const sourceInstructionArtifacts =
+        await ctx.repository.listSourceInstructionArtifacts();
+      const configuredTargets = searchPreferences.discovery.targets;
+      const target = resolveBrowserSessionTarget({
+        targets: configuredTargets,
+        targetId: input?.targetId,
+      });
+      const sessionSource = target
+        ? resolveAdapterKind(target)
+        : getPreferredSessionAdapter(searchPreferences);
       const session = await ctx.browserRuntime.openSession(
-        getPreferredSessionAdapter(searchPreferences),
+        sessionSource,
+        target
+          ? {
+              targetUrl: resolveSourceBrowserEntryUrl({
+                target,
+                searchPreferences,
+                sourceInstructionArtifacts,
+              }),
+            }
+          : undefined,
       );
       await ctx.persistBrowserSessionState(session);
       return getWorkspaceSnapshot();
