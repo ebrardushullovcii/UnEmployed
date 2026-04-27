@@ -51,7 +51,7 @@ export function ResumeWorkspaceHeader({
           </StatusBadge>
           <Badge variant="section">{validationIssueCount} {validationIssueCount === 1 ? 'check' : 'checks'}</Badge>
           <Badge variant="section">{researchCount} {researchCount === 1 ? 'source' : 'sources'}</Badge>
-          <Badge aria-label={`Theme: ${selectedThemeLabel}`} variant="section">Theme: {selectedThemeLabel}</Badge>
+          <Badge aria-label={`Template: ${selectedThemeLabel}`} variant="section">Template: {selectedThemeLabel}</Badge>
           {hasUnsavedChanges ? <StatusBadge tone="active">Unsaved draft</StatusBadge> : null}
         </div>
       </div>
@@ -69,7 +69,7 @@ export function ResumeWorkspaceHeader({
             ) : null}
           </div>
           <p className="max-w-[72ch] text-(length:--type-body-md) leading-7 text-foreground-soft">
-            Pick the theme that fits this job and save your draft. Then export and approve the exact PDF you want Job Finder to use before starting Apply Copilot.
+            Pick the template that fits this job and save your draft. Then export and approve the exact PDF you want Job Finder to use before starting Apply Copilot.
           </p>
         </div>
 

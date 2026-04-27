@@ -102,12 +102,12 @@ export function SettingsEditableDefaults({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor={resumeTemplateDomId}>Default resume theme</FieldLabel>
+              <FieldLabel htmlFor={resumeTemplateDomId}>Default resume template</FieldLabel>
               <div className="grid gap-3">
                 <p className="text-(length:--text-description) leading-6 text-foreground-soft">
-                  Choose the default ATS-safe theme Job Finder should seed into new
-                  resume drafts. Existing drafts keep their own selected theme until
-                  you change them in the resume workspace.
+                  Choose the default apply-safe template Job Finder should seed into new
+                  resume drafts. Existing drafts keep their own selected family and
+                  variant until you change them in the resume workspace.
                 </p>
                 <ResumeThemePicker
                   disabled={isSavePending}
@@ -143,12 +143,12 @@ export function SettingsEditableDefaults({
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-              <span className="label-mono-xs">Default theme</span>
+              <span className="label-mono-xs">Default template</span>
               <strong className="mt-2 block text-(length:--text-body) font-semibold text-foreground">
-                {selectedResumeTemplate?.label ?? 'Theme not available'}
+                {selectedResumeTemplate?.label ?? 'Template not available'}
               </strong>
               <p className="mt-2 text-(length:--text-description) leading-6 text-foreground-soft">
-                {selectedResumeTemplate?.description ?? 'Choose the default ATS-safe resume theme for new drafts.'}
+                {selectedResumeTemplate?.description ?? 'Choose the default apply-safe resume template for new drafts.'}
               </p>
             </div>
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">

@@ -2,13 +2,51 @@ import { describe, expect, test } from 'vitest'
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import type { ResumeTemplateDefinition } from '@unemployed/contracts'
 
 import {
   defaultResumeQualityBenchmarkCases,
   runDesktopResumeQualityBenchmark,
+  selectBenchmarkTemplateIds,
 } from './resume-quality-benchmark'
 
 describe('desktop resume quality benchmark', () => {
+  test('selects only benchmark-eligible templates for benchmark runs', () => {
+    const templates: ResumeTemplateDefinition[] = [
+      {
+        id: 'classic_ats',
+        label: 'Swiss Minimal - Standard',
+        description: 'Apply-safe baseline.',
+        bestFor: ['General applications'],
+        density: 'balanced',
+        deliveryLane: 'apply_safe',
+        benchmarkEligible: true,
+      },
+      {
+        id: 'modern_split',
+        label: 'Swiss Minimal - Accent',
+        description: 'Polished variant.',
+        bestFor: ['Product roles'],
+        density: 'balanced',
+        deliveryLane: 'share_ready',
+        benchmarkEligible: false,
+      },
+      {
+        id: 'compact_exec',
+        label: 'Executive Brief - Dense',
+        description: 'Dense ATS-safe variant.',
+        bestFor: ['Leadership screens'],
+        density: 'compact',
+        deliveryLane: 'apply_safe',
+      },
+    ]
+
+    expect(selectBenchmarkTemplateIds(templates)).toEqual([
+      'classic_ats',
+      'compact_exec',
+    ])
+  })
+
   test('runs canary corpus cases across shipped ATS templates', async () => {
     const report = await runDesktopResumeQualityBenchmark({
       benchmarkVersion: '023-test-benchmark-v1',
@@ -26,6 +64,7 @@ describe('desktop resume quality benchmark', () => {
     expect(report.cases.length).toBe(defaultResumeQualityBenchmarkCases.filter((entry) => entry.definition.canary).length * 6)
     expect(report.aggregate.groundedVisibleSkillRate).toBe(1)
     expect(report.aggregate.atsRenderPassRate).toBe(1)
+    expect(report.notes).toEqual([])
   })
 
   test('keeps contamination guard cases free of visible skill bleed after sanitation', async () => {

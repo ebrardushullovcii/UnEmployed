@@ -146,6 +146,10 @@ export interface ResumeRenderDocument {
   sections: ResumeRenderSection[];
 }
 
+export interface ResumeRenderOptions {
+  includePreviewAnchors?: boolean;
+}
+
 function buildCoreAndAdditionalSkills(
   profile: Pick<CandidateProfile, "skills" | "skillGroups"> | null | undefined,
   draftSkills: readonly string[],
@@ -438,7 +442,9 @@ export function buildTailoredResumeTextFromResumeDraft(
 export function buildResumeRenderDocument(
   profile: CandidateProfile,
   draft: ResumeDraft,
+  options?: ResumeRenderOptions,
 ): ResumeRenderDocument {
+  void options;
   const preferredLinks = profile.applicationIdentity.preferredLinkIds
     .map((linkId) => profile.links.find((link) => link.id === linkId && link.url))
     .filter((link): link is NonNullable<typeof link> => Boolean(link?.url));

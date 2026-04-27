@@ -29,6 +29,12 @@ async function waitForCondition(check, description, timeoutMs = 15000, intervalM
   throw new Error(`Timed out waiting for ${description}.`)
 }
 
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message)
+  }
+}
+
 async function getResumeWorkspace(window, jobId) {
   return window.evaluate(
     async (currentJobId) => window.unemployed.jobFinder.getResumeWorkspace(currentJobId),
@@ -45,6 +51,87 @@ async function getResumeAssistantMessages(window, jobId) {
 
 async function getWorkspace(window) {
   return window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
+}
+
+function getDraftSummaryText(workspace) {
+  return workspace.draft.sections.find((section) => section.kind === 'summary')?.text ?? ''
+}
+
+function getPreviewExpectation(workspace) {
+  const summaryText = getDraftSummaryText(workspace).trim()
+  if (summaryText.length > 0) {
+    return summaryText
+  }
+
+  for (const section of workspace.draft.sections) {
+    if (!section.included) {
+      continue
+    }
+
+    const sectionText = section.text?.trim()
+    if (sectionText) {
+      return sectionText
+    }
+
+    for (const entry of section.entries) {
+      if (!entry.included) {
+        continue
+      }
+
+      const entryText = [entry.title, entry.subtitle, entry.summary].find(
+        (value) => typeof value === 'string' && value.trim().length > 0,
+      )
+      if (entryText) {
+        return entryText.trim()
+      }
+
+      const entryBulletText = entry.bullets.find(
+        (bullet) => bullet.included && bullet.text.trim().length > 0,
+      )?.text
+      if (entryBulletText) {
+        return entryBulletText.trim()
+      }
+    }
+
+    const sectionBulletText = section.bullets.find(
+      (bullet) => bullet.included && bullet.text.trim().length > 0,
+    )?.text
+    if (sectionBulletText) {
+      return sectionBulletText.trim()
+    }
+  }
+
+  return null
+}
+
+function getClickablePreviewTarget(workspace) {
+  for (const section of workspace.draft.sections) {
+    if (!section.included) {
+      continue
+    }
+
+    const includedEntry = section.entries.find((entry) => entry.included)
+    if (includedEntry) {
+      return {
+        sectionId: section.id,
+        entryId: includedEntry.id,
+        editorLabel: 'Title',
+      }
+    }
+
+    if (
+      section.text?.trim() ||
+      section.bullets.some((bullet) => bullet.included && bullet.text.trim().length > 0)
+    ) {
+      return {
+        sectionId: section.id,
+        entryId: null,
+        editorLabel: 'Section text',
+      }
+    }
+  }
+
+  return null
 }
 
 function getLatestBy(items, getTimestamp) {
@@ -75,7 +162,161 @@ async function waitForProfileOrSetupHeading(window) {
     .waitFor({ timeout: 15000 })
 }
 
+function summaryField(window) {
+  return window.getByLabel('Section text').first()
+}
+
+function titleField(window) {
+  return window.getByLabel('Title').first()
+}
+
+function assistantField(window) {
+  return window.getByLabel('Request a resume edit')
+}
+
+async function loadResumeWorkspaceDemo(window, previewMode = 'ok') {
+  await window.evaluate(async (mode) => {
+    if (!window.unemployed.jobFinder.test) {
+      throw new Error('Desktop test API is unavailable in the renderer.')
+    }
+
+    await window.unemployed.jobFinder.test.setResumePreviewMode(mode)
+    return window.unemployed.jobFinder.test.loadResumeWorkspaceDemo()
+  }, previewMode)
+
+  await window.reload()
+  await window.waitForLoadState('domcontentloaded')
+  await waitForProfileOrSetupHeading(window)
+  await window.setViewportSize({ width, height })
+}
+
+async function openResumeWorkspace(window) {
+  await window.getByRole('button', { name: /Open resume workspace/i }).first().click()
+  await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
+}
+
+function visiblePreviewPane(window) {
+  return window.locator('section:visible').filter({
+    has: window.getByRole('heading', { name: 'Live preview' }),
+  }).first()
+}
+
+function visiblePreviewFrame(window) {
+  return window.locator('iframe[title="Live resume preview"]:visible').first()
+}
+
+async function getPreviewSrcdoc(window) {
+  return visiblePreviewFrame(window).evaluate((iframe) => iframe.getAttribute('srcdoc') ?? iframe.srcdoc ?? '')
+}
+
+async function waitForPreviewFailure(window) {
+  const previewPane = visiblePreviewPane(window)
+  await previewPane.getByRole('heading', { name: 'Preview unavailable' }).waitFor({ timeout: 10000 })
+  await previewPane
+    .locator('p:visible', { hasText: /^Preview rendering failed in desktop test mode\.$/ })
+    .first()
+    .waitFor({ timeout: 10000 })
+}
+
+async function waitForPreviewReady(window, expectedText = null) {
+  await visiblePreviewFrame(window).waitFor({ timeout: 10000 })
+  await waitForCondition(
+    async () => {
+      const previewHtml = await getPreviewSrcdoc(window)
+      return expectedText ? previewHtml.includes(expectedText) : previewHtml.length > 0
+    },
+    expectedText
+      ? `resume preview to include '${expectedText}'`
+      : 'resume preview content',
+  )
+}
+
+async function waitForSavedSummaryText(window, expectedText) {
+  await waitForCondition(
+    async () => getDraftSummaryText(await getResumeWorkspace(window, 'job_ready')) === expectedText,
+    `saved summary text '${expectedText}'`,
+  )
+}
+
+async function getActiveEditorLabel(window) {
+  return window.evaluate(() => {
+    const activeElement = document.activeElement
+
+    if (!(activeElement instanceof HTMLElement)) {
+      return null
+    }
+
+    return activeElement.getAttribute('aria-label') ?? activeElement.labels?.[0]?.textContent?.trim() ?? null
+  })
+}
+
+async function getTemplateBadgeText(window) {
+  return (await window.getByText(/^Template:/).first().textContent())?.trim() ?? null
+}
+
+async function getVisibleVariantCountLabel(window) {
+  return (await window.getByText(/visible variants$/).first().textContent())?.trim() ?? null
+}
+
+async function getVisibleVariantCount(window) {
+  const label = await getVisibleVariantCountLabel(window)
+  const match = /^(\d+) visible variants$/.exec(label ?? '')
+  return match ? Number.parseInt(match[1], 10) : null
+}
+
+async function getRecommendedTemplateLabels(window) {
+  const labels = await window.locator('button[data-slot="button"]').evaluateAll((elements) =>
+    elements
+      .map((element) => element.textContent?.trim() ?? '')
+      .filter((label) => label.includes(' - ')),
+  )
+
+  return [...new Set(labels)]
+}
+
+function templateFamilySection(window, familyLabel) {
+  return window.locator('section').filter({
+    has: window.getByRole('heading', { name: familyLabel, exact: true }),
+  }).first()
+}
+
+function shortlistComparePanel(window) {
+  return window.locator('aside').filter({ hasText: 'Shortlist compare' }).first()
+}
+
+async function clickLocatorViaDom(locator, description) {
+  await locator.waitFor({ timeout: 10000 })
+  await locator.dispatchEvent('click')
+}
+
+async function clickButtonInFamilySection(window, familyLabel, buttonText) {
+  const clicked = await window.evaluate(({ familyLabel: currentFamilyLabel, buttonText: currentButtonText }) => {
+    const section = [...document.querySelectorAll('section')].find((element) => {
+      const heading = element.querySelector('h3')
+      return heading?.textContent?.trim() === currentFamilyLabel
+    })
+
+    if (!(section instanceof HTMLElement)) {
+      return false
+    }
+
+    const button = [...section.querySelectorAll('button')].find(
+      (element) => element.textContent?.trim() === currentButtonText,
+    )
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return false
+    }
+
+    button.click()
+    return true
+  }, { familyLabel, buttonText })
+
+  assert(clicked, `Expected button '${buttonText}' in family section '${familyLabel}'.`)
+}
+
 async function captureResumeWorkspace() {
+  await rm(outputDir, { recursive: true, force: true })
   await mkdir(outputDir, { recursive: true })
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-workspace-'))
 
@@ -102,15 +343,9 @@ async function captureResumeWorkspace() {
     await waitForProfileOrSetupHeading(window)
     await window.setViewportSize({ width, height })
 
-    await window.evaluate(async () => {
-      if (!window.unemployed.jobFinder.test) {
-        throw new Error('Desktop test API is unavailable in the renderer.')
-      }
+    await loadResumeWorkspaceDemo(window, 'fail_once')
 
-      return window.unemployed.jobFinder.test.loadResumeWorkspaceDemo()
-    })
-    await window.reload()
-    await window.waitForLoadState('domcontentloaded')
+    const studioResults = {}
 
     await window.getByRole('button', { name: /^Shortlisted/ }).click()
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
@@ -118,21 +353,195 @@ async function captureResumeWorkspace() {
 
     await window.getByText(/Company site:/).waitFor({ timeout: 10000 })
 
-    await window.getByRole('button', { name: /Open resume workspace/i }).first().click()
-    await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-resume-workspace-open.png') })
+    await openResumeWorkspace(window)
+    await waitForPreviewFailure(window)
+    const initialWorkspace = await getResumeWorkspace(window, 'job_ready')
+    const initialPreviewExpectation = getPreviewExpectation(initialWorkspace)
+    const previewFailureMessage = await visiblePreviewPane(window)
+      .locator('p:visible', { hasText: /^Preview rendering failed in desktop test mode\.$/ })
+      .first()
+      .textContent()
+    const failureEditorVisible = await summaryField(window).isVisible()
+    assert(failureEditorVisible, 'Editing should remain available while preview rendering fails.')
+    Object.assign(studioResults, {
+      previewFailure: {
+        editorStillAvailable: failureEditorVisible,
+        message: previewFailureMessage,
+      },
+    })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-preview-failure.png') })
+
+    await window.getByRole('button', { name: 'Refresh preview' }).click()
+    await waitForPreviewReady(window, initialPreviewExpectation)
+    Object.assign(studioResults, {
+      previewRecovery: {
+        expectedText: initialPreviewExpectation,
+        previewStatus: await visiblePreviewPane(window)
+          .locator('span:visible', { hasText: /^Saved draft rendered$/ })
+          .first()
+          .textContent(),
+        previewContainsExpectedText: initialPreviewExpectation
+          ? (await getPreviewSrcdoc(window)).includes(initialPreviewExpectation)
+          : (await getPreviewSrcdoc(window)).length > 0,
+      },
+    })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-preview-recovered.png') })
 
     await window.getByText('Saved research', { exact: true }).first().waitFor({ timeout: 10000 })
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02b-resume-workspace-sources.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04-resume-workspace-sources.png') })
 
-    const summaryField = window.getByLabel('Section text').first()
-    await summaryField.fill('Senior systems designer with strong workflow automation, design-system, and operations-platform experience.')
+    await window.getByText('Recommended for this draft', { exact: true }).first().waitFor({ timeout: 10000 })
+    const recommendedTemplateLabels = await getRecommendedTemplateLabels(window)
+    assert(recommendedTemplateLabels.length > 0, 'Expected at least one recommended template button in the catalog.')
+    const baseVisibleVariantCount = await getVisibleVariantCount(window)
+    assert(
+      typeof baseVisibleVariantCount === 'number' && baseVisibleVariantCount > 0,
+      'Expected a visible variant count before exercising template filters.',
+    )
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04a-template-catalog-recommendations.png') })
+
+    await window.getByRole('button', { name: 'Compact' }).click()
+    await waitForCondition(
+      async () => {
+        const count = await getVisibleVariantCount(window)
+        return typeof count === 'number' && count > 0 && count < baseVisibleVariantCount
+      },
+      'compact-density template filter to narrow the catalog',
+    )
+    const compactVisibleVariantCount = await getVisibleVariantCount(window)
+    Object.assign(studioResults, {
+      catalogFilters: {
+        compactVisibleLabel: await getVisibleVariantCountLabel(window),
+        compactVisibleCount: compactVisibleVariantCount,
+      },
+    })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04b-template-catalog-compact-filter.png') })
+
+    await window.getByRole('button', { name: 'Clear filters' }).click()
+    await waitForCondition(
+      async () => (await getVisibleVariantCount(window)) === baseVisibleVariantCount,
+      'template catalog filters to clear back to the visible workspace set',
+    )
+
+    await window.getByRole('button', { name: 'Recommended only' }).click()
+    await waitForCondition(
+      async () => (await getVisibleVariantCount(window)) === recommendedTemplateLabels.length,
+      'recommended-only template filter to narrow the catalog',
+    )
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04c-template-catalog-recommended-only.png') })
+    await window.getByRole('button', { name: 'Clear filters' }).click()
+    await waitForCondition(
+      async () => (await getVisibleVariantCount(window)) === baseVisibleVariantCount,
+      'template catalog filters to restore all visible variants',
+    )
+
+    await clickButtonInFamilySection(window, 'Engineering Spec', 'Compare')
+    await clickButtonInFamilySection(window, 'Portfolio Narrative', 'Compare')
+    await waitForCondition(
+      async () => {
+        const compareText = (await shortlistComparePanel(window).textContent()) ?? ''
+        return compareText.includes('Engineering Spec - Systems') && compareText.includes('Portfolio Narrative - Proof-led')
+      },
+      'template compare panel to show shortlisted variants',
+    )
+    Object.assign(studioResults, {
+      catalogRecommendations: {
+        recommendedTemplateLabels,
+        comparePanelTemplates: await shortlistComparePanel(window).locator('span.text-sm.font-semibold').evaluateAll((elements) =>
+          elements.map((element) => element.textContent?.trim() ?? '').filter(Boolean),
+        ),
+      },
+    })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04d-template-catalog-compare.png') })
+
+    await clickLocatorViaDom(
+      window.getByRole('button', { name: 'Engineering Spec - Systems' }),
+      'recommended engineering spec template button',
+    )
+    await waitForCondition(
+      async () => (await getTemplateBadgeText(window)) === 'Template: Engineering Spec - Systems',
+      'template header badge to reflect the recommended template selection',
+    )
+    await waitForPreviewReady(window)
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04e-template-selected-engineering-spec.png') })
+
+    const unsavedPreviewSentinel = 'Senior systems designer with strong workflow automation, design-system, and operations-platform experience.'
+    await summaryField(window).fill(unsavedPreviewSentinel)
+    await visiblePreviewPane(window)
+      .locator('span:visible', { hasText: /^Unsaved edits rendered$/ })
+      .first()
+      .waitFor({ timeout: 10000 })
+    await waitForPreviewReady(window, unsavedPreviewSentinel)
+    const unsavedWorkspace = await getResumeWorkspace(window, 'job_ready')
+    assert(
+      getDraftSummaryText(unsavedWorkspace) !== unsavedPreviewSentinel,
+      'Unsaved preview text should not persist to the saved draft before saving.',
+    )
+    Object.assign(studioResults, {
+      unsavedPreview: {
+        fieldValue: await summaryField(window).inputValue(),
+        previewContainsSentinel: (await getPreviewSrcdoc(window)).includes(unsavedPreviewSentinel),
+        savedSummaryText: getDraftSummaryText(unsavedWorkspace),
+      },
+    })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '05-unsaved-live-preview.png') })
+
+    const clickTarget = getClickablePreviewTarget(await getResumeWorkspace(window, 'job_ready'))
+    assert(clickTarget, 'Expected a clickable preview target in the resume workspace demo.')
+    const previewFrame = window.frameLocator('iframe[title="Live resume preview"]:visible')
+    const previewTargetLocator = clickTarget.entryId
+      ? previewFrame.locator(`[data-resume-entry-id="${clickTarget.entryId}"]`)
+      : previewFrame.locator(`[data-resume-section-id="${clickTarget.sectionId}"]`).first()
+    await previewTargetLocator.waitFor({ timeout: 10000 })
+    await previewTargetLocator.evaluate((element) => {
+      if (!(element instanceof HTMLElement)) {
+        throw new Error('Expected preview target to be an HTMLElement.')
+      }
+
+      element.click()
+    })
+
+    if (clickTarget.editorLabel === 'Title') {
+      await waitForCondition(
+        async () => titleField(window).evaluate((element) => element === element.ownerDocument.activeElement),
+        'entry title input focus after clicking the live preview',
+      )
+    } else {
+      await waitForCondition(
+        async () => summaryField(window).evaluate((element) => element === element.ownerDocument.activeElement),
+        'section text input focus after clicking the live preview',
+      )
+    }
+
+    Object.assign(studioResults, {
+      clickToFocus: {
+        target: clickTarget,
+        activeEditorLabel: await getActiveEditorLabel(window),
+        focusedValue:
+          clickTarget.editorLabel === 'Title'
+            ? await titleField(window).inputValue()
+            : await summaryField(window).inputValue(),
+      },
+    })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06-preview-click-focus.png') })
+
     await window.getByRole('button', { name: 'Save draft' }).click()
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-after-manual-edit.png') })
+    await waitForSavedSummaryText(window, unsavedPreviewSentinel)
+    await waitForPreviewReady(window, unsavedPreviewSentinel)
+    await visiblePreviewPane(window)
+      .locator('span:visible', { hasText: /^Saved draft rendered$/ })
+      .first()
+      .waitFor({ timeout: 10000 })
+    Object.assign(studioResults, {
+      savedDraft: {
+        savedSummaryText: getDraftSummaryText(await getResumeWorkspace(window, 'job_ready')),
+        selectedTemplateBadge: await getTemplateBadgeText(window),
+      },
+    })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '07-after-manual-edit.png') })
 
-    const assistantField = window.getByLabel('Request a resume edit')
     const previousMessageCount = (await getResumeAssistantMessages(window, 'job_ready')).length
-    await assistantField.fill('Shorten the summary and tighten one experience bullet for ATS readability.')
+    await assistantField(window).fill('Shorten the summary and tighten one experience bullet for ATS readability.')
     await window.getByRole('button', { name: 'Send' }).click()
     await waitForCondition(
       async () => {
@@ -149,14 +558,14 @@ async function captureResumeWorkspace() {
       },
       'assistant reply in resume workspace demo',
     )
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04-after-assistant.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '08-after-assistant.png') })
 
     await window.getByRole('button', { name: 'Export PDF' }).click()
     await waitForCondition(
       async () => (await getResumeWorkspace(window, 'job_ready')).exports.length > 0,
       'resume export in demo flow',
     )
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '05-after-export.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '09-after-export.png') })
 
     await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
@@ -164,10 +573,11 @@ async function captureResumeWorkspace() {
     if (!(await gatedApproveButton.isDisabled())) {
       throw new Error('Start apply copilot should stay disabled before resume approval.')
     }
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06-review-queue-gated.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '10-review-queue-gated.png') })
 
-    await window.getByRole('button', { name: /Open resume workspace/i }).first().click()
-    await window.getByRole('heading', { level: 1, name: /Senior Product Designer/i }).waitFor({ timeout: 10000 })
+    await openResumeWorkspace(window)
+    const reopenedWorkspace = await getResumeWorkspace(window, 'job_ready')
+    await waitForPreviewReady(window, getPreviewExpectation(reopenedWorkspace))
 
     const approveButton = window.getByRole('button', { name: 'Approve current PDF' })
     await approveButton.waitFor({ timeout: 10000 })
@@ -179,7 +589,7 @@ async function captureResumeWorkspace() {
       },
       'approved resume export in demo flow',
     )
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '07-after-approval.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '11-after-approval.png') })
 
     await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
@@ -187,15 +597,15 @@ async function captureResumeWorkspace() {
     if (await readyApproveButton.isDisabled()) {
       throw new Error('Start apply copilot should be enabled after resume approval.')
     }
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '08-review-queue-approved.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '12-review-queue-approved.png') })
 
     await readyApproveButton.click()
     await window.getByRole('button', { name: /^Applications/ }).click()
     await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '09-applications-after-apply.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '13-applications-after-apply.png') })
 
     await window.getByText('Apply run review data', { exact: true }).waitFor({ timeout: 10000 })
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '10-applications-after-copilot.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '14-applications-after-copilot.png') })
 
     const workspace = await getWorkspace(window)
     const latestAttempt = getLatestBy(workspace.applicationAttempts, (attempt) => attempt.updatedAt)
@@ -212,6 +622,7 @@ async function captureResumeWorkspace() {
       throw new Error('Apply copilot should not record a submitted outcome.')
     }
 
+    await writeJson('studio-preview-results.json', studioResults)
     await writeJson('workspace-after-demo.json', workspace)
   } finally {
     if (app) {

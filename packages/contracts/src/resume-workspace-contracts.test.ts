@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  JobFinderResumePreviewSchema,
   JobFinderResumeWorkspaceSchema,
   ResumeDraftSectionSchema,
   ResumeAssistantMessageSchema,
@@ -219,6 +220,37 @@ describe("contracts resume workspace schemas", () => {
     ).toThrow();
   });
 
+  test("parses a live resume preview payload", () => {
+    const preview = JobFinderResumePreviewSchema.parse({
+      draftId: "resume_draft_1",
+      revisionKey: "resume_preview_resume_draft_1_f49a0e2d",
+      html: "<!doctype html><html><body><article data-resume-section-id=\"section_summary\">Preview</article></body></html>",
+      warnings: [
+        {
+          id: "preview_warning_1",
+          source: "validation",
+          severity: "warning",
+          category: "poor_keyword_coverage",
+          sectionId: "section_summary",
+          entryId: null,
+          bulletId: null,
+          message: "Add one more role-specific keyword to the summary.",
+        },
+      ],
+      metadata: {
+        templateId: "classic_ats",
+        renderedAt: "2026-03-20T10:04:00.000Z",
+        pageCount: null,
+        sectionCount: 2,
+        entryCount: 1,
+      },
+    });
+
+    expect(preview.metadata.templateId).toBe("classic_ats");
+    expect(preview.warnings[0]?.source).toBe("validation");
+    expect(preview.html).toContain("data-resume-section-id");
+  });
+
   test("parses resume assistant messages and validation results", () => {
     expect(
       ResumeAssistantMessageSchema.parse({
@@ -304,4 +336,68 @@ describe("contracts resume workspace schemas", () => {
     );
     expect(report.cases[0]?.metrics.atsRenderPassRate).toBe(1);
   });
+
+  test("parses enriched resume template metadata", () => {
+    const workspace = JobFinderResumeWorkspaceSchema.parse({
+      job: {
+        id: "job_2",
+        source: "target_site",
+        sourceJobId: "target_job_2",
+        discoveryMethod: "catalog_seed",
+        canonicalUrl: "https://jobs.example.com/roles/target_job_2",
+        title: "Staff Frontend Engineer",
+        company: "Atlas Product",
+        location: "Remote",
+        workMode: ["remote"],
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        postedAt: "2026-03-20T09:00:00.000Z",
+        postedAtText: null,
+        discoveredAt: "2026-03-20T10:01:00.000Z",
+        salaryText: null,
+        summary: "Lead frontend platform work.",
+        description: "Lead frontend platform work.",
+        keySkills: ["React"],
+        responsibilities: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
+        seniority: null,
+        employmentType: null,
+        department: null,
+        team: null,
+        employerWebsiteUrl: null,
+        employerDomain: null,
+        benefits: [],
+        status: "ready_for_review",
+        matchAssessment: {
+          score: 91,
+          reasons: ["Strong frontend overlap"],
+          gaps: [],
+        },
+        provenance: [],
+      },
+      draft: {
+        id: "resume_draft_2",
+        jobId: "job_2",
+        status: "needs_review",
+        templateId: "technical_matrix",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "ai",
+        approvedAt: null,
+        approvedExportId: null,
+        staleReason: null,
+        createdAt: "2026-03-20T10:02:00.000Z",
+        updatedAt: "2026-03-20T10:02:30.000Z",
+      },
+      validation: null,
+      exports: [],
+      research: [],
+      assistantMessages: [],
+      tailoredAsset: null,
+      sharedProfile: {},
+    })
+
+    expect(workspace.draft.templateId).toBe("technical_matrix")
+  })
 });

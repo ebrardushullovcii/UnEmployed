@@ -12,6 +12,7 @@ import { createEmptyJobFinderRepositoryState } from '../../adapters/job-finder-i
 import { createDesktopResumeResearchAdapter } from '../../adapters/job-finder-research-adapter'
 import { getBrowserAgentProfileDirectory, getGeneratedResumeDocumentsDirectory, getJobFinderWorkspaceFilePath } from './paths'
 import {
+  getResumePreviewTestMode,
   getTestBrowserSessionDetail,
   getTestBrowserSessionLabel,
   getTestBrowserSessionStatus,
@@ -99,8 +100,13 @@ export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.
   return createJobFinderAiClientFromEnvironment(env)
 }
 
-export async function createJobFinderWorkspaceServiceAsync() {
-  const env = process.env
+export async function createJobFinderWorkspaceServiceAsync(
+  envOverrides?: Partial<NodeJS.ProcessEnv>,
+) {
+  const env = {
+    ...process.env,
+    ...(envOverrides ?? {}),
+  }
   const desktopTestApiEnabled = isDesktopTestApiEnabled(env)
   const jobFinderRepository = await createFileJobFinderRepository({
     filePath: getJobFinderWorkspaceFilePath(),
@@ -132,7 +138,10 @@ export async function createJobFinderWorkspaceServiceAsync() {
         catalog: []
       })
   const documentManager = createLocalJobFinderDocumentManager({
-    outputDirectory: getGeneratedResumeDocumentsDirectory()
+    outputDirectory: getGeneratedResumeDocumentsDirectory(),
+    previewTestMode: desktopTestApiEnabled
+      ? getResumePreviewTestMode(env)
+      : 'ok',
   })
   const exportFileVerifier = createLocalResumeExportFileVerifier()
   const researchAdapter = desktopTestApiEnabled

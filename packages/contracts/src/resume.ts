@@ -287,6 +287,48 @@ export const ResumeValidationResultSchema = z.object({
 });
 export type ResumeValidationResult = z.infer<typeof ResumeValidationResultSchema>;
 
+export const resumePreviewWarningSourceValues = [
+  "validation",
+  "render",
+] as const;
+
+export const ResumePreviewWarningSourceSchema = z.enum(
+  resumePreviewWarningSourceValues,
+);
+export type ResumePreviewWarningSource = z.infer<
+  typeof ResumePreviewWarningSourceSchema
+>;
+
+export const ResumePreviewWarningSchema = z.object({
+  id: NonEmptyStringSchema,
+  source: ResumePreviewWarningSourceSchema,
+  severity: ResumeValidationSeveritySchema,
+  category: ResumeValidationCategorySchema.nullable().default(null),
+  sectionId: NonEmptyStringSchema.nullable().default(null),
+  entryId: NonEmptyStringSchema.nullable().default(null),
+  bulletId: NonEmptyStringSchema.nullable().default(null),
+  message: NonEmptyStringSchema,
+});
+export type ResumePreviewWarning = z.infer<typeof ResumePreviewWarningSchema>;
+
+export const ResumePreviewMetadataSchema = z.object({
+  templateId: ResumeTemplateIdSchema,
+  renderedAt: IsoDateTimeSchema,
+  pageCount: z.number().int().min(1).nullable().default(null),
+  sectionCount: z.number().int().nonnegative().default(0),
+  entryCount: z.number().int().nonnegative().default(0),
+});
+export type ResumePreviewMetadata = z.infer<typeof ResumePreviewMetadataSchema>;
+
+export const ResumePreviewSchema = z.object({
+  draftId: NonEmptyStringSchema,
+  revisionKey: NonEmptyStringSchema,
+  html: NonEmptyStringSchema,
+  warnings: z.array(ResumePreviewWarningSchema).default([]),
+  metadata: ResumePreviewMetadataSchema,
+});
+export type ResumePreview = z.infer<typeof ResumePreviewSchema>;
+
 export const ResumeResearchArtifactSchema = z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,

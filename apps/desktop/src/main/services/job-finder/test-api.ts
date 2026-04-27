@@ -14,6 +14,8 @@ export interface ResumeImportPathPayload {
   sourcePath: string;
 }
 
+export type ResumePreviewTestMode = "ok" | "fail_once";
+
 const warnedInvalidEnvValues = new Set<string>();
 
 export function resetInvalidBooleanEnvWarnings() {
@@ -105,6 +107,28 @@ function readTrimmedEnvValue(value: string | undefined): string | null {
 
   const trimmedValue = value.trim();
   return trimmedValue.length > 0 ? trimmedValue : null;
+}
+
+export function getResumePreviewTestMode(
+  env: NodeJS.ProcessEnv = process.env,
+): ResumePreviewTestMode {
+  const configuredValue = readTrimmedEnvValue(env.UNEMPLOYED_TEST_RESUME_PREVIEW);
+
+  if (configuredValue == null) {
+    return "ok";
+  }
+
+  if (configuredValue === "ok" || configuredValue === "fail_once") {
+    return configuredValue;
+  }
+
+  warnInvalidEnvValue(
+    "UNEMPLOYED_TEST_RESUME_PREVIEW",
+    configuredValue,
+    'the default "ok" behavior',
+  );
+
+  return "ok";
 }
 
 export function getTestBrowserSessionStatus(

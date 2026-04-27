@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 
 import { act } from 'react'
-import type { ResumeDraft, ResumeTemplateDefinition } from '@unemployed/contracts'
 import { createRoot, type Root } from 'react-dom/client'
+import type { ResumeTemplateDefinition } from '@unemployed/contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ResumeWorkspaceEditorPanel } from './resume-workspace-editor-panel'
 
-const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
+import {
+  buildResumeThemePickerRecommendations,
+  ResumeThemePicker,
+  type ResumeThemePickerRecommendationContext,
+} from './resume-theme-picker'
+
+const themes: readonly ResumeTemplateDefinition[] = [
   {
     id: 'classic_ats',
     label: 'Swiss Minimal - Standard',
@@ -17,7 +22,7 @@ const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
     description: 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
     fitSummary: 'A clean all-rounder.',
     avoidSummary: 'Less distinctive for project-led portfolios.',
-    bestFor: ['General applications', 'Recruiter-heavy funnels'],
+    bestFor: ['General applications'],
     visualTags: ['Minimal', 'Balanced'],
     density: 'balanced',
     deliveryLane: 'apply_safe',
@@ -37,7 +42,7 @@ const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
     description: 'Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.',
     fitSummary: 'Good for dense senior resumes.',
     avoidSummary: 'Can feel tight for early-career profiles.',
-    bestFor: ['Experienced candidates', 'Content-dense resumes'],
+    bestFor: ['Experienced candidates'],
     visualTags: ['Dense', 'Centered header'],
     density: 'compact',
     deliveryLane: 'apply_safe',
@@ -46,26 +51,6 @@ const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
     approvalEligible: true,
     benchmarkEligible: true,
     sortOrder: 20,
-  },
-  {
-    id: 'modern_split',
-    label: 'Swiss Minimal - Accent',
-    familyId: 'swiss_minimal',
-    familyLabel: 'Swiss Minimal',
-    familyDescription: 'Calm ATS-safe layouts.',
-    variantLabel: 'Accent',
-    description: 'Single-column with a sharper modern header and restrained accents for polished but ATS-safe exports.',
-    fitSummary: 'Cleaner modern signal without leaving the ATS lane.',
-    avoidSummary: 'Less useful if you need dense compression.',
-    bestFor: ['Product roles', 'Design-adjacent teams', 'Startup hiring loops'],
-    visualTags: ['Accent header', 'Summary callout'],
-    density: 'balanced',
-    deliveryLane: 'apply_safe',
-    atsConfidence: 'high',
-    applyEligible: true,
-    approvalEligible: true,
-    benchmarkEligible: true,
-    sortOrder: 11,
   },
   {
     id: 'technical_matrix',
@@ -77,7 +62,7 @@ const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
     description: 'Skills-forward single-column layout that highlights technical depth before chronology.',
     fitSummary: 'Best when systems depth should land early.',
     avoidSummary: 'Can feel too technical for generalist roles.',
-    bestFor: ['Engineering roles', 'Data roles', 'Security roles'],
+    bestFor: ['Engineering roles'],
     visualTags: ['Skills matrix', 'Technical'],
     density: 'compact',
     deliveryLane: 'apply_safe',
@@ -97,7 +82,7 @@ const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
     description: 'Project-forward single-column layout for candidates whose proof lands best through shipped work.',
     fitSummary: 'Useful when shipped work is your strongest evidence.',
     avoidSummary: 'Less ideal for conservative chronology-first screens.',
-    bestFor: ['Portfolio-heavy candidates', 'Career changers', 'Product builders'],
+    bestFor: ['Portfolio-heavy candidates'],
     visualTags: ['Projects first', 'Proof led'],
     density: 'comfortable',
     deliveryLane: 'apply_safe',
@@ -117,7 +102,7 @@ const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
     description: 'Credentials-first single-column layout that surfaces certifications and education earlier without leaving ATS-safe structure.',
     fitSummary: 'Stronger when credentials materially change recruiter trust.',
     avoidSummary: 'Less effective if your strongest evidence is shipped work.',
-    bestFor: ['Regulated industries', 'Certification-heavy roles', 'Academic backgrounds'],
+    bestFor: ['Certification-heavy roles'],
     visualTags: ['Credentials first', 'Balanced'],
     density: 'balanced',
     deliveryLane: 'apply_safe',
@@ -125,30 +110,30 @@ const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
     applyEligible: true,
     approvalEligible: true,
     benchmarkEligible: true,
-    sortOrder: 21,
+    sortOrder: 50,
   },
 ]
 
-const draft: ResumeDraft = {
-  id: 'draft_1',
-  jobId: 'job_1',
-  status: 'draft',
-  templateId: 'classic_ats',
-  sections: [],
-  targetPageCount: 2,
-  generationMethod: null,
-  approvedAt: null,
-  approvedExportId: null,
-  staleReason: null,
-  createdAt: '2026-04-26T12:00:00.000Z',
-  updatedAt: '2026-04-26T12:00:00.000Z',
+function buildRecommendationContext(): ResumeThemePickerRecommendationContext {
+  return {
+    jobTitle: 'Staff Frontend Engineer',
+    jobKeywords: ['React', 'TypeScript', 'Accessibility', 'Platform'],
+    hasProjects: true,
+    hasCertifications: false,
+    hasFormalEducation: true,
+    experienceEntryCount: 4,
+    totalIncludedBulletCount: 12,
+  }
 }
 
-describe('ResumeWorkspaceEditorPanel', () => {
+describe('ResumeThemePicker', () => {
+  const globalScope = globalThis as typeof globalThis & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean
+  }
   let container: HTMLDivElement | null = null
   let root: Root | null = null
 
-  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  globalScope.IS_REACT_ACT_ENVIRONMENT = true
 
   afterEach(() => {
     if (root) {
@@ -163,43 +148,50 @@ describe('ResumeWorkspaceEditorPanel', () => {
     vi.clearAllMocks()
   })
 
-  it('keeps every shipped family and variant inside the scrollable editor region', () => {
+  it('builds deterministic recommendations from workspace context', () => {
+    expect(
+      buildResumeThemePickerRecommendations({
+        recommendationContext: buildRecommendationContext(),
+        themes,
+      }),
+    ).toEqual([
+      expect.objectContaining({ templateId: 'technical_matrix' }),
+      expect.objectContaining({ templateId: 'project_showcase' }),
+      expect.objectContaining({ templateId: 'compact_exec' }),
+    ])
+  })
+
+  it('supports recommended-only filtering in the catalog', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
 
     act(() => {
       root?.render(
-        <ResumeWorkspaceEditorPanel
-          actionMessage={null}
-          availableResumeTemplates={availableResumeTemplates}
-          draft={draft}
-          hasUnsavedChanges={false}
-          isWorkspacePending={false}
-          jobId="job_1"
-          onApplyPatch={vi.fn()}
-          onRegenerateSection={vi.fn()}
-          onSectionChange={vi.fn()}
-          onSelectEntry={vi.fn()}
-          onSelectSection={vi.fn()}
-          onThemeChange={vi.fn()}
-          runWithSavedDraft={(next) => next()}
-          selectedEntryId={null}
-          selectedSectionId={null}
-          withDraftPatch={(patch) => patch}
+        <ResumeThemePicker
+          onChange={vi.fn()}
+          recommendationContext={buildRecommendationContext()}
+          selectedThemeId="classic_ats"
+          themes={themes}
         />,
       )
     })
 
-    expect(container?.querySelectorAll('[role="radio"]')).toHaveLength(6)
+    expect(container?.textContent).toContain('Recommended for this draft')
+    expect(container?.textContent).toContain('Engineering Spec - Systems')
 
-    const scrollRegion = container?.querySelector('.overflow-y-auto')
-    expect(scrollRegion?.textContent).toContain('Swiss Minimal')
-    expect(scrollRegion?.textContent).toContain('Executive Brief')
-    expect(scrollRegion?.textContent).toContain('Engineering Spec')
-    expect(scrollRegion?.textContent).toContain('Portfolio Narrative')
-    expect(scrollRegion?.textContent).toContain('Apply-safe')
-    expect(scrollRegion?.textContent).toContain('All lanes')
-    expect(scrollRegion?.textContent).toContain('All density')
+    const recommendedOnlyButton = Array.from(container?.querySelectorAll('button') ?? []).find(
+      (element) => element.textContent?.includes('Recommended only'),
+    )
+    expect(recommendedOnlyButton).toBeTruthy()
+
+    act(() => {
+      recommendedOnlyButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container?.textContent).toContain('Filters active')
+    expect(container?.textContent).not.toContain('Swiss Minimal')
+    expect(container?.textContent).toContain('Engineering Spec')
+    expect(container?.textContent).toContain('Portfolio Narrative')
   })
 })

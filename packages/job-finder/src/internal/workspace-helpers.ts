@@ -4,6 +4,8 @@ import {
   JobSearchPreferencesSchema,
   JobSourceAdapterKindSchema,
   ResumeDraftSchema,
+  getResumeTemplateDeliveryLane,
+  isResumeTemplateApplyEligible,
   type ApplicationAttempt,
   type ApplicationEvent,
   type ApplicationStatus,
@@ -114,9 +116,18 @@ export function normalizeJobFinderSettings(
   settings: JobFinderSettings,
   availableResumeTemplates: readonly ResumeTemplateDefinition[],
 ): JobFinderSettings {
-  const fallbackTemplateId = availableResumeTemplates[0]?.id ?? "classic_ats";
+  const defaultApplySafeTemplate = availableResumeTemplates.find(
+    (template) =>
+      getResumeTemplateDeliveryLane(template) === "apply_safe" &&
+      isResumeTemplateApplyEligible(template),
+  );
+  const fallbackTemplateId =
+    defaultApplySafeTemplate?.id ?? availableResumeTemplates[0]?.id ?? "classic_ats";
   const selectedTemplateAvailable = availableResumeTemplates.some(
-    (template) => template.id === settings.resumeTemplateId,
+    (template) =>
+      template.id === settings.resumeTemplateId &&
+      getResumeTemplateDeliveryLane(template) === "apply_safe" &&
+      isResumeTemplateApplyEligible(template),
   );
 
   return JobFinderSettingsSchema.parse({

@@ -175,6 +175,7 @@ export function buildJobFinderPageContext(
     profileCopilotPendingContextKey,
     onGetApplyRunDetails: actions.getApplyRunDetails,
     onGetSourceDebugRunDetails: actions.getSourceDebugRunDetails,
+    onPreviewResumeDraft: actions.previewResumeDraft,
     onSaveSourceInstructionArtifact: (targetId, artifact) =>
       void runAction(
         () => actions.saveSourceInstructionArtifact(targetId, artifact),

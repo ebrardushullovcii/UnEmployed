@@ -7,6 +7,7 @@ import type {
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
   JobFinderOpenBrowserSessionInput,
+  JobFinderResumePreview,
   ResumeDocumentBundle,
   ResumeImportFieldCandidate,
   ResumeImportRun,
@@ -128,6 +129,7 @@ export interface JobFinderWorkspaceService {
   dismissDiscoveryJob(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   generateResume(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace(jobId: string): Promise<JobFinderResumeWorkspace>;
+  previewResumeDraft(draft: ResumeDraft): Promise<JobFinderResumePreview>;
   saveResumeDraft(draft: ResumeDraft): Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeDraft(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeSection(
@@ -195,6 +197,16 @@ export interface RenderedResumeArtifact {
 
 export interface JobFinderDocumentManager {
   listResumeTemplates(): readonly ResumeTemplateDefinition[];
+  renderResumePreview(input: {
+    job: SavedJob;
+    profile: CandidateProfile;
+    renderDocument: ResumeRenderDocument;
+    templateId: ResumeTemplateId;
+    settings: JobFinderSettings;
+  }): Promise<{
+    html: string;
+    warnings?: readonly string[];
+  }>;
   renderResumeArtifact(input: {
     job: SavedJob;
     profile: CandidateProfile;

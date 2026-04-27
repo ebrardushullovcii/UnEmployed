@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import type { ResumeDraft, ResumeDraftEntry, SavedJob } from '@unemployed/contracts'
+import type { ResumeDraft, ResumeDraftEntry } from '@unemployed/contracts'
 import { sanitizeResumeDraft, validateResumeDraft } from './resume-workspace-helpers'
 import { createEntry } from './resume-workspace-primitives'
 import { createSeed } from '../workspace-service.test-support'

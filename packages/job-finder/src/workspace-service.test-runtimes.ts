@@ -602,6 +602,42 @@ export function createDocumentManager() {
         },
       ]);
     },
+    renderResumePreview(input: {
+      templateId: ResumeTemplateId
+      renderDocument: {
+        fullName: string
+        sections: Array<{
+          id: string
+          text: string | null
+          bullets: string[]
+          entries: Array<{
+            id: string
+            summary: string | null
+            bullets: string[]
+          }>
+        }>
+      }
+    }) {
+      const previewBody = input.renderDocument.sections
+        .map((section) => {
+          const lines = [
+            ...(section.text ? [section.text] : []),
+            ...section.bullets,
+            ...section.entries.flatMap((entry) => [
+              ...(entry.summary ? [entry.summary] : []),
+              ...entry.bullets,
+            ]),
+          ]
+
+          return `<section data-resume-section-id="${section.id}">${lines.join(' ')}</section>`
+        })
+        .join('')
+
+      return Promise.resolve({
+        html: `<!doctype html><html><body><article data-template-id="${input.templateId}"><h1>${input.renderDocument.fullName}</h1>${previewBody}</article></body></html>`,
+        warnings: [],
+      })
+    },
     renderResumeArtifact(input: { templateId: ResumeTemplateId }) {
       const fileStem = `generated-${input.templateId}`
       return Promise.resolve({

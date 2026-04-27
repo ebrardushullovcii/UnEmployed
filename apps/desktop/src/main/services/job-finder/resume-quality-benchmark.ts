@@ -14,12 +14,14 @@ import {
   ResumeQualityBenchmarkReportSchema,
   ResumeQualityBenchmarkRequestSchema,
   SavedJobSchema,
+  isResumeTemplateBenchmarkEligible,
   type JobFinderRepositoryState,
   type ResumeQualityBenchmarkCase,
   type ResumeQualityBenchmarkCaseResult,
   type ResumeQualityBenchmarkMetrics,
   type ResumeQualityBenchmarkReport,
   type ResumeQualityBenchmarkRequest,
+  type ResumeTemplateDefinition,
   type ResumeTemplateId,
   type SavedJob,
 } from '@unemployed/contracts'
@@ -37,6 +39,14 @@ type ResumeQualityBenchmarkFixture = {
     baseDraft: TailoredResumeDraft
     job: SavedJob
   }) => TailoredResumeDraft
+}
+
+export function selectBenchmarkTemplateIds(
+  templates: readonly ResumeTemplateDefinition[] = listLocalResumeTemplates(),
+): ResumeTemplateId[] {
+  return templates
+    .filter((template) => isResumeTemplateBenchmarkEligible(template))
+    .map((template) => template.id)
 }
 
 function average(values: readonly number[]): number {
@@ -1174,9 +1184,14 @@ export async function runDesktopResumeQualityBenchmark(
 ): Promise<ResumeQualityBenchmarkReport> {
   const request = ResumeQualityBenchmarkRequestSchema.parse(input)
   const fixtures = resolveBenchmarkFixtures(request)
-  const templates = listLocalResumeTemplates().map((template) => template.id)
+  const availableTemplates = listLocalResumeTemplates()
+  const templates = selectBenchmarkTemplateIds(availableTemplates)
   const results: ResumeQualityBenchmarkCaseResult[] = []
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-quality-'))
+
+  if (templates.length === 0) {
+    throw new Error('Resume quality benchmark requires at least one benchmark-eligible template.')
+  }
 
   try {
     for (const fixture of fixtures) {
@@ -1280,7 +1295,12 @@ export async function runDesktopResumeQualityBenchmark(
     persistedArtifactsDirectory: request.persistArtifactsDirectory,
     cases: results,
     aggregate: aggregateMetrics(results),
-    notes: [],
+    notes: availableTemplates
+      .filter((template) => !isResumeTemplateBenchmarkEligible(template))
+      .map(
+        (template) =>
+          `Skipped non-benchmark-eligible template: ${template.label} (${template.id}).`,
+      ),
   })
 }
 

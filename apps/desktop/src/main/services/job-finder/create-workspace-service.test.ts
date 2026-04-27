@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopJobFinderAiClient } from "./create-workspace-service";
 import {
   getDesktopTestDelayMs,
+  getResumePreviewTestMode,
   getTestBrowserSessionStatus,
   isBrowserAgentEnabled,
   parseResumeImportPathPayload,
@@ -224,6 +225,41 @@ describe("getDesktopTestDelayMs", () => {
     ).toBe(0);
     expect(warnSpy).toHaveBeenCalledWith(
       '[desktop test-api] Unrecognized UNEMPLOYED_TEST_PROFILE_COPILOT_DELAY_MS value: "250ms". Falling back to the default disabled behavior.',
+    );
+  });
+});
+
+describe("getResumePreviewTestMode", () => {
+  beforeEach(() => {
+    resetInvalidBooleanEnvWarnings();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    resetInvalidBooleanEnvWarnings();
+    vi.restoreAllMocks();
+  });
+
+  test("defaults to ok when unset or blank", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect(getResumePreviewTestMode({})).toBe("ok");
+    expect(getResumePreviewTestMode({ UNEMPLOYED_TEST_RESUME_PREVIEW: "   " })).toBe("ok");
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("accepts fail_once override", () => {
+    expect(getResumePreviewTestMode({ UNEMPLOYED_TEST_RESUME_PREVIEW: "fail_once" })).toBe("fail_once");
+  });
+
+  test("warns once and falls back to ok for invalid overrides", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect(getResumePreviewTestMode({ UNEMPLOYED_TEST_RESUME_PREVIEW: "broken" })).toBe("ok");
+    expect(getResumePreviewTestMode({ UNEMPLOYED_TEST_RESUME_PREVIEW: "broken" })).toBe("ok");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[desktop test-api] Unrecognized UNEMPLOYED_TEST_RESUME_PREVIEW value: "broken". Falling back to the default "ok" behavior.',
     );
   });
 });

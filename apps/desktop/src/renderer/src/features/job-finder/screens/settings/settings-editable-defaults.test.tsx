@@ -51,17 +51,43 @@ describe('SettingsEditableDefaults', () => {
           availableResumeTemplates={[
             {
               id: 'classic_ats',
-              label: 'Classic ATS',
+              label: 'Swiss Minimal - Standard',
+              familyId: 'swiss_minimal',
+              familyLabel: 'Swiss Minimal',
+              familyDescription: 'Calm ATS-safe layouts.',
+              variantLabel: 'Standard',
               description: 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
+              fitSummary: 'A clean all-rounder.',
+              avoidSummary: 'Less distinctive for project-led portfolios.',
               bestFor: ['General applications', 'Recruiter-heavy funnels'],
+              visualTags: ['Minimal', 'Balanced'],
               density: 'balanced',
+              deliveryLane: 'apply_safe',
+              atsConfidence: 'high',
+              applyEligible: true,
+              approvalEligible: true,
+              benchmarkEligible: true,
+              sortOrder: 10,
             },
             {
               id: 'compact_exec',
-              label: 'Compact ATS',
+              label: 'Executive Brief - Dense',
+              familyId: 'executive_brief',
+              familyLabel: 'Executive Brief',
+              familyDescription: 'Leadership-oriented ATS-safe layouts.',
+              variantLabel: 'Dense',
               description: 'Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.',
+              fitSummary: 'Good for dense senior resumes.',
+              avoidSummary: 'Can feel tight for early-career profiles.',
               bestFor: ['Experienced candidates', 'Content-dense resumes'],
+              visualTags: ['Dense', 'Centered header'],
               density: 'compact',
+              deliveryLane: 'apply_safe',
+              atsConfidence: 'high',
+              applyEligible: true,
+              approvalEligible: true,
+              benchmarkEligible: true,
+              sortOrder: 20,
             },
           ]}
           isSavePending={false}
@@ -80,10 +106,12 @@ describe('SettingsEditableDefaults', () => {
       )
     })
 
-    expect(container?.textContent).toContain('Default resume theme')
-    expect(container?.textContent).toContain('Compact ATS')
+    expect(container?.textContent).toContain('Default resume template')
+    expect(container?.textContent).toContain('Executive Brief')
+    expect(container?.textContent).toContain('Executive Brief - Dense')
     expect(container?.textContent).toContain('Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.')
-    expect(container?.textContent).toContain('Content-dense resumes')
+    expect(container?.textContent).toContain('Dense')
+    expect(container?.textContent).toContain('Apply-safe')
   })
 
   it('disables form controls and marks save as pending while saving', () => {
@@ -98,11 +126,22 @@ describe('SettingsEditableDefaults', () => {
           availableResumeTemplates={[
             {
               id: 'classic_ats',
-              label: 'Classic ATS',
+              label: 'Swiss Minimal - Standard',
+              familyId: 'swiss_minimal',
+              familyLabel: 'Swiss Minimal',
+              familyDescription: 'Calm ATS-safe layouts.',
+              variantLabel: 'Standard',
               description:
                 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
               bestFor: ['General applications', 'Recruiter-heavy funnels'],
+              visualTags: ['Minimal', 'Balanced'],
               density: 'balanced',
+              deliveryLane: 'apply_safe',
+              atsConfidence: 'high',
+              applyEligible: true,
+              approvalEligible: true,
+              benchmarkEligible: true,
+              sortOrder: 10,
             },
           ]}
           isSavePending
@@ -121,10 +160,12 @@ describe('SettingsEditableDefaults', () => {
       )
     })
 
-    expect(container?.textContent).toContain('Default resume theme')
-    expect(container?.textContent).toContain('Classic ATS')
+    expect(container?.textContent).toContain('Default resume template')
+    expect(container?.textContent).toContain('Swiss Minimal - Standard')
 
-    const button = container?.querySelector('button[data-slot="button"]')
+    const button = Array.from(container?.querySelectorAll('button[data-slot="button"]') ?? []).find(
+      (element) => element.textContent?.includes('Save settings'),
+    )
     expect(button?.getAttribute('aria-busy')).toBe('true')
     expect(button?.getAttribute('data-pending')).toBe('true')
 

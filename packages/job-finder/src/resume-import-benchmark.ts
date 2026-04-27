@@ -553,6 +553,11 @@ function createBenchmarkContext(input: {
   });
   const documentManager = {
     listResumeTemplates: () => [],
+    renderResumePreview() {
+      return Promise.reject(
+        new Error("Resume preview is not available in the benchmark harness."),
+      );
+    },
     renderResumeArtifact() {
       return Promise.reject(
         new Error("Resume rendering is not available in the benchmark harness."),

@@ -4,7 +4,7 @@ import {
   areEquivalentExperienceRecords,
   scoreEducationRecordCompleteness,
   scoreExperienceRecordCompleteness,
-} from '@unemployed/job-finder'
+} from '@unemployed/job-finder/resume-record-identity'
 import type { EducationFormEntry, ExperienceFormEntry } from './job-finder-types'
 import { joinListInput } from './job-finder-utils'
 import type { ProfileEditorValues } from './profile-editor-types'

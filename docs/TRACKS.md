@@ -22,6 +22,21 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Reopenable Baselines
 
+### `026 Job Finder Resume Template Families Variants And Catalog Selection`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/026-job-finder-resume-template-families-variants-and-catalog-selection.md`
+- family-first template selection now ships truthful family, variant, lane, ATS confidence, and eligibility metadata with real preview-backed family cards, compare flow, deterministic recommendations, and lane plus density filters
+- the shared renderer now uses family-oriented ATS-safe builders that make `Swiss Minimal`, `Executive Brief`, `Engineering Spec`, and `Portfolio Narrative` materially distinct by hierarchy and content emphasis while preserving benchmark coverage
+- reopen only for a concrete family-rendering or selection regression, a benchmark-backed ATS or approval-safety issue, or a deliberate decision to ship real `share-ready` templates
+
+### `025 Job Finder Resume Studio Live Preview And Editing`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/025-job-finder-resume-studio-live-preview-and-editing.md`
+- preview-centered `Resume Studio`, truthful shared live preview, preview failure fallback, preview-to-editor targeting, and widened desktop harness coverage are landed
+- reopen only for a concrete live-preview drift or failure regression, preview-selection or focus regression, or export/approval safety mismatch backed by fresh evidence
+
 ### `023 Job Finder World-Class Resume Generation Quality`
 
 - status: `done`
@@ -91,7 +106,9 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Baselines
 
+- `026`: family-first resume template families and selection
 - `023`: resume generation quality
+- `025`: resume studio live preview and editing
 - `013`: source intelligence/discovery
 - `011`, `018`, `019`: shared profile/import
 - `014`: resume quality
@@ -101,8 +118,6 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - `007`: resume workspace
 
 ## Ready Queue
-
-- none
 
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling

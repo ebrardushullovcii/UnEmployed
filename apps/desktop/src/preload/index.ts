@@ -11,6 +11,7 @@ import type {
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   JobFinderPerformanceSnapshot,
+  JobFinderResumePreview,
   ResumeQualityBenchmarkReport,
   ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
@@ -343,6 +344,10 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:get-resume-workspace", {
         jobId,
       }) as Promise<JobFinderResumeWorkspace>,
+    previewResumeDraft: (draft: ResumeDraft) =>
+      ipcRenderer.invoke("job-finder:preview-resume-draft", {
+        draft,
+      }) as Promise<JobFinderResumePreview>,
     saveResumeDraft: (draft: ResumeDraft) =>
       ipcRenderer.invoke("job-finder:save-resume-draft", {
         draft,
@@ -434,6 +439,11 @@ const desktopApi = {
                 applySystemThemeOverride(theme);
                 return { ok: true as const };
               }),
+            setResumePreviewMode: (mode: "ok" | "fail_once") =>
+              ipcRenderer.invoke(
+                "job-finder:test-set-resume-preview-mode",
+                mode,
+              ) as Promise<{ ok: true }>,
             loadResumeWorkspaceDemo: () =>
               ipcRenderer.invoke(
                 "job-finder:test-load-resume-workspace-demo",

@@ -8,6 +8,8 @@ import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   ResumeAssistantMessageSchema,
+  isResumeTemplateApplyEligible,
+  isResumeTemplateApprovalEligible,
   type ResumeDraft,
   ResumeDraftPatchSchema,
   ResumeDraftSchema,
@@ -64,6 +66,7 @@ import {
   buildResumeWorkspace,
   ensureResumeDraft,
   fetchAndPersistResearch,
+  previewResumeDraft,
   renderDraftToPdf,
 } from "./workspace-application-resume-support";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
@@ -114,6 +117,7 @@ export function createWorkspaceApplicationMethods(
   | "dismissDiscoveryJob"
   | "generateResume"
   | "getResumeWorkspace"
+  | "previewResumeDraft"
   | "saveResumeDraft"
   | "regenerateResumeDraft"
   | "regenerateResumeSection"
@@ -169,6 +173,17 @@ export function createWorkspaceApplicationMethods(
     if (!draft || draft.status !== "approved" || !approvedExport) {
       throw new Error(
         `An approved tailored PDF is required before staging automatic apply for '${job.title}'.`,
+      );
+    }
+
+    const template = ctx
+      .documentManager
+      .listResumeTemplates()
+      .find((entry) => entry.id === draft.templateId);
+
+    if (!template || !isResumeTemplateApplyEligible(template)) {
+      throw new Error(
+        `The selected resume template for '${job.title}' is not eligible for automatic apply. Choose an apply-safe template, export a fresh PDF, and approve it again.`,
       );
     }
 
@@ -1039,6 +1054,9 @@ export function createWorkspaceApplicationMethods(
     async getResumeWorkspace(jobId) {
       return buildResumeWorkspace(ctx, jobId);
     },
+    async previewResumeDraft(draft) {
+      return previewResumeDraft(ctx, ResumeDraftSchema.parse(draft));
+    },
     async saveResumeDraft(draft) {
       const parsedDraft = ResumeDraftSchema.parse(draft);
       const { job, profile, tailoredAsset, templates } = await ensureResumeDraft(
@@ -1276,6 +1294,14 @@ export function createWorkspaceApplicationMethods(
       ) {
         throw new Error(
           `Resume export '${exportId}' still has blocking validation errors and cannot be approved yet.`,
+        );
+      }
+
+      const template = templates.find((entry) => entry.id === draft.templateId) ?? null;
+
+      if (!template || !isResumeTemplateApprovalEligible(template)) {
+        throw new Error(
+          `Resume export '${exportId}' uses a share-ready template and cannot be approved for apply-safe flows. Choose an apply-safe template and export a fresh PDF instead.`,
         );
       }
 

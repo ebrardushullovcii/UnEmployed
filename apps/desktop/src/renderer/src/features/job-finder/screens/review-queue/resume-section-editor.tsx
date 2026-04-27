@@ -1,5 +1,5 @@
 import { Lock, LockOpen, MoveDown, MoveUp, RefreshCcw } from "lucide-react";
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import type {
   ResumeDraftPatch,
   ResumeDraftSection,
@@ -8,6 +8,7 @@ import { Button } from "@renderer/components/ui/button";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
 import { Input } from "@renderer/components/ui/input";
 import { Textarea } from "@renderer/components/ui/textarea";
+import { cn } from "@renderer/lib/cn";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
 import { SourceRefsList } from "./source-refs-list";
@@ -23,16 +24,52 @@ function normalizeNullableText(value: string | null | undefined): string | null 
 export function ResumeSectionEditor(props: {
   section: ResumeDraftSection;
   disabled: boolean;
+  isSelected: boolean;
+  selectedEntryId: string | null;
   onChange: (nextSection: ResumeDraftSection) => void;
+  onSelectEntry: (sectionId: string, entryId: string) => void;
+  onSelectSection: (sectionId: string) => void;
   onRegenerate: () => void;
   onPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void;
 }) {
   const textId = useId();
   const controlIdPrefix = useId();
   const hasEntries = props.section.entries.length > 0;
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const entryRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  useEffect(() => {
+    const target = props.selectedEntryId
+      ? entryRefs.current[props.selectedEntryId] ?? null
+      : props.isSelected
+        ? sectionRef.current
+        : null;
+
+    if (!target) {
+      return;
+    }
+
+    const firstTextControl = target.querySelector<HTMLElement>(
+      "textarea:not([disabled]), input:not([disabled])",
+    );
+    const firstControl =
+      firstTextControl ??
+      target.querySelector<HTMLElement>("button:not([disabled])");
+
+    firstControl?.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "nearest" });
+  }, [props.isSelected, props.selectedEntryId]);
 
   return (
-    <article className="surface-card-tint grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+    <article
+      className={cn(
+        "surface-card-tint grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-4 transition-colors",
+        props.isSelected && "border-primary/35 bg-primary/5",
+      )}
+      onFocusCapture={() => props.onSelectSection(props.section.id)}
+      onMouseDownCapture={() => props.onSelectSection(props.section.id)}
+      ref={sectionRef}
+    >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-base font-semibold text-(--text-headline)">
@@ -159,7 +196,15 @@ export function ResumeSectionEditor(props: {
           {props.section.entries.map((entry) => (
             <article
               key={entry.id}
-              className="surface-card grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-3"
+              className={cn(
+                "surface-card grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-3 transition-colors",
+                props.selectedEntryId === entry.id && "border-primary/35 bg-primary/5",
+              )}
+              onFocusCapture={() => props.onSelectEntry(props.section.id, entry.id)}
+              onMouseDownCapture={() => props.onSelectEntry(props.section.id, entry.id)}
+              ref={(node) => {
+                entryRefs.current[entry.id] = node;
+              }}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge tone={entry.included ? "active" : "muted"}>

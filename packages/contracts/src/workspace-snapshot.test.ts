@@ -31,11 +31,24 @@ describe("contracts workspace snapshot schema", () => {
       availableResumeTemplates: [
         {
           id: "classic_ats",
-          label: "Classic ATS",
+          label: "Swiss Minimal - Standard",
+          familyId: "swiss_minimal",
+          familyLabel: "Swiss Minimal",
+          familyDescription: "Calm ATS-safe layouts.",
+          variantLabel: "Standard",
           description:
             "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
+          fitSummary: "A clean all-rounder.",
+          avoidSummary: "Less distinctive for project-led portfolios.",
           bestFor: ["General applications", "Recruiter-heavy funnels"],
+          visualTags: ["Minimal", "Balanced"],
           density: "balanced",
+          deliveryLane: "apply_safe",
+          atsConfidence: "high",
+          applyEligible: true,
+          approvalEligible: true,
+          benchmarkEligible: true,
+          sortOrder: 10,
         },
       ],
       profile: {

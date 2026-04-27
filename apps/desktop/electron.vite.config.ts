@@ -8,6 +8,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const browserRuntimePath = path.resolve(currentDir, '../../packages/browser-runtime/src/index.ts')
 const contractsPath = path.resolve(currentDir, '../../packages/contracts/src/index.ts')
 const dbPath = path.resolve(currentDir, '../../packages/db/src/index.ts')
+const jobFinderResumeRecordIdentityPath = path.resolve(currentDir, '../../packages/job-finder/src/resume-record-identity.ts')
 const jobFinderPath = path.resolve(currentDir, '../../packages/job-finder/src/index.ts')
 const knowledgeBasePath = path.resolve(currentDir, '../../packages/knowledge-base/src/index.ts')
 
@@ -15,6 +16,7 @@ const workspaceAliases = {
   '@unemployed/browser-runtime': browserRuntimePath,
   '@unemployed/contracts': contractsPath,
   '@unemployed/db': dbPath,
+  '@unemployed/job-finder/resume-record-identity': jobFinderResumeRecordIdentityPath,
   '@unemployed/job-finder': jobFinderPath,
   '@unemployed/knowledge-base': knowledgeBasePath
 }

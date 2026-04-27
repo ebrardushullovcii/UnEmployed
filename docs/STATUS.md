@@ -4,12 +4,14 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 
 ## Current Truth
 
-- Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`, `020`, `021`, `022`, `023`, `024`
+- Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`, `020`, `021`, `022`, `023`, `024`, `025`, `026`
 - Active work: none
 - Baseline landed: desktop app, typed Electron boundaries, SQLite persistence, guided setup, profile copilot, discovery, resume workspace, safe non-submitting apply
 
 ## What Matters Now
 
+- `026` is completed: Job Finder now ships a family-first resume catalog with enriched template metadata, truthful `apply-safe` and `share-ready` lane semantics, shared preview and export renderer ownership in desktop `src/shared`, materially distinct ATS-safe family layouts, real preview-backed family and variant selection UI in Settings and Resume Studio, deterministic workspace-driven template recommendations plus lane and density filters, and service-layer approval plus auto-apply guards that refuse non-eligible templates
+- `025` is completed: Job Finder now ships a preview-centered `Resume Studio` with truthful live preview, shared preview/export rendering, unsaved-preview messaging, preview failure fallback, preview-to-editor targeting, and widened desktop harness evidence under `apps/desktop/test-artifacts/ui/resume-workspace/` including `studio-preview-results.json`
 - `024` is completed: Job Finder now ships six ATS-safe resume themes with default-theme settings, per-draft theme selection in Resume Workspace, draft-owned export and approval behavior, and expanded renderer plus benchmark coverage; the latest UI harness artifacts live under `apps/desktop/test-artifacts/ui/resume-workspace/` and the latest benchmark report lives under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/`
 - `023` is completed: candidate-backed visible-skill grounding, broader low-level sanitizer and validator coverage, two ATS-safe templates, and the replayable desktop benchmark now protect the resume-generation path; the latest benchmark report and persisted HTML artifacts live under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/`
 - `022` is completed: source sign-in prompts and source-aware browser entry now surface in `Profile` and `Find jobs`, with screenshot-reviewed desktop QA artifacts under `apps/desktop/test-artifacts/ui/source-sign-in-prompts/`
@@ -51,6 +53,8 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 ## Key References
 
 - `docs/TRACKS.md`
+- `docs/exec-plans/completed/026-job-finder-resume-template-families-variants-and-catalog-selection.md`
+- `docs/exec-plans/completed/025-job-finder-resume-studio-live-preview-and-editing.md`
 - `docs/exec-plans/completed/024-job-finder-resume-theme-catalog-and-selection.md`
 - `docs/exec-plans/completed/023-job-finder-world-class-resume-generation-quality.md`
 - `docs/exec-plans/completed/022-job-finder-source-sign-in-prompts-and-source-aware-browser-entry.md`

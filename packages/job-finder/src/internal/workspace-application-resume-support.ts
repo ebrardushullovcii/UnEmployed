@@ -1,6 +1,7 @@
 import {
   JobFinderResumeWorkspaceSchema,
   type JobFinderResumeWorkspace,
+  type JobFinderResumePreview,
   type CandidateProfile,
   type ResumeDraft,
   type ResumeTemplateDefinition,
@@ -17,8 +18,59 @@ import {
 import {
   normalizeJobFinderSettings,
   normalizeResumeDraftTemplate,
+  wasResumeDraftApproved,
 } from "./workspace-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
+
+function countVisibleEntries(draft: ResumeDraft): number {
+  return draft.sections
+    .filter((section) => section.included)
+    .reduce(
+      (count, section) =>
+        count + section.entries.filter((entry) => entry.included).length,
+      0,
+    );
+}
+
+function createDraftRevisionKey(draft: ResumeDraft): string {
+  const serializedDraft = JSON.stringify(draft);
+  let hash = 2166136261;
+
+  for (let index = 0; index < serializedDraft.length; index += 1) {
+    hash ^= serializedDraft.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return `resume_preview_${draft.id}_${(hash >>> 0).toString(16)}`;
+}
+
+function buildPreviewWarnings(input: {
+  validationIssues: Awaited<ReturnType<typeof validateResumeDraft>>["issues"];
+  renderWarnings: readonly string[];
+}) {
+  return [
+    ...input.validationIssues.map((issue) => ({
+      id: `preview_${issue.id}`,
+      source: "validation" as const,
+      severity: issue.severity,
+      category: issue.category,
+      sectionId: issue.sectionId,
+      entryId: issue.entryId,
+      bulletId: issue.bulletId,
+      message: issue.message,
+    })),
+    ...input.renderWarnings.map((message, index) => ({
+      id: `preview_render_warning_${index + 1}`,
+      source: "render" as const,
+      severity: "warning" as const,
+      category: null,
+      sectionId: null,
+      entryId: null,
+      bulletId: null,
+      message,
+    })),
+  ];
+}
 
 function buildResumeWorkspaceSharedProfile(profile: CandidateProfile) {
   const linksById = new Map(
@@ -176,6 +228,66 @@ export async function renderDraftToPdf(
     settings: input.settings,
     targetPath: input.outputPath ?? null,
   });
+}
+
+export async function previewResumeDraft(
+  ctx: WorkspaceServiceContext,
+  draft: ResumeDraft,
+): Promise<JobFinderResumePreview> {
+  const state = await loadResumeWorkspaceState(ctx, draft.jobId);
+  const parsedDraft = normalizeResumeDraftTemplate(
+    draft,
+    state.templates,
+  );
+  const nextStatus = wasResumeDraftApproved(state.draft) ? "stale" : "needs_review";
+  const normalizedDraft = {
+    ...parsedDraft,
+    status: nextStatus,
+    approvedAt: null,
+    approvedExportId: null,
+    staleReason:
+      nextStatus === "stale"
+        ? "Unsaved changes differ from the last approved export. Save and export a fresh PDF before applying."
+        : null,
+  } satisfies ResumeDraft;
+  const sanitizedDraft = sanitizeResumeDraft({
+    draft: normalizedDraft,
+    job: state.job,
+    profile: state.profile,
+  });
+  const renderedAt = new Date().toISOString();
+  const validation = validateResumeDraft({
+    draft: sanitizedDraft,
+    job: state.job,
+    profile: state.profile,
+    validatedAt: renderedAt,
+  });
+  const preview = await ctx.documentManager.renderResumePreview({
+    job: state.job,
+    profile: state.profile,
+    renderDocument: buildResumeRenderDocument(state.profile, sanitizedDraft, {
+      includePreviewAnchors: true,
+    }),
+    templateId: sanitizedDraft.templateId,
+    settings: state.settings,
+  });
+
+  return {
+    draftId: sanitizedDraft.id,
+    revisionKey: createDraftRevisionKey(sanitizedDraft),
+    html: preview.html,
+    warnings: buildPreviewWarnings({
+      validationIssues: validation.issues,
+      renderWarnings: preview.warnings ?? [],
+    }),
+    metadata: {
+      templateId: sanitizedDraft.templateId,
+      renderedAt,
+      pageCount: null,
+      sectionCount: sanitizedDraft.sections.filter((section) => section.included).length,
+      entryCount: countVisibleEntries(sanitizedDraft),
+    },
+  };
 }
 
 export async function fetchAndPersistResearch(

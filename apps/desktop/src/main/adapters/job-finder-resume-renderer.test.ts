@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest'
+import type { JobFinderSettings, ResumeTemplateId } from '@unemployed/contracts'
 import type { ResumeRenderDocument } from '@unemployed/job-finder'
 
 import {
   listLocalResumeTemplates,
+  renderResumeTemplateCatalogPreviewHtml,
   renderResumeTemplateHtml,
 } from './job-finder-resume-renderer'
 
@@ -85,38 +87,86 @@ const baseRenderDocument: ResumeRenderDocument = {
   ],
 }
 
+const credentialHeavyRenderDocument: ResumeRenderDocument = {
+  ...baseRenderDocument,
+  sections: [
+    baseRenderDocument.sections[0]!,
+    {
+      id: 'section_certifications',
+      kind: 'certifications',
+      label: 'Certifications',
+      text: null,
+      bullets: [],
+      entries: [
+        {
+          id: 'cert_1',
+          heading: 'AWS Certified Solutions Architect | Amazon Web Services | 2024',
+          summary: 'Validated distributed systems depth for platform-heavy roles.',
+          bullets: ['Maintains current cloud architecture certification.'],
+        },
+      ],
+    },
+    {
+      id: 'section_education',
+      kind: 'education',
+      label: 'Education',
+      text: null,
+      bullets: [],
+      entries: [
+        {
+          id: 'edu_1',
+          heading: 'MSc Human Computer Interaction | City University | 2015',
+          summary: null,
+          bullets: ['Research focus on applied systems design.'],
+        },
+      ],
+    },
+    ...baseRenderDocument.sections.slice(1),
+  ],
+}
+
+function renderTemplate(
+  templateId: ResumeTemplateId,
+  renderDocument: ResumeRenderDocument = baseRenderDocument,
+  fontPreset: JobFinderSettings['fontPreset'] = 'inter_requisite',
+): string {
+  return renderResumeTemplateHtml({
+    renderDocument,
+    templateId,
+    settings: {
+      resumeFormat: 'pdf',
+      resumeTemplateId: templateId,
+      fontPreset,
+      appearanceTheme: 'system',
+      humanReviewRequired: true,
+      allowAutoSubmitOverride: false,
+      keepSessionAlive: false,
+      discoveryOnly: false,
+    },
+  })
+}
+
 describe('job finder resume renderer', () => {
-  test('lists six ATS-safe local themes', () => {
+  test('lists six ATS-safe local templates with family metadata', () => {
     expect(listLocalResumeTemplates()).toEqual([
-      expect.objectContaining({ id: 'classic_ats', label: 'Classic ATS', density: 'balanced' }),
-      expect.objectContaining({ id: 'compact_exec', label: 'Compact ATS', density: 'compact' }),
-      expect.objectContaining({ id: 'modern_split', label: 'Modern Split ATS', density: 'balanced' }),
-      expect.objectContaining({ id: 'technical_matrix', label: 'Technical Matrix', density: 'compact' }),
-      expect.objectContaining({ id: 'project_showcase', label: 'Project Showcase', density: 'comfortable' }),
-      expect.objectContaining({ id: 'credentials_focus', label: 'Credentials Focus', density: 'balanced' }),
+      expect.objectContaining({ id: 'classic_ats', label: 'Swiss Minimal - Standard', familyLabel: 'Swiss Minimal', density: 'balanced' }),
+      expect.objectContaining({ id: 'compact_exec', label: 'Executive Brief - Dense', familyLabel: 'Executive Brief', density: 'compact' }),
+      expect.objectContaining({ id: 'modern_split', label: 'Swiss Minimal - Accent', familyLabel: 'Swiss Minimal', density: 'balanced' }),
+      expect.objectContaining({ id: 'technical_matrix', label: 'Engineering Spec - Systems', familyLabel: 'Engineering Spec', density: 'compact' }),
+      expect.objectContaining({ id: 'project_showcase', label: 'Portfolio Narrative - Proof-led', familyLabel: 'Portfolio Narrative', density: 'comfortable' }),
+      expect.objectContaining({ id: 'credentials_focus', label: 'Executive Brief - Credentials', familyLabel: 'Executive Brief', density: 'balanced' }),
     ])
   })
 
   test('renders ATS-safe classic html without keyword section bleed and with escaping', () => {
-    const html = renderResumeTemplateHtml({
-      renderDocument: baseRenderDocument,
-      templateId: 'classic_ats',
-      settings: {
-        resumeFormat: 'pdf',
-        resumeTemplateId: 'classic_ats',
-        fontPreset: 'inter_requisite',
-        appearanceTheme: 'system',
-        humanReviewRequired: true,
-        allowAutoSubmitOverride: false,
-        keepSessionAlive: false,
-        discoveryOnly: false,
-      },
-    })
+    const html = renderTemplate('classic_ats')
 
     expect(html).toContain('@page')
     expect(html).toContain('size: Letter;')
     expect(html).toContain('grid-template-columns: 1fr;')
     expect(html).toContain('data-ats-safe="true"')
+    expect(html).toContain('header-classic')
+    expect(html).toContain('section-cluster-classic-intro')
     expect(html).toContain('Alex &lt;Vanguard&gt;')
     expect(html).toContain('Improved designer-engineer handoff &lt;quality&gt; by 30%.')
     expect(html).toContain('<span class="entry-primary">Senior systems designer — Signal Systems</span>')
@@ -138,71 +188,99 @@ describe('job finder resume renderer', () => {
   })
 
   test('omits blank headline markup when the profile headline is missing', () => {
-    const html = renderResumeTemplateHtml({
-      renderDocument: {
-        ...baseRenderDocument,
-        headline: null,
-      },
-      templateId: 'classic_ats',
-      settings: {
-        resumeFormat: 'pdf',
-        resumeTemplateId: 'classic_ats',
-        fontPreset: 'inter_requisite',
-        appearanceTheme: 'system',
-        humanReviewRequired: true,
-        allowAutoSubmitOverride: false,
-        keepSessionAlive: false,
-        discoveryOnly: false,
-      },
+    const html = renderTemplate('classic_ats', {
+      ...baseRenderDocument,
+      headline: null,
     })
 
     expect(html).not.toContain('class="headline"')
   })
 
-  test('renders compact ats template with denser but still single-column structure', () => {
-    const html = renderResumeTemplateHtml({
-      renderDocument: baseRenderDocument,
-      templateId: 'compact_exec',
-      settings: {
-        resumeFormat: 'pdf',
-        resumeTemplateId: 'compact_exec',
-        fontPreset: 'space_grotesk_display',
-        appearanceTheme: 'system',
-        humanReviewRequired: true,
-        allowAutoSubmitOverride: false,
-        keepSessionAlive: false,
-        discoveryOnly: false,
-      },
-    })
+  test('renders executive brief dense with executive header treatment and denser chronology', () => {
+    const html = renderTemplate('compact_exec', baseRenderDocument, 'space_grotesk_display')
 
     expect(html).toContain('page-compact')
     expect(html).toContain('body-grid-compact')
+    expect(html).toContain('header-executive')
+    expect(html).toContain('meta-pill-list')
+    expect(html).toContain('section-dense-chronology')
+    expect(html).toContain('Executive Brief')
     expect(html).toContain("'Space Grotesk', 'Segoe UI', sans-serif")
     expect(html).toContain('grid-template-columns: 1fr;')
     expect(html).toContain('break-inside: avoid;')
   })
 
-  test('renders every shipped theme with ATS-safe single-column structure', () => {
-    for (const theme of listLocalResumeTemplates()) {
-      const html = renderResumeTemplateHtml({
-        renderDocument: baseRenderDocument,
-        templateId: theme.id,
-        settings: {
-          resumeFormat: 'pdf',
-          resumeTemplateId: theme.id,
-          fontPreset: 'inter_requisite',
-          appearanceTheme: 'system',
-          humanReviewRequired: true,
-          allowAutoSubmitOverride: false,
-          keepSessionAlive: false,
-          discoveryOnly: false,
-        },
-      })
+  test('renders materially distinct family structures for accent, technical, and portfolio layouts', () => {
+    const accentHtml = renderTemplate('modern_split')
+    const technicalHtml = renderTemplate('technical_matrix')
+    const portfolioHtml = renderTemplate('project_showcase')
+
+    expect(accentHtml).toContain('header-swiss-accent')
+    expect(accentHtml).toContain('section-summary-accent')
+    expect(accentHtml).toContain('section-project-spotlight')
+
+    expect(technicalHtml).toContain('header-spec-shell')
+    expect(technicalHtml).toContain('meta-stack')
+    expect(technicalHtml).toContain('section-spec-shell')
+    expect(technicalHtml.indexOf('<h3>Technical Skills</h3>')).toBeLessThan(
+      technicalHtml.indexOf('<h3>Summary</h3>'),
+    )
+    expect(technicalHtml.indexOf('<h3>Summary</h3>')).toBeLessThan(
+      technicalHtml.indexOf('<h3>Experience</h3>'),
+    )
+
+    expect(portfolioHtml).toContain('header-portfolio')
+    expect(portfolioHtml).toContain('section-portfolio-highlight')
+    expect(portfolioHtml).toContain('section-portfolio-skills')
+    expect(portfolioHtml.indexOf('<h3>Projects</h3>')).toBeLessThan(
+      portfolioHtml.indexOf('<h3>Summary</h3>'),
+    )
+    expect(portfolioHtml.indexOf('<h3>Summary</h3>')).toBeLessThan(
+      portfolioHtml.indexOf('<h3>Experience</h3>'),
+    )
+  })
+
+  test('renders credentials variant with credential spotlight ahead of summary and experience', () => {
+    const html = renderTemplate('credentials_focus', credentialHeavyRenderDocument)
+
+    expect(html).toContain('header-executive-credentials')
+    expect(html).toContain('section-credential-spotlight')
+    expect(html).toContain('section-credential-spotlight-surface')
+
+    const certificationsIndex = html.indexOf('<h3>Certifications</h3>')
+    const educationIndex = html.indexOf('<h3>Education</h3>')
+    const summaryIndex = html.indexOf('<h3>Summary</h3>')
+    const experienceIndex = html.indexOf('<h3>Experience</h3>')
+
+    expect(certificationsIndex).toBeGreaterThan(-1)
+    expect(educationIndex).toBeGreaterThan(-1)
+    expect(summaryIndex).toBeGreaterThan(-1)
+    expect(experienceIndex).toBeGreaterThan(-1)
+    expect(certificationsIndex).toBeLessThan(summaryIndex)
+    expect(educationIndex).toBeLessThan(summaryIndex)
+    expect(summaryIndex).toBeLessThan(experienceIndex)
+  })
+
+  test('renders catalog preview shell from the shared renderer for every shipped template', () => {
+    for (const template of listLocalResumeTemplates()) {
+      const html = renderResumeTemplateCatalogPreviewHtml(template.id)
+
+      expect(html).toContain('class="catalog-body"')
+      expect(html).toContain('catalog-shell')
+      expect(html).toContain('transform: scale(0.23);')
+      expect(html).toContain('data-ats-safe="true"')
+      expect(html).toContain(`content="${template.label}"`)
+    }
+  })
+
+  test('renders every shipped template with ATS-safe single-column structure', () => {
+    for (const template of listLocalResumeTemplates()) {
+      const html = renderTemplate(template.id)
 
       expect(html).toContain('@page')
       expect(html).toContain('grid-template-columns: 1fr;')
       expect(html).not.toContain('<table')
-      expect(html).toContain(`content="${theme.label}"`)
+      expect(html).toContain(`content="${template.label}"`)
     }
   })
 })

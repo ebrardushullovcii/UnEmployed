@@ -12,9 +12,11 @@ import {
   JobFinderApplyRunDetailsQuerySchema,
   JobFinderApplyResumePatchInputSchema,
   JobFinderApproveResumeInputSchema,
+  JobFinderPreviewResumeDraftInputSchema,
   JobFinderProfileCopilotMessageInputSchema,
   JobFinderProfileCopilotPatchGroupActionInputSchema,
   JobFinderProfileSetupReviewActionInputSchema,
+  JobFinderResumePreviewSchema,
   JobFinderResumeAssistantMessageInputSchema,
   JobFinderRepositoryStateSchema,
   ResumeQualityBenchmarkRequestSchema,
@@ -51,6 +53,7 @@ import {
   resetJobFinderWorkspace,
   runDesktopResumeQualityBenchmark,
   runDesktopResumeImportBenchmark,
+  setJobFinderWorkspaceServiceTestEnv,
 } from "../services/job-finder";
 
 function parseAgentDiscoveryRequest(payload: unknown) {
@@ -336,6 +339,21 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     const snapshot = await loadResumeWorkspaceDemoState();
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+  });
+
+  ipcMain.handle("job-finder:test-set-resume-preview-mode", async (_event, payload: unknown) => {
+    if (!isDesktopTestApiEnabled()) {
+      throw new Error(
+        "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+      );
+    }
+
+    const mode = payload === "fail_once" ? "fail_once" : "ok";
+    await setJobFinderWorkspaceServiceTestEnv({
+      UNEMPLOYED_TEST_RESUME_PREVIEW: mode,
+    });
+
+    return { ok: true as const };
   });
 
   ipcMain.handle("job-finder:test-load-apply-queue-demo", async () => {
@@ -691,6 +709,17 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         await jobFinderWorkspaceService.getResumeWorkspace(jobId);
 
       return JobFinderResumeWorkspaceSchema.parse(workspace);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:preview-resume-draft",
+    async (_event, payload: unknown) => {
+      const { draft } = JobFinderPreviewResumeDraftInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const preview = await jobFinderWorkspaceService.previewResumeDraft(draft);
+
+      return JobFinderResumePreviewSchema.parse(preview);
     },
   );
 

@@ -6,6 +6,7 @@ import type {
   JobFinderApplyQueueActionInput,
   JobFinderApplyConsentActionInput,
   JobFinderOpenBrowserSessionInput,
+  JobFinderResumePreview,
   ProfileCopilotContext,
   JobFinderResumeWorkspace,
   JobFinderSettings,
@@ -62,6 +63,7 @@ export interface JobFinderPageContext {
   onApproveResume: (jobId: string, exportId: string) => void
   onClearResumeApproval: (jobId: string) => void
   onExportResumePdf: (jobId: string) => void
+  onPreviewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>
   onGetApplyRunDetails: (runId: string, jobId: string) => Promise<ApplyRunDetails>
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
@@ -432,6 +434,7 @@ export function JobFinderResumeWorkspaceRoute() {
       onExportPdf={context.onExportResumePdf}
       onApplyPatch={context.onApplyResumePatch}
       onDirtyChange={context.onResumeWorkspaceDirtyChange}
+      onPreviewDraft={context.onPreviewResumeDraft}
       onRefresh={() => context.onRefreshResumeWorkspace(jobId)}
       onRegenerateDraft={context.onRegenerateResumeDraft}
       onRegenerateSection={context.onRegenerateResumeSection}

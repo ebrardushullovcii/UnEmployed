@@ -8,6 +8,7 @@ import type {
   JobFinderApplyConsentActionInput,
   JobFinderApplyQueueActionInput,
   JobFinderOpenBrowserSessionInput,
+  JobFinderResumePreview,
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobSearchPreferences,
@@ -98,6 +99,7 @@ export interface JobFinderShellActions {
   queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
+  previewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
   saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeDraft: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeSection: (

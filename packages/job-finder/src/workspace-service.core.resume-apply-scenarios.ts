@@ -1,6 +1,7 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   JobPostingSchema,
+  ResumeTemplateDefinitionSchema,
   SavedJobSchema,
 } from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
@@ -644,10 +645,44 @@ describe("createJobFinderWorkspaceService", () => {
     expect(workspace.sharedProfile.highlightedProofs[0]?.title).toBe("Design-system rollout");
   });
 
+  test("previews an unsaved draft without persisting intermediate changes", async () => {
+    const { repository, workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const previewDraft = {
+      ...workspace.draft,
+      sections: workspace.draft.sections.map((section, index) =>
+        index === 0 && section.text
+          ? {
+              ...section,
+              text: `${section.text} Preview-only edit.`,
+            }
+          : section,
+      ),
+    };
+
+    const preview = await workspaceService.previewResumeDraft(previewDraft);
+    const persistedDraft = await repository.getResumeDraftByJobId("job_ready");
+
+    expect(preview.draftId).toBe(workspace.draft.id);
+    expect(preview.html).toContain("Preview-only edit.");
+    expect(preview.html).toContain("data-resume-section-id");
+    expect(preview.revisionKey).not.toBe(`resume_preview_${workspace.draft.id}`);
+    expect(persistedDraft?.sections[0]?.text).toBe(workspace.draft.sections[0]?.text ?? null);
+    expect(persistedDraft?.updatedAt).toBe(workspace.draft.updatedAt);
+  });
+
   test("rejects resume approval when exported validation still has blocking errors", async () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       documentManager: {
         ...createDocumentManager(),
+        renderResumePreview(input: { templateId: string }) {
+          return Promise.resolve({
+            html: `<!doctype html><html><body><article data-template-id="${input.templateId}">Preview</article></body></html>`,
+            warnings: [],
+          });
+        },
         renderResumeArtifact(input: { templateId: string }) {
           return Promise.resolve({
             fileName: `generated-${input.templateId}.pdf`,
@@ -1629,6 +1664,184 @@ describe("createJobFinderWorkspaceService", () => {
     expect(workspace.draft.approvedAt).toBe("2026-04-18T12:00:00.000Z");
     expect(workspace.draft.approvedExportId).toBe("resume_export_legacy");
     expect(workspace.draft.staleReason).toBeNull();
+  });
+
+  test("refuses approval when the selected template is not approval eligible", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness({
+      documentManager: {
+        ...createDocumentManager(),
+        listResumeTemplates() {
+          return ResumeTemplateDefinitionSchema.array().parse([
+            {
+              id: "classic_ats",
+              label: "Swiss Minimal - Standard",
+              familyId: "swiss_minimal",
+              familyLabel: "Swiss Minimal",
+              familyDescription: "Calm ATS-safe layouts.",
+              variantLabel: "Standard",
+              description: "Low-risk ATS-safe default.",
+              bestFor: ["General applications"],
+              visualTags: ["Minimal"],
+              density: "balanced",
+              deliveryLane: "apply_safe",
+              atsConfidence: "high",
+              applyEligible: true,
+              approvalEligible: true,
+              benchmarkEligible: true,
+              sortOrder: 10,
+            },
+            {
+              id: "modern_split",
+              label: "Swiss Minimal - Accent",
+              familyId: "swiss_minimal",
+              familyLabel: "Swiss Minimal",
+              familyDescription: "Calm ATS-safe layouts.",
+              variantLabel: "Accent",
+              description: "Expressive preview-forward variant.",
+              bestFor: ["Share links"],
+              visualTags: ["Accent header"],
+              density: "balanced",
+              deliveryLane: "share_ready",
+              atsConfidence: "medium",
+              applyEligible: false,
+              approvalEligible: false,
+              benchmarkEligible: false,
+              sortOrder: 20,
+            },
+          ]);
+        },
+      },
+    });
+
+    await workspaceService.saveSettings({
+      ...(await workspaceService.getWorkspaceSnapshot()).settings,
+      resumeTemplateId: "classic_ats",
+    });
+    await workspaceService.generateResume("job_ready");
+    let exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    let approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    expect(approvedExport).toBeTruthy();
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    await workspaceService.saveResumeDraft({
+      ...workspace.draft,
+      templateId: "modern_split",
+    });
+    exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    await expect(
+      workspaceService.approveResume("job_ready", approvedExport!.id),
+    ).rejects.toThrow(/share-ready template/i);
+  });
+
+  test("refuses auto-apply staging when an approved draft uses a non-apply template", async () => {
+    const seed = createSeed();
+    seed.resumeDrafts = [
+      {
+        id: "resume_draft_job_ready",
+        jobId: "job_ready",
+        status: "approved",
+        templateId: "modern_split",
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        approvedAt: "2026-04-18T12:00:00.000Z",
+        approvedExportId: "resume_export_share_ready",
+        staleReason: null,
+        createdAt: "2026-04-18T12:00:00.000Z",
+        updatedAt: "2026-04-18T12:00:00.000Z",
+      },
+    ];
+    seed.resumeExportArtifacts = [
+      {
+        id: "resume_export_share_ready",
+        draftId: "resume_draft_job_ready",
+        jobId: "job_ready",
+        format: "pdf",
+        filePath: "/tmp/generated-modern_split.pdf",
+        pageCount: 1,
+        templateId: "modern_split",
+        exportedAt: "2026-04-18T12:00:00.000Z",
+        isApproved: true,
+      },
+    ];
+    seed.tailoredAssets = [
+      {
+        id: "resume_job_ready",
+        jobId: "job_ready",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored Resume",
+        version: "v1",
+        templateName: "Swiss Minimal - Accent",
+        compatibilityScore: 95,
+        progressPercent: 100,
+        updatedAt: "2026-04-18T12:00:00.000Z",
+        storagePath: "/tmp/generated-modern_split.pdf",
+        contentText: "Resume text",
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+      },
+    ];
+
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      documentManager: {
+        ...createDocumentManager(),
+        listResumeTemplates() {
+          return ResumeTemplateDefinitionSchema.array().parse([
+            {
+              id: "classic_ats",
+              label: "Swiss Minimal - Standard",
+              familyId: "swiss_minimal",
+              familyLabel: "Swiss Minimal",
+              familyDescription: "Calm ATS-safe layouts.",
+              variantLabel: "Standard",
+              description: "Low-risk ATS-safe default.",
+              bestFor: ["General applications"],
+              visualTags: ["Minimal"],
+              density: "balanced",
+              deliveryLane: "apply_safe",
+              atsConfidence: "high",
+              applyEligible: true,
+              approvalEligible: true,
+              benchmarkEligible: true,
+              sortOrder: 10,
+            },
+            {
+              id: "modern_split",
+              label: "Swiss Minimal - Accent",
+              familyId: "swiss_minimal",
+              familyLabel: "Swiss Minimal",
+              familyDescription: "Calm ATS-safe layouts.",
+              variantLabel: "Accent",
+              description: "Expressive preview-forward variant.",
+              bestFor: ["Share links"],
+              visualTags: ["Accent header"],
+              density: "balanced",
+              deliveryLane: "share_ready",
+              atsConfidence: "medium",
+              applyEligible: false,
+              approvalEligible: false,
+              benchmarkEligible: false,
+              sortOrder: 20,
+            },
+          ]);
+        },
+      },
+    });
+
+    await expect(
+      workspaceService.startAutoApplyRun("job_ready"),
+    ).rejects.toThrow(/not eligible for automatic apply/i);
   });
 
   test("stales approved resume drafts when saved job details change materially", async () => {

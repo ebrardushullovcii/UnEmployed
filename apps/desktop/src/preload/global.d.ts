@@ -14,6 +14,7 @@ import type {
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkRequest,
   JobFinderPerformanceSnapshot,
+  JobFinderResumePreview,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderSettings,
@@ -132,6 +133,7 @@ declare global {
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
+        previewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
         saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
         regenerateResumeDraft: (
           jobId: string,
@@ -180,6 +182,7 @@ declare global {
         test?: {
           getSystemThemeOverride: () => 'dark' | 'light' | null;
           setSystemThemeOverride: (theme: 'dark' | 'light' | null) => Promise<{ ok: true }>;
+          setResumePreviewMode: (mode: 'ok' | 'fail_once') => Promise<{ ok: true }>;
           loadResumeWorkspaceDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           loadApplyQueueDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           resetWorkspaceState: (

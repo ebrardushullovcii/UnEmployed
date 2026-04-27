@@ -8,10 +8,11 @@ import {
   listLocalResumeTemplates,
   renderResumeTemplateHtml,
   sanitizeSegment,
-} from './job-finder-resume-renderer'
+} from '../../shared/job-finder-resume-renderer'
 
 interface CreateLocalJobFinderDocumentManagerOptions {
   outputDirectory: string
+  previewTestMode?: 'ok' | 'fail_once'
 }
 
 async function renderPdfFromHtml(html: string, htmlPath: string, targetPath: string): Promise<void> {
@@ -55,9 +56,22 @@ async function renderPdfFromHtml(html: string, htmlPath: string, targetPath: str
 export function createLocalJobFinderDocumentManager(
   options: CreateLocalJobFinderDocumentManagerOptions
 ): JobFinderDocumentManager {
+  let shouldFailNextPreview = options.previewTestMode === 'fail_once'
+
   return {
     listResumeTemplates() {
       return listLocalResumeTemplates()
+    },
+    renderResumePreview(input) {
+      if (shouldFailNextPreview) {
+        shouldFailNextPreview = false
+        return Promise.reject(new Error('Preview rendering failed in desktop test mode.'))
+      }
+
+      return Promise.resolve({
+        html: renderResumeTemplateHtml(input, { mode: 'preview' }),
+        warnings: [],
+      })
     },
     async renderResumeArtifact(input) {
       await mkdir(options.outputDirectory, { recursive: true })
