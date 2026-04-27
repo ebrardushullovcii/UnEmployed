@@ -77,8 +77,10 @@ export function ResumeIdentityEditor(props: ResumeIdentityEditorProps) {
 
     const regionTop = scrollRegion.scrollTop
     const regionBottom = regionTop + scrollRegion.clientHeight
-    const targetTop = container.offsetTop
-    const targetBottom = targetTop + container.offsetHeight
+    const regionRect = scrollRegion.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    const targetTop = scrollRegion.scrollTop + targetRect.top - regionRect.top
+    const targetBottom = targetTop + targetRect.height
 
     if (targetTop < regionTop) {
       scrollRegion.scrollTop = Math.max(0, targetTop - 24)

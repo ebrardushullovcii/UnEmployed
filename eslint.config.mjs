@@ -26,7 +26,8 @@ export default tseslint.config(
     files: ['apps/desktop/scripts/**', 'scripts/**'],
     languageOptions: {
       globals: {
-        ...globals.node
+        ...globals.node,
+        ...globals.browser
       }
     }
   },

@@ -10,6 +10,7 @@ import {
 import { createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import {
   CandidateProfileSchema,
+  type JobPosting,
   JobPostingSchema,
   ResumeQualityBenchmarkReportSchema,
   ResumeQualityBenchmarkRequestSchema,
@@ -37,7 +38,7 @@ type ResumeQualityBenchmarkFixture = {
   buildState: (templateId: ResumeTemplateId) => JobFinderRepositoryState
   overrideDraft?: (input: {
     baseDraft: TailoredResumeDraft
-    job: SavedJob
+    job: JobPosting
   }) => TailoredResumeDraft
 }
 
@@ -91,7 +92,7 @@ function firstNonEmptyValue(values: readonly (string | null | undefined)[]): str
   return null
 }
 
-function resolveResponsibilityFallback(job: SavedJob): string {
+function resolveResponsibilityFallback(job: Pick<SavedJob, 'title' | 'responsibilities' | 'minimumQualifications' | 'preferredQualifications' | 'summary' | 'description'>): string {
   return (
     firstNonEmptyValue([
       ...job.responsibilities,
@@ -1080,17 +1081,7 @@ function buildBenchmarkAiClient(
 
       return fixture.overrideDraft!({
         baseDraft,
-        job: SavedJobSchema.parse({
-          ...validatedJob,
-          id: validatedJob.sourceJobId,
-          status: 'ready_for_review',
-          matchAssessment: {
-            score: 80,
-            reasons: [],
-            gaps: [],
-          },
-          provenance: [],
-        }),
+        job: validatedJob,
       })
     },
   }
@@ -1207,11 +1198,12 @@ export async function runDesktopResumeQualityBenchmark(
   const availableTemplates = listLocalResumeTemplates()
   const templates = selectBenchmarkTemplateIds(availableTemplates)
   const results: ResumeQualityBenchmarkCaseResult[] = []
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-quality-'))
 
   if (templates.length === 0) {
     throw new Error('Resume quality benchmark requires at least one benchmark-eligible template.')
   }
+
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-quality-'))
 
   try {
     for (const fixture of fixtures) {
@@ -1284,6 +1276,12 @@ export async function runDesktopResumeQualityBenchmark(
             metrics.pageTargetPassRate === 1 &&
             metrics.atsRenderPassRate === 1
 
+          const templateName = asset.templateName?.trim() ?? ''
+          const notes = [
+            ...(templateName ? [`Template: ${templateName}.`] : []),
+            ...(asset.notes ?? []).map((note) => note.trim()).filter(Boolean),
+          ]
+
           results.push({
             caseId: fixture.definition.id,
             label: fixture.definition.label,
@@ -1294,10 +1292,7 @@ export async function runDesktopResumeQualityBenchmark(
             issueCount: workspace.validation?.issues.length ?? 0,
             metrics,
             htmlArtifactRelativePath,
-            notes: [
-              ...(asset.templateName ? [`Template: ${asset.templateName}.`] : []),
-              ...(asset.notes ?? []),
-            ],
+            notes,
           })
         } finally {
           await workspaceService.shutdown()

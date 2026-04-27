@@ -218,15 +218,30 @@ async function waitForPreviewFailure(window) {
     .waitFor({ timeout: 10000 })
 }
 
-async function waitForPreviewReady(window, expectedText = null) {
+async function waitForPreviewReady(window, options = {}) {
+  const expectedText = typeof options === 'string' ? options : options.expectedText ?? null
+  const changedFrom = typeof options === 'string' ? null : options.changedFrom ?? null
+
   await visiblePreviewFrame(window).waitFor({ timeout: 10000 })
   await waitForCondition(
     async () => {
       const previewHtml = await getPreviewSrcdoc(window)
-      return expectedText ? previewHtml.includes(expectedText) : previewHtml.length > 0
+      if (expectedText && !previewHtml.includes(expectedText)) {
+        return false
+      }
+
+      if (changedFrom !== null && previewHtml === changedFrom) {
+        return false
+      }
+
+      return previewHtml.length > 0
     },
-    expectedText
+    expectedText && changedFrom !== null
+      ? `resume preview to include '${expectedText}' after a fresh render`
+      : expectedText
       ? `resume preview to include '${expectedText}'`
+      : changedFrom !== null
+      ? 'fresh resume preview content'
       : 'resume preview content',
   )
 }
@@ -258,65 +273,13 @@ function templateStrategyPanel(window) {
   return window.locator('section').filter({ hasText: 'Template strategy' }).first()
 }
 
-async function getVisibleVariantCountLabel(window) {
-  return (await window.getByText(/visible variants$/).first().textContent())?.trim() ?? null
-}
-
-async function getVisibleVariantCount(window) {
-  const label = await getVisibleVariantCountLabel(window)
-  const match = /^(\d+) visible variants$/.exec(label ?? '')
-  return match ? Number.parseInt(match[1], 10) : null
-}
-
-async function getRecommendedTemplateLabels(window) {
-  const labels = await window.locator('button[data-slot="button"]').evaluateAll((elements) =>
-    elements
-      .map((element) => element.textContent?.trim() ?? '')
-      .filter((label) => label.includes(' - ')),
-  )
-
-  return [...new Set(labels)]
-}
-
-function templateFamilySection(window, familyLabel) {
-  return window.locator('section').filter({
-    has: window.getByRole('heading', { name: familyLabel, exact: true }),
-  }).first()
-}
-
-function shortlistComparePanel(window) {
-  return window.locator('aside').filter({ hasText: 'Shortlist compare' }).first()
-}
-
 async function clickLocatorViaDom(locator, description) {
-  await locator.waitFor({ timeout: 10000 })
-  await locator.dispatchEvent('click')
-}
-
-async function clickButtonInFamilySection(window, familyLabel, buttonText) {
-  const clicked = await window.evaluate(({ familyLabel: currentFamilyLabel, buttonText: currentButtonText }) => {
-    const section = [...document.querySelectorAll('section')].find((element) => {
-      const heading = element.querySelector('h3')
-      return heading?.textContent?.trim() === currentFamilyLabel
-    })
-
-    if (!(section instanceof HTMLElement)) {
-      return false
-    }
-
-    const button = [...section.querySelectorAll('button')].find(
-      (element) => element.textContent?.trim() === currentButtonText,
-    )
-
-    if (!(button instanceof HTMLButtonElement)) {
-      return false
-    }
-
-    button.click()
-    return true
-  }, { familyLabel, buttonText })
-
-  assert(clicked, `Expected button '${buttonText}' in family section '${familyLabel}'.`)
+  try {
+    await locator.waitFor({ timeout: 10000 })
+    await locator.dispatchEvent('click')
+  } catch (error) {
+    throw new Error(`Could not click ${description}: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 async function clickTemplateStrategyVariant(window, variantLabel, buttonText) {
@@ -454,7 +417,8 @@ async function captureResumeWorkspace() {
       async () => (await getTemplateBadgeText(window)) === 'Template: Engineering Spec - Systems',
       'template header badge to reflect the recommended template selection',
     )
-    await waitForPreviewReady(window)
+    const preTemplatePreviewSrcdoc = await getPreviewSrcdoc(window)
+    await waitForPreviewReady(window, { changedFrom: preTemplatePreviewSrcdoc })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04c-template-selected-engineering-spec.png') })
 
     const unsavedPreviewSentinel = 'Senior systems designer with strong workflow automation, design-system, and operations-platform experience.'

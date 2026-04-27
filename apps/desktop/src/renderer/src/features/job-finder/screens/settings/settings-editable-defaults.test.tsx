@@ -135,6 +135,8 @@ describe('SettingsEditableDefaults', () => {
               variantLabel: 'Standard',
               description:
                 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
+              fitSummary: 'A clean all-rounder.',
+              avoidSummary: 'Less distinctive for project-led portfolios.',
               bestFor: ['General applications', 'Recruiter-heavy funnels'],
               visualTags: ['Minimal', 'Balanced'],
               density: 'balanced',

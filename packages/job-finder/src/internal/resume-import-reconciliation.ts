@@ -96,7 +96,9 @@ function existingScalarValueForCandidate(
 function isFreshStartProfile(profile: CandidateProfile): boolean {
   return (
     profile.id === "candidate_fresh_start" ||
-    (normalizeText(profile.fullName) === "new candidate" &&
+    (normalizeText(profile.firstName) === "new" &&
+      normalizeText(profile.lastName) === "candidate" &&
+      normalizeText(profile.fullName) === "new candidate" &&
       normalizeText(profile.headline) === normalizeText(PROFILE_PLACEHOLDER_HEADLINE) &&
       normalizeText(profile.currentLocation) === normalizeText(PROFILE_PLACEHOLDER_LOCATION))
   );
@@ -341,6 +343,15 @@ function shouldAutoApplyPlaceholderReplacement(
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
 ): boolean {
+  const recommendation = recommendationForCandidate(candidate);
+  const hasExplicitRecommendation = Boolean(candidate.confidenceBreakdown?.recommendation);
+  if (
+    recommendation !== "auto_apply" &&
+    (hasExplicitRecommendation || !isFreshStartProfile(profile))
+  ) {
+    return false;
+  }
+
   const currentValue = existingScalarValueForCandidate(profile, searchPreferences, candidate);
 
   if (!isPlaceholderScalarValue(profile, candidate, currentValue)) {

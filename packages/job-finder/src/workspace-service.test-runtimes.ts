@@ -29,6 +29,7 @@ import type {
 } from "@unemployed/contracts";
 import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 
+import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
 import { toPhaseId, type SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
 
 function normalizeTestJobPosting(job: Record<string, unknown>): JobPosting {
@@ -553,48 +554,48 @@ export function createDocumentManager() {
     listResumeTemplates() {
       return ResumeTemplateDefinitionSchema.array().parse([
         {
-          id: "classic_ats" as const,
-          label: "Classic ATS",
+            id: "classic_ats" as const,
+            label: "Swiss Minimal - Standard",
           description:
             "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
           bestFor: ["General applications", "Recruiter-heavy funnels"],
           density: "balanced" as const,
         },
         {
-          id: "compact_exec" as const,
-          label: "Compact ATS",
+            id: "compact_exec" as const,
+            label: "Executive Brief - Dense",
           description:
             "Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.",
           bestFor: ["Experienced candidates", "Content-dense resumes"],
           density: "compact" as const,
         },
         {
-          id: "modern_split" as const,
-          label: "Modern Split ATS",
+            id: "modern_split" as const,
+            label: "Swiss Minimal - Accent",
           description:
             "Single-column with a sharper modern header and restrained accents for polished but ATS-safe exports.",
           bestFor: ["Product roles", "Design-adjacent teams", "Startup hiring loops"],
           density: "balanced" as const,
         },
         {
-          id: "technical_matrix" as const,
-          label: "Technical Matrix",
+            id: "technical_matrix" as const,
+            label: "Engineering Spec - Systems",
           description:
             "Skills-forward single-column layout that highlights technical depth before chronology.",
           bestFor: ["Engineering roles", "Data roles", "Security roles"],
           density: "compact" as const,
         },
         {
-          id: "project_showcase" as const,
-          label: "Project Showcase",
+            id: "project_showcase" as const,
+            label: "Portfolio Narrative - Proof-led",
           description:
             "Project-forward single-column layout for candidates whose proof lands best through shipped work.",
           bestFor: ["Portfolio-heavy candidates", "Career changers", "Product builders"],
           density: "comfortable" as const,
         },
         {
-          id: "credentials_focus" as const,
-          label: "Credentials Focus",
+            id: "credentials_focus" as const,
+            label: "Executive Brief - Credentials",
           description:
             "Credentials-first single-column layout that surfaces certifications and education earlier without leaving ATS-safe structure.",
           bestFor: ["Regulated industries", "Certification-heavy roles", "Academic backgrounds"],
@@ -647,10 +648,7 @@ export function createDocumentManager() {
         warnings: [],
       })
     },
-    renderResumeArtifact(input: {
-      templateId: ResumeTemplateId
-      targetPath?: string | null
-    }) {
+    renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
       const fileStem = `generated-${input.templateId}`
       return Promise.resolve({
         fileName: `${fileStem}.pdf`,

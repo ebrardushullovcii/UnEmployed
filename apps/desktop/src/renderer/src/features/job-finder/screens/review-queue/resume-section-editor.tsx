@@ -66,7 +66,10 @@ export function ResumeSectionEditor(props: {
       firstTextControl ??
       target.querySelector<HTMLElement>("button:not([disabled])");
 
-    firstControl?.focus({ preventScroll: true });
+    const activeElement = document.activeElement
+    if (!activeElement || !target.contains(activeElement)) {
+      firstControl?.focus({ preventScroll: true });
+    }
 
     const scrollRegion = target.closest<HTMLElement>('[data-resume-editor-scroll-region]')
     if (!scrollRegion) {

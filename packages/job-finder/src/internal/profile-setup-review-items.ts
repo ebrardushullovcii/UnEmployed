@@ -345,6 +345,18 @@ function hasPlaceholderAwareIdentityValue(
   );
 }
 
+function hasDraftForTarget(
+  candidateDrafts: readonly DerivedReviewDraft[],
+  domain: string,
+  key?: string,
+): boolean {
+  return candidateDrafts.some(
+    (draft) =>
+      draft.target.domain === domain &&
+      (key === undefined || draft.target.key === key),
+  );
+}
+
 function buildMissingFieldDrafts(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
@@ -354,9 +366,7 @@ function buildMissingFieldDrafts(
 
   if (
     !hasPlaceholderAwareIdentityValue(profile.headline, PROFILE_PLACEHOLDER_HEADLINE) &&
-    !candidateDrafts.some(
-      (draft) => draft.target.domain === "identity" && draft.target.key === "headline",
-    )
+    !hasDraftForTarget(candidateDrafts, "identity", "headline")
   ) {
     drafts.push({
       step: "essentials",
@@ -372,9 +382,7 @@ function buildMissingFieldDrafts(
 
   if (
     !hasPlaceholderAwareIdentityValue(profile.currentLocation, PROFILE_PLACEHOLDER_LOCATION) &&
-    !candidateDrafts.some(
-      (draft) => draft.target.domain === "identity" && draft.target.key === "currentLocation",
-    )
+    !hasDraftForTarget(candidateDrafts, "identity", "currentLocation")
   ) {
     drafts.push({
       step: "essentials",
@@ -390,9 +398,7 @@ function buildMissingFieldDrafts(
 
   if (
     profile.yearsExperience <= 0 &&
-    !candidateDrafts.some(
-      (draft) => draft.target.domain === "identity" && draft.target.key === "yearsExperience",
-    )
+    !hasDraftForTarget(candidateDrafts, "identity", "yearsExperience")
   ) {
     drafts.push({
       step: "essentials",
@@ -424,9 +430,7 @@ function buildMissingFieldDrafts(
       (experience) =>
         hasMeaningfulText(experience.companyName) || hasMeaningfulText(experience.title),
     ) &&
-    !candidateDrafts.some(
-      (draft) => draft.target.domain === "experience" && draft.target.key === "record",
-    )
+    !hasDraftForTarget(candidateDrafts, "experience", "record")
   ) {
     drafts.push({
       step: "background",
@@ -444,10 +448,7 @@ function buildMissingFieldDrafts(
     !hasMeaningfulStringList(searchPreferences.targetRoles) &&
     !hasMeaningfulStringList(searchPreferences.jobFamilies) &&
     !hasMeaningfulStringList(profile.targetRoles) &&
-    !candidateDrafts.some(
-      (draft) =>
-        draft.target.domain === "search_preferences" && draft.target.key === "targetRoles",
-    )
+    !hasDraftForTarget(candidateDrafts, "search_preferences", "targetRoles")
   ) {
     drafts.push({
       step: "targeting",
@@ -474,11 +475,9 @@ function buildMissingFieldDrafts(
 
   if (
     !hasEligibility &&
-    !candidateDrafts.some(
-      (draft) =>
-        draft.target.domain === "work_eligibility" ||
-        (draft.target.domain === "search_preferences" &&
-          draft.target.key === "locations"),
+    !(
+      hasDraftForTarget(candidateDrafts, "work_eligibility") ||
+      hasDraftForTarget(candidateDrafts, "search_preferences", "locations")
     )
   ) {
     drafts.push({

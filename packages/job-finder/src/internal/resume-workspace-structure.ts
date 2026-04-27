@@ -197,6 +197,7 @@ export interface ResumeRenderDocument {
   headline: string | null;
   location: string | null;
   contactItems: string[];
+  includePreviewAnchors?: boolean;
   sections: ResumeRenderSection[];
 }
 
@@ -496,14 +497,15 @@ export function buildResumeRenderDocument(
   draft: ResumeDraft,
   options?: ResumeRenderOptions,
 ): ResumeRenderDocument {
-  void options;
   const identity = draft.identity ?? buildResumeDraftIdentity(profile);
+  const includePreviewAnchors = options?.includePreviewAnchors ?? false;
 
   return {
     fullName: identity.fullName ?? profile.fullName,
     headline: identity.headline ?? profile.headline ?? null,
     location: identity.location ?? profile.currentLocation ?? null,
     contactItems: buildResumeContactItems(identity),
+    ...(includePreviewAnchors ? { includePreviewAnchors } : {}),
     sections: [...draft.sections]
       .filter((section) => section.included)
       .sort((left, right) => left.sortOrder - right.sortOrder)

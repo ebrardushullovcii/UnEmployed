@@ -87,6 +87,7 @@ export function ReviewQueueScreen(props: {
           selectedItem={selectedItem}
         />
         <ReviewQueuePreviewPanel
+          isGenerating={selectedItem ? isJobPending(selectedItem.jobId) : false}
           onEditResumeWorkspace={onEditResumeWorkspace}
           onGenerateResume={onGenerateResume}
           previewState={previewState}

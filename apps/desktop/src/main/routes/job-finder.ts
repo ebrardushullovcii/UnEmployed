@@ -17,6 +17,7 @@ import {
   JobFinderProfileCopilotPatchGroupActionInputSchema,
   JobFinderProfileSetupReviewActionInputSchema,
   JobFinderResumePreviewSchema,
+  JobFinderResumePreviewModeSchema,
   JobFinderResumeAssistantMessageInputSchema,
   JobFinderRepositoryStateSchema,
   ResumeQualityBenchmarkRequestSchema,
@@ -348,7 +349,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       );
     }
 
-    const mode = payload === "fail_once" ? "fail_once" : "ok";
+    const mode = JobFinderResumePreviewModeSchema.parse(payload);
     await setJobFinderWorkspaceServiceTestEnv({
       UNEMPLOYED_TEST_RESUME_PREVIEW: mode,
     });

@@ -108,6 +108,7 @@ export function deriveSourceAccessPrompts(input: {
   sourceDebugAttempts: readonly SourceDebugWorkerAttempt[];
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
   searchPreferences: JobFinderWorkspaceSnapshot["searchPreferences"];
+  generatedAt: string;
 }): SourceAccessPrompt[] {
   const attemptsByRunId = new Map<string, SourceDebugWorkerAttempt[]>();
 
@@ -157,6 +158,14 @@ export function deriveSourceAccessPrompts(input: {
     ].filter((value): value is string => Boolean(value)));
 
     const requiredDetail = hardLoginSignals.find(isHardLoginRequirement) ?? null;
+    const learnedStartingUrls = buildDiscoveryStartingUrls(
+      target,
+      activeInstruction,
+      input.searchPreferences,
+    );
+    const resolvedTargetUrl = learnedStartingUrls[0] ?? target.startingUrl;
+    const updatedAt =
+      latestRun?.updatedAt ?? activeInstruction?.updatedAt ?? input.generatedAt;
 
     if (requiredDetail) {
       const promptCopy = summarizePrompt({
@@ -168,16 +177,13 @@ export function deriveSourceAccessPrompts(input: {
         {
           targetId: target.id,
           targetLabel: target.label,
-          targetUrl: target.startingUrl,
+          targetUrl: resolvedTargetUrl,
           state: "prompt_login_required" as const,
           summary: promptCopy.summary,
           detail: requiredDetail,
           actionLabel: promptCopy.actionLabel,
           rerunLabel: promptCopy.rerunLabel,
-          updatedAt:
-            latestRun?.updatedAt ??
-            activeInstruction?.updatedAt ??
-            new Date(0).toISOString(),
+          updatedAt,
         },
       ];
     }
@@ -189,12 +195,6 @@ export function deriveSourceAccessPrompts(input: {
     if (!recommendationDetail) {
       return [];
     }
-
-    const learnedStartingUrls = buildDiscoveryStartingUrls(
-      target,
-      activeInstruction,
-      input.searchPreferences,
-    );
 
     if (learnedStartingUrls.length === 0) {
       return [];
@@ -209,16 +209,13 @@ export function deriveSourceAccessPrompts(input: {
       {
         targetId: target.id,
         targetLabel: target.label,
-        targetUrl: target.startingUrl,
+        targetUrl: resolvedTargetUrl,
         state: "prompt_login_recommended" as const,
         summary: promptCopy.summary,
         detail: recommendationDetail,
         actionLabel: promptCopy.actionLabel,
         rerunLabel: promptCopy.rerunLabel,
-        updatedAt:
-          latestRun?.updatedAt ??
-          activeInstruction?.updatedAt ??
-          new Date(0).toISOString(),
+        updatedAt,
       },
     ];
   });

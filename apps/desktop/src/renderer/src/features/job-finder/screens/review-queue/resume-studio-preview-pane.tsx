@@ -80,27 +80,8 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       }
 
       const allTargets = document.querySelectorAll<HTMLElement>(
-        '[data-resume-section-id], [data-resume-entry-id]',
+        '[data-resume-section-id], [data-resume-entry-id], [data-resume-target-id]',
       )
-
-      allTargets.forEach((target) => {
-        const isSelectedEntry =
-          Boolean(props.selectedEntryId) &&
-          target.dataset.resumeEntryId === props.selectedEntryId
-        const isSelectedSection =
-          !props.selectedEntryId &&
-          Boolean(props.selectedSectionId) &&
-          target.dataset.resumeSectionId === props.selectedSectionId
-        const isSelectedField =
-          Boolean(props.selectedTargetId) &&
-          target.dataset.resumeTargetId === props.selectedTargetId
-
-        if (isSelectedEntry || isSelectedSection || isSelectedField) {
-          target.setAttribute('data-resume-selected', 'true')
-        } else {
-          target.removeAttribute('data-resume-selected')
-        }
-      })
       const handleClick = (event: MouseEvent) => {
         const selection = parseSelectionTarget(event.target)
 
@@ -138,7 +119,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       }
     }
 
-    let cleanupDocument = bindPreviewDocument()
+    let cleanupDocument = () => {}
 
     const handleLoad = () => {
       cleanupDocument()
@@ -262,7 +243,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
                   warning.severity === 'error'
                     ? 'border-critical/30 bg-critical/10 text-critical'
                     : warning.severity === 'warning'
-                      ? 'border-amber-500/20 bg-amber-500/10 text-amber-200'
+                      ? 'border-(--warning-border) bg-(--warning-surface) text-(--warning-text)'
                       : 'border-(--surface-panel-border) bg-background/60 text-foreground-soft',
                 )}
                 key={warning.id}

@@ -110,6 +110,11 @@ export type JobFinderPreviewResumeDraftInput = z.infer<
   typeof JobFinderPreviewResumeDraftInputSchema
 >;
 
+export const JobFinderResumePreviewModeSchema = z.enum(["ok", "fail_once"]);
+export type JobFinderResumePreviewMode = z.infer<
+  typeof JobFinderResumePreviewModeSchema
+>;
+
 export const JobFinderResumeSectionActionInputSchema = z.object({
   jobId: NonEmptyStringSchema,
   sectionId: NonEmptyStringSchema,

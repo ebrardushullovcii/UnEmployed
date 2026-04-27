@@ -49,6 +49,8 @@
   --discovery-history-max-height: min(90vh, 56rem);
   --workspace-state-card-max-width: 34rem;
   --workspace-state-card-radius: var(--radius-panel);
+  --resume-sidebar-columns: minmax(0, 0.95fr) minmax(0, 1.2fr) minmax(0, 0.85fr);
+  --resume-sidebar-padding: 0.875rem;
 
   --job-finder-side-width: 15.5rem;
   --job-finder-side-width-sm: 18.5rem;
@@ -132,6 +134,7 @@
   --scrollbar-thumb: rgba(255, 255, 255, 0.16);
   --surface-grid-top: rgba(255, 255, 255, 0.02);
   --surface-grid-line: rgba(255, 255, 255, 0.015);
+  --resume-preview-frame: radial-gradient(circle at top, rgba(255, 255, 255, 0.08), var(--surface-overlay-strong));
 
   --positive: #d0ecff;
   --positive-foreground: #2b4655;
@@ -164,9 +167,15 @@
   --text-label: 0.58rem;
   --text-label-mono-xs: 10px;
   --text-card-heading-sm: 9px;
+  --text-page-title: clamp(3rem, 5vw, 4.25rem);
+  --text-page-title-compact: clamp(2rem, 3.1vw, 2.7rem);
+  --text-page-description: 0.98rem;
+  --text-page-description-compact: 0.88rem;
   --text-count: 0.72rem;
   --text-item: 0.9rem;
   --text-icon-small: 0.8rem;
+  --leading-page-description: 1.75rem;
+  --leading-page-description-compact: 1.25rem;
   --type-headline-responsive: clamp(2.25rem, 4vw, 3.4rem);
   --type-body-lg: 1.05rem;
   --type-body-md: 0.98rem;
@@ -178,6 +187,9 @@
   --tracking-badge: 0.14em;
   --tracking-mono: 0.16em;
   --tracking-normal: 0.08em;
+  --tracking-page-eyebrow: 0.22em;
+  --tracking-page-title: -0.055em;
+  --tracking-page-title-compact: -0.05em;
   --type-tracking-small: 0.22em;
 
   /* Component tokens - Gap */
@@ -287,6 +299,7 @@
   --scrollbar-thumb: rgba(24, 24, 22, 0.18);
   --surface-grid-top: rgba(255, 255, 255, 0.5);
   --surface-grid-line: rgba(24, 24, 22, 0.035);
+  --resume-preview-frame: radial-gradient(circle at top, var(--surface-overlay-subtle), var(--surface-panel-raised));
 
   --positive: #0f6ea8;
   --positive-foreground: #eef7ff;

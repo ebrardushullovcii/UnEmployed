@@ -170,6 +170,7 @@ export function createWorkspaceSnapshotProfileMethods(
       discoverySessions,
       getPreferredSessionAdapter(setupContext.searchPreferences),
     );
+    const generatedAt = new Date().toISOString();
     const sourceAccessPrompts = deriveSourceAccessPrompts({
       targets: setupContext.searchPreferences.discovery.targets,
       recentSourceDebugRuns: discovery.recentSourceDebugRuns,
@@ -177,6 +178,7 @@ export function createWorkspaceSnapshotProfileMethods(
       sourceDebugAttempts,
       sourceInstructionArtifacts,
       searchPreferences: setupContext.searchPreferences,
+      generatedAt,
     });
 
     const persistedDiscoveryJobs = buildDiscoveryJobs(savedJobs);
@@ -197,7 +199,7 @@ export function createWorkspaceSnapshotProfileMethods(
 
     return JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       agentProvider: ctx.aiClient.getStatus(),
       availableResumeTemplates,
       profile: setupContext.profile,

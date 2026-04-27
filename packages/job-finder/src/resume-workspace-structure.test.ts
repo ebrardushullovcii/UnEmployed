@@ -85,10 +85,19 @@ describe("buildResumeRenderDocument", () => {
 
     expect(document.sections[0]?.entries[0]).toEqual({
       id: "experience_experience_1",
+      title: "Senior systems designer",
+      subtitle: "Signal Systems",
+      location: "London, UK",
+      dateRange: "2020-01 – Present",
       heading:
         "Senior systems designer — Signal Systems | London, UK | 2020-01 – Present",
       summary: "Tailored workflow platform summary.",
-      bullets: ["Tailored workflow platform impact."],
+      bullets: [
+        {
+          id: "experience_bullet_1",
+          text: "Tailored workflow platform impact.",
+        },
+      ],
     });
   });
 
@@ -160,6 +169,10 @@ describe("buildResumeRenderDocument", () => {
     ]);
     expect(project).toEqual({
       id: "project_project_workflow_os",
+      title: "Workflow OS",
+      subtitle: "Design lead",
+      location: "https://alex.example.com/workflow-os-case-study",
+      dateRange: null,
       heading: "Workflow OS — Design lead | https://alex.example.com/workflow-os-case-study",
       summary: "Scaled a workflow design system. Reduced release churn. Technologies: Figma, React.",
       bullets: [],

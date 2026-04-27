@@ -68,7 +68,13 @@ async function waitForProfileOrSetupHeading(window) {
 }
 
 async function waitForPrimaryNavigation(window) {
-  await window.getByRole('button', { name: /^Profile$/ }).waitFor({ timeout: 15000 })
+  const buttonLocator = window.getByRole('button', { name: /^Profile$/ })
+  const tabLocator = window.getByRole('tab', { name: /^Profile$/ })
+
+  await Promise.any([
+    buttonLocator.waitFor({ timeout: 15000 }),
+    tabLocator.waitFor({ timeout: 15000 }),
+  ])
 }
 
 async function loadDemoDataForScreen(window, screen) {
@@ -78,7 +84,7 @@ async function loadDemoDataForScreen(window, screen) {
 
   if (screen.fileName === 'settings.png' || screen.fileName === 'review-queue.png') {
     await window.evaluate(async () => {
-      if (!window.unemployed.jobFinder.test) {
+      if (!window.unemployed?.jobFinder?.test) {
         throw new Error('Desktop test API is unavailable in the renderer.')
       }
 

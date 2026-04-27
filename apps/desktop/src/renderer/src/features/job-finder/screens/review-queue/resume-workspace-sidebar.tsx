@@ -69,11 +69,15 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
   const leadResearch = research[0] ?? null
   const employerHost = formatHostLabel(job.employerWebsiteUrl)
   const applicationHost = formatHostLabel(job.applicationUrl)
+  const titleId = 'resume-workspace-job-context-title'
 
   return (
-    <aside className="surface-panel-shell relative grid min-h-0 min-w-0 gap-3 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-3.5">
+    <aside
+      aria-labelledby={titleId}
+      className="surface-panel-shell relative grid min-h-0 min-w-0 gap-3 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-(--resume-sidebar-padding)"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+        <p id={titleId} className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
           Job context
         </p>
         <StatusBadge tone={toDraftStatusTone(draft.status)}>
@@ -90,7 +94,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
         ) : null}
       </div>
 
-      <div className="grid min-h-0 gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.2fr)_minmax(0,0.85fr)]">
+      <div className="grid min-h-0 gap-3 xl:grid-cols-(--resume-sidebar-columns)">
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             Role snapshot
@@ -110,7 +114,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
                 {[job.seniority, job.employmentType].filter(Boolean).join(' • ')}
               </p>
             ) : null}
-            {roleSnapshot[0] ? <p className="break-words">{roleSnapshot[0]}</p> : null}
+            {roleSnapshot.map((snapshot) => <p key={snapshot} className="break-words">{snapshot}</p>)}
             {targetingSummary ? <p className="break-words"><strong className="text-foreground">Land:</strong> {targetingSummary}</p> : null}
             {screeningSummary ? <p className="break-words"><strong className="text-foreground">Screening:</strong> {screeningSummary}</p> : null}
           </div>

@@ -126,8 +126,7 @@ export function DiscoveryFiltersPanel({
     ) ?? null;
   const isNeutralBrowserSessionSnapshot =
     browserSession.driver === "catalog_seed" &&
-    browserSession.status === "unknown" &&
-    browserSession.label === "Session status unavailable";
+    browserSession.status === "unknown";
   const browserSessionSnapshot = isNeutralBrowserSessionSnapshot
     ? NEUTRAL_SESSION_SNAPSHOT
     : browserSession;
@@ -143,7 +142,7 @@ export function DiscoveryFiltersPanel({
     : browserSessionSnapshot;
   const sessionDetail = displaySessionSnapshot.detail?.trim() ?? "";
   const isBrowserSessionVisible =
-    Boolean(chromeProfileSession) && !isNeutralBrowserSessionSnapshot;
+    Boolean(chromeProfileSession) || !isNeutralBrowserSessionSnapshot;
   const isReady = displaySessionSnapshot.status === "ready";
   const needsLogin = displaySessionSnapshot.status === "login_required";
   const isBlocked = displaySessionSnapshot.status === "blocked";
@@ -215,7 +214,7 @@ export function DiscoveryFiltersPanel({
                     </Button>
                     {primarySourceAccessPrompt.rerunLabel ? (
                       <span className="self-center text-(length:--text-small) opacity-80">
-                        {`Then ${primarySourceAccessPrompt.rerunLabel.toLowerCase()}.`}
+                        {`Then ${primarySourceAccessPrompt.rerunLabel}.`}
                       </span>
                     ) : null}
                   </div>
@@ -331,7 +330,7 @@ export function DiscoveryFiltersPanel({
                             {isActiveSingleTarget ? "Running now" : "Search only this source"}
                           </span>
                         </Button>
-                        {targetPrompt ? (
+                        {targetPrompt && targetPrompt !== primarySourceAccessPrompt ? (
                           <div
                             className={
                               targetPrompt.state === "prompt_login_required"

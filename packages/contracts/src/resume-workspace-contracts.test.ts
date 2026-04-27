@@ -290,14 +290,14 @@ describe("contracts resume workspace schemas", () => {
     const report = ResumeQualityBenchmarkReportSchema.parse({
       benchmarkVersion: "023-local-benchmark-v1",
       generatedAt: "2026-04-26T12:00:00.000Z",
-        templates: [
-          "classic_ats",
-          "compact_exec",
-          "modern_split",
-          "technical_matrix",
-          "project_showcase",
-          "credentials_focus",
-        ],
+      templates: [
+        "classic_ats",
+        "compact_exec",
+        "modern_split",
+        "technical_matrix",
+        "project_showcase",
+        "credentials_focus",
+      ],
       persistedArtifactsDirectory: "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
       cases: [
         {
@@ -349,7 +349,7 @@ describe("contracts resume workspace schemas", () => {
     expect(report.cases[0]?.metrics.atsRenderPassRate).toBe(1);
   });
 
-  test("parses enriched resume template metadata", () => {
+  test("parses draft templateId for template themes", () => {
     const workspace = JobFinderResumeWorkspaceSchema.parse({
       job: {
         id: "job_2",

@@ -86,7 +86,7 @@ function normalizeRecordEndDate(
   }
 
   const normalizedDate = normalizeRecordDate(value);
-  return normalizedDate === "present" ? "present" : normalizedDate;
+  return normalizedDate;
 }
 
 function fieldsMatch(left: string, right: string): boolean {
@@ -176,7 +176,7 @@ export function areEquivalentEducationRecords(
   const strongEnd = fieldsMatch(leftEnd, rightEnd);
 
   return (
-    (strongSchool && strongDegree && (strongStart || strongEnd)) ||
+    (strongSchool && strongDegree && (strongStart || strongEnd) && fieldsCompatible(leftField, rightField)) ||
     (strongSchool && strongStart && fieldsCompatible(leftDegree, rightDegree) && fieldsCompatible(leftField, rightField))
   );
 }

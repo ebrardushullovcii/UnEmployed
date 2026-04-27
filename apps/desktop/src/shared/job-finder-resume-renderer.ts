@@ -307,7 +307,13 @@ function renderInlineSection(input: {
                 mode: input.mode ?? 'export',
                 sectionId: group.sectionId ?? null,
               }),
-            })}>${group.label ? `<strong>${escapeHtml(group.label)}:</strong> ` : ''}${group.values.map((value) => escapeHtml(value.text)).join(', ')}</p>`,
+            })}>${group.label ? `<strong>${escapeHtml(group.label)}:</strong> ` : ''}${group.values.map((value, index) => `<span${renderPreviewAttributes({
+              ...withPreviewSelection({
+                mode: input.mode ?? 'export',
+                sectionId: group.sectionId ?? null,
+                targetId: group.sectionId ? getResumeSectionBulletTargetId(group.sectionId, value.id) : null,
+              }),
+            })}>${escapeHtml(value.text)}</span>${index < group.values.length - 1 ? ', ' : ''}`).join('')}</p>`,
           )
           .join('')}
       </div>
@@ -341,7 +347,13 @@ function renderSkillMatrixSection(input: {
                 }),
               })}>
                 ${group.label ? `<p class="skill-group-label">${escapeHtml(group.label)}</p>` : ''}
-                <ul class="skill-pill-list">${group.values.map((value) => `<li>${escapeHtml(value.text)}</li>`).join('')}</ul>
+                <ul class="skill-pill-list">${group.values.map((value) => `<li${renderPreviewAttributes({
+                  ...withPreviewSelection({
+                    mode: input.mode ?? 'export',
+                    sectionId: group.sectionId ?? null,
+                    targetId: group.sectionId ? getResumeSectionBulletTargetId(group.sectionId, value.id) : null,
+                  }),
+                })}>${escapeHtml(value.text)}</li>`).join('')}</ul>
               </div>
             `,
           )
@@ -1017,7 +1029,7 @@ export function renderResumeTemplateHtml(input: {
       min-height: 100%;
       padding: 0;
       overflow-x: hidden;
-      overflow-y: hidden;
+      overflow-y: auto;
     }
     .preview-shell {
       width: fit-content;

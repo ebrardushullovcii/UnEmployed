@@ -180,20 +180,22 @@ export function listLocalResumeTemplates(): readonly ResumeTemplateDefinition[] 
 export function getLocalResumeTemplateDefinition(
   templateId: ResumeTemplateId,
 ): ResumeTemplateDefinition {
-  const defaultTemplate = resumeTemplates[0]
-
-  if (!defaultTemplate) {
+  if (resumeTemplates.length === 0) {
     throw new Error('Expected at least one local resume template')
   }
 
-  return resumeTemplates.find((template) => template.id === templateId) ?? defaultTemplate
+  return resumeTemplates.find((template) => template.id === templateId) ?? resumeTemplates[0]!
 }
 
 export function getDefaultApplySafeResumeTemplateId(): ResumeTemplateId {
+  if (resumeTemplates.length === 0) {
+    throw new Error('Expected at least one local resume template')
+  }
+
   return (
     resumeTemplates.find(
       (template) => template.deliveryLane === 'apply_safe' && template.applyEligible,
-    )?.id ?? resumeTemplates[0]?.id ?? 'classic_ats'
+    )?.id ?? resumeTemplates[0]!.id
   )
 }
 
@@ -210,13 +212,15 @@ export function listLocalResumeTemplateFamilies(): readonly LocalResumeTemplateF
   return [...templatesByFamily.entries()]
     .map(([familyId, templates]) => {
       const primaryTemplate = templates[0]!
+      const familyDescription = templates.find(
+        (template) => template.familyDescription?.trim(),
+      )?.familyDescription?.trim()
 
       return {
         id: familyId,
         label: getResumeTemplateFamilyLabel(primaryTemplate),
         description:
-          primaryTemplate.familyDescription ??
-          primaryTemplate.fitSummary ??
+          familyDescription ??
           primaryTemplate.description,
         deliveryLane: getResumeTemplateDeliveryLane(primaryTemplate),
         atsConfidence: getResumeTemplateAtsConfidence(primaryTemplate),

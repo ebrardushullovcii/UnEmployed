@@ -102,7 +102,8 @@ describe('DiscoveryFiltersPanel', () => {
 
     expect(container.textContent).toContain('Sign in to LinkedIn before the next search can continue.')
     expect(container.textContent).toContain('Please sign in first.')
-    expect(container.textContent).toContain('Then search again after sign-in.')
+    expect(container.textContent).toContain('Then Search again after sign-in.')
+    expect(container.textContent?.match(/Sign in to LinkedIn before the next search can continue\./g)).toHaveLength(1)
 
     const signInButton = [...container.querySelectorAll('button')].find(
       (button) => button.textContent?.includes('Sign in to LinkedIn'),

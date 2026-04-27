@@ -150,12 +150,13 @@ function formatMonthYear(value: string | null | undefined): string | null {
   }
 
   if (namedMonthMatch) {
-    const monthNumber = monthByName[namedMonthMatch[1]?.toLowerCase().replace(/\./g, '') ?? ''];
+    const monthName = namedMonthMatch[1];
+    const monthNumber = monthName ? monthByName[monthName.toLowerCase()] : null;
     const month = monthNumber ? monthNames[monthNumber - 1] : null;
     return month ? `${month} ${namedMonthMatch[2]}` : null;
   }
 
-  return /^([A-Z][a-z]{2})\s+(\d{4})$/.test(trimmed) ? trimmed : null;
+  return null;
 }
 
 function formatDateRange(start: string | null | undefined, end: string | null | undefined): string | null {
@@ -165,8 +166,7 @@ function formatDateRange(start: string | null | undefined, end: string | null | 
 function isDistinctQualityLine(value: string, existing: readonly string[]): boolean {
   return existing.every((entry) => {
     const overlap = calculateQualityOverlap(value, entry);
-    const reverseOverlap = calculateQualityOverlap(entry, value);
-    return overlap < 0.72 && reverseOverlap < 0.72;
+    return overlap < 0.72;
   });
 }
 

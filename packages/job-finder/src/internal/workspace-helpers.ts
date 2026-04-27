@@ -121,8 +121,7 @@ export function normalizeJobFinderSettings(
       getResumeTemplateDeliveryLane(template) === "apply_safe" &&
       isResumeTemplateApplyEligible(template),
   );
-  const fallbackTemplateId =
-    defaultApplySafeTemplate?.id ?? availableResumeTemplates[0]?.id ?? "classic_ats";
+  const fallbackTemplateId = defaultApplySafeTemplate?.id ?? "classic_ats";
   const selectedTemplateAvailable = availableResumeTemplates.some(
     (template) =>
       template.id === settings.resumeTemplateId &&

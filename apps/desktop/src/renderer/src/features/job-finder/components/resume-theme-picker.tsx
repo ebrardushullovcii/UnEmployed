@@ -45,6 +45,7 @@ interface ResumeTemplateFamilyViewModel {
   deliveryLane: 'apply_safe' | 'share_ready'
   atsConfidence: 'high' | 'medium' | 'low'
   fitSummary: string | null
+  familySortOrder: number
   templates: readonly ResumeTemplateDefinition[]
 }
 
@@ -72,7 +73,18 @@ function normalizeRecommendationSignal(value: string): string {
 }
 
 function hasAnySignal(haystack: readonly string[], needles: readonly string[]): boolean {
-  return needles.some((needle) => haystack.some((signal) => signal.includes(needle)))
+  const signalTokenSets = haystack.map((signal) => new Set(normalizeRecommendationSignal(signal).split(' ').filter(Boolean)))
+
+  return needles.some((needle) => {
+    const needleTokens = normalizeRecommendationSignal(needle).split(' ').filter(Boolean)
+    if (needleTokens.length === 0) {
+      return false
+    }
+
+    return signalTokenSets.some((signalTokens) =>
+      needleTokens.every((token) => signalTokens.has(token)),
+    )
+  })
 }
 
 export function buildResumeThemePickerRecommendations(input: {
@@ -207,26 +219,26 @@ function buildFamilyViewModels(themes: readonly ResumeTemplateDefinition[]): rea
 
   return [...families.values()]
     .map((templates) => {
-      const [firstTemplate] = [...templates].sort(
+      const sortedTemplates = [...templates].sort(
         (left, right) => (left.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.sortOrder ?? Number.MAX_SAFE_INTEGER),
       )
+      const firstTemplate = sortedTemplates[0]!
+      const familyId = getResumeTemplateFamilyId(firstTemplate)
+      const familySortOrder = firstTemplate.sortOrder ?? Number.MAX_SAFE_INTEGER
 
       return {
-        id: getResumeTemplateFamilyId(firstTemplate!),
-        label: getResumeTemplateFamilyLabel(firstTemplate!),
-        description: firstTemplate?.familyDescription ?? firstTemplate?.description ?? 'Resume family',
-        deliveryLane: getResumeTemplateDeliveryLane(firstTemplate!),
-        atsConfidence: getResumeTemplateAtsConfidence(firstTemplate!),
-        fitSummary: firstTemplate?.fitSummary ?? null,
-        templates: [...templates].sort(
-          (left, right) => (left.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.sortOrder ?? Number.MAX_SAFE_INTEGER),
-        ),
+        id: familyId,
+        label: getResumeTemplateFamilyLabel(firstTemplate),
+        description: firstTemplate.familyDescription ?? firstTemplate.description ?? 'Resume family',
+        deliveryLane: getResumeTemplateDeliveryLane(firstTemplate),
+        atsConfidence: getResumeTemplateAtsConfidence(firstTemplate),
+        fitSummary: firstTemplate.fitSummary ?? null,
+        familySortOrder,
+        templates: sortedTemplates,
       }
     })
     .sort((left, right) => {
-      const leftOrder = left.templates[0]?.sortOrder ?? Number.MAX_SAFE_INTEGER
-      const rightOrder = right.templates[0]?.sortOrder ?? Number.MAX_SAFE_INTEGER
-      return leftOrder - rightOrder
+      return left.familySortOrder - right.familySortOrder || left.id.localeCompare(right.id)
     })
 }
 
@@ -258,6 +270,7 @@ export function ResumeThemePicker({
   const initialFocusedFamily = selectedFamilyId ?? families[0]?.id ?? null
   const [focusedFamilyId, setFocusedFamilyId] = useState<string | null>(initialFocusedFamily)
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null)
+  const familySectionRefs = useRef<Record<string, HTMLElement | null>>({})
   const [previewFrameHeight, setPreviewFrameHeight] = useState<number | null>(null)
 
   useEffect(() => {
@@ -267,6 +280,19 @@ export function ResumeThemePicker({
 
     setFocusedFamilyId(selectedFamilyId)
   }, [selectedFamilyId])
+
+  useEffect(() => {
+    if (!selectedFamilyId) {
+      return
+    }
+
+    const selectedFamilySection = familySectionRefs.current[selectedFamilyId]
+    if (typeof selectedFamilySection?.scrollIntoView !== 'function') {
+      return
+    }
+
+    selectedFamilySection.scrollIntoView({ block: 'nearest' })
+  }, [selectedFamilyId, selectedThemeId])
 
   useEffect(() => {
     if (mode === 'compact') {
@@ -404,11 +430,9 @@ export function ResumeThemePicker({
                             <p className="text-[0.74rem] leading-4.5 text-foreground-soft">{compactReason}</p>
                           </div>
                           <Button
-                            aria-checked={selected}
                             className="xl:min-w-44"
                             disabled={disabled}
                             onClick={() => onChange(theme.id)}
-                            role="radio"
                             size="compact"
                             type="button"
                             variant={selected ? 'primary' : 'secondary'}
@@ -456,7 +480,7 @@ export function ResumeThemePicker({
           </div>
 
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1.72fr)_minmax(18rem,19.5rem)] xl:items-start">
-            <div className="overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.98),rgba(226,232,240,0.92))] p-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] xl:p-2">
+            <div className="overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] xl:p-2">
               <iframe
                 aria-hidden="true"
                 className="block w-full rounded-[1rem] border-0 bg-transparent"
@@ -483,6 +507,9 @@ export function ResumeThemePicker({
                   return (
                     <div
                       key={family.id}
+                      ref={(element) => {
+                        familySectionRefs.current[family.id] = element
+                      }}
                       className={cn(
                         'min-w-0 grid gap-1 rounded-(--radius-field) border px-2.5 py-2 transition-[border-color,background-color,box-shadow]',
                         isActive
@@ -537,11 +564,9 @@ export function ResumeThemePicker({
                                   </div>
 
                                   <Button
-                                    aria-checked={selected}
                                     className="w-full"
                                     disabled={disabled}
                                     onClick={() => onChange(theme.id)}
-                                    role="radio"
                                     size="compact"
                                     type="button"
                                     variant={selected ? 'primary' : 'secondary'}

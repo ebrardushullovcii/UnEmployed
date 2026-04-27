@@ -179,6 +179,10 @@ export function createActionRunners(args: {
       try {
         await onSuccess(result)
       } catch (error) {
+        if (isHandledRefreshError(error)) {
+          throw error
+        }
+
         const detail =
           error instanceof Error
             ? error.message

@@ -17,6 +17,7 @@ import {
   TailoredAssetSchema,
   type ApplyExecutionResult,
   type JobSource,
+  type ResumeTemplateDefinition,
 } from "@unemployed/contracts";
 import {
   buildApplyCopilotArtifacts,
@@ -148,6 +149,20 @@ export function createWorkspaceApplicationMethods(
     );
   }
 
+  function validateApplyTemplate(input: {
+    templateId: string;
+    templates: readonly ResumeTemplateDefinition[];
+    jobTitle: string;
+  }) {
+    const template = input.templates.find((entry) => entry.id === input.templateId);
+
+    if (!template || !isResumeTemplateApplyEligible(template)) {
+      throw new Error(
+        `The selected resume template for '${input.jobTitle}' is not eligible for automatic apply. Choose an apply-safe template, export a fresh PDF, and approve it again.`,
+      );
+    }
+  }
+
   async function resolveJobApplyPrerequisites(jobId: string) {
     const [savedJobs, tailoredAssets, draft, approvedExports] =
       await Promise.all([
@@ -176,16 +191,11 @@ export function createWorkspaceApplicationMethods(
       );
     }
 
-    const template = ctx
-      .documentManager
-      .listResumeTemplates()
-      .find((entry) => entry.id === draft.templateId);
-
-    if (!template || !isResumeTemplateApplyEligible(template)) {
-      throw new Error(
-        `The selected resume template for '${job.title}' is not eligible for automatic apply. Choose an apply-safe template, export a fresh PDF, and approve it again.`,
-      );
-    }
+    validateApplyTemplate({
+      templateId: draft.templateId,
+      templates: ctx.documentManager.listResumeTemplates(),
+      jobTitle: job.title,
+    });
 
     if (ctx.exportFileVerifier) {
       const approvedFileExists = await ctx.exportFileVerifier.exists(
@@ -1581,6 +1591,12 @@ export function createWorkspaceApplicationMethods(
           `An approved tailored PDF is required before applying to '${job.title}'.`,
         );
       }
+
+      validateApplyTemplate({
+        templateId: draft.templateId,
+        templates: ctx.documentManager.listResumeTemplates(),
+        jobTitle: job.title,
+      });
 
       if (ctx.exportFileVerifier) {
         const approvedFileExists = await ctx.exportFileVerifier.exists(

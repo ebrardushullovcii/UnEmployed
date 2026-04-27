@@ -113,7 +113,8 @@ export function ResumeWorkspaceScreen(props: {
 
   useEffect(() => {
     if (!props.workspace) {
-      setDraft(null);
+      previewRequestRef.current += 1
+      setDraft(null)
       setPreview(null)
       setPreviewError(null)
       setPreviewStatus('idle')
@@ -298,9 +299,11 @@ export function ResumeWorkspaceScreen(props: {
 
   useEffect(() => {
     if (!draft) {
+      previewRequestRef.current += 1
       return
     }
 
+    previewRequestRef.current += 1
     const timeout = window.setTimeout(() => {
       refreshPreview(draft)
     }, hasUnsavedChanges ? 250 : 100)
@@ -457,8 +460,7 @@ export function ResumeWorkspaceScreen(props: {
     ? getResumeTemplateDeliveryLane(selectedTheme)
     : 'apply_safe'
   const fallbackThemeLabel =
-    props.availableResumeTemplates[0]?.label ||
-    'Classic ATS'
+    draft.templateId || 'Archived template'
 
   const previewPane = (
     <ResumeStudioPreviewPane
