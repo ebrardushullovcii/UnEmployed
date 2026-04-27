@@ -197,7 +197,7 @@ async function openResumeWorkspace(window) {
 
 function visiblePreviewPane(window) {
   return window.locator('section:visible').filter({
-    has: window.getByRole('heading', { name: 'Live preview' }),
+    has: window.getByText('Resume preview', { exact: true }),
   }).first()
 }
 
@@ -252,6 +252,10 @@ async function getActiveEditorLabel(window) {
 
 async function getTemplateBadgeText(window) {
   return (await window.getByText(/^Template:/).first().textContent())?.trim() ?? null
+}
+
+function templateStrategyPanel(window) {
+  return window.locator('section').filter({ hasText: 'Template strategy' }).first()
 }
 
 async function getVisibleVariantCountLabel(window) {
@@ -313,6 +317,40 @@ async function clickButtonInFamilySection(window, familyLabel, buttonText) {
   }, { familyLabel, buttonText })
 
   assert(clicked, `Expected button '${buttonText}' in family section '${familyLabel}'.`)
+}
+
+async function clickTemplateStrategyVariant(window, variantLabel, buttonText) {
+  const clicked = await window.evaluate(({ currentVariantLabel, currentButtonText }) => {
+    const strategySection = [...document.querySelectorAll('section')].find((element) =>
+      element.textContent?.includes('Template strategy'),
+    )
+
+    if (!(strategySection instanceof HTMLElement)) {
+      return false
+    }
+
+    const variantCard = [...strategySection.querySelectorAll('div')].find((element) => {
+      const text = element.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+      return text.includes(currentVariantLabel)
+    })
+
+    if (!(variantCard instanceof HTMLElement)) {
+      return false
+    }
+
+    const button = [...variantCard.querySelectorAll('button')].find(
+      (element) => element.textContent?.trim() === currentButtonText,
+    )
+
+    if (!(button instanceof HTMLButtonElement)) {
+      return false
+    }
+
+    button.click()
+    return true
+  }, { currentVariantLabel: variantLabel, currentButtonText: buttonText })
+
+  assert(clicked, `Expected button '${buttonText}' for template variant '${variantLabel}'.`)
 }
 
 async function captureResumeWorkspace() {
@@ -390,80 +428,34 @@ async function captureResumeWorkspace() {
     await window.getByText('Saved research', { exact: true }).first().waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04-resume-workspace-sources.png') })
 
-    await window.getByText('Recommended for this draft', { exact: true }).first().waitFor({ timeout: 10000 })
-    const recommendedTemplateLabels = await getRecommendedTemplateLabels(window)
-    assert(recommendedTemplateLabels.length > 0, 'Expected at least one recommended template button in the catalog.')
-    const baseVisibleVariantCount = await getVisibleVariantCount(window)
-    assert(
-      typeof baseVisibleVariantCount === 'number' && baseVisibleVariantCount > 0,
-      'Expected a visible variant count before exercising template filters.',
-    )
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04a-template-catalog-recommendations.png') })
-
-    await window.getByRole('button', { name: 'Compact' }).click()
-    await waitForCondition(
-      async () => {
-        const count = await getVisibleVariantCount(window)
-        return typeof count === 'number' && count > 0 && count < baseVisibleVariantCount
-      },
-      'compact-density template filter to narrow the catalog',
-    )
-    const compactVisibleVariantCount = await getVisibleVariantCount(window)
-    Object.assign(studioResults, {
-      catalogFilters: {
-        compactVisibleLabel: await getVisibleVariantCountLabel(window),
-        compactVisibleCount: compactVisibleVariantCount,
-      },
-    })
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04b-template-catalog-compact-filter.png') })
-
-    await window.getByRole('button', { name: 'Clear filters' }).click()
-    await waitForCondition(
-      async () => (await getVisibleVariantCount(window)) === baseVisibleVariantCount,
-      'template catalog filters to clear back to the visible workspace set',
-    )
-
-    await window.getByRole('button', { name: 'Recommended only' }).click()
-    await waitForCondition(
-      async () => (await getVisibleVariantCount(window)) === recommendedTemplateLabels.length,
-      'recommended-only template filter to narrow the catalog',
-    )
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04c-template-catalog-recommended-only.png') })
-    await window.getByRole('button', { name: 'Clear filters' }).click()
-    await waitForCondition(
-      async () => (await getVisibleVariantCount(window)) === baseVisibleVariantCount,
-      'template catalog filters to restore all visible variants',
-    )
-
-    await clickButtonInFamilySection(window, 'Engineering Spec', 'Compare')
-    await clickButtonInFamilySection(window, 'Portfolio Narrative', 'Compare')
-    await waitForCondition(
-      async () => {
-        const compareText = (await shortlistComparePanel(window).textContent()) ?? ''
-        return compareText.includes('Engineering Spec - Systems') && compareText.includes('Portfolio Narrative - Proof-led')
-      },
-      'template compare panel to show shortlisted variants',
+    await window.getByText('Template strategy', { exact: true }).first().waitFor({ timeout: 10000 })
+    const recommendedTemplateLabels = await templateStrategyPanel(window).locator('[data-slot="badge"]').evaluateAll((elements) =>
+      elements.map((element) => element.textContent?.trim() ?? '').filter((label) => label.includes('Recommended')),
     )
     Object.assign(studioResults, {
       catalogRecommendations: {
-        recommendedTemplateLabels,
-        comparePanelTemplates: await shortlistComparePanel(window).locator('span.text-sm.font-semibold').evaluateAll((elements) =>
-          elements.map((element) => element.textContent?.trim() ?? '').filter(Boolean),
-        ),
+        recommendationBadges: recommendedTemplateLabels,
       },
     })
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04d-template-catalog-compare.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04a-template-strategy-default.png') })
 
     await clickLocatorViaDom(
-      window.getByRole('button', { name: 'Engineering Spec - Systems' }),
-      'recommended engineering spec template button',
+      window.getByRole('button', { name: 'Engineering Spec' }).first(),
+      'engineering spec family button',
     )
+    await waitForCondition(
+      async () => ((await templateStrategyPanel(window).textContent()) ?? '').includes('Systems'),
+      'engineering spec family variants to render',
+    )
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04b-template-strategy-engineering-family.png') })
+
+    await clickTemplateStrategyVariant(window, 'Systems', 'Use this variant')
     await waitForCondition(
       async () => (await getTemplateBadgeText(window)) === 'Template: Engineering Spec - Systems',
       'template header badge to reflect the recommended template selection',
     )
     await waitForPreviewReady(window)
-    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04e-template-selected-engineering-spec.png') })
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04c-template-selected-engineering-spec.png') })
 
     const unsavedPreviewSentinel = 'Senior systems designer with strong workflow automation, design-system, and operations-platform experience.'
     await summaryField(window).fill(unsavedPreviewSentinel)
@@ -541,8 +533,9 @@ async function captureResumeWorkspace() {
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '07-after-manual-edit.png') })
 
     const previousMessageCount = (await getResumeAssistantMessages(window, 'job_ready')).length
+    await window.getByRole('button', { name: 'Open guided edits' }).click()
     await assistantField(window).fill('Shorten the summary and tighten one experience bullet for ATS readability.')
-    await window.getByRole('button', { name: 'Send' }).click()
+    await window.getByRole('button', { name: 'Send request' }).click()
     await waitForCondition(
       async () => {
         const messages = await getResumeAssistantMessages(window, 'job_ready')

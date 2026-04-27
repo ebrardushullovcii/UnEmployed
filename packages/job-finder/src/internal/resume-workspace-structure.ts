@@ -2,6 +2,7 @@ import type { TailoredResumeDraft } from "@unemployed/ai-providers";
 import type {
   CandidateProfile,
   ResumeDraft,
+  ResumeDraftIdentity,
   ResumeDraftOrigin,
   ResumeResearchArtifact,
   ResumeDraftSection,
@@ -32,6 +33,55 @@ function normalizeUrl(value: string | null | undefined): string | null {
 
 function normalizeContactIdentity(value: string): string {
   return normalizeText(value.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, ""));
+}
+
+function buildResumeDraftIdentity(profile: CandidateProfile): ResumeDraftIdentity {
+  const preferredLinks = profile.applicationIdentity.preferredLinkIds
+    .map((linkId) => profile.links.find((link) => link.id === linkId && link.url))
+    .filter((link): link is NonNullable<typeof link> => Boolean(link?.url));
+  const fallbackLinks = profile.links.filter((link) =>
+    link.url &&
+    ["portfolio", "github", "website", "case_study"].includes(link.kind ?? "") &&
+    !preferredLinks.some((preferredLink) => preferredLink.id === link.id),
+  );
+
+  return {
+    fullName: profile.fullName,
+    headline: profile.headline ?? null,
+    location: profile.currentLocation ?? null,
+    email: profile.applicationIdentity.preferredEmail ?? profile.email,
+    phone: profile.applicationIdentity.preferredPhone ?? profile.phone,
+    portfolioUrl: profile.portfolioUrl,
+    linkedinUrl: profile.linkedinUrl,
+    githubUrl: profile.githubUrl,
+    personalWebsiteUrl: profile.personalWebsiteUrl,
+    additionalLinks: [...preferredLinks, ...fallbackLinks]
+      .map((link) => link.url?.trim() ?? "")
+      .filter(Boolean)
+      .filter((value, index, values) =>
+        values.findIndex((entry) => normalizeContactIdentity(entry) === normalizeContactIdentity(value)) === index,
+      ),
+  };
+}
+
+function buildResumeContactItems(identity: ResumeDraftIdentity | null | undefined): string[] {
+  if (!identity) {
+    return [];
+  }
+
+  return [
+    identity.email,
+    identity.phone,
+    identity.portfolioUrl,
+    identity.linkedinUrl,
+    identity.githubUrl,
+    identity.personalWebsiteUrl,
+    ...(identity.additionalLinks ?? []),
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .filter((value, index, values) =>
+      values.findIndex((entry) => normalizeContactIdentity(entry) === normalizeContactIdentity(value)) === index,
+    );
 }
 
 function pickProjectLink(project: CandidateProfile["projects"][number] | null | undefined): string | null {
@@ -124,9 +174,13 @@ function toSectionPreviewLines(section: ResumeDraftSection): string[] {
 
 export interface ResumeRenderSectionEntry {
   id: string;
+  title: string | null;
+  subtitle: string | null;
+  location: string | null;
+  dateRange: string | null;
   heading: string | null;
   summary: string | null;
-  bullets: string[];
+  bullets: Array<{ id: string; text: string }>;
 }
 
 export interface ResumeRenderSection {
@@ -134,7 +188,7 @@ export interface ResumeRenderSection {
   kind: ResumeDraftSection["kind"];
   label: string;
   text: string | null;
-  bullets: string[];
+  bullets: Array<{ id: string; text: string }>;
   entries: ResumeRenderSectionEntry[];
 }
 
@@ -413,20 +467,18 @@ export function buildTailoredResumeTextFromResumeDraft(
   job: SavedJob,
   draft: ResumeDraft,
 ): string {
+  const identity = draft.identity ?? buildResumeDraftIdentity(profile);
   const sections = buildPreviewSectionsFromResumeDraft(draft)
     .map((section) => `${section.heading}\n${section.lines.join("\n")}`)
     .join("\n\n");
 
   return [
-    profile.fullName,
-    profile.headline,
+    identity.fullName ?? profile.fullName,
+    identity.headline ?? profile.headline,
     joinCompact(
       [
-        profile.currentLocation,
-        profile.email,
-        profile.phone,
-        profile.portfolioUrl,
-        profile.linkedinUrl,
+        identity.location,
+        ...buildResumeContactItems(identity),
       ],
       " | ",
     ),
@@ -445,31 +497,13 @@ export function buildResumeRenderDocument(
   options?: ResumeRenderOptions,
 ): ResumeRenderDocument {
   void options;
-  const preferredLinks = profile.applicationIdentity.preferredLinkIds
-    .map((linkId) => profile.links.find((link) => link.id === linkId && link.url))
-    .filter((link): link is NonNullable<typeof link> => Boolean(link?.url));
-  const fallbackLinks = profile.links.filter((link) =>
-    link.url &&
-    ["portfolio", "github", "website", "case_study"].includes(link.kind ?? "") &&
-    !preferredLinks.some((preferredLink) => preferredLink.id === link.id),
-  );
-  const contactItems = [
-    profile.applicationIdentity.preferredEmail ?? profile.email,
-    profile.applicationIdentity.preferredPhone ?? profile.phone,
-    profile.portfolioUrl,
-    profile.linkedinUrl,
-    profile.githubUrl,
-    profile.personalWebsiteUrl,
-    ...[...preferredLinks, ...fallbackLinks].map((link) => link.url),
-  ]
-    .filter((value): value is string => Boolean(value && value.trim()))
-    .filter((value, index, values) => values.findIndex((entry) => normalizeContactIdentity(entry) === normalizeContactIdentity(value)) === index);
+  const identity = draft.identity ?? buildResumeDraftIdentity(profile);
 
   return {
-    fullName: profile.fullName,
-    headline: profile.headline ?? null,
-    location: profile.currentLocation ?? null,
-    contactItems,
+    fullName: identity.fullName ?? profile.fullName,
+    headline: identity.headline ?? profile.headline ?? null,
+    location: identity.location ?? profile.currentLocation ?? null,
+    contactItems: buildResumeContactItems(identity),
     sections: [...draft.sections]
       .filter((section) => section.included)
       .sort((left, right) => left.sortOrder - right.sortOrder)
@@ -480,13 +514,20 @@ export function buildResumeRenderDocument(
         text: section.text?.trim() || null,
         bullets: section.bullets
           .filter((bullet) => bullet.included)
-          .map((bullet) => bullet.text.trim())
-          .filter(Boolean),
+          .map((bullet) => ({
+            id: bullet.id,
+            text: bullet.text.trim(),
+          }))
+          .filter((bullet) => Boolean(bullet.text)),
         entries: section.entries
           .filter((entry) => entry.included)
           .sort((left, right) => left.sortOrder - right.sortOrder)
           .map((entry) => ({
             id: entry.id,
+            title: entry.title?.trim() || null,
+            subtitle: entry.subtitle?.trim() || null,
+            location: entry.location?.trim() || null,
+            dateRange: entry.dateRange?.trim() || null,
             heading: joinCompact(
               [
                 joinCompact([entry.title, entry.subtitle], " — "),
@@ -497,8 +538,11 @@ export function buildResumeRenderDocument(
             summary: entry.summary?.trim() || null,
             bullets: entry.bullets
               .filter((bullet) => bullet.included)
-              .map((bullet) => bullet.text.trim())
-              .filter(Boolean),
+              .map((bullet) => ({
+                id: bullet.id,
+                text: bullet.text.trim(),
+              }))
+              .filter((bullet) => Boolean(bullet.text)),
           })),
       }))
       .filter((section) =>
@@ -542,6 +586,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
     jobId: job.id,
     status: "needs_review",
     templateId,
+    identity: input.profile ? buildResumeDraftIdentity(input.profile) : null,
     sections: buildDraftSectionsFromStructuredTailoredDraft({
       createdAt,
       draft,
@@ -602,6 +647,7 @@ export function seedResumeDraft(input: {
         jobId: input.job.id,
         status: "draft",
         templateId: input.templateId,
+        identity: buildResumeDraftIdentity(input.profile),
         sections: seededSections,
         targetPageCount: 2,
         generationMethod:
@@ -696,6 +742,7 @@ export function seedResumeDraft(input: {
     jobId: input.job.id,
     status: "draft",
     templateId: input.templateId,
+    identity: buildResumeDraftIdentity(input.profile),
     sections: [
       createSection({
         id: "section_summary",

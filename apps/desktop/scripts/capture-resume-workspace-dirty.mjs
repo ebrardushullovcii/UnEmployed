@@ -166,7 +166,7 @@ async function captureResumeWorkspaceDirtyState() {
     await summaryField(window).fill(assistantSentinel)
     await assistantField(window).fill('Explain why this section was included.')
     const previousAssistantMessageCount = (await getAssistantMessages(window)).length
-    await window.getByRole('button', { name: 'Send' }).click()
+    await window.getByRole('button', { name: 'Send request' }).click()
     await waitForCondition(
       async () => {
         const workspace = await getResumeWorkspace(window)

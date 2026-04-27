@@ -31,9 +31,13 @@ const baseRenderDocument: ResumeRenderDocument = {
       entries: [
         {
           id: 'entry_1',
+          title: 'Senior systems designer',
+          subtitle: 'Signal Systems',
+          location: 'London, UK',
+          dateRange: 'Jan 2020 – Present',
           heading: 'Senior systems designer — Signal Systems | London, UK | Jan 2020 – Present',
           summary: 'Owns workflow platform delivery.',
-          bullets: ['Improved designer-engineer handoff <quality> by 30%.'],
+          bullets: [{ id: 'entry_1_bullet_1', text: 'Improved designer-engineer handoff <quality> by 30%.' }],
         },
       ],
     },
@@ -42,7 +46,7 @@ const baseRenderDocument: ResumeRenderDocument = {
       kind: 'skills',
       label: 'Core Skills',
       text: null,
-      bullets: ['Figma', 'Design Systems'],
+      bullets: [{ id: 'skill_1', text: 'Figma' }, { id: 'skill_2', text: 'Design Systems' }],
       entries: [],
     },
     {
@@ -54,9 +58,13 @@ const baseRenderDocument: ResumeRenderDocument = {
       entries: [
         {
           id: 'project_1',
+          title: 'Workflow OS',
+          subtitle: 'Design lead',
+          location: null,
+          dateRange: null,
           heading: 'Workflow OS — Design lead',
           summary: 'Scaled an internal design system.',
-          bullets: ['Created accessible interaction patterns.'],
+          bullets: [{ id: 'project_1_bullet_1', text: 'Created accessible interaction patterns.' }],
         },
       ],
     },
@@ -65,7 +73,7 @@ const baseRenderDocument: ResumeRenderDocument = {
       kind: 'skills',
       label: 'Additional Skills',
       text: null,
-      bullets: ['React', 'Playwright'],
+      bullets: [{ id: 'add_skill_1', text: 'React' }, { id: 'add_skill_2', text: 'Playwright' }],
       entries: [],
     },
     {
@@ -73,7 +81,7 @@ const baseRenderDocument: ResumeRenderDocument = {
       kind: 'skills',
       label: 'Languages',
       text: null,
-      bullets: ['English — Native'],
+      bullets: [{ id: 'lang_1', text: 'English — Native' }],
       entries: [],
     },
     {
@@ -81,7 +89,7 @@ const baseRenderDocument: ResumeRenderDocument = {
       kind: 'keywords',
       label: 'Targeted Keywords',
       text: null,
-      bullets: ['Should not render'],
+      bullets: [{ id: 'keyword_1', text: 'Should not render' }],
       entries: [],
     },
   ],
@@ -93,34 +101,42 @@ const credentialHeavyRenderDocument: ResumeRenderDocument = {
     baseRenderDocument.sections[0]!,
     {
       id: 'section_certifications',
-      kind: 'certifications',
-      label: 'Certifications',
-      text: null,
-      bullets: [],
-      entries: [
-        {
-          id: 'cert_1',
-          heading: 'AWS Certified Solutions Architect | Amazon Web Services | 2024',
-          summary: 'Validated distributed systems depth for platform-heavy roles.',
-          bullets: ['Maintains current cloud architecture certification.'],
-        },
-      ],
-    },
+        kind: 'certifications',
+        label: 'Certifications',
+        text: null,
+        bullets: [],
+        entries: [
+          {
+            id: 'cert_1',
+            title: 'AWS Certified Solutions Architect',
+            subtitle: 'Amazon Web Services',
+            location: null,
+            dateRange: '2024',
+            heading: 'AWS Certified Solutions Architect | Amazon Web Services | 2024',
+            summary: 'Validated distributed systems depth for platform-heavy roles.',
+            bullets: [{ id: 'cert_1_bullet_1', text: 'Maintains current cloud architecture certification.' }],
+          },
+        ],
+      },
     {
       id: 'section_education',
-      kind: 'education',
-      label: 'Education',
-      text: null,
-      bullets: [],
-      entries: [
-        {
-          id: 'edu_1',
-          heading: 'MSc Human Computer Interaction | City University | 2015',
-          summary: null,
-          bullets: ['Research focus on applied systems design.'],
-        },
-      ],
-    },
+        kind: 'education',
+        label: 'Education',
+        text: null,
+        bullets: [],
+        entries: [
+          {
+            id: 'edu_1',
+            title: 'MSc Human Computer Interaction',
+            subtitle: 'City University',
+            location: null,
+            dateRange: '2015',
+            heading: 'MSc Human Computer Interaction | City University | 2015',
+            summary: null,
+            bullets: [{ id: 'edu_1_bullet_1', text: 'Research focus on applied systems design.' }],
+          },
+        ],
+      },
     ...baseRenderDocument.sections.slice(1),
   ],
 }
@@ -265,12 +281,25 @@ describe('job finder resume renderer', () => {
     for (const template of listLocalResumeTemplates()) {
       const html = renderResumeTemplateCatalogPreviewHtml(template.id)
 
-      expect(html).toContain('class="catalog-body"')
+      expect(html).toContain('class="catalog-body catalog-body-thumbnail"')
+      expect(html).toContain('catalog-body-thumbnail')
       expect(html).toContain('catalog-shell')
       expect(html).toContain('transform: scale(0.23);')
       expect(html).toContain('data-ats-safe="true"')
       expect(html).toContain(`content="${template.label}"`)
     }
+  })
+
+  test('renders panel catalog preview shell when requested', () => {
+    const html = renderResumeTemplateCatalogPreviewHtml('classic_ats', { layout: 'panel' })
+
+    expect(html).toContain('catalog-body-panel')
+    expect(html).toContain('catalog-shell-panel')
+    expect(html).toContain('John Doe')
+    expect(html).toContain('Senior platform engineer')
+    expect(html).toContain('AWS Certified Developer')
+    expect(html).toContain('--catalog-scale: min(1, calc((100vw - 0.45rem) / 8.5in));')
+    expect(html).toContain('data-ats-safe="true"')
   })
 
   test('renders every shipped template with ATS-safe single-column structure', () => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { JobFinderResumePreview } from '@unemployed/contracts'
 import { ResumeStudioPreviewPane } from './resume-studio-preview-pane'
@@ -48,6 +48,7 @@ describe('ResumeStudioPreviewPane', () => {
         previewStatus="ready"
         selectedEntryId={null}
         selectedSectionId="section_summary"
+        selectedTargetId={null}
         templateLabel="Swiss Minimal - Standard"
       />,
     )
@@ -55,7 +56,8 @@ describe('ResumeStudioPreviewPane', () => {
     expect(screen.getByText('Unsaved edits rendered')).toBeTruthy()
     expect(screen.getByText(/1 preview warning surfaced before export/i)).toBeTruthy()
     expect(screen.getByText(/Add one more role-specific keyword to the summary/i)).toBeTruthy()
-    expect(screen.getByText('Template: Swiss Minimal - Standard')).toBeTruthy()
+    expect(screen.getByText('Swiss Minimal - Standard')).toBeTruthy()
+    expect(screen.getByText(/Keep the export-faithful page in view while you edit/i)).toBeTruthy()
     expect(screen.getByTitle('Live resume preview')).toBeTruthy()
   })
 
@@ -71,6 +73,7 @@ describe('ResumeStudioPreviewPane', () => {
         previewStatus="error"
         selectedEntryId={null}
         selectedSectionId={null}
+        selectedTargetId={null}
         templateLabel={null}
       />,
     )
@@ -79,7 +82,7 @@ describe('ResumeStudioPreviewPane', () => {
     expect(screen.getByText('Preview rendering failed in desktop test mode.')).toBeTruthy()
   })
 
-  it('forwards preview iframe clicks to the editor targeting callback', () => {
+  it('forwards preview iframe clicks to the editor targeting callback', async () => {
     const onSelectTarget = vi.fn()
     const rendered = render(
       <ResumeStudioPreviewPane
@@ -92,6 +95,7 @@ describe('ResumeStudioPreviewPane', () => {
         previewStatus="ready"
         selectedEntryId={null}
         selectedSectionId="section_experience"
+        selectedTargetId={null}
         templateLabel="Swiss Minimal - Standard"
       />,
     )
@@ -102,41 +106,44 @@ describe('ResumeStudioPreviewPane', () => {
     }
 
     const frameDocument = iframe.contentDocument ?? document.implementation.createHTMLDocument('preview')
+    const frameDocumentAddEventListener = vi.spyOn(frameDocument, 'addEventListener')
 
     if (!iframe.contentDocument) {
       Object.defineProperty(iframe, 'contentDocument', {
         configurable: true,
         value: frameDocument,
       })
-
-      rendered.rerender(
-        <ResumeStudioPreviewPane
-          isDirty={false}
-          isPending={false}
-          onRetry={vi.fn()}
-          onSelectTarget={onSelectTarget}
-          preview={preview}
-          previewError={null}
-          previewStatus="ready"
-          selectedEntryId={null}
-          selectedSectionId="section_experience"
-          templateLabel="Swiss Minimal - Standard"
-        />,
-      )
     }
 
-    frameDocument.body.innerHTML = '<article data-resume-section-id="section_experience" data-resume-entry-id="entry_signal_systems">Signal Systems</article>'
+    await act(async () => {
+      iframe.dispatchEvent(new Event('load'))
+      await Promise.resolve()
+    })
+
+    frameDocument.body.innerHTML = '<article data-resume-section-id="section_experience" data-resume-entry-id="entry_signal_systems" data-resume-target-id="entry:section_experience:entry_signal_systems:summary">Signal Systems</article>'
 
     const previewTarget = frameDocument.querySelector('[data-resume-entry-id="entry_signal_systems"]')
     if (!previewTarget) {
       throw new Error('Expected preview target to exist in iframe test document.')
     }
 
-    fireEvent.click(previewTarget)
+    const clickListener = frameDocumentAddEventListener.mock.calls.find(
+      (call) => call[0] === 'click',
+    )?.[1]
+
+    if (typeof clickListener !== 'function') {
+      throw new Error('Expected preview pane to register a click listener on the iframe document.')
+    }
+
+    clickListener({
+      target: previewTarget,
+      preventDefault: vi.fn(),
+    } as unknown as MouseEvent)
 
     expect(onSelectTarget).toHaveBeenCalledWith({
       sectionId: 'section_experience',
       entryId: 'entry_signal_systems',
+      targetId: 'entry:section_experience:entry_signal_systems:summary',
     })
   })
 })

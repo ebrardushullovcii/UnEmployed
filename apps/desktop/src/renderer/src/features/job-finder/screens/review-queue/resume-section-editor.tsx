@@ -4,6 +4,12 @@ import type {
   ResumeDraftPatch,
   ResumeDraftSection,
 } from "@unemployed/contracts";
+import {
+  getResumeEntryBulletTargetId,
+  getResumeEntryFieldTargetId,
+  getResumeSectionBulletTargetId,
+  getResumeSectionTextTargetId,
+} from '@unemployed/contracts'
 import { Button } from "@renderer/components/ui/button";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
 import { Input } from "@renderer/components/ui/input";
@@ -11,7 +17,6 @@ import { Textarea } from "@renderer/components/ui/textarea";
 import { cn } from "@renderer/lib/cn";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
-import { SourceRefsList } from "./source-refs-list";
 
 function normalizeNullableText(value: string | null | undefined): string | null {
   if (value == null || value.trim() === "") {
@@ -26,6 +31,7 @@ export function ResumeSectionEditor(props: {
   disabled: boolean;
   isSelected: boolean;
   selectedEntryId: string | null;
+  selectedTargetId: string | null;
   onChange: (nextSection: ResumeDraftSection) => void;
   onSelectEntry: (sectionId: string, entryId: string) => void;
   onSelectSection: (sectionId: string) => void;
@@ -52,31 +58,61 @@ export function ResumeSectionEditor(props: {
     const firstTextControl = target.querySelector<HTMLElement>(
       "textarea:not([disabled]), input:not([disabled])",
     );
+    const targetedControl = props.selectedTargetId
+      ? target.querySelector<HTMLElement>(`[data-resume-editor-target="${props.selectedTargetId}"]`)
+      : null
     const firstControl =
+      targetedControl ??
       firstTextControl ??
       target.querySelector<HTMLElement>("button:not([disabled])");
 
     firstControl?.focus({ preventScroll: true });
-    target.scrollIntoView({ block: "nearest" });
-  }, [props.isSelected, props.selectedEntryId]);
+
+    const scrollRegion = target.closest<HTMLElement>('[data-resume-editor-scroll-region]')
+    if (!scrollRegion) {
+      return
+    }
+
+    const regionTop = scrollRegion.scrollTop
+    const regionBottom = regionTop + scrollRegion.clientHeight
+    const targetTop = target.offsetTop
+    const targetBottom = targetTop + target.offsetHeight
+
+    if (!props.selectedEntryId) {
+      const sectionAnchorTop = Math.max(0, targetTop - 72)
+      if (sectionAnchorTop !== regionTop) {
+        scrollRegion.scrollTop = sectionAnchorTop
+      }
+      return
+    }
+
+    if (targetTop < regionTop) {
+      scrollRegion.scrollTop = targetTop
+      return
+    }
+
+    if (targetBottom > regionBottom) {
+      scrollRegion.scrollTop = targetBottom - scrollRegion.clientHeight
+    }
+  }, [props.isSelected, props.selectedEntryId, props.selectedTargetId]);
 
   return (
     <article
       className={cn(
-        "surface-card-tint grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-4 transition-colors",
+        "surface-card-tint grid min-w-0 gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) p-2.5 transition-colors",
         props.isSelected && "border-primary/35 bg-primary/5",
       )}
       onFocusCapture={() => props.onSelectSection(props.section.id)}
       onMouseDownCapture={() => props.onSelectSection(props.section.id)}
       ref={sectionRef}
     >
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="font-display text-base font-semibold text-(--text-headline)">
+          <h3 className="font-display text-[0.9rem] font-semibold text-(--text-headline)">
             {props.section.label}
           </h3>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <StatusBadge tone={props.section.included ? "active" : "muted"}>
             {props.section.included ? "Shown" : "Hidden"}
           </StatusBadge>
@@ -84,7 +120,6 @@ export function ResumeSectionEditor(props: {
             {props.section.locked ? "Locked" : "Editable"}
           </StatusBadge>
           <Button
-            className="h-9"
             disabled={props.disabled}
             onClick={() =>
               props.onPatch(
@@ -108,13 +143,13 @@ export function ResumeSectionEditor(props: {
                 `${props.section.included ? "Hidden" : "Shown"} section`,
               )
             }
+            size="compact"
             type="button"
             variant="secondary"
           >
             {props.section.included ? "Hide section" : "Show section"}
           </Button>
           <Button
-            className="h-9"
             disabled={props.disabled}
             onClick={() =>
               props.onPatch(
@@ -138,6 +173,7 @@ export function ResumeSectionEditor(props: {
                 `${props.section.locked ? "Unlocked" : "Locked"} section`,
               )
             }
+            size="compact"
             type="button"
             variant="secondary"
           >
@@ -149,9 +185,9 @@ export function ResumeSectionEditor(props: {
             {props.section.locked ? "Unlock" : "Lock"}
           </Button>
           <Button
-            className="h-9"
             disabled={props.disabled || props.section.locked}
             onClick={props.onRegenerate}
+            size="compact"
             type="button"
             variant="secondary"
           >
@@ -165,9 +201,11 @@ export function ResumeSectionEditor(props: {
         <Field>
           <FieldLabel htmlFor={textId}>Section text</FieldLabel>
           <Textarea
+            className={props.section.kind === "summary" ? "min-h-32" : "min-h-40"}
+            data-resume-editor-target={getResumeSectionTextTargetId(props.section.id)}
             id={textId}
             disabled={props.disabled || props.section.locked}
-            rows={props.section.kind === "summary" ? 7 : 4}
+            rows={props.section.kind === "summary" ? 5 : 7}
             value={props.section.text ?? ""}
             onChange={(event) =>
               props.onChange({
@@ -179,17 +217,8 @@ export function ResumeSectionEditor(props: {
         </Field>
       ) : null}
 
-      {props.section.sourceRefs.length ? (
-        <div className="grid gap-2">
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-            Why this is here
-          </p>
-          <SourceRefsList sourceRefs={props.section.sourceRefs} />
-        </div>
-      ) : null}
-
       {hasEntries ? (
-        <div className="grid gap-3">
+        <div className="grid gap-2.5">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             Structured entries
           </p>
@@ -197,7 +226,7 @@ export function ResumeSectionEditor(props: {
             <article
               key={entry.id}
               className={cn(
-                "surface-card grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-3 transition-colors",
+                "surface-card grid gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) p-2.5 transition-colors",
                 props.selectedEntryId === entry.id && "border-primary/35 bg-primary/5",
               )}
               onFocusCapture={() => props.onSelectEntry(props.section.id, entry.id)}
@@ -281,6 +310,7 @@ export function ResumeSectionEditor(props: {
               <Field>
                 <FieldLabel htmlFor={`${controlIdPrefix}_entry_title_${entry.id}`}>Title</FieldLabel>
                 <Input
+                  data-resume-editor-target={getResumeEntryFieldTargetId(props.section.id, entry.id, 'title')}
                   id={`${controlIdPrefix}_entry_title_${entry.id}`}
                   disabled={props.disabled || props.section.locked || entry.locked}
                   value={entry.title ?? ""}
@@ -301,6 +331,7 @@ export function ResumeSectionEditor(props: {
                 <Field>
                   <FieldLabel htmlFor={`${controlIdPrefix}_entry_subtitle_${entry.id}`}>Organization or subtitle</FieldLabel>
                   <Input
+                    data-resume-editor-target={getResumeEntryFieldTargetId(props.section.id, entry.id, 'subtitle')}
                     id={`${controlIdPrefix}_entry_subtitle_${entry.id}`}
                     disabled={props.disabled || props.section.locked || entry.locked}
                     value={entry.subtitle ?? ""}
@@ -319,6 +350,7 @@ export function ResumeSectionEditor(props: {
                 <Field>
                   <FieldLabel htmlFor={`${controlIdPrefix}_entry_dates_${entry.id}`}>Date range</FieldLabel>
                   <Input
+                    data-resume-editor-target={getResumeEntryFieldTargetId(props.section.id, entry.id, 'dateRange')}
                     id={`${controlIdPrefix}_entry_dates_${entry.id}`}
                     disabled={props.disabled || props.section.locked || entry.locked}
                     value={entry.dateRange ?? ""}
@@ -339,6 +371,7 @@ export function ResumeSectionEditor(props: {
               <Field>
                 <FieldLabel htmlFor={`${controlIdPrefix}_entry_location_${entry.id}`}>Location</FieldLabel>
                 <Input
+                  data-resume-editor-target={getResumeEntryFieldTargetId(props.section.id, entry.id, 'location')}
                   id={`${controlIdPrefix}_entry_location_${entry.id}`}
                   disabled={props.disabled || props.section.locked || entry.locked}
                   value={entry.location ?? ""}
@@ -358,9 +391,11 @@ export function ResumeSectionEditor(props: {
               <Field>
                 <FieldLabel htmlFor={`${controlIdPrefix}_entry_summary_${entry.id}`}>Entry summary</FieldLabel>
                 <Textarea
+                  className="min-h-32"
+                  data-resume-editor-target={getResumeEntryFieldTargetId(props.section.id, entry.id, 'summary')}
                   id={`${controlIdPrefix}_entry_summary_${entry.id}`}
                   disabled={props.disabled || props.section.locked || entry.locked}
-                  rows={4}
+                  rows={5}
                   value={entry.summary ?? ""}
                   onChange={(event) =>
                     props.onChange({
@@ -518,9 +553,11 @@ export function ResumeSectionEditor(props: {
                       </Button>
                     </div>
                     <Textarea
+                      className="min-h-32"
+                      data-resume-editor-target={getResumeEntryBulletTargetId(props.section.id, entry.id, bullet.id)}
                       id={`${controlIdPrefix}_entry_bullet_${bullet.id}`}
                       disabled={props.disabled || props.section.locked || entry.locked || bullet.locked}
-                      rows={4}
+                      rows={5}
                       value={bullet.text}
                       onChange={(event) =>
                         props.onChange({
@@ -549,7 +586,7 @@ export function ResumeSectionEditor(props: {
       ) : null}
 
       {!hasEntries || props.section.bullets.length > 0 ? (
-      <div className="grid gap-3">
+      <div className="grid gap-2.5">
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
           Bullet points
         </p>
@@ -714,6 +751,8 @@ export function ResumeSectionEditor(props: {
                 </Button>
               </div>
               <Textarea
+                className="min-h-36"
+                data-resume-editor-target={getResumeSectionBulletTargetId(props.section.id, bullet.id)}
                 id={`${controlIdPrefix}_bullet_${bullet.id}`}
                 disabled={props.disabled || props.section.locked || bullet.locked}
                 rows={6}
@@ -729,14 +768,6 @@ export function ResumeSectionEditor(props: {
                   })
                 }
               />
-              {bullet.sourceRefs.length ? (
-                <div className="mt-2 grid gap-2">
-                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                    Why this bullet is here
-                  </p>
-                  <SourceRefsList sourceRefs={bullet.sourceRefs} />
-                </div>
-              ) : null}
             </Field>
           ))
         )}

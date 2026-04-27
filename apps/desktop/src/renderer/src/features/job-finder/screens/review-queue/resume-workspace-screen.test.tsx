@@ -276,10 +276,9 @@ describe('ResumeWorkspaceScreen', () => {
       await vi.advanceTimersByTimeAsync(100)
     })
 
-    expect(screen.getAllByText('Recommended for this draft').length).toBeGreaterThan(0)
-    expect(screen.getByText('Engineering Spec - Systems')).toBeTruthy()
-    expect(
-      screen.getByText(/The job reads as technical, and this variant brings skills and systems depth forward/i),
-    ).toBeTruthy()
+    expect(screen.getAllByText('Template strategy').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Recommended').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Engineering Spec').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Open guided edits' }).length).toBeGreaterThan(0)
   })
 })

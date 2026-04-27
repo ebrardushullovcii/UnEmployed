@@ -54,6 +54,18 @@ describe("contracts resume workspace schemas", () => {
         jobId: "job_1",
         status: "needs_review",
         templateId: "classic_ats",
+        identity: {
+          fullName: "Alex Vanguard",
+          headline: "Senior Product Designer",
+          location: "Remote",
+          email: "alex@example.com",
+          phone: "+44 7700 900123",
+          portfolioUrl: "https://alex.example.com",
+          linkedinUrl: "https://www.linkedin.com/in/alex-vanguard",
+          githubUrl: null,
+          personalWebsiteUrl: null,
+          additionalLinks: [],
+        },
         sections: [
           {
             id: "section_summary",
@@ -381,6 +393,7 @@ describe("contracts resume workspace schemas", () => {
         jobId: "job_2",
         status: "needs_review",
         templateId: "technical_matrix",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "ai",

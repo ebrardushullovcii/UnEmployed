@@ -16,6 +16,7 @@ import { formatTimestamp } from "./resume-workspace-utils";
 export function ResumeWorkspaceSecondaryRail(props: {
   assistantMessages: readonly ResumeAssistantMessage[];
   assistantPending: boolean;
+  compactWhenIdle?: boolean;
   isWorkspacePending: boolean;
   onSendAssistantMessage: (content: string) => void;
 }) {
@@ -53,6 +54,11 @@ export function ResumeWorkspaceSecondaryRail(props: {
     handleSend();
   }
 
+  const showCompactIdleComposer =
+    props.compactWhenIdle &&
+    props.assistantMessages.length === 0 &&
+    !props.assistantPending;
+
   return (
     <aside className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
       <header className="flex items-center gap-3 border-b border-(--surface-panel-border) px-5 py-4">
@@ -68,6 +74,44 @@ export function ResumeWorkspaceSecondaryRail(props: {
           </p>
         </div>
       </header>
+
+      {showCompactIdleComposer ? (
+        <div className="grid gap-3 p-4">
+          <p className="text-sm leading-6 text-foreground-soft">
+            Keep the editor and preview in view, then pull in grounded rewrite help only when you want a tighter summary, stronger bullets, or more role-specific wording.
+          </p>
+          <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
+            <div className="grid min-w-0 gap-2">
+              <FieldLabel htmlFor={assistantId}>Request a resume edit</FieldLabel>
+              <Textarea
+                className="min-w-0"
+                id={assistantId}
+                disabled={props.isWorkspacePending || props.assistantPending}
+                onChange={(event) => setAssistantInput(event.currentTarget.value)}
+                onKeyDown={handleComposerKeyDown}
+                placeholder="Example: tighten the summary, strengthen one experience bullet, or rewrite a section for this job..."
+                rows={3}
+                value={assistantInput}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-(length:--text-tiny) text-muted-foreground">
+                Press Enter to send. Shift+Enter adds a new line.
+              </p>
+              <Button
+                className="min-w-28 px-4"
+                disabled={props.isWorkspacePending || props.assistantPending || assistantInput.trim().length === 0}
+                pending={props.assistantPending}
+                onClick={handleSend}
+                type="button"
+                variant="primary"
+              >
+                {props.assistantPending ? "Updating..." : "Send request"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div
@@ -111,7 +155,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
           ) : (
             <div className="flex h-full min-h-48 items-center justify-center">
               <div className="grid max-w-52 gap-2 text-center">
-                  <div className="surface-card-tint mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) text-muted-foreground">
+                <div className="surface-card-tint mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) text-muted-foreground">
                   <MessageSquare className="size-4" />
                 </div>
                 <p className="font-display text-sm text-foreground">
@@ -158,6 +202,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
           </div>
         </div>
       </div>
+      )}
     </aside>
   );
 }

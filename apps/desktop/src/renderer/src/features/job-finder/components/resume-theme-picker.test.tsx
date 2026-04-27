@@ -177,21 +177,11 @@ describe('ResumeThemePicker', () => {
       )
     })
 
-    expect(container?.textContent).toContain('Recommended for this draft')
-    expect(container?.textContent).toContain('Engineering Spec - Systems')
-
-    const recommendedOnlyButton = Array.from(container?.querySelectorAll('button') ?? []).find(
-      (element) => element.textContent?.includes('Recommended only'),
-    )
-    expect(recommendedOnlyButton).toBeTruthy()
-
-    act(() => {
-      recommendedOnlyButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(container?.textContent).toContain('Filters active')
-    expect(container?.textContent).not.toContain('Swiss Minimal')
+    expect(container?.textContent).toContain('Current selection')
+    expect(container?.textContent).toContain('Swiss Minimal - Standard')
+    expect(container?.textContent).toContain('Choose a family')
     expect(container?.textContent).toContain('Engineering Spec')
-    expect(container?.textContent).toContain('Portfolio Narrative')
+    expect(container?.textContent).toContain('Recommended')
+    expect(container?.querySelectorAll('[role="radio"]')).toHaveLength(1)
   })
 })

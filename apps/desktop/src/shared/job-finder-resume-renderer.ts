@@ -1,6 +1,14 @@
 import type {
   JobFinderSettings,
+  ResumePreviewIdentityField,
   ResumeTemplateId,
+} from '@unemployed/contracts'
+import {
+  getResumeEntryBulletTargetId,
+  getResumeEntryFieldTargetId,
+  getResumeIdentityTargetId,
+  getResumeSectionBulletTargetId,
+  getResumeSectionTextTargetId,
 } from '@unemployed/contracts'
 import type { ResumeRenderDocument } from '@unemployed/job-finder'
 
@@ -11,6 +19,7 @@ import {
 type RenderSection = ResumeRenderDocument['sections'][number]
 
 interface ResumeRenderHtmlOptions {
+  catalogLayout?: 'thumbnail' | 'panel'
   mode?: 'catalog' | 'export' | 'preview'
 }
 
@@ -20,11 +29,13 @@ function withPreviewSelection(input: {
   mode: 'catalog' | 'export' | 'preview'
   sectionId?: string | null
   entryId?: string | null
+  targetId?: string | null
 }) {
   return {
     mode: input.mode,
     ...(input.sectionId !== undefined ? { sectionId: input.sectionId } : {}),
     ...(input.entryId !== undefined ? { entryId: input.entryId } : {}),
+    ...(input.targetId !== undefined ? { targetId: input.targetId } : {}),
   }
 }
 
@@ -60,27 +71,59 @@ function formatContactItem(value: string): string {
     .replace(/\/$/, '')
 }
 
-function renderEntryHeading(heading: string | null): string {
-  if (!heading) {
-    return ''
-  }
+function renderIdentityFieldTag(input: {
+  mode: ResumeRenderHtmlOptions['mode']
+  field: ResumePreviewIdentityField
+  tagName: 'h1' | 'p' | 'span' | 'li'
+  className?: string
+  text: string
+}): string {
+  return `<${input.tagName}${input.className ? ` class="${input.className}"` : ''}${renderPreviewAttributes({
+    ...withPreviewSelection({
+      mode: input.mode ?? 'export',
+      targetId: getResumeIdentityTargetId(input.field),
+    }),
+  })}>${escapeHtml(input.text)}</${input.tagName}>`
+}
 
-  const [primary, ...metaParts] = heading
-    .split(' | ')
-    .map((part) => part.trim())
-    .filter(Boolean)
+function renderEntryHeading(input: {
+  title: string | null
+  subtitle: string | null
+  location: string | null
+  dateRange: string | null
+  mode: ResumeRenderHtmlOptions['mode']
+  sectionId: string
+  entryId: string
+}): string {
+  const primary = [input.title, input.subtitle].filter(Boolean).join(' — ')
+  const metaParts = [input.location, input.dateRange].filter((value): value is string => Boolean(value))
 
   if (!primary) {
     return ''
   }
 
-  return `<h4><span class="entry-primary">${escapeHtml(primary)}</span>${metaParts.length > 0 ? `<span class="entry-meta">${metaParts.map(escapeHtml).join(' | ')}</span>` : ''}</h4>`
+  return `<h4><span class="entry-primary"${renderPreviewAttributes({
+    ...withPreviewSelection({
+      mode: input.mode ?? 'export',
+      sectionId: input.sectionId,
+      entryId: input.entryId,
+      targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'title'),
+    }),
+  })}>${escapeHtml(primary)}</span>${metaParts.length > 0 ? `<span class="entry-meta"${renderPreviewAttributes({
+    ...withPreviewSelection({
+      mode: input.mode ?? 'export',
+      sectionId: input.sectionId,
+      entryId: input.entryId,
+      targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'dateRange'),
+    }),
+  })}>${metaParts.map((value) => escapeHtml(value)).join(' | ')}</span>` : ''}</h4>`
 }
 
 function renderPreviewAttributes(input: {
   mode: ResumeRenderHtmlOptions['mode']
   sectionId?: string | null
   entryId?: string | null
+  targetId?: string | null
 }): string {
   if (input.mode !== 'preview') {
     return ''
@@ -96,6 +139,10 @@ function renderPreviewAttributes(input: {
     attributes.push(`data-resume-entry-id="${escapeHtml(input.entryId)}"`)
   }
 
+  if (input.targetId) {
+    attributes.push(`data-resume-target-id="${escapeHtml(input.targetId)}"`)
+  }
+
   return attributes.length > 0 ? ` ${attributes.join(' ')}` : ''
 }
 
@@ -105,12 +152,16 @@ function renderStructuredSection(input: {
   className?: string
   mode?: 'catalog' | 'export' | 'preview'
   text?: string | null
-  bullets?: readonly string[]
+  bullets?: ReadonlyArray<{ id: string; text: string }>
   entries?: ReadonlyArray<{
     id: string
+    title: string | null
+    subtitle: string | null
+    location: string | null
+    dateRange: string | null
     heading: string | null
     summary: string | null
-    bullets: string[]
+    bullets: Array<{ id: string; text: string }>
   }>
 }): string {
   const bullets = input.bullets ?? []
@@ -129,7 +180,13 @@ function renderStructuredSection(input: {
       }),
     })}>
       <h3>${escapeHtml(input.title)}</h3>
-      ${input.text ? `<p>${escapeHtml(input.text)}</p>` : ''}
+      ${input.text ? `<p${renderPreviewAttributes({
+        ...withPreviewSelection({
+          mode: input.mode ?? 'export',
+          sectionId: input.sectionId ?? null,
+          targetId: input.sectionId ? getResumeSectionTextTargetId(input.sectionId) : null,
+        }),
+      })}>${escapeHtml(input.text)}</p>` : ''}
       ${entries
         .map(
           (entry) => `
@@ -140,14 +197,45 @@ function renderStructuredSection(input: {
                 entryId: entry.id,
               }),
             })}>
-              ${renderEntryHeading(entry.heading)}
-              ${entry.summary ? `<p>${escapeHtml(entry.summary)}</p>` : ''}
-              ${entry.bullets.length > 0 ? `<ul>${entry.bullets.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}</ul>` : ''}
+              ${input.sectionId ? renderEntryHeading({
+                title: entry.title,
+                subtitle: entry.subtitle,
+                location: entry.location,
+                dateRange: entry.dateRange,
+                mode: input.mode ?? 'export',
+                sectionId: input.sectionId,
+                entryId: entry.id,
+              }) : ''}
+              ${entry.summary && input.sectionId ? `<p${renderPreviewAttributes({
+                ...withPreviewSelection({
+                  mode: input.mode ?? 'export',
+                  sectionId: input.sectionId,
+                  entryId: entry.id,
+                  targetId: getResumeEntryFieldTargetId(input.sectionId, entry.id, 'summary'),
+                }),
+              })}>${escapeHtml(entry.summary)}</p>` : ''}
+              ${entry.bullets.length > 0 ? `<ul>${entry.bullets.map((bullet) => `<li${renderPreviewAttributes({
+                ...withPreviewSelection({
+                  mode: input.mode ?? 'export',
+                  sectionId: input.sectionId ?? null,
+                  entryId: entry.id,
+                  targetId:
+                    input.sectionId
+                      ? getResumeEntryBulletTargetId(input.sectionId, entry.id, bullet.id)
+                      : null,
+                }),
+              })}>${escapeHtml(bullet.text)}</li>`).join('')}</ul>` : ''}
             </article>
           `,
         )
         .join('')}
-      ${bullets.length > 0 ? `<ul>${bullets.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}</ul>` : ''}
+      ${bullets.length > 0 ? `<ul>${bullets.map((bullet) => `<li${renderPreviewAttributes({
+        ...withPreviewSelection({
+          mode: input.mode ?? 'export',
+          sectionId: input.sectionId ?? null,
+          targetId: input.sectionId ? getResumeSectionBulletTargetId(input.sectionId, bullet.id) : null,
+        }),
+      })}>${escapeHtml(bullet.text)}</li>`).join('')}</ul>` : ''}
     </section>
   `
 }
@@ -173,8 +261,17 @@ function renderSection(
     title: string
     mode: 'catalog' | 'export' | 'preview' | undefined
     text: string | null
-    bullets: readonly string[]
-    entries: RenderSection['entries']
+    bullets: Array<{ id: string; text: string }>
+    entries: ReadonlyArray<{
+      id: string
+      title: string | null
+      subtitle: string | null
+      location: string | null
+      dateRange: string | null
+      heading: string | null
+      summary: string | null
+      bullets: Array<{ id: string; text: string }>
+    }>
   }
 
   return renderStructuredSection(
@@ -191,7 +288,7 @@ function renderInlineSection(input: {
   title: string
   className?: string
   mode?: 'catalog' | 'export' | 'preview'
-  groups: ReadonlyArray<{ label?: string; values: readonly string[]; sectionId?: string | null }>
+  groups: ReadonlyArray<{ label?: string; values: ReadonlyArray<{ id: string; text: string }>; sectionId?: string | null }>
 }): string {
   const groups = input.groups.filter((group) => group.values.length > 0)
 
@@ -210,7 +307,7 @@ function renderInlineSection(input: {
                 mode: input.mode ?? 'export',
                 sectionId: group.sectionId ?? null,
               }),
-            })}>${group.label ? `<strong>${escapeHtml(group.label)}:</strong> ` : ''}${group.values.map(escapeHtml).join(', ')}</p>`,
+            })}>${group.label ? `<strong>${escapeHtml(group.label)}:</strong> ` : ''}${group.values.map((value) => escapeHtml(value.text)).join(', ')}</p>`,
           )
           .join('')}
       </div>
@@ -222,7 +319,7 @@ function renderSkillMatrixSection(input: {
   title: string
   className?: string
   mode?: 'catalog' | 'export' | 'preview'
-  groups: ReadonlyArray<{ label?: string; values: readonly string[]; sectionId?: string | null }>
+  groups: ReadonlyArray<{ label?: string; values: ReadonlyArray<{ id: string; text: string }>; sectionId?: string | null }>
 }): string {
   const groups = input.groups.filter((group) => group.values.length > 0)
 
@@ -244,7 +341,7 @@ function renderSkillMatrixSection(input: {
                 }),
               })}>
                 ${group.label ? `<p class="skill-group-label">${escapeHtml(group.label)}</p>` : ''}
-                <ul class="skill-pill-list">${group.values.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}</ul>
+                <ul class="skill-pill-list">${group.values.map((value) => `<li>${escapeHtml(value.text)}</li>`).join('')}</ul>
               </div>
             `,
           )
@@ -277,7 +374,7 @@ function renderSummaryCallout(
 function renderSkillGroups(
   coreSkillsSection: RenderSection | null,
   additionalSkillsSection: RenderSection | null,
-): Array<{ label?: string; values: readonly string[]; sectionId?: string | null }> {
+): Array<{ label?: string; values: ReadonlyArray<{ id: string; text: string }>; sectionId?: string | null }> {
   return [
     {
       label: 'Core',
@@ -361,7 +458,7 @@ interface TemplateLayout {
 
 type SkillGroup = {
   label?: string
-  values: readonly string[]
+  values: ReadonlyArray<{ id: string; text: string }>
   sectionId?: string | null
 }
 
@@ -387,57 +484,72 @@ function renderSectionCluster(className: string, sections: readonly string[]): s
   return `<div class="${className}">${content}</div>`
 }
 
-function buildHeaderContactValues(renderDocument: ResumeRenderDocument): string[] {
+function renderIdentityMeta(values: ReadonlyArray<{ field: ResumePreviewIdentityField; text: string }>, className: string): string {
+  if (values.length === 0) {
+    return ''
+  }
+
+  if (className.includes('meta-pill-list')) {
+    return `<ul class="${className}">${values.map((value) => renderIdentityFieldTag({
+      mode: 'preview',
+      field: value.field,
+      tagName: 'li',
+      text: value.text,
+    })).join('')}</ul>`
+  }
+
+  return `<div class="${className}">${values.map((value) => renderIdentityFieldTag({
+    mode: 'preview',
+    field: value.field,
+    tagName: 'span',
+    text: value.text,
+  })).join('')}</div>`
+}
+
+function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<{ field: ResumePreviewIdentityField; text: string }> {
+  const contactFields: ResumePreviewIdentityField[] = [
+    'email',
+    'phone',
+    'portfolioUrl',
+    'linkedinUrl',
+    'githubUrl',
+    'personalWebsiteUrl',
+  ]
+
   return [
-    renderDocument.location,
-    ...renderDocument.contactItems.map((item) => formatContactItem(item)),
-  ].filter((value): value is string => Boolean(value))
-}
-
-function renderPipeMeta(values: readonly string[], className = 'meta'): string {
-  if (values.length === 0) {
-    return ''
-  }
-
-  return `<div class="${className}">${values.map((value) => `<span>${escapeHtml(value)}</span>`).join('')}</div>`
-}
-
-function renderStackedMeta(values: readonly string[], className = 'meta-stack'): string {
-  if (values.length === 0) {
-    return ''
-  }
-
-  return `<div class="${className}">${values.map((value) => `<span>${escapeHtml(value)}</span>`).join('')}</div>`
-}
-
-function renderPillMeta(values: readonly string[], className = 'meta-pill-list'): string {
-  if (values.length === 0) {
-    return ''
-  }
-
-  return `<ul class="${className}">${values.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}</ul>`
+    renderDocument.location
+      ? {
+          field: 'location' as const,
+          text: renderDocument.location,
+        }
+      : null,
+    ...renderDocument.contactItems.map((item, index) => ({
+      field: contactFields[index] ?? 'additionalLinks',
+      text: formatContactItem(item),
+    })),
+  ].filter((value): value is { field: ResumePreviewIdentityField; text: string } => Boolean(value))
 }
 
 function renderClassicHeader(renderDocument: ResumeRenderDocument): string {
-  const contactValues = buildHeaderContactValues(renderDocument)
+  const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-classic">
-      <h1 class="name">${escapeHtml(renderDocument.fullName)}</h1>
-      ${renderDocument.headline ? `<p class="headline">${escapeHtml(renderDocument.headline)}</p>` : ''}
-      ${renderPipeMeta(contactValues)}
+      ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
+      ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline', text: renderDocument.headline }) : ''}
+      ${renderIdentityMeta(contactValues, 'meta')}
     </header>`
 }
 
 function renderSwissAccentHeader(renderDocument: ResumeRenderDocument): string {
-  const contactValues = buildHeaderContactValues(renderDocument)
+  const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-swiss-accent">
       <p class="eyebrow">Swiss Minimal</p>
       <div class="identity-block">
-        <h1 class="name name-left">${escapeHtml(renderDocument.fullName)}</h1>
-        ${renderDocument.headline ? `<p class="headline headline-left">${escapeHtml(renderDocument.headline)}</p>` : ''}
+        ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline headline-left', text: renderDocument.headline }) : ''}
       </div>
-      ${renderPipeMeta(contactValues, 'meta meta-left')}
+      ${renderIdentityMeta(contactValues, 'meta meta-left')}
     </header>`
 }
 
@@ -445,43 +557,43 @@ function renderExecutiveHeader(
   renderDocument: ResumeRenderDocument,
   variant: 'credentials' | 'dense',
 ): string {
-  const contactValues = buildHeaderContactValues(renderDocument)
+  const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-executive${variant === 'credentials' ? ' header-executive-credentials' : ''}">
       <p class="eyebrow">Executive Brief</p>
       <div class="identity-block identity-block-tight">
-        <h1 class="name">${escapeHtml(renderDocument.fullName)}</h1>
-        ${renderDocument.headline ? `<p class="headline headline-executive">${escapeHtml(renderDocument.headline)}</p>` : ''}
+        ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline headline-executive', text: renderDocument.headline }) : ''}
       </div>
-      ${renderPillMeta(contactValues)}
+      ${renderIdentityMeta(contactValues, 'meta-pill-list')}
     </header>`
 }
 
 function renderEngineeringSpecHeader(renderDocument: ResumeRenderDocument): string {
-  const contactValues = buildHeaderContactValues(renderDocument)
+  const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-spec">
       <div class="header-spec-shell">
         <div class="identity-block">
           <p class="eyebrow">Engineering Spec</p>
-          <h1 class="name name-left">${escapeHtml(renderDocument.fullName)}</h1>
-          ${renderDocument.headline ? `<p class="headline headline-left headline-spec">${escapeHtml(renderDocument.headline)}</p>` : ''}
+          ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
+          ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline headline-left headline-spec', text: renderDocument.headline }) : ''}
         </div>
-        ${renderStackedMeta(contactValues)}
+        ${renderIdentityMeta(contactValues, 'meta-stack')}
       </div>
     </header>`
 }
 
 function renderPortfolioHeader(renderDocument: ResumeRenderDocument): string {
-  const contactValues = buildHeaderContactValues(renderDocument)
+  const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-portfolio">
       <p class="eyebrow">Portfolio Narrative</p>
       <div class="identity-block">
-        <h1 class="name name-left">${escapeHtml(renderDocument.fullName)}</h1>
-        ${renderDocument.headline ? `<p class="headline headline-left headline-portfolio">${escapeHtml(renderDocument.headline)}</p>` : ''}
+        ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline headline-left headline-portfolio', text: renderDocument.headline }) : ''}
       </div>
-      ${renderPillMeta(contactValues, 'meta-pill-list meta-pill-list-left meta-pill-list-warm')}
+      ${renderIdentityMeta(contactValues, 'meta-pill-list meta-pill-list-left meta-pill-list-warm')}
     </header>`
 }
 
@@ -763,6 +875,7 @@ export function renderResumeTemplateHtml(input: {
   templateId: ResumeTemplateId
 }, options?: ResumeRenderHtmlOptions): string {
   const mode = options?.mode ?? 'export'
+  const catalogLayout = options?.catalogLayout ?? 'thumbnail'
   const fontFamily = formatFontFamily(input.settings.fontPreset)
   const layout = buildTemplateLayout({
     ...input,
@@ -895,8 +1008,31 @@ export function renderResumeTemplateHtml(input: {
     .page-projects .section-project-accent .entry-block { padding-left: 0.2rem; }
     ${mode === 'preview'
       ? `
-    body.preview-body { background: #e7edf6; padding: 1rem; }
-    .preview-body .page { box-shadow: 0 20px 60px rgba(24, 38, 62, 0.16); }
+    html, body.preview-body {
+      height: 100%;
+    }
+    body.preview-body {
+      --preview-scale: min(1, calc((100vw - 1.25rem) / 8.5in), calc((100% - 0.9rem) / 11in));
+      background: #e7edf6;
+      min-height: 100%;
+      padding: 0;
+      overflow-x: hidden;
+      overflow-y: hidden;
+    }
+    .preview-shell {
+      width: fit-content;
+      min-height: calc(11in * var(--preview-scale) + 0.75rem);
+      margin: 0 auto;
+      padding: 0.375rem;
+      display: grid;
+      justify-items: start;
+      align-content: start;
+      zoom: var(--preview-scale);
+    }
+    .preview-body .page {
+      box-shadow: 0 20px 60px rgba(24, 38, 62, 0.16);
+      margin: 0;
+    }
     [data-resume-section-id], [data-resume-entry-id] { cursor: pointer; transition: box-shadow 120ms ease, background-color 120ms ease; border-radius: 0.12in; }
     [data-resume-entry-id] { padding: 0.06in 0.08in; margin-inline: -0.08in; }
     [data-resume-section-id][data-resume-selected="true"], [data-resume-entry-id][data-resume-selected="true"] { box-shadow: 0 0 0 2px rgba(31, 58, 95, 0.26); background: rgba(31, 58, 95, 0.06); }
@@ -905,9 +1041,62 @@ export function renderResumeTemplateHtml(input: {
       : ''}
     ${mode === 'catalog'
       ? `
-    body.catalog-body { margin: 0; background: transparent; overflow: hidden; }
-    .catalog-shell { width: 188px; height: 243px; overflow: hidden; border-radius: 18px; background: linear-gradient(180deg, rgba(241, 245, 249, 0.92), rgba(255, 255, 255, 0.98)); }
-    .catalog-shell .page { margin: 0; box-shadow: none; transform: scale(0.23); transform-origin: top left; }
+    body.catalog-body { margin: 0; overflow: hidden; }
+    body.catalog-body.catalog-body-thumbnail { background: transparent; }
+    .catalog-shell { overflow: hidden; }
+    .catalog-shell-thumbnail { width: 188px; height: 243px; border-radius: 18px; background: linear-gradient(180deg, rgba(241, 245, 249, 0.92), rgba(255, 255, 255, 0.98)); }
+    .catalog-shell-thumbnail .page { margin: 0; box-shadow: none; transform: scale(0.23); transform-origin: top left; }
+    html:has(body.catalog-body.catalog-body-panel), body.catalog-body.catalog-body-panel { height: 100%; }
+    body.catalog-body.catalog-body-panel {
+      display: grid;
+      align-items: start;
+      background: linear-gradient(180deg, rgba(241, 245, 249, 0.98), rgba(226, 232, 240, 0.94));
+      padding: 0;
+      overflow: hidden;
+    }
+    .catalog-shell-panel {
+      --catalog-scale: min(1, calc((100vw - 0.45rem) / 8.5in));
+      width: fit-content;
+      min-height: 100%;
+      margin: 0 auto;
+      padding: 0.14rem 0;
+      display: grid;
+      justify-items: start;
+      align-content: start;
+      zoom: var(--catalog-scale);
+    }
+    .catalog-shell-panel .page {
+      margin: 0;
+      min-height: auto;
+      box-shadow: 0 20px 60px rgba(24, 38, 62, 0.18);
+    }
+    .catalog-body-panel .page-classic { padding: 0.42in 0.48in; }
+    .catalog-body-panel .page-compact { padding: 0.38in 0.42in; }
+    .catalog-body-panel .page-modern { padding: 0.42in 0.48in; }
+    .catalog-body-panel .page-technical { padding: 0.4in 0.44in; }
+    .catalog-body-panel .page-projects { padding: 0.44in 0.5in; }
+    .catalog-body-panel .page-credentials { padding: 0.42in 0.48in; }
+    .catalog-body-panel .header { gap: 0.12rem; padding-bottom: 0.3rem; }
+    .catalog-body-panel .body-grid-classic,
+    .catalog-body-panel .body-grid-compact,
+    .catalog-body-panel .body-grid-modern,
+    .catalog-body-panel .body-grid-technical,
+    .catalog-body-panel .body-grid-projects,
+    .catalog-body-panel .body-grid-credentials { gap: 0.44rem; margin-top: 0.48rem; }
+    .catalog-body-panel .section-cluster { gap: 0.28rem; }
+    .catalog-body-panel .section-summary-callout,
+    .catalog-body-panel .section-subtle-card,
+    .catalog-body-panel .section-surface-block,
+    .catalog-body-panel .section-project-spotlight,
+    .catalog-body-panel .section-credential-spotlight-surface { padding: 0.11in 0.12in; }
+    .catalog-body-panel .entry-block { gap: 0.12rem; margin-top: 0.16rem; }
+    .catalog-body-panel .skill-groups { gap: 0.18rem; }
+    .catalog-body-panel .skill-pill-list { gap: 0.12rem; }
+    .catalog-body-panel .skill-pill-list li,
+    .catalog-body-panel .meta-pill-list li { padding: 0.06rem 0.3rem; }
+    .catalog-body-panel h3 { margin-bottom: 0.18rem; }
+    .catalog-body-panel p,
+    .catalog-body-panel li { line-height: 1.28; }
       `
       : ''}
   `
@@ -919,6 +1108,15 @@ export function renderResumeTemplateHtml(input: {
       </div>
     </article>`
 
+  const bodyClassName = [
+    mode === 'preview' ? 'preview-body' : null,
+    mode === 'catalog' ? 'catalog-body' : null,
+    mode === 'catalog' ? `catalog-body-${catalogLayout}` : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const catalogShellClassName = `catalog-shell catalog-shell-${catalogLayout}`
+
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -929,24 +1127,46 @@ export function renderResumeTemplateHtml(input: {
       ${sharedStyles}
     </style>
   </head>
-  <body${mode === 'preview' ? ' class="preview-body"' : mode === 'catalog' ? ' class="catalog-body"' : ''}>
-    ${mode === 'catalog' ? `<div class="catalog-shell">${articleMarkup}</div>` : articleMarkup}
+  <body${bodyClassName ? ` class="${bodyClassName}"` : ''}>
+    ${mode === 'catalog' ? `<div class="${catalogShellClassName}">${articleMarkup}</div>` : mode === 'preview' ? `<div class="preview-shell">${articleMarkup}</div>` : articleMarkup}
   </body>
 </html>`
 }
 
 const catalogPreviewDocument: ResumeRenderDocument = {
-  fullName: 'Avery Stone',
-  headline: 'Staff product systems designer',
-  location: 'Remote',
-  contactItems: ['avery@example.com', 'avery.design'],
+  fullName: 'John Doe',
+  headline: 'Senior platform engineer',
+  location: 'Austin, TX',
+  contactItems: ['john@example.com | john-doe.dev'],
   sections: [
     {
       id: 'section_summary',
       kind: 'summary',
       label: 'Summary',
-      text: 'Builds calm operating systems for product and design teams.',
+      text:
+        'Builds reliable developer platforms and internal hiring tools that remove manual operational drag.',
       bullets: [],
+      entries: [],
+    },
+    {
+      id: 'section_core_skills',
+      kind: 'skills',
+      label: 'Core Skills',
+      text: null,
+      bullets: [
+        { id: 'preview_skill_1', text: 'TypeScript' },
+        { id: 'preview_skill_2', text: 'Distributed Systems' },
+        { id: 'preview_skill_3', text: 'AWS' },
+        { id: 'preview_skill_4', text: 'React' },
+      ],
+      entries: [],
+    },
+    {
+      id: 'section_additional_skills',
+      kind: 'skills',
+      label: 'Additional Skills',
+      text: null,
+      bullets: [{ id: 'preview_add_skill_1', text: 'Playwright' }, { id: 'preview_add_skill_2', text: 'CI/CD' }],
       entries: [],
     },
     {
@@ -958,19 +1178,25 @@ const catalogPreviewDocument: ResumeRenderDocument = {
       entries: [
         {
           id: 'entry_preview_experience',
-          heading: 'Staff designer | Northstar | 2021 - Present',
-          summary: 'Leads systems design and workflow quality programs.',
-          bullets: ['Shipped reusable workflows across product lines.'],
+          title: 'Senior platform engineer',
+          subtitle: 'Northstar',
+          location: null,
+          dateRange: '2021 - Present',
+          heading: 'Senior platform engineer | Northstar | 2021 - Present',
+          summary: 'Leads platform reliability, workflow automation, and internal developer tooling.',
+          bullets: [{ id: 'preview_exp_bullet_1', text: 'Cut deployment rollback time by 43% through safer release automation.' }],
+        },
+        {
+          id: 'entry_preview_experience_previous',
+          title: 'Software engineer',
+          subtitle: 'Beacon Labs',
+          location: null,
+          dateRange: '2018 - 2021',
+          heading: 'Software engineer | Beacon Labs | 2018 - 2021',
+          summary: 'Shipped customer-facing product workflows and API integrations for growth teams.',
+          bullets: [],
         },
       ],
-    },
-    {
-      id: 'section_core_skills',
-      kind: 'skills',
-      label: 'Core Skills',
-      text: null,
-      bullets: ['Design Systems', 'Figma', 'Accessibility'],
-      entries: [],
     },
     {
       id: 'section_projects',
@@ -981,18 +1207,73 @@ const catalogPreviewDocument: ResumeRenderDocument = {
       entries: [
         {
           id: 'entry_preview_project',
-          heading: 'Workflow OS | Design lead',
-          summary: 'Created a shared operating model for release reviews.',
-          bullets: ['Reduced review churn with clearer ownership.'],
+          title: 'Interview copilot',
+          subtitle: 'Technical lead',
+          location: null,
+          dateRange: null,
+          heading: 'Interview copilot | Technical lead',
+          summary: 'Built an interview prep workspace with typed prompts, scoring, and export flows.',
+          bullets: [{ id: 'preview_project_bullet_1', text: 'Increased weekly returning users by 28%.' }],
+        },
+        {
+          id: 'entry_preview_project_second',
+          title: 'Hiring pipeline analytics',
+          subtitle: 'Builder',
+          location: null,
+          dateRange: null,
+          heading: 'Hiring pipeline analytics | Builder',
+          summary: 'Created dashboards that surfaced interview bottlenecks and approval lag.',
+          bullets: [],
         },
       ],
     },
     {
-      id: 'section_additional_skills',
-      kind: 'skills',
-      label: 'Additional Skills',
+      id: 'section_certifications',
+      kind: 'certifications',
+      label: 'Certifications',
       text: null,
-      bullets: ['React', 'Playwright'],
+      bullets: [],
+      entries: [
+        {
+          id: 'entry_preview_certification',
+          title: 'AWS Certified Developer',
+          subtitle: 'Amazon Web Services',
+          location: null,
+          dateRange: '2024',
+          heading: 'AWS Certified Developer | Amazon Web Services | 2024',
+          summary: null,
+          bullets: [{ id: 'preview_cert_bullet_1', text: 'Validated cloud delivery and systems operations depth.' }],
+        },
+      ],
+    },
+    {
+      id: 'section_education',
+      kind: 'education',
+      label: 'Education',
+      text: null,
+      bullets: [],
+      entries: [
+        {
+          id: 'entry_preview_education',
+          title: 'BSc Computer Science',
+          subtitle: 'University of Texas',
+          location: null,
+          dateRange: '2018',
+          heading: 'BSc Computer Science | University of Texas | 2018',
+          summary: null,
+          bullets: [{ id: 'preview_edu_bullet_1', text: 'Focused on distributed systems and human-centered tooling.' }],
+        },
+      ],
+    },
+    {
+      id: 'section_languages',
+      kind: 'skills',
+      label: 'Languages',
+      text: null,
+      bullets: [
+        { id: 'preview_lang_1', text: 'English - Native' },
+        { id: 'preview_lang_2', text: 'Spanish - Professional' },
+      ],
       entries: [],
     },
   ],
@@ -1000,6 +1281,7 @@ const catalogPreviewDocument: ResumeRenderDocument = {
 
 export function renderResumeTemplateCatalogPreviewHtml(
   templateId: ResumeTemplateId,
+  options?: { layout?: 'thumbnail' | 'panel' },
 ): string {
   return renderResumeTemplateHtml(
     {
@@ -1016,7 +1298,7 @@ export function renderResumeTemplateCatalogPreviewHtml(
         discoveryOnly: false,
       },
     },
-    { mode: 'catalog' },
+    { mode: 'catalog', catalogLayout: options?.layout ?? 'thumbnail' },
   )
 }
 

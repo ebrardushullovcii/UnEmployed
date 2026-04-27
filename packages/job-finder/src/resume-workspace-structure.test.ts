@@ -15,6 +15,18 @@ describe("buildResumeRenderDocument", () => {
       jobId: "job_ready",
       status: "draft",
       templateId: "classic_ats",
+      identity: {
+        fullName: profile.fullName,
+        headline: profile.headline,
+        location: profile.currentLocation,
+        email: profile.email,
+        phone: profile.phone,
+        portfolioUrl: profile.portfolioUrl,
+        linkedinUrl: profile.linkedinUrl,
+        githubUrl: profile.githubUrl,
+        personalWebsiteUrl: profile.personalWebsiteUrl,
+        additionalLinks: [],
+      },
       sections: [
         {
           id: "section_experience",
@@ -152,5 +164,44 @@ describe("buildResumeRenderDocument", () => {
       summary: "Scaled a workflow design system. Reduced release churn. Technologies: Figma, React.",
       bullets: [],
     });
+  });
+
+  test("prefers draft identity fields over the base profile for resume header rendering", () => {
+    const seed = createSeed();
+    const profile = seed.profile;
+    const draft = seedResumeDraft({
+      profile,
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+    });
+
+    const document = buildResumeRenderDocument(profile, {
+      ...draft,
+      identity: {
+        ...(draft.identity ?? {
+          fullName: null,
+          headline: null,
+          location: null,
+          email: null,
+          phone: null,
+          portfolioUrl: null,
+          linkedinUrl: null,
+          githubUrl: null,
+          personalWebsiteUrl: null,
+          additionalLinks: [],
+        }),
+        fullName: 'Alex Tailored',
+        headline: 'Staff platform engineer',
+        location: 'Remote',
+        email: 'tailored@example.com',
+        phone: '+1 555 0100',
+      },
+    });
+
+    expect(document.fullName).toBe('Alex Tailored');
+    expect(document.headline).toBe('Staff platform engineer');
+    expect(document.location).toBe('Remote');
+    expect(document.contactItems[0]).toBe('tailored@example.com');
+    expect(document.contactItems[1]).toBe('+1 555 0100');
   });
 });

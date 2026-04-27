@@ -68,12 +68,13 @@ export function ReviewQueueScreen(props: {
   return (
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
-      topClassName="pb-(--gap-section) pt-8"
+      topClassName="pb-4 pt-6"
       topContent={(
         <PageHeader
+          compact
           eyebrow="Shortlisted"
           title="Shortlisted jobs"
-          description="Use this queue to finish the next step for each shortlisted job, approve the PDF you want to use, and start apply copilot when every requirement is ready."
+          description="Finish the next step for each shortlisted job, approve the PDF you want, and start Apply Copilot when it is ready."
         />
       )}
     >
@@ -85,7 +86,15 @@ export function ReviewQueueScreen(props: {
           queueSelection={queueSelection}
           selectedItem={selectedItem}
         />
-        <ReviewQueuePreviewPanel previewState={previewState} queue={queue} selectedAsset={selectedAsset} selectedItem={selectedItem} selectedJob={selectedJob} />
+        <ReviewQueuePreviewPanel
+          onEditResumeWorkspace={onEditResumeWorkspace}
+          onGenerateResume={onGenerateResume}
+          previewState={previewState}
+          queue={queue}
+          selectedAsset={selectedAsset}
+          selectedItem={selectedItem}
+          selectedJob={selectedJob}
+        />
         <ReviewQueueMissionPanel
           actionMessage={actionState.message}
           browserSession={browserSession}

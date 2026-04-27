@@ -112,6 +112,8 @@ describe('SettingsEditableDefaults', () => {
     expect(container?.textContent).toContain('Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.')
     expect(container?.textContent).toContain('Dense')
     expect(container?.textContent).toContain('Apply-safe')
+    expect(container?.textContent).toContain('Default template picker')
+    expect(container?.textContent).toContain('Applies to new drafts')
   })
 
   it('disables form controls and marks save as pending while saving', () => {

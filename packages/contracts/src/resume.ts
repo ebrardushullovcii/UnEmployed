@@ -176,6 +176,20 @@ export const ResumeDraftSourceRefSchema = z.object({
 });
 export type ResumeDraftSourceRef = z.infer<typeof ResumeDraftSourceRefSchema>;
 
+export const ResumeDraftIdentitySchema = z.object({
+  fullName: NonEmptyStringSchema.nullable().default(null),
+  headline: NonEmptyStringSchema.nullable().default(null),
+  location: NonEmptyStringSchema.nullable().default(null),
+  email: NonEmptyStringSchema.nullable().default(null),
+  phone: NonEmptyStringSchema.nullable().default(null),
+  portfolioUrl: NonEmptyStringSchema.nullable().default(null),
+  linkedinUrl: NonEmptyStringSchema.nullable().default(null),
+  githubUrl: NonEmptyStringSchema.nullable().default(null),
+  personalWebsiteUrl: NonEmptyStringSchema.nullable().default(null),
+  additionalLinks: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeDraftIdentity = z.infer<typeof ResumeDraftIdentitySchema>;
+
 export const ResumeDraftBulletSchema = z.object({
   id: NonEmptyStringSchema,
   text: NonEmptyStringSchema,
@@ -228,6 +242,7 @@ export const ResumeDraftSchema = z.object({
   jobId: NonEmptyStringSchema,
   status: ResumeDraftStatusSchema,
   templateId: ResumeTemplateIdSchema,
+  identity: ResumeDraftIdentitySchema.nullable().default(null),
   sections: z.array(ResumeDraftSectionSchema).default([]),
   targetPageCount: z.number().int().min(1).max(3).default(2),
   generationMethod: ResumeDraftGenerationMethodSchema.nullable().default(null),
@@ -261,6 +276,7 @@ export type ResumeDraftPatch = z.infer<typeof ResumeDraftPatchSchema>;
 export const ResumeDraftRevisionSchema = z.object({
   id: NonEmptyStringSchema,
   draftId: NonEmptyStringSchema,
+  snapshotIdentity: ResumeDraftIdentitySchema.nullable().default(null),
   snapshotSections: z.array(ResumeDraftSectionSchema),
   createdAt: IsoDateTimeSchema,
   reason: NonEmptyStringSchema.nullable().default(null),

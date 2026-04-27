@@ -5,6 +5,7 @@ export * from "./profile-copilot";
 export * from "./profile-setup";
 export * from "./resume-import";
 export * from "./resume";
+export * from "./resume-preview-targets";
 export * from "./agent-compaction";
 export * from "./source-debug";
 export * from "./discovery";

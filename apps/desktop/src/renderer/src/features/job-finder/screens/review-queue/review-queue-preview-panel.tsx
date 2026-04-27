@@ -1,9 +1,12 @@
 import type { ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
+import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
 import { getReviewQueueWorkflowStatus, hasResumeGenerationFailure, isResumeGenerationInProgress, needsResumeGeneration } from './review-queue-status'
 
 interface ReviewQueuePreviewPanelProps {
+  onEditResumeWorkspace: (jobId: string) => void
+  onGenerateResume: (jobId: string) => void
   previewState: PreviewState
   queue: readonly ReviewQueueItem[]
   selectedAsset: TailoredAsset | null
@@ -13,7 +16,7 @@ interface ReviewQueuePreviewPanelProps {
 
 type PreviewState = 'missing' | null
 
-export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
+export function ReviewQueuePreviewPanel({ onEditResumeWorkspace, onGenerateResume, previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
   const needsGeneration = needsResumeGeneration(selectedItem)
   const hasGenerationFailure = hasResumeGenerationFailure(selectedItem)
   const isGenerating = isResumeGenerationInProgress(selectedItem)
@@ -54,6 +57,18 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
                   ? `Create a tailored resume for ${selectedItem.title} to continue.`
                   : `Job Finder is still preparing the resume for ${selectedItem.title}. You can continue once it is ready.`}
               </p>
+              {!isGenerating ? (
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <Button onClick={() => onGenerateResume(selectedItem.jobId)} type="button" variant="primary">
+                    {hasGenerationFailure ? 'Try again' : 'Create tailored resume'}
+                  </Button>
+                  {hasGenerationFailure ? (
+                    <Button onClick={() => onEditResumeWorkspace(selectedItem.jobId)} type="button" variant="secondary">
+                      Open resume workspace
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
       ) : null}
@@ -67,10 +82,17 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
       ) : null}
       {queue.length > 0 && previewState === 'missing' ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
-          <EmptyState
-            title="Resume unavailable"
-            description="We couldn't load the latest resume. Open the workspace to refresh it or export a new PDF."
-          />
+          <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
+            <EmptyState
+              title="Resume unavailable"
+              description="We couldn't load the latest resume. Reopen the workspace to refresh the preview, export a new PDF, or approve the exact version you want to use."
+            />
+            {selectedItem ? (
+              <Button onClick={() => onEditResumeWorkspace(selectedItem.jobId)} type="button" variant="primary">
+                Open resume workspace
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
       {queue.length > 0 && selectedItem && !showGenerationState && selectedAsset ? (
@@ -99,6 +121,19 @@ export function ReviewQueuePreviewPanel({ previewState, queue, selectedAsset, se
               <p className="text-(length:--text-small) text-(--warning-text)">
                 This approved PDF is out of date. Export a new PDF and approve it again before using Apply Copilot.
               </p>
+            ) : null}
+            {selectedItem.resumeReview.status !== 'approved' ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-field) border border-primary/20 bg-primary/8 px-4 py-4">
+                <div className="grid gap-1">
+                  <p className="label-mono-xs text-primary">Next step</p>
+                  <p className="text-sm leading-6 text-foreground-soft">
+                    Open the workspace to review the live document, then export and approve the PDF you want Apply Copilot to use.
+                  </p>
+                </div>
+                <Button onClick={() => onEditResumeWorkspace(selectedItem.jobId)} type="button" variant="primary">
+                  Open resume workspace
+                </Button>
+              </div>
             ) : null}
             {selectedAsset.previewSections.map((section, sectionIndex) => (
               <div key={`${section.heading}-${sectionIndex}`} className="grid gap-2">

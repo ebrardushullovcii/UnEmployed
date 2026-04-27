@@ -606,14 +606,22 @@ export function createDocumentManager() {
       templateId: ResumeTemplateId
       renderDocument: {
         fullName: string
+        headline: string | null
+        location: string | null
+        contactItems: string[]
         sections: Array<{
           id: string
           text: string | null
-          bullets: string[]
+          bullets: Array<{ id: string; text: string }>
           entries: Array<{
             id: string
+            title: string | null
+            subtitle: string | null
+            location: string | null
+            dateRange: string | null
+            heading: string | null
             summary: string | null
-            bullets: string[]
+            bullets: Array<{ id: string; text: string }>
           }>
         }>
       }
@@ -622,10 +630,11 @@ export function createDocumentManager() {
         .map((section) => {
           const lines = [
             ...(section.text ? [section.text] : []),
-            ...section.bullets,
+            ...section.bullets.map((bullet) => bullet.text),
             ...section.entries.flatMap((entry) => [
+              ...(entry.heading ? [entry.heading] : []),
               ...(entry.summary ? [entry.summary] : []),
-              ...entry.bullets,
+              ...entry.bullets.map((bullet) => bullet.text),
             ]),
           ]
 
@@ -638,7 +647,10 @@ export function createDocumentManager() {
         warnings: [],
       })
     },
-    renderResumeArtifact(input: { templateId: ResumeTemplateId }) {
+    renderResumeArtifact(input: {
+      templateId: ResumeTemplateId
+      targetPath?: string | null
+    }) {
       const fileStem = `generated-${input.templateId}`
       return Promise.resolve({
         fileName: `${fileStem}.pdf`,

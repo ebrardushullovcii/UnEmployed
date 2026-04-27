@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, FileWarning, LoaderCircle, RefreshCcw } from 'lucide-react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JobFinderResumePreview } from '@unemployed/contracts'
+import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
 
@@ -10,18 +11,29 @@ interface ResumeStudioPreviewPaneProps {
   isDirty: boolean
   isPending: boolean
   onRetry: () => void
-  onSelectTarget: (selection: { sectionId: string | null; entryId: string | null }) => void
+  onSelectTarget: (selection: { sectionId: string | null; entryId: string | null; targetId: string | null }) => void
   preview: JobFinderResumePreview | null
   previewError: string | null
   previewStatus: PreviewStatus
   selectedEntryId: string | null
   selectedSectionId: string | null
+  selectedTargetId: string | null
   templateLabel?: string | null
 }
 
-function parseSelectionTarget(node: HTMLElement | null) {
-  const entryTarget = node?.closest<HTMLElement>('[data-resume-entry-id]') ?? null
-  const sectionTarget = node?.closest<HTMLElement>('[data-resume-section-id]') ?? null
+function parseSelectionTarget(node: EventTarget | null) {
+  const element =
+    node &&
+    typeof node === 'object' &&
+    'nodeType' in node &&
+    typeof (node as Node).nodeType === 'number'
+      ? (node as Node).nodeType === Node.ELEMENT_NODE
+        ? ((node as Element).closest<HTMLElement>('*') ?? null)
+        : (node as Node).parentElement
+      : null
+  const entryTarget = element?.closest<HTMLElement>('[data-resume-entry-id]') ?? null
+  const sectionTarget = element?.closest<HTMLElement>('[data-resume-section-id]') ?? null
+  const fieldTarget = element?.closest<HTMLElement>('[data-resume-target-id]') ?? null
 
   return {
     entryId: entryTarget?.dataset.resumeEntryId ?? null,
@@ -29,11 +41,19 @@ function parseSelectionTarget(node: HTMLElement | null) {
       entryTarget?.dataset.resumeSectionId ??
       sectionTarget?.dataset.resumeSectionId ??
       null,
+    targetId: fieldTarget?.dataset.resumeTargetId ?? null,
   }
 }
 
 export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null)
+  const [previewFrameHeight, setPreviewFrameHeight] = useState<number | null>(null)
+  const hasWarnings = (props.preview?.warnings.length ?? 0) > 0
+  const hasReadyPreview = props.previewStatus === 'ready' && Boolean(props.preview)
+  const showPreviewStateMessage = props.isDirty || hasWarnings
+  const previewStateMessage = props.isDirty
+    ? 'Live preview already includes unsaved edits. Save before you export or approve.'
+    : 'Saved preview already matches the draft that export and approval use.'
 
   const warningSummary = useMemo(() => {
     const warningCount = props.preview?.warnings.length ?? 0
@@ -47,13 +67,18 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
 
   useEffect(() => {
     const frame = frameRef.current
-    const document = frame?.contentDocument
 
-    if (!frame || !document || !props.preview) {
+    if (!frame || !props.preview) {
       return
     }
 
-    const selectTargets = () => {
+    const bindPreviewDocument = () => {
+      const document = frame.contentDocument
+
+      if (!document) {
+        return () => {}
+      }
+
       const allTargets = document.querySelectorAll<HTMLElement>(
         '[data-resume-section-id], [data-resume-entry-id]',
       )
@@ -66,88 +91,174 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
           !props.selectedEntryId &&
           Boolean(props.selectedSectionId) &&
           target.dataset.resumeSectionId === props.selectedSectionId
+        const isSelectedField =
+          Boolean(props.selectedTargetId) &&
+          target.dataset.resumeTargetId === props.selectedTargetId
 
-        if (isSelectedEntry || isSelectedSection) {
+        if (isSelectedEntry || isSelectedSection || isSelectedField) {
           target.setAttribute('data-resume-selected', 'true')
         } else {
           target.removeAttribute('data-resume-selected')
         }
       })
+      const handleClick = (event: MouseEvent) => {
+        const selection = parseSelectionTarget(event.target)
+
+        if (!selection.sectionId && !selection.entryId && !selection.targetId) {
+          return
+        }
+
+        event.preventDefault()
+        props.onSelectTarget(selection)
+      }
+
+      allTargets.forEach((target) => {
+        const isSelectedEntry =
+          Boolean(props.selectedEntryId) &&
+          target.dataset.resumeEntryId === props.selectedEntryId
+        const isSelectedSection =
+          !props.selectedEntryId &&
+          Boolean(props.selectedSectionId) &&
+          target.dataset.resumeSectionId === props.selectedSectionId
+        const isSelectedField =
+          Boolean(props.selectedTargetId) &&
+          target.dataset.resumeTargetId === props.selectedTargetId
+
+        if (isSelectedEntry || isSelectedSection || isSelectedField) {
+          target.setAttribute('data-resume-selected', 'true')
+        } else {
+          target.removeAttribute('data-resume-selected')
+        }
+      })
+
+      document.addEventListener('click', handleClick)
+
+      return () => {
+        document.removeEventListener('click', handleClick)
+      }
     }
 
-    const handleClick = (event: MouseEvent) => {
-      const selection = parseSelectionTarget(event.target as HTMLElement | null)
+    let cleanupDocument = bindPreviewDocument()
 
-      if (!selection.sectionId && !selection.entryId) {
+    const handleLoad = () => {
+      cleanupDocument()
+      cleanupDocument = bindPreviewDocument()
+    }
+
+    frame.addEventListener('load', handleLoad)
+
+    return () => {
+      frame.removeEventListener('load', handleLoad)
+      cleanupDocument()
+    }
+  }, [props.onSelectTarget, props.preview, props.selectedEntryId, props.selectedSectionId, props.selectedTargetId])
+
+  useEffect(() => {
+    const frame = frameRef.current
+
+    if (!frame || !props.preview) {
+      setPreviewFrameHeight(null)
+      return
+    }
+
+    const measureHeight = () => {
+      const frameDocument = frame.contentDocument
+
+      if (!frameDocument) {
         return
       }
 
-      event.preventDefault()
-      props.onSelectTarget(selection)
+      const body = frameDocument.body
+      const documentElement = frameDocument.documentElement
+      const nextHeight = Math.ceil(Math.max(
+        body?.scrollHeight ?? 0,
+        documentElement?.scrollHeight ?? 0,
+        documentElement?.getBoundingClientRect().height ?? 0,
+      ) + 8)
+
+      if (nextHeight > 0) {
+        setPreviewFrameHeight((current) => (current === nextHeight ? current : nextHeight))
+      }
     }
 
-    selectTargets()
-    document.addEventListener('click', handleClick)
+    measureHeight()
+    frame.addEventListener('load', measureHeight)
 
     return () => {
-      document.removeEventListener('click', handleClick)
+      frame.removeEventListener('load', measureHeight)
     }
-  }, [props.onSelectTarget, props.preview, props.selectedEntryId, props.selectedSectionId])
+  }, [props.preview])
 
   return (
     <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-5 py-4">
-        <div className="grid gap-1">
-          <div className="flex items-center gap-2">
-            <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
-              Live preview
+      <header className="grid gap-2 border-b border-(--surface-panel-border) px-3.5 py-2">
+        <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+          <div className="grid gap-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+                Resume preview
+              </p>
+              {props.previewStatus === 'loading' ? (
+                <Badge variant="section">
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                  Refreshing
+                </Badge>
+              ) : null}
+              {props.previewStatus === 'ready' ? (
+                <Badge variant={props.isDirty ? 'default' : 'section'}>
+                  <CheckCircle2 className="size-3.5" />
+                  {props.isDirty ? 'Unsaved edits rendered' : 'Saved draft rendered'}
+                </Badge>
+              ) : null}
+              {props.templateLabel ? <Badge variant="section">{props.templateLabel}</Badge> : null}
+            </div>
+            <h2 className="text-[clamp(0.88rem,0.95vw,1rem)] font-semibold tracking-[-0.03em] text-(--text-headline)">
+              Keep the export-faithful page in view while you edit.
             </h2>
-            {props.previewStatus === 'loading' ? (
-              <span className="inline-flex items-center gap-1 text-xs text-foreground-soft">
-                <LoaderCircle className="size-3.5 animate-spin" />
-                Refreshing
-              </span>
-            ) : null}
-            {props.previewStatus === 'ready' ? (
-              <span className="inline-flex items-center gap-1 text-xs text-foreground-soft">
-                <CheckCircle2 className="size-3.5" />
-                {props.isDirty ? 'Unsaved edits rendered' : 'Saved draft rendered'}
-              </span>
-            ) : null}
+            <p className="text-[0.74rem] leading-4 text-foreground-soft xl:hidden">
+              Export uses this same renderer. Click the page to jump straight to the matching structured control.
+            </p>
           </div>
-          <p className="text-sm leading-6 text-foreground-soft">
-            This preview uses the export renderer. Click any section to jump to its structured controls.
-          </p>
+          <Button
+            className="self-start"
+            disabled={props.isPending || props.previewStatus === 'loading'}
+            onClick={props.onRetry}
+            size="compact"
+            type="button"
+            variant="secondary"
+          >
+            <RefreshCcw className="size-4" />
+            Refresh preview
+          </Button>
         </div>
-        <Button
-          disabled={props.isPending || props.previewStatus === 'loading'}
-          onClick={props.onRetry}
-          type="button"
-          variant="secondary"
-        >
-          <RefreshCcw className="size-4" />
-          Refresh preview
-        </Button>
-      </header>
 
-      <div className="grid gap-3 border-b border-(--surface-panel-border) bg-(--surface-fill-soft) px-5 py-4">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-foreground-soft">
-          <span className="inline-flex items-center gap-1">
-            <FileWarning className="size-4" />
-            {warningSummary}
-          </span>
-          {props.preview?.metadata ? (
-            <span>
-              Template: {props.templateLabel ?? props.preview.metadata.templateId.replaceAll('_', ' ')}
-            </span>
+        <div className="flex flex-wrap items-start gap-2.5">
+          {showPreviewStateMessage ? (
+            <div className={cn(
+              'rounded-(--radius-field) border px-2.5 py-0.75 text-[0.76rem] leading-4 text-foreground-soft',
+              props.isDirty
+                ? 'border-primary/20 bg-primary/8'
+                : 'border-(--surface-panel-border) bg-background/45',
+            )}>
+              {previewStateMessage}
+            </div>
+          ) : null}
+          {hasWarnings ? (
+            <div className="flex flex-wrap gap-2 text-sm text-foreground-soft">
+              <Badge variant="outline">
+                <FileWarning className="size-3.5" />
+                {warningSummary}
+              </Badge>
+            </div>
           ) : null}
         </div>
-        {props.preview?.warnings.length ? (
-          <div className="grid gap-2">
-            {props.preview.warnings.slice(0, 4).map((warning) => (
+
+        {hasWarnings ? (
+          <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-2.5 py-2">
+            {props.preview?.warnings.slice(0, 2).map((warning) => (
               <p
                 className={cn(
-                  'rounded-(--radius-field) border px-3 py-2 text-sm leading-6',
+                  'rounded-(--radius-field) border px-2.5 py-1.5 text-sm leading-5',
                   warning.severity === 'error'
                     ? 'border-critical/30 bg-critical/10 text-critical'
                     : warning.severity === 'warning'
@@ -161,9 +272,12 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
             ))}
           </div>
         ) : null}
-      </div>
+      </header>
 
-      <div className="relative min-h-0 flex-1 bg-[linear-gradient(180deg,rgba(16,22,35,0.02),rgba(16,22,35,0.08))] p-3 sm:p-4">
+      <div className={cn(
+        'relative grid justify-items-center bg-[linear-gradient(180deg,rgba(16,22,35,0.02),rgba(16,22,35,0.1))] p-0.5',
+        hasReadyPreview ? 'min-h-[42rem]' : 'min-h-[20rem]',
+      )}>
         {props.previewStatus === 'error' ? (
           <div className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-critical/35 bg-critical/10 p-6 text-center">
             <div className="grid max-w-md gap-3">
@@ -177,13 +291,20 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
             </div>
           </div>
         ) : props.preview ? (
-          <iframe
-            className="h-full w-full rounded-(--radius-field) border border-(--surface-panel-border) bg-white"
-            ref={frameRef}
-            sandbox="allow-same-origin"
-            srcDoc={props.preview.html}
-            title="Live resume preview"
-          />
+          <div className="relative min-h-[42rem] w-fit max-w-full overflow-hidden rounded-[0.9rem] border border-(--surface-panel-border) bg-white p-0.5 shadow-[0_3px_10px_rgba(0,0,0,0.12)]">
+            <iframe
+              className="block max-w-full rounded-[0.75rem] border-0 bg-white"
+              ref={frameRef}
+              sandbox="allow-same-origin"
+              srcDoc={props.preview.html}
+              style={{
+                width: '8.95in',
+                maxWidth: '100%',
+                height: previewFrameHeight ? `${previewFrameHeight}px` : '72rem',
+              }}
+              title="Live resume preview"
+            />
+          </div>
         ) : (
           <div className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/70 p-6 text-center">
             <div className="grid max-w-md gap-3">

@@ -23,6 +23,7 @@ function createBaseDraft(): ResumeDraft {
     jobId: 'job_ready',
     status: 'draft',
     templateId: 'classic_ats',
+    identity: null,
     sections: [
       {
         id: 'section_summary',

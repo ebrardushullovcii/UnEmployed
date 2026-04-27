@@ -30,29 +30,28 @@ export function SettingsScreen(props: {
   } = props
 
   return (
-    <section className="grid gap-(--gap-section) pb-8">
+    <section className="grid gap-3 pb-8">
       <PageHeader
+        compact
         eyebrow="Settings"
         title="Settings"
-        description="Set the defaults Job Finder uses before it searches, builds resumes, and starts supported applications."
+        description="Set the defaults Job Finder reuses for search, resume, and apply work."
       />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,24rem)] xl:items-start">
-        <SettingsEditableDefaults
-          actionMessage={actionState.message}
-          availableResumeTemplates={availableResumeTemplates}
-          isSavePending={isSavePending}
-          onSaveSettings={onSaveSettings}
+      <SettingsEditableDefaults
+        actionMessage={actionState.message}
+        availableResumeTemplates={availableResumeTemplates}
+        isSavePending={isSavePending}
+        onSaveSettings={onSaveSettings}
+        settings={settings}
+      />
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.32fr)_minmax(0,0.92fr)] xl:items-start">
+        <SettingsRuntimeSummary
+          browserSession={browserSession}
           settings={settings}
         />
-
-        <div className="grid gap-4">
-          <SettingsRuntimeSummary
-            browserSession={browserSession}
-            settings={settings}
-          />
-          <SettingsWorkspaceControls isWorkspaceResetPending={isWorkspaceResetPending} onResetWorkspace={onResetWorkspace} />
-        </div>
+        <SettingsWorkspaceControls isWorkspaceResetPending={isWorkspaceResetPending} onResetWorkspace={onResetWorkspace} />
       </div>
     </section>
   )

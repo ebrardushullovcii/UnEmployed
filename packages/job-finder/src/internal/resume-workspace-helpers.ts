@@ -756,6 +756,7 @@ export function buildResumeDraftRevision(input: {
   return ResumeDraftRevisionSchema.parse({
     id: createUniqueId(`resume_revision_${input.draft.id}`),
     draftId: input.draft.id,
+    snapshotIdentity: input.draft.identity ?? null,
     snapshotSections: input.draft.sections,
     createdAt: input.createdAt,
     reason: input.reason ?? null,

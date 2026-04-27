@@ -18,9 +18,17 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Active
 
-- none
+- none right now
 
 ## Reopenable Baselines
+
+### `027 Job Finder Resume Experience UX Reset`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/027-job-finder-resume-experience-ux-reset.md`
+- the desktop resume UX reset is landed across `Settings` and `Resume Studio`, including denser hierarchy, truthful page-first preview framing, right-side identity editing, and stable preview-to-editor targeting
+- accepted evidence remains `apps/desktop/test-artifacts/ui/1440x920/settings.png`, `apps/desktop/test-artifacts/ui/resume-workspace/03-preview-recovered.png`, and `apps/desktop/test-artifacts/ui/resume-workspace/10-review-queue-gated.png`
+- reopen only for a concrete desktop resume UX regression, a preview-targeting or focus regression, or a truthful preview/export mismatch backed by fresh evidence
 
 ### `026 Job Finder Resume Template Families Variants And Catalog Selection`
 

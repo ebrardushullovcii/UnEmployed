@@ -67,6 +67,30 @@ async function waitForProfileOrSetupHeading(window) {
   await waitForHeading(window, ['Your profile', 'Guided setup'], { timeout: 15000 })
 }
 
+async function waitForPrimaryNavigation(window) {
+  await window.getByRole('button', { name: /^Profile$/ }).waitFor({ timeout: 15000 })
+}
+
+async function loadDemoDataForScreen(window, screen) {
+  if (!window || !screen) {
+    return
+  }
+
+  if (screen.fileName === 'settings.png' || screen.fileName === 'review-queue.png') {
+    await window.evaluate(async () => {
+      if (!window.unemployed.jobFinder.test) {
+        throw new Error('Desktop test API is unavailable in the renderer.')
+      }
+
+      await window.unemployed.jobFinder.test.loadResumeWorkspaceDemo()
+    })
+    await window.reload()
+    await window.waitForLoadState('domcontentloaded')
+    await waitForPrimaryNavigation(window)
+    await window.setViewportSize({ width, height })
+  }
+}
+
 async function captureScreens() {
   await mkdir(outputDir, { recursive: true })
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-ui-capture-'))
@@ -93,6 +117,7 @@ async function captureScreens() {
     await window.setViewportSize({ width, height })
 
     for (const screen of screens) {
+      await loadDemoDataForScreen(window, screen)
       await clickNavigationControl(window, screen.buttonName)
       if (screen.heading === 'Your profile') {
         await waitForProfileOrSetupHeading(window)

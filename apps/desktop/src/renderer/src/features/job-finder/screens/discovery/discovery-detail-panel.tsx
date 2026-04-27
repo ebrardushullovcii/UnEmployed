@@ -3,6 +3,7 @@ import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
+import { jobDescriptionToText } from '../../lib/job-description-text'
 import { buildIntelligenceSummaries } from '../../lib/source-intelligence-utils'
 import { formatOptionalDateOnly, formatStatusLabel, getApplicationTone } from '../../lib/job-finder-utils'
 import { formatNormalizedCompensation } from '../../lib/normalized-compensation'
@@ -92,7 +93,9 @@ export function DiscoveryDetailPanel({
               ) : null}
             </div>
 
-            <p className="text-(length:--text-body) leading-7 text-foreground-soft">{selectedJob.summary ?? selectedJob.description}</p>
+            <p className="text-(length:--text-body) leading-7 text-foreground-soft">
+              {jobDescriptionToText(selectedJob.summary ?? selectedJob.description)}
+            </p>
 
             <PreferenceList compact label="Found on" values={selectedJob.provenance.map((entry) => discoveryTargetLabels.get(entry.targetId) ?? 'Saved source')} />
             {intelligenceSummaries.length > 0 ? (
