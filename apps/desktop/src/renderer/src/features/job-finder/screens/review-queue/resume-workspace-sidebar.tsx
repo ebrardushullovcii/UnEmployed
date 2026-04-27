@@ -35,6 +35,18 @@ function formatHostLabel(value: string | null | undefined) {
   }
 }
 
+function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const normalized = value?.trim()
+
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return null
+}
+
 export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: ResumeWorkspaceSidebarProps) {
   const { job, research, sharedProfile, validation } = workspace
   const researchCount = research.length
@@ -52,17 +64,23 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
     ...job.minimumQualifications.slice(0, 2),
   ]
   const profileSummary = truncateText(
-    sharedProfile.narrativeSummary ?? sharedProfile.selfIntroduction ?? sharedProfile.nextChapterSummary,
+    firstNonEmpty(
+      sharedProfile.narrativeSummary,
+      sharedProfile.selfIntroduction,
+      sharedProfile.nextChapterSummary,
+    ),
     180,
   )
   const highlightedProof = sharedProfile.highlightedProofs[0] ?? null
   const screeningSummary = truncateText(
-    job.screeningHints.sponsorshipText ??
-      job.screeningHints.relocationText ??
-      job.screeningHints.travelText ??
-      (job.screeningHints.remoteGeographies[0]
+    firstNonEmpty(
+      job.screeningHints.sponsorshipText,
+      job.screeningHints.relocationText,
+      job.screeningHints.travelText,
+      job.screeningHints.remoteGeographies[0]
         ? `Remote geography: ${job.screeningHints.remoteGeographies[0]}`
-        : null),
+        : null,
+    ),
     120,
   )
   const targetingSummary = truncateText(targetingCues.slice(0, 3).join(' • '), 145)
@@ -115,7 +133,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
               </p>
             ) : null}
             {roleSnapshot.map((snapshot) => <p key={snapshot} className="break-words">{snapshot}</p>)}
-            {targetingSummary ? <p className="break-words"><strong className="text-foreground">Land:</strong> {targetingSummary}</p> : null}
+            {targetingSummary ? <p className="break-words"><strong className="text-foreground">Targeting:</strong> {targetingSummary}</p> : null}
             {screeningSummary ? <p className="break-words"><strong className="text-foreground">Screening:</strong> {screeningSummary}</p> : null}
           </div>
         </div>

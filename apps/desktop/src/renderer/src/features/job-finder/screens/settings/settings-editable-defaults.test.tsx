@@ -173,10 +173,9 @@ describe('SettingsEditableDefaults', () => {
     expect(button?.getAttribute('aria-busy')).toBe('true')
     expect(button?.getAttribute('data-pending')).toBe('true')
 
-    const disabledInputs = [
-      ...Array.from(container?.querySelectorAll('button') ?? []),
-      ...Array.from(container?.querySelectorAll('input') ?? []),
-    ].filter((element) => element.hasAttribute('disabled'))
+    const disabledInputs = Array.from(
+      container?.querySelectorAll('button, input, select, textarea') ?? [],
+    ).filter((element) => element.hasAttribute('disabled'))
     expect(disabledInputs.length).toBeGreaterThan(0)
   })
 })

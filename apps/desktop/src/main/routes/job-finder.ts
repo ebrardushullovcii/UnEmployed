@@ -5,6 +5,7 @@ import {
   ApplyRunDetailsSchema,
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,
+  DesktopTestOkResponseSchema,
   JobFinderAgentDiscoveryActionInputSchema,
   JobFinderApplyConsentActionInputSchema,
   JobFinderApplyQueueActionInputSchema,
@@ -354,7 +355,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       UNEMPLOYED_TEST_RESUME_PREVIEW: mode,
     });
 
-    return { ok: true as const };
+    return DesktopTestOkResponseSchema.parse({ ok: true });
   });
 
   ipcMain.handle("job-finder:test-load-apply-queue-demo", async () => {

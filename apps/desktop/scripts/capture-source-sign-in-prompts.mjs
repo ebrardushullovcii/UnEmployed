@@ -1,5 +1,4 @@
 /* eslint-env node, browser */
-/* global document, HTMLElement, window */
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'

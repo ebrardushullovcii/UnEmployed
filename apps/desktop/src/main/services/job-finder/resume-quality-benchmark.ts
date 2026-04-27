@@ -1057,9 +1057,20 @@ function resolveBenchmarkFixtures(
       )
     : defaultResumeQualityBenchmarkCases
 
-  return request.canaryOnly
+  const fixtures = request.canaryOnly
     ? cases.filter((entry) => entry.definition.canary)
     : cases
+
+  if (fixtures.length === 0) {
+    const requestedCaseIds = request.caseIds.length > 0
+      ? request.caseIds.join(', ')
+      : 'all cases'
+    throw new Error(
+      `Resume quality benchmark resolved no cases for caseIds=${requestedCaseIds} and canaryOnly=${String(request.canaryOnly)}.`,
+    )
+  }
+
+  return fixtures
 }
 
 function buildBenchmarkAiClient(
@@ -1207,34 +1218,37 @@ export async function runDesktopResumeQualityBenchmark(
 
   try {
     for (const fixture of fixtures) {
-      for (const templateId of templates) {
-        const state = fixture.buildState(templateId)
-        const repository = createInMemoryJobFinderRepository(state)
-        const aiClient = buildBenchmarkAiClient(fixture)
-        const browserRuntime = createCatalogBrowserSessionRuntime({
-          sessions: [
-            {
-              source: 'target_site',
-              status: 'ready',
-              driver: 'catalog_seed',
-              label: 'Benchmark browser session ready',
-              detail: 'Resume quality benchmark uses a deterministic catalog runtime.',
-              lastCheckedAt: '2026-04-26T12:00:00.000Z',
-            },
-          ],
-          catalog: [],
-        })
-        const documentManager = createLocalJobFinderDocumentManager({
-          outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
-        })
-        const workspaceService = createJobFinderWorkspaceService({
-          aiClient,
-          browserRuntime,
-          documentManager,
-          repository,
-        })
+      const baseState = fixture.buildState(templates[0]!)
+      const repository = createInMemoryJobFinderRepository(baseState)
+      const browserRuntime = createCatalogBrowserSessionRuntime({
+        sessions: [
+          {
+            source: 'target_site',
+            status: 'ready',
+            driver: 'catalog_seed',
+            label: 'Benchmark browser session ready',
+            detail: 'Resume quality benchmark uses a deterministic catalog runtime.',
+            lastCheckedAt: '2026-04-26T12:00:00.000Z',
+          },
+        ],
+        catalog: [],
+      })
 
-        try {
+      try {
+        for (const templateId of templates) {
+          const state = fixture.buildState(templateId)
+          await repository.reset(state)
+          const aiClient = buildBenchmarkAiClient(fixture)
+          const documentManager = createLocalJobFinderDocumentManager({
+            outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
+          })
+          const workspaceService = createJobFinderWorkspaceService({
+            aiClient,
+            browserRuntime,
+            documentManager,
+            repository,
+          })
+
           const jobId = state.savedJobs[0]?.id
 
           if (!jobId) {
@@ -1294,9 +1308,12 @@ export async function runDesktopResumeQualityBenchmark(
             htmlArtifactRelativePath,
             notes,
           })
-        } finally {
-          await workspaceService.shutdown()
         }
+      } finally {
+        await Promise.allSettled([
+          browserRuntime.closeSession('target_site'),
+          repository.close(),
+        ])
       }
     }
   } finally {

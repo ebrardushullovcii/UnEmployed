@@ -126,6 +126,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       cleanupDocument = bindPreviewDocument()
     }
 
+    cleanupDocument = bindPreviewDocument()
     frame.addEventListener('load', handleLoad)
 
     return () => {
@@ -176,7 +177,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
           <div className="grid gap-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+              <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
                 Resume preview
               </p>
               {props.previewStatus === 'loading' ? (
@@ -193,10 +194,10 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
               ) : null}
               {props.templateLabel ? <Badge variant="section">{props.templateLabel}</Badge> : null}
             </div>
-            <h2 className="text-[clamp(0.88rem,0.95vw,1rem)] font-semibold tracking-[-0.03em] text-(--text-headline)">
+            <h2 className="text-(length:--text-body) font-semibold text-(--text-headline)">
               Keep the export-faithful page in view while you edit.
             </h2>
-            <p className="text-[0.74rem] leading-4 text-foreground-soft xl:hidden">
+            <p className="text-(length:--text-small) leading-4 text-foreground-soft xl:hidden">
               Export uses this same renderer. Click the page to jump straight to the matching structured control.
             </p>
           </div>
@@ -216,7 +217,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         <div className="flex flex-wrap items-start gap-2.5">
           {showPreviewStateMessage ? (
             <div className={cn(
-              'rounded-(--radius-field) border px-2.5 py-0.75 text-[0.76rem] leading-4 text-foreground-soft',
+              'rounded-(--radius-field) border px-2.5 py-0.75 text-(length:--text-small) leading-4 text-foreground-soft',
               props.isDirty
                 ? 'border-primary/20 bg-primary/8'
                 : 'border-(--surface-panel-border) bg-background/45',

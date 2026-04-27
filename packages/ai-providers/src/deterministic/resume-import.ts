@@ -38,14 +38,6 @@ function buildYearsExperienceEvidenceCandidates(
     .filter((line) => line.length > 0);
   const datedExperienceLines = lines.filter((line) => dateRangePattern.test(line));
 
-  if (datedExperienceLines.length === 0) {
-    const fallbackLine = lines.find((line) => dateRangePattern.test(line));
-
-    if (fallbackLine) {
-      return [fallbackLine];
-    }
-  }
-
   return datedExperienceLines.slice(0, 6);
 }
 
@@ -303,17 +295,19 @@ export function buildDeterministicResumeImportStageExtraction(
       extraction.currentLocation ? 0.84 : 0.62,
       [extraction.currentLocation ?? ""],
     );
-    add(
-      { section: "identity", key: "yearsExperience", recordId: null },
-      "Years of experience",
-      yearsExperience,
-      yearsExperience !== null && yearsExperience !== undefined ? 0.82 : 0.7,
+    const yearsExperienceEvidenceCandidates =
       yearsExperience !== null && yearsExperience !== undefined
         ? buildYearsExperienceEvidenceCandidates(
             yearsExperience,
             toResumeText(input.documentBundle),
           )
-        : [],
+        : [];
+    add(
+      { section: "identity", key: "yearsExperience", recordId: null },
+      "Years of experience",
+      yearsExperience,
+      yearsExperienceEvidenceCandidates.length > 0 ? 0.82 : 0.7,
+      yearsExperienceEvidenceCandidates,
     );
     add({ section: "contact", key: "email", recordId: null }, "Email", extraction.email, 0.98, [extraction.email ?? ""]);
     add({ section: "contact", key: "phone", recordId: null }, "Phone", extraction.phone, 0.94, [extraction.phone ?? ""]);

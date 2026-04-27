@@ -98,7 +98,7 @@ export function ResumeIdentityEditor(props: ResumeIdentityEditorProps) {
       ref={containerRef}
     >
       <div className="grid gap-0.5">
-        <h3 className="font-display text-[0.9rem] font-semibold text-(--text-headline)">Resume identity</h3>
+        <h3 className="font-display text-(length:--text-item) font-semibold text-(--text-headline)">Resume identity</h3>
         <p className="text-(length:--text-small) leading-5 text-foreground-soft">
           Edit the header content that appears at the top of the resume preview and export.
         </p>

@@ -219,8 +219,9 @@ async function waitForPreviewFailure(window) {
 }
 
 async function waitForPreviewReady(window, options = {}) {
-  const expectedText = typeof options === 'string' ? options : options.expectedText ?? null
-  const changedFrom = typeof options === 'string' ? null : options.changedFrom ?? null
+  const normalizedOptions = options ?? {}
+  const expectedText = typeof normalizedOptions === 'string' ? normalizedOptions : normalizedOptions.expectedText ?? null
+  const changedFrom = typeof normalizedOptions === 'string' ? null : normalizedOptions.changedFrom ?? null
 
   await visiblePreviewFrame(window).waitFor({ timeout: 10000 })
   await waitForCondition(

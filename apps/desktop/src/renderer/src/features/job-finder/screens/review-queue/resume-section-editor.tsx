@@ -111,7 +111,7 @@ export function ResumeSectionEditor(props: {
     >
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="font-display text-[0.9rem] font-semibold text-(--text-headline)">
+          <h3 className="font-display text-(length:--text-item) font-semibold text-(--text-headline)">
             {props.section.label}
           </h3>
         </div>

@@ -558,7 +558,8 @@ function createBenchmarkContext(input: {
         new Error("Resume preview is not available in the benchmark harness."),
       );
     },
-    renderResumeArtifact() {
+    renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
+      void input;
       return Promise.reject(
         new Error("Resume rendering is not available in the benchmark harness."),
       );

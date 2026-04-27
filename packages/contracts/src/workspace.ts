@@ -601,6 +601,13 @@ export const DesktopPlatformPingSchema = z.object({
 });
 export type DesktopPlatformPing = z.infer<typeof DesktopPlatformPingSchema>;
 
+export const DesktopTestOkResponseSchema = z.object({
+  ok: z.literal(true),
+});
+export type DesktopTestOkResponse = z.infer<
+  typeof DesktopTestOkResponseSchema
+>;
+
 export const DesktopWindowControlsStateSchema = z.object({
   isMaximized: z.boolean(),
   isMinimizable: z.boolean(),
