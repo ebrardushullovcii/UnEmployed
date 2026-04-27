@@ -61,6 +61,26 @@ function normalizeText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function matchesWholePhrase(candidate: string, phrase: string): boolean {
+  const normalizedCandidate = normalizeText(candidate)
+  const normalizedPhrase = normalizeText(phrase)
+
+  if (!normalizedCandidate || !normalizedPhrase) {
+    return false
+  }
+
+  const desiredTokens = normalizedPhrase.split(' ').filter(Boolean)
+  if (desiredTokens.length === 1) {
+    return new Set(normalizedCandidate.split(' ').filter(Boolean)).has(desiredTokens[0] ?? '')
+  }
+
+  return new RegExp(`(^|\\s)${escapeRegex(normalizedPhrase)}($|\\s)`).test(normalizedCandidate)
+}
+
 function firstNonEmptyValue(values: readonly (string | null | undefined)[]): string | null {
   for (const value of values) {
     if (typeof value === 'string' && value.trim().length > 0) {
@@ -1089,7 +1109,7 @@ function includesKeywordCoverage(content: string, job: SavedJob): boolean {
     return true
   }
 
-  return normalizedTargets.some((target) => normalizedContent.includes(target))
+  return normalizedTargets.some((target) => matchesWholePhrase(normalizedContent, target))
 }
 
 function scoreCaseMetrics(input: {

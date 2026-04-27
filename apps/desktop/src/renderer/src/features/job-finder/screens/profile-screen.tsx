@@ -175,20 +175,7 @@ export function ProfileScreen(props: {
 
     return (
       buildComparableValueFingerprint(savedTarget) !==
-      buildComparableValueFingerprint({
-        id: draftTarget.id,
-        label: draftTarget.label,
-        startingUrl: draftTarget.startingUrl,
-        enabled: draftTarget.enabled,
-        adapterKind: draftTarget.adapterKind,
-        customInstructions: draftTarget.customInstructions,
-        instructionStatus: draftTarget.instructionStatus,
-        validatedInstructionId: draftTarget.validatedInstructionId,
-        draftInstructionId: draftTarget.draftInstructionId,
-        lastDebugRunId: draftTarget.lastDebugRunId,
-        lastVerifiedAt: draftTarget.lastVerifiedAt,
-        staleReason: draftTarget.staleReason,
-      })
+      buildComparableValueFingerprint({ ...draftTarget })
     )
   }
 

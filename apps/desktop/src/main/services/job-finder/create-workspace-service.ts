@@ -34,9 +34,10 @@ function buildCatalogSessionLabel(status: BrowserSessionState['status']): string
       return 'Browser session blocked'
     case 'unknown':
       return 'Browser session not started'
-    default:
-      return 'Browser session ready'
   }
+
+  const exhaustiveStatus: never = status
+  throw new Error(`Unhandled browser session status: ${String(exhaustiveStatus)}`)
 }
 
 function buildCatalogSessionDetail(
@@ -54,11 +55,10 @@ function buildCatalogSessionDetail(
       return 'The shared browser session is blocked until you resolve the current browser issue.'
     case 'unknown':
       return 'Open the dedicated browser profile when you want to sign in or prepare a site before the next run.'
-    default:
-      return desktopTestApiEnabled
-        ? 'Deterministic desktop test runtime is ready.'
-        : 'Deterministic catalog runtime is ready.'
   }
+
+  const exhaustiveStatus: never = status
+  throw new Error(`Unhandled browser session status: ${String(exhaustiveStatus)}`)
 }
 
 function buildCatalogSessionSeed(

@@ -118,16 +118,15 @@ function tokenSet(value: string): Set<string> {
   return new Set(normalizeText(value).split(" ").filter(Boolean));
 }
 
-function tokenOverlap(left: string, right: string): number {
-  const leftTokens = [...tokenSet(left)];
-  const rightTokens = tokenSet(right);
+function tokenOverlap(leftTokens: Set<string>, rightTokens: Set<string>): number {
+  const leftEntries = [...leftTokens];
 
-  if (leftTokens.length === 0 || rightTokens.size === 0) {
+  if (leftEntries.length === 0 || rightTokens.size === 0) {
     return 0;
   }
 
-  const matched = leftTokens.filter((token) => rightTokens.has(token)).length;
-  return matched / Math.min(leftTokens.length, rightTokens.size);
+  const matched = leftEntries.filter((token) => rightTokens.has(token)).length;
+  return matched / Math.min(leftEntries.length, rightTokens.size);
 }
 
 function dedupeLongResumeLines(lines: readonly string[]): string[] {
@@ -138,7 +137,7 @@ function dedupeLongResumeLines(lines: readonly string[]): string[] {
     const tokenCount = candidateTokens.size;
     const duplicatesExisting = tokenCount >= 7 && kept.some((existing) => {
       const existingTokenCount = existing.tokens.size;
-      return existingTokenCount >= 7 && tokenOverlap(line, existing.text) >= 0.62;
+      return existingTokenCount >= 7 && tokenOverlap(candidateTokens, existing.tokens) >= 0.62;
     });
 
     if (!duplicatesExisting) {

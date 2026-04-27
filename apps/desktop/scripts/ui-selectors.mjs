@@ -24,6 +24,6 @@ export async function selectQueueJobs(window, titles) {
     }).first().locator('xpath=ancestor::div[.//label[normalize-space()="Queue"]][1]')
     const checkbox = jobCard.getByLabel('Queue').first()
     await checkbox.waitFor({ timeout: 10000 })
-    await checkbox.click()
+    await checkbox.check()
   }
 }

@@ -1,6 +1,7 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   JobPostingSchema,
+  type ResumeTemplateId,
   ResumeTemplateDefinitionSchema,
   SavedJobSchema,
 } from "@unemployed/contracts";
@@ -677,13 +678,13 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       documentManager: {
         ...createDocumentManager(),
-        renderResumePreview(input: { templateId: string }) {
+        renderResumePreview(input: { templateId: ResumeTemplateId }) {
           return Promise.resolve({
             html: `<!doctype html><html><body><article data-template-id="${input.templateId}">Preview</article></body></html>`,
             warnings: [],
           });
         },
-        renderResumeArtifact(input: { templateId: string }) {
+        renderResumeArtifact(input: { templateId: ResumeTemplateId }) {
           return Promise.resolve({
             fileName: `generated-${input.templateId}.pdf`,
             storagePath: `/tmp/generated-${input.templateId}.pdf`,

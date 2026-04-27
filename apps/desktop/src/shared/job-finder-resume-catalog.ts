@@ -180,11 +180,13 @@ export function listLocalResumeTemplates(): readonly ResumeTemplateDefinition[] 
 export function getLocalResumeTemplateDefinition(
   templateId: ResumeTemplateId,
 ): ResumeTemplateDefinition {
-  return (
-    resumeTemplates.find((template) => template.id === templateId) ??
-    resumeTemplates[0] ??
-    resumeTemplates[1]!
-  )
+  const defaultTemplate = resumeTemplates[0]
+
+  if (!defaultTemplate) {
+    throw new Error('Expected at least one local resume template')
+  }
+
+  return resumeTemplates.find((template) => template.id === templateId) ?? defaultTemplate
 }
 
 export function getDefaultApplySafeResumeTemplateId(): ResumeTemplateId {

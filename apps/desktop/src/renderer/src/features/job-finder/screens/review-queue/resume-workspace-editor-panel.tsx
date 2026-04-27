@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import type { ResumeDraft, ResumeDraftPatch, ResumeTemplateDefinition } from '@unemployed/contracts'
 import {
   ResumeThemePicker,
@@ -28,7 +29,7 @@ interface ResumeWorkspaceEditorPanelProps {
 }
 
 export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProps) {
-  const resumeThemeLabelId = 'resume-theme-label'
+  const resumeThemeLabelId = useId()
   const helperMessage = props.hasUnsavedChanges
     ? 'Unsaved edits are rendered in the live preview now, but save before export or approval.'
     : 'The live preview reuses the export renderer. Click a section in the preview to jump here.'

@@ -92,6 +92,13 @@ function isBlockingReviewCandidate(candidate: ResumeImportFieldCandidate): boole
   return candidate.target.section !== "proof_point";
 }
 
+function isOptionalProofCandidate(candidate: ResumeImportFieldCandidate): boolean {
+  return (
+    (candidate.resolution === "needs_review" || candidate.resolution === "abstained") &&
+    candidate.target.section === "proof_point"
+  );
+}
+
 export function countBlockingResumeImportCandidates(
   candidates: readonly ResumeImportFieldCandidate[],
 ): number {
@@ -111,11 +118,7 @@ export function summarizeCandidateWarnings(
   const leadingLabels = blockingReviewCandidates
     .slice(0, 5)
     .map((candidate) => candidate.label);
-  const optionalProofCandidates = candidates.filter(
-    (candidate) =>
-      (candidate.resolution === "needs_review" || candidate.resolution === "abstained") &&
-      candidate.target.section === "proof_point",
-  );
+  const optionalProofCandidates = candidates.filter(isOptionalProofCandidate);
 
   if (blockingReviewCandidates.length === 0 && optionalProofCandidates.length === 0) {
     return [];

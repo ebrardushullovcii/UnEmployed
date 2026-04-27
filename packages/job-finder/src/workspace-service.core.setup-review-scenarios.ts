@@ -3,6 +3,10 @@ import {
   createSeed,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
+import {
+  PROFILE_PLACEHOLDER_HEADLINE,
+  PROFILE_PLACEHOLDER_LOCATION,
+} from "./internal/workspace-defaults";
 
 describe("createJobFinderWorkspaceService", () => {
   test("synchronizes resolved setup review items back into latest import candidates", async () => {
@@ -422,6 +426,82 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.yearsExperience).toBe(7);
     expect(reviewItem?.status).toBe("edited");
     expect(reviewItem?.resolvedAt).toBeTruthy();
+  });
+
+  test("keeps placeholder identity values from resolving pending setup review items", async () => {
+    const seed = createSeed();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          headline: PROFILE_PLACEHOLDER_HEADLINE,
+          currentLocation: PROFILE_PLACEHOLDER_LOCATION,
+        },
+        profileSetupState: {
+          status: "in_progress",
+          currentStep: "essentials",
+          completedAt: null,
+          reviewItems: [
+            {
+              id: "review_headline_placeholder",
+              step: "essentials",
+              target: {
+                domain: "identity",
+                key: "headline",
+                recordId: null,
+              },
+              label: "Headline",
+              reason: "Confirm the imported headline before setup is complete.",
+              severity: "recommended",
+              status: "pending",
+              proposedValue: null,
+              sourceSnippet: null,
+              sourceCandidateId: null,
+              sourceRunId: null,
+              createdAt: "2026-04-14T09:00:00.000Z",
+              resolvedAt: null,
+            },
+            {
+              id: "review_location_placeholder",
+              step: "essentials",
+              target: {
+                domain: "identity",
+                key: "currentLocation",
+                recordId: null,
+              },
+              label: "Location",
+              reason: "Confirm the imported location before setup is complete.",
+              severity: "critical",
+              status: "pending",
+              proposedValue: null,
+              sourceSnippet: null,
+              sourceCandidateId: null,
+              sourceRunId: null,
+              createdAt: "2026-04-14T09:00:00.000Z",
+              resolvedAt: null,
+            },
+          ],
+          lastResumedAt: null,
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.saveProfileAndSearchPreferences(
+      {
+        ...seed.profile,
+        headline: PROFILE_PLACEHOLDER_HEADLINE,
+        currentLocation: PROFILE_PLACEHOLDER_LOCATION,
+      },
+      seed.searchPreferences,
+    );
+
+    expect(
+      snapshot.profileSetupState.reviewItems.find((item) => item.id === "review_headline_placeholder")?.status,
+    ).toBe("pending");
+    expect(
+      snapshot.profileSetupState.reviewItems.find((item) => item.id === "review_location_placeholder")?.status,
+    ).toBe("pending");
   });
 
   test("does not allow clearing a years-of-experience review item to an invalid null value", async () => {

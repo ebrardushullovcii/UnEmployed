@@ -42,7 +42,16 @@ import {
 
 type BuildDeterministicResumeProfileExtractionOptions = {
   preserveExistingValues?: boolean;
+  now?: Date | (() => Date);
 };
+
+function resolveNow(input?: Date | (() => Date)): Date {
+  if (!input) {
+    return new Date();
+  }
+
+  return input instanceof Date ? input : input();
+}
 
 const experienceDateTokenPattern = /(?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:(\d{1,2})\/)?(\d{4})/i;
 
@@ -110,8 +119,8 @@ function inferYearsExperienceFromEntries(
     endDate: string | null;
     isCurrent: boolean;
   }>,
+  now: Date,
 ): number | null {
-  const now = new Date();
   const datedRanges = experiences
     .map((experience) => {
       const start = parseExperienceDateToken(experience.startDate);
@@ -601,6 +610,7 @@ export function buildDeterministicResumeProfileExtraction(
   options?: BuildDeterministicResumeProfileExtractionOptions,
 ): ResumeProfileExtraction {
   const preserveExistingValues = options?.preserveExistingValues ?? true;
+  const now = resolveNow(options?.now);
   const lines = splitLines(input.resumeText);
   const fullName = inferName(lines);
   const nameParts = parseNameParts(fullName);
@@ -622,7 +632,7 @@ export function buildDeterministicResumeProfileExtraction(
     10,
   );
   const extractedYearsExperience = Number.isNaN(parsedYearsExperience)
-    ? inferYearsExperienceFromEntries(experiences)
+    ? inferYearsExperienceFromEntries(experiences, now)
     : parsedYearsExperience;
   const extractedEmail = extractRegexMatch(input.resumeText, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
   const extractedPhone = inferPhone(

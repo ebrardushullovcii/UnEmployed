@@ -143,8 +143,7 @@ export function DiscoveryFiltersPanel({
     : browserSessionSnapshot;
   const sessionDetail = displaySessionSnapshot.detail?.trim() ?? "";
   const isBrowserSessionVisible =
-    displaySessionSnapshot.driver === "chrome_profile_agent" ||
-    !isNeutralBrowserSessionSnapshot;
+    Boolean(chromeProfileSession) && !isNeutralBrowserSessionSnapshot;
   const isReady = displaySessionSnapshot.status === "ready";
   const needsLogin = displaySessionSnapshot.status === "login_required";
   const isBlocked = displaySessionSnapshot.status === "blocked";

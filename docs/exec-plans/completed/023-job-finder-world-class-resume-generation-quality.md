@@ -13,8 +13,8 @@ Ship grounded, ATS-safe resume generation that real users can trust, with determ
 - `sanitizeResumeDraft` and `validateResumeDraft` now cover company and job bleed, copied JD prose, keyword stuffing, vague filler, duplicate content, thin drafts, and page overflow
 - direct low-level regression coverage lives in `packages/job-finder/src/internal/resume-workspace-quality.test.ts`
 - desktop resume rendering is extracted and directly tested in `apps/desktop/src/main/adapters/job-finder-resume-renderer.ts`
-- two ATS-safe templates are now shipped and selectable: `Classic ATS` and `Compact ATS`
-- replayable end-to-end benchmark coverage now exists at `pnpm --filter @unemployed/desktop benchmark:resume-quality`, exercising the real generation, sanitation, validation, and HTML render path across a fixed corpus and both ATS-safe templates
+- six ATS-safe templates are now shipped and selectable: `Classic ATS`, `Compact ATS`, `Modern Split ATS`, `Technical Matrix`, `Project Showcase`, and `Credentials Focus`
+- replayable end-to-end benchmark coverage now exists at `pnpm --filter @unemployed/desktop benchmark:resume-quality`, exercising the real generation, sanitation, validation, and HTML render path across a fixed corpus and 5 scenarios x 6 themes = 30 cases across all six ATS-safe templates
 
 ## Latest Evidence
 
@@ -29,6 +29,6 @@ Ship grounded, ATS-safe resume generation that real users can trust, with determ
 ## What It Means Now
 
 - visible skills are filtered to candidate-backed content before rendered output is produced
-- the shipped ATS-safe templates are protected by renderer tests and the replayable quality benchmark, not just spot checks
+- all six shipped ATS-safe templates are protected by renderer tests and the replayable quality benchmark, not just spot checks
 - the benchmark intentionally keeps a thin-profile sentinel case, so the quality loop still proves it can surface incomplete resumes instead of falsely marking every corpus case issue-free
 - reopen this track only for a new real regression class, a new ATS-safe template candidate, or a renderer safety/parsing regression

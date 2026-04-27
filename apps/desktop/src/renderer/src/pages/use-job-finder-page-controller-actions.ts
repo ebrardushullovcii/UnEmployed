@@ -217,6 +217,10 @@ export function createActionRunners(args: {
         try {
           await onSuccess(result)
         } catch (error) {
+          if (isHandledRefreshError(error)) {
+            throw error
+          }
+
           const detail =
             error instanceof Error
               ? error.message
@@ -229,9 +233,7 @@ export function createActionRunners(args: {
       },
       successMessage,
       options,
-    ).catch(() => {
-      // runAction already records the user-facing message.
-    })
+    )
   }
 
   return { runAction, runResumeWorkspaceAction, withPendingScope }

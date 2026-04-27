@@ -54,6 +54,7 @@ export function ProfileExperienceTab({ isProfileSetupPending = false, experience
         action={
           <Button
             disabled={isProfileSetupPending}
+            pending={isProfileSetupPending}
             onClick={() =>
               experienceArray.append({
                 id: `experience_${crypto.randomUUID().slice(0, 8)}`,
@@ -99,7 +100,7 @@ export function ProfileExperienceTab({ isProfileSetupPending = false, experience
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Role details</p>
-                  <Button disabled={isProfileSetupPending} onClick={() => experienceArray.remove(index)} size="compact" type="button" variant="ghost">
+                  <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => experienceArray.remove(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
                 </div>

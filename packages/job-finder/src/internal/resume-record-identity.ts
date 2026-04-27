@@ -176,7 +176,7 @@ export function areEquivalentEducationRecords(
   const strongEnd = fieldsMatch(leftEnd, rightEnd);
 
   return (
-    (strongSchool && strongDegree && (strongStart || strongEnd || fieldsCompatible(leftField, rightField))) ||
+    (strongSchool && strongDegree && (strongStart || strongEnd)) ||
     (strongSchool && strongStart && fieldsCompatible(leftDegree, rightDegree) && fieldsCompatible(leftField, rightField))
   );
 }

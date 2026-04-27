@@ -3,7 +3,7 @@
 import { act } from 'react'
 import type { ResumeDraft, ResumeTemplateDefinition } from '@unemployed/contracts'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ResumeWorkspaceEditorPanel } from './resume-workspace-editor-panel'
 
 const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
@@ -145,10 +145,25 @@ const draft: ResumeDraft = {
 }
 
 describe('ResumeWorkspaceEditorPanel', () => {
+  const globalScope = globalThis as typeof globalThis & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean
+  }
+  const originalActEnvironment = globalScope.IS_REACT_ACT_ENVIRONMENT
   let container: HTMLDivElement | null = null
   let root: Root | null = null
 
-  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  beforeAll(() => {
+    globalScope.IS_REACT_ACT_ENVIRONMENT = true
+  })
+
+  afterAll(() => {
+    if (originalActEnvironment === undefined) {
+      delete globalScope.IS_REACT_ACT_ENVIRONMENT
+      return
+    }
+
+    globalScope.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
+  })
 
   afterEach(() => {
     if (root) {
@@ -191,9 +206,8 @@ describe('ResumeWorkspaceEditorPanel', () => {
       )
     })
 
-    expect(container?.querySelectorAll('[role="radio"]')).toHaveLength(6)
-
     const scrollRegion = container?.querySelector('.overflow-y-auto')
+    expect(scrollRegion?.querySelectorAll('[role="radio"]')).toHaveLength(6)
     expect(scrollRegion?.textContent).toContain('Swiss Minimal')
     expect(scrollRegion?.textContent).toContain('Executive Brief')
     expect(scrollRegion?.textContent).toContain('Engineering Spec')

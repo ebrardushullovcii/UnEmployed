@@ -266,7 +266,6 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
   });
 
   test("opens the browser session at the resolved source entry url for a targeted sign-in action", async () => {
-    const baseHarness = createWorkspaceServiceHarness();
     const openSession = vi.fn((source: string, options?: { targetUrl?: string | null }) => Promise.resolve({
       source: source as "target_site",
       status: "ready" as const,
@@ -276,8 +275,12 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
       lastCheckedAt: "2026-03-20T10:05:00.000Z",
     }));
     const browserRuntime: BrowserSessionRuntime = {
-      ...baseHarness.browserRuntime,
+      closeSession: vi.fn(),
+      executeApplicationFlow: vi.fn(),
+      executeEasyApply: vi.fn(),
+      getSessionState: vi.fn(),
       openSession,
+      runDiscovery: vi.fn(),
     };
     const seed = createSeed();
     const linkedinTarget = seed.searchPreferences.discovery.targets[0];
@@ -378,7 +381,6 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
   });
 
   test("persists blocked browser status when a targeted browser open fails", async () => {
-    const baseHarness = createWorkspaceServiceHarness();
     const openSession = vi.fn(() =>
       Promise.reject(new Error("navigation failed")),
     );
@@ -393,7 +395,10 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
       }),
     );
     const browserRuntime: BrowserSessionRuntime = {
-      ...baseHarness.browserRuntime,
+      closeSession: vi.fn(),
+      executeApplicationFlow: vi.fn(),
+      executeEasyApply: vi.fn(),
+      runDiscovery: vi.fn(),
       openSession,
       getSessionState,
     };

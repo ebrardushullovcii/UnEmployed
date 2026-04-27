@@ -32,20 +32,22 @@ const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel, benchm
 async function main() {
   await rm(outputDir, { recursive: true, force: true })
   await mkdir(outputDir, { recursive: true })
-  const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-quality-'))
-
-  const app = await electron.launch({
-    args: ['.'],
-    cwd: desktopDir,
-    env: {
-      ...process.env,
-      UNEMPLOYED_ENABLE_TEST_API: '1',
-      UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
-      UNEMPLOYED_AI_API_KEY: '',
-    },
-  })
+  let userDataDirectory = null
+  let app = null
 
   try {
+    userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-quality-'))
+    app = await electron.launch({
+      args: ['.'],
+      cwd: desktopDir,
+      env: {
+        ...process.env,
+        UNEMPLOYED_ENABLE_TEST_API: '1',
+        UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
+        UNEMPLOYED_AI_API_KEY: '',
+      },
+    })
+
     const window = await app.firstWindow()
     await window.waitForLoadState('domcontentloaded')
     await Promise.any([
@@ -79,8 +81,17 @@ async function main() {
       `Aggregate keyword coverage: ${report.aggregate.keywordCoverageRate.toFixed(3)} | issue-free case rate: ${report.aggregate.issueFreeCaseRate.toFixed(3)}\n`,
     )
   } finally {
-    await app.close()
-    await rm(userDataDirectory, { recursive: true, force: true })
+    if (app) {
+      try {
+        await app.close()
+      } catch {
+        // Preserve the original failure and continue cleanup.
+      }
+    }
+
+    if (userDataDirectory) {
+      await rm(userDataDirectory, { recursive: true, force: true })
+    }
   }
 }
 

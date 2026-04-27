@@ -824,10 +824,7 @@ export function reconcileCandidates(
       for (const candidate of sorted) {
         const recommendation = recommendationForCandidate(candidate);
         const shouldAutoApplyCollectionCandidate =
-          isRecordTarget(candidate)
-            ? !hasAutoAppliedCollectionCandidate &&
-              shouldMergeRecordCandidate(profile, candidate)
-            : !hasAutoAppliedCollectionCandidate && shouldMergeListCandidate(candidate);
+          !hasAutoAppliedCollectionCandidate && shouldMergeListCandidate(candidate);
         const resolution =
           recommendation === "abstain"
             ? "abstained"

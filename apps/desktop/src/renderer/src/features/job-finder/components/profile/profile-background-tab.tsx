@@ -152,8 +152,8 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
         </div>
       </section>
 
-      <ProfileBackgroundSupportingDetailSection backgroundArrays={backgroundArrays} busy={isProfileSetupPending} profileForm={profileForm} />
-      <ProfileBackgroundProofBankSection backgroundArrays={backgroundArrays} busy={isProfileSetupPending} profileForm={profileForm} />
+      <ProfileBackgroundSupportingDetailSection backgroundArrays={backgroundArrays} isProfileSetupPending={isProfileSetupPending} profileForm={profileForm} />
+      <ProfileBackgroundProofBankSection backgroundArrays={backgroundArrays} isProfileSetupPending={isProfileSetupPending} profileForm={profileForm} />
     </div>
   )
 }

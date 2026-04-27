@@ -163,8 +163,8 @@ describe('SettingsEditableDefaults', () => {
     expect(container?.textContent).toContain('Default resume template')
     expect(container?.textContent).toContain('Swiss Minimal - Standard')
 
-    const button = Array.from(container?.querySelectorAll('button[data-slot="button"]') ?? []).find(
-      (element) => element.textContent?.includes('Save settings'),
+    const button = Array.from(container?.querySelectorAll('button') ?? []).find(
+      (element) => element.textContent?.trim() === 'Save settings',
     )
     expect(button?.getAttribute('aria-busy')).toBe('true')
     expect(button?.getAttribute('data-pending')).toBe('true')

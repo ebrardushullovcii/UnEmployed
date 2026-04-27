@@ -83,7 +83,6 @@ function isHardLoginRequirement(value: string | null | undefined): boolean {
 function summarizePrompt(input: {
   target: JobDiscoveryTarget;
   state: SourceAccessPrompt["state"];
-  detail: string | null;
 }): { summary: string; actionLabel: string; rerunLabel: string } {
   const targetLabel = input.target.label.trim();
 
@@ -163,7 +162,6 @@ export function deriveSourceAccessPrompts(input: {
       const promptCopy = summarizePrompt({
         target,
         state: "prompt_login_required",
-        detail: requiredDetail,
       });
 
       return [
@@ -205,7 +203,6 @@ export function deriveSourceAccessPrompts(input: {
     const promptCopy = summarizePrompt({
       target,
       state: "prompt_login_recommended",
-      detail: recommendationDetail,
     });
 
     return [

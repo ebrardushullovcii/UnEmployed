@@ -22,6 +22,7 @@ function buildYearsExperienceEvidenceCandidates(
   yearsExperience: number,
   resumeText: string,
 ): string[] {
+  const dateRangePattern = /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\b/i;
   const normalizedResumeText = normalizeText(resumeText);
   const explicitCandidates = [`${yearsExperience} years`, `${yearsExperience}+ years`].filter(
     (candidate) => normalizedResumeText.includes(normalizeText(candidate)),
@@ -35,11 +36,15 @@ function buildYearsExperienceEvidenceCandidates(
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const datedExperienceLines = lines.filter((line) =>
-    /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\b/i.test(
-      line,
-    ),
-  );
+  const datedExperienceLines = lines.filter((line) => dateRangePattern.test(line));
+
+  if (datedExperienceLines.length === 0) {
+    const fallbackLine = lines.find((line) => dateRangePattern.test(line));
+
+    if (fallbackLine) {
+      return [fallbackLine];
+    }
+  }
 
   return datedExperienceLines.slice(0, 6);
 }
@@ -53,7 +58,7 @@ function buildRelaxedEvidenceCandidates(value: string): string[] {
 
   const candidates = new Set<string>([normalized]);
 
-  const withoutPlus = normalized.replace(/(\d)\+\s+years?/i, "$1 years");
+  const withoutPlus = normalized.replace(/(\d)\+\s+years?/gi, "$1 years");
   if (withoutPlus && withoutPlus !== normalized) {
     candidates.add(withoutPlus);
   }
@@ -139,7 +144,8 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
   for (const candidate of orderedCandidates) {
     if (!candidate) continue;
     try {
-      const re = new RegExp(`(.{0,80}{CAND}.{0,240})`.replace("{CAND}", escapeRegExp(candidate)), "is");
+      const candidatePattern = escapeRegExp(candidate).replace(/\s+/g, "\\s+");
+      const re = new RegExp(`(.{0,80}${candidatePattern}.{0,240})`, "is");
       const m = blockText.match(re);
       if (m && m[1]) {
         const snippet = m[1].trim().replace(/\s+/g, " ");

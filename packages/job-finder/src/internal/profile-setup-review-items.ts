@@ -151,6 +151,22 @@ function hasCurrentTargetValue(
   const value = getCurrentTargetValue(profile, searchPreferences, target);
 
   if (typeof value === "string") {
+    if (
+      target.domain === "identity" &&
+      target.key === "headline" &&
+      !hasPlaceholderAwareIdentityValue(value, PROFILE_PLACEHOLDER_HEADLINE)
+    ) {
+      return false;
+    }
+
+    if (
+      target.domain === "identity" &&
+      target.key === "currentLocation" &&
+      !hasPlaceholderAwareIdentityValue(value, PROFILE_PLACEHOLDER_LOCATION)
+    ) {
+      return false;
+    }
+
     return hasMeaningfulText(value);
   }
 
