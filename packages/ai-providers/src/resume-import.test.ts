@@ -97,7 +97,7 @@ describe("selectBlocksForResumeImportStage", () => {
     expect(result.candidates[0]?.confidenceBreakdown?.recommendation).toBe("auto_apply");
   });
 
-  test("grounds deterministic summary and years-of-experience candidates from wrapped intro text", () => {
+  test("grounds deterministic summary and years-of-experience candidates from experience text", () => {
     const result = buildDeterministicResumeImportStageExtraction(
       {
         stage: "identity_summary",
@@ -110,12 +110,16 @@ describe("selectBlocksForResumeImportStage", () => {
             { id: "b2", pageNumber: 1, readingOrder: 1, text: "Senior Software Engineer", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.92 },
             { id: "b3", pageNumber: 1, readingOrder: 2, text: "Senior Software Engineer with 10+ years of experience building secure, scalable healthcare and SaaS platforms with C#,.NET, ASP.NET Core, REST APIs, MongoDB, SQL Server, and cloud-native services on Azure and AWS. Proven record", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
             { id: "b4", pageNumber: 1, readingOrder: 3, text: "delivering microservices, third-party integrations, CI/CD automation, observability, and production support in Agile teams.", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b5", pageNumber: 1, readingOrder: 4, text: "EXPERIENCE", kind: "heading", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
+            { id: "b6", pageNumber: 1, readingOrder: 5, text: "10+ years of experience building secure, scalable healthcare and SaaS platforms.", kind: "paragraph", sectionHint: "experience", bbox: null, sourceParserKinds: ["local_pdf_layout"], sourceConfidence: 0.88 },
           ],
           fullText: [
             "Ryan Holstien",
             "Senior Software Engineer",
             "Senior Software Engineer with 10+ years of experience building secure, scalable healthcare and SaaS platforms with C#,.NET, ASP.NET Core, REST APIs, MongoDB, SQL Server, and cloud-native services on Azure and AWS. Proven record",
             "delivering microservices, third-party integrations, CI/CD automation, observability, and production support in Agile teams.",
+            "EXPERIENCE",
+            "10+ years of experience building secure, scalable healthcare and SaaS platforms.",
           ].join("\n"),
         },
       },

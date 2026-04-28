@@ -609,7 +609,7 @@ export function createDocumentManager() {
         fullName: string
         headline: string | null
         location: string | null
-        contactItems: string[]
+        contactItems: Array<{ field: string; text: string }>
         sections: Array<{
           id: string
           text: string | null

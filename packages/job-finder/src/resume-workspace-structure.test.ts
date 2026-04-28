@@ -159,13 +159,13 @@ describe("buildResumeRenderDocument", () => {
     const project = document.sections.find((section) => section.kind === "projects")?.entries[0];
 
     expect(document.contactItems).toEqual([
-      "apply@example.com",
-      "+44 7700 900123",
-      "https://alex.example.com",
-      "https://www.linkedin.com/in/alex-vanguard",
-      "https://github.com/alex-vanguard",
-      "https://alex.dev",
-      "https://alex.example.com/case-study",
+      { field: "email", text: "apply@example.com" },
+      { field: "phone", text: "+44 7700 900123" },
+      { field: "portfolioUrl", text: "https://alex.example.com" },
+      { field: "linkedinUrl", text: "https://www.linkedin.com/in/alex-vanguard" },
+      { field: "githubUrl", text: "https://github.com/alex-vanguard" },
+      { field: "personalWebsiteUrl", text: "https://alex.dev" },
+      { field: "additionalLinks", text: "https://alex.example.com/case-study" },
     ]);
     expect(project).toEqual({
       id: "project_project_workflow_os",
@@ -214,7 +214,7 @@ describe("buildResumeRenderDocument", () => {
     expect(document.fullName).toBe('Alex Tailored');
     expect(document.headline).toBe('Staff platform engineer');
     expect(document.location).toBe('Remote');
-    expect(document.contactItems[0]).toBe('tailored@example.com');
-    expect(document.contactItems[1]).toBe('+1 555 0100');
+    expect(document.contactItems[0]).toEqual({ field: 'email', text: 'tailored@example.com' });
+    expect(document.contactItems[1]).toEqual({ field: 'phone', text: '+1 555 0100' });
   });
 });

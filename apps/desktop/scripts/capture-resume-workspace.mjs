@@ -517,10 +517,7 @@ async function captureResumeWorkspace() {
       clickToFocus: {
         target: clickTarget,
         activeEditorLabel: await getActiveEditorLabel(window),
-        focusedValue:
-          clickTarget.editorLabel === 'Title'
-            ? await titleField(window).inputValue()
-            : await summaryField(window).inputValue(),
+        focusedValue: await editorFieldByTarget(window, clickTarget.targetId).inputValue(),
       },
     })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06-preview-click-focus.png') })

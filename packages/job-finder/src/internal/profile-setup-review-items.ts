@@ -2,6 +2,7 @@ import {
   ProfileReviewItemSchema,
   ProfileSetupStateSchema,
   evaluateProfileSetupReadiness,
+  hasProfileSetupPlaceholderValue,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileReviewItem,
@@ -17,10 +18,6 @@ import {
   type DerivedReviewDraft,
 } from "./profile-setup-review-mapping";
 import { normalizeText, uniqueStrings } from "./shared";
-import {
-  PROFILE_PLACEHOLDER_HEADLINE,
-  PROFILE_PLACEHOLDER_LOCATION,
-} from "./workspace-defaults";
 
 interface BuildProfileSetupReviewItemsInput {
   currentState: ProfileSetupState | null;
@@ -157,7 +154,7 @@ function hasCurrentTargetValue(
     if (
       target.domain === "identity" &&
       target.key === "headline" &&
-      !hasPlaceholderAwareIdentityValue(value, PROFILE_PLACEHOLDER_HEADLINE)
+      !hasPlaceholderAwareIdentityValue(value, "headline")
     ) {
       return false;
     }
@@ -165,7 +162,7 @@ function hasCurrentTargetValue(
     if (
       target.domain === "identity" &&
       target.key === "currentLocation" &&
-      !hasPlaceholderAwareIdentityValue(value, PROFILE_PLACEHOLDER_LOCATION)
+      !hasPlaceholderAwareIdentityValue(value, "currentLocation")
     ) {
       return false;
     }
@@ -344,11 +341,11 @@ function hasMeaningfulStringList(values: readonly string[] | null | undefined): 
 
 function hasPlaceholderAwareIdentityValue(
   value: string | null | undefined,
-  placeholder: string,
+  field: "headline" | "currentLocation",
 ): boolean {
   return Boolean(
     hasMeaningfulText(value) &&
-      normalizeText(value ?? "") !== normalizeText(placeholder),
+      !hasProfileSetupPlaceholderValue(field, value),
   );
 }
 
@@ -372,7 +369,7 @@ function buildMissingFieldDrafts(
   const drafts: DerivedReviewDraft[] = [];
 
   if (
-    !hasPlaceholderAwareIdentityValue(profile.headline, PROFILE_PLACEHOLDER_HEADLINE) &&
+    !hasPlaceholderAwareIdentityValue(profile.headline, "headline") &&
     !hasDraftForTarget(candidateDrafts, "identity", "headline")
   ) {
     drafts.push({
@@ -388,7 +385,7 @@ function buildMissingFieldDrafts(
   }
 
   if (
-    !hasPlaceholderAwareIdentityValue(profile.currentLocation, PROFILE_PLACEHOLDER_LOCATION) &&
+    !hasPlaceholderAwareIdentityValue(profile.currentLocation, "currentLocation") &&
     !hasDraftForTarget(candidateDrafts, "identity", "currentLocation")
   ) {
     drafts.push({
@@ -419,7 +416,12 @@ function buildMissingFieldDrafts(
     });
   }
 
-  if (!hasMeaningfulText(profile.email) && !hasMeaningfulText(profile.phone)) {
+  if (
+    !hasMeaningfulText(profile.email) &&
+    !hasMeaningfulText(profile.phone) &&
+    !hasDraftForTarget(candidateDrafts, "identity", "email") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "phone")
+  ) {
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "contactPath", recordId: null },

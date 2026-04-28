@@ -559,28 +559,6 @@ function renderIdentityMeta(values: ReadonlyArray<{ field: ResumePreviewIdentity
   })).join('')}</div>`
 }
 
-function inferContactIdentityField(value: string): ResumePreviewIdentityField {
-  const normalized = value.trim().toLowerCase()
-
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-    return 'email'
-  }
-
-  if (normalized.includes('linkedin.com')) {
-    return 'linkedinUrl'
-  }
-
-  if (normalized.includes('github.com')) {
-    return 'githubUrl'
-  }
-
-  if (/^\+?[\d\s().-]{7,}$/.test(normalized)) {
-    return 'phone'
-  }
-
-  return 'additionalLinks'
-}
-
 function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<{ field: ResumePreviewIdentityField; text: string }> {
   return [
     renderDocument.location
@@ -590,8 +568,8 @@ function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<
         }
       : null,
     ...renderDocument.contactItems.map((item) => ({
-      field: inferContactIdentityField(item),
-      text: formatContactItem(item),
+      field: item.field,
+      text: formatContactItem(item.text),
     })),
   ].filter((value): value is { field: ResumePreviewIdentityField; text: string } => Boolean(value))
 }
@@ -1204,7 +1182,7 @@ const catalogPreviewDocument: ResumeRenderDocument = {
   fullName: 'John Doe',
   headline: 'Senior platform engineer',
   location: 'Austin, TX',
-  contactItems: ['john@example.com | john-doe.dev'],
+  contactItems: [{ field: 'email', text: 'john@example.com | john-doe.dev' }],
   sections: [
     {
       id: 'section_summary',

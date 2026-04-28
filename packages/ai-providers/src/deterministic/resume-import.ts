@@ -49,7 +49,8 @@ function buildYearsExperienceEvidenceCandidates(
   resumeText: string,
 ): string[] {
   const dateRangePattern = /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\b/i;
-  const normalizedResumeText = normalizeText(resumeText);
+  const experienceText = getExperienceSectionText(resumeText);
+  const normalizedExperienceText = normalizeText(experienceText);
   const yearForms =
     yearsExperience === 1
       ? ["1 year", "1+ year", "1 yr", "1+ yr", "1 yrs", "1+ yrs"]
@@ -62,14 +63,14 @@ function buildYearsExperienceEvidenceCandidates(
           `${yearsExperience}+ yrs`,
         ];
   const explicitCandidates = yearForms.filter((candidate) =>
-    containsWholePhrase(normalizedResumeText, normalizeText(candidate)),
+    normalizedExperienceText.length > 0 &&
+    containsWholePhrase(normalizedExperienceText, normalizeText(candidate)),
   );
 
   if (explicitCandidates.length > 0) {
     return explicitCandidates;
   }
 
-  const experienceText = getExperienceSectionText(resumeText);
   if (!experienceText) {
     return [];
   }

@@ -12,7 +12,10 @@ const baseRenderDocument: ResumeRenderDocument = {
   fullName: 'Alex <Vanguard>',
   headline: 'Senior systems designer',
   location: 'London, UK',
-  contactItems: ['alex@example.com', 'https://alex.example.com'],
+  contactItems: [
+    { field: 'email', text: 'alex@example.com' },
+    { field: 'portfolioUrl', text: 'https://alex.example.com' },
+  ],
   sections: [
     {
       id: 'section_summary',
@@ -209,7 +212,7 @@ describe('job finder resume renderer', () => {
 
     expect(html).toContain('data-resume-target-id="identity:fullName"')
     expect(html).toContain('data-resume-target-id="identity:email"')
-    expect(html).toContain('data-resume-target-id="identity:additionalLinks"')
+    expect(html).toContain('data-resume-target-id="identity:portfolioUrl"')
     expect(html).toContain('data-resume-section-id="section_summary"')
     expect(html).toContain('data-resume-target-id="section:section_summary:text"')
     expect(html).toContain('data-resume-entry-id="entry_1"')
