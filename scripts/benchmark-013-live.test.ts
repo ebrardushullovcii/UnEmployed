@@ -269,7 +269,10 @@ const noopDocumentManager: JobFinderDocumentManager = {
   async renderResumePreview() {
     throw new Error('Resume preview is not needed for the 013 benchmark harness.')
   },
-  async renderResumeArtifact() {
+  async renderResumeArtifact(
+    input: Parameters<JobFinderDocumentManager['renderResumeArtifact']>[0],
+  ) {
+    void input
     throw new Error('Resume rendering is not needed for the 013 benchmark harness.')
   },
 }

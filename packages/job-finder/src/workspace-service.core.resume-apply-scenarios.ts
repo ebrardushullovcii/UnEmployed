@@ -223,7 +223,7 @@ describe("createJobFinderWorkspaceService", () => {
       status: "ready",
       label: "Tailored Resume",
       version: "v1",
-      templateName: "Classic ATS",
+      templateName: "Swiss Minimal - Standard",
       compatibilityScore: 94,
       progressPercent: 100,
       updatedAt: "2026-03-20T10:04:00.000Z",
@@ -811,7 +811,7 @@ describe("createJobFinderWorkspaceService", () => {
       status: "ready",
       label: "Tailored Resume",
       version: "v1",
-      templateName: "Classic ATS",
+      templateName: "Swiss Minimal - Standard",
       compatibilityScore: 94,
       progressPercent: 100,
       updatedAt: "2026-03-20T10:04:00.000Z",
@@ -1569,7 +1569,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(workspace.exports.some((artifact) => artifact.isApproved)).toBe(false);
   });
 
-  test("accepts Modern Split ATS as a supported default theme", async () => {
+  test("accepts Swiss Minimal - Accent as a supported default theme", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     const snapshot = await workspaceService.saveSettings({
@@ -1583,33 +1583,33 @@ describe("createJobFinderWorkspaceService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "classic_ats",
-          label: "Classic ATS",
+          label: "Swiss Minimal - Standard",
         }),
         expect.objectContaining({
           id: "compact_exec",
-          label: "Compact ATS",
+          label: "Executive Brief - Dense",
         }),
         expect.objectContaining({
           id: "modern_split",
-          label: "Modern Split ATS",
+          label: "Swiss Minimal - Accent",
         }),
         expect.objectContaining({
           id: "technical_matrix",
-          label: "Technical Matrix",
+          label: "Engineering Spec - Systems",
         }),
         expect.objectContaining({
           id: "project_showcase",
-          label: "Project Showcase",
+          label: "Portfolio Narrative - Proof-led",
         }),
         expect.objectContaining({
           id: "credentials_focus",
-          label: "Credentials Focus",
+          label: "Executive Brief - Credentials",
         }),
       ]),
     );
   });
 
-  test("keeps Compact ATS when it is part of the supported theme set", async () => {
+  test("keeps Executive Brief - Dense when it is part of the supported theme set", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     const snapshot = await workspaceService.saveSettings({

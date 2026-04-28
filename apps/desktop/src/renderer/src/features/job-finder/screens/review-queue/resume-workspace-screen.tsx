@@ -149,9 +149,18 @@ export function ResumeWorkspaceScreen(props: {
         return current
       }
 
+      if (selectedTargetId) {
+        const targetContext = getResumePreviewTargetContext(selectedTargetId)
+        const targetSectionAvailable =
+          targetContext.sectionId !== null &&
+          draft.sections.some((section) => section.id === targetContext.sectionId)
+
+        return targetSectionAvailable ? targetContext.sectionId : null
+      }
+
       return draft.sections[0]?.id ?? null
     })
-  }, [draft])
+  }, [draft, selectedTargetId])
 
   useEffect(() => {
     if (!draft) {
