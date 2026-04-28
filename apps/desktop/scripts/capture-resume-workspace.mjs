@@ -206,10 +206,6 @@ function summaryField(window) {
   return window.getByLabel('Section text').first()
 }
 
-function titleField(window) {
-  return window.getByLabel('Title').first()
-}
-
 function editorFieldByTarget(window, targetId) {
   return window.locator(`[data-resume-editor-target="${targetId}"]`).first()
 }
@@ -491,27 +487,18 @@ async function captureResumeWorkspace() {
       'clicked preview target to become selected',
     )
 
-    if (clickTarget.editorLabel === 'Title') {
-      await waitForCondition(
-        async () =>
-          editorFieldByTarget(window, clickTarget.targetId).evaluate(
-            (element, expectedValue) =>
-              element === element.ownerDocument.activeElement && element.value === expectedValue,
-            clickTarget.expectedValue,
-          ),
-        'entry title input focus after clicking the live preview',
-      )
-    } else {
-      await waitForCondition(
-        async () =>
-          editorFieldByTarget(window, clickTarget.targetId).evaluate(
-            (element, expectedValue) =>
-              element === element.ownerDocument.activeElement && element.value === expectedValue,
-            clickTarget.expectedValue,
-          ),
-        'section text input focus after clicking the live preview',
-      )
-    }
+    const clickToFocusMessage = clickTarget.editorLabel === 'Title'
+      ? 'entry title input focus after clicking the live preview'
+      : 'section text input focus after clicking the live preview'
+    await waitForCondition(
+      async () =>
+        editorFieldByTarget(window, clickTarget.targetId).evaluate(
+          (element, expectedValue) =>
+            element === element.ownerDocument.activeElement && element.value === expectedValue,
+          clickTarget.expectedValue,
+        ),
+      clickToFocusMessage,
+    )
 
     Object.assign(studioResults, {
       clickToFocus: {

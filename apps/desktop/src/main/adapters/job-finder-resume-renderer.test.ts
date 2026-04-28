@@ -217,6 +217,9 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('data-resume-target-id="section:section_summary:text"')
     expect(html).toContain('data-resume-entry-id="entry_1"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:title"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:subtitle"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:location"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:dateRange"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:bullet:entry_1_bullet_1"')
   })
 

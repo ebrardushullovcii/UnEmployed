@@ -717,8 +717,8 @@ export function ResumeWorkspaceScreen(props: {
                   </TabsContent>
                   <TabsContent className="min-h-0 h-full" value="editor">
                     <div className="grid min-h-0 h-full gap-4 xl:hidden">
-                      <div className="min-h-[28rem]">{templatePanel}</div>
-                      <div className="min-h-[28rem]">{editorPanel}</div>
+                      <div className="min-h-(--size-resume-workspace-panel)">{templatePanel}</div>
+                      <div className="min-h-(--size-resume-workspace-panel)">{editorPanel}</div>
                     </div>
                   </TabsContent>
                   <TabsContent className="min-h-0 h-full" value="assistant">

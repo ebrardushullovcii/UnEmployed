@@ -49,7 +49,7 @@ function buildYearsExperienceEvidenceCandidates(
   resumeText: string,
 ): string[] {
   const dateRangePattern = /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\b/i;
-  const experienceText = getExperienceSectionText(resumeText);
+  const experienceText = getExperienceSectionText(resumeText) || resumeText;
   const normalizedExperienceText = normalizeText(experienceText);
   const yearForms =
     yearsExperience === 1
@@ -184,7 +184,7 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
 
   return {
     sourceBlockIds: [],
-    evidenceText: nonEmptyCandidates[0] ?? null,
+    evidenceText: null,
   };
 }
 
@@ -236,6 +236,20 @@ function toResumeText(bundle: ResumeDocumentBundle): string {
   return bundle.fullText ?? bundle.blocks.map((block) => block.text).join("\n\n");
 }
 
+function toExperienceOnlyBundle(bundle: ResumeDocumentBundle): ResumeDocumentBundle {
+  const resumeText = toResumeText(bundle);
+  const experienceText = getExperienceSectionText(resumeText);
+  const normalizedExperienceText = normalizeText(experienceText);
+
+  return {
+    ...bundle,
+    fullText: experienceText,
+    blocks: normalizedExperienceText
+      ? bundle.blocks.filter((block) => normalizedExperienceText.includes(normalizeText(block.text)))
+      : [],
+  };
+}
+
 export function buildDeterministicResumeImportStageExtraction(
   input: ExtractResumeImportStageTransportInput,
   providerLabel: string,
@@ -262,6 +276,7 @@ export function buildDeterministicResumeImportStageExtraction(
     confidence: number,
     evidenceCandidates: readonly string[],
     options?: {
+      evidenceBundle?: ResumeDocumentBundle;
       normalizedValue?: unknown;
       notes?: readonly string[];
     },
@@ -301,7 +316,7 @@ export function buildDeterministicResumeImportStageExtraction(
     }
 
     candidates.push(
-      createCandidate(input.documentBundle, {
+      createCandidate(options?.evidenceBundle ?? input.documentBundle, {
         target,
         label,
         value,
@@ -315,6 +330,8 @@ export function buildDeterministicResumeImportStageExtraction(
 
   if (input.stage === "identity_summary") {
     const yearsExperience = extraction.yearsExperience;
+    const experienceEvidenceBundle = toExperienceOnlyBundle(input.documentBundle);
+    const experienceEvidenceText = toResumeText(experienceEvidenceBundle);
 
     add({ section: "identity", key: "fullName", recordId: null }, "Full name", extraction.fullName, 0.96, [extraction.fullName ?? ""]);
     add({ section: "identity", key: "firstName", recordId: null }, "First name", extraction.firstName, 0.92, [extraction.firstName ?? "", extraction.fullName ?? ""]);
@@ -341,7 +358,7 @@ export function buildDeterministicResumeImportStageExtraction(
     ) {
       const yearsExperienceEvidenceCandidates = buildYearsExperienceEvidenceCandidates(
         yearsExperience,
-        toResumeText(input.documentBundle),
+        experienceEvidenceText,
       );
       add(
         { section: "identity", key: "yearsExperience", recordId: null },
@@ -349,6 +366,9 @@ export function buildDeterministicResumeImportStageExtraction(
         yearsExperience,
         yearsExperienceEvidenceCandidates.length > 0 ? 0.82 : 0.7,
         yearsExperienceEvidenceCandidates,
+        {
+          evidenceBundle: experienceEvidenceBundle,
+        },
       );
     }
     add({ section: "contact", key: "email", recordId: null }, "Email", extraction.email, 0.98, [extraction.email ?? ""]);
