@@ -7,6 +7,7 @@ import type {
   ResumeResearchArtifact,
   ResumeDraftSection,
   ResumeDraftSourceRef,
+  ResumePreviewIdentityField,
   ResumeTemplateId,
   SavedJob,
   TailoredAsset,
@@ -64,23 +65,31 @@ function buildResumeDraftIdentity(profile: CandidateProfile): ResumeDraftIdentit
   };
 }
 
-function buildResumeContactItems(identity: ResumeDraftIdentity | null | undefined): string[] {
+function buildResumeContactItems(identity: ResumeDraftIdentity | null | undefined): Array<{ field: ResumePreviewIdentityField; text: string }> {
   if (!identity) {
     return [];
   }
 
-  return [
-    identity.email,
-    identity.phone,
-    identity.portfolioUrl,
-    identity.linkedinUrl,
-    identity.githubUrl,
-    identity.personalWebsiteUrl,
-    ...(identity.additionalLinks ?? []),
-  ]
-    .filter((value): value is string => Boolean(value && value.trim()))
+  const contactItems: Array<{ field: ResumePreviewIdentityField; text: string | null }> = [
+    { field: "email", text: identity.email },
+    { field: "phone", text: identity.phone },
+    { field: "portfolioUrl", text: identity.portfolioUrl },
+    { field: "linkedinUrl", text: identity.linkedinUrl },
+    { field: "githubUrl", text: identity.githubUrl },
+    { field: "personalWebsiteUrl", text: identity.personalWebsiteUrl },
+    ...(identity.additionalLinks ?? []).map((text) => ({
+      field: "additionalLinks" as const,
+      text,
+    })),
+  ];
+
+  return contactItems
+    .flatMap((value) => {
+      const text = value.text?.trim();
+      return text ? [{ field: value.field, text }] : [];
+    })
     .filter((value, index, values) =>
-      values.findIndex((entry) => normalizeContactIdentity(entry) === normalizeContactIdentity(value)) === index,
+      values.findIndex((entry) => normalizeContactIdentity(entry.text) === normalizeContactIdentity(value.text)) === index,
     );
 }
 
@@ -196,7 +205,8 @@ export interface ResumeRenderDocument {
   fullName: string;
   headline: string | null;
   location: string | null;
-  contactItems: string[];
+  contactItems: Array<{ field: ResumePreviewIdentityField; text: string }>;
+  includePreviewAnchors?: boolean;
   sections: ResumeRenderSection[];
 }
 
@@ -478,7 +488,7 @@ export function buildTailoredResumeTextFromResumeDraft(
     joinCompact(
       [
         identity.location,
-        ...buildResumeContactItems(identity),
+        ...buildResumeContactItems(identity).map((item) => item.text),
       ],
       " | ",
     ),
@@ -496,14 +506,15 @@ export function buildResumeRenderDocument(
   draft: ResumeDraft,
   options?: ResumeRenderOptions,
 ): ResumeRenderDocument {
-  void options;
   const identity = draft.identity ?? buildResumeDraftIdentity(profile);
+  const includePreviewAnchors = options?.includePreviewAnchors ?? false;
 
   return {
     fullName: identity.fullName ?? profile.fullName,
     headline: identity.headline ?? profile.headline ?? null,
     location: identity.location ?? profile.currentLocation ?? null,
     contactItems: buildResumeContactItems(identity),
+    ...(includePreviewAnchors ? { includePreviewAnchors } : {}),
     sections: [...draft.sections]
       .filter((section) => section.included)
       .sort((left, right) => left.sortOrder - right.sortOrder)

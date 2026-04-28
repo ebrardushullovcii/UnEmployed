@@ -41,13 +41,14 @@ function getNewestExport(
     )[0] ?? null;
 }
 
+const REMOTE_METHOD_ERROR_RE =
+  /^Error invoking remote method '[^']+': (?:(?:[A-Za-z]*Error): )?(.*)$/s
+
 function getPreviewErrorMessage(error: unknown): string {
   const fallbackMessage = 'The current draft could not be previewed.'
 
   if (error instanceof Error) {
-    const remoteMethodMatch = /^Error invoking remote method '[^']+': (?:(?:[A-Za-z]*Error): )?(.*)$/s.exec(
-      error.message,
-    )
+    const remoteMethodMatch = REMOTE_METHOD_ERROR_RE.exec(error.message)
 
     return remoteMethodMatch?.[1]?.trim() || error.message
   }
@@ -61,9 +62,7 @@ function getPreviewErrorMessage(error: unknown): string {
     return fallbackMessage
   }
 
-  const remoteMethodMatch = /^Error invoking remote method '[^']+': (?:(?:[A-Za-z]*Error): )?(.*)$/s.exec(
-    message,
-  )
+  const remoteMethodMatch = REMOTE_METHOD_ERROR_RE.exec(message)
 
   return remoteMethodMatch?.[1]?.trim() || message
 }
@@ -105,6 +104,7 @@ export function ResumeWorkspaceScreen(props: {
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const [mobileStudioTab, setMobileStudioTab] = useState<'preview' | 'editor' | 'assistant'>('preview')
   const [assistantRailExpanded, setAssistantRailExpanded] = useState(false)
+  const [assistantRailManuallyCollapsed, setAssistantRailManuallyCollapsed] = useState(false)
   const previewRequestRef = useRef(0)
 
   const workspaceDraftRevisionKey = props.workspace
@@ -113,7 +113,8 @@ export function ResumeWorkspaceScreen(props: {
 
   useEffect(() => {
     if (!props.workspace) {
-      setDraft(null);
+      previewRequestRef.current += 1
+      setDraft(null)
       setPreview(null)
       setPreviewError(null)
       setPreviewStatus('idle')
@@ -283,6 +284,7 @@ export function ResumeWorkspaceScreen(props: {
   const refreshPreview = useCallback((targetDraft: ResumeDraft) => {
     const requestId = previewRequestRef.current + 1
     previewRequestRef.current = requestId
+    setPreview(null)
     setPreviewStatus('loading')
     setPreviewError(null)
 
@@ -303,13 +305,16 @@ export function ResumeWorkspaceScreen(props: {
         setPreviewStatus('error')
         setPreviewError(getPreviewErrorMessage(error))
       })
-  }, [props])
+  }, [props.onPreviewDraft])
 
   useEffect(() => {
     if (!draft) {
+      previewRequestRef.current += 1
+      setPreview(null)
       return
     }
 
+    previewRequestRef.current += 1
     const timeout = window.setTimeout(() => {
       refreshPreview(draft)
     }, hasUnsavedChanges ? 250 : 100)
@@ -318,6 +323,12 @@ export function ResumeWorkspaceScreen(props: {
       window.clearTimeout(timeout)
     }
   }, [draft, hasUnsavedChanges, refreshPreview])
+
+  useEffect(() => {
+    if (props.assistantPending) {
+      setAssistantRailManuallyCollapsed(false)
+    }
+  }, [props.assistantPending])
 
   const handlePreviewTargetSelect = useCallback((selection: {
     sectionId: string | null
@@ -407,7 +418,20 @@ export function ResumeWorkspaceScreen(props: {
 
   const { job } = props.workspace;
   const hasAssistantMessages = props.assistantMessages.length > 0
-  const showExpandedAssistantRail = assistantRailExpanded || hasAssistantMessages || props.assistantPending
+  const showExpandedAssistantRail =
+    assistantRailExpanded ||
+    props.assistantPending ||
+    (hasAssistantMessages && !assistantRailManuallyCollapsed)
+  const handleToggleAssistantRail = () => {
+    if (showExpandedAssistantRail) {
+      setAssistantRailExpanded(false)
+      setAssistantRailManuallyCollapsed(true)
+      return
+    }
+
+    setAssistantRailExpanded(true)
+    setAssistantRailManuallyCollapsed(false)
+  }
 
   const editorPanel = (
     <ResumeWorkspaceEditorPanel
@@ -466,8 +490,7 @@ export function ResumeWorkspaceScreen(props: {
     ? getResumeTemplateDeliveryLane(selectedTheme)
     : 'apply_safe'
   const fallbackThemeLabel =
-    props.availableResumeTemplates[0]?.label ||
-    'Classic ATS'
+    draft.templateId || 'Archived template'
 
   const previewPane = (
     <ResumeStudioPreviewPane
@@ -490,17 +513,17 @@ export function ResumeWorkspaceScreen(props: {
       <div className="border-b border-(--surface-panel-border) px-3 py-2">
         <div className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+            <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
               Template strategy
             </p>
             <Badge variant={selectedTemplateApprovalEligible ? 'default' : 'outline'}>
               {selectedTemplateApprovalEligible ? 'Approval eligible' : 'Approval blocked'}
             </Badge>
           </div>
-          <h2 className="font-display text-[0.84rem] font-semibold text-(--text-headline)">
+          <h2 className="font-display text-(length:--text-description) font-semibold text-(--text-headline)">
             Choose this draft's layout.
           </h2>
-          <p className="text-[0.76rem] leading-4 text-foreground-soft xl:hidden">
+          <p className="text-(length:--text-small) leading-4 text-foreground-soft xl:hidden">
             Template changes reset review state for the next export and approval.
           </p>
         </div>
@@ -567,7 +590,7 @@ export function ResumeWorkspaceScreen(props: {
             <div className="grid gap-1 border-b border-(--surface-panel-border) px-3 py-1.25">
               <div className="grid gap-0.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+                    <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
                       Resume Studio
                     </p>
                     <Badge variant="section">Preview-led review</Badge>
@@ -578,7 +601,7 @@ export function ResumeWorkspaceScreen(props: {
                       {selectedTemplateApprovalEligible ? 'Approval eligible' : 'Approval blocked'}
                     </Badge>
                   </div>
-                  <h2 className="text-[clamp(0.94rem,1.04vw,1.07rem)] font-semibold tracking-[-0.035em] text-(--text-headline)">
+                  <h2 className="text-(length:--text-body) font-semibold text-(--text-headline)">
                     Tune the live draft before export.
                   </h2>
                 </div>
@@ -658,7 +681,7 @@ export function ResumeWorkspaceScreen(props: {
                   </Button>
                 ) : null}
                 <Button
-                  onClick={() => setAssistantRailExpanded((current) => !current)}
+                  onClick={handleToggleAssistantRail}
                   size="compact"
                   type="button"
                   variant="ghost"
@@ -667,7 +690,7 @@ export function ResumeWorkspaceScreen(props: {
                 </Button>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-2.5 py-0.75 text-[0.76rem] leading-4 text-foreground-soft">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-2.5 py-0.75 text-(length:--text-small) leading-4 text-foreground-soft">
                 <span>{studioStatusMessage}</span>
                 {approvalStateLabel ? (
                   <Badge variant="outline">

@@ -110,6 +110,11 @@ export type JobFinderPreviewResumeDraftInput = z.infer<
   typeof JobFinderPreviewResumeDraftInputSchema
 >;
 
+export const JobFinderResumePreviewModeSchema = z.enum(["ok", "fail_once"]);
+export type JobFinderResumePreviewMode = z.infer<
+  typeof JobFinderResumePreviewModeSchema
+>;
+
 export const JobFinderResumeSectionActionInputSchema = z.object({
   jobId: NonEmptyStringSchema,
   sectionId: NonEmptyStringSchema,
@@ -595,6 +600,13 @@ export const DesktopPlatformPingSchema = z.object({
   platform: z.enum(["darwin", "win32", "linux"]),
 });
 export type DesktopPlatformPing = z.infer<typeof DesktopPlatformPingSchema>;
+
+export const DesktopTestOkResponseSchema = z.object({
+  ok: z.literal(true),
+});
+export type DesktopTestOkResponse = z.infer<
+  typeof DesktopTestOkResponseSchema
+>;
 
 export const DesktopWindowControlsStateSchema = z.object({
   isMaximized: z.boolean(),

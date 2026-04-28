@@ -5,6 +5,7 @@ import {
   ResumeTemplateDefinitionSchema,
   SavedJobSchema,
 } from "@unemployed/contracts";
+import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
 import { describe, expect, test } from "vitest";
 import { createAiClient } from "./workspace-service.test-runtimes";
 import {
@@ -666,11 +667,13 @@ describe("createJobFinderWorkspaceService", () => {
 
     const preview = await workspaceService.previewResumeDraft(previewDraft);
     const persistedDraft = await repository.getResumeDraftByJobId("job_ready");
+    const revisionPrefix = `resume_preview_${workspace.draft.id}`;
 
     expect(preview.draftId).toBe(workspace.draft.id);
     expect(preview.html).toContain("Preview-only edit.");
     expect(preview.html).toContain("data-resume-section-id");
-    expect(preview.revisionKey).not.toBe(`resume_preview_${workspace.draft.id}`);
+    expect(preview.revisionKey.startsWith(revisionPrefix)).toBe(true);
+    expect(preview.revisionKey.slice(revisionPrefix.length).length).toBeGreaterThan(0);
     expect(persistedDraft?.sections[0]?.text).toBe(workspace.draft.sections[0]?.text ?? null);
     expect(persistedDraft?.updatedAt).toBe(workspace.draft.updatedAt);
   });
@@ -685,7 +688,7 @@ describe("createJobFinderWorkspaceService", () => {
             warnings: [],
           });
         },
-        renderResumeArtifact(input: { templateId: ResumeTemplateId }) {
+        renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
           return Promise.resolve({
             fileName: `generated-${input.templateId}.pdf`,
             storagePath: `/tmp/generated-${input.templateId}.pdf`,
@@ -1746,7 +1749,7 @@ describe("createJobFinderWorkspaceService", () => {
     });
     exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
     approvedExport = exportedSnapshot.resumeExportArtifacts.find(
-      (artifact) => artifact.jobId === "job_ready",
+      (artifact) => artifact.jobId === "job_ready" && artifact.templateId === "modern_split",
     );
 
     await expect(

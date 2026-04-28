@@ -29,6 +29,7 @@ import type {
 } from "@unemployed/contracts";
 import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 
+import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
 import { toPhaseId, type SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
 
 function normalizeTestJobPosting(job: Record<string, unknown>): JobPosting {
@@ -662,7 +663,7 @@ export function createDocumentManager() {
         fullName: string
         headline: string | null
         location: string | null
-        contactItems: string[]
+        contactItems: Array<{ field: string; text: string }>
         sections: Array<{
           id: string
           text: string | null
@@ -701,10 +702,7 @@ export function createDocumentManager() {
         warnings: [],
       })
     },
-    renderResumeArtifact(input: {
-      templateId: ResumeTemplateId
-      targetPath?: string | null
-    }) {
+    renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
       const fileStem = `generated-${input.templateId}`
       return Promise.resolve({
         fileName: `${fileStem}.pdf`,

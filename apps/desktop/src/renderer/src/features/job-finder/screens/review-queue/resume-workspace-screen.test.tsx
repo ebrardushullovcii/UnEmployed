@@ -151,8 +151,10 @@ describe('ResumeWorkspaceScreen', () => {
   }
   const originalActEnvironment = globalScope.IS_REACT_ACT_ENVIRONMENT
   const originalResizeObserver = globalThis.ResizeObserver
-  const originalScrollIntoView = (element: HTMLElement, ...args: Parameters<HTMLElement['scrollIntoView']>) =>
-    HTMLElement.prototype.scrollIntoView.call(element, ...args)
+  const originalScrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    'scrollIntoView',
+  )
 
   beforeAll(() => {
     globalScope.IS_REACT_ACT_ENVIRONMENT = true
@@ -184,8 +186,10 @@ describe('ResumeWorkspaceScreen', () => {
     vi.runOnlyPendingTimers()
     vi.useRealTimers()
     cleanup()
-    HTMLElement.prototype.scrollIntoView = function restoreScrollIntoView(...args) {
-      return originalScrollIntoView(this, ...args)
+    if (originalScrollIntoViewDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoViewDescriptor)
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
     }
     if (originalResizeObserver) {
       vi.stubGlobal('ResizeObserver', originalResizeObserver)

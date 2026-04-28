@@ -302,6 +302,8 @@ export function ReviewQueueMissionPanel({
   const canStageSelectedQueue = selectedQueueReadyItems.length > 0 && selectedQueueBlockedCount === 0
   const isSelectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
   const isSelectedQueuePending = selectedQueueReadyItems.some((item) => isJobPending(item.jobId))
+  const isGenerationAction = needsGeneration || hasGenerationFailure
+  const isPrimaryApplyPending = isApplyPending && !isGenerationAction
   const queueSummary = selectedQueueItems.length === 0
     ? queueReadyCount === 0
       ? 'No shortlisted jobs currently meet the approved-PDF requirement for queue staging.'
@@ -413,11 +415,11 @@ export function ReviewQueueMissionPanel({
             <div className="grid min-w-0 gap-2.5">
               <Button
                 className="h-11 w-full justify-start px-4 text-sm font-semibold normal-case tracking-normal"
-                pending={isSelectedJobPending || isApplyPending}
+                pending={isSelectedJobPending || isPrimaryApplyPending}
                 variant="primary"
-                disabled={isSelectedJobPending || isApplyPending || isGenerating || (needsGeneration || hasGenerationFailure ? false : !canApproveApply)}
+                disabled={isSelectedJobPending || isPrimaryApplyPending || isGenerating || (isGenerationAction ? false : !canApproveApply)}
                 onClick={() => {
-                  if (needsGeneration || hasGenerationFailure) {
+                  if (isGenerationAction) {
                     onGenerateResume(selectedItem.jobId)
                     return
                   }
@@ -430,7 +432,7 @@ export function ReviewQueueMissionPanel({
               </Button>
 
               <div className="grid gap-1.5 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/20 p-2.5">
-                <p className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">More actions</p>
+                <p className="text-(length:--text-label-mono-xs) uppercase tracking-(--tracking-badge) text-muted-foreground">More actions</p>
                 <div className="grid gap-2">
                   <Button
                     className="h-10 w-full justify-start px-3.5 text-sm font-medium normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"

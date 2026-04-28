@@ -80,27 +80,8 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       }
 
       const allTargets = document.querySelectorAll<HTMLElement>(
-        '[data-resume-section-id], [data-resume-entry-id]',
+        '[data-resume-section-id], [data-resume-entry-id], [data-resume-target-id]',
       )
-
-      allTargets.forEach((target) => {
-        const isSelectedEntry =
-          Boolean(props.selectedEntryId) &&
-          target.dataset.resumeEntryId === props.selectedEntryId
-        const isSelectedSection =
-          !props.selectedEntryId &&
-          Boolean(props.selectedSectionId) &&
-          target.dataset.resumeSectionId === props.selectedSectionId
-        const isSelectedField =
-          Boolean(props.selectedTargetId) &&
-          target.dataset.resumeTargetId === props.selectedTargetId
-
-        if (isSelectedEntry || isSelectedSection || isSelectedField) {
-          target.setAttribute('data-resume-selected', 'true')
-        } else {
-          target.removeAttribute('data-resume-selected')
-        }
-      })
       const handleClick = (event: MouseEvent) => {
         const selection = parseSelectionTarget(event.target)
 
@@ -138,13 +119,14 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       }
     }
 
-    let cleanupDocument = bindPreviewDocument()
+    let cleanupDocument = () => {}
 
     const handleLoad = () => {
       cleanupDocument()
       cleanupDocument = bindPreviewDocument()
     }
 
+    cleanupDocument = bindPreviewDocument()
     frame.addEventListener('load', handleLoad)
 
     return () => {
@@ -195,7 +177,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
           <div className="grid gap-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+              <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
                 Resume preview
               </p>
               {props.previewStatus === 'loading' ? (
@@ -212,10 +194,10 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
               ) : null}
               {props.templateLabel ? <Badge variant="section">{props.templateLabel}</Badge> : null}
             </div>
-            <h2 className="text-[clamp(0.88rem,0.95vw,1rem)] font-semibold tracking-[-0.03em] text-(--text-headline)">
+            <h2 className="text-(length:--text-body) font-semibold text-(--text-headline)">
               Keep the export-faithful page in view while you edit.
             </h2>
-            <p className="text-[0.74rem] leading-4 text-foreground-soft xl:hidden">
+            <p className="text-(length:--text-small) leading-4 text-foreground-soft xl:hidden">
               Export uses this same renderer. Click the page to jump straight to the matching structured control.
             </p>
           </div>
@@ -235,7 +217,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         <div className="flex flex-wrap items-start gap-2.5">
           {showPreviewStateMessage ? (
             <div className={cn(
-              'rounded-(--radius-field) border px-2.5 py-0.75 text-[0.76rem] leading-4 text-foreground-soft',
+              'rounded-(--radius-field) border px-2.5 py-0.75 text-(length:--text-small) leading-4 text-foreground-soft',
               props.isDirty
                 ? 'border-primary/20 bg-primary/8'
                 : 'border-(--surface-panel-border) bg-background/45',
@@ -262,7 +244,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
                   warning.severity === 'error'
                     ? 'border-critical/30 bg-critical/10 text-critical'
                     : warning.severity === 'warning'
-                      ? 'border-amber-500/20 bg-amber-500/10 text-amber-200'
+                      ? 'border-(--warning-border) bg-(--warning-surface) text-(--warning-text)'
                       : 'border-(--surface-panel-border) bg-background/60 text-foreground-soft',
                 )}
                 key={warning.id}

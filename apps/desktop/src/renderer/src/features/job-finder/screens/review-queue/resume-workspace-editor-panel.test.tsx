@@ -41,6 +41,35 @@ describe('ResumeWorkspaceEditorPanel', () => {
   let container: HTMLDivElement | null = null
   let root: Root | null = null
 
+  const renderPanel = (isWorkspacePending: boolean) => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          draft={draft}
+          hasUnsavedChanges={false}
+          isWorkspacePending={isWorkspacePending}
+          jobId="job_1"
+          onApplyPatch={vi.fn()}
+          onDraftChange={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => next()}
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          withDraftPatch={(patch) => patch}
+        />,
+      )
+    })
+  }
+
   beforeAll(() => {
     globalScope.IS_REACT_ACT_ENVIRONMENT = true
   })
@@ -68,38 +97,36 @@ describe('ResumeWorkspaceEditorPanel', () => {
   })
 
   it('keeps structured editing available while template selection lives elsewhere in studio', () => {
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+    renderPanel(false)
 
-    act(() => {
-      root?.render(
-        <ResumeWorkspaceEditorPanel
-          actionMessage={null}
-          draft={draft}
-          hasUnsavedChanges={false}
-          isWorkspacePending={false}
-          jobId="job_1"
-          onApplyPatch={vi.fn()}
-          onDraftChange={vi.fn()}
-          onRegenerateSection={vi.fn()}
-          onSectionChange={vi.fn()}
-          onSelectEntry={vi.fn()}
-          onSelectSection={vi.fn()}
-          runWithSavedDraft={(next) => next()}
-          selectedEntryId={null}
-          selectedSectionId={null}
-          selectedTargetId={null}
-          withDraftPatch={(patch) => patch}
-        />,
-      )
-    })
+    const scrollRegion = container?.querySelector('[data-resume-editor-scroll-region]')
+    const editableControls = Array.from(
+      scrollRegion?.querySelectorAll('input, textarea, select, button') ?? [],
+    )
 
-    const scrollRegion = container?.querySelector('.overflow-y-auto')
     expect(scrollRegion?.textContent).toContain('Structured edits')
     expect(scrollRegion?.textContent).toContain('Resume identity')
     expect(scrollRegion?.textContent).toContain('Change the schema-safe content behind the preview')
     expect(scrollRegion?.textContent).not.toContain('Choose a family')
     expect(scrollRegion?.querySelectorAll('[role="radio"]')).toHaveLength(0)
+    expect(editableControls.length).toBeGreaterThan(0)
+    for (const control of editableControls) {
+      expect(control.hasAttribute('disabled')).toBe(false)
+      expect(control.getAttribute('aria-disabled')).not.toBe('true')
+    }
+  })
+
+  it('disables structured editing controls while workspace work is pending', () => {
+    renderPanel(true)
+
+    const scrollRegion = container?.querySelector('[data-resume-editor-scroll-region]')
+    const editableControls = Array.from(
+      scrollRegion?.querySelectorAll('input, textarea, select, button') ?? [],
+    )
+
+    expect(editableControls.length).toBeGreaterThan(0)
+    for (const control of editableControls) {
+      expect(control.hasAttribute('disabled')).toBe(true)
+    }
   })
 })

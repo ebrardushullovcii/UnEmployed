@@ -119,14 +119,18 @@ function tokenSet(value: string): Set<string> {
 }
 
 function tokenOverlap(leftTokens: Set<string>, rightTokens: Set<string>): number {
-  const leftEntries = [...leftTokens];
-
-  if (leftEntries.length === 0 || rightTokens.size === 0) {
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
     return 0;
   }
 
-  const matched = leftEntries.filter((token) => rightTokens.has(token)).length;
-  return matched / Math.min(leftEntries.length, rightTokens.size);
+  let matched = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      matched += 1;
+    }
+  }
+
+  return matched / Math.min(leftTokens.size, rightTokens.size);
 }
 
 function dedupeLongResumeLines(lines: readonly string[]): string[] {

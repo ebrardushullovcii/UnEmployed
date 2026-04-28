@@ -58,8 +58,9 @@ function getDraftSummaryText(workspace) {
 }
 
 function getPreviewExpectation(workspace) {
-  const summaryText = getDraftSummaryText(workspace).trim()
-  if (summaryText.length > 0) {
+  const summarySection = workspace.draft.sections.find((section) => section.kind === 'summary')
+  const summaryText = summarySection?.text?.trim() ?? ''
+  if (summarySection?.included && summaryText.length > 0) {
     return summaryText
   }
 
@@ -104,7 +105,47 @@ function getPreviewExpectation(workspace) {
   return null
 }
 
+function buildEntryFieldTarget(sectionId, entryId, field) {
+  return `entry:${sectionId}:${entryId}:${field}`
+}
+
+function getEntryPreviewTarget(section, entry) {
+  const fieldCandidates = [
+    { field: 'title', editorLabel: 'Title', value: entry.title },
+    { field: 'subtitle', editorLabel: 'Subtitle', value: entry.subtitle },
+    { field: 'summary', editorLabel: 'Summary', value: entry.summary },
+  ]
+
+  for (const candidate of fieldCandidates) {
+    const expectedValue = candidate.value?.trim()
+    if (expectedValue) {
+      return {
+        sectionId: section.id,
+        entryId: entry.id,
+        targetId: buildEntryFieldTarget(section.id, entry.id, candidate.field),
+        editorLabel: candidate.editorLabel,
+        expectedValue,
+      }
+    }
+  }
+
+  const bullet = entry.bullets.find((entryBullet) => entryBullet.included && entryBullet.text.trim().length > 0)
+  if (!bullet) {
+    return null
+  }
+
+  return {
+    sectionId: section.id,
+    entryId: entry.id,
+    targetId: `entry:${section.id}:${entry.id}:bullet:${bullet.id}`,
+    editorLabel: 'Bullet text',
+    expectedValue: bullet.text.trim(),
+  }
+}
+
 function getClickablePreviewTarget(workspace) {
+  const targets = []
+
   for (const section of workspace.draft.sections) {
     if (!section.included) {
       continue
@@ -112,26 +153,25 @@ function getClickablePreviewTarget(workspace) {
 
     const includedEntry = section.entries.find((entry) => entry.included)
     if (includedEntry) {
-      return {
-        sectionId: section.id,
-        entryId: includedEntry.id,
-        editorLabel: 'Title',
+      const entryTarget = getEntryPreviewTarget(section, includedEntry)
+      if (entryTarget) {
+        targets.push(entryTarget)
       }
+      continue
     }
 
-    if (
-      section.text?.trim() ||
-      section.bullets.some((bullet) => bullet.included && bullet.text.trim().length > 0)
-    ) {
-      return {
+    if (section.text?.trim()) {
+      targets.push({
         sectionId: section.id,
         entryId: null,
+        targetId: `section:${section.id}:text`,
         editorLabel: 'Section text',
-      }
+        expectedValue: section.text?.trim() ?? null,
+      })
     }
   }
 
-  return null
+  return targets[1] ?? targets[0] ?? null
 }
 
 function getLatestBy(items, getTimestamp) {
@@ -168,6 +208,10 @@ function summaryField(window) {
 
 function titleField(window) {
   return window.getByLabel('Title').first()
+}
+
+function editorFieldByTarget(window, targetId) {
+  return window.locator(`[data-resume-editor-target="${targetId}"]`).first()
 }
 
 function assistantField(window) {
@@ -218,15 +262,44 @@ async function waitForPreviewFailure(window) {
     .waitFor({ timeout: 10000 })
 }
 
-async function waitForPreviewReady(window, expectedText = null) {
+async function waitForPreviewReady(window, options = {}) {
+  const normalizedOptions = options ?? {}
+  const expectedText = typeof normalizedOptions === 'string' ? normalizedOptions : normalizedOptions.expectedText ?? null
+  const changedFrom = typeof normalizedOptions === 'string' ? null : normalizedOptions.changedFrom ?? null
+
   await visiblePreviewFrame(window).waitFor({ timeout: 10000 })
   await waitForCondition(
     async () => {
-      const previewHtml = await getPreviewSrcdoc(window)
-      return expectedText ? previewHtml.includes(expectedText) : previewHtml.length > 0
+      let previewHtml
+      try {
+        previewHtml = await getPreviewSrcdoc(window)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (
+          /detached|execution context was destroyed|target closed|frame was detached|context destroyed/i.test(message)
+        ) {
+          return false
+        }
+
+        throw error
+      }
+
+      if (expectedText && !previewHtml.includes(expectedText)) {
+        return false
+      }
+
+      if (changedFrom !== null && previewHtml === changedFrom) {
+        return false
+      }
+
+      return previewHtml.length > 0
     },
-    expectedText
+    expectedText && changedFrom !== null
+      ? `resume preview to include '${expectedText}' after a fresh render`
+      : expectedText
       ? `resume preview to include '${expectedText}'`
+      : changedFrom !== null
+      ? 'fresh resume preview content'
       : 'resume preview content',
   )
 }
@@ -258,99 +331,25 @@ function templateStrategyPanel(window) {
   return window.locator('section').filter({ hasText: 'Template strategy' }).first()
 }
 
-async function getVisibleVariantCountLabel(window) {
-  return (await window.getByText(/visible variants$/).first().textContent())?.trim() ?? null
-}
-
-async function getVisibleVariantCount(window) {
-  const label = await getVisibleVariantCountLabel(window)
-  const match = /^(\d+) visible variants$/.exec(label ?? '')
-  return match ? Number.parseInt(match[1], 10) : null
-}
-
-async function getRecommendedTemplateLabels(window) {
-  const labels = await window.locator('button[data-slot="button"]').evaluateAll((elements) =>
-    elements
-      .map((element) => element.textContent?.trim() ?? '')
-      .filter((label) => label.includes(' - ')),
-  )
-
-  return [...new Set(labels)]
-}
-
-function templateFamilySection(window, familyLabel) {
-  return window.locator('section').filter({
-    has: window.getByRole('heading', { name: familyLabel, exact: true }),
-  }).first()
-}
-
-function shortlistComparePanel(window) {
-  return window.locator('aside').filter({ hasText: 'Shortlist compare' }).first()
-}
-
 async function clickLocatorViaDom(locator, description) {
-  await locator.waitFor({ timeout: 10000 })
-  await locator.dispatchEvent('click')
-}
-
-async function clickButtonInFamilySection(window, familyLabel, buttonText) {
-  const clicked = await window.evaluate(({ familyLabel: currentFamilyLabel, buttonText: currentButtonText }) => {
-    const section = [...document.querySelectorAll('section')].find((element) => {
-      const heading = element.querySelector('h3')
-      return heading?.textContent?.trim() === currentFamilyLabel
-    })
-
-    if (!(section instanceof HTMLElement)) {
-      return false
-    }
-
-    const button = [...section.querySelectorAll('button')].find(
-      (element) => element.textContent?.trim() === currentButtonText,
-    )
-
-    if (!(button instanceof HTMLButtonElement)) {
-      return false
-    }
-
-    button.click()
-    return true
-  }, { familyLabel, buttonText })
-
-  assert(clicked, `Expected button '${buttonText}' in family section '${familyLabel}'.`)
+  try {
+    await locator.waitFor({ timeout: 10000 })
+    await locator.click()
+  } catch (error) {
+    throw new Error(`Could not click ${description}: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 async function clickTemplateStrategyVariant(window, variantLabel, buttonText) {
-  const clicked = await window.evaluate(({ currentVariantLabel, currentButtonText }) => {
-    const strategySection = [...document.querySelectorAll('section')].find((element) =>
-      element.textContent?.includes('Template strategy'),
-    )
+  const strategySection = templateStrategyPanel(window)
+  const variantCard = strategySection
+    .locator('div')
+    .filter({ hasText: variantLabel })
+    .filter({ has: strategySection.getByRole('button', { name: buttonText }) })
+    .first()
+  const button = variantCard.getByRole('button', { name: buttonText }).first()
 
-    if (!(strategySection instanceof HTMLElement)) {
-      return false
-    }
-
-    const variantCard = [...strategySection.querySelectorAll('div')].find((element) => {
-      const text = element.textContent?.replace(/\s+/g, ' ').trim() ?? ''
-      return text.includes(currentVariantLabel)
-    })
-
-    if (!(variantCard instanceof HTMLElement)) {
-      return false
-    }
-
-    const button = [...variantCard.querySelectorAll('button')].find(
-      (element) => element.textContent?.trim() === currentButtonText,
-    )
-
-    if (!(button instanceof HTMLButtonElement)) {
-      return false
-    }
-
-    button.click()
-    return true
-  }, { currentVariantLabel: variantLabel, currentButtonText: buttonText })
-
-  assert(clicked, `Expected button '${buttonText}' for template variant '${variantLabel}'.`)
+  await clickLocatorViaDom(button, `button '${buttonText}' for template variant '${variantLabel}'`)
 }
 
 async function captureResumeWorkspace() {
@@ -449,12 +448,13 @@ async function captureResumeWorkspace() {
     )
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04b-template-strategy-engineering-family.png') })
 
+    const preTemplatePreviewSrcdoc = await getPreviewSrcdoc(window)
     await clickTemplateStrategyVariant(window, 'Systems', 'Use this variant')
     await waitForCondition(
       async () => (await getTemplateBadgeText(window)) === 'Template: Engineering Spec - Systems',
       'template header badge to reflect the recommended template selection',
     )
-    await waitForPreviewReady(window)
+    await waitForPreviewReady(window, { changedFrom: preTemplatePreviewSrcdoc })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04c-template-selected-engineering-spec.png') })
 
     const unsavedPreviewSentinel = 'Senior systems designer with strong workflow automation, design-system, and operations-platform experience.'
@@ -481,26 +481,34 @@ async function captureResumeWorkspace() {
     const clickTarget = getClickablePreviewTarget(await getResumeWorkspace(window, 'job_ready'))
     assert(clickTarget, 'Expected a clickable preview target in the resume workspace demo.')
     const previewFrame = window.frameLocator('iframe[title="Live resume preview"]:visible')
-    const previewTargetLocator = clickTarget.entryId
-      ? previewFrame.locator(`[data-resume-entry-id="${clickTarget.entryId}"]`)
-      : previewFrame.locator(`[data-resume-section-id="${clickTarget.sectionId}"]`).first()
+    const previewTargetLocator = previewFrame.locator(`[data-resume-target-id="${clickTarget.targetId}"]`).first()
     await previewTargetLocator.waitFor({ timeout: 10000 })
-    await previewTargetLocator.evaluate((element) => {
-      if (!(element instanceof HTMLElement)) {
-        throw new Error('Expected preview target to be an HTMLElement.')
-      }
+    await previewTargetLocator.click()
 
-      element.click()
-    })
+    await waitForCondition(
+      async () =>
+        previewTargetLocator.evaluate((element) => element.getAttribute('data-resume-selected') === 'true'),
+      'clicked preview target to become selected',
+    )
 
     if (clickTarget.editorLabel === 'Title') {
       await waitForCondition(
-        async () => titleField(window).evaluate((element) => element === element.ownerDocument.activeElement),
+        async () =>
+          editorFieldByTarget(window, clickTarget.targetId).evaluate(
+            (element, expectedValue) =>
+              element === element.ownerDocument.activeElement && element.value === expectedValue,
+            clickTarget.expectedValue,
+          ),
         'entry title input focus after clicking the live preview',
       )
     } else {
       await waitForCondition(
-        async () => summaryField(window).evaluate((element) => element === element.ownerDocument.activeElement),
+        async () =>
+          editorFieldByTarget(window, clickTarget.targetId).evaluate(
+            (element, expectedValue) =>
+              element === element.ownerDocument.activeElement && element.value === expectedValue,
+            clickTarget.expectedValue,
+          ),
         'section text input focus after clicking the live preview',
       )
     }
@@ -509,10 +517,7 @@ async function captureResumeWorkspace() {
       clickToFocus: {
         target: clickTarget,
         activeEditorLabel: await getActiveEditorLabel(window),
-        focusedValue:
-          clickTarget.editorLabel === 'Title'
-            ? await titleField(window).inputValue()
-            : await summaryField(window).inputValue(),
+        focusedValue: await editorFieldByTarget(window, clickTarget.targetId).inputValue(),
       },
     })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06-preview-click-focus.png') })

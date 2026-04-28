@@ -2,6 +2,7 @@ import {
   ProfileReviewItemSchema,
   ProfileSetupStateSchema,
   evaluateProfileSetupReadiness,
+  hasProfileSetupPlaceholderValue,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileReviewItem,
@@ -17,10 +18,6 @@ import {
   type DerivedReviewDraft,
 } from "./profile-setup-review-mapping";
 import { normalizeText, uniqueStrings } from "./shared";
-import {
-  PROFILE_PLACEHOLDER_HEADLINE,
-  PROFILE_PLACEHOLDER_LOCATION,
-} from "./workspace-defaults";
 
 interface BuildProfileSetupReviewItemsInput {
   currentState: ProfileSetupState | null;
@@ -30,6 +27,9 @@ interface BuildProfileSetupReviewItemsInput {
   candidates: readonly ResumeImportFieldCandidate[];
   searchPreferences: JobSearchPreferences;
 }
+
+type TargetDomain = ProfileReviewItem["target"]["domain"];
+type TargetKey = ProfileReviewItem["target"]["key"];
 
 function getPreferredApplicationLinkUrls(profile: CandidateProfile): string[] {
   return uniqueStrings(
@@ -154,7 +154,7 @@ function hasCurrentTargetValue(
     if (
       target.domain === "identity" &&
       target.key === "headline" &&
-      !hasPlaceholderAwareIdentityValue(value, PROFILE_PLACEHOLDER_HEADLINE)
+      !hasPlaceholderAwareIdentityValue(value, "headline")
     ) {
       return false;
     }
@@ -162,7 +162,7 @@ function hasCurrentTargetValue(
     if (
       target.domain === "identity" &&
       target.key === "currentLocation" &&
-      !hasPlaceholderAwareIdentityValue(value, PROFILE_PLACEHOLDER_LOCATION)
+      !hasPlaceholderAwareIdentityValue(value, "currentLocation")
     ) {
       return false;
     }
@@ -171,6 +171,10 @@ function hasCurrentTargetValue(
   }
 
   if (typeof value === "number") {
+    if (target.domain === "identity" && target.key === "yearsExperience") {
+      return value > 0;
+    }
+
     return true;
   }
 
@@ -337,11 +341,23 @@ function hasMeaningfulStringList(values: readonly string[] | null | undefined): 
 
 function hasPlaceholderAwareIdentityValue(
   value: string | null | undefined,
-  placeholder: string,
+  field: "headline" | "currentLocation",
 ): boolean {
   return Boolean(
     hasMeaningfulText(value) &&
-      normalizeText(value ?? "") !== normalizeText(placeholder),
+      !hasProfileSetupPlaceholderValue(field, value),
+  );
+}
+
+function hasDraftForTarget(
+  candidateDrafts: readonly DerivedReviewDraft[],
+  domain: TargetDomain,
+  key?: TargetKey,
+): boolean {
+  return candidateDrafts.some(
+    (draft) =>
+      draft.target.domain === domain &&
+      (key === undefined || draft.target.key === key),
   );
 }
 
@@ -353,10 +369,8 @@ function buildMissingFieldDrafts(
   const drafts: DerivedReviewDraft[] = [];
 
   if (
-    !hasPlaceholderAwareIdentityValue(profile.headline, PROFILE_PLACEHOLDER_HEADLINE) &&
-    !candidateDrafts.some(
-      (draft) => draft.target.domain === "identity" && draft.target.key === "headline",
-    )
+    !hasPlaceholderAwareIdentityValue(profile.headline, "headline") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "headline")
   ) {
     drafts.push({
       step: "essentials",
@@ -371,10 +385,8 @@ function buildMissingFieldDrafts(
   }
 
   if (
-    !hasPlaceholderAwareIdentityValue(profile.currentLocation, PROFILE_PLACEHOLDER_LOCATION) &&
-    !candidateDrafts.some(
-      (draft) => draft.target.domain === "identity" && draft.target.key === "currentLocation",
-    )
+    !hasPlaceholderAwareIdentityValue(profile.currentLocation, "currentLocation") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "currentLocation")
   ) {
     drafts.push({
       step: "essentials",
@@ -390,9 +402,7 @@ function buildMissingFieldDrafts(
 
   if (
     profile.yearsExperience <= 0 &&
-    !candidateDrafts.some(
-      (draft) => draft.target.domain === "identity" && draft.target.key === "yearsExperience",
-    )
+    !hasDraftForTarget(candidateDrafts, "identity", "yearsExperience")
   ) {
     drafts.push({
       step: "essentials",
@@ -406,7 +416,12 @@ function buildMissingFieldDrafts(
     });
   }
 
-  if (!hasMeaningfulText(profile.email) && !hasMeaningfulText(profile.phone)) {
+  if (
+    !hasMeaningfulText(profile.email) &&
+    !hasMeaningfulText(profile.phone) &&
+    !hasDraftForTarget(candidateDrafts, "identity", "email") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "phone")
+  ) {
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "contactPath", recordId: null },
@@ -424,9 +439,7 @@ function buildMissingFieldDrafts(
       (experience) =>
         hasMeaningfulText(experience.companyName) || hasMeaningfulText(experience.title),
     ) &&
-    !candidateDrafts.some(
-      (draft) => draft.target.domain === "experience" && draft.target.key === "record",
-    )
+    !hasDraftForTarget(candidateDrafts, "experience", "record")
   ) {
     drafts.push({
       step: "background",
@@ -444,10 +457,8 @@ function buildMissingFieldDrafts(
     !hasMeaningfulStringList(searchPreferences.targetRoles) &&
     !hasMeaningfulStringList(searchPreferences.jobFamilies) &&
     !hasMeaningfulStringList(profile.targetRoles) &&
-    !candidateDrafts.some(
-      (draft) =>
-        draft.target.domain === "search_preferences" && draft.target.key === "targetRoles",
-    )
+    !hasDraftForTarget(candidateDrafts, "search_preferences", "targetRoles") &&
+    !hasDraftForTarget(candidateDrafts, "search_preferences", "jobFamilies")
   ) {
     drafts.push({
       step: "targeting",
@@ -474,11 +485,10 @@ function buildMissingFieldDrafts(
 
   if (
     !hasEligibility &&
-    !candidateDrafts.some(
-      (draft) =>
-        draft.target.domain === "work_eligibility" ||
-        (draft.target.domain === "search_preferences" &&
-          draft.target.key === "locations"),
+    !(
+      hasDraftForTarget(candidateDrafts, "work_eligibility") ||
+      hasDraftForTarget(candidateDrafts, "search_preferences", "locations") ||
+      hasDraftForTarget(candidateDrafts, "search_preferences", "workModes")
     )
   ) {
     drafts.push({

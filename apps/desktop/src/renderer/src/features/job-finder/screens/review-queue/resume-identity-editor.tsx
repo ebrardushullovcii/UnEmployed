@@ -77,8 +77,10 @@ export function ResumeIdentityEditor(props: ResumeIdentityEditorProps) {
 
     const regionTop = scrollRegion.scrollTop
     const regionBottom = regionTop + scrollRegion.clientHeight
-    const targetTop = container.offsetTop
-    const targetBottom = targetTop + container.offsetHeight
+    const regionRect = scrollRegion.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    const targetTop = scrollRegion.scrollTop + targetRect.top - regionRect.top
+    const targetBottom = targetTop + targetRect.height
 
     if (targetTop < regionTop) {
       scrollRegion.scrollTop = Math.max(0, targetTop - 24)
@@ -96,7 +98,7 @@ export function ResumeIdentityEditor(props: ResumeIdentityEditorProps) {
       ref={containerRef}
     >
       <div className="grid gap-0.5">
-        <h3 className="font-display text-[0.9rem] font-semibold text-(--text-headline)">Resume identity</h3>
+        <h3 className="font-display text-(length:--text-item) font-semibold text-(--text-headline)">Resume identity</h3>
         <p className="text-(length:--text-small) leading-5 text-foreground-soft">
           Edit the header content that appears at the top of the resume preview and export.
         </p>

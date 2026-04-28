@@ -42,6 +42,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
             <div className="flex flex-wrap items-stretch gap-2.5">
               <Button
                 disabled={isProfileSetupPending}
+                pending={isProfileSetupPending}
                 onClick={() =>
                   educationArray.append({
                     id: `education_${crypto.randomUUID().slice(0, 8)}`,
@@ -62,6 +63,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
               </Button>
               <Button
                 disabled={isProfileSetupPending}
+                pending={isProfileSetupPending}
                 onClick={() =>
                   certificationArray.append({
                     id: `certification_${crypto.randomUUID().slice(0, 8)}`,
@@ -101,7 +103,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Education details</p>
-                  <Button disabled={isProfileSetupPending} onClick={() => educationArray.remove(index)} size="compact" type="button" variant="ghost">
+                  <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => educationArray.remove(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
                 </div>
@@ -136,7 +138,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Certification details</p>
-                <Button disabled={isProfileSetupPending} onClick={() => certificationArray.remove(index)} size="compact" type="button" variant="ghost">
+                <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => certificationArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
               </div>

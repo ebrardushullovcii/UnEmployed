@@ -244,7 +244,9 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
           overrides: {
             forceMethod: null,
             deniedRoutePatterns: [],
-            extraStartingRoutes: [],
+            extraStartingRoutes: [
+              "https://www.linkedin.com/jobs/collections/recommended/",
+            ],
           },
         },
       }),
@@ -260,6 +262,7 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
     expect(snapshot.sourceAccessPrompts).toEqual([
       expect.objectContaining({
         targetId: "target_linkedin_default",
+        targetUrl: "https://www.linkedin.com/jobs/collections/recommended/",
         state: "prompt_login_recommended",
       }),
     ]);

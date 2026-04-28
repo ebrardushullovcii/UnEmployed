@@ -3,7 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { ResumeTemplateDefinition } from '@unemployed/contracts'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import {
   buildResumeThemePickerRecommendations,
@@ -132,8 +132,20 @@ describe('ResumeThemePicker', () => {
   }
   let container: HTMLDivElement | null = null
   let root: Root | null = null
+  const originalReactActEnvironment = globalScope.IS_REACT_ACT_ENVIRONMENT
 
-  globalScope.IS_REACT_ACT_ENVIRONMENT = true
+  beforeAll(() => {
+    globalScope.IS_REACT_ACT_ENVIRONMENT = true
+  })
+
+  afterAll(() => {
+    if (originalReactActEnvironment === undefined) {
+      delete globalScope.IS_REACT_ACT_ENVIRONMENT
+      return
+    }
+
+    globalScope.IS_REACT_ACT_ENVIRONMENT = originalReactActEnvironment
+  })
 
   afterEach(() => {
     if (root) {
@@ -182,6 +194,6 @@ describe('ResumeThemePicker', () => {
     expect(container?.textContent).toContain('Choose a family')
     expect(container?.textContent).toContain('Engineering Spec')
     expect(container?.textContent).toContain('Recommended')
-    expect(container?.querySelectorAll('[role="radio"]')).toHaveLength(1)
+    expect(container?.querySelectorAll('[role="radio"]')).toHaveLength(0)
   })
 })

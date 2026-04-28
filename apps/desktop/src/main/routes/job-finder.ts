@@ -5,6 +5,7 @@ import {
   ApplyRunDetailsSchema,
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,
+  DesktopTestOkResponseSchema,
   JobFinderAgentDiscoveryActionInputSchema,
   JobFinderApplyConsentActionInputSchema,
   JobFinderApplyQueueActionInputSchema,
@@ -17,6 +18,7 @@ import {
   JobFinderProfileCopilotPatchGroupActionInputSchema,
   JobFinderProfileSetupReviewActionInputSchema,
   JobFinderResumePreviewSchema,
+  JobFinderResumePreviewModeSchema,
   JobFinderResumeAssistantMessageInputSchema,
   JobFinderRepositoryStateSchema,
   ResumeQualityBenchmarkRequestSchema,
@@ -41,6 +43,8 @@ import {
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
   JobFinderUndoProfileRevisionInputSchema,
+  ResumeImportBenchmarkReportSchema,
+  ResumeQualityBenchmarkReportSchema,
 } from "@unemployed/contracts";
 import {
   getDesktopTestDelayMs,
@@ -348,12 +352,12 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       );
     }
 
-    const mode = payload === "fail_once" ? "fail_once" : "ok";
+    const mode = JobFinderResumePreviewModeSchema.parse(payload);
     await setJobFinderWorkspaceServiceTestEnv({
       UNEMPLOYED_TEST_RESUME_PREVIEW: mode,
     });
 
-    return { ok: true as const };
+    return DesktopTestOkResponseSchema.parse({ ok: true });
   });
 
   ipcMain.handle("job-finder:test-load-apply-queue-demo", async () => {
@@ -421,7 +425,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
           : {}),
       };
 
-      return runDesktopResumeImportBenchmark(options);
+      const report = await runDesktopResumeImportBenchmark(options);
+      return ResumeImportBenchmarkReportSchema.parse(report);
     },
   );
 
@@ -450,7 +455,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
           : {}),
       };
 
-      return runDesktopResumeQualityBenchmark(options);
+      const report = await runDesktopResumeQualityBenchmark(options);
+      return ResumeQualityBenchmarkReportSchema.parse(report);
     },
   );
 

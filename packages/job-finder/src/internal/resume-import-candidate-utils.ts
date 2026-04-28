@@ -41,6 +41,10 @@ export function toCandidate(
       candidate: draft,
       bundle: documentBundle,
     });
+  const resolvedConfidenceBreakdown =
+    sourceKind === "parser_literal" && confidenceBreakdown.recommendation !== "abstain"
+      ? { ...confidenceBreakdown, recommendation: "auto_apply" as const }
+      : confidenceBreakdown;
 
   return ResumeImportFieldCandidateSchema.parse({
     ...draft,
@@ -49,19 +53,19 @@ export function toCandidate(
     sourceKind,
     resolution:
       sourceKind === "parser_literal"
-        ? confidenceBreakdown.recommendation === "abstain"
+        ? resolvedConfidenceBreakdown.recommendation === "abstain"
           ? "abstained"
           : "auto_applied"
-        : confidenceBreakdown.recommendation === "abstain"
+        : resolvedConfidenceBreakdown.recommendation === "abstain"
           ? "abstained"
           : "needs_review",
     resolutionReason:
-      sourceKind === "parser_literal"
-        ? "high_confidence_literal_with_direct_evidence"
-        : confidenceBreakdown.recommendation === "abstain"
-          ? "composite_confidence_recommended_abstain"
+      resolvedConfidenceBreakdown.recommendation === "abstain"
+        ? "composite_confidence_recommended_abstain"
+        : sourceKind === "parser_literal"
+          ? "high_confidence_literal_with_direct_evidence"
           : null,
-    confidenceBreakdown,
+    confidenceBreakdown: resolvedConfidenceBreakdown,
     createdAt,
     resolvedAt: sourceKind === "parser_literal" ? createdAt : null,
     valuePreview: draft.valuePreview ?? buildValuePreview(draft.value),
@@ -114,11 +118,25 @@ export function hasBlockingResumeImportCandidates(
 export function summarizeCandidateWarnings(
   candidates: readonly ResumeImportFieldCandidate[],
 ): string[] {
-  const blockingReviewCandidates = candidates.filter(isBlockingReviewCandidate);
-  const leadingLabels = blockingReviewCandidates
-    .slice(0, 5)
-    .map((candidate) => candidate.label);
-  const optionalProofCandidates = candidates.filter(isOptionalProofCandidate);
+  const blockingReviewCandidates: ResumeImportFieldCandidate[] = [];
+  const optionalProofCandidates: ResumeImportFieldCandidate[] = [];
+  const leadingLabels: string[] = [];
+
+  for (const candidate of candidates) {
+    if (isBlockingReviewCandidate(candidate)) {
+      blockingReviewCandidates.push(candidate);
+
+      if (leadingLabels.length < 5) {
+        leadingLabels.push(candidate.label);
+      }
+
+      continue;
+    }
+
+    if (isOptionalProofCandidate(candidate)) {
+      optionalProofCandidates.push(candidate);
+    }
+  }
 
   if (blockingReviewCandidates.length === 0 && optionalProofCandidates.length === 0) {
     return [];

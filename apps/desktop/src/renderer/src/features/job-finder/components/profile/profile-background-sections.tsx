@@ -47,6 +47,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           <div className="flex flex-wrap items-stretch gap-2.5">
             <Button
               disabled={props.isProfileSetupPending}
+              pending={props.isProfileSetupPending}
               onClick={() =>
                 projectArray.append({
                   id: `project_${crypto.randomUUID().slice(0, 8)}`,
@@ -69,6 +70,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
             </Button>
             <Button
               disabled={props.isProfileSetupPending}
+              pending={props.isProfileSetupPending}
               onClick={() =>
                 linkArray.append({
                   id: `link_${crypto.randomUUID().slice(0, 8)}`,
@@ -85,6 +87,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
             </Button>
             <Button
               disabled={props.isProfileSetupPending}
+              pending={props.isProfileSetupPending}
               onClick={() =>
                 languageArray.append({
                   id: `language_${crypto.randomUUID().slice(0, 8)}`,
@@ -119,7 +122,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Project details</p>
-               <Button disabled={props.isProfileSetupPending} onClick={() => projectArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => projectArray.remove(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -150,7 +153,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Link details</p>
-               <Button disabled={props.isProfileSetupPending} onClick={() => linkArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => linkArray.remove(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -197,7 +200,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Language details</p>
-               <Button disabled={props.isProfileSetupPending} onClick={() => languageArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => languageArray.remove(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -248,6 +251,7 @@ export function ProfileBackgroundProofBankSection(props: {
         action={(
           <Button
             disabled={props.isProfileSetupPending}
+            pending={props.isProfileSetupPending}
             onClick={() =>
               proofBankArray.append({
                 id: `proof_${crypto.randomUUID().slice(0, 8)}`,
@@ -284,7 +288,7 @@ export function ProfileBackgroundProofBankSection(props: {
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Proof details</p>
-                 <Button disabled={props.isProfileSetupPending} onClick={() => proofBankArray.remove(index)} size="compact" type="button" variant="ghost">
+                <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => proofBankArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
               </div>

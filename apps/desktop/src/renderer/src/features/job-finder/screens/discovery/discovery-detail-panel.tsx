@@ -168,10 +168,10 @@ export function DiscoveryDetailPanel({
             ) : null}
 
             <div className="grid gap-2.5 sm:grid-cols-2">
-              <Button className="h-11 w-full" pending={isSelectedJobPending} onClick={() => onQueueJob(selectedJob.id)} type="button" variant="primary">
+              <Button className="h-11 w-full" disabled={isSelectedJobPending} onClick={() => onQueueJob(selectedJob.id)} type="button" variant="primary">
                 Shortlist job
               </Button>
-              <Button className="h-11 w-full" pending={isSelectedJobPending} onClick={() => onDismissJob(selectedJob.id)} type="button" variant="secondary">
+              <Button className="h-11 w-full" disabled={isSelectedJobPending} onClick={() => onDismissJob(selectedJob.id)} type="button" variant="secondary">
                 Hide result
               </Button>
             </div>

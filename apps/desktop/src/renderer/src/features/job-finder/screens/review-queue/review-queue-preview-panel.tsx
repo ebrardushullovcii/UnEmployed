@@ -5,6 +5,7 @@ import { StatusBadge } from '../../components/status-badge'
 import { getReviewQueueWorkflowStatus, hasResumeGenerationFailure, isResumeGenerationInProgress, needsResumeGeneration } from './review-queue-status'
 
 interface ReviewQueuePreviewPanelProps {
+  isGenerating?: boolean
   onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
   previewState: PreviewState
@@ -16,10 +17,10 @@ interface ReviewQueuePreviewPanelProps {
 
 type PreviewState = 'missing' | null
 
-export function ReviewQueuePreviewPanel({ onEditResumeWorkspace, onGenerateResume, previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
+export function ReviewQueuePreviewPanel({ isGenerating: isSelectedJobPending = false, onEditResumeWorkspace, onGenerateResume, previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
   const needsGeneration = needsResumeGeneration(selectedItem)
   const hasGenerationFailure = hasResumeGenerationFailure(selectedItem)
-  const isGenerating = isResumeGenerationInProgress(selectedItem)
+  const isGenerating = isResumeGenerationInProgress(selectedItem) || isSelectedJobPending
   const showGenerationState = needsGeneration || isGenerating || hasGenerationFailure
   const workflowStatus = getReviewQueueWorkflowStatus(selectedItem)
   const previewTone = previewState === 'missing' ? 'critical' : workflowStatus.tone
@@ -59,7 +60,7 @@ export function ReviewQueuePreviewPanel({ onEditResumeWorkspace, onGenerateResum
               </p>
               {!isGenerating ? (
                 <div className="flex flex-wrap items-center justify-center gap-3">
-                  <Button onClick={() => onGenerateResume(selectedItem.jobId)} type="button" variant="primary">
+                  <Button disabled={isSelectedJobPending} pending={isSelectedJobPending} onClick={() => onGenerateResume(selectedItem.jobId)} type="button" variant="primary">
                     {hasGenerationFailure ? 'Try again' : 'Create tailored resume'}
                   </Button>
                   {hasGenerationFailure ? (

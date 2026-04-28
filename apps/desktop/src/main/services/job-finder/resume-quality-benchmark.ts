@@ -10,6 +10,7 @@ import {
 import { createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import {
   CandidateProfileSchema,
+  type JobPosting,
   JobPostingSchema,
   ResumeQualityBenchmarkReportSchema,
   ResumeQualityBenchmarkRequestSchema,
@@ -37,7 +38,7 @@ type ResumeQualityBenchmarkFixture = {
   buildState: (templateId: ResumeTemplateId) => JobFinderRepositoryState
   overrideDraft?: (input: {
     baseDraft: TailoredResumeDraft
-    job: SavedJob
+    job: JobPosting
   }) => TailoredResumeDraft
 }
 
@@ -91,7 +92,7 @@ function firstNonEmptyValue(values: readonly (string | null | undefined)[]): str
   return null
 }
 
-function resolveResponsibilityFallback(job: SavedJob): string {
+function resolveResponsibilityFallback(job: Pick<SavedJob, 'title' | 'responsibilities' | 'minimumQualifications' | 'preferredQualifications' | 'summary' | 'description'>): string {
   return (
     firstNonEmptyValue([
       ...job.responsibilities,
@@ -1056,9 +1057,20 @@ function resolveBenchmarkFixtures(
       )
     : defaultResumeQualityBenchmarkCases
 
-  return request.canaryOnly
+  const fixtures = request.canaryOnly
     ? cases.filter((entry) => entry.definition.canary)
     : cases
+
+  if (fixtures.length === 0) {
+    const requestedCaseIds = request.caseIds.length > 0
+      ? request.caseIds.join(', ')
+      : 'all cases'
+    throw new Error(
+      `Resume quality benchmark resolved no cases for caseIds=${requestedCaseIds} and canaryOnly=${String(request.canaryOnly)}.`,
+    )
+  }
+
+  return fixtures
 }
 
 function buildBenchmarkAiClient(
@@ -1080,17 +1092,7 @@ function buildBenchmarkAiClient(
 
       return fixture.overrideDraft!({
         baseDraft,
-        job: SavedJobSchema.parse({
-          ...validatedJob,
-          id: validatedJob.sourceJobId,
-          status: 'ready_for_review',
-          matchAssessment: {
-            score: 80,
-            reasons: [],
-            gaps: [],
-          },
-          provenance: [],
-        }),
+        job: validatedJob,
       })
     },
   }
@@ -1207,42 +1209,46 @@ export async function runDesktopResumeQualityBenchmark(
   const availableTemplates = listLocalResumeTemplates()
   const templates = selectBenchmarkTemplateIds(availableTemplates)
   const results: ResumeQualityBenchmarkCaseResult[] = []
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-quality-'))
 
   if (templates.length === 0) {
     throw new Error('Resume quality benchmark requires at least one benchmark-eligible template.')
   }
 
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'unemployed-resume-quality-'))
+
   try {
     for (const fixture of fixtures) {
-      for (const templateId of templates) {
-        const state = fixture.buildState(templateId)
-        const repository = createInMemoryJobFinderRepository(state)
-        const aiClient = buildBenchmarkAiClient(fixture)
-        const browserRuntime = createCatalogBrowserSessionRuntime({
-          sessions: [
-            {
-              source: 'target_site',
-              status: 'ready',
-              driver: 'catalog_seed',
-              label: 'Benchmark browser session ready',
-              detail: 'Resume quality benchmark uses a deterministic catalog runtime.',
-              lastCheckedAt: '2026-04-26T12:00:00.000Z',
-            },
-          ],
-          catalog: [],
-        })
-        const documentManager = createLocalJobFinderDocumentManager({
-          outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
-        })
-        const workspaceService = createJobFinderWorkspaceService({
-          aiClient,
-          browserRuntime,
-          documentManager,
-          repository,
-        })
+      const baseState = fixture.buildState(templates[0]!)
+      const repository = createInMemoryJobFinderRepository(baseState)
+      const browserRuntime = createCatalogBrowserSessionRuntime({
+        sessions: [
+          {
+            source: 'target_site',
+            status: 'ready',
+            driver: 'catalog_seed',
+            label: 'Benchmark browser session ready',
+            detail: 'Resume quality benchmark uses a deterministic catalog runtime.',
+            lastCheckedAt: '2026-04-26T12:00:00.000Z',
+          },
+        ],
+        catalog: [],
+      })
 
-        try {
+      try {
+        for (const templateId of templates) {
+          const state = fixture.buildState(templateId)
+          await repository.reset(state)
+          const aiClient = buildBenchmarkAiClient(fixture)
+          const documentManager = createLocalJobFinderDocumentManager({
+            outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
+          })
+          const workspaceService = createJobFinderWorkspaceService({
+            aiClient,
+            browserRuntime,
+            documentManager,
+            repository,
+          })
+
           const jobId = state.savedJobs[0]?.id
 
           if (!jobId) {
@@ -1284,6 +1290,12 @@ export async function runDesktopResumeQualityBenchmark(
             metrics.pageTargetPassRate === 1 &&
             metrics.atsRenderPassRate === 1
 
+          const templateName = asset.templateName?.trim() ?? ''
+          const notes = [
+            ...(templateName ? [`Template: ${templateName}.`] : []),
+            ...(asset.notes ?? []).map((note) => note.trim()).filter(Boolean),
+          ]
+
           results.push({
             caseId: fixture.definition.id,
             label: fixture.definition.label,
@@ -1294,14 +1306,14 @@ export async function runDesktopResumeQualityBenchmark(
             issueCount: workspace.validation?.issues.length ?? 0,
             metrics,
             htmlArtifactRelativePath,
-            notes: [
-              ...(asset.templateName ? [`Template: ${asset.templateName}.`] : []),
-              ...(asset.notes ?? []),
-            ],
+            notes,
           })
-        } finally {
-          await workspaceService.shutdown()
         }
+      } finally {
+        await Promise.allSettled([
+          browserRuntime.closeSession('target_site'),
+          repository.close(),
+        ])
       }
     }
   } finally {

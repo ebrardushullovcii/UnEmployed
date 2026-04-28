@@ -331,10 +331,10 @@ describe("resume import deduplication", () => {
     });
 
     expect(snapshot.profile.fullName).toBe("Ryan Holstien");
-    expect(snapshot.profile.headline).toBe("Senior Software Engineer");
-    expect(snapshot.profile.summary).toContain("10+ years of experience");
+    expect(snapshot.profile.headline).toBe("Import your resume to begin");
+    expect(snapshot.profile.summary).toContain("Import a resume or paste resume text");
     expect(snapshot.profile.currentLocation).toBe("Cedar Park, TX 78613");
-    expect(snapshot.profile.yearsExperience).toBe(10);
+    expect(snapshot.profile.yearsExperience).toBe(0);
     expect(snapshot.profile.experiences).toEqual([
       expect.objectContaining({
         companyName: "DataHub",
@@ -346,12 +346,12 @@ describe("resume import deduplication", () => {
         (candidate) => candidate.target.section === "experience",
       ),
     ).toBe(false);
-    expect(snapshot.latestResumeImportRun?.status).toBe("applied");
+    expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
     expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
       "Work history",
     );
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
-      "Location",
+    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).toEqual(
+      expect.arrayContaining(["Headline", "Years of experience"]),
     );
   });
 
@@ -417,9 +417,9 @@ describe("resume import deduplication", () => {
       }),
     });
 
-    expect(snapshot.profile.yearsExperience).toBeGreaterThanOrEqual(10);
+    expect(snapshot.profile.yearsExperience).toBe(0);
     expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
+    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).toContain(
       "Years of experience",
     );
   });

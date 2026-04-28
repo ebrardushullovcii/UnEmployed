@@ -79,10 +79,13 @@ function buildProofBullet(input: {
     return claim;
   }
 
-  const normalizedClaim = tokenizeForQuality(claim).join(" ");
-  const normalizedMetric = tokenizeForQuality(heroMetric).join(" ");
+  const claimTokens = tokenizeForQuality(claim);
+  const metricTokens = tokenizeForQuality(heroMetric);
+  const includesMetricTokens = metricTokens.length > 0 && claimTokens.some((_, index) =>
+    metricTokens.every((token, tokenIndex) => claimTokens[index + tokenIndex] === token),
+  );
 
-  if (!normalizedMetric || normalizedClaim.includes(normalizedMetric)) {
+  if (metricTokens.length === 0 || includesMetricTokens) {
     return claim;
   }
 
@@ -150,23 +153,25 @@ function formatMonthYear(value: string | null | undefined): string | null {
   }
 
   if (namedMonthMatch) {
-    const monthNumber = monthByName[namedMonthMatch[1]?.toLowerCase().replace(/\./g, '') ?? ''];
+    const monthName = namedMonthMatch[1];
+    const monthNumber = monthName ? monthByName[monthName.toLowerCase()] : null;
     const month = monthNumber ? monthNames[monthNumber - 1] : null;
     return month ? `${month} ${namedMonthMatch[2]}` : null;
   }
 
-  return /^([A-Z][a-z]{2})\s+(\d{4})$/.test(trimmed) ? trimmed : null;
+  return null;
 }
 
 function formatDateRange(start: string | null | undefined, end: string | null | undefined): string | null {
   return [formatMonthYear(start), formatMonthYear(end)].filter(Boolean).join(" – ") || null;
 }
 
+const QUALITY_OVERLAP_THRESHOLD = 0.72;
+
 function isDistinctQualityLine(value: string, existing: readonly string[]): boolean {
   return existing.every((entry) => {
     const overlap = calculateQualityOverlap(value, entry);
-    const reverseOverlap = calculateQualityOverlap(entry, value);
-    return overlap < 0.72 && reverseOverlap < 0.72;
+    return overlap < QUALITY_OVERLAP_THRESHOLD;
   });
 }
 
@@ -189,7 +194,7 @@ function buildExperienceBullets(input: {
           ),
           proof,
         }))
-        .filter(({ overlap }) => overlap >= 0.72)
+        .filter(({ overlap }) => overlap >= QUALITY_OVERLAP_THRESHOLD)
         .sort((left, right) => right.overlap - left.overlap)[0]?.proof;
 
       if (!matchingProof) {
@@ -565,14 +570,7 @@ export function buildDeterministicStructuredResumeDraft(
     evidence?.candidateSummary[0] ??
     evidence?.summary[0] ??
     baseDraft.summary;
-  const experienceBulletSet = new Set(
-    baseDraft.experienceEntries.flatMap((entry) => entry.bullets),
-  );
-  const experienceHighlights = uniqueStrings(
-    (input.researchContext?.priorityThemes ?? []).filter(
-      (entry) => !experienceBulletSet.has(entry),
-    ),
-  ).slice(0, 4);
+  const experienceHighlights: string[] = [];
   const coreSkills = filterGroundedVisibleSkills(
     input.profile,
     [

@@ -12,7 +12,10 @@ const baseRenderDocument: ResumeRenderDocument = {
   fullName: 'Alex <Vanguard>',
   headline: 'Senior systems designer',
   location: 'London, UK',
-  contactItems: ['alex@example.com', 'https://alex.example.com'],
+  contactItems: [
+    { field: 'email', text: 'alex@example.com' },
+    { field: 'portfolioUrl', text: 'https://alex.example.com' },
+  ],
   sections: [
     {
       id: 'section_summary',
@@ -145,6 +148,7 @@ function renderTemplate(
   templateId: ResumeTemplateId,
   renderDocument: ResumeRenderDocument = baseRenderDocument,
   fontPreset: JobFinderSettings['fontPreset'] = 'inter_requisite',
+  options?: Parameters<typeof renderResumeTemplateHtml>[1],
 ): string {
   return renderResumeTemplateHtml({
     renderDocument,
@@ -159,7 +163,7 @@ function renderTemplate(
       keepSessionAlive: false,
       discoveryOnly: false,
     },
-  })
+  }, options)
 }
 
 describe('job finder resume renderer', () => {
@@ -185,15 +189,15 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('section-cluster-classic-intro')
     expect(html).toContain('Alex &lt;Vanguard&gt;')
     expect(html).toContain('Improved designer-engineer handoff &lt;quality&gt; by 30%.')
-    expect(html).toContain('<span class="entry-primary">Senior systems designer — Signal Systems</span>')
-    expect(html).toContain('<span class="entry-meta">London, UK | Jan 2020 – Present</span>')
+    expect(html).toContain('<span class="entry-primary"><span>Senior systems designer</span> <span aria-hidden="true">—</span> <span>Signal Systems</span></span>')
+    expect(html).toContain('<span class="entry-meta"><span>London, UK</span> <span aria-hidden="true">|</span> <span>Jan 2020 – Present</span></span>')
     expect(html).toContain('alex.example.com')
     expect(html).not.toContain('https://alex.example.com')
     expect(html).toContain('<h3>Summary</h3>')
     expect(html).toContain('<h3>Experience</h3>')
     expect(html).toContain('<h3>Technical Skills</h3>')
-    expect(html).toContain('<strong>Core:</strong> Figma, Design Systems')
-    expect(html).toContain('<strong>Additional:</strong> React, Playwright')
+    expect(html).toContain('<strong>Core:</strong> <span>Figma</span>, <span>Design Systems</span>')
+    expect(html).toContain('<strong>Additional:</strong> <span>React</span>, <span>Playwright</span>')
     expect(html.indexOf('<h3>Technical Skills</h3>')).toBeLessThan(html.indexOf('<h3>Experience</h3>'))
     expect(html).toContain('<h3>Languages</h3>')
     expect(html).not.toContain('<h3>Core Skills</h3>')
@@ -201,6 +205,19 @@ describe('job finder resume renderer', () => {
     expect(html).not.toContain('Targeted Keywords')
     expect(html).not.toContain('Should not render')
     expect(html).not.toContain('letter-spacing: 0.15em')
+  })
+
+  test('renders preview targeting attributes for identity, sections, entries, and bullets', () => {
+    const html = renderTemplate('classic_ats', baseRenderDocument, 'inter_requisite', { mode: 'preview' })
+
+    expect(html).toContain('data-resume-target-id="identity:fullName"')
+    expect(html).toContain('data-resume-target-id="identity:email"')
+    expect(html).toContain('data-resume-target-id="identity:portfolioUrl"')
+    expect(html).toContain('data-resume-section-id="section_summary"')
+    expect(html).toContain('data-resume-target-id="section:section_summary:text"')
+    expect(html).toContain('data-resume-entry-id="entry_1"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:title"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:bullet:entry_1_bullet_1"')
   })
 
   test('omits blank headline markup when the profile headline is missing', () => {
@@ -309,6 +326,9 @@ describe('job finder resume renderer', () => {
       expect(html).toContain('@page')
       expect(html).toContain('grid-template-columns: 1fr;')
       expect(html).not.toContain('<table')
+      expect(html).not.toContain('data-resume-section-id=')
+      expect(html).not.toContain('data-resume-entry-id=')
+      expect(html).not.toContain('data-resume-target-id=')
       expect(html).toContain(`content="${template.label}"`)
     }
   })

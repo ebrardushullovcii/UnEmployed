@@ -18,33 +18,68 @@ function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsWholePhrase(haystack: string, needle: string): boolean {
+  return new RegExp(`(^|\\W)${escapeRegExp(needle)}(?=\\W|$)`, "i").test(haystack);
+}
+
+function getExperienceSectionText(resumeText: string): string {
+  const lines = resumeText.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) =>
+    /^(work\s+experience|professional\s+experience|experience|employment|career\s+history)$/i.test(line.trim()),
+  );
+
+  if (startIndex < 0) {
+    return "";
+  }
+
+  const endOffset = lines.slice(startIndex + 1).findIndex((line) =>
+    /^(education|certifications?|projects?|skills|languages|publications?|awards?)$/i.test(line.trim()),
+  );
+  const endIndex = endOffset < 0 ? lines.length : startIndex + 1 + endOffset;
+
+  return lines.slice(startIndex + 1, endIndex).join("\n");
+}
+
 function buildYearsExperienceEvidenceCandidates(
   yearsExperience: number,
   resumeText: string,
 ): string[] {
   const dateRangePattern = /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\b/i;
-  const normalizedResumeText = normalizeText(resumeText);
-  const explicitCandidates = [`${yearsExperience} years`, `${yearsExperience}+ years`].filter(
-    (candidate) => normalizedResumeText.includes(normalizeText(candidate)),
+  const experienceText = getExperienceSectionText(resumeText);
+  const normalizedExperienceText = normalizeText(experienceText);
+  const yearForms =
+    yearsExperience === 1
+      ? ["1 year", "1+ year", "1 yr", "1+ yr", "1 yrs", "1+ yrs"]
+      : [
+          `${yearsExperience} years`,
+          `${yearsExperience}+ years`,
+          `${yearsExperience} yr`,
+          `${yearsExperience}+ yr`,
+          `${yearsExperience} yrs`,
+          `${yearsExperience}+ yrs`,
+        ];
+  const explicitCandidates = yearForms.filter((candidate) =>
+    normalizedExperienceText.length > 0 &&
+    containsWholePhrase(normalizedExperienceText, normalizeText(candidate)),
   );
 
   if (explicitCandidates.length > 0) {
     return explicitCandidates;
   }
 
-  const lines = resumeText
+  if (!experienceText) {
+    return [];
+  }
+
+  const lines = experienceText
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const datedExperienceLines = lines.filter((line) => dateRangePattern.test(line));
-
-  if (datedExperienceLines.length === 0) {
-    const fallbackLine = lines.find((line) => dateRangePattern.test(line));
-
-    if (fallbackLine) {
-      return [fallbackLine];
-    }
-  }
 
   return datedExperienceLines.slice(0, 6);
 }
@@ -58,7 +93,10 @@ function buildRelaxedEvidenceCandidates(value: string): string[] {
 
   const candidates = new Set<string>([normalized]);
 
-  const withoutPlus = normalized.replace(/(\d)\+\s+years?/gi, "$1 years");
+  const withoutPlus = normalized.replace(
+    /\b(\d+)\+\s+(years?|yrs?)\b/gi,
+    (_match, count: string) => `${count} ${Number(count) === 1 ? "year" : "years"}`,
+  );
   if (withoutPlus && withoutPlus !== normalized) {
     candidates.add(withoutPlus);
   }
@@ -111,38 +149,19 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
     .map((candidate) => candidate.trim())
     .filter((candidate) => candidate.length > 0);
   const orderedCandidates = buildOrderedEvidenceCandidates(nonEmptyCandidates);
-  const matchedBlocks = bundle.blocks.filter((block) => {
-    const blockText = normalizeText(block.text);
-    return orderedCandidates.some(
-      (candidate) => candidate.length > 0 && blockText.includes(candidate),
-    );
-  });
-
-  // If no block matched, return the first candidate as evidence (or null).
-  if (matchedBlocks.length === 0) {
-    return {
-      sourceBlockIds: [],
-      evidenceText: nonEmptyCandidates[0] ?? null,
-    };
-  }
-
-  // Prefer a short snippet around the first exact match in the first matched block.
-  const block = matchedBlocks[0];
-
-  if (!block) {
-    return {
-      sourceBlockIds: [],
-      evidenceText: nonEmptyCandidates[0] ?? null,
-    };
-  }
-
-  const blockText = block.text ?? "";
-
-  // Helper to safely escape candidate strings for RegExp
-  const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   for (const candidate of orderedCandidates) {
     if (!candidate) continue;
+
+    const block = bundle.blocks.find((entry) =>
+      normalizeText(entry.text).includes(candidate),
+    );
+    if (!block) {
+      continue;
+    }
+
+    const blockText = block.text ?? "";
+
     try {
       const candidatePattern = escapeRegExp(candidate).replace(/\s+/g, "\\s+");
       const re = new RegExp(`(.{0,80}${candidatePattern}.{0,240})`, "is");
@@ -152,13 +171,21 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
         return { sourceBlockIds: [block.id], evidenceText: snippet };
       }
     } catch {
-      // fallthrough to next candidate
+      return {
+        sourceBlockIds: [block.id],
+        evidenceText: blockText.trim() || (nonEmptyCandidates[0] ?? null),
+      };
     }
+
+    // If we couldn't extract a focused snippet, return a truncated version of the block.
+    const truncated = blockText.length > 400 ? `${blockText.slice(0, 400).trim()}...` : blockText.trim();
+    return { sourceBlockIds: [block.id], evidenceText: truncated || (nonEmptyCandidates[0] ?? null) };
   }
 
-  // If we couldn't extract a focused snippet, return a truncated version of the block
-  const truncated = blockText.length > 400 ? `${blockText.slice(0, 400).trim()}...` : blockText.trim();
-  return { sourceBlockIds: [block.id], evidenceText: truncated || (nonEmptyCandidates[0] ?? null) };
+  return {
+    sourceBlockIds: [],
+    evidenceText: nonEmptyCandidates[0] ?? null,
+  };
 }
 
 function createCandidate(
@@ -303,18 +330,27 @@ export function buildDeterministicResumeImportStageExtraction(
       extraction.currentLocation ? 0.84 : 0.62,
       [extraction.currentLocation ?? ""],
     );
-    add(
-      { section: "identity", key: "yearsExperience", recordId: null },
-      "Years of experience",
-      yearsExperience,
-      yearsExperience !== null && yearsExperience !== undefined ? 0.82 : 0.7,
-      yearsExperience !== null && yearsExperience !== undefined
-        ? buildYearsExperienceEvidenceCandidates(
-            yearsExperience,
-            toResumeText(input.documentBundle),
-          )
-        : [],
-    );
+    const existingYearsExperience =
+      typeof existingProfileValues.yearsExperience === "number"
+        ? existingProfileValues.yearsExperience
+        : null;
+    if (
+      yearsExperience !== null &&
+      yearsExperience !== undefined &&
+      existingYearsExperience !== yearsExperience
+    ) {
+      const yearsExperienceEvidenceCandidates = buildYearsExperienceEvidenceCandidates(
+        yearsExperience,
+        toResumeText(input.documentBundle),
+      );
+      add(
+        { section: "identity", key: "yearsExperience", recordId: null },
+        "Years of experience",
+        yearsExperience,
+        yearsExperienceEvidenceCandidates.length > 0 ? 0.82 : 0.7,
+        yearsExperienceEvidenceCandidates,
+      );
+    }
     add({ section: "contact", key: "email", recordId: null }, "Email", extraction.email, 0.98, [extraction.email ?? ""]);
     add({ section: "contact", key: "phone", recordId: null }, "Phone", extraction.phone, 0.94, [extraction.phone ?? ""]);
     add({ section: "contact", key: "portfolioUrl", recordId: null }, "Portfolio URL", extraction.portfolioUrl, 0.9, [extraction.portfolioUrl ?? ""]);

@@ -1,5 +1,4 @@
 /* eslint-env node, browser */
-/* global document, HTMLElement */
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -17,16 +16,27 @@ const snapshotPath = process.env.UI_SOURCE_SIGN_IN_PROMPTS_SNAPSHOT ?? path.reso
 )
 const runLabel = process.env.UI_CAPTURE_LABEL ?? 'source-sign-in-prompts'
 const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel)
+
+function parsePositiveIntEnv(value, fallback, name) {
+  const parsed = Number.parseInt(value ?? fallback, 10)
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Invalid ${name}: ${value ?? fallback}`)
+  }
+
+  return parsed
+}
+
 const viewports = [
   {
     slug: 'desktop',
-    width: Number.parseInt(process.env.UI_CAPTURE_WIDTH ?? '1440', 10),
-    height: Number.parseInt(process.env.UI_CAPTURE_HEIGHT ?? '920', 10)
+    width: parsePositiveIntEnv(process.env.UI_CAPTURE_WIDTH, '1440', 'UI_CAPTURE_WIDTH'),
+    height: parsePositiveIntEnv(process.env.UI_CAPTURE_HEIGHT, '920', 'UI_CAPTURE_HEIGHT')
   },
   {
     slug: 'narrow',
-    width: Number.parseInt(process.env.UI_CAPTURE_NARROW_WIDTH ?? '1080', 10),
-    height: Number.parseInt(process.env.UI_CAPTURE_NARROW_HEIGHT ?? '920', 10)
+    width: parsePositiveIntEnv(process.env.UI_CAPTURE_NARROW_WIDTH, '1080', 'UI_CAPTURE_NARROW_WIDTH'),
+    height: parsePositiveIntEnv(process.env.UI_CAPTURE_NARROW_HEIGHT, '920', 'UI_CAPTURE_NARROW_HEIGHT')
   }
 ]
 const scrollAreaSelector = '.screen-scroll-area'
@@ -50,14 +60,16 @@ async function waitForProfileOrSetupHeading(page) {
 }
 
 async function clickNavigationControl(page, name) {
-  const control = page.locator('button, [role="tab"]').filter({ hasText: name }).first()
+  for (const role of ['button', 'tab']) {
+    const control = page.getByRole(role, { name }).first()
 
-  if (await control.count()) {
-    await control.click()
-    return
+    if (await control.isVisible().catch(() => false)) {
+      await control.click()
+      return
+    }
   }
 
-  await page.getByRole('button', { name }).click()
+  throw new Error(`Unable to find a visible navigation control for: ${String(name)}`)
 }
 
 async function clickProfilePreferencesTab(page) {
@@ -252,7 +264,11 @@ async function captureSourceSignInPrompts() {
       }
     }
 
-    await rm(userDataDirectory, { recursive: true, force: true })
+    try {
+      await rm(userDataDirectory, { recursive: true, force: true })
+    } catch {
+      // Preserve original failure.
+    }
   }
 }
 
