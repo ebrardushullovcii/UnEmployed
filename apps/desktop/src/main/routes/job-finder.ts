@@ -43,6 +43,8 @@ import {
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
   JobFinderUndoProfileRevisionInputSchema,
+  ResumeImportBenchmarkReportSchema,
+  ResumeQualityBenchmarkReportSchema,
 } from "@unemployed/contracts";
 import {
   getDesktopTestDelayMs,
@@ -423,7 +425,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
           : {}),
       };
 
-      return runDesktopResumeImportBenchmark(options);
+      const report = await runDesktopResumeImportBenchmark(options);
+      return ResumeImportBenchmarkReportSchema.parse(report);
     },
   );
 
@@ -452,7 +455,8 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
           : {}),
       };
 
-      return runDesktopResumeQualityBenchmark(options);
+      const report = await runDesktopResumeQualityBenchmark(options);
+      return ResumeQualityBenchmarkReportSchema.parse(report);
     },
   );
 

@@ -413,12 +413,12 @@ async function captureResumeWorkspace() {
     )
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04b-template-strategy-engineering-family.png') })
 
+    const preTemplatePreviewSrcdoc = await getPreviewSrcdoc(window)
     await clickTemplateStrategyVariant(window, 'Systems', 'Use this variant')
     await waitForCondition(
       async () => (await getTemplateBadgeText(window)) === 'Template: Engineering Spec - Systems',
       'template header badge to reflect the recommended template selection',
     )
-    const preTemplatePreviewSrcdoc = await getPreviewSrcdoc(window)
     await waitForPreviewReady(window, { changedFrom: preTemplatePreviewSrcdoc })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04c-template-selected-engineering-spec.png') })
 

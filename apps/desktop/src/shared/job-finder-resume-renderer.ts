@@ -95,28 +95,56 @@ function renderEntryHeading(input: {
   sectionId: string
   entryId: string
 }): string {
-  const primary = [input.title, input.subtitle].filter(Boolean).join(' — ')
-  const metaParts = [input.location, input.dateRange].filter((value): value is string => Boolean(value))
+  const primaryParts = [
+    input.title
+      ? `<span${renderPreviewAttributes({
+          ...withPreviewSelection({
+            mode: input.mode ?? 'export',
+            sectionId: input.sectionId,
+            entryId: input.entryId,
+            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'title'),
+          }),
+        })}>${escapeHtml(input.title)}</span>`
+      : null,
+    input.subtitle
+      ? `<span${renderPreviewAttributes({
+          ...withPreviewSelection({
+            mode: input.mode ?? 'export',
+            sectionId: input.sectionId,
+            entryId: input.entryId,
+            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'subtitle'),
+          }),
+        })}>${escapeHtml(input.subtitle)}</span>`
+      : null,
+  ].filter((value): value is string => Boolean(value))
+  const metaParts = [
+    input.location
+      ? `<span${renderPreviewAttributes({
+          ...withPreviewSelection({
+            mode: input.mode ?? 'export',
+            sectionId: input.sectionId,
+            entryId: input.entryId,
+            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'location'),
+          }),
+        })}>${escapeHtml(input.location)}</span>`
+      : null,
+    input.dateRange
+      ? `<span${renderPreviewAttributes({
+          ...withPreviewSelection({
+            mode: input.mode ?? 'export',
+            sectionId: input.sectionId,
+            entryId: input.entryId,
+            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'dateRange'),
+          }),
+        })}>${escapeHtml(input.dateRange)}</span>`
+      : null,
+  ].filter((value): value is string => Boolean(value))
 
-  if (!primary) {
+  if (primaryParts.length === 0) {
     return ''
   }
 
-  return `<h4><span class="entry-primary"${renderPreviewAttributes({
-    ...withPreviewSelection({
-      mode: input.mode ?? 'export',
-      sectionId: input.sectionId,
-      entryId: input.entryId,
-      targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'title'),
-    }),
-  })}>${escapeHtml(primary)}</span>${metaParts.length > 0 ? `<span class="entry-meta"${renderPreviewAttributes({
-    ...withPreviewSelection({
-      mode: input.mode ?? 'export',
-      sectionId: input.sectionId,
-      entryId: input.entryId,
-      targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'dateRange'),
-    }),
-  })}>${metaParts.map((value) => escapeHtml(value)).join(' | ')}</span>` : ''}</h4>`
+  return `<h4><span class="entry-primary">${primaryParts.join(' <span aria-hidden="true">—</span> ')}</span>${metaParts.length > 0 ? `<span class="entry-meta">${metaParts.join(' <span aria-hidden="true">|</span> ')}</span>` : ''}</h4>`
 }
 
 function renderPreviewAttributes(input: {
@@ -496,14 +524,14 @@ function renderSectionCluster(className: string, sections: readonly string[]): s
   return `<div class="${className}">${content}</div>`
 }
 
-function renderIdentityMeta(values: ReadonlyArray<{ field: ResumePreviewIdentityField; text: string }>, className: string): string {
+function renderIdentityMeta(values: ReadonlyArray<{ field: ResumePreviewIdentityField; text: string }>, className: string, mode: RenderMode): string {
   if (values.length === 0) {
     return ''
   }
 
   if (className.includes('meta-pill-list')) {
     return `<ul class="${className}">${values.map((value) => renderIdentityFieldTag({
-      mode: 'preview',
+      mode,
       field: value.field,
       tagName: 'li',
       text: value.text,
@@ -511,7 +539,7 @@ function renderIdentityMeta(values: ReadonlyArray<{ field: ResumePreviewIdentity
   }
 
   return `<div class="${className}">${values.map((value) => renderIdentityFieldTag({
-    mode: 'preview',
+    mode,
     field: value.field,
     tagName: 'span',
     text: value.text,
@@ -542,70 +570,71 @@ function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<
   ].filter((value): value is { field: ResumePreviewIdentityField; text: string } => Boolean(value))
 }
 
-function renderClassicHeader(renderDocument: ResumeRenderDocument): string {
+function renderClassicHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-classic">
-      ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
-      ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline', text: renderDocument.headline }) : ''}
-      ${renderIdentityMeta(contactValues, 'meta')}
+      ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
+      ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline', text: renderDocument.headline }) : ''}
+      ${renderIdentityMeta(contactValues, 'meta', mode)}
     </header>`
 }
 
-function renderSwissAccentHeader(renderDocument: ResumeRenderDocument): string {
+function renderSwissAccentHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-swiss-accent">
       <p class="eyebrow">Swiss Minimal</p>
       <div class="identity-block">
-        ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
-        ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline headline-left', text: renderDocument.headline }) : ''}
+        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left', text: renderDocument.headline }) : ''}
       </div>
-      ${renderIdentityMeta(contactValues, 'meta meta-left')}
+      ${renderIdentityMeta(contactValues, 'meta meta-left', mode)}
     </header>`
 }
 
 function renderExecutiveHeader(
   renderDocument: ResumeRenderDocument,
   variant: 'credentials' | 'dense',
+  mode: RenderMode,
 ): string {
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-executive${variant === 'credentials' ? ' header-executive-credentials' : ''}">
       <p class="eyebrow">Executive Brief</p>
       <div class="identity-block identity-block-tight">
-        ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
-        ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline headline-executive', text: renderDocument.headline }) : ''}
+        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-executive', text: renderDocument.headline }) : ''}
       </div>
-      ${renderIdentityMeta(contactValues, 'meta-pill-list')}
+      ${renderIdentityMeta(contactValues, 'meta-pill-list', mode)}
     </header>`
 }
 
-function renderEngineeringSpecHeader(renderDocument: ResumeRenderDocument): string {
+function renderEngineeringSpecHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-spec">
       <div class="header-spec-shell">
         <div class="identity-block">
           <p class="eyebrow">Engineering Spec</p>
-          ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
-          ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline headline-left headline-spec', text: renderDocument.headline }) : ''}
+          ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
+          ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-spec', text: renderDocument.headline }) : ''}
         </div>
-        ${renderIdentityMeta(contactValues, 'meta-stack')}
+        ${renderIdentityMeta(contactValues, 'meta-stack', mode)}
       </div>
     </header>`
 }
 
-function renderPortfolioHeader(renderDocument: ResumeRenderDocument): string {
+function renderPortfolioHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-portfolio">
       <p class="eyebrow">Portfolio Narrative</p>
       <div class="identity-block">
-        ${renderIdentityFieldTag({ mode: 'preview', field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
-        ${renderDocument.headline ? renderIdentityFieldTag({ mode: 'preview', field: 'headline', tagName: 'p', className: 'headline headline-left headline-portfolio', text: renderDocument.headline }) : ''}
+        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-portfolio', text: renderDocument.headline }) : ''}
       </div>
-      ${renderIdentityMeta(contactValues, 'meta-pill-list meta-pill-list-left meta-pill-list-warm')}
+      ${renderIdentityMeta(contactValues, 'meta-pill-list meta-pill-list-left meta-pill-list-warm', mode)}
     </header>`
 }
 
@@ -672,7 +701,7 @@ function buildSwissMinimalStandardLayout(context: TemplateRenderContext): Templa
     templateClassName: 'theme-classic_ats',
     pageClassName: 'page page-classic',
     bodyClassName: 'body-grid body-grid-classic',
-    headerMarkup: renderClassicHeader(context.renderDocument),
+    headerMarkup: renderClassicHeader(context.renderDocument, context.mode),
     bodyContent: joinRenderedSections([
       renderSectionCluster('section-cluster section-cluster-classic-intro', [
         renderSection(context.catalog.summarySection, undefined, context.mode),
@@ -695,7 +724,7 @@ function buildSwissMinimalAccentLayout(context: TemplateRenderContext): Template
     templateClassName: 'theme-modern_split',
     pageClassName: 'page page-modern',
     bodyClassName: 'body-grid body-grid-modern',
-    headerMarkup: renderSwissAccentHeader(context.renderDocument),
+    headerMarkup: renderSwissAccentHeader(context.renderDocument, context.mode),
     bodyContent: joinRenderedSections([
       renderSectionCluster('section-cluster section-intro-band', [
         renderSummaryCallout(context.catalog.summarySection, 'section-summary-accent', context.mode),
@@ -722,7 +751,7 @@ function buildExecutiveBriefDenseLayout(context: TemplateRenderContext): Templat
     templateClassName: 'theme-compact_exec',
     pageClassName: 'page page-compact',
     bodyClassName: 'body-grid body-grid-compact',
-    headerMarkup: renderExecutiveHeader(context.renderDocument, 'dense'),
+    headerMarkup: renderExecutiveHeader(context.renderDocument, 'dense', context.mode),
     bodyContent: joinRenderedSections([
       renderSectionCluster('section-cluster section-executive-intro', [
         renderSummaryCallout(
@@ -761,7 +790,7 @@ function buildExecutiveBriefCredentialsLayout(context: TemplateRenderContext): T
     templateClassName: 'theme-credentials_focus',
     pageClassName: 'page page-credentials',
     bodyClassName: 'body-grid body-grid-credentials',
-    headerMarkup: renderExecutiveHeader(context.renderDocument, 'credentials'),
+    headerMarkup: renderExecutiveHeader(context.renderDocument, 'credentials', context.mode),
     bodyContent: joinRenderedSections([
       renderSectionCluster('section-cluster section-credential-spotlight', [
         renderSection(
@@ -798,7 +827,7 @@ function buildEngineeringSpecLayout(context: TemplateRenderContext): TemplateLay
     templateClassName: 'theme-technical_matrix',
     pageClassName: 'page page-technical',
     bodyClassName: 'body-grid body-grid-technical',
-    headerMarkup: renderEngineeringSpecHeader(context.renderDocument),
+    headerMarkup: renderEngineeringSpecHeader(context.renderDocument, context.mode),
     bodyContent: joinRenderedSections([
       renderSectionCluster('section-cluster section-spec-lead', [
         renderTechnicalSkillsMatrixSection(
@@ -832,7 +861,7 @@ function buildPortfolioNarrativeLayout(context: TemplateRenderContext): Template
     templateClassName: 'theme-project_showcase',
     pageClassName: 'page page-projects',
     bodyClassName: 'body-grid body-grid-projects',
-    headerMarkup: renderPortfolioHeader(context.renderDocument),
+    headerMarkup: renderPortfolioHeader(context.renderDocument, context.mode),
     bodyContent: joinRenderedSections([
       renderSectionCluster('section-cluster section-portfolio-hero', [
         renderSection(

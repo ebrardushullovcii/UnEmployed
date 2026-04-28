@@ -24,8 +24,19 @@ function buildYearsExperienceEvidenceCandidates(
 ): string[] {
   const dateRangePattern = /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\b/i;
   const normalizedResumeText = normalizeText(resumeText);
-  const explicitCandidates = [`${yearsExperience} years`, `${yearsExperience}+ years`].filter(
-    (candidate) => normalizedResumeText.includes(normalizeText(candidate)),
+  const yearForms =
+    yearsExperience === 1
+      ? ["1 year", "1+ year", "1 yr", "1+ yr", "1 yrs", "1+ yrs"]
+      : [
+          `${yearsExperience} years`,
+          `${yearsExperience}+ years`,
+          `${yearsExperience} yr`,
+          `${yearsExperience}+ yr`,
+          `${yearsExperience} yrs`,
+          `${yearsExperience}+ yrs`,
+        ];
+  const explicitCandidates = yearForms.filter((candidate) =>
+    normalizedResumeText.includes(normalizeText(candidate)),
   );
 
   if (explicitCandidates.length > 0) {
@@ -50,7 +61,10 @@ function buildRelaxedEvidenceCandidates(value: string): string[] {
 
   const candidates = new Set<string>([normalized]);
 
-  const withoutPlus = normalized.replace(/(\d)\+\s+years?/gi, "$1 years");
+  const withoutPlus = normalized.replace(
+    /\b(\d+)\+\s+(years?|yrs?)\b/gi,
+    (_match, count: string) => `${count} ${Number(count) === 1 ? "year" : "years"}`,
+  );
   if (withoutPlus && withoutPlus !== normalized) {
     candidates.add(withoutPlus);
   }
@@ -295,20 +309,27 @@ export function buildDeterministicResumeImportStageExtraction(
       extraction.currentLocation ? 0.84 : 0.62,
       [extraction.currentLocation ?? ""],
     );
-    const yearsExperienceEvidenceCandidates =
-      yearsExperience !== null && yearsExperience !== undefined
-        ? buildYearsExperienceEvidenceCandidates(
-            yearsExperience,
-            toResumeText(input.documentBundle),
-          )
-        : [];
-    add(
-      { section: "identity", key: "yearsExperience", recordId: null },
-      "Years of experience",
-      yearsExperience,
-      yearsExperienceEvidenceCandidates.length > 0 ? 0.82 : 0.7,
-      yearsExperienceEvidenceCandidates,
-    );
+    const existingYearsExperience =
+      typeof existingProfileValues.yearsExperience === "number"
+        ? existingProfileValues.yearsExperience
+        : null;
+    if (
+      yearsExperience !== null &&
+      yearsExperience !== undefined &&
+      existingYearsExperience !== yearsExperience
+    ) {
+      const yearsExperienceEvidenceCandidates = buildYearsExperienceEvidenceCandidates(
+        yearsExperience,
+        toResumeText(input.documentBundle),
+      );
+      add(
+        { section: "identity", key: "yearsExperience", recordId: null },
+        "Years of experience",
+        yearsExperience,
+        yearsExperienceEvidenceCandidates.length > 0 ? 0.82 : 0.7,
+        yearsExperienceEvidenceCandidates,
+      );
+    }
     add({ section: "contact", key: "email", recordId: null }, "Email", extraction.email, 0.98, [extraction.email ?? ""]);
     add({ section: "contact", key: "phone", recordId: null }, "Phone", extraction.phone, 0.94, [extraction.phone ?? ""]);
     add({ section: "contact", key: "portfolioUrl", recordId: null }, "Portfolio URL", extraction.portfolioUrl, 0.9, [extraction.portfolioUrl ?? ""]);

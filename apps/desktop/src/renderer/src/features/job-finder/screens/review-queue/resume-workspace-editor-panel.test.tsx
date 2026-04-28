@@ -102,4 +102,43 @@ describe('ResumeWorkspaceEditorPanel', () => {
     expect(scrollRegion?.textContent).not.toContain('Choose a family')
     expect(scrollRegion?.querySelectorAll('[role="radio"]')).toHaveLength(0)
   })
+
+  it('disables structured editing controls while workspace work is pending', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          draft={draft}
+          hasUnsavedChanges={false}
+          isWorkspacePending
+          jobId="job_1"
+          onApplyPatch={vi.fn()}
+          onDraftChange={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => next()}
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          withDraftPatch={(patch) => patch}
+        />,
+      )
+    })
+
+    const scrollRegion = container?.querySelector('.overflow-y-auto')
+    const editableControls = Array.from(
+      scrollRegion?.querySelectorAll('input, textarea, select, button') ?? [],
+    )
+
+    expect(editableControls.length).toBeGreaterThan(0)
+    for (const control of editableControls) {
+      expect(control.hasAttribute('disabled')).toBe(true)
+    }
+  })
 })

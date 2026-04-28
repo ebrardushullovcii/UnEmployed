@@ -477,7 +477,8 @@ function buildMissingFieldDrafts(
     !hasEligibility &&
     !(
       hasDraftForTarget(candidateDrafts, "work_eligibility") ||
-      hasDraftForTarget(candidateDrafts, "search_preferences", "locations")
+      hasDraftForTarget(candidateDrafts, "search_preferences", "locations") ||
+      hasDraftForTarget(candidateDrafts, "search_preferences", "workModes")
     )
   ) {
     drafts.push({

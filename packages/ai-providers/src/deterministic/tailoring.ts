@@ -565,12 +565,10 @@ export function buildDeterministicStructuredResumeDraft(
     evidence?.candidateSummary[0] ??
     evidence?.summary[0] ??
     baseDraft.summary;
-  const experienceBulletSet = new Set(
-    baseDraft.experienceEntries.flatMap((entry) => entry.bullets),
-  );
+  const experienceBullets = baseDraft.experienceEntries.flatMap((entry) => entry.bullets);
   const experienceHighlights = uniqueStrings(
     (input.researchContext?.priorityThemes ?? []).filter(
-      (entry) => !experienceBulletSet.has(entry),
+      (entry) => isDistinctQualityLine(entry, experienceBullets),
     ),
   ).slice(0, 4);
   const coreSkills = filterGroundedVisibleSkills(

@@ -1,9 +1,56 @@
 // @vitest-environment jsdom
 
 import { act } from 'react'
+import type { ResumeTemplateDefinition } from '@unemployed/contracts'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { SettingsEditableDefaults } from './settings-editable-defaults'
+
+function makeResumeTemplate(
+  overrides: Partial<ResumeTemplateDefinition> & Pick<ResumeTemplateDefinition, 'id' | 'label'>,
+): ResumeTemplateDefinition {
+  return {
+    familyId: 'swiss_minimal',
+    familyLabel: 'Swiss Minimal',
+    familyDescription: 'Calm ATS-safe layouts.',
+    variantLabel: 'Standard',
+    description: 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
+    fitSummary: 'A clean all-rounder.',
+    avoidSummary: 'Less distinctive for project-led portfolios.',
+    bestFor: ['General applications', 'Recruiter-heavy funnels'],
+    visualTags: ['Minimal', 'Balanced'],
+    density: 'balanced',
+    deliveryLane: 'apply_safe',
+    atsConfidence: 'high',
+    applyEligible: true,
+    approvalEligible: true,
+    benchmarkEligible: true,
+    sortOrder: 10,
+    ...overrides,
+  }
+}
+
+const resumeTemplateFixtures = {
+  classicAts: makeResumeTemplate({
+    id: 'classic_ats',
+    label: 'Swiss Minimal - Standard',
+  }),
+  compactExec: makeResumeTemplate({
+    id: 'compact_exec',
+    label: 'Executive Brief - Dense',
+    familyId: 'executive_brief',
+    familyLabel: 'Executive Brief',
+    familyDescription: 'Leadership-oriented ATS-safe layouts.',
+    variantLabel: 'Dense',
+    description: 'Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.',
+    fitSummary: 'Good for dense senior resumes.',
+    avoidSummary: 'Can feel tight for early-career profiles.',
+    bestFor: ['Experienced candidates', 'Content-dense resumes'],
+    visualTags: ['Dense', 'Centered header'],
+    density: 'compact',
+    sortOrder: 20,
+  }),
+} satisfies Record<string, ResumeTemplateDefinition>
 
 describe('SettingsEditableDefaults', () => {
   const globalScope = globalThis as typeof globalThis & {
@@ -48,48 +95,7 @@ describe('SettingsEditableDefaults', () => {
       root?.render(
         <SettingsEditableDefaults
           actionMessage={null}
-          availableResumeTemplates={[
-            {
-              id: 'classic_ats',
-              label: 'Swiss Minimal - Standard',
-              familyId: 'swiss_minimal',
-              familyLabel: 'Swiss Minimal',
-              familyDescription: 'Calm ATS-safe layouts.',
-              variantLabel: 'Standard',
-              description: 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
-              fitSummary: 'A clean all-rounder.',
-              avoidSummary: 'Less distinctive for project-led portfolios.',
-              bestFor: ['General applications', 'Recruiter-heavy funnels'],
-              visualTags: ['Minimal', 'Balanced'],
-              density: 'balanced',
-              deliveryLane: 'apply_safe',
-              atsConfidence: 'high',
-              applyEligible: true,
-              approvalEligible: true,
-              benchmarkEligible: true,
-              sortOrder: 10,
-            },
-            {
-              id: 'compact_exec',
-              label: 'Executive Brief - Dense',
-              familyId: 'executive_brief',
-              familyLabel: 'Executive Brief',
-              familyDescription: 'Leadership-oriented ATS-safe layouts.',
-              variantLabel: 'Dense',
-              description: 'Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.',
-              fitSummary: 'Good for dense senior resumes.',
-              avoidSummary: 'Can feel tight for early-career profiles.',
-              bestFor: ['Experienced candidates', 'Content-dense resumes'],
-              visualTags: ['Dense', 'Centered header'],
-              density: 'compact',
-              deliveryLane: 'apply_safe',
-              atsConfidence: 'high',
-              applyEligible: true,
-              approvalEligible: true,
-              benchmarkEligible: true,
-              sortOrder: 20,
-            },
-          ]}
+          availableResumeTemplates={[resumeTemplateFixtures.classicAts, resumeTemplateFixtures.compactExec]}
           isSavePending={false}
           onSaveSettings={vi.fn()}
           settings={{
@@ -125,29 +131,7 @@ describe('SettingsEditableDefaults', () => {
       root?.render(
         <SettingsEditableDefaults
           actionMessage={null}
-          availableResumeTemplates={[
-            {
-              id: 'classic_ats',
-              label: 'Swiss Minimal - Standard',
-              familyId: 'swiss_minimal',
-              familyLabel: 'Swiss Minimal',
-              familyDescription: 'Calm ATS-safe layouts.',
-              variantLabel: 'Standard',
-              description:
-                'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
-              fitSummary: 'A clean all-rounder.',
-              avoidSummary: 'Less distinctive for project-led portfolios.',
-              bestFor: ['General applications', 'Recruiter-heavy funnels'],
-              visualTags: ['Minimal', 'Balanced'],
-              density: 'balanced',
-              deliveryLane: 'apply_safe',
-              atsConfidence: 'high',
-              applyEligible: true,
-              approvalEligible: true,
-              benchmarkEligible: true,
-              sortOrder: 10,
-            },
-          ]}
+          availableResumeTemplates={[resumeTemplateFixtures.classicAts]}
           isSavePending
           onSaveSettings={vi.fn()}
           settings={{
@@ -173,9 +157,15 @@ describe('SettingsEditableDefaults', () => {
     expect(button?.getAttribute('aria-busy')).toBe('true')
     expect(button?.getAttribute('data-pending')).toBe('true')
 
-    const disabledInputs = Array.from(
+    expect(button?.hasAttribute('disabled')).toBe(true)
+
+    const disabledNonSaveControls = Array.from(
       container?.querySelectorAll('button, input, select, textarea') ?? [],
-    ).filter((element) => element.hasAttribute('disabled'))
-    expect(disabledInputs.length).toBeGreaterThan(0)
+    ).filter(
+      (element) =>
+        element !== button &&
+        (element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true'),
+    )
+    expect(disabledNonSaveControls.length).toBeGreaterThan(0)
   })
 })

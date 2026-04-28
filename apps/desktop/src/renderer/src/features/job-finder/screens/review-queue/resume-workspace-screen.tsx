@@ -105,6 +105,7 @@ export function ResumeWorkspaceScreen(props: {
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const [mobileStudioTab, setMobileStudioTab] = useState<'preview' | 'editor' | 'assistant'>('preview')
   const [assistantRailExpanded, setAssistantRailExpanded] = useState(false)
+  const [assistantRailManuallyCollapsed, setAssistantRailManuallyCollapsed] = useState(false)
   const previewRequestRef = useRef(0)
 
   const workspaceDraftRevisionKey = props.workspace
@@ -275,6 +276,7 @@ export function ResumeWorkspaceScreen(props: {
   const refreshPreview = useCallback((targetDraft: ResumeDraft) => {
     const requestId = previewRequestRef.current + 1
     previewRequestRef.current = requestId
+    setPreview(null)
     setPreviewStatus('loading')
     setPreviewError(null)
 
@@ -300,6 +302,7 @@ export function ResumeWorkspaceScreen(props: {
   useEffect(() => {
     if (!draft) {
       previewRequestRef.current += 1
+      setPreview(null)
       return
     }
 
@@ -312,6 +315,12 @@ export function ResumeWorkspaceScreen(props: {
       window.clearTimeout(timeout)
     }
   }, [draft, hasUnsavedChanges, refreshPreview])
+
+  useEffect(() => {
+    if (props.assistantPending) {
+      setAssistantRailManuallyCollapsed(false)
+    }
+  }, [props.assistantPending])
 
   const handlePreviewTargetSelect = useCallback((selection: {
     sectionId: string | null
@@ -401,7 +410,20 @@ export function ResumeWorkspaceScreen(props: {
 
   const { job } = props.workspace;
   const hasAssistantMessages = props.assistantMessages.length > 0
-  const showExpandedAssistantRail = assistantRailExpanded || hasAssistantMessages || props.assistantPending
+  const showExpandedAssistantRail =
+    assistantRailExpanded ||
+    props.assistantPending ||
+    (hasAssistantMessages && !assistantRailManuallyCollapsed)
+  const handleToggleAssistantRail = () => {
+    if (showExpandedAssistantRail) {
+      setAssistantRailExpanded(false)
+      setAssistantRailManuallyCollapsed(true)
+      return
+    }
+
+    setAssistantRailExpanded(true)
+    setAssistantRailManuallyCollapsed(false)
+  }
 
   const editorPanel = (
     <ResumeWorkspaceEditorPanel
@@ -651,7 +673,7 @@ export function ResumeWorkspaceScreen(props: {
                   </Button>
                 ) : null}
                 <Button
-                  onClick={() => setAssistantRailExpanded((current) => !current)}
+                  onClick={handleToggleAssistantRail}
                   size="compact"
                   type="button"
                   variant="ghost"

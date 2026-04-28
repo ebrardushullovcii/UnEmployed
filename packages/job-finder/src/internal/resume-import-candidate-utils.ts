@@ -60,10 +60,10 @@ export function toCandidate(
           ? "abstained"
           : "needs_review",
     resolutionReason:
-      sourceKind === "parser_literal"
-        ? "high_confidence_literal_with_direct_evidence"
-        : resolvedConfidenceBreakdown.recommendation === "abstain"
-          ? "composite_confidence_recommended_abstain"
+      resolvedConfidenceBreakdown.recommendation === "abstain"
+        ? "composite_confidence_recommended_abstain"
+        : sourceKind === "parser_literal"
+          ? "high_confidence_literal_with_direct_evidence"
           : null,
     confidenceBreakdown: resolvedConfidenceBreakdown,
     createdAt,

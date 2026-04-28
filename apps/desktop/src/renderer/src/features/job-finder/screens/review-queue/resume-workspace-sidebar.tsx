@@ -95,7 +95,7 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
       className="surface-panel-shell relative grid min-h-0 min-w-0 gap-3 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-(--resume-sidebar-padding)"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p id={titleId} className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+        <p id={titleId} className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
           Job context
         </p>
         <StatusBadge tone={toDraftStatusTone(draft.status)}>
