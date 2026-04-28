@@ -95,12 +95,21 @@ describe('ResumeWorkspaceEditorPanel', () => {
       )
     })
 
-    const scrollRegion = container?.querySelector('.overflow-y-auto')
+    const scrollRegion = container?.querySelector('[data-resume-editor-scroll-region]')
+    const editableControls = Array.from(
+      scrollRegion?.querySelectorAll('input, textarea, select, button') ?? [],
+    )
+
     expect(scrollRegion?.textContent).toContain('Structured edits')
     expect(scrollRegion?.textContent).toContain('Resume identity')
     expect(scrollRegion?.textContent).toContain('Change the schema-safe content behind the preview')
     expect(scrollRegion?.textContent).not.toContain('Choose a family')
     expect(scrollRegion?.querySelectorAll('[role="radio"]')).toHaveLength(0)
+    expect(editableControls.length).toBeGreaterThan(0)
+    for (const control of editableControls) {
+      expect(control.hasAttribute('disabled')).toBe(false)
+      expect(control.getAttribute('aria-disabled')).not.toBe('true')
+    }
   })
 
   it('disables structured editing controls while workspace work is pending', () => {
@@ -131,7 +140,7 @@ describe('ResumeWorkspaceEditorPanel', () => {
       )
     })
 
-    const scrollRegion = container?.querySelector('.overflow-y-auto')
+    const scrollRegion = container?.querySelector('[data-resume-editor-scroll-region]')
     const editableControls = Array.from(
       scrollRegion?.querySelectorAll('input, textarea, select, button') ?? [],
     )

@@ -171,6 +171,10 @@ function hasCurrentTargetValue(
   }
 
   if (typeof value === "number") {
+    if (target.domain === "identity" && target.key === "yearsExperience") {
+      return value > 0;
+    }
+
     return true;
   }
 
@@ -448,7 +452,8 @@ function buildMissingFieldDrafts(
     !hasMeaningfulStringList(searchPreferences.targetRoles) &&
     !hasMeaningfulStringList(searchPreferences.jobFamilies) &&
     !hasMeaningfulStringList(profile.targetRoles) &&
-    !hasDraftForTarget(candidateDrafts, "search_preferences", "targetRoles")
+    !hasDraftForTarget(candidateDrafts, "search_preferences", "targetRoles") &&
+    !hasDraftForTarget(candidateDrafts, "search_preferences", "jobFamilies")
   ) {
     drafts.push({
       step: "targeting",

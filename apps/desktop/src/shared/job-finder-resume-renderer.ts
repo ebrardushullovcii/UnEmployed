@@ -91,6 +91,7 @@ function renderEntryHeading(input: {
   subtitle: string | null
   location: string | null
   dateRange: string | null
+  heading: string | null
   mode: ResumeRenderHtmlOptions['mode']
   sectionId: string
   entryId: string
@@ -141,7 +142,18 @@ function renderEntryHeading(input: {
   ].filter((value): value is string => Boolean(value))
 
   if (primaryParts.length === 0) {
-    return ''
+    if (!input.heading) {
+      return ''
+    }
+
+    return `<h4><span class="entry-primary"><span${renderPreviewAttributes({
+      ...withPreviewSelection({
+        mode: input.mode ?? 'export',
+        sectionId: input.sectionId,
+        entryId: input.entryId,
+        targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'title'),
+      }),
+    })}>${escapeHtml(input.heading)}</span></span></h4>`
   }
 
   return `<h4><span class="entry-primary">${primaryParts.join(' <span aria-hidden="true">—</span> ')}</span>${metaParts.length > 0 ? `<span class="entry-meta">${metaParts.join(' <span aria-hidden="true">|</span> ')}</span>` : ''}</h4>`
@@ -230,6 +242,7 @@ function renderStructuredSection(input: {
                 subtitle: entry.subtitle,
                 location: entry.location,
                 dateRange: entry.dateRange,
+                heading: entry.heading,
                 mode: input.mode ?? 'export',
                 sectionId: input.sectionId,
                 entryId: entry.id,

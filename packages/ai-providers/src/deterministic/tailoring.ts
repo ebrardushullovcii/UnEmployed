@@ -163,10 +163,12 @@ function formatDateRange(start: string | null | undefined, end: string | null | 
   return [formatMonthYear(start), formatMonthYear(end)].filter(Boolean).join(" – ") || null;
 }
 
+const QUALITY_OVERLAP_THRESHOLD = 0.72;
+
 function isDistinctQualityLine(value: string, existing: readonly string[]): boolean {
   return existing.every((entry) => {
     const overlap = calculateQualityOverlap(value, entry);
-    return overlap < 0.72;
+    return overlap < QUALITY_OVERLAP_THRESHOLD;
   });
 }
 
@@ -189,7 +191,7 @@ function buildExperienceBullets(input: {
           ),
           proof,
         }))
-        .filter(({ overlap }) => overlap >= 0.72)
+        .filter(({ overlap }) => overlap >= QUALITY_OVERLAP_THRESHOLD)
         .sort((left, right) => right.overlap - left.overlap)[0]?.proof;
 
       if (!matchingProof) {

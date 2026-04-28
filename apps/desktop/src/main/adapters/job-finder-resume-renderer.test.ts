@@ -309,6 +309,9 @@ describe('job finder resume renderer', () => {
       expect(html).toContain('@page')
       expect(html).toContain('grid-template-columns: 1fr;')
       expect(html).not.toContain('<table')
+      expect(html).not.toContain('data-resume-section-id=')
+      expect(html).not.toContain('data-resume-entry-id=')
+      expect(html).not.toContain('data-resume-target-id=')
       expect(html).toContain(`content="${template.label}"`)
     }
   })

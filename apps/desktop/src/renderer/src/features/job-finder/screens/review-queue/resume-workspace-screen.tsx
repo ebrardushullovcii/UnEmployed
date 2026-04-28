@@ -41,13 +41,14 @@ function getNewestExport(
     )[0] ?? null;
 }
 
+const REMOTE_METHOD_ERROR_RE =
+  /^Error invoking remote method '[^']+': (?:(?:[A-Za-z]*Error): )?(.*)$/s
+
 function getPreviewErrorMessage(error: unknown): string {
   const fallbackMessage = 'The current draft could not be previewed.'
 
   if (error instanceof Error) {
-    const remoteMethodMatch = /^Error invoking remote method '[^']+': (?:(?:[A-Za-z]*Error): )?(.*)$/s.exec(
-      error.message,
-    )
+    const remoteMethodMatch = REMOTE_METHOD_ERROR_RE.exec(error.message)
 
     return remoteMethodMatch?.[1]?.trim() || error.message
   }
@@ -61,9 +62,7 @@ function getPreviewErrorMessage(error: unknown): string {
     return fallbackMessage
   }
 
-  const remoteMethodMatch = /^Error invoking remote method '[^']+': (?:(?:[A-Za-z]*Error): )?(.*)$/s.exec(
-    message,
-  )
+  const remoteMethodMatch = REMOTE_METHOD_ERROR_RE.exec(message)
 
   return remoteMethodMatch?.[1]?.trim() || message
 }

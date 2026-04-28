@@ -117,38 +117,22 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
     .map((candidate) => candidate.trim())
     .filter((candidate) => candidate.length > 0);
   const orderedCandidates = buildOrderedEvidenceCandidates(nonEmptyCandidates);
-  const matchedBlocks = bundle.blocks.filter((block) => {
-    const blockText = normalizeText(block.text);
-    return orderedCandidates.some(
-      (candidate) => candidate.length > 0 && blockText.includes(candidate),
-    );
-  });
-
-  // If no block matched, return the first candidate as evidence (or null).
-  if (matchedBlocks.length === 0) {
-    return {
-      sourceBlockIds: [],
-      evidenceText: nonEmptyCandidates[0] ?? null,
-    };
-  }
-
-  // Prefer a short snippet around the first exact match in the first matched block.
-  const block = matchedBlocks[0];
-
-  if (!block) {
-    return {
-      sourceBlockIds: [],
-      evidenceText: nonEmptyCandidates[0] ?? null,
-    };
-  }
-
-  const blockText = block.text ?? "";
 
   // Helper to safely escape candidate strings for RegExp
   const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   for (const candidate of orderedCandidates) {
     if (!candidate) continue;
+
+    const block = bundle.blocks.find((entry) =>
+      normalizeText(entry.text).includes(candidate),
+    );
+    if (!block) {
+      continue;
+    }
+
+    const blockText = block.text ?? "";
+
     try {
       const candidatePattern = escapeRegExp(candidate).replace(/\s+/g, "\\s+");
       const re = new RegExp(`(.{0,80}${candidatePattern}.{0,240})`, "is");
@@ -158,13 +142,21 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
         return { sourceBlockIds: [block.id], evidenceText: snippet };
       }
     } catch {
-      // fallthrough to next candidate
+      return {
+        sourceBlockIds: [block.id],
+        evidenceText: blockText.trim() || (nonEmptyCandidates[0] ?? null),
+      };
     }
+
+    // If we couldn't extract a focused snippet, return a truncated version of the block.
+    const truncated = blockText.length > 400 ? `${blockText.slice(0, 400).trim()}...` : blockText.trim();
+    return { sourceBlockIds: [block.id], evidenceText: truncated || (nonEmptyCandidates[0] ?? null) };
   }
 
-  // If we couldn't extract a focused snippet, return a truncated version of the block
-  const truncated = blockText.length > 400 ? `${blockText.slice(0, 400).trim()}...` : blockText.trim();
-  return { sourceBlockIds: [block.id], evidenceText: truncated || (nonEmptyCandidates[0] ?? null) };
+  return {
+    sourceBlockIds: [],
+    evidenceText: nonEmptyCandidates[0] ?? null,
+  };
 }
 
 function createCandidate(
