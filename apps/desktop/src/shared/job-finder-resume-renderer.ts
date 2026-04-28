@@ -559,16 +559,29 @@ function renderIdentityMeta(values: ReadonlyArray<{ field: ResumePreviewIdentity
   })).join('')}</div>`
 }
 
-function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<{ field: ResumePreviewIdentityField; text: string }> {
-  const contactFields: ResumePreviewIdentityField[] = [
-    'email',
-    'phone',
-    'portfolioUrl',
-    'linkedinUrl',
-    'githubUrl',
-    'personalWebsiteUrl',
-  ]
+function inferContactIdentityField(value: string): ResumePreviewIdentityField {
+  const normalized = value.trim().toLowerCase()
 
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    return 'email'
+  }
+
+  if (normalized.includes('linkedin.com')) {
+    return 'linkedinUrl'
+  }
+
+  if (normalized.includes('github.com')) {
+    return 'githubUrl'
+  }
+
+  if (/^\+?[\d\s().-]{7,}$/.test(normalized)) {
+    return 'phone'
+  }
+
+  return 'additionalLinks'
+}
+
+function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<{ field: ResumePreviewIdentityField; text: string }> {
   return [
     renderDocument.location
       ? {
@@ -576,8 +589,8 @@ function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<
           text: renderDocument.location,
         }
       : null,
-    ...renderDocument.contactItems.map((item, index) => ({
-      field: contactFields[index] ?? 'additionalLinks',
+    ...renderDocument.contactItems.map((item) => ({
+      field: inferContactIdentityField(item),
       text: formatContactItem(item),
     })),
   ].filter((value): value is { field: ResumePreviewIdentityField; text: string } => Boolean(value))
@@ -1087,10 +1100,10 @@ export function renderResumeTemplateHtml(input: {
       box-shadow: 0 20px 60px rgba(24, 38, 62, 0.16);
       margin: 0;
     }
-    [data-resume-section-id], [data-resume-entry-id] { cursor: pointer; transition: box-shadow 120ms ease, background-color 120ms ease; border-radius: 0.12in; }
+    [data-resume-section-id], [data-resume-entry-id], [data-resume-target-id] { cursor: pointer; transition: box-shadow 120ms ease, background-color 120ms ease; border-radius: 0.12in; }
     [data-resume-entry-id] { padding: 0.06in 0.08in; margin-inline: -0.08in; }
-    [data-resume-section-id][data-resume-selected="true"], [data-resume-entry-id][data-resume-selected="true"] { box-shadow: 0 0 0 2px rgba(31, 58, 95, 0.26); background: rgba(31, 58, 95, 0.06); }
-    [data-resume-section-id]:hover, [data-resume-entry-id]:hover { box-shadow: 0 0 0 1px rgba(31, 58, 95, 0.18); background: rgba(31, 58, 95, 0.04); }
+    [data-resume-section-id][data-resume-selected="true"], [data-resume-entry-id][data-resume-selected="true"], [data-resume-target-id][data-resume-selected="true"] { box-shadow: 0 0 0 2px rgba(31, 58, 95, 0.26); background: rgba(31, 58, 95, 0.06); }
+    [data-resume-section-id]:hover, [data-resume-entry-id]:hover, [data-resume-target-id]:hover { box-shadow: 0 0 0 1px rgba(31, 58, 95, 0.18); background: rgba(31, 58, 95, 0.04); }
       `
       : ''}
     ${mode === 'catalog'

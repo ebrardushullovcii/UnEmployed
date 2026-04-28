@@ -31,6 +31,9 @@ interface BuildProfileSetupReviewItemsInput {
   searchPreferences: JobSearchPreferences;
 }
 
+type TargetDomain = ProfileReviewItem["target"]["domain"];
+type TargetKey = ProfileReviewItem["target"]["key"];
+
 function getPreferredApplicationLinkUrls(profile: CandidateProfile): string[] {
   return uniqueStrings(
     profile.applicationIdentity.preferredLinkIds.flatMap((linkId) => {
@@ -351,8 +354,8 @@ function hasPlaceholderAwareIdentityValue(
 
 function hasDraftForTarget(
   candidateDrafts: readonly DerivedReviewDraft[],
-  domain: string,
-  key?: string,
+  domain: TargetDomain,
+  key?: TargetKey,
 ): boolean {
   return candidateDrafts.some(
     (draft) =>

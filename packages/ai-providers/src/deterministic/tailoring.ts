@@ -79,10 +79,13 @@ function buildProofBullet(input: {
     return claim;
   }
 
-  const normalizedClaim = tokenizeForQuality(claim).join(" ");
-  const normalizedMetric = tokenizeForQuality(heroMetric).join(" ");
+  const claimTokens = tokenizeForQuality(claim);
+  const metricTokens = tokenizeForQuality(heroMetric);
+  const includesMetricTokens = metricTokens.length > 0 && claimTokens.some((_, index) =>
+    metricTokens.every((token, tokenIndex) => claimTokens[index + tokenIndex] === token),
+  );
 
-  if (!normalizedMetric || normalizedClaim.includes(normalizedMetric)) {
+  if (metricTokens.length === 0 || includesMetricTokens) {
     return claim;
   }
 
@@ -567,12 +570,7 @@ export function buildDeterministicStructuredResumeDraft(
     evidence?.candidateSummary[0] ??
     evidence?.summary[0] ??
     baseDraft.summary;
-  const experienceBullets = baseDraft.experienceEntries.flatMap((entry) => entry.bullets);
-  const experienceHighlights = uniqueStrings(
-    (input.researchContext?.priorityThemes ?? []).filter(
-      (entry) => isDistinctQualityLine(entry, experienceBullets),
-    ),
-  ).slice(0, 4);
+  const experienceHighlights: string[] = [];
   const coreSkills = filterGroundedVisibleSkills(
     input.profile,
     [

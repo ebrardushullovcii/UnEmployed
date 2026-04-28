@@ -58,8 +58,9 @@ function getDraftSummaryText(workspace) {
 }
 
 function getPreviewExpectation(workspace) {
-  const summaryText = getDraftSummaryText(workspace).trim()
-  if (summaryText.length > 0) {
+  const summarySection = workspace.draft.sections.find((section) => section.kind === 'summary')
+  const summaryText = summarySection?.text?.trim() ?? ''
+  if (summarySection?.included && summaryText.length > 0) {
     return summaryText
   }
 
@@ -104,6 +105,44 @@ function getPreviewExpectation(workspace) {
   return null
 }
 
+function buildEntryFieldTarget(sectionId, entryId, field) {
+  return `entry:${sectionId}:${entryId}:${field}`
+}
+
+function getEntryPreviewTarget(section, entry) {
+  const fieldCandidates = [
+    { field: 'title', editorLabel: 'Title', value: entry.title },
+    { field: 'subtitle', editorLabel: 'Subtitle', value: entry.subtitle },
+    { field: 'summary', editorLabel: 'Summary', value: entry.summary },
+  ]
+
+  for (const candidate of fieldCandidates) {
+    const expectedValue = candidate.value?.trim()
+    if (expectedValue) {
+      return {
+        sectionId: section.id,
+        entryId: entry.id,
+        targetId: buildEntryFieldTarget(section.id, entry.id, candidate.field),
+        editorLabel: candidate.editorLabel,
+        expectedValue,
+      }
+    }
+  }
+
+  const bullet = entry.bullets.find((entryBullet) => entryBullet.included && entryBullet.text.trim().length > 0)
+  if (!bullet) {
+    return null
+  }
+
+  return {
+    sectionId: section.id,
+    entryId: entry.id,
+    targetId: `entry:${section.id}:${entry.id}:bullet:${bullet.id}`,
+    editorLabel: 'Bullet text',
+    expectedValue: bullet.text.trim(),
+  }
+}
+
 function getClickablePreviewTarget(workspace) {
   const targets = []
 
@@ -114,13 +153,10 @@ function getClickablePreviewTarget(workspace) {
 
     const includedEntry = section.entries.find((entry) => entry.included)
     if (includedEntry) {
-      targets.push({
-        sectionId: section.id,
-        entryId: includedEntry.id,
-        targetId: `entry:${section.id}:${includedEntry.id}:title`,
-        editorLabel: 'Title',
-        expectedValue: includedEntry.title,
-      })
+      const entryTarget = getEntryPreviewTarget(section, includedEntry)
+      if (entryTarget) {
+        targets.push(entryTarget)
+      }
       continue
     }
 

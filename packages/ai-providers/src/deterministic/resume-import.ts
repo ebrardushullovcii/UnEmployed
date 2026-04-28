@@ -18,6 +18,32 @@ function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsWholePhrase(haystack: string, needle: string): boolean {
+  return new RegExp(`(^|\\W)${escapeRegExp(needle)}(?=\\W|$)`, "i").test(haystack);
+}
+
+function getExperienceSectionText(resumeText: string): string {
+  const lines = resumeText.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) =>
+    /^(work\s+experience|professional\s+experience|experience|employment|career\s+history)$/i.test(line.trim()),
+  );
+
+  if (startIndex < 0) {
+    return "";
+  }
+
+  const endOffset = lines.slice(startIndex + 1).findIndex((line) =>
+    /^(education|certifications?|projects?|skills|languages|publications?|awards?)$/i.test(line.trim()),
+  );
+  const endIndex = endOffset < 0 ? lines.length : startIndex + 1 + endOffset;
+
+  return lines.slice(startIndex + 1, endIndex).join("\n");
+}
+
 function buildYearsExperienceEvidenceCandidates(
   yearsExperience: number,
   resumeText: string,
@@ -36,14 +62,19 @@ function buildYearsExperienceEvidenceCandidates(
           `${yearsExperience}+ yrs`,
         ];
   const explicitCandidates = yearForms.filter((candidate) =>
-    normalizedResumeText.includes(normalizeText(candidate)),
+    containsWholePhrase(normalizedResumeText, normalizeText(candidate)),
   );
 
   if (explicitCandidates.length > 0) {
     return explicitCandidates;
   }
 
-  const lines = resumeText
+  const experienceText = getExperienceSectionText(resumeText);
+  if (!experienceText) {
+    return [];
+  }
+
+  const lines = experienceText
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
@@ -117,9 +148,6 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
     .map((candidate) => candidate.trim())
     .filter((candidate) => candidate.length > 0);
   const orderedCandidates = buildOrderedEvidenceCandidates(nonEmptyCandidates);
-
-  // Helper to safely escape candidate strings for RegExp
-  const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   for (const candidate of orderedCandidates) {
     if (!candidate) continue;

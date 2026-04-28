@@ -145,6 +145,7 @@ function renderTemplate(
   templateId: ResumeTemplateId,
   renderDocument: ResumeRenderDocument = baseRenderDocument,
   fontPreset: JobFinderSettings['fontPreset'] = 'inter_requisite',
+  options?: Parameters<typeof renderResumeTemplateHtml>[1],
 ): string {
   return renderResumeTemplateHtml({
     renderDocument,
@@ -159,7 +160,7 @@ function renderTemplate(
       keepSessionAlive: false,
       discoveryOnly: false,
     },
-  })
+  }, options)
 }
 
 describe('job finder resume renderer', () => {
@@ -201,6 +202,19 @@ describe('job finder resume renderer', () => {
     expect(html).not.toContain('Targeted Keywords')
     expect(html).not.toContain('Should not render')
     expect(html).not.toContain('letter-spacing: 0.15em')
+  })
+
+  test('renders preview targeting attributes for identity, sections, entries, and bullets', () => {
+    const html = renderTemplate('classic_ats', baseRenderDocument, 'inter_requisite', { mode: 'preview' })
+
+    expect(html).toContain('data-resume-target-id="identity:fullName"')
+    expect(html).toContain('data-resume-target-id="identity:email"')
+    expect(html).toContain('data-resume-target-id="identity:additionalLinks"')
+    expect(html).toContain('data-resume-section-id="section_summary"')
+    expect(html).toContain('data-resume-target-id="section:section_summary:text"')
+    expect(html).toContain('data-resume-entry-id="entry_1"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:title"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:bullet:entry_1_bullet_1"')
   })
 
   test('omits blank headline markup when the profile headline is missing', () => {
