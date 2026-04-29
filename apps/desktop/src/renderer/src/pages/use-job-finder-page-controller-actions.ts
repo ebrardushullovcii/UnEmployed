@@ -170,31 +170,33 @@ export function createActionRunners(args: {
         )
       }
 
-      const result = await withPendingScope(pendingScope, action)
-      const resolvedSuccessMessage =
-        typeof successMessage === 'function'
-          ? successMessage(result)
-          : successMessage
+      await withPendingScope(pendingScope, async () => {
+        const result = await action()
+        const resolvedSuccessMessage =
+          typeof successMessage === 'function'
+            ? successMessage(result)
+            : successMessage
 
-      try {
-        await onSuccess(result)
-      } catch (error) {
-        if (isHandledRefreshError(error)) {
-          throw error
+        try {
+          await onSuccess(result)
+        } catch (error) {
+          if (isHandledRefreshError(error)) {
+            throw error
+          }
+
+          const detail =
+            error instanceof Error
+              ? error.message
+              : 'The workspace view could not refresh automatically.'
+          setActionState({
+            message: `Action completed, but the current view could not refresh automatically. ${detail}`,
+          })
+          return
         }
 
-        const detail =
-          error instanceof Error
-            ? error.message
-            : 'The workspace view could not refresh automatically.'
         setActionState({
-          message: `Action completed, but the current view could not refresh automatically. ${detail}`,
+          message: resolvedSuccessMessage,
         })
-        return
-      }
-
-      setActionState({
-        message: resolvedSuccessMessage,
       })
     } catch (error) {
       if (isHandledRefreshError(error)) {

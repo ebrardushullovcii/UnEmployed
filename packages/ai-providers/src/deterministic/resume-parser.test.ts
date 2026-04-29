@@ -84,7 +84,7 @@ describe("buildDeterministicResumeProfileExtraction", () => {
       { preserveExistingValues: false },
     );
 
-    expect(extraction.yearsExperience).toBeGreaterThanOrEqual(10);
+    expect(extraction.yearsExperience).toBe(10);
   });
 
   test("returns null for inferred years of experience when coverage is under one year", () => {

@@ -89,7 +89,8 @@ describe("createJobFinderWorkspaceService", () => {
     let closeSessionCalls = 0;
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
-      openSession(source) {
+      openSession(source, options) {
+        void options;
         openSessionCalls += 1;
         return Promise.resolve({
           source,
@@ -178,7 +179,8 @@ describe("createJobFinderWorkspaceService", () => {
     const skipSessionValidationFlags: boolean[] = [];
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
-      openSession(source) {
+      openSession(source, options) {
+        void options;
         openSessionCalls += 1;
         return Promise.resolve({
           source,
@@ -293,7 +295,8 @@ describe("createJobFinderWorkspaceService", () => {
     let closeSessionCalls = 0;
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
-      openSession(source) {
+      openSession(source, options) {
+        void options;
         openSessionCalls += 1;
 
         return Promise.resolve({
@@ -363,7 +366,8 @@ describe("createJobFinderWorkspaceService", () => {
     let closeSessionCalls = 0;
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
-      openSession(source) {
+      openSession(source, options) {
+        void options;
         openSessionCalls += 1;
 
         return Promise.resolve({

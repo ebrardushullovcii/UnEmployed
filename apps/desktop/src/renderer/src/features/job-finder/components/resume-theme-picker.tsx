@@ -45,8 +45,8 @@ interface ResumeTemplateFamilyViewModel {
   id: string;
   label: string;
   description: string;
-  deliveryLane: "apply_safe" | "share_ready";
-  atsConfidence: "high" | "medium" | "low";
+  deliveryLane: "apply_safe" | "share_ready" | null;
+  atsConfidence: "high" | "medium" | "low" | null;
   fitSummary: string | null;
   familySortOrder: number;
   templates: readonly ResumeTemplateDefinition[];
@@ -263,6 +263,18 @@ function buildFamilyViewModels(
       const familyId = getResumeTemplateFamilyId(firstTemplate);
       const familySortOrder =
         firstTemplate.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      const firstDeliveryLane = getResumeTemplateDeliveryLane(firstTemplate);
+      const firstAtsConfidence = getResumeTemplateAtsConfidence(firstTemplate);
+      const deliveryLane = sortedTemplates.every(
+        (template) => getResumeTemplateDeliveryLane(template) === firstDeliveryLane,
+      )
+        ? firstDeliveryLane
+        : null;
+      const atsConfidence = sortedTemplates.every(
+        (template) => getResumeTemplateAtsConfidence(template) === firstAtsConfidence,
+      )
+        ? firstAtsConfidence
+        : null;
 
       return {
         id: familyId,
@@ -271,8 +283,8 @@ function buildFamilyViewModels(
           firstTemplate.familyDescription ??
           firstTemplate.description ??
           "Resume family",
-        deliveryLane: getResumeTemplateDeliveryLane(firstTemplate),
-        atsConfidence: getResumeTemplateAtsConfidence(firstTemplate),
+        deliveryLane,
+        atsConfidence,
         fitSummary: firstTemplate.fitSummary ?? null,
         familySortOrder,
         templates: sortedTemplates,
@@ -442,11 +454,13 @@ export function ResumeThemePicker({
               <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="label-mono-xs">Choose a family</p>
-                  <Badge
-                    variant={getLaneBadgeVariant(focusedFamily.deliveryLane)}
-                  >
-                    {getLaneLabel(focusedFamily.deliveryLane)}
-                  </Badge>
+                  {focusedFamily.deliveryLane ? (
+                    <Badge
+                      variant={getLaneBadgeVariant(focusedFamily.deliveryLane)}
+                    >
+                      {getLaneLabel(focusedFamily.deliveryLane)}
+                    </Badge>
+                  ) : null}
                 </div>
 
                 {selectedFamily || leadingRecommendedFamily ? (
@@ -469,6 +483,7 @@ export function ResumeThemePicker({
 
                     return (
                       <button
+                        aria-pressed={isActive}
                         key={family.id}
                         className={cn(
                           "flex min-h-10 items-center rounded-(--radius-field) border px-3 py-2 text-left transition-[border-color,background-color,box-shadow]",
@@ -501,6 +516,8 @@ export function ResumeThemePicker({
                   const recommendationReason = recommendationReasons.get(
                     theme.id,
                   );
+                  const deliveryLane = getResumeTemplateDeliveryLane(theme);
+                  const atsConfidence = getResumeTemplateAtsConfidence(theme);
                   const compactReason =
                     recommendationReason ??
                     theme.fitSummary ??
@@ -525,6 +542,12 @@ export function ResumeThemePicker({
                             {selected ? (
                               <Badge variant="default">Selected</Badge>
                             ) : null}
+                            <Badge variant={getLaneBadgeVariant(deliveryLane)}>
+                              {getLaneLabel(deliveryLane)}
+                            </Badge>
+                            <Badge variant="outline">
+                              {getAtsConfidenceLabel(atsConfidence)}
+                            </Badge>
                           </div>
                           <p className="text-[0.74rem] leading-4.5 text-foreground-soft">
                             {compactReason}
@@ -625,6 +648,8 @@ export function ResumeThemePicker({
                   const familyRecommendationCount = family.templates.filter(
                     (template) => recommendedThemeIds.has(template.id),
                   ).length;
+                  const triggerId = `resume-theme-family-trigger-${family.id}`;
+                  const panelId = `resume-theme-family-panel-${family.id}`;
 
                   return (
                     <div
@@ -640,8 +665,11 @@ export function ResumeThemePicker({
                       )}
                     >
                       <button
+                        aria-controls={panelId}
+                        aria-expanded={isActive}
                         className="flex min-h-9 min-w-0 items-center justify-between gap-2 text-left"
                         disabled={disabled}
+                        id={triggerId}
                         onClick={() => setFocusedFamilyId(family.id)}
                         type="button"
                       >
@@ -663,7 +691,12 @@ export function ResumeThemePicker({
                       </button>
 
                       {isActive ? (
-                        <div className="grid gap-1 border-t border-border/10 pt-1.5">
+                        <div
+                          aria-labelledby={triggerId}
+                          className="grid gap-1 border-t border-border/10 pt-1.5"
+                          id={panelId}
+                          role="region"
+                        >
                           {family.templates.map((theme) => {
                             const selected = theme.id === selectedThemeId;
                             const visualTags = getResumeTemplateVisualTags(

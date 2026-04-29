@@ -1156,9 +1156,9 @@ describe("createJobFinderWorkspaceService", () => {
     const fallbackRuntime = createBrowserRuntime();
     const browserRuntime: BrowserSessionRuntime = {
       ...fallbackRuntime,
-      async openSession(source) {
+      async openSession(source, options) {
         openSessionCalls += 1;
-        return fallbackRuntime.openSession(source);
+        return fallbackRuntime.openSession(source, options);
       },
       async closeSession(source) {
         closeSessionCalls += 1;

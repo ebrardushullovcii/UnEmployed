@@ -108,7 +108,6 @@ export function createDesktopBrowserRuntime(input: {
 } = {}): BrowserSessionRuntime {
   const env = input.env ?? process.env
   const desktopTestApiEnabled = input.desktopTestApiEnabled ?? isDesktopTestApiEnabled(env)
-  const aiClient = input.aiClient ?? createDesktopJobFinderAiClient(env)
   const rawPort = env.UNEMPLOYED_CHROME_DEBUG_PORT
     ? Number.parseInt(env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
     : null
@@ -117,6 +116,8 @@ export function createDesktopBrowserRuntime(input: {
     : null
 
   if (isBrowserAgentEnabled(env)) {
+    const aiClient = input.aiClient ?? createDesktopJobFinderAiClient(env)
+
     return createBrowserAgentRuntime({
       userDataDir: getBrowserAgentProfileDirectory(),
       headless: isBrowserHeadlessEnabled(env),
@@ -139,7 +140,13 @@ export function createDesktopBrowserRuntime(input: {
   return {
     ...runtime,
     async openSession(source, options) {
-      if (options?.targetUrl || options?.targetId) {
+      const hasTargetId =
+        options !== null &&
+        typeof options === 'object' &&
+        'targetId' in options &&
+        Boolean((options as { targetId?: unknown }).targetId)
+
+      if (options?.targetUrl || hasTargetId) {
         throw new Error(
           'Targeted sign-in requires the browser agent runtime, but it is disabled in this desktop build.',
         )

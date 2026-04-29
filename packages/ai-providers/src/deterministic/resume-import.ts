@@ -38,7 +38,7 @@ function containsWholePhrase(haystack: string, needle: string): boolean {
 function getExperienceSectionText(resumeText: string): string {
   const lines = resumeText.split(/\r?\n/);
   const experienceHeadingPattern =
-    /^(work\s+experience|professional\s+experience|experience|employment|career\s+history)\s*[:\-–—]?\s*$/i;
+    /^(relevant\s+experience|work\s+(?:experience|history)|professional\s+(?:experience|background)|experience|employment|career\s+history|background)\s*[:\-–—]?\s*$/i;
   const followingSectionHeadingPattern =
     /^(education(?:\s+and\s+training)?|certifications?|projects?|(?:technical|core|additional)?\s*skills?|language(?:\s+skills?)?|languages?|publications?|awards?)\s*[:\-–—]?\s*$/i;
   const startIndex = lines.findIndex((line) =>
@@ -174,7 +174,9 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
   for (const candidate of orderedCandidates) {
     if (!candidate) continue;
 
-    const block = indexedBlocks.find((entry) => entry.normalizedText.includes(candidate))?.block;
+    const block = indexedBlocks.find((entry) =>
+      containsWholePhrase(entry.normalizedText, candidate),
+    )?.block;
     if (!block) {
       continue;
     }
@@ -183,7 +185,10 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
 
     try {
       const candidatePattern = escapeRegExp(candidate).replace(/\s+/g, "\\s+");
-      const re = new RegExp(`(.{0,80}${candidatePattern}.{0,240})`, "is");
+      const re = new RegExp(
+        `(.{0,80}(?:^|\\W)${candidatePattern}(?=\\W|$).{0,240})`,
+        "is",
+      );
       const m = blockText.match(re);
       if (m && m[1]) {
         const snippet = m[1].trim().replace(/\s+/g, " ");
@@ -266,8 +271,12 @@ function toExperienceOnlyBundle(bundle: ResumeDocumentBundle): ResumeDocumentBun
     blocks: normalizedExperienceText
       ? bundle.blocks.filter((block) => {
           const normalizedBlockText = normalizeText(block.text);
+          const isDateRangeBlock =
+            /^(?:current|present|\d{4}(?:-\d{2}(?:-\d{2})?)?|(?:[A-Za-z]{3,9}\s+)?\d{4})\s*[–—-]\s*(?:current|present|\d{4}(?:-\d{2}(?:-\d{2})?)?|(?:[A-Za-z]{3,9}\s+)?\d{4})$/i.test(
+              block.text.trim(),
+            );
           return (
-            normalizedBlockText.length >= 12 &&
+            (normalizedBlockText.length >= 12 || isDateRangeBlock) &&
             containsWholePhrase(normalizedExperienceText, normalizedBlockText)
           );
         })

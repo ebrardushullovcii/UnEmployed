@@ -64,6 +64,22 @@ describe("createDesktopBrowserRuntime", () => {
     );
   });
 
+  test("rejects target-id browser opens when the browser agent runtime is disabled", async () => {
+    const browserRuntime = createDesktopBrowserRuntime({
+      env: { UNEMPLOYED_BROWSER_AGENT: "0" },
+      aiClient: createDesktopJobFinderAiClient({ UNEMPLOYED_BROWSER_AGENT: "0" }),
+      desktopTestApiEnabled: false,
+    });
+
+    await expect(
+      browserRuntime.openSession("target_site", {
+        targetId: "target_linkedin_default",
+      } as { targetUrl?: string | null } & { targetId: string }),
+    ).rejects.toThrow(
+      "Targeted sign-in requires the browser agent runtime, but it is disabled in this desktop build.",
+    );
+  });
+
   test("keeps generic browser opens available when the browser agent runtime is disabled", async () => {
     const browserRuntime = createDesktopBrowserRuntime({
       env: { UNEMPLOYED_BROWSER_AGENT: "0" },

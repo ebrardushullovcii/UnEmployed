@@ -225,9 +225,20 @@ describe('DiscoveryFiltersPanel', () => {
     expect(container.textContent).toContain('Sign in to Enabled source.')
     expect(container.textContent).not.toContain('Sign in to Disabled source.')
 
-    const enabledSourceButtons = getAllByRole('button', { name: /sign in to enabled source/i })
+    const primaryPrompt = getAllByRole('status').find((element) =>
+      element.textContent?.includes('Sign in to Enabled source.'),
+    )
+    expect(primaryPrompt).toBeDefined()
 
-    fireEvent.click(enabledSourceButtons[0]!)
+    if (!primaryPrompt) {
+      throw new Error('Expected enabled-source sign-in prompt to be rendered.')
+    }
+
+    const enabledSourceButton = within(primaryPrompt).getByRole('button', {
+      name: /sign in to enabled source/i,
+    })
+
+    fireEvent.click(enabledSourceButton)
 
     expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith('target_enabled')
     expect(onOpenBrowserSession).not.toHaveBeenCalled()
