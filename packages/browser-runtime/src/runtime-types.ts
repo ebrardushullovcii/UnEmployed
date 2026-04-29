@@ -17,6 +17,7 @@ import type { JobFinderAiClient } from "@unemployed/ai-providers";
 
 export interface OpenBrowserSessionOptions {
   targetUrl?: string | null;
+  targetId?: string | null;
 }
 
 export interface ExecuteEasyApplyInput {

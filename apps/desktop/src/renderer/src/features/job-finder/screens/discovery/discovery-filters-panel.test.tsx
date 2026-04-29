@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { JobSearchPreferences, SourceAccessPrompt } from '@unemployed/contracts'
@@ -62,7 +62,7 @@ describe('DiscoveryFiltersPanel', () => {
       updatedAt: '2026-03-20T10:01:00.000Z',
     }
 
-    const { container } = render(
+    const { container, getByRole } = render(
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
@@ -105,14 +105,9 @@ describe('DiscoveryFiltersPanel', () => {
     expect(container.textContent).toContain('Then Search again after sign-in.')
     expect(container.textContent?.match(/Sign in to LinkedIn before the next search can continue\./g)).toHaveLength(1)
 
-    const signInButton = [...container.querySelectorAll('button')].find(
-      (button) => button.textContent?.includes('Sign in to LinkedIn'),
-    )
-    expect(signInButton).not.toBeNull()
-
-    if (!signInButton) {
-      throw new Error('Expected sign-in button to be rendered.')
-    }
+    const signInButton = within(getByRole('status')).getByRole('button', {
+      name: /sign in to linkedin/i,
+    })
 
     fireEvent.click(signInButton)
 
@@ -228,7 +223,7 @@ describe('DiscoveryFiltersPanel', () => {
     )
 
     expect(container.textContent).toContain('Sign in to Enabled source.')
-    expect(container.textContent).not.toContain('Sign in to Disabled source.Then')
+    expect(container.textContent).not.toContain('Sign in to Disabled source.')
 
     const enabledSourceButtons = getAllByRole('button', { name: /sign in to enabled source/i })
 

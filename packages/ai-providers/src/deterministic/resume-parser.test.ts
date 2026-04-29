@@ -147,10 +147,13 @@ describe("buildDeterministicResumeProfileExtraction", () => {
       },
       "deterministic",
       "Test provider",
-      { preserveExistingValues: false },
+      {
+        preserveExistingValues: false,
+        now: new Date("2026-02-01T00:00:00Z"),
+      },
     );
 
-    expect(extraction.yearsExperience).toBeGreaterThanOrEqual(2);
+    expect(extraction.yearsExperience).toBe(4);
   });
 
   test("does not inflate ISO month date ranges into a full year of experience", () => {

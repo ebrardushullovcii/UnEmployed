@@ -388,7 +388,7 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
   const workModeSummary = input.job.workMode.join(", ") || "flexible";
   const roleTarget = input.job.title || input.searchPreferences.targetRoles[0] || "the target role";
   const headline = input.profile.headline ?? roleTarget;
-  const synthesizedSummary = `${headline} with ${input.profile.yearsExperience ? `${input.profile.yearsExperience}+ years of experience` : "relevant experience"} building delivery across ${targetedKeywords.slice(0, 3).join(", ") || "core role requirements"} in ${workModeSummary} environments.`;
+  const synthesizedSummary = `${headline} with ${input.profile.yearsExperience ? `${input.profile.yearsExperience}+ years of experience` : "relevant experience"} delivering solutions in ${targetedKeywords.slice(0, 3).join(", ") || "core role requirements"} within ${workModeSummary} environments.`;
   const preferredStoredSummary =
     input.profile.professionalSummary.fullSummary ??
     input.profile.professionalSummary.shortValueProposition ??

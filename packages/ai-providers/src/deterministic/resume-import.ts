@@ -40,7 +40,7 @@ function getExperienceSectionText(resumeText: string): string {
   const experienceHeadingPattern =
     /^(work\s+experience|professional\s+experience|experience|employment|career\s+history)\s*[:\-–—]?\s*$/i;
   const followingSectionHeadingPattern =
-    /^(education|certifications?|projects?|skills|languages|publications?|awards?)\s*[:\-–—]?\s*$/i;
+    /^(education(?:\s+and\s+training)?|certifications?|projects?|(?:technical|core|additional)?\s*skills?|language(?:\s+skills?)?|languages?|publications?|awards?)\s*[:\-–—]?\s*$/i;
   const startIndex = lines.findIndex((line) =>
     experienceHeadingPattern.test(line.trim()),
   );
@@ -61,7 +61,11 @@ function buildYearsExperienceEvidenceCandidates(
   yearsExperience: number,
   resumeText: string,
 ): string[] {
-  const dateRangePattern = /\b(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(?:current|present|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\b/i;
+  const dateTokenPattern = String.raw`(?:current|present|\d{4}-\d{2}(?:-\d{2})?|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})`;
+  const dateRangePattern = new RegExp(
+    String.raw`\b${dateTokenPattern}\s*[–—-]\s*${dateTokenPattern}\b`,
+    "i",
+  );
   const experienceText = getExperienceSectionText(resumeText) || resumeText;
   const normalizedExperienceText = normalizeText(experienceText);
   const yearForms =

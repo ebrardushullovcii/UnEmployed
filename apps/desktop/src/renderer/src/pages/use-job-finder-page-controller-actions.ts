@@ -602,9 +602,9 @@ export function createPrimaryPageActions(
     onRunAgentDiscovery: () => runDiscoveryAction(),
     onRunDiscoveryForTarget: (targetId: string) => runDiscoveryAction(targetId),
     onRunSourceDebug: (targetId: string) => {
-      const runId = sourceDebugRunIdRef.current + 1
+      sourceDebugRunIdRef.current += 1
+      const runId = sourceDebugRunIdRef.current
       const scope = jobFinderPendingActions.sourceDebug(targetId)
-      sourceDebugRunIdRef.current = runId
       void withPendingScope(scope, async () => {
         setActionState({
           message: 'Starting source debug and attaching the browser profile...',
@@ -625,7 +625,6 @@ export function createPrimaryPageActions(
             return
           }
 
-          sourceDebugRunIdRef.current = 0
           setActionState({
             message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
           })
@@ -634,7 +633,6 @@ export function createPrimaryPageActions(
             return
           }
 
-          sourceDebugRunIdRef.current = 0
           const message =
             error instanceof Error
               ? error.message

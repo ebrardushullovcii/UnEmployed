@@ -160,6 +160,8 @@ export function buildResumeThemePickerRecommendations(input: {
     let score = 0;
     let reason: string | null = null;
 
+    // Recommendations are intentionally explicit per shipped template id. New
+    // templates should add a case here or remain available without a score.
     switch (theme.id) {
       case "technical_matrix":
         if (isTechnicalRole) {

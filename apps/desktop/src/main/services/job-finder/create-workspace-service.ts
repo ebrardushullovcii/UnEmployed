@@ -139,7 +139,7 @@ export function createDesktopBrowserRuntime(input: {
   return {
     ...runtime,
     async openSession(source, options) {
-      if (options?.targetUrl) {
+      if (options?.targetUrl || options?.targetId) {
         throw new Error(
           'Targeted sign-in requires the browser agent runtime, but it is disabled in this desktop build.',
         )
