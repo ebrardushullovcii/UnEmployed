@@ -18,10 +18,19 @@ function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Escapes all regex metacharacters before user-derived text is embedded in a
+ * dynamic RegExp pattern.
+ */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Performs a literal whole-phrase match. `needle` is escaped first, so the
+ * dynamic pattern remains linear (`(^|\W){literal}(?=\W|$)`) and must stay
+ * escaped if this helper changes.
+ */
 function containsWholePhrase(haystack: string, needle: string): boolean {
   return new RegExp(`(^|\\W)${escapeRegExp(needle)}(?=\\W|$)`, "i").test(haystack);
 }
@@ -245,7 +254,13 @@ function toExperienceOnlyBundle(bundle: ResumeDocumentBundle): ResumeDocumentBun
     ...bundle,
     fullText: experienceText,
     blocks: normalizedExperienceText
-      ? bundle.blocks.filter((block) => normalizedExperienceText.includes(normalizeText(block.text)))
+      ? bundle.blocks.filter((block) => {
+          const normalizedBlockText = normalizeText(block.text);
+          return (
+            normalizedBlockText.length >= 12 &&
+            containsWholePhrase(normalizedExperienceText, normalizedBlockText)
+          );
+        })
       : [],
   };
 }

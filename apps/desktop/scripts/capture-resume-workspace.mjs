@@ -151,12 +151,20 @@ function getClickablePreviewTarget(workspace) {
       continue
     }
 
-    const includedEntry = section.entries.find((entry) => entry.included)
-    if (includedEntry) {
-      const entryTarget = getEntryPreviewTarget(section, includedEntry)
-      if (entryTarget) {
-        targets.push(entryTarget)
+    let entryTarget = null
+    for (const entry of section.entries) {
+      if (!entry.included) {
+        continue
       }
+
+      entryTarget = getEntryPreviewTarget(section, entry)
+      if (entryTarget) {
+        break
+      }
+    }
+
+    if (entryTarget) {
+      targets.push(entryTarget)
       continue
     }
 
@@ -203,7 +211,7 @@ async function waitForProfileOrSetupHeading(window) {
 }
 
 function summaryField(window) {
-  return window.getByLabel('Section text').first()
+  return editorFieldByTarget(window, 'section:section_summary:text')
 }
 
 function editorFieldByTarget(window, targetId) {

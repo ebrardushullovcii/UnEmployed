@@ -208,9 +208,27 @@ describe('job finder resume renderer', () => {
   })
 
   test('renders preview targeting attributes for identity, sections, entries, and bullets', () => {
-    const html = renderTemplate('classic_ats', baseRenderDocument, 'inter_requisite', { mode: 'preview' })
+    const previewDocument: ResumeRenderDocument = {
+      ...baseRenderDocument,
+      sections: baseRenderDocument.sections.map((section) =>
+        section.id === 'section_projects'
+          ? {
+              ...section,
+              entries: section.entries.map((entry) => ({
+                ...entry,
+                title: null,
+                subtitle: null,
+                heading: 'Workflow OS — Design lead',
+              })),
+            }
+          : section,
+      ),
+    }
+    const html = renderTemplate('classic_ats', previewDocument, 'inter_requisite', { mode: 'preview' })
 
     expect(html).toContain('data-resume-target-id="identity:fullName"')
+    expect(html).toContain('role="button"')
+    expect(html).toContain('tabindex="0"')
     expect(html).toContain('data-resume-target-id="identity:email"')
     expect(html).toContain('data-resume-target-id="identity:portfolioUrl"')
     expect(html).toContain('data-resume-section-id="section_summary"')
@@ -221,6 +239,10 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:location"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:dateRange"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:bullet:entry_1_bullet_1"')
+    expect(html).toContain('data-resume-target-id="entry:section_projects:project_1:title"')
+    expect(html).toContain('Workflow OS — Design lead')
+    expect(html).toContain('data-resume-target-id="section:section_skills:bullet:skill_1"')
+    expect(html).toContain('data-resume-target-id="section:section_languages:bullet:lang_1"')
   })
 
   test('omits blank headline markup when the profile headline is missing', () => {

@@ -183,6 +183,11 @@ function renderPreviewAttributes(input: {
     attributes.push(`data-resume-target-id="${escapeHtml(input.targetId)}"`)
   }
 
+  if (attributes.length > 0) {
+    attributes.push('role="button"')
+    attributes.push('tabindex="0"')
+  }
+
   return attributes.length > 0 ? ` ${attributes.join(' ')}` : ''
 }
 
@@ -1128,7 +1133,7 @@ export function renderResumeTemplateHtml(input: {
     [data-resume-section-id], [data-resume-entry-id], [data-resume-target-id] { cursor: pointer; transition: box-shadow 120ms ease, background-color 120ms ease; border-radius: 0.12in; }
     [data-resume-entry-id] { padding: 0.06in 0.08in; margin-inline: -0.08in; }
     [data-resume-section-id][data-resume-selected="true"], [data-resume-entry-id][data-resume-selected="true"], [data-resume-target-id][data-resume-selected="true"] { box-shadow: 0 0 0 2px var(--resume-selected-shadow); background: var(--resume-selected-surface); }
-    [data-resume-section-id]:hover, [data-resume-entry-id]:hover, [data-resume-target-id]:hover { box-shadow: 0 0 0 1px var(--resume-hover-shadow); background: var(--resume-hover-surface); }
+    [data-resume-section-id]:hover, [data-resume-entry-id]:hover, [data-resume-target-id]:hover, [data-resume-section-id]:focus-visible, [data-resume-entry-id]:focus-visible, [data-resume-target-id]:focus-visible { box-shadow: 0 0 0 1px var(--resume-hover-shadow); background: var(--resume-hover-surface); outline: none; }
       `
       : ''}
     ${mode === 'catalog'
