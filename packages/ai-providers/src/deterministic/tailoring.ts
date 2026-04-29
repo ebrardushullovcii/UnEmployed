@@ -106,6 +106,10 @@ function formatMonthYear(value: string | null | undefined): string | null {
     return null;
   }
 
+  if (/^\d{4}$/.test(trimmed)) {
+    return trimmed;
+  }
+
   if (/^present$/i.test(trimmed)) {
     return "Present";
   }

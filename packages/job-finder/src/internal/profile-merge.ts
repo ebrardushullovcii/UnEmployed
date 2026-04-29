@@ -136,6 +136,31 @@ function safeStringArray(value: unknown): string[] {
   );
 }
 
+function preferLongerText(
+  existing: string | null | undefined,
+  incoming: string | null | undefined,
+): string | null {
+  const current = existing?.trim() ?? "";
+  const next = incoming?.trim() ?? "";
+
+  if (!current) {
+    return next || null;
+  }
+
+  if (!next) {
+    return current;
+  }
+
+  return next.length > current.length ? next : current;
+}
+
+function mergeWorkModes(
+  existing: CandidateProfile["experiences"][number]["workMode"] | undefined,
+  incoming: CandidateProfile["experiences"][number]["workMode"] | undefined,
+): CandidateProfile["experiences"][number]["workMode"] {
+  return [...new Set([...(existing ?? []), ...(incoming ?? [])])];
+}
+
 export function toValidUrlOrNull(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -246,22 +271,32 @@ export function mergeExperienceRecords(
           entry.title,
           entry.startDate,
         ]),
-      companyName: entry.companyName,
-      companyUrl: entry.companyUrl,
-      title: entry.title,
-      employmentType: entry.employmentType,
-      location: entry.location,
-      workMode: entry.workMode,
-      startDate: entry.startDate,
-      endDate: entry.endDate,
+      companyName: entry.companyName ?? match?.companyName ?? null,
+      companyUrl: entry.companyUrl ?? match?.companyUrl ?? null,
+      title: entry.title ?? match?.title ?? null,
+      employmentType: entry.employmentType ?? match?.employmentType ?? null,
+      location: entry.location ?? match?.location ?? null,
+      workMode: mergeWorkModes(match?.workMode, entry.workMode),
+      startDate: entry.startDate ?? match?.startDate ?? null,
+      endDate: entry.endDate ?? match?.endDate ?? null,
       isCurrent: entry.isCurrent,
-      isDraft: !entry.companyName && !entry.title,
-      summary: entry.summary,
-      achievements: uniqueStrings(safeStringArray(entry.achievements)),
-      skills: uniqueStrings(safeStringArray(entry.skills)),
-      domainTags: uniqueStrings(safeStringArray(entry.domainTags)),
-      peopleManagementScope: entry.peopleManagementScope,
-      ownershipScope: entry.ownershipScope,
+      isDraft: !(entry.companyName ?? match?.companyName) && !(entry.title ?? match?.title),
+      summary: preferLongerText(match?.summary, entry.summary),
+      achievements: uniqueStrings([
+        ...safeStringArray(match?.achievements),
+        ...safeStringArray(entry.achievements),
+      ]),
+      skills: uniqueStrings([
+        ...safeStringArray(match?.skills),
+        ...safeStringArray(entry.skills),
+      ]),
+      domainTags: uniqueStrings([
+        ...safeStringArray(match?.domainTags),
+        ...safeStringArray(entry.domainTags),
+      ]),
+      peopleManagementScope:
+        entry.peopleManagementScope ?? match?.peopleManagementScope ?? null,
+      ownershipScope: entry.ownershipScope ?? match?.ownershipScope ?? null,
     };
 
     if (matchIndex === -1) {
@@ -314,14 +349,14 @@ export function mergeEducationRecords(
           entry.degree,
           entry.startDate,
         ]),
-      schoolName: entry.schoolName,
-      degree: entry.degree,
-      fieldOfStudy: entry.fieldOfStudy,
-      location: entry.location,
-      startDate: entry.startDate,
-      endDate: entry.endDate,
-      isDraft: !entry.schoolName,
-      summary: entry.summary,
+      schoolName: entry.schoolName ?? match?.schoolName ?? null,
+      degree: entry.degree ?? match?.degree ?? null,
+      fieldOfStudy: preferLongerText(match?.fieldOfStudy, entry.fieldOfStudy),
+      location: entry.location ?? match?.location ?? null,
+      startDate: entry.startDate ?? match?.startDate ?? null,
+      endDate: entry.endDate ?? match?.endDate ?? null,
+      isDraft: !(entry.schoolName ?? match?.schoolName),
+      summary: preferLongerText(match?.summary, entry.summary),
     };
 
     if (matchIndex === -1) {

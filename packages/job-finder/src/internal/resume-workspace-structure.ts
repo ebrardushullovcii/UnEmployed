@@ -36,7 +36,7 @@ function normalizeContactIdentity(value: string): string {
   return normalizeText(value.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, ""));
 }
 
-function buildResumeDraftIdentity(profile: CandidateProfile): ResumeDraftIdentity {
+export function buildResumeDraftIdentity(profile: CandidateProfile): ResumeDraftIdentity {
   const preferredLinks = profile.applicationIdentity.preferredLinkIds
     .map((linkId) => profile.links.find((link) => link.id === linkId && link.url))
     .filter((link): link is NonNullable<typeof link> => Boolean(link?.url));

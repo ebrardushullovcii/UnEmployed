@@ -678,6 +678,96 @@ describe("createJobFinderWorkspaceService", () => {
     expect(persistedDraft?.updatedAt).toBe(workspace.draft.updatedAt);
   });
 
+  test("keeps unchanged approved resume previews clean instead of marking them stale", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    expect(approvedExport).toBeTruthy();
+
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const preview = await workspaceService.previewResumeDraft(workspace.draft);
+
+    expect(
+      preview.warnings.some((warning) => /Unsaved changes differ from the last approved export/i.test(warning.message)),
+    ).toBe(false);
+  });
+
+  test("marks approved resume previews stale when unsaved edits differ from the approved draft", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    expect(approvedExport).toBeTruthy();
+
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const preview = await workspaceService.previewResumeDraft({
+      ...workspace.draft,
+      sections: workspace.draft.sections.map((section, index) =>
+        index === 0 && section.text
+          ? {
+              ...section,
+              text: `${section.text} Preview-only edit.`,
+            }
+          : section,
+      ),
+    });
+
+    expect(
+      preview.warnings.some((warning) => /Unsaved changes differ from the last approved export/i.test(warning.message)),
+    ).toBe(true);
+  });
+
+  test("materializes effective identity values for legacy resume drafts that still store null identity", async () => {
+    const seed = createSeed();
+    seed.profile = {
+      ...seed.profile,
+      email: "alex@example.com",
+      phone: "+44 7000 000111",
+      linkedinUrl: "https://linkedin.com/in/alex",
+      applicationIdentity: {
+        ...seed.profile.applicationIdentity,
+        preferredEmail: "alex@example.com",
+        preferredPhone: "+44 7000 000111",
+      },
+    };
+    seed.resumeDrafts.push({
+      id: "resume_draft_job_ready",
+      jobId: "job_ready",
+      status: "needs_review",
+      templateId: "classic_ats",
+      identity: null,
+      sections: [],
+      targetPageCount: 2,
+      generationMethod: "deterministic",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+      createdAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:00:00.000Z",
+    });
+
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+
+    expect(workspace.draft.identity).toMatchObject({
+      fullName: seed.profile.fullName,
+      email: "alex@example.com",
+      phone: "+44 7000 000111",
+      linkedinUrl: "https://linkedin.com/in/alex",
+    });
+  });
+
   test("rejects resume approval when exported validation still has blocking errors", async () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       documentManager: {

@@ -118,6 +118,10 @@ export function DiscoveryFiltersPanel({
   const enabledTargets = searchPreferences.discovery.targets.filter(
     (target) => target.enabled,
   );
+  const enabledTargetIds = new Set(enabledTargets.map((target) => target.id));
+  const enabledSourceAccessPrompts = sourceAccessPrompts.filter((prompt) =>
+    enabledTargetIds.has(prompt.targetId),
+  );
   const runOneSourceHeadingId = `${sectionHeadingPrefix}-run-one-source`;
   const hasRunnableTarget = enabledTargets.length > 0;
   const chromeProfileSession =
@@ -152,7 +156,7 @@ export function DiscoveryFiltersPanel({
     activeRun?.state === "running" && activeRun.scope === "single_target"
       ? activeRun.targetIds[0] ?? null
       : null;
-  const primarySourceAccessPrompt = sourceAccessPrompts[0] ?? null;
+  const primarySourceAccessPrompt = enabledSourceAccessPrompts[0] ?? null;
 
   return (
     <section
@@ -311,7 +315,7 @@ export function DiscoveryFiltersPanel({
                   {enabledTargets.map((target) => {
                     const isActiveSingleTarget = activeTargetId === target.id;
                     const targetPrompt =
-                      sourceAccessPrompts.find((prompt) => prompt.targetId === target.id) ?? null;
+                      enabledSourceAccessPrompts.find((prompt) => prompt.targetId === target.id) ?? null;
 
                     return (
                       <div className="grid gap-2" key={target.id}>

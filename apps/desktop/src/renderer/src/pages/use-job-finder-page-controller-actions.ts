@@ -512,9 +512,15 @@ export function createPrimaryPageActions(
       void runAction(
         () => actions.openBrowserSession(input),
         () => undefined,
-        () => {
+        (result) => {
           if (input?.targetId) {
             const target = getConfiguredSourceTarget(input.targetId)
+            if (result.browserSession.driver === 'catalog_seed') {
+              return target
+                ? `Targeted sign-in for ${target.label} is unavailable because the browser agent runtime is disabled.`
+                : 'Targeted sign-in is unavailable because the browser agent runtime is disabled.'
+            }
+
             return target
               ? `Opened the browser for ${target.label}. Sign in there, then return to continue.`
               : 'Browser opened and status refreshed.'

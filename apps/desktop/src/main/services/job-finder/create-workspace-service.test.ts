@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createDesktopJobFinderAiClient } from "./create-workspace-service";
+import { createDesktopBrowserRuntime, createDesktopJobFinderAiClient } from "./create-workspace-service";
 import {
   getDesktopTestDelayMs,
   getResumePreviewTestMode,
@@ -44,6 +44,36 @@ describe("createDesktopJobFinderAiClient", () => {
 
     expect(client.chatWithTools).toBeUndefined();
     expect(client.getStatus().kind).toBe("deterministic");
+  });
+});
+
+describe("createDesktopBrowserRuntime", () => {
+  test("rejects targeted browser opens when the browser agent runtime is disabled", async () => {
+    const browserRuntime = createDesktopBrowserRuntime({
+      env: { UNEMPLOYED_BROWSER_AGENT: "0" },
+      aiClient: createDesktopJobFinderAiClient({ UNEMPLOYED_BROWSER_AGENT: "0" }),
+      desktopTestApiEnabled: false,
+    });
+
+    await expect(
+      browserRuntime.openSession("target_site", {
+        targetUrl: "https://www.linkedin.com/jobs/search/",
+      }),
+    ).rejects.toThrow(
+      "Targeted sign-in requires the browser agent runtime, but it is disabled in this desktop build.",
+    );
+  });
+
+  test("keeps generic browser opens available when the browser agent runtime is disabled", async () => {
+    const browserRuntime = createDesktopBrowserRuntime({
+      env: { UNEMPLOYED_BROWSER_AGENT: "0" },
+      aiClient: createDesktopJobFinderAiClient({ UNEMPLOYED_BROWSER_AGENT: "0" }),
+      desktopTestApiEnabled: false,
+    });
+
+    const session = await browserRuntime.openSession("target_site");
+
+    expect(session.driver).toBe("catalog_seed");
   });
 });
 

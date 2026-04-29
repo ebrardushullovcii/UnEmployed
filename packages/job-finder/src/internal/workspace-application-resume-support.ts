@@ -15,6 +15,7 @@ import {
   seedResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
+import { buildResumeDraftIdentity } from "./resume-workspace-structure";
 import {
   normalizeJobFinderSettings,
   normalizeResumeDraftTemplate,
@@ -42,6 +43,26 @@ function createDraftRevisionKey(draft: ResumeDraft): string {
   }
 
   return `resume_preview_${draft.id}_${(hash >>> 0).toString(16)}`;
+}
+
+function toDraftPreviewSignature(draft: ResumeDraft) {
+  return {
+    templateId: draft.templateId,
+    identity: draft.identity,
+    sections: draft.sections,
+    targetPageCount: draft.targetPageCount,
+    generationMethod: draft.generationMethod,
+  };
+}
+
+function toComparableDraftPreviewSignature(
+  draft: ResumeDraft,
+  profile: CandidateProfile,
+) {
+  return {
+    ...toDraftPreviewSignature(draft),
+    identity: draft.identity ?? buildResumeDraftIdentity(profile),
+  };
 }
 
 function buildPreviewWarnings(input: {
@@ -235,21 +256,38 @@ export async function previewResumeDraft(
   draft: ResumeDraft,
 ): Promise<JobFinderResumePreview> {
   const state = await loadResumeWorkspaceState(ctx, draft.jobId);
+  const persistedDraft = state.draft
+    ? normalizeResumeDraftTemplate(state.draft, state.templates)
+    : null;
   const parsedDraft = normalizeResumeDraftTemplate(
     draft,
     state.templates,
   );
-  const nextStatus = wasResumeDraftApproved(state.draft) ? "stale" : "needs_review";
-  const normalizedDraft = {
-    ...parsedDraft,
-    status: nextStatus,
-    approvedAt: null,
-    approvedExportId: null,
-    staleReason:
-      nextStatus === "stale"
-        ? "Unsaved changes differ from the last approved export. Save and export a fresh PDF before applying."
-        : null,
-  } satisfies ResumeDraft;
+  const hadApprovedExport = wasResumeDraftApproved(persistedDraft);
+  const approvedDraftChanged = Boolean(
+    hadApprovedExport &&
+      persistedDraft &&
+      JSON.stringify(toComparableDraftPreviewSignature(persistedDraft, state.profile)) !==
+        JSON.stringify(toComparableDraftPreviewSignature(parsedDraft, state.profile)),
+  );
+  const normalizedDraft = hadApprovedExport && !approvedDraftChanged
+    ? ({
+        ...parsedDraft,
+        status: persistedDraft?.status ?? parsedDraft.status,
+        approvedAt: persistedDraft?.approvedAt ?? parsedDraft.approvedAt,
+        approvedExportId:
+          persistedDraft?.approvedExportId ?? parsedDraft.approvedExportId,
+        staleReason: null,
+      } satisfies ResumeDraft)
+    : ({
+        ...parsedDraft,
+        status: hadApprovedExport ? "stale" : "needs_review",
+        approvedAt: null,
+        approvedExportId: null,
+        staleReason: hadApprovedExport
+          ? "Unsaved changes differ from the last approved export. Save and export a fresh PDF before applying."
+          : null,
+      } satisfies ResumeDraft);
   const sanitizedDraft = sanitizeResumeDraft({
     draft: normalizedDraft,
     job: state.job,
@@ -331,7 +369,10 @@ export async function buildResumeWorkspace(
 
   return JobFinderResumeWorkspaceSchema.parse({
     job,
-    draft,
+    draft: {
+      ...draft,
+      identity: draft.identity ?? buildResumeDraftIdentity(profile),
+    },
     validation: validations[0] ?? null,
     exports: normalizedExports,
     research,

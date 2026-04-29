@@ -21,6 +21,7 @@ import {
   isDesktopTestApiEnabled,
   isEnabled,
 } from './test-api'
+import type { BrowserSessionRuntime } from '@unemployed/browser-runtime'
 
 const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
 
@@ -100,6 +101,55 @@ export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.
   return createJobFinderAiClientFromEnvironment(env)
 }
 
+export function createDesktopBrowserRuntime(input: {
+  env?: NodeJS.ProcessEnv
+  aiClient?: ReturnType<typeof createDesktopJobFinderAiClient>
+  desktopTestApiEnabled?: boolean
+} = {}): BrowserSessionRuntime {
+  const env = input.env ?? process.env
+  const desktopTestApiEnabled = input.desktopTestApiEnabled ?? isDesktopTestApiEnabled(env)
+  const aiClient = input.aiClient ?? createDesktopJobFinderAiClient(env)
+  const rawPort = env.UNEMPLOYED_CHROME_DEBUG_PORT
+    ? Number.parseInt(env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
+    : null
+  const chromeDebugPort = (rawPort !== null && Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535)
+    ? rawPort
+    : null
+
+  if (isBrowserAgentEnabled(env)) {
+    return createBrowserAgentRuntime({
+      userDataDir: getBrowserAgentProfileDirectory(),
+      headless: isBrowserHeadlessEnabled(env),
+      ...(env.UNEMPLOYED_CHROME_PATH
+        ? { chromeExecutablePath: env.UNEMPLOYED_CHROME_PATH }
+        : {}),
+      ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {}),
+      jobExtractor: (runtimeInput) => aiClient.extractJobsFromPage(runtimeInput),
+      aiClient,
+    })
+  }
+
+  const runtime = createCatalogBrowserSessionRuntime({
+    sessions: [
+      buildCatalogSessionSeed(env, desktopTestApiEnabled)
+    ],
+    catalog: []
+  })
+
+  return {
+    ...runtime,
+    async openSession(source, options) {
+      if (options?.targetUrl) {
+        throw new Error(
+          'Targeted sign-in requires the browser agent runtime, but it is disabled in this desktop build.',
+        )
+      }
+
+      return runtime.openSession(source, options)
+    },
+  }
+}
+
 export async function createJobFinderWorkspaceServiceAsync(
   envOverrides?: Partial<NodeJS.ProcessEnv>,
 ) {
@@ -112,31 +162,12 @@ export async function createJobFinderWorkspaceServiceAsync(
     filePath: getJobFinderWorkspaceFilePath(),
     seed: createEmptyJobFinderRepositoryState()
   })
-  const rawPort = env.UNEMPLOYED_CHROME_DEBUG_PORT
-    ? Number.parseInt(env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
-    : null
-  const chromeDebugPort = (rawPort !== null && Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535)
-    ? rawPort
-    : null
   const aiClient = createDesktopJobFinderAiClient(env)
-  const browserAgentEnabled = isBrowserAgentEnabled(env)
-  const browserRuntime = browserAgentEnabled
-    ? createBrowserAgentRuntime({
-        userDataDir: getBrowserAgentProfileDirectory(),
-        headless: isBrowserHeadlessEnabled(env),
-        ...(env.UNEMPLOYED_CHROME_PATH
-          ? { chromeExecutablePath: env.UNEMPLOYED_CHROME_PATH }
-          : {}),
-        ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {}),
-        jobExtractor: (input) => aiClient.extractJobsFromPage(input),
-        aiClient
-      })
-    : createCatalogBrowserSessionRuntime({
-        sessions: [
-          buildCatalogSessionSeed(env, desktopTestApiEnabled)
-        ],
-        catalog: []
-      })
+  const browserRuntime = createDesktopBrowserRuntime({
+    env,
+    aiClient,
+    desktopTestApiEnabled,
+  })
   const documentManager = createLocalJobFinderDocumentManager({
     outputDirectory: getGeneratedResumeDocumentsDirectory(),
     previewTestMode: desktopTestApiEnabled

@@ -138,15 +138,15 @@ export function areEquivalentExperienceRecords(
   const strongTitle = fieldsMatch(leftTitle, rightTitle);
   const strongStart = fieldsMatch(leftStart, rightStart);
   const strongEnd = fieldsMatch(leftEnd, rightEnd);
+  const strongLocation = fieldsMatch(leftLocation, rightLocation);
   const companyCompatible = fieldsCompatible(leftCompany, rightCompany);
   const titleCompatible = fieldsCompatible(leftTitle, rightTitle);
   const startCompatible = fieldsCompatible(leftStart, rightStart);
   const endCompatible = fieldsCompatible(leftEnd, rightEnd);
-  const locationCompatible = fieldsCompatible(leftLocation, rightLocation);
 
   return (
-    (strongTitle && strongStart && companyCompatible && (strongCompany || strongEnd || locationCompatible)) ||
-    (strongCompany && strongStart && titleCompatible && (strongTitle || strongEnd || locationCompatible)) ||
+    (strongTitle && strongStart && companyCompatible && (strongCompany || strongLocation)) ||
+    (strongCompany && strongStart && titleCompatible && (strongTitle || strongEnd || strongLocation)) ||
     (strongTitle && strongCompany && (strongStart || strongEnd) && startCompatible && endCompatible)
   );
 }

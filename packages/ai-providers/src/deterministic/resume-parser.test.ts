@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { createPreferences, createProfile } from "../test-fixtures";
+import { createJobPosting, createPreferences, createProfile, createSettings } from "../test-fixtures";
 import { buildDeterministicResumeProfileExtraction } from "./resume-parser";
 import { EBRAR_IMPORTED_TEXT } from "../resume-import-fixtures";
+import { buildDeterministicTailoredResume } from "./tailoring";
 
 describe("buildDeterministicResumeProfileExtraction", () => {
   test("uses ABOUT ME content as the summary body", () => {
@@ -150,6 +151,90 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     );
 
     expect(extraction.yearsExperience).toBeGreaterThanOrEqual(2);
+  });
+
+  test("does not inflate ISO month date ranges into a full year of experience", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Jordan Avery",
+          "Senior Software Engineer",
+          "EXPERIENCE",
+          "Signal Systems — Senior Software Engineer",
+          "2024-12 - 2025-01",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.yearsExperience).toBeNull();
+  });
+
+  test("preserves year-only dates in deterministic tailored resume entries", () => {
+    const profile = {
+      ...createProfile(),
+      experiences: [
+        {
+          id: "experience_year_only",
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: null,
+          location: "Remote",
+          workMode: [],
+          startDate: "2024",
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+      education: [
+        {
+          id: "education_year_only",
+          schoolName: "State University",
+          degree: "Bachelor's Degree",
+          fieldOfStudy: "Computer Science",
+          location: null,
+          startDate: "2014",
+          endDate: "2018",
+          isDraft: false,
+          summary: null,
+        },
+      ],
+      certifications: [
+        {
+          id: "cert_year_only",
+          name: "AWS Certified Developer",
+          issuer: "Amazon",
+          issueDate: "2024",
+          expiryDate: null,
+          credentialUrl: null,
+          isDraft: false,
+        },
+      ],
+    };
+
+    const draft = buildDeterministicTailoredResume({
+      profile,
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job: createJobPosting(),
+      resumeText: profile.baseResume.textContent,
+    });
+
+    expect(draft.experienceEntries[0]?.dateRange).toBe("2024 – Present");
+    expect(draft.educationEntries[0]?.dateRange).toBe("2014 – 2018");
+    expect(draft.certificationEntries[0]?.dateRange).toBe("2024");
   });
 
   test("splits inline company and location details from combined experience headers", () => {

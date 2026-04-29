@@ -263,6 +263,144 @@ describe("resume import deduplication", () => {
     });
   });
 
+  test("mergeExperienceRecords preserves richer stored details on equivalent re-imports", () => {
+    const merged = mergeExperienceRecords(
+      [
+        {
+          id: "experience_existing",
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: null,
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "Aug 2024",
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: "Led frontend platform work across product teams.",
+          achievements: ["Improved frontend performance."],
+          skills: ["React"],
+          domainTags: ["SaaS"],
+          peopleManagementScope: "Mentored 3 engineers",
+          ownershipScope: "Owned the design system roadmap",
+        },
+      ],
+      [
+        {
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: null,
+          location: "Remote",
+          workMode: [],
+          startDate: "2024-08",
+          endDate: null,
+          isCurrent: true,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      id: "experience_existing",
+      startDate: "2024-08",
+      summary: "Led frontend platform work across product teams.",
+      achievements: ["Improved frontend performance."],
+      skills: ["React"],
+      domainTags: ["SaaS"],
+      peopleManagementScope: "Mentored 3 engineers",
+      ownershipScope: "Owned the design system roadmap",
+      workMode: ["remote"],
+    });
+  });
+
+  test("mergeEducationRecords preserves richer stored details on equivalent re-imports", () => {
+    const merged = mergeEducationRecords(
+      [
+        {
+          id: "education_existing",
+          schoolName: "Florida State University",
+          degree: "Bachelor's Degree",
+          fieldOfStudy: "Computer Science",
+          location: "Tallahassee, FL",
+          startDate: "May 2011",
+          endDate: "Sept 2015",
+          isDraft: false,
+          summary: "Graduated with honors.",
+        },
+      ],
+      [
+        {
+          schoolName: "Florida State University",
+          degree: "Bachelor's Degree",
+          fieldOfStudy: null,
+          location: null,
+          startDate: "2011-05",
+          endDate: "2015-09",
+          summary: null,
+        },
+      ],
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      id: "education_existing",
+      startDate: "2011-05",
+      endDate: "2015-09",
+      fieldOfStudy: "Computer Science",
+      location: "Tallahassee, FL",
+      summary: "Graduated with honors.",
+    });
+  });
+
+  test("mergeExperienceRecords does not collapse distinct jobs when company and location are missing", () => {
+    const merged = mergeExperienceRecords([], [
+      {
+        companyName: null,
+        companyUrl: null,
+        title: "Software Engineer",
+        employmentType: null,
+        location: null,
+        workMode: [],
+        startDate: "2024-08",
+        endDate: null,
+        isCurrent: true,
+        summary: null,
+        achievements: [],
+        skills: [],
+        domainTags: [],
+        peopleManagementScope: null,
+        ownershipScope: null,
+      },
+      {
+        companyName: "Mercury",
+        companyUrl: null,
+        title: "Software Engineer",
+        employmentType: null,
+        location: "Remote",
+        workMode: [],
+        startDate: "Aug 2024",
+        endDate: null,
+        isCurrent: true,
+        summary: "Distinct employer.",
+        achievements: [],
+        skills: [],
+        domainTags: [],
+        peopleManagementScope: null,
+        ownershipScope: null,
+      },
+    ]);
+
+    expect(merged).toHaveLength(2);
+  });
+
   test("auto-applies grounded placeholder replacements on a fresh-start profile while leaving experience review-first", async () => {
     const seed = createSeed();
     const { workspaceService } = createWorkspaceServiceHarness({
