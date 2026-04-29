@@ -37,8 +37,12 @@ function containsWholePhrase(haystack: string, needle: string): boolean {
 
 function getExperienceSectionText(resumeText: string): string {
   const lines = resumeText.split(/\r?\n/);
+  const experienceHeadingPattern =
+    /^(work\s+experience|professional\s+experience|experience|employment|career\s+history)\s*[:\-–—]?\s*$/i;
+  const followingSectionHeadingPattern =
+    /^(education|certifications?|projects?|skills|languages|publications?|awards?)\s*[:\-–—]?\s*$/i;
   const startIndex = lines.findIndex((line) =>
-    /^(work\s+experience|professional\s+experience|experience|employment|career\s+history)$/i.test(line.trim()),
+    experienceHeadingPattern.test(line.trim()),
   );
 
   if (startIndex < 0) {
@@ -46,7 +50,7 @@ function getExperienceSectionText(resumeText: string): string {
   }
 
   const endOffset = lines.slice(startIndex + 1).findIndex((line) =>
-    /^(education|certifications?|projects?|skills|languages|publications?|awards?)$/i.test(line.trim()),
+    followingSectionHeadingPattern.test(line.trim()),
   );
   const endIndex = endOffset < 0 ? lines.length : startIndex + 1 + endOffset;
 
@@ -158,13 +162,15 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
     .map((candidate) => candidate.trim())
     .filter((candidate) => candidate.length > 0);
   const orderedCandidates = buildOrderedEvidenceCandidates(nonEmptyCandidates);
+  const indexedBlocks = bundle.blocks.map((block) => ({
+    block,
+    normalizedText: normalizeText(block.text),
+  }));
 
   for (const candidate of orderedCandidates) {
     if (!candidate) continue;
 
-    const block = bundle.blocks.find((entry) =>
-      normalizeText(entry.text).includes(candidate),
-    );
+    const block = indexedBlocks.find((entry) => entry.normalizedText.includes(candidate))?.block;
     if (!block) {
       continue;
     }

@@ -104,42 +104,42 @@ const credentialHeavyRenderDocument: ResumeRenderDocument = {
     baseRenderDocument.sections[0]!,
     {
       id: 'section_certifications',
-        kind: 'certifications',
-        label: 'Certifications',
-        text: null,
-        bullets: [],
-        entries: [
-          {
-            id: 'cert_1',
-            title: 'AWS Certified Solutions Architect',
-            subtitle: 'Amazon Web Services',
-            location: null,
-            dateRange: '2024',
-            heading: 'AWS Certified Solutions Architect | Amazon Web Services | 2024',
-            summary: 'Validated distributed systems depth for platform-heavy roles.',
-            bullets: [{ id: 'cert_1_bullet_1', text: 'Maintains current cloud architecture certification.' }],
-          },
-        ],
-      },
+      kind: 'certifications',
+      label: 'Certifications',
+      text: null,
+      bullets: [],
+      entries: [
+        {
+          id: 'cert_1',
+          title: 'AWS Certified Solutions Architect',
+          subtitle: 'Amazon Web Services',
+          location: null,
+          dateRange: '2024',
+          heading: 'AWS Certified Solutions Architect | Amazon Web Services | 2024',
+          summary: 'Validated distributed systems depth for platform-heavy roles.',
+          bullets: [{ id: 'cert_1_bullet_1', text: 'Maintains current cloud architecture certification.' }],
+        },
+      ],
+    },
     {
       id: 'section_education',
-        kind: 'education',
-        label: 'Education',
-        text: null,
-        bullets: [],
-        entries: [
-          {
-            id: 'edu_1',
-            title: 'MSc Human Computer Interaction',
-            subtitle: 'City University',
-            location: null,
-            dateRange: '2015',
-            heading: 'MSc Human Computer Interaction | City University | 2015',
-            summary: null,
-            bullets: [{ id: 'edu_1_bullet_1', text: 'Research focus on applied systems design.' }],
-          },
-        ],
-      },
+      kind: 'education',
+      label: 'Education',
+      text: null,
+      bullets: [],
+      entries: [
+        {
+          id: 'edu_1',
+          title: 'MSc Human Computer Interaction',
+          subtitle: 'City University',
+          location: null,
+          dateRange: '2015',
+          heading: 'MSc Human Computer Interaction | City University | 2015',
+          summary: null,
+          bullets: [{ id: 'edu_1_bullet_1', text: 'Research focus on applied systems design.' }],
+        },
+      ],
+    },
     ...baseRenderDocument.sections.slice(1),
   ],
 }
@@ -211,7 +211,24 @@ describe('job finder resume renderer', () => {
     const previewDocument: ResumeRenderDocument = {
       ...baseRenderDocument,
       sections: baseRenderDocument.sections.map((section) =>
-        section.id === 'section_projects'
+        section.id === 'section_experience'
+          ? {
+              ...section,
+              entries: [
+                ...section.entries,
+                {
+                  id: 'entry_bullet_only',
+                  title: null,
+                  subtitle: null,
+                  location: null,
+                  dateRange: null,
+                  heading: null,
+                  summary: null,
+                  bullets: [{ id: 'entry_bullet_only_1', text: 'Lead architect for platform reliability.' }],
+                },
+              ],
+            }
+          : section.id === 'section_projects'
           ? {
               ...section,
               entries: section.entries.map((entry) => ({
@@ -239,6 +256,9 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:location"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:dateRange"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:bullet:entry_1_bullet_1"')
+    expect(html).toContain('data-resume-entry-id="entry_bullet_only"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_bullet_only:bullet:entry_bullet_only_1"')
+    expect(html).toContain('Lead architect for platform reliability.')
     expect(html).toContain('data-resume-target-id="entry:section_projects:project_1:title"')
     expect(html).toContain('Workflow OS — Design lead')
     expect(html).toContain('data-resume-target-id="section:section_skills:bullet:skill_1"')
