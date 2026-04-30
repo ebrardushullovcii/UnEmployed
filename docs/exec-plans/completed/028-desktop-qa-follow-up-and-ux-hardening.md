@@ -14,7 +14,7 @@ Turn the latest desktop screenshot QA findings into a concrete follow-up track t
 - treat screenshot artifacts as evidence, not as the product truth when live-flow verification contradicts them
 - prefer fixes that make blocked states, approval states, and assistant states more truthful instead of adding more status copy around weak behavior
 
-## Why This Is Queued
+## Why This Was Queued
 
 - the last QA pass produced a large, actionable desktop defect and UX backlog
 - the findings were first recorded under local screenshot artifacts, but `apps/desktop/test-artifacts/` is ignored and will not travel with the branch
@@ -28,7 +28,7 @@ Ignored local evidence sources used during the original pass:
 - `apps/desktop/test-artifacts/ui/qa-full-20260430-issues.md`
 - `apps/desktop/test-artifacts/ui/qa-full-20260430-ux-audit.md`
 
-Those files are useful on the original machine, but this queued plan is the branch-visible handoff.
+Those files are useful on the original machine, but this completed plan preserves the branch-visible background and acceptance context.
 
 Highest-priority defects from the QA pass:
 

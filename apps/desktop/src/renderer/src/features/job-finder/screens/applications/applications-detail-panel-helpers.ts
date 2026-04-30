@@ -24,14 +24,22 @@ export function buildQueueEntries(input: {
     return [];
   }
 
+  const applyResultsByJobId = new Map(
+    applyJobResults
+      .filter((result) => result.runId === selectedRun.id)
+      .map((result) => [result.jobId, result] as const),
+  );
+  const applicationRecordsByJobId = new Map(
+    applicationRecords.map((record) => [record.jobId, record] as const),
+  );
+  const discoveryJobsById = new Map(
+    discoveryJobs.map((job) => [job.id, job] as const),
+  );
+
   return selectedRun.jobIds.map((jobId) => {
-    const runResult =
-      applyJobResults.find(
-        (result) => result.runId === selectedRun.id && result.jobId === jobId,
-      ) ?? null;
-    const relatedRecord =
-      applicationRecords.find((record) => record.jobId === jobId) ?? null;
-    const relatedSavedJob = discoveryJobs.find((job) => job.id === jobId) ?? null;
+    const runResult = applyResultsByJobId.get(jobId) ?? null;
+    const relatedRecord = applicationRecordsByJobId.get(jobId) ?? null;
+    const relatedSavedJob = discoveryJobsById.get(jobId) ?? null;
     const includeInRecovery =
       !runResult ||
       runResult.state === "planned" ||

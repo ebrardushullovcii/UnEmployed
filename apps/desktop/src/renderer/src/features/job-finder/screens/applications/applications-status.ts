@@ -11,6 +11,14 @@ function shouldPresentConsentState(record: ApplicationRecord): boolean {
 }
 
 export function getApplicationLatestActivityLabel(record: ApplicationRecord): string {
+  if (record.lastAttemptState === 'unsupported') {
+    return 'Manual apply only'
+  }
+
+  if (record.lastAttemptState === 'failed') {
+    return 'Attempt failed'
+  }
+
   if (
     shouldPresentConsentState(record) &&
     record.consentSummary.status === 'requested'
@@ -38,14 +46,6 @@ export function getApplicationLatestActivityLabel(record: ApplicationRecord): st
     return record.lastActionLabel
   }
 
-  if (record.lastAttemptState === 'unsupported') {
-    return 'Manual apply only'
-  }
-
-  if (record.lastAttemptState === 'failed') {
-    return 'Attempt failed'
-  }
-
   if (record.lastAttemptState === 'paused') {
     return record.nextActionLabel ?? 'Needs follow-up'
   }
@@ -57,6 +57,20 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
   label: string
   tone: BadgeTone
 } {
+  if (
+    shouldPresentConsentState(record) &&
+    record.lastAttemptState === 'unsupported'
+  ) {
+    return { label: 'Manual apply only', tone: 'critical' }
+  }
+
+  if (
+    shouldPresentConsentState(record) &&
+    record.lastAttemptState === 'failed'
+  ) {
+    return { label: 'Needs recovery', tone: 'critical' }
+  }
+
   if (
     shouldPresentConsentState(record) &&
     record.consentSummary.status === 'requested'
@@ -78,20 +92,6 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
     record.consentSummary.status === 'declined'
   ) {
     return { label: 'Consent declined', tone: 'critical' }
-  }
-
-  if (
-    shouldPresentConsentState(record) &&
-    record.lastAttemptState === 'unsupported'
-  ) {
-    return { label: 'Manual apply only', tone: 'critical' }
-  }
-
-  if (
-    shouldPresentConsentState(record) &&
-    record.lastAttemptState === 'failed'
-  ) {
-    return { label: 'Needs recovery', tone: 'critical' }
   }
 
   return {

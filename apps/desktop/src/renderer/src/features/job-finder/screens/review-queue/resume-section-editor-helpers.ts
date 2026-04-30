@@ -5,6 +5,8 @@ import type {
   ResumeDraftSection,
 } from '@unemployed/contracts'
 
+let resumeDraftPatchCounter = 0
+
 export function normalizeNullableText(
   value: string | null | undefined,
 ): string | null {
@@ -42,8 +44,11 @@ export function createResumeDraftPatch(input: {
     sectionId,
   } = input
 
+  resumeDraftPatchCounter += 1
+  const id = `${idPrefix}_${Date.now()}_${resumeDraftPatchCounter}`
+
   return {
-    id: `${idPrefix}_${Date.now()}`,
+    id,
     draftId: '',
     operation,
     targetSectionId: sectionId,

@@ -61,8 +61,12 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
         </StatusBadge>
         <Button
           className="h-8"
-          disabled={disabled || section.locked}
-          onClick={() =>
+          disabled={disabled || section.locked || entry.locked}
+          onClick={() => {
+            if (entry.locked) {
+              return
+            }
+
             onPatch(
               createResumeDraftPatch({
                 entryId: entry.id,
@@ -73,8 +77,8 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
               }),
               `${entry.included ? 'Hidden' : 'Shown'} entry`,
             )
-          }
-          aria-pressed={!entry.included}
+          }}
+          aria-pressed={entry.included}
           type="button"
           variant="secondary"
         >

@@ -249,9 +249,11 @@ describe("createJobFinderWorkspaceService", () => {
       "12 years of experience building React, TypeScript, and design systems",
     );
     expect(snapshot.profile.yearsExperience).toBe(12);
-    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).not.toEqual(
-      expect.arrayContaining(["First name", "Last name", "Summary", "Years of experience"]),
-    );
+    const reviewLabels = snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label);
+    expect(reviewLabels).not.toContain("First name");
+    expect(reviewLabels).not.toContain("Last name");
+    expect(reviewLabels).not.toContain("Summary");
+    expect(reviewLabels).not.toContain("Years of experience");
   });
 
   test("refresh imports keep earlier document bundles instead of overwriting them by id", async () => {

@@ -3,6 +3,8 @@ name: grill-with-docs
 description: Grilling session that challenges your plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Use when user wants to stress-test a plan against their project's language and documented decisions.
 ---
 
+# Grill With Docs
+
 <what-to-do>
 
 Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
@@ -23,7 +25,7 @@ During codebase exploration, also look for existing documentation:
 
 Most repos have a single context:
 
-```
+```text
 /
 ├── CONTEXT.md
 ├── docs/
@@ -35,7 +37,7 @@ Most repos have a single context:
 
 If a `CONTEXT-MAP.md` exists at the root, the repo has multiple contexts. The map points to where each one lives:
 
-```
+```text
 /
 ├── CONTEXT-MAP.md
 ├── docs/

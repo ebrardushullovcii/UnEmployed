@@ -270,6 +270,7 @@ function FamilySelectorCard(props: {
         >
           {family.templates.map((theme) => (
             <FamilyVariantCard
+              disabled={disabled}
               key={theme.id}
               onChange={onChange}
               recommended={theme.id === focusedFamilyRecommendedId}
@@ -284,12 +285,13 @@ function FamilySelectorCard(props: {
 }
 
 function FamilyVariantCard(props: {
+  disabled: boolean;
   onChange: (themeId: ResumeTemplateId) => void;
   recommended: boolean;
   selected: boolean;
   theme: ResumeTemplateFamilyViewModel["templates"][number];
 }) {
-  const { onChange, recommended, selected, theme } = props;
+  const { disabled, onChange, recommended, selected, theme } = props;
   const visualTags = getResumeTemplateVisualTags(theme).slice(0, 2);
 
   return (
@@ -319,7 +321,14 @@ function FamilyVariantCard(props: {
 
         <Button
           className="w-full"
-          onClick={() => onChange(theme.id)}
+          disabled={disabled}
+          onClick={() => {
+            if (disabled) {
+              return;
+            }
+
+            onChange(theme.id);
+          }}
           size="compact"
           type="button"
           variant={selected ? "primary" : "secondary"}

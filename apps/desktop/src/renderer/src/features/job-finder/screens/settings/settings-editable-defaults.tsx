@@ -75,7 +75,7 @@ export function SettingsEditableDefaults({
         <section className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-3.5">
           <div className="grid gap-1">
             <h2 className="text-[1.02rem] font-semibold text-(--text-headline)">Default template picker</h2>
-            <p className="max-w-[64ch] text-(length:--text-description) leading-5 text-foreground-soft">Choose the starting resume template here. The preview uses sample resume content rendered through the same template engine used for exports. Appearance and font defaults sit just below.</p>
+            <p className="max-w-(--workspace-state-card-max-width) text-(length:--text-description) leading-5 text-foreground-soft">Choose the starting resume template here. The preview uses sample resume content rendered through the same template engine used for exports. Appearance and font defaults sit just below.</p>
           </div>
 
           <Field>

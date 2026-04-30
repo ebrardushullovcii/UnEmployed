@@ -83,7 +83,7 @@ export function ResumeBulletListEditor(props: ResumeBulletListEditorProps) {
                     `${bullet.included ? 'Hidden' : 'Shown'} bullet`,
                   )
                 }
-                aria-pressed={!bullet.included}
+                aria-label={bullet.included ? `Hide bullet ${bullet.id}` : `Show bullet ${bullet.id}`}
                 type="button"
                 variant="secondary"
               >

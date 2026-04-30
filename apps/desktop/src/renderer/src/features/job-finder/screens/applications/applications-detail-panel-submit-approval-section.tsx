@@ -105,7 +105,8 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
           </Button>
         ) : null}
         {selectedApplyRunDetails.run.state !== "completed" &&
-        selectedApplyRunDetails.run.state !== "cancelled" ? (
+        selectedApplyRunDetails.run.state !== "cancelled" &&
+        selectedApplyRunDetails.run.state !== "failed" ? (
           <Button
             onClick={() => onCancelApplyRun(selectedApplyRunDetails.run.id)}
             pending={isSelectedRunPending}

@@ -202,6 +202,9 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
     startingUrlId,
     targetEnabled,
   } = props
+  const latestDebugRunSummary = latestDebugRun
+    ? latestDebugRun.manualPrerequisiteSummary?.trim() || latestDebugRun.finalSummary?.trim() || null
+    : null
 
   return (
     <>
@@ -253,9 +256,9 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             </div>
             <div aria-live="polite" className="grid gap-1" role="status">
               <p className="text-[0.88rem] leading-6 text-foreground">{latestDebugRunLabel}</p>
-              {latestDebugRun.manualPrerequisiteSummary || latestDebugRun.finalSummary ? (
+              {latestDebugRunSummary ? (
                 <p className="text-[0.82rem] leading-6 text-foreground-soft">
-                  {latestDebugRun.manualPrerequisiteSummary ?? latestDebugRun.finalSummary}
+                  {latestDebugRunSummary}
                 </p>
               ) : null}
               {latestDebugRun.timing ? (

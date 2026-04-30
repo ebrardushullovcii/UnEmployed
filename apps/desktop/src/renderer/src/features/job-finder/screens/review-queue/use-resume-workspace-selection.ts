@@ -26,7 +26,7 @@ export function useResumeWorkspaceSelection(input: {
           targetContext.sectionId !== null &&
           draft.sections.some((section) => section.id === targetContext.sectionId)
 
-        return targetSectionAvailable ? targetContext.sectionId : null
+        return targetSectionAvailable ? targetContext.sectionId : draft.sections[0]?.id ?? null
       }
 
       return draft.sections[0]?.id ?? null

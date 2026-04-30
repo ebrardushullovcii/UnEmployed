@@ -6,6 +6,7 @@ import type {
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
   ResumeDraft,
+  ResumeAssistantMessage,
   ResumeTemplateDefinition,
 } from '@unemployed/contracts'
 import { JobFinderResumeWorkspaceSchema } from '@unemployed/contracts'
@@ -114,8 +115,21 @@ function buildPreview(revisionKey: string, htmlText: string): JobFinderResumePre
   }
 }
 
+function buildAssistantMessage(
+  overrides?: Partial<ResumeAssistantMessage>,
+): ResumeAssistantMessage {
+  return {
+    id: overrides?.id ?? 'assistant_1',
+    jobId: overrides?.jobId ?? 'job_ready',
+    role: overrides?.role ?? 'assistant',
+    content: overrides?.content ?? 'Draft update ready.',
+    patches: overrides?.patches ?? [],
+    createdAt: overrides?.createdAt ?? '2026-04-27T00:00:00.000Z',
+  }
+}
+
 function renderScreen(options?: {
-  assistantMessages?: Array<{ id: string; role: 'user' | 'assistant'; content: string; createdAt: string }>
+  assistantMessages?: ResumeAssistantMessage[]
   assistantPending?: boolean
   onPreviewDraft?: (draft: ResumeDraft) => Promise<JobFinderResumePreview>
 }) {
@@ -124,7 +138,7 @@ function renderScreen(options?: {
   return render(
     <ResumeWorkspaceScreen
       actionMessage={null}
-      assistantMessages={(options?.assistantMessages as never) ?? []}
+      assistantMessages={options?.assistantMessages ?? []}
       assistantPending={options?.assistantPending ?? false}
       availableResumeTemplates={availableResumeTemplates}
       isWorkspacePending={false}
@@ -291,12 +305,9 @@ describe('ResumeWorkspaceScreen', () => {
   it('keeps preview and editor visible after assistant replies on desktop', async () => {
     renderScreen({
       assistantMessages: [
-        {
-          id: 'assistant_1',
-          role: 'assistant',
+        buildAssistantMessage({
           content: 'Tightened the summary and refreshed one bullet.',
-          createdAt: '2026-04-27T00:00:00.000Z',
-        },
+        }),
       ],
     })
 
@@ -349,14 +360,9 @@ describe('ResumeWorkspaceScreen', () => {
         <ResumeWorkspaceScreen
           actionMessage={null}
           assistantMessages={[
-            {
-              id: 'assistant_1',
-              jobId: 'job_ready',
-              role: 'assistant',
+            buildAssistantMessage({
               content: 'Here is the update you asked for.',
-              createdAt: '2026-04-27T00:00:00.000Z',
-              patches: [],
-            },
+            }),
           ]}
           assistantPending={false}
           availableResumeTemplates={availableResumeTemplates}

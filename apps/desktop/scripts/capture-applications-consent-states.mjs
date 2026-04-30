@@ -54,12 +54,6 @@ async function getApplyRunDetails(window, runId, jobId) {
   )
 }
 
-function getApplicationConsentRequests(workspace) {
-  return Array.isArray(workspace?.applicationConsentRequests)
-    ? workspace.applicationConsentRequests
-    : []
-}
-
 function getApplicationRecords(workspace) {
   return Array.isArray(workspace?.applicationRecords) ? workspace.applicationRecords : []
 }

@@ -12,12 +12,22 @@ export function getNewestExport(
   exports: JobFinderResumeWorkspace['exports'],
   draftId: string,
 ) {
-  return exports
-    .filter((entry) => entry.draftId === draftId)
-    .sort(
-      (left, right) =>
-        new Date(right.exportedAt).getTime() - new Date(left.exportedAt).getTime(),
-    )[0] ?? null
+  let latestEntry: JobFinderResumeWorkspace['exports'][number] | null = null
+  let latestTime = Number.NEGATIVE_INFINITY
+
+  for (const entry of exports) {
+    if (entry.draftId !== draftId) {
+      continue
+    }
+
+    const exportedAtTime = new Date(entry.exportedAt).getTime()
+    if (exportedAtTime > latestTime) {
+      latestEntry = entry
+      latestTime = exportedAtTime
+    }
+  }
+
+  return latestEntry
 }
 
 export function getPreviewErrorMessage(error: unknown): string {

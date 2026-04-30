@@ -18,7 +18,7 @@ export function ApplicationsDetailPanelEmptyState(props: {
       {!hasAnyApplications ? (
         <div className="grid w-full gap-4">
           <EmptyState
-            title="Applications keeps follow-up in one place"
+            title="Keep all application follow-ups in one place"
             description="Start from Shortlisted after approving a resume, or find more jobs if you do not have a shortlist yet."
           />
           <div className="flex flex-wrap items-center justify-center gap-3">

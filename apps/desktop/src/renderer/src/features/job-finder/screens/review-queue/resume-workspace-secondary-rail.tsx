@@ -85,6 +85,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
               <FieldLabel htmlFor={assistantId}>Request a resume edit</FieldLabel>
               <Textarea
                 className="min-w-0"
+                data-testid="resume-assistant-input"
                 id={assistantId}
                 disabled={props.isWorkspacePending || props.assistantPending}
                 onChange={(event) => setAssistantInput(event.currentTarget.value)}
@@ -175,6 +176,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
               <FieldLabel htmlFor={assistantId}>Request a resume edit</FieldLabel>
               <Textarea
                 className="min-w-0"
+                data-testid="resume-assistant-input"
                 id={assistantId}
                 disabled={props.isWorkspacePending || props.assistantPending}
                 onChange={(event) => setAssistantInput(event.currentTarget.value)}

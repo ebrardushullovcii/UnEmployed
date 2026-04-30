@@ -79,9 +79,7 @@ function summaryField(window) {
 
 function assistantField(window) {
   return window
-    .locator(
-      'textarea[placeholder*="tighten the summary"]:visible',
-    )
+    .locator('[data-testid="resume-assistant-input"]:visible')
     .first();
 }
 

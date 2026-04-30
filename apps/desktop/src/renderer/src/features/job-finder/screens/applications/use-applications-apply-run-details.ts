@@ -21,6 +21,7 @@ export function useApplicationsApplyRunDetails(
   const [applyRunDetailsTarget, setApplyRunDetailsTarget] = useState<{
     jobId: string;
     runId: string;
+    runUpdatedAt: string | null;
   } | null>(null);
   const [applyRunDetailsStatus, setApplyRunDetailsStatus] = useState<
     "idle" | "loading" | "ready" | "error"
@@ -71,6 +72,7 @@ export function useApplicationsApplyRunDetails(
       lastFetchedApplyRunRef.current?.runId === runId &&
       currentTarget?.jobId === jobId &&
       currentTarget?.runId === runId &&
+      currentTarget?.runUpdatedAt === runUpdatedAt &&
       (runUpdatedAt == null ||
         (lastFetchedUpdatedAt != null &&
           hasValidParsedUpdatedAt &&
@@ -84,7 +86,8 @@ export function useApplicationsApplyRunDetails(
     if (
       currentStatus === "loading" &&
       currentTarget?.jobId === jobId &&
-      currentTarget?.runId === runId
+      currentTarget?.runId === runId &&
+      currentTarget?.runUpdatedAt === runUpdatedAt
     ) {
       return () => {
         cancelled = true;
@@ -92,7 +95,7 @@ export function useApplicationsApplyRunDetails(
     }
 
     setApplyRunDetails(null);
-    setApplyRunDetailsTarget({ jobId, runId });
+    setApplyRunDetailsTarget({ jobId, runId, runUpdatedAt });
     setApplyRunDetailsStatus("loading");
     setApplyRunDetailsError(null);
 

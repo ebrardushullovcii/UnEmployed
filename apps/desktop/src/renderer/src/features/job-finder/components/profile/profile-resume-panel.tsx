@@ -41,6 +41,7 @@ function getImportedIdentityStatus(input: {
   if (headlinePending && summaryPending) {
     return {
       headline: 'Imported identity still needs review',
+      headlinePending,
       description:
         'Headline and summary still need a quick confirmation before this imported profile reads as complete.',
     }
@@ -49,6 +50,7 @@ function getImportedIdentityStatus(input: {
   if (headlinePending) {
     return {
       headline: 'Imported headline still needs review',
+      headlinePending,
       description:
         'Confirm or edit the imported headline so your profile and tailored resumes describe your target clearly.',
     }
@@ -57,6 +59,7 @@ function getImportedIdentityStatus(input: {
   if (summaryPending) {
     return {
       headline: 'Imported summary still needs review',
+      headlinePending,
       description:
         'Confirm or tighten the imported summary so this profile is ready to reuse across discovery and resumes.',
     }
@@ -200,6 +203,7 @@ export function ProfileResumePanel({
   })
   const headline =
     importedIdentityStatus?.headline &&
+    importedIdentityStatus?.headlinePending &&
     isPlaceholderValue(profile.headline, PROFILE_PLACEHOLDER_HEADLINE)
       ? importedIdentityStatus.headline
       : profile.headline.trim() || 'Headline not set yet'

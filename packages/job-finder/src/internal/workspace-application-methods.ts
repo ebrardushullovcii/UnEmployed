@@ -1890,7 +1890,7 @@ export function createWorkspaceApplicationMethods(
           ctx.repository.upsertApplicationRecord(
             mergeMissingResumeApplicationRecord({
               applicationRecord: artifacts.applicationRecord,
-              existingRecord,
+                existingRecord,
             }),
           ),
         ]);

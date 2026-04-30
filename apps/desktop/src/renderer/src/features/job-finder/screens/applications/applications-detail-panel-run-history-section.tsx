@@ -30,14 +30,14 @@ export function ApplicationsDetailPanelRunHistorySection(props: {
           this job.
         </p>
       </div>
-      <ul className="grid gap-2">
+      <ul className="grid gap-2" role="list">
         {applyRunHistory.map(({ result, run }) => {
           const isSelected = selectedApplyRunId === result.runId;
 
           return (
             <li key={result.id}>
               <button
-                aria-current={isSelected ? "true" : undefined}
+                aria-pressed={isSelected}
                 className={cn(
                   "grid w-full gap-2 rounded-(--radius-field) border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30",
                   isSelected

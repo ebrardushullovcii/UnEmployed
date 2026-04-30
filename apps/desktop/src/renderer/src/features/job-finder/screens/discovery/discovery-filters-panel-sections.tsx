@@ -230,7 +230,6 @@ export function DiscoveryRunOneSourceSection(props: {
               <div className="grid gap-2" key={target.id}>
                 <Button
                   aria-label={`Run discovery for ${target.label}`}
-                  aria-pressed={isActiveSingleTarget}
                   className="h-auto min-h-11 w-full justify-between whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
                   pending={isTargetPending(target.id)}
                   onClick={() => onRunDiscoveryForTarget(target.id)}
