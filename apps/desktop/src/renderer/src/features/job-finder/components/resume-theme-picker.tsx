@@ -64,6 +64,8 @@ function getAtsConfidenceLabel(confidence: "high" | "medium" | "low") {
       return "ATS medium confidence";
     case "low":
       return "ATS lower confidence";
+    default:
+      return "ATS confidence unknown";
   }
 }
 
@@ -616,7 +618,7 @@ export function ResumeThemePicker({
           </div>
 
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1.72fr)_minmax(18rem,19.5rem)] xl:items-start">
-            <div className="overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] xl:p-2">
+            <div className="overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-[var(--resume-preview-shell-shadow)] xl:p-2">
               <iframe
                 aria-hidden="true"
                 className="block w-full rounded-2xl border-0 bg-transparent"

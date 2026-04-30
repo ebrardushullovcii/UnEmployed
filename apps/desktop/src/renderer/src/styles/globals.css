@@ -136,6 +136,7 @@
   --surface-grid-top: rgba(255, 255, 255, 0.02);
   --surface-grid-line: rgba(255, 255, 255, 0.015);
   --resume-preview-frame: radial-gradient(circle at top, rgba(255, 255, 255, 0.08), var(--surface-overlay-strong));
+  --resume-preview-shell-shadow: 0 18px 60px var(--surface-overlay-heavy);
 
   --positive: #d0ecff;
   --positive-foreground: #2b4655;
@@ -301,6 +302,7 @@
   --surface-grid-top: rgba(255, 255, 255, 0.5);
   --surface-grid-line: rgba(24, 24, 22, 0.035);
   --resume-preview-frame: radial-gradient(circle at top, var(--surface-overlay-subtle), var(--surface-panel-raised));
+  --resume-preview-shell-shadow: 0 18px 60px rgba(24, 24, 22, 0.14);
 
   --positive: #0f6ea8;
   --positive-foreground: #eef7ff;

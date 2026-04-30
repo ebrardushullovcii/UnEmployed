@@ -3,6 +3,7 @@ import {
   createJobFinderAiClientFromEnvironment,
 } from '@unemployed/ai-providers'
 import { createBrowserAgentRuntime, createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
+import type { BrowserSessionRuntime, OpenBrowserSessionOptions } from '@unemployed/browser-runtime'
 import type { BrowserSessionState } from '@unemployed/contracts'
 import { createFileJobFinderRepository } from '@unemployed/db'
 import { createJobFinderWorkspaceService } from '@unemployed/job-finder'
@@ -21,8 +22,6 @@ import {
   isDesktopTestApiEnabled,
   isEnabled,
 } from './test-api'
-import type { BrowserSessionRuntime } from '@unemployed/browser-runtime'
-
 const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
 
 function buildCatalogSessionLabel(status: BrowserSessionState['status']): string {
@@ -139,12 +138,8 @@ export function createDesktopBrowserRuntime(input: {
 
   return {
     ...runtime,
-    async openSession(source, options) {
-      const hasTargetId =
-        options !== null &&
-        typeof options === 'object' &&
-        'targetId' in options &&
-        Boolean((options as { targetId?: unknown }).targetId)
+    async openSession(source, options?: OpenBrowserSessionOptions) {
+      const hasTargetId = Boolean(options?.targetId)
 
       if (options?.targetUrl || hasTargetId) {
         throw new Error(

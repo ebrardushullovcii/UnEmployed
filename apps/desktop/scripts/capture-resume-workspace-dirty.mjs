@@ -47,13 +47,23 @@ function assert(condition, message) {
 
 async function clickAndDismissDialog(window, locator) {
   const dialogMessagePromise = new Promise((resolve, reject) => {
-    window.once("dialog", (dialog) => {
+    const timeoutMs = 5000;
+    let timeoutId;
+    const handleDialog = (dialog) => {
+      clearTimeout(timeoutId);
       const message = dialog.message();
       void dialog
         .dismiss()
         .then(() => resolve(message))
         .catch(reject);
-    });
+    };
+
+    timeoutId = setTimeout(() => {
+      window.removeListener("dialog", handleDialog);
+      reject(new Error("Timed out waiting for confirmation dialog after click."));
+    }, timeoutMs);
+
+    window.once("dialog", handleDialog);
   });
 
   await locator.click();
@@ -61,7 +71,10 @@ async function clickAndDismissDialog(window, locator) {
 }
 
 function summaryField(window) {
-  return window.getByLabel("Section text").first();
+  return window
+    .locator("article")
+    .filter({ has: window.getByRole("heading", { name: "Summary" }) })
+    .getByLabel("Section text");
 }
 
 function assistantField(window) {
@@ -137,13 +150,6 @@ async function getAssistantMessages(window) {
   );
 }
 
-async function waitForSummaryText(window, expectedText) {
-  await waitForCondition(
-    async () => (await getSummaryText(window)) === expectedText,
-    `summary text to equal '${expectedText}'`,
-  );
-}
-
 async function waitForSummaryFieldValue(window, expectedText) {
   await waitForCondition(
     async () => (await summaryField(window).inputValue()) === expectedText,
@@ -201,6 +207,10 @@ async function captureResumeWorkspaceDirtyState() {
     await summaryField(window).fill(refreshSentinel);
     await window.getByRole("button", { name: "Refresh draft" }).click();
     await waitForSummaryFieldValue(window, refreshSentinel);
+    await waitForCondition(
+      async () => (await getSummaryText(window)) === refreshSentinel,
+      `summary text to equal '${refreshSentinel}'`,
+    );
     results.refresh = {
       fieldValue: await summaryField(window).inputValue(),
       savedSummaryText: await getSummaryText(window),
@@ -351,7 +361,11 @@ async function captureResumeWorkspaceDirtyState() {
         // Preserve the original failure while still cleaning up the temp profile.
       }
     }
-    await rm(userDataDirectory, { recursive: true, force: true });
+    try {
+      await rm(userDataDirectory, { recursive: true, force: true });
+    } catch {
+      // Preserve the original failure while still cleaning up the temp profile.
+    }
   }
 
   process.stdout.write(

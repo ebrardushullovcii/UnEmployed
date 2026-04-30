@@ -47,13 +47,14 @@ export function ResumeSectionEditor(props: {
   const entryRefs = useRef<Record<string, HTMLElement | null>>({});
 
   useEffect(() => {
-    const target = props.selectedTargetId
-      ? sectionRef.current
-      : props.selectedEntryId
-        ? (entryRefs.current[props.selectedEntryId] ?? null)
-        : props.isSelected
-          ? sectionRef.current
-          : null;
+    const entryTarget = props.selectedEntryId
+      ? (entryRefs.current[props.selectedEntryId] ?? null)
+      : null;
+    const target = entryTarget
+      ? entryTarget
+      : props.selectedTargetId || props.isSelected
+        ? sectionRef.current
+        : null;
 
     if (!target) {
       return;
@@ -215,7 +216,9 @@ export function ResumeSectionEditor(props: {
           <FieldLabel htmlFor={textId}>Section text</FieldLabel>
           <Textarea
             className={
-              props.section.kind === "summary" ? "min-h-32" : "min-h-40"
+              props.section.kind === "summary"
+                ? "min-h-(--textarea-compact)"
+                : "min-h-(--textarea-tall)"
             }
             data-resume-editor-target={getResumeSectionTextTargetId(
               props.section.id,
@@ -481,7 +484,7 @@ export function ResumeSectionEditor(props: {
                   Entry summary
                 </FieldLabel>
                 <Textarea
-                  className="min-h-32"
+                  className="min-h-(--textarea-compact)"
                   data-resume-editor-target={getResumeEntryFieldTargetId(
                     props.section.id,
                     entry.id,
@@ -679,7 +682,7 @@ export function ResumeSectionEditor(props: {
                       </Button>
                     </div>
                     <Textarea
-                      className="min-h-32"
+                      className="min-h-(--textarea-compact)"
                       data-resume-editor-target={getResumeEntryBulletTargetId(
                         props.section.id,
                         entry.id,
@@ -894,7 +897,7 @@ export function ResumeSectionEditor(props: {
                   </Button>
                 </div>
                 <Textarea
-                  className="min-h-36"
+                  className="min-h-(--textarea-default)"
                   data-resume-editor-target={getResumeSectionBulletTargetId(
                     props.section.id,
                     bullet.id,

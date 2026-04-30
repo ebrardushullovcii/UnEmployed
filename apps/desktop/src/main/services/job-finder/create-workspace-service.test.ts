@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { OpenBrowserSessionOptions } from "@unemployed/browser-runtime";
 import { createDesktopBrowserRuntime, createDesktopJobFinderAiClient } from "./create-workspace-service";
 import {
   getDesktopTestDelayMs,
@@ -74,7 +75,7 @@ describe("createDesktopBrowserRuntime", () => {
     await expect(
       browserRuntime.openSession("target_site", {
         targetId: "target_linkedin_default",
-      } as { targetUrl?: string | null } & { targetId: string }),
+      } satisfies OpenBrowserSessionOptions),
     ).rejects.toThrow(
       "Targeted sign-in requires the browser agent runtime, but it is disabled in this desktop build.",
     );

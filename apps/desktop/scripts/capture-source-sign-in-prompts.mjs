@@ -1,5 +1,3 @@
-/* eslint-env node, browser */
-
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -247,7 +245,7 @@ async function captureFindJobsRunOneSource(page, viewport, report) {
     .first();
   await scrollIntoView(runOneSourceHeading);
   await page
-    .getByText(/sign in to wellfound.*better search coverage.*next run/i)
+    .getByText(/sign in to .*better search coverage.*next run/i)
     .waitFor({ timeout: 10000 });
 
   const fileName = `find-jobs-run-one-source-${viewport.slug}.png`;

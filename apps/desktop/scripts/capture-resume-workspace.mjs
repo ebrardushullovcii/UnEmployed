@@ -44,6 +44,10 @@ function assert(condition, message) {
   }
 }
 
+function encodeContractSegment(value) {
+  return encodeURIComponent(value);
+}
+
 async function getResumeWorkspace(window, jobId) {
   return window.evaluate(
     async (currentJobId) =>
@@ -122,7 +126,12 @@ function getPreviewExpectation(workspace) {
 }
 
 function buildEntryFieldTarget(sectionId, entryId, field) {
-  return `entry:${sectionId}:${entryId}:${field}`;
+  return [
+    "entry",
+    encodeContractSegment(sectionId),
+    encodeContractSegment(entryId),
+    encodeContractSegment(field),
+  ].join(":");
 }
 
 function getEntryPreviewTarget(section, entry) {
@@ -155,7 +164,13 @@ function getEntryPreviewTarget(section, entry) {
   return {
     sectionId: section.id,
     entryId: entry.id,
-    targetId: `entry:${section.id}:${entry.id}:bullet:${bullet.id}`,
+    targetId: [
+      "entry",
+      encodeContractSegment(section.id),
+      encodeContractSegment(entry.id),
+      "bullet",
+      encodeContractSegment(bullet.id),
+    ].join(":"),
     editorLabel: "Bullet text",
     expectedValue: bullet.text.trim(),
   };
@@ -190,7 +205,11 @@ function getClickablePreviewTarget(workspace) {
       targets.push({
         sectionId: section.id,
         entryId: null,
-        targetId: `section:${section.id}:text`,
+        targetId: [
+          "section",
+          encodeContractSegment(section.id),
+          "text",
+        ].join(":"),
         editorLabel: "Section text",
         expectedValue: section.text?.trim() ?? null,
       });
@@ -848,7 +867,11 @@ async function captureResumeWorkspace() {
         // Preserve the original failure while still cleaning up the temp profile.
       }
     }
-    await rm(userDataDirectory, { recursive: true, force: true });
+    try {
+      await rm(userDataDirectory, { recursive: true, force: true });
+    } catch {
+      // Preserve the original failure while still cleaning up the temp profile.
+    }
   }
 
   process.stdout.write(
