@@ -13,6 +13,7 @@ import {
   JobSourceSchema,
   NonEmptyStringSchema,
   ResumeTemplateIdSchema,
+  SourceAccessPromptStateSchema,
   SourceDebugPhaseSchema,
 } from "./base";
 import {
@@ -51,6 +52,7 @@ import {
   ResumeDraftPatchSchema,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
+  ResumePreviewSchema,
   ResumeDraftSummarySchema,
   ResumeExportArtifactSchema,
   ResumeExportArtifactSummarySchema,
@@ -99,6 +101,18 @@ export const JobFinderSaveResumeDraftInputSchema = z.object({
 });
 export type JobFinderSaveResumeDraftInput = z.infer<
   typeof JobFinderSaveResumeDraftInputSchema
+>;
+
+export const JobFinderPreviewResumeDraftInputSchema = z.object({
+  draft: ResumeDraftSchema,
+});
+export type JobFinderPreviewResumeDraftInput = z.infer<
+  typeof JobFinderPreviewResumeDraftInputSchema
+>;
+
+export const JobFinderResumePreviewModeSchema = z.enum(["ok", "fail_once"]);
+export type JobFinderResumePreviewMode = z.infer<
+  typeof JobFinderResumePreviewModeSchema
 >;
 
 export const JobFinderResumeSectionActionInputSchema = z.object({
@@ -168,6 +182,13 @@ export const JobFinderSourceDebugActionInputSchema = z.object({
 });
 export type JobFinderSourceDebugActionInput = z.infer<
   typeof JobFinderSourceDebugActionInputSchema
+>;
+
+export const JobFinderOpenBrowserSessionInputSchema = z.object({
+  targetId: NonEmptyStringSchema.nullable().default(null),
+});
+export type JobFinderOpenBrowserSessionInput = z.infer<
+  typeof JobFinderOpenBrowserSessionInputSchema
 >;
 
 export const JobFinderDiscoveryTargetActionInputSchema = z.object({
@@ -241,6 +262,19 @@ export const BrowserSessionStateSchema = z.object({
 });
 export type BrowserSessionState = z.infer<typeof BrowserSessionStateSchema>;
 
+export const SourceAccessPromptSchema = z.object({
+  targetId: NonEmptyStringSchema,
+  targetLabel: NonEmptyStringSchema,
+  targetUrl: NonEmptyStringSchema,
+  state: SourceAccessPromptStateSchema,
+  summary: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema.nullable().default(null),
+  actionLabel: NonEmptyStringSchema,
+  rerunLabel: NonEmptyStringSchema.nullable().default(null),
+  updatedAt: IsoDateTimeSchema,
+});
+export type SourceAccessPrompt = z.infer<typeof SourceAccessPromptSchema>;
+
 export const AgentProviderStatusSchema = z.object({
   kind: AiProviderKindSchema,
   ready: z.boolean(),
@@ -252,14 +286,118 @@ export const AgentProviderStatusSchema = z.object({
 });
 export type AgentProviderStatus = z.infer<typeof AgentProviderStatusSchema>;
 
+export const ResumeTemplateDeliveryLaneSchema = z.enum([
+  "apply_safe",
+  "share_ready",
+]);
+export type ResumeTemplateDeliveryLane = z.infer<
+  typeof ResumeTemplateDeliveryLaneSchema
+>;
+
+export const ResumeTemplateAtsConfidenceSchema = z.enum([
+  "high",
+  "medium",
+  "low",
+]);
+export type ResumeTemplateAtsConfidence = z.infer<
+  typeof ResumeTemplateAtsConfidenceSchema
+>;
+
 export const ResumeTemplateDefinitionSchema = z.object({
   id: ResumeTemplateIdSchema,
   label: NonEmptyStringSchema,
   description: NonEmptyStringSchema,
+  familyId: NonEmptyStringSchema.optional(),
+  familyLabel: NonEmptyStringSchema.optional(),
+  familyDescription: NonEmptyStringSchema.optional(),
+  variantLabel: NonEmptyStringSchema.optional(),
+  deliveryLane: ResumeTemplateDeliveryLaneSchema.optional(),
+  atsConfidence: ResumeTemplateAtsConfidenceSchema.optional(),
+  fitSummary: NonEmptyStringSchema.nullable().optional(),
+  avoidSummary: NonEmptyStringSchema.nullable().optional(),
+  bestFor: z.array(NonEmptyStringSchema).default([]),
+  visualTags: z.array(NonEmptyStringSchema).optional(),
+  density: z.enum(["comfortable", "balanced", "compact"]),
+  applyEligible: z.boolean().optional(),
+  approvalEligible: z.boolean().optional(),
+  benchmarkEligible: z.boolean().optional(),
+  sortOrder: z.number().int().nonnegative().optional(),
 });
 export type ResumeTemplateDefinition = z.infer<
   typeof ResumeTemplateDefinitionSchema
 >;
+
+export function getResumeTemplateFamilyId(
+  template: Pick<ResumeTemplateDefinition, "familyId" | "id">,
+): string {
+  return template.familyId ?? template.id;
+}
+
+export function getResumeTemplateFamilyLabel(
+  template: Pick<ResumeTemplateDefinition, "familyLabel" | "label">,
+): string {
+  return template.familyLabel ?? template.label;
+}
+
+export function getResumeTemplateVariantLabel(
+  template: Pick<ResumeTemplateDefinition, "variantLabel" | "label">,
+): string {
+  return template.variantLabel ?? template.label;
+}
+
+export function getResumeTemplateVisualTags(
+  template: Pick<ResumeTemplateDefinition, "visualTags" | "bestFor">,
+): readonly string[] {
+  return template.visualTags ?? template.bestFor;
+}
+
+export function getResumeTemplateDeliveryLane(
+  template: Pick<ResumeTemplateDefinition, "deliveryLane">,
+): ResumeTemplateDeliveryLane {
+  return template.deliveryLane ?? "apply_safe";
+}
+
+export function getResumeTemplateAtsConfidence(
+  template: Pick<ResumeTemplateDefinition, "atsConfidence">,
+): ResumeTemplateAtsConfidence {
+  return template.atsConfidence ?? "high";
+}
+
+export function isResumeTemplateApprovalEligible(
+  template: Pick<ResumeTemplateDefinition, "approvalEligible" | "deliveryLane">,
+): boolean {
+  if (template.approvalEligible !== undefined) {
+    return template.approvalEligible;
+  }
+
+  return getResumeTemplateDeliveryLane(template) === "apply_safe";
+}
+
+export function isResumeTemplateApplyEligible(
+  template: Pick<
+    ResumeTemplateDefinition,
+    "applyEligible" | "approvalEligible" | "deliveryLane"
+  >,
+): boolean {
+  if (template.applyEligible !== undefined) {
+    return template.applyEligible;
+  }
+
+  return isResumeTemplateApprovalEligible(template);
+}
+
+export function isResumeTemplateBenchmarkEligible(
+  template: Pick<
+    ResumeTemplateDefinition,
+    "benchmarkEligible" | "applyEligible" | "approvalEligible" | "deliveryLane"
+  >,
+): boolean {
+  if (template.benchmarkEligible !== undefined) {
+    return template.benchmarkEligible;
+  }
+
+  return isResumeTemplateApplyEligible(template);
+}
 
 export const JobFinderSettingsSchema = z.object({
   resumeFormat: DocumentFormatSchema,
@@ -372,6 +510,11 @@ export type JobFinderResumeWorkspace = z.infer<
   typeof JobFinderResumeWorkspaceSchema
 >;
 
+export const JobFinderResumePreviewSchema = ResumePreviewSchema;
+export type JobFinderResumePreview = z.infer<
+  typeof JobFinderResumePreviewSchema
+>;
+
 export const JobFinderWorkspaceSnapshotSchema = z.object({
   module: z.literal("job-finder"),
   generatedAt: IsoDateTimeSchema,
@@ -381,6 +524,7 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   searchPreferences: JobSearchPreferencesSchema,
   profileSetupState: ProfileSetupStateSchema,
   browserSession: BrowserSessionStateSchema,
+  sourceAccessPrompts: z.array(SourceAccessPromptSchema).default([]),
   discoverySessions: z.array(DiscoveryAdapterSessionStateSchema).default([]),
   discoveryRunState: DiscoveryRunStateSchema.default("idle"),
   activeDiscoveryRun: DiscoveryRunRecordSchema.nullable().default(null),
@@ -456,6 +600,13 @@ export const DesktopPlatformPingSchema = z.object({
   platform: z.enum(["darwin", "win32", "linux"]),
 });
 export type DesktopPlatformPing = z.infer<typeof DesktopPlatformPingSchema>;
+
+export const DesktopTestOkResponseSchema = z.object({
+  ok: z.literal(true),
+});
+export type DesktopTestOkResponse = z.infer<
+  typeof DesktopTestOkResponseSchema
+>;
 
 export const DesktopWindowControlsStateSchema = z.object({
   isMaximized: z.boolean(),

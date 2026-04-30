@@ -1,8 +1,11 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   JobPostingSchema,
+  type ResumeTemplateId,
+  ResumeTemplateDefinitionSchema,
   SavedJobSchema,
 } from "@unemployed/contracts";
+import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
 import { describe, expect, test } from "vitest";
 import { createAiClient } from "./workspace-service.test-runtimes";
 import {
@@ -52,11 +55,11 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationAttempts[0]?.replay.lastUrl).toContain("/apply");
     expect(snapshot.applicationRecords[0]?.questionSummary.total).toBe(1);
     expect(snapshot.applicationRecords[0]?.replaySummary.lastUrl).toContain("/apply");
-    expect(tailoredAsset?.storagePath).toBe("/tmp/generated-resume.pdf");
+    expect(tailoredAsset?.storagePath).toBe("/tmp/generated-classic_ats.pdf");
     expect(tailoredAsset?.notes).toEqual(
       expect.arrayContaining([
-        "Generated PDF resume artifact generated-resume.pdf.",
-        "Saved HTML debug render generated-resume.html.",
+        "Generated PDF resume artifact generated-classic_ats.pdf.",
+        "Saved HTML debug render generated-classic_ats.html.",
         "Generated PDF page count: 2.",
       ]),
     );
@@ -155,7 +158,7 @@ describe("createJobFinderWorkspaceService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "resume",
-          submittedAnswer: "/tmp/generated-resume.pdf",
+          submittedAnswer: "/tmp/generated-classic_ats.pdf",
         }),
       ]),
     );
@@ -221,7 +224,7 @@ describe("createJobFinderWorkspaceService", () => {
       status: "ready",
       label: "Tailored Resume",
       version: "v1",
-      templateName: "Classic ATS",
+      templateName: "Swiss Minimal - Standard",
       compatibilityScore: 94,
       progressPercent: 100,
       updatedAt: "2026-03-20T10:04:00.000Z",
@@ -236,6 +239,7 @@ describe("createJobFinderWorkspaceService", () => {
       jobId: "job_pause_case",
       status: "approved",
       templateId: "classic_ats",
+      identity: null,
       sections: [],
       targetPageCount: 2,
       generationMethod: "deterministic",
@@ -527,6 +531,50 @@ describe("createJobFinderWorkspaceService", () => {
     ).toBeLessThanOrEqual(1);
   });
 
+  test("removes company and job-only phrases from visible skill sections", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness({
+      aiClient: {
+        ...createAiClient(),
+        createResumeDraft(input) {
+          return Promise.resolve({
+            label: "Tailored Resume",
+            summary: "Grounded systems summary.",
+            experienceHighlights: ["Built resilient workflow tooling."],
+            coreSkills: ["Figma", "Signal Systems", "Design Systems"],
+            targetedKeywords: ["Design Systems", "Workflow platform"],
+            experienceEntries: input.profile.experiences.slice(0, 1).map((experience) => ({
+              title: experience.title,
+              employer: experience.companyName,
+              location: experience.location,
+              dateRange: "2020-01 – Present",
+              summary: experience.summary,
+              bullets: experience.achievements,
+              profileRecordId: experience.id,
+            })),
+            projectEntries: [],
+            educationEntries: [],
+            certificationEntries: [],
+            additionalSkills: ["Remote-first collaboration", "Figma"],
+            languages: [],
+            fullText: "placeholder",
+            compatibilityScore: 92,
+            notes: ["Injected by test AI client."],
+          });
+        },
+      },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const skillBullets = workspace.draft.sections
+      .filter((section) => section.kind === "skills")
+      .flatMap((section) => section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text));
+
+    expect(skillBullets).toEqual(expect.arrayContaining(["Figma", "Design Systems"]));
+    expect(skillBullets).not.toContain("Signal Systems");
+    expect(skillBullets).not.toContain("Remote-first collaboration");
+  });
+
   test("fails assistant edits as a batch when one patch targets missing content", async () => {
     const baseAiClient = createAiClient();
     const { workspaceService } = createWorkspaceServiceHarness({
@@ -600,17 +648,143 @@ describe("createJobFinderWorkspaceService", () => {
     expect(workspace.sharedProfile.highlightedProofs[0]?.title).toBe("Design-system rollout");
   });
 
+  test("previews an unsaved draft without persisting intermediate changes", async () => {
+    const { repository, workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const previewDraft = {
+      ...workspace.draft,
+      sections: workspace.draft.sections.map((section, index) =>
+        index === 0 && section.text
+          ? {
+              ...section,
+              text: `${section.text} Preview-only edit.`,
+            }
+          : section,
+      ),
+    };
+
+    const preview = await workspaceService.previewResumeDraft(previewDraft);
+    const persistedDraft = await repository.getResumeDraftByJobId("job_ready");
+    const revisionPrefix = `resume_preview_${workspace.draft.id}`;
+
+    expect(preview.draftId).toBe(workspace.draft.id);
+    expect(preview.html).toContain("Preview-only edit.");
+    expect(preview.html).toContain("data-resume-section-id");
+    expect(preview.revisionKey.startsWith(revisionPrefix)).toBe(true);
+    expect(preview.revisionKey.slice(revisionPrefix.length).length).toBeGreaterThan(0);
+    expect(persistedDraft?.sections[0]?.text).toBe(workspace.draft.sections[0]?.text ?? null);
+    expect(persistedDraft?.updatedAt).toBe(workspace.draft.updatedAt);
+  });
+
+  test("keeps unchanged approved resume previews clean instead of marking them stale", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    expect(approvedExport).toBeTruthy();
+
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const preview = await workspaceService.previewResumeDraft(workspace.draft);
+
+    expect(
+      preview.warnings.some((warning) => /Unsaved changes differ from the last approved export/i.test(warning.message)),
+    ).toBe(false);
+  });
+
+  test("marks approved resume previews stale when unsaved edits differ from the approved draft", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    expect(approvedExport).toBeTruthy();
+
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const preview = await workspaceService.previewResumeDraft({
+      ...workspace.draft,
+      sections: workspace.draft.sections.map((section, index) =>
+        index === 0 && section.text
+          ? {
+              ...section,
+              text: `${section.text} Preview-only edit.`,
+            }
+          : section,
+      ),
+    });
+
+    expect(
+      preview.warnings.some((warning) => /Unsaved changes differ from the last approved export/i.test(warning.message)),
+    ).toBe(true);
+  });
+
+  test("materializes effective identity values for legacy resume drafts that still store null identity", async () => {
+    const seed = createSeed();
+    seed.profile = {
+      ...seed.profile,
+      email: "alex@example.com",
+      phone: "+44 7000 000111",
+      linkedinUrl: "https://linkedin.com/in/alex",
+      applicationIdentity: {
+        ...seed.profile.applicationIdentity,
+        preferredEmail: "alex@example.com",
+        preferredPhone: "+44 7000 000111",
+      },
+    };
+    seed.resumeDrafts.push({
+      id: "resume_draft_job_ready",
+      jobId: "job_ready",
+      status: "needs_review",
+      templateId: "classic_ats",
+      identity: null,
+      sections: [],
+      targetPageCount: 2,
+      generationMethod: "deterministic",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+      createdAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:00:00.000Z",
+    });
+
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+
+    expect(workspace.draft.identity).toMatchObject({
+      fullName: seed.profile.fullName,
+      email: "alex@example.com",
+      phone: "+44 7000 000111",
+      linkedinUrl: "https://linkedin.com/in/alex",
+    });
+  });
+
   test("rejects resume approval when exported validation still has blocking errors", async () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       documentManager: {
         ...createDocumentManager(),
-        renderResumeArtifact() {
+        renderResumePreview(input: { templateId: ResumeTemplateId }) {
           return Promise.resolve({
-            fileName: "generated-resume.pdf",
-            storagePath: "/tmp/generated-resume.pdf",
+            html: `<!doctype html><html><body><article data-template-id="${input.templateId}">Preview</article></body></html>`,
+            warnings: [],
+          });
+        },
+        renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
+          return Promise.resolve({
+            fileName: `generated-${input.templateId}.pdf`,
+            storagePath: `/tmp/generated-${input.templateId}.pdf`,
             format: "pdf" as const,
-            intermediateFileName: "generated-resume.html",
-            intermediateStoragePath: "/tmp/generated-resume.html",
+            intermediateFileName: `generated-${input.templateId}.html`,
+            intermediateStoragePath: `/tmp/generated-${input.templateId}.html`,
             pageCount: 3,
             warnings: [],
           });
@@ -730,7 +904,7 @@ describe("createJobFinderWorkspaceService", () => {
       status: "ready",
       label: "Tailored Resume",
       version: "v1",
-      templateName: "Classic ATS",
+      templateName: "Swiss Minimal - Standard",
       compatibilityScore: 94,
       progressPercent: 100,
       updatedAt: "2026-03-20T10:04:00.000Z",
@@ -745,6 +919,7 @@ describe("createJobFinderWorkspaceService", () => {
       jobId: "job_pause_case",
       status: "approved",
       templateId: "classic_ats",
+      identity: null,
       sections: [],
       targetPageCount: 2,
       generationMethod: "deterministic",
@@ -925,6 +1100,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_queue_first",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -939,6 +1115,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_queue_second",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -979,9 +1156,9 @@ describe("createJobFinderWorkspaceService", () => {
     const fallbackRuntime = createBrowserRuntime();
     const browserRuntime: BrowserSessionRuntime = {
       ...fallbackRuntime,
-      async openSession(source) {
+      async openSession(source, options) {
         openSessionCalls += 1;
-        return fallbackRuntime.openSession(source);
+        return fallbackRuntime.openSession(source, options);
       },
       async closeSession(source) {
         closeSessionCalls += 1;
@@ -1097,6 +1274,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_consent_queue",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -1111,6 +1289,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_ready",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -1206,6 +1385,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_consent_queue",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -1220,6 +1400,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_ready",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -1319,6 +1500,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_consent_queue",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -1333,6 +1515,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_ready",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -1411,6 +1594,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_ready",
         status: "approved",
         templateId: "classic_ats",
+        identity: null,
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
@@ -1478,7 +1662,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(workspace.exports.some((artifact) => artifact.isApproved)).toBe(false);
   });
 
-  test("normalizes unsupported resume template settings back to Classic ATS", async () => {
+  test("accepts Swiss Minimal - Accent as a supported default theme", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     const snapshot = await workspaceService.saveSettings({
@@ -1486,19 +1670,50 @@ describe("createJobFinderWorkspaceService", () => {
       resumeTemplateId: "modern_split",
     });
 
-    expect(snapshot.settings.resumeTemplateId).toBe("classic_ats");
-    expect(snapshot.availableResumeTemplates).toHaveLength(1);
+    expect(snapshot.settings.resumeTemplateId).toBe("modern_split");
+    expect(snapshot.availableResumeTemplates).toHaveLength(6);
     expect(snapshot.availableResumeTemplates).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "classic_ats",
-          label: "Classic ATS",
+          label: "Swiss Minimal - Standard",
+        }),
+        expect.objectContaining({
+          id: "compact_exec",
+          label: "Executive Brief - Dense",
+        }),
+        expect.objectContaining({
+          id: "modern_split",
+          label: "Swiss Minimal - Accent",
+        }),
+        expect.objectContaining({
+          id: "technical_matrix",
+          label: "Engineering Spec - Systems",
+        }),
+        expect.objectContaining({
+          id: "project_showcase",
+          label: "Portfolio Narrative - Proof-led",
+        }),
+        expect.objectContaining({
+          id: "credentials_focus",
+          label: "Executive Brief - Credentials",
         }),
       ]),
     );
   });
 
-  test("normalizes legacy resume drafts that still point at retired layouts", async () => {
+  test("keeps Executive Brief - Dense when it is part of the supported theme set", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    const snapshot = await workspaceService.saveSettings({
+      ...(await workspaceService.getWorkspaceSnapshot()).settings,
+      resumeTemplateId: "compact_exec",
+    });
+
+    expect(snapshot.settings.resumeTemplateId).toBe("compact_exec");
+  });
+
+  test("keeps existing Modern Split drafts because the theme is shipped", async () => {
     const seed = createSeed();
     seed.resumeDrafts = [
       {
@@ -1506,6 +1721,7 @@ describe("createJobFinderWorkspaceService", () => {
         jobId: "job_ready",
         status: "approved",
         templateId: "modern_split",
+        identity: null,
         sections: [
           {
             id: "section_summary",
@@ -1549,11 +1765,190 @@ describe("createJobFinderWorkspaceService", () => {
 
     const workspace = await workspaceService.getResumeWorkspace("job_ready");
 
-    expect(workspace.draft.templateId).toBe("classic_ats");
-    expect(workspace.draft.status).toBe("stale");
-    expect(workspace.draft.approvedAt).toBeNull();
-    expect(workspace.draft.approvedExportId).toBeNull();
-    expect(workspace.draft.staleReason).toMatch(/retired layout/i);
+    expect(workspace.draft.templateId).toBe("modern_split");
+    expect(workspace.draft.status).toBe("approved");
+    expect(workspace.draft.approvedAt).toBe("2026-04-18T12:00:00.000Z");
+    expect(workspace.draft.approvedExportId).toBe("resume_export_legacy");
+    expect(workspace.draft.staleReason).toBeNull();
+  });
+
+  test("refuses approval when the selected template is not approval eligible", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness({
+      documentManager: {
+        ...createDocumentManager(),
+        listResumeTemplates() {
+          return ResumeTemplateDefinitionSchema.array().parse([
+            {
+              id: "classic_ats",
+              label: "Swiss Minimal - Standard",
+              familyId: "swiss_minimal",
+              familyLabel: "Swiss Minimal",
+              familyDescription: "Calm ATS-safe layouts.",
+              variantLabel: "Standard",
+              description: "Low-risk ATS-safe default.",
+              bestFor: ["General applications"],
+              visualTags: ["Minimal"],
+              density: "balanced",
+              deliveryLane: "apply_safe",
+              atsConfidence: "high",
+              applyEligible: true,
+              approvalEligible: true,
+              benchmarkEligible: true,
+              sortOrder: 10,
+            },
+            {
+              id: "modern_split",
+              label: "Swiss Minimal - Accent",
+              familyId: "swiss_minimal",
+              familyLabel: "Swiss Minimal",
+              familyDescription: "Calm ATS-safe layouts.",
+              variantLabel: "Accent",
+              description: "Expressive preview-forward variant.",
+              bestFor: ["Share links"],
+              visualTags: ["Accent header"],
+              density: "balanced",
+              deliveryLane: "share_ready",
+              atsConfidence: "medium",
+              applyEligible: false,
+              approvalEligible: false,
+              benchmarkEligible: false,
+              sortOrder: 20,
+            },
+          ]);
+        },
+      },
+    });
+
+    await workspaceService.saveSettings({
+      ...(await workspaceService.getWorkspaceSnapshot()).settings,
+      resumeTemplateId: "classic_ats",
+    });
+    await workspaceService.generateResume("job_ready");
+    let exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    let approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+
+    expect(approvedExport).toBeTruthy();
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    await workspaceService.saveResumeDraft({
+      ...workspace.draft,
+      templateId: "modern_split",
+    });
+    exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready" && artifact.templateId === "modern_split",
+    );
+
+    await expect(
+      workspaceService.approveResume("job_ready", approvedExport!.id),
+    ).rejects.toThrow(/share-ready template/i);
+  });
+
+  test("refuses auto-apply staging when an approved draft uses a non-apply template", async () => {
+    const seed = createSeed();
+    seed.resumeDrafts = [
+      {
+        id: "resume_draft_job_ready",
+        jobId: "job_ready",
+        status: "approved",
+        templateId: "modern_split",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        approvedAt: "2026-04-18T12:00:00.000Z",
+        approvedExportId: "resume_export_share_ready",
+        staleReason: null,
+        createdAt: "2026-04-18T12:00:00.000Z",
+        updatedAt: "2026-04-18T12:00:00.000Z",
+      },
+    ];
+    seed.resumeExportArtifacts = [
+      {
+        id: "resume_export_share_ready",
+        draftId: "resume_draft_job_ready",
+        jobId: "job_ready",
+        format: "pdf",
+        filePath: "/tmp/generated-modern_split.pdf",
+        pageCount: 1,
+        templateId: "modern_split",
+        exportedAt: "2026-04-18T12:00:00.000Z",
+        isApproved: true,
+      },
+    ];
+    seed.tailoredAssets = [
+      {
+        id: "resume_job_ready",
+        jobId: "job_ready",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored Resume",
+        version: "v1",
+        templateName: "Swiss Minimal - Accent",
+        compatibilityScore: 95,
+        progressPercent: 100,
+        updatedAt: "2026-04-18T12:00:00.000Z",
+        storagePath: "/tmp/generated-modern_split.pdf",
+        contentText: "Resume text",
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+      },
+    ];
+
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      documentManager: {
+        ...createDocumentManager(),
+        listResumeTemplates() {
+          return ResumeTemplateDefinitionSchema.array().parse([
+            {
+              id: "classic_ats",
+              label: "Swiss Minimal - Standard",
+              familyId: "swiss_minimal",
+              familyLabel: "Swiss Minimal",
+              familyDescription: "Calm ATS-safe layouts.",
+              variantLabel: "Standard",
+              description: "Low-risk ATS-safe default.",
+              bestFor: ["General applications"],
+              visualTags: ["Minimal"],
+              density: "balanced",
+              deliveryLane: "apply_safe",
+              atsConfidence: "high",
+              applyEligible: true,
+              approvalEligible: true,
+              benchmarkEligible: true,
+              sortOrder: 10,
+            },
+            {
+              id: "modern_split",
+              label: "Swiss Minimal - Accent",
+              familyId: "swiss_minimal",
+              familyLabel: "Swiss Minimal",
+              familyDescription: "Calm ATS-safe layouts.",
+              variantLabel: "Accent",
+              description: "Expressive preview-forward variant.",
+              bestFor: ["Share links"],
+              visualTags: ["Accent header"],
+              density: "balanced",
+              deliveryLane: "share_ready",
+              atsConfidence: "medium",
+              applyEligible: false,
+              approvalEligible: false,
+              benchmarkEligible: false,
+              sortOrder: 20,
+            },
+          ]);
+        },
+      },
+    });
+
+    await expect(
+      workspaceService.startAutoApplyRun("job_ready"),
+    ).rejects.toThrow(/not eligible for automatic apply/i);
   });
 
   test("stales approved resume drafts when saved job details change materially", async () => {

@@ -190,6 +190,18 @@ export const browserSessionStatusValues = [
 export const BrowserSessionStatusSchema = z.enum(browserSessionStatusValues);
 export type BrowserSessionStatus = z.infer<typeof BrowserSessionStatusSchema>;
 
+export const sourceAccessPromptStateValues = [
+  "prompt_login_required",
+  "prompt_login_recommended",
+] as const;
+
+export const SourceAccessPromptStateSchema = z.enum(
+  sourceAccessPromptStateValues,
+);
+export type SourceAccessPromptState = z.infer<
+  typeof SourceAccessPromptStateSchema
+>;
+
 export const browserDriverValues = [
   "catalog_seed",
   "chrome_profile_agent",
@@ -544,6 +556,9 @@ export const resumeTemplateIdValues = [
   "classic_ats",
   "modern_split",
   "compact_exec",
+  "technical_matrix",
+  "project_showcase",
+  "credentials_focus",
 ] as const;
 
 export const ResumeTemplateIdSchema = z.enum(resumeTemplateIdValues);

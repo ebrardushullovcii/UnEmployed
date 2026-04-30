@@ -136,9 +136,23 @@ export interface DeriveProfileSetupStateOptions {
 
 const FRESH_START_DISPLAY_NAME = "new candidate";
 const FRESH_START_FIRST_NAME = "new";
-const FRESH_START_HEADLINE = "import your resume to begin";
+export const PROFILE_SETUP_PLACEHOLDER_HEADLINE = "Import your resume to begin";
+export const PROFILE_SETUP_PLACEHOLDER_LOCATION = "Set your preferred location";
+const FRESH_START_HEADLINE = PROFILE_SETUP_PLACEHOLDER_HEADLINE.toLowerCase();
 const FRESH_START_LAST_NAME = "candidate";
-const FRESH_START_LOCATION = "set your preferred location";
+const FRESH_START_LOCATION = PROFILE_SETUP_PLACEHOLDER_LOCATION.toLowerCase();
+
+export function hasProfileSetupPlaceholderValue(
+  field: "headline" | "currentLocation",
+  value: string | null | undefined,
+): boolean {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (field === "headline") {
+    return normalized === PROFILE_SETUP_PLACEHOLDER_HEADLINE.toLowerCase();
+  }
+
+  return normalized === PROFILE_SETUP_PLACEHOLDER_LOCATION.toLowerCase();
+}
 
 function getHighestPriorityPendingStep(
   reviewItems: readonly ProfileReviewItem[],

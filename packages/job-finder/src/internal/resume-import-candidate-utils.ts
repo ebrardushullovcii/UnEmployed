@@ -41,6 +41,10 @@ export function toCandidate(
       candidate: draft,
       bundle: documentBundle,
     });
+  const resolvedConfidenceBreakdown =
+    sourceKind === "parser_literal" && confidenceBreakdown.recommendation !== "abstain"
+      ? { ...confidenceBreakdown, recommendation: "auto_apply" as const }
+      : confidenceBreakdown;
 
   return ResumeImportFieldCandidateSchema.parse({
     ...draft,
@@ -49,19 +53,19 @@ export function toCandidate(
     sourceKind,
     resolution:
       sourceKind === "parser_literal"
-        ? confidenceBreakdown.recommendation === "abstain"
+        ? resolvedConfidenceBreakdown.recommendation === "abstain"
           ? "abstained"
           : "auto_applied"
-        : confidenceBreakdown.recommendation === "abstain"
+        : resolvedConfidenceBreakdown.recommendation === "abstain"
           ? "abstained"
           : "needs_review",
     resolutionReason:
-      sourceKind === "parser_literal"
-        ? "high_confidence_literal_with_direct_evidence"
-        : confidenceBreakdown.recommendation === "abstain"
-          ? "composite_confidence_recommended_abstain"
+      resolvedConfidenceBreakdown.recommendation === "abstain"
+        ? "composite_confidence_recommended_abstain"
+        : sourceKind === "parser_literal"
+          ? "high_confidence_literal_with_direct_evidence"
           : null,
-    confidenceBreakdown,
+    confidenceBreakdown: resolvedConfidenceBreakdown,
     createdAt,
     resolvedAt: sourceKind === "parser_literal" ? createdAt : null,
     valuePreview: draft.valuePreview ?? buildValuePreview(draft.value),
@@ -84,21 +88,68 @@ export function countResumeImportCandidates(
   return toCandidateCounts(candidates);
 }
 
+function isBlockingReviewCandidate(candidate: ResumeImportFieldCandidate): boolean {
+  if (candidate.resolution !== "needs_review" && candidate.resolution !== "abstained") {
+    return false;
+  }
+
+  return candidate.target.section !== "proof_point";
+}
+
+function isOptionalProofCandidate(candidate: ResumeImportFieldCandidate): boolean {
+  return (
+    (candidate.resolution === "needs_review" || candidate.resolution === "abstained") &&
+    candidate.target.section === "proof_point"
+  );
+}
+
+export function countBlockingResumeImportCandidates(
+  candidates: readonly ResumeImportFieldCandidate[],
+): number {
+  return candidates.filter(isBlockingReviewCandidate).length;
+}
+
+export function hasBlockingResumeImportCandidates(
+  candidates: readonly ResumeImportFieldCandidate[],
+): boolean {
+  return candidates.some(isBlockingReviewCandidate);
+}
+
 export function summarizeCandidateWarnings(
   candidates: readonly ResumeImportFieldCandidate[],
 ): string[] {
-  const reviewCandidates = candidates.filter(
-    (candidate) =>
-      candidate.resolution === "needs_review" || candidate.resolution === "abstained",
-  );
-  const leadingLabels = reviewCandidates.slice(0, 5).map((candidate) => candidate.label);
+  const blockingReviewCandidates: ResumeImportFieldCandidate[] = [];
+  const optionalProofCandidates: ResumeImportFieldCandidate[] = [];
+  const leadingLabels: string[] = [];
 
-  if (reviewCandidates.length === 0) {
+  for (const candidate of candidates) {
+    if (isBlockingReviewCandidate(candidate)) {
+      blockingReviewCandidates.push(candidate);
+
+      if (leadingLabels.length < 5) {
+        leadingLabels.push(candidate.label);
+      }
+
+      continue;
+    }
+
+    if (isOptionalProofCandidate(candidate)) {
+      optionalProofCandidates.push(candidate);
+    }
+  }
+
+  if (blockingReviewCandidates.length === 0 && optionalProofCandidates.length === 0) {
     return [];
   }
 
+  if (blockingReviewCandidates.length === 0) {
+    return [
+      `${optionalProofCandidates.length} optional proof suggestion${optionalProofCandidates.length === 1 ? " is" : "s are"} available to review before using ${optionalProofCandidates.length === 1 ? "it" : "them"} in tailored resume narratives.`,
+    ];
+  }
+
   return [
-    `${reviewCandidates.length} imported suggestion${reviewCandidates.length === 1 ? " still needs" : "s still need"} review before the app should rely on it everywhere.`,
+    `${blockingReviewCandidates.length} imported suggestion${blockingReviewCandidates.length === 1 ? " still needs" : "s still need"} review before the app should rely on it everywhere.`,
     ...leadingLabels,
   ];
 }

@@ -19,7 +19,7 @@ export function joinProfileSummaryParts(parts: Array<string | null | undefined>)
 
 export function ProfileBackgroundSupportingDetailSection(props: {
   backgroundArrays: ProfileBackgroundArrays
-  busy: boolean
+  isProfileSetupPending: boolean
   profileForm: UseFormReturn<ProfileEditorValues>
 }) {
   const { languageArray, linkArray, projectArray } = props.backgroundArrays
@@ -46,7 +46,8 @@ export function ProfileBackgroundSupportingDetailSection(props: {
         action={
           <div className="flex flex-wrap items-stretch gap-2.5">
             <Button
-              disabled={props.busy}
+              disabled={props.isProfileSetupPending}
+              pending={props.isProfileSetupPending}
               onClick={() =>
                 projectArray.append({
                   id: `project_${crypto.randomUUID().slice(0, 8)}`,
@@ -68,7 +69,8 @@ export function ProfileBackgroundSupportingDetailSection(props: {
               Add project
             </Button>
             <Button
-              disabled={props.busy}
+              disabled={props.isProfileSetupPending}
+              pending={props.isProfileSetupPending}
               onClick={() =>
                 linkArray.append({
                   id: `link_${crypto.randomUUID().slice(0, 8)}`,
@@ -84,7 +86,8 @@ export function ProfileBackgroundSupportingDetailSection(props: {
               Add link
             </Button>
             <Button
-              disabled={props.busy}
+              disabled={props.isProfileSetupPending}
+              pending={props.isProfileSetupPending}
               onClick={() =>
                 languageArray.append({
                   id: `language_${crypto.randomUUID().slice(0, 8)}`,
@@ -119,7 +122,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Project details</p>
-              <Button disabled={props.busy} onClick={() => projectArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => projectArray.remove(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -150,7 +153,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Link details</p>
-              <Button disabled={props.busy} onClick={() => linkArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => linkArray.remove(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -197,7 +200,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Language details</p>
-              <Button disabled={props.busy} onClick={() => languageArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => languageArray.remove(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -229,7 +232,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
 
 export function ProfileBackgroundProofBankSection(props: {
   backgroundArrays: ProfileBackgroundArrays
-  busy: boolean
+  isProfileSetupPending: boolean
   profileForm: UseFormReturn<ProfileEditorValues>
 }) {
   const { proofBankArray } = props.backgroundArrays
@@ -247,7 +250,8 @@ export function ProfileBackgroundProofBankSection(props: {
         description="Capture the strongest claims, metrics, and supporting links once so resumes and future applications can reuse them safely."
         action={(
           <Button
-            disabled={props.busy}
+            disabled={props.isProfileSetupPending}
+            pending={props.isProfileSetupPending}
             onClick={() =>
               proofBankArray.append({
                 id: `proof_${crypto.randomUUID().slice(0, 8)}`,
@@ -284,7 +288,7 @@ export function ProfileBackgroundProofBankSection(props: {
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Proof details</p>
-                <Button disabled={props.busy} onClick={() => proofBankArray.remove(index)} size="compact" type="button" variant="ghost">
+                <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => proofBankArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
               </div>

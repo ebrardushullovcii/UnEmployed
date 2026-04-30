@@ -1,8 +1,10 @@
 import {
   JobFinderResumeWorkspaceSchema,
   type JobFinderResumeWorkspace,
+  type JobFinderResumePreview,
   type CandidateProfile,
   type ResumeDraft,
+  type ResumeTemplateDefinition,
   type SavedJob,
   type TailoredAsset,
 } from "@unemployed/contracts";
@@ -13,11 +15,83 @@ import {
   seedResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
+import { buildResumeDraftIdentity } from "./resume-workspace-structure";
 import {
   normalizeJobFinderSettings,
   normalizeResumeDraftTemplate,
+  wasResumeDraftApproved,
 } from "./workspace-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
+
+function countVisibleEntries(draft: ResumeDraft): number {
+  return draft.sections
+    .filter((section) => section.included)
+    .reduce(
+      (count, section) =>
+        count + section.entries.filter((entry) => entry.included).length,
+      0,
+    );
+}
+
+function createDraftRevisionKey(draft: ResumeDraft): string {
+  const serializedDraft = JSON.stringify(draft);
+  let hash = 2166136261;
+
+  for (let index = 0; index < serializedDraft.length; index += 1) {
+    hash ^= serializedDraft.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return `resume_preview_${draft.id}_${(hash >>> 0).toString(16)}`;
+}
+
+function toDraftPreviewSignature(draft: ResumeDraft) {
+  return {
+    templateId: draft.templateId,
+    identity: draft.identity,
+    sections: draft.sections,
+    targetPageCount: draft.targetPageCount,
+    generationMethod: draft.generationMethod,
+  };
+}
+
+function toComparableDraftPreviewSignature(
+  draft: ResumeDraft,
+  profile: CandidateProfile,
+) {
+  return {
+    ...toDraftPreviewSignature(draft),
+    identity: draft.identity ?? buildResumeDraftIdentity(profile),
+  };
+}
+
+function buildPreviewWarnings(input: {
+  validationIssues: Awaited<ReturnType<typeof validateResumeDraft>>["issues"];
+  renderWarnings: readonly string[];
+}) {
+  return [
+    ...input.validationIssues.map((issue) => ({
+      id: `preview_${issue.id}`,
+      source: "validation" as const,
+      severity: issue.severity,
+      category: issue.category,
+      sectionId: issue.sectionId,
+      entryId: issue.entryId,
+      bulletId: issue.bulletId,
+      message: issue.message,
+    })),
+    ...input.renderWarnings.map((message, index) => ({
+      id: `preview_render_warning_${index + 1}`,
+      source: "render" as const,
+      severity: "warning" as const,
+      category: null,
+      sectionId: null,
+      entryId: null,
+      bulletId: null,
+      message,
+    })),
+  ];
+}
 
 function buildResumeWorkspaceSharedProfile(profile: CandidateProfile) {
   const linksById = new Map(
@@ -52,6 +126,7 @@ function buildResumeWorkspaceSharedProfile(profile: CandidateProfile) {
 export interface LoadedResumeWorkspaceState {
   profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
   settings: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>>;
+  templates: readonly ResumeTemplateDefinition[];
   job: SavedJob;
   draft: ResumeDraft | null;
   tailoredAsset: TailoredAsset | null;
@@ -65,6 +140,7 @@ export async function loadResumeWorkspaceState(
   ctx: WorkspaceServiceContext,
   jobId: string,
 ): Promise<LoadedResumeWorkspaceState> {
+  const templates = ctx.documentManager.listResumeTemplates();
   const [profile, rawSettings, savedJobs, tailoredAssets, draft] = await Promise.all([
     ctx.repository.getProfile(),
     ctx.repository.getSettings(),
@@ -74,7 +150,7 @@ export async function loadResumeWorkspaceState(
   ]);
   const settings = normalizeJobFinderSettings(
     rawSettings,
-    ctx.documentManager.listResumeTemplates(),
+    templates,
   );
   const job = savedJobs.find((entry) => entry.id === jobId);
 
@@ -85,6 +161,7 @@ export async function loadResumeWorkspaceState(
   return {
     profile,
     settings,
+    templates,
     job,
     draft,
     tailoredAsset: tailoredAssets.find((entry) => entry.jobId === jobId) ?? null,
@@ -100,7 +177,7 @@ export async function ensureResumeDraft(
   if (state.draft) {
     const normalizedDraft = normalizeResumeDraftTemplate(
       state.draft,
-      ctx.documentManager.listResumeTemplates(),
+      state.templates,
     );
 
     return {
@@ -112,7 +189,7 @@ export async function ensureResumeDraft(
   const seededDraft = seedResumeDraft({
     profile: state.profile,
     job: state.job,
-    settings: state.settings,
+    templateId: state.settings.resumeTemplateId,
     tailoredAsset: state.tailoredAsset,
   });
   const sanitizedDraft = sanitizeResumeDraft({
@@ -132,6 +209,7 @@ export async function ensureResumeDraft(
     profile: state.profile,
     existingAsset: state.tailoredAsset,
     storagePath: state.tailoredAsset?.storagePath ?? null,
+    templates: state.templates,
   });
 
   await ctx.repository.saveResumeDraftWithValidation({
@@ -167,9 +245,87 @@ export async function renderDraftToPdf(
     job: input.job,
     profile: input.profile,
     renderDocument: buildResumeRenderDocument(input.profile, sanitizedDraft),
+    templateId: sanitizedDraft.templateId,
     settings: input.settings,
     targetPath: input.outputPath ?? null,
   });
+}
+
+export async function previewResumeDraft(
+  ctx: WorkspaceServiceContext,
+  draft: ResumeDraft,
+): Promise<JobFinderResumePreview> {
+  const state = await loadResumeWorkspaceState(ctx, draft.jobId);
+  const persistedDraft = state.draft
+    ? normalizeResumeDraftTemplate(state.draft, state.templates)
+    : null;
+  const parsedDraft = normalizeResumeDraftTemplate(
+    draft,
+    state.templates,
+  );
+  const hadApprovedExport = wasResumeDraftApproved(persistedDraft);
+  const approvedDraftChanged = Boolean(
+    hadApprovedExport &&
+      persistedDraft &&
+      JSON.stringify(toComparableDraftPreviewSignature(persistedDraft, state.profile)) !==
+        JSON.stringify(toComparableDraftPreviewSignature(parsedDraft, state.profile)),
+  );
+  const normalizedDraft = hadApprovedExport && !approvedDraftChanged
+    ? ({
+        ...parsedDraft,
+        status: persistedDraft?.status ?? parsedDraft.status,
+        approvedAt: persistedDraft?.approvedAt ?? parsedDraft.approvedAt,
+        approvedExportId:
+          persistedDraft?.approvedExportId ?? parsedDraft.approvedExportId,
+        staleReason: null,
+      } satisfies ResumeDraft)
+    : ({
+        ...parsedDraft,
+        status: hadApprovedExport ? "stale" : "needs_review",
+        approvedAt: null,
+        approvedExportId: null,
+        staleReason: hadApprovedExport
+          ? "Unsaved changes differ from the last approved export. Save and export a fresh PDF before applying."
+          : null,
+      } satisfies ResumeDraft);
+  const sanitizedDraft = sanitizeResumeDraft({
+    draft: normalizedDraft,
+    job: state.job,
+    profile: state.profile,
+  });
+  const renderedAt = new Date().toISOString();
+  const validation = validateResumeDraft({
+    draft: sanitizedDraft,
+    job: state.job,
+    profile: state.profile,
+    validatedAt: renderedAt,
+  });
+  const preview = await ctx.documentManager.renderResumePreview({
+    job: state.job,
+    profile: state.profile,
+    renderDocument: buildResumeRenderDocument(state.profile, sanitizedDraft, {
+      includePreviewAnchors: true,
+    }),
+    templateId: sanitizedDraft.templateId,
+    settings: state.settings,
+  });
+
+  return {
+    draftId: sanitizedDraft.id,
+    revisionKey: createDraftRevisionKey(sanitizedDraft),
+    html: preview.html,
+    warnings: buildPreviewWarnings({
+      validationIssues: validation.issues,
+      renderWarnings: preview.warnings ?? [],
+    }),
+    metadata: {
+      templateId: sanitizedDraft.templateId,
+      renderedAt,
+      pageCount: null,
+      sectionCount: sanitizedDraft.sections.filter((section) => section.included).length,
+      entryCount: countVisibleEntries(sanitizedDraft),
+    },
+  };
 }
 
 export async function fetchAndPersistResearch(
@@ -213,7 +369,10 @@ export async function buildResumeWorkspace(
 
   return JobFinderResumeWorkspaceSchema.parse({
     job,
-    draft,
+    draft: {
+      ...draft,
+      identity: draft.identity ?? buildResumeDraftIdentity(profile),
+    },
     validation: validations[0] ?? null,
     exports: normalizedExports,
     research,

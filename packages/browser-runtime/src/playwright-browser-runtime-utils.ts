@@ -1,9 +1,8 @@
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileOptions } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import net from "node:net";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import { JobPostingSchema, type JobPosting } from "@unemployed/contracts";
 import type { Page } from "playwright";
@@ -19,7 +18,25 @@ export const DEFAULT_WARM_REUSE_REMOVABLE_QUERY_PARAMS = [
   "trackingId",
 ];
 
-const execFileAsync = promisify(execFile);
+function execFileAsync(
+  file: string,
+  args: readonly string[],
+  options?: ExecFileOptions,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(file, [...args], options ?? {}, (error, stdout, stderr) => {
+      if (error) {
+        reject(error instanceof Error ? error : new Error("execFile failed"));
+        return;
+      }
+
+      resolve({
+        stdout: typeof stdout === "string" ? stdout : stdout.toString("utf8"),
+        stderr: typeof stderr === "string" ? stderr : stderr.toString("utf8"),
+      });
+    });
+  });
+}
 const REMOTE_DEBUGGING_PORT_PATTERN =
   /(?:^|\s)--remote-debugging-port(?:=|\s+)(\d+)(?=\s|$)/iu;
 const USER_DATA_DIR_PATTERN =
@@ -267,6 +284,17 @@ export function normalizeWarmReuseUrl(
   } catch {
     return null;
   }
+}
+
+export function areStructurallyEquivalentHttpUrls(
+  left: string | null | undefined,
+  right: string | null | undefined,
+  options?: { removableQueryParams?: readonly string[] },
+): boolean {
+  const normalizedLeft = normalizeWarmReuseUrl(left, options);
+  const normalizedRight = normalizeWarmReuseUrl(right, options);
+
+  return normalizedLeft !== null && normalizedLeft === normalizedRight;
 }
 
 function hostMatchesNavigationPolicy(

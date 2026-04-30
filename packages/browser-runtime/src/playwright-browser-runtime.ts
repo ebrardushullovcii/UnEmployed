@@ -25,6 +25,7 @@ import type {
   ExecuteEasyApplyInput,
 } from "./runtime-types";
 import {
+  areStructurallyEquivalentHttpUrls,
   buildChromeExecutableCandidates,
   buildQuerySummary,
   findRunningChromeDebugPortForUserDataDir,
@@ -575,6 +576,50 @@ export function createBrowserAgentRuntime(
     return page;
   }
 
+  async function openSessionAtTarget(input: {
+    source: JobSource;
+    targetUrl?: string | null;
+  }): Promise<BrowserSessionState> {
+    const sessionWasReady = currentSessionState.status === "ready";
+    const page = await getReadyPage(input.source);
+    const normalizedTargetUrl =
+      typeof input.targetUrl === "string" ? input.targetUrl.trim() : "";
+    let navigatedToTarget = false;
+
+    if (
+      isHttpUrlLike(normalizedTargetUrl) &&
+      !areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl)
+    ) {
+      try {
+        await page.goto(normalizedTargetUrl, {
+          waitUntil: "domcontentloaded",
+        });
+        navigatedToTarget = true;
+      } catch (error) {
+        const detail =
+          error instanceof Error
+            ? error.message
+            : `The dedicated browser profile could not open ${normalizedTargetUrl}.`;
+        setSessionState(
+          input.source,
+          "blocked",
+          "Browser navigation failed",
+          detail,
+        );
+        throw error;
+      }
+    }
+
+    if (sessionWasReady || navigatedToTarget) {
+      await page.bringToFront().catch(() => undefined);
+    }
+
+    return BrowserSessionStateSchema.parse({
+      ...currentSessionState,
+      source: input.source,
+    });
+  }
+
   return {
     getSessionState(source) {
       return Promise.resolve(
@@ -584,11 +629,10 @@ export function createBrowserAgentRuntime(
         }),
       );
     },
-    async openSession(source) {
-      await getReadyPage(source);
-      return BrowserSessionStateSchema.parse({
-        ...currentSessionState,
+    async openSession(source, options) {
+      return openSessionAtTarget({
         source,
+        targetUrl: options?.targetUrl ?? null,
       });
     },
     async closeSession(source) {

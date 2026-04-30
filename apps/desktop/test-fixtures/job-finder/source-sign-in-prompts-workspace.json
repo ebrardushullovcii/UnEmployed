@@ -1,0 +1,518 @@
+{
+  "profile": {
+    "id": "candidate_signin_1",
+    "firstName": "Avery",
+    "lastName": "Stone",
+    "fullName": "Avery Stone",
+    "headline": "Senior product engineer",
+    "summary": "Builds workflow-heavy product experiences with React and TypeScript.",
+    "currentLocation": "New York, NY",
+    "yearsExperience": 8,
+    "email": "avery.stone@example.com",
+    "phone": "+1 555 0100",
+    "portfolioUrl": "https://avery.example.com",
+    "linkedinUrl": "https://www.linkedin.com/in/avery-stone",
+    "narrative": {
+      "professionalStory": null,
+      "nextChapterSummary": null,
+      "careerTransitionSummary": null,
+      "differentiators": [],
+      "motivationThemes": []
+    },
+    "proofBank": [],
+    "answerBank": {
+      "workAuthorization": null,
+      "visaSponsorship": null,
+      "relocation": null,
+      "travel": null,
+      "noticePeriod": null,
+      "availability": null,
+      "salaryExpectations": null,
+      "selfIntroduction": null,
+      "careerTransition": null,
+      "customAnswers": []
+    },
+    "applicationIdentity": {
+      "preferredEmail": null,
+      "preferredPhone": null,
+      "preferredLinkIds": []
+    },
+    "baseResume": {
+      "id": "resume_signin_1",
+      "fileName": "avery-stone.pdf",
+      "uploadedAt": "2026-04-26T09:00:00.000Z",
+      "storagePath": "/tmp/avery-stone.pdf",
+      "textContent": "Avery Stone\nSenior product engineer\nNew York, NY",
+      "textUpdatedAt": "2026-04-26T09:00:00.000Z",
+      "extractionStatus": "ready",
+      "lastAnalyzedAt": "2026-04-26T09:00:00.000Z",
+      "analysisWarnings": []
+    },
+    "workEligibility": {
+      "authorizedWorkCountries": [],
+      "requiresVisaSponsorship": null,
+      "willingToRelocate": null,
+      "preferredRelocationRegions": [],
+      "willingToTravel": null,
+      "remoteEligible": true,
+      "noticePeriodDays": null,
+      "availableStartDate": null,
+      "securityClearance": null
+    },
+    "professionalSummary": {
+      "shortValueProposition": null,
+      "fullSummary": null,
+      "careerThemes": [],
+      "leadershipSummary": null,
+      "domainFocusSummary": null,
+      "strengths": []
+    },
+    "skillGroups": {
+      "coreSkills": [
+        "React",
+        "TypeScript"
+      ],
+      "tools": [
+        "Figma"
+      ],
+      "languagesAndFrameworks": [
+        "TypeScript",
+        "React"
+      ],
+      "softSkills": [
+        "Cross-functional communication"
+      ],
+      "highlightedSkills": [
+        "Workflow design"
+      ]
+    },
+    "targetRoles": [
+      "Senior Product Engineer",
+      "Staff Frontend Engineer"
+    ],
+    "locations": [
+      "Remote",
+      "New York, NY"
+    ],
+    "skills": [
+      "React",
+      "TypeScript",
+      "Design Systems",
+      "Figma",
+      "Cross-functional communication",
+      "Workflow design"
+    ],
+    "experiences": [
+      {
+        "id": "experience_signin_1",
+        "companyName": "Northstar Labs",
+        "companyUrl": null,
+        "title": "Senior product engineer",
+        "employmentType": null,
+        "location": "New York, NY",
+        "workMode": [
+          "hybrid"
+        ],
+        "startDate": "2021-03",
+        "endDate": null,
+        "isCurrent": true,
+        "isDraft": false,
+        "summary": "Ships workflow-centric product surfaces for complex B2B teams.",
+        "achievements": [],
+        "skills": [],
+        "domainTags": [],
+        "peopleManagementScope": null,
+        "ownershipScope": null
+      }
+    ],
+    "education": [],
+    "certifications": [],
+    "links": [
+      {
+        "id": "link_portfolio_signin",
+        "label": "Portfolio",
+        "url": "https://avery.example.com",
+        "kind": "portfolio",
+        "isDraft": false
+      }
+    ],
+    "projects": [],
+    "spokenLanguages": []
+  },
+  "searchPreferences": {
+    "targetRoles": [
+      "Senior Product Engineer",
+      "Staff Frontend Engineer"
+    ],
+    "jobFamilies": [
+      "Product engineering",
+      "Frontend platform"
+    ],
+    "locations": [
+      "Remote",
+      "New York, NY"
+    ],
+    "excludedLocations": [],
+    "workModes": [
+      "remote",
+      "hybrid"
+    ],
+    "seniorityLevels": [
+      "senior",
+      "staff"
+    ],
+    "targetIndustries": [
+      "Developer tools"
+    ],
+    "targetCompanyStages": [
+      "growth"
+    ],
+    "employmentTypes": [
+      "Full-time"
+    ],
+    "minimumSalaryUsd": 180000,
+    "targetSalaryUsd": 210000,
+    "salaryCurrency": "USD",
+    "approvalMode": "review_before_submit",
+    "tailoringMode": "balanced",
+    "companyBlacklist": [],
+    "companyWhitelist": [],
+    "discovery": {
+      "historyLimit": 5,
+      "targets": [
+        {
+          "id": "target_linkedin_signin",
+          "label": "LinkedIn Jobs",
+          "startingUrl": "https://www.linkedin.com/jobs/search/",
+          "enabled": true,
+          "adapterKind": "auto",
+          "customInstructions": null,
+          "instructionStatus": "missing",
+          "validatedInstructionId": null,
+          "draftInstructionId": null,
+          "lastDebugRunId": "source_debug_run_linkedin_required",
+          "lastVerifiedAt": null,
+          "staleReason": null
+        },
+        {
+          "id": "target_wellfound_signin",
+          "label": "Wellfound",
+          "startingUrl": "https://wellfound.com/jobs",
+          "enabled": true,
+          "adapterKind": "auto",
+          "customInstructions": "Focus on product engineering roles with remote flexibility.",
+          "instructionStatus": "draft",
+          "validatedInstructionId": null,
+          "draftInstructionId": "instruction_wellfound_signin",
+          "lastDebugRunId": "source_debug_run_wellfound_recommended",
+          "lastVerifiedAt": null,
+          "staleReason": null
+        }
+      ]
+    }
+  },
+  "profileSetupState": {
+    "status": "completed",
+    "currentStep": "ready_check",
+    "completedAt": "2026-04-26T09:00:00.000Z",
+    "reviewItems": [],
+    "lastResumedAt": null
+  },
+  "sourceDebugRuns": [
+    {
+      "id": "source_debug_run_linkedin_required",
+      "targetId": "target_linkedin_signin",
+      "state": "paused_manual",
+      "startedAt": "2026-04-26T09:10:00.000Z",
+      "updatedAt": "2026-04-26T09:11:00.000Z",
+      "completedAt": "2026-04-26T09:11:00.000Z",
+      "activePhase": "access_auth_probe",
+      "phases": [
+        "access_auth_probe",
+        "site_structure_mapping",
+        "search_filter_probe"
+      ],
+      "targetLabel": "LinkedIn Jobs",
+      "targetUrl": "https://www.linkedin.com/jobs/search/",
+      "targetHostname": "www.linkedin.com",
+      "manualPrerequisiteSummary": "Please sign in first.",
+      "finalSummary": "Manual login is required before discovery can continue.",
+      "attemptIds": [
+        "attempt_linkedin_required"
+      ],
+      "phaseSummaries": [],
+      "instructionArtifactId": null,
+      "timing": null
+    },
+    {
+      "id": "source_debug_run_wellfound_recommended",
+      "targetId": "target_wellfound_signin",
+      "state": "completed",
+      "startedAt": "2026-04-26T09:20:00.000Z",
+      "updatedAt": "2026-04-26T09:22:00.000Z",
+      "completedAt": "2026-04-26T09:22:00.000Z",
+      "activePhase": null,
+      "phases": [
+        "access_auth_probe",
+        "site_structure_mapping",
+        "search_filter_probe"
+      ],
+      "targetLabel": "Wellfound",
+      "targetUrl": "https://wellfound.com/jobs",
+      "targetHostname": "wellfound.com",
+      "manualPrerequisiteSummary": null,
+      "finalSummary": "Guest access works, but sign in is recommended for broader results.",
+      "attemptIds": [
+        "attempt_wellfound_recommended"
+      ],
+      "phaseSummaries": [],
+      "instructionArtifactId": "instruction_wellfound_signin",
+      "timing": null
+    }
+  ],
+  "sourceDebugAttempts": [
+    {
+      "id": "attempt_linkedin_required",
+      "runId": "source_debug_run_linkedin_required",
+      "targetId": "target_linkedin_signin",
+      "phase": "access_auth_probe",
+      "startedAt": "2026-04-26T09:10:00.000Z",
+      "completedAt": "2026-04-26T09:11:00.000Z",
+      "outcome": "blocked_auth",
+      "completionMode": "blocked_auth",
+      "completionReason": "Please sign in first.",
+      "strategyLabel": "Access auth probe",
+      "strategyFingerprint": "access_auth_probe:target_site:linkedin_signin",
+      "confirmedFacts": [],
+      "attemptedActions": [],
+      "blockerSummary": "Please sign in first.",
+      "resultSummary": "Login wall blocks further discovery until the user signs in.",
+      "confidenceScore": 88,
+      "nextRecommendedStrategies": [],
+      "avoidStrategyFingerprints": [],
+      "evidenceRefIds": [],
+      "phaseEvidence": null,
+      "compactionState": null,
+      "timing": null
+    },
+    {
+      "id": "attempt_wellfound_recommended",
+      "runId": "source_debug_run_wellfound_recommended",
+      "targetId": "target_wellfound_signin",
+      "phase": "access_auth_probe",
+      "startedAt": "2026-04-26T09:20:00.000Z",
+      "completedAt": "2026-04-26T09:21:00.000Z",
+      "outcome": "succeeded",
+      "completionMode": "forced_finish",
+      "completionReason": "Auth-limited guest access was proven.",
+      "strategyLabel": "Access auth probe",
+      "strategyFingerprint": "access_auth_probe:target_site:wellfound_signin",
+      "confirmedFacts": [
+        "Guest access is limited until you sign in."
+      ],
+      "attemptedActions": [],
+      "blockerSummary": null,
+      "resultSummary": "Sign in is recommended for broader results.",
+      "confidenceScore": 82,
+      "nextRecommendedStrategies": [],
+      "avoidStrategyFingerprints": [],
+      "evidenceRefIds": [],
+      "phaseEvidence": {
+        "visibleControls": [],
+        "successfulInteractions": [],
+        "routeSignals": [],
+        "attemptedControls": [],
+        "warnings": [
+          "Sign in is recommended for broader results."
+        ]
+      },
+      "compactionState": null,
+      "timing": null
+    }
+  ],
+  "sourceInstructionArtifacts": [
+    {
+      "id": "instruction_wellfound_signin",
+      "targetId": "target_wellfound_signin",
+      "status": "draft",
+      "createdAt": "2026-04-26T09:21:00.000Z",
+      "updatedAt": "2026-04-26T09:22:00.000Z",
+      "acceptedAt": null,
+      "basedOnRunId": "source_debug_run_wellfound_recommended",
+      "basedOnAttemptIds": [
+        "attempt_wellfound_recommended"
+      ],
+      "notes": null,
+      "navigationGuidance": [
+        "Use the jobs landing page first when the guest feed looks sparse."
+      ],
+      "searchGuidance": [
+        "Sign in is recommended for broader results."
+      ],
+      "detailGuidance": [],
+      "applyGuidance": [],
+      "warnings": [
+        "Guest access is limited until you sign in."
+      ],
+      "versionInfo": {
+        "promptProfileVersion": "v1",
+        "toolsetVersion": "v1",
+        "adapterVersion": "target_site-adapter-v1",
+        "appSchemaVersion": "v1"
+      },
+      "verification": null,
+      "intelligence": {
+        "provider": null,
+        "collection": {
+          "preferredMethod": "listing_route",
+          "rankedMethods": [
+            "listing_route",
+            "fallback_search"
+          ],
+          "startingRoutes": [
+            {
+              "url": "https://wellfound.com/jobs",
+              "label": "Jobs",
+              "kind": "listing",
+              "confidence": 0.8
+            }
+          ],
+          "searchRouteTemplates": [
+            {
+              "url": "https://wellfound.com/jobs",
+              "label": "Jobs",
+              "kind": "search",
+              "confidence": 0.8
+            }
+          ],
+          "detailRoutePatterns": [],
+          "listingMarkers": []
+        },
+        "apply": {
+          "applyPath": "unknown",
+          "authMarkers": [
+            "Guest access is limited until you sign in."
+          ],
+          "consentMarkers": [],
+          "questionSurfaceHints": [],
+          "resumeUploadHints": []
+        },
+        "reliability": {
+          "selectorFingerprints": [],
+          "stableControlNames": [],
+          "failureFingerprints": [],
+          "verifiedAt": null,
+          "freshnessNotes": []
+        },
+        "overrides": {
+          "forceMethod": null,
+          "deniedRoutePatterns": [],
+          "extraStartingRoutes": []
+        }
+      }
+    }
+  ],
+  "settings": {
+    "resumeTemplateId": "classic_ats",
+    "resumeFormat": "pdf",
+    "fontPreset": "inter_requisite",
+    "appearanceTheme": "system",
+    "humanReviewRequired": true,
+    "keepSessionAlive": true,
+    "allowAutoSubmitOverride": false,
+    "discoveryOnly": false
+  },
+  "discovery": {
+    "sessions": [
+      {
+        "adapterKind": "target_site",
+        "status": "login_required",
+        "driver": "catalog_seed",
+        "label": "Browser session needs sign-in",
+        "detail": "A saved source needs sign-in before the next search can continue.",
+        "lastCheckedAt": "2026-04-26T09:11:00.000Z"
+      }
+    ],
+    "runState": "idle",
+    "activeRun": null,
+    "recentRuns": [],
+    "activeSourceDebugRun": {
+      "id": "source_debug_run_linkedin_required",
+      "targetId": "target_linkedin_signin",
+      "state": "paused_manual",
+      "startedAt": "2026-04-26T09:10:00.000Z",
+      "updatedAt": "2026-04-26T09:11:00.000Z",
+      "completedAt": "2026-04-26T09:11:00.000Z",
+      "activePhase": "access_auth_probe",
+      "phases": [
+        "access_auth_probe",
+        "site_structure_mapping",
+        "search_filter_probe"
+      ],
+      "targetLabel": "LinkedIn Jobs",
+      "targetUrl": "https://www.linkedin.com/jobs/search/",
+      "targetHostname": "www.linkedin.com",
+      "manualPrerequisiteSummary": "Please sign in first.",
+      "finalSummary": "Manual login is required before discovery can continue.",
+      "attemptIds": [
+        "attempt_linkedin_required"
+      ],
+      "phaseSummaries": [],
+      "instructionArtifactId": null,
+      "timing": null
+    },
+    "recentSourceDebugRuns": [
+      {
+        "id": "source_debug_run_linkedin_required",
+        "targetId": "target_linkedin_signin",
+        "state": "paused_manual",
+        "startedAt": "2026-04-26T09:10:00.000Z",
+        "updatedAt": "2026-04-26T09:11:00.000Z",
+        "completedAt": "2026-04-26T09:11:00.000Z",
+        "activePhase": "access_auth_probe",
+        "phases": [
+          "access_auth_probe",
+          "site_structure_mapping",
+          "search_filter_probe"
+        ],
+        "targetLabel": "LinkedIn Jobs",
+        "targetUrl": "https://www.linkedin.com/jobs/search/",
+        "targetHostname": "www.linkedin.com",
+        "manualPrerequisiteSummary": "Please sign in first.",
+        "finalSummary": "Manual login is required before discovery can continue.",
+        "attemptIds": [
+          "attempt_linkedin_required"
+        ],
+        "phaseSummaries": [],
+        "instructionArtifactId": null,
+        "timing": null
+      },
+      {
+        "id": "source_debug_run_wellfound_recommended",
+        "targetId": "target_wellfound_signin",
+        "state": "completed",
+        "startedAt": "2026-04-26T09:20:00.000Z",
+        "updatedAt": "2026-04-26T09:22:00.000Z",
+        "completedAt": "2026-04-26T09:22:00.000Z",
+        "activePhase": null,
+        "phases": [
+          "access_auth_probe",
+          "site_structure_mapping",
+          "search_filter_probe"
+        ],
+        "targetLabel": "Wellfound",
+        "targetUrl": "https://wellfound.com/jobs",
+        "targetHostname": "wellfound.com",
+        "manualPrerequisiteSummary": null,
+        "finalSummary": "Guest access works, but sign in is recommended for broader results.",
+        "attemptIds": [
+          "attempt_wellfound_recommended"
+        ],
+        "phaseSummaries": [],
+        "instructionArtifactId": "instruction_wellfound_signin",
+        "timing": null
+      }
+    ],
+    "pendingDiscoveryJobs": []
+  }
+}

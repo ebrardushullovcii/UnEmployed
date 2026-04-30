@@ -34,9 +34,11 @@ const unsavedSetupReviewActionsMessage =
   'Save this step before confirming, dismissing, or clearing review items so your current setup draft stays intact.'
 
 export function ProfileSetupScreen(props: {
-  actionState: { busy: boolean; message: string | null }
-  busy: boolean
+  actionState: { message: string | null }
   importResumeGuardMessage: string | null
+  isImportResumePending: boolean
+  isProfileSetupPending: boolean
+  isReviewItemPending: (reviewItemId: string) => boolean
   profileCopilotBusy: boolean
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
@@ -69,8 +71,10 @@ export function ProfileSetupScreen(props: {
 }) {
   const {
     actionState,
-    busy,
     importResumeGuardMessage,
+    isImportResumePending,
+    isProfileSetupPending,
+    isReviewItemPending,
     profileCopilotBusy,
     latestResumeImportReviewCandidates,
     onApplyProfileCopilotPatchGroup,
@@ -190,8 +194,9 @@ export function ProfileSetupScreen(props: {
           <div className={setupScreenColumnsClassName}>
             <ProfileSetupSummaryCards
               actionMessage={actionState.message}
-              busy={busy}
               importDisabledReason={importResumeGuardMessage}
+              isImportResumePending={isImportResumePending}
+              isProfileSetupPending={isProfileSetupPending}
               onImportResume={onImportResume}
               onOpenProfile={openProfile}
               onResumeCurrentStep={() => goToStep(profileSetupState.currentStep)}
@@ -209,7 +214,6 @@ export function ProfileSetupScreen(props: {
 
             <ProfileSetupStepEditor
               backgroundArrays={backgroundArrays}
-              busy={busy}
               currentStepReviewItems={currentStepReviewItems}
               currentStep={profileSetupState.currentStep}
               experienceArray={experienceArray}
@@ -219,6 +223,8 @@ export function ProfileSetupScreen(props: {
               focusedReviewRequestKey={focusedReviewRequestKey}
               hasUnsavedChanges={hasUnsavedChanges}
               importDisabledReason={importResumeGuardMessage ?? null}
+              isImportResumePending={isImportResumePending}
+              isProfileSetupPending={isProfileSetupPending}
               latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
               onContinueToProfile={onContinueToProfile}
               onImportResume={onImportResume}
@@ -237,7 +243,7 @@ export function ProfileSetupScreen(props: {
         <div className="flex h-full min-h-0 flex-col gap-6">
           <ProfileSetupReviewQueueCard
             actionsDisabledReason={hasUserDraftChanges ? unsavedSetupReviewActionsMessage : null}
-            busy={busy}
+            isReviewItemPending={isReviewItemPending}
             items={currentStepReviewItems}
             onApplyReviewAction={onApplyProfileSetupReviewAction}
             onEditReviewItem={handleEditReviewItem}

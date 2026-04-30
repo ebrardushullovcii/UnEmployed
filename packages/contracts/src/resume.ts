@@ -6,6 +6,8 @@ import {
   ResumeTemplateIdSchema,
 } from "./base";
 
+const ProbabilitySchema = z.number().min(0).max(1);
+
 export const resumeExportFormatValues = ["html", "pdf"] as const;
 
 export const ResumeExportFormatSchema = z.enum(resumeExportFormatValues);
@@ -174,6 +176,20 @@ export const ResumeDraftSourceRefSchema = z.object({
 });
 export type ResumeDraftSourceRef = z.infer<typeof ResumeDraftSourceRefSchema>;
 
+export const ResumeDraftIdentitySchema = z.object({
+  fullName: NonEmptyStringSchema.nullable().default(null),
+  headline: NonEmptyStringSchema.nullable().default(null),
+  location: NonEmptyStringSchema.nullable().default(null),
+  email: NonEmptyStringSchema.nullable().default(null),
+  phone: NonEmptyStringSchema.nullable().default(null),
+  portfolioUrl: NonEmptyStringSchema.nullable().default(null),
+  linkedinUrl: NonEmptyStringSchema.nullable().default(null),
+  githubUrl: NonEmptyStringSchema.nullable().default(null),
+  personalWebsiteUrl: NonEmptyStringSchema.nullable().default(null),
+  additionalLinks: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeDraftIdentity = z.infer<typeof ResumeDraftIdentitySchema>;
+
 export const ResumeDraftBulletSchema = z.object({
   id: NonEmptyStringSchema,
   text: NonEmptyStringSchema,
@@ -226,6 +242,7 @@ export const ResumeDraftSchema = z.object({
   jobId: NonEmptyStringSchema,
   status: ResumeDraftStatusSchema,
   templateId: ResumeTemplateIdSchema,
+  identity: ResumeDraftIdentitySchema.nullable().default(null),
   sections: z.array(ResumeDraftSectionSchema).default([]),
   targetPageCount: z.number().int().min(1).max(3).default(2),
   generationMethod: ResumeDraftGenerationMethodSchema.nullable().default(null),
@@ -259,6 +276,7 @@ export type ResumeDraftPatch = z.infer<typeof ResumeDraftPatchSchema>;
 export const ResumeDraftRevisionSchema = z.object({
   id: NonEmptyStringSchema,
   draftId: NonEmptyStringSchema,
+  snapshotIdentity: ResumeDraftIdentitySchema.nullable().default(null),
   snapshotSections: z.array(ResumeDraftSectionSchema),
   createdAt: IsoDateTimeSchema,
   reason: NonEmptyStringSchema.nullable().default(null),
@@ -284,6 +302,48 @@ export const ResumeValidationResultSchema = z.object({
   validatedAt: IsoDateTimeSchema,
 });
 export type ResumeValidationResult = z.infer<typeof ResumeValidationResultSchema>;
+
+export const resumePreviewWarningSourceValues = [
+  "validation",
+  "render",
+] as const;
+
+export const ResumePreviewWarningSourceSchema = z.enum(
+  resumePreviewWarningSourceValues,
+);
+export type ResumePreviewWarningSource = z.infer<
+  typeof ResumePreviewWarningSourceSchema
+>;
+
+export const ResumePreviewWarningSchema = z.object({
+  id: NonEmptyStringSchema,
+  source: ResumePreviewWarningSourceSchema,
+  severity: ResumeValidationSeveritySchema,
+  category: ResumeValidationCategorySchema.nullable().default(null),
+  sectionId: NonEmptyStringSchema.nullable().default(null),
+  entryId: NonEmptyStringSchema.nullable().default(null),
+  bulletId: NonEmptyStringSchema.nullable().default(null),
+  message: NonEmptyStringSchema,
+});
+export type ResumePreviewWarning = z.infer<typeof ResumePreviewWarningSchema>;
+
+export const ResumePreviewMetadataSchema = z.object({
+  templateId: ResumeTemplateIdSchema,
+  renderedAt: IsoDateTimeSchema,
+  pageCount: z.number().int().min(1).nullable().default(null),
+  sectionCount: z.number().int().nonnegative().default(0),
+  entryCount: z.number().int().nonnegative().default(0),
+});
+export type ResumePreviewMetadata = z.infer<typeof ResumePreviewMetadataSchema>;
+
+export const ResumePreviewSchema = z.object({
+  draftId: NonEmptyStringSchema,
+  revisionKey: NonEmptyStringSchema,
+  html: NonEmptyStringSchema,
+  warnings: z.array(ResumePreviewWarningSchema).default([]),
+  metadata: ResumePreviewMetadataSchema,
+});
+export type ResumePreview = z.infer<typeof ResumePreviewSchema>;
 
 export const ResumeResearchArtifactSchema = z.object({
   id: NonEmptyStringSchema,
@@ -336,6 +396,69 @@ export const ResumeDraftSummarySchema = ResumeDraftSchema.pick({
   updatedAt: true,
 });
 export type ResumeDraftSummary = z.infer<typeof ResumeDraftSummarySchema>;
+
+export const ResumeQualityBenchmarkCaseSchema = z.object({
+  id: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  canary: z.boolean().default(false),
+  tags: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeQualityBenchmarkCase = z.infer<
+  typeof ResumeQualityBenchmarkCaseSchema
+>;
+
+export const ResumeQualityBenchmarkRequestSchema = z.object({
+  benchmarkVersion: NonEmptyStringSchema.default("023-local-benchmark-v1"),
+  caseIds: z.array(NonEmptyStringSchema).default([]),
+  canaryOnly: z.boolean().default(false),
+  persistArtifactsDirectory: NonEmptyStringSchema.nullable().default(null),
+});
+export type ResumeQualityBenchmarkRequest = z.infer<
+  typeof ResumeQualityBenchmarkRequestSchema
+>;
+
+export const ResumeQualityBenchmarkMetricsSchema = z.object({
+  groundedVisibleSkillRate: ProbabilitySchema.default(0),
+  bleedFreeCaseRate: ProbabilitySchema.default(0),
+  keywordCoverageRate: ProbabilitySchema.default(0),
+  duplicateIssueFreeRate: ProbabilitySchema.default(0),
+  thinOutputFreeRate: ProbabilitySchema.default(0),
+  pageTargetPassRate: ProbabilitySchema.default(0),
+  atsRenderPassRate: ProbabilitySchema.default(0),
+  issueFreeCaseRate: ProbabilitySchema.default(0),
+});
+export type ResumeQualityBenchmarkMetrics = z.infer<
+  typeof ResumeQualityBenchmarkMetricsSchema
+>;
+
+export const ResumeQualityBenchmarkCaseResultSchema = z.object({
+  caseId: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  templateId: ResumeTemplateIdSchema,
+  passed: z.boolean(),
+  visibleSkills: z.array(NonEmptyStringSchema).default([]),
+  issueCategories: z.array(ResumeValidationCategorySchema).default([]),
+  issueCount: z.number().int().min(0).default(0),
+  metrics: ResumeQualityBenchmarkMetricsSchema,
+  htmlArtifactRelativePath: NonEmptyStringSchema.nullable().default(null),
+  notes: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeQualityBenchmarkCaseResult = z.infer<
+  typeof ResumeQualityBenchmarkCaseResultSchema
+>;
+
+export const ResumeQualityBenchmarkReportSchema = z.object({
+  benchmarkVersion: NonEmptyStringSchema,
+  generatedAt: IsoDateTimeSchema,
+  templates: z.array(ResumeTemplateIdSchema).default([]),
+  persistedArtifactsDirectory: NonEmptyStringSchema.nullable().default(null),
+  cases: z.array(ResumeQualityBenchmarkCaseResultSchema).default([]),
+  aggregate: ResumeQualityBenchmarkMetricsSchema,
+  notes: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeQualityBenchmarkReport = z.infer<
+  typeof ResumeQualityBenchmarkReportSchema
+>;
 
 export const ResumeExportArtifactSummarySchema = ResumeExportArtifactSchema.pick({
   id: true,

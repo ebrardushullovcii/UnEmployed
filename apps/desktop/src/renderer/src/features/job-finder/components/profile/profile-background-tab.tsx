@@ -15,11 +15,11 @@ import { ProfileSectionHeader } from './profile-section-header'
 
 interface ProfileBackgroundTabProps {
   backgroundArrays: ProfileBackgroundArrays
-  busy: boolean
+  isProfileSetupPending?: boolean
   profileForm: UseFormReturn<ProfileEditorValues>
 }
 
-export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: ProfileBackgroundTabProps) {
+export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending = false, profileForm }: ProfileBackgroundTabProps) {
   const { certificationArray, educationArray } = backgroundArrays
   const { register, watch } = profileForm
 
@@ -41,7 +41,8 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
           action={
             <div className="flex flex-wrap items-stretch gap-2.5">
               <Button
-                disabled={busy}
+                disabled={isProfileSetupPending}
+                pending={isProfileSetupPending}
                 onClick={() =>
                   educationArray.append({
                     id: `education_${crypto.randomUUID().slice(0, 8)}`,
@@ -61,7 +62,8 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
                 Add education
               </Button>
               <Button
-                disabled={busy}
+                disabled={isProfileSetupPending}
+                pending={isProfileSetupPending}
                 onClick={() =>
                   certificationArray.append({
                     id: `certification_${crypto.randomUUID().slice(0, 8)}`,
@@ -101,7 +103,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Education details</p>
-                  <Button disabled={busy} onClick={() => educationArray.remove(index)} size="compact" type="button" variant="ghost">
+                  <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => educationArray.remove(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
                 </div>
@@ -136,7 +138,7 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Certification details</p>
-                <Button disabled={busy} onClick={() => certificationArray.remove(index)} size="compact" type="button" variant="ghost">
+                <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => certificationArray.remove(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
               </div>
@@ -152,8 +154,8 @@ export function ProfileBackgroundTab({ backgroundArrays, busy, profileForm }: Pr
         </div>
       </section>
 
-      <ProfileBackgroundSupportingDetailSection backgroundArrays={backgroundArrays} busy={busy} profileForm={profileForm} />
-      <ProfileBackgroundProofBankSection backgroundArrays={backgroundArrays} busy={busy} profileForm={profileForm} />
+      <ProfileBackgroundSupportingDetailSection backgroundArrays={backgroundArrays} isProfileSetupPending={isProfileSetupPending} profileForm={profileForm} />
+      <ProfileBackgroundProofBankSection backgroundArrays={backgroundArrays} isProfileSetupPending={isProfileSetupPending} profileForm={profileForm} />
     </div>
   )
 }

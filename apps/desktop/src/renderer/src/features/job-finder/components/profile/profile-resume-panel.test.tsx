@@ -64,8 +64,9 @@ describe('ProfileResumePanel', () => {
     act(() => {
       root?.render(
         <ProfileResumePanel
-          busy={false}
           importDisabledReason="Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten."
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
           latestResumeImportReviewCandidates={[]}
           latestResumeImportRun={null}
           onAnalyzeProfileFromResume={vi.fn()}
@@ -124,8 +125,9 @@ describe('ProfileResumePanel', () => {
     act(() => {
       root?.render(
         <ProfileResumePanel
-          busy={false}
           importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
           latestResumeImportReviewCandidates={[]}
           latestResumeImportRun={null}
           onAnalyzeProfileFromResume={vi.fn()}
@@ -137,5 +139,81 @@ describe('ProfileResumePanel', () => {
 
     expect(container?.textContent).toContain('This import used a fallback parsing path, so review the imported details more closely before saving them.')
     expect(container?.textContent).not.toContain('Python resume parser sidecar fallback: Python sidecar unavailable')
+  })
+
+  it('shows import ready to use when only optional resume suggestions remain', () => {
+    const profile = CandidateProfileSchema.parse({
+      id: 'candidate_3',
+      firstName: 'Alex',
+      lastName: 'Vanguard',
+      fullName: 'Alex Vanguard',
+      headline: 'Senior systems designer',
+      summary: 'Builds resilient workflows.',
+      currentLocation: 'London, UK',
+      yearsExperience: 10,
+      email: 'alex@example.com',
+      phone: '+44 7700 900123',
+      baseResume: {
+        id: 'resume_3',
+        fileName: 'alex-vanguard.txt',
+        uploadedAt: '2026-03-20T10:00:00.000Z',
+        textContent: 'Alex Vanguard',
+        extractionStatus: 'ready',
+        analysisWarnings: ['1 optional proof suggestion is available to review before using them in tailored resume narratives.'],
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: ['Principal Designer'],
+      locations: ['Remote'],
+      skills: ['Figma'],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    })
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanel
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          latestResumeImportRun={{
+            id: 'resume_import_run_1',
+            sourceResumeId: 'resume_3',
+            sourceResumeFileName: 'alex-vanguard.txt',
+            trigger: 'import',
+            status: 'applied',
+            startedAt: '2026-03-20T10:00:00.000Z',
+            completedAt: '2026-03-20T10:00:03.000Z',
+            primaryParserKind: 'plain_text',
+            parserKinds: ['plain_text'],
+            analysisProviderKind: 'deterministic',
+            analysisProviderLabel: 'Test AI',
+            warnings: [],
+            errorMessage: null,
+            candidateCounts: {
+              total: 1,
+              autoApplied: 0,
+              needsReview: 1,
+              rejected: 0,
+              abstained: 0,
+            },
+          }}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      )
+    })
+
+    expect(container?.textContent).toContain('0 auto-applied, import ready to use.')
   })
 })

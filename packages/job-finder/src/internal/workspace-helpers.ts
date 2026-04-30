@@ -4,6 +4,8 @@ import {
   JobSearchPreferencesSchema,
   JobSourceAdapterKindSchema,
   ResumeDraftSchema,
+  getResumeTemplateDeliveryLane,
+  isResumeTemplateApplyEligible,
   type ApplicationAttempt,
   type ApplicationEvent,
   type ApplicationStatus,
@@ -114,9 +116,16 @@ export function normalizeJobFinderSettings(
   settings: JobFinderSettings,
   availableResumeTemplates: readonly ResumeTemplateDefinition[],
 ): JobFinderSettings {
-  const fallbackTemplateId = availableResumeTemplates[0]?.id ?? "classic_ats";
+  const isApplySafeTemplate = (template: ResumeTemplateDefinition) =>
+    getResumeTemplateDeliveryLane(template) === "apply_safe" &&
+    isResumeTemplateApplyEligible(template);
+  const defaultApplySafeTemplate = availableResumeTemplates.find(
+    (template) =>
+      isApplySafeTemplate(template),
+  );
+  const fallbackTemplateId = defaultApplySafeTemplate?.id ?? "classic_ats";
   const selectedTemplateAvailable = availableResumeTemplates.some(
-    (template) => template.id === settings.resumeTemplateId,
+    (template) => template.id === settings.resumeTemplateId && isApplySafeTemplate(template),
   );
 
   return JobFinderSettingsSchema.parse({
@@ -128,11 +137,25 @@ export function normalizeJobFinderSettings(
   });
 }
 
+export function wasResumeDraftApproved(
+  draft:
+    | Pick<ResumeDraft, "status" | "approvedAt" | "approvedExportId">
+    | null
+    | undefined,
+): boolean {
+  return Boolean(
+    draft?.status === "approved" || draft?.approvedAt || draft?.approvedExportId,
+  );
+}
+
 export function normalizeResumeDraftTemplate(
   draft: ResumeDraft,
   availableResumeTemplates: readonly ResumeTemplateDefinition[],
 ): ResumeDraft {
-  const fallbackTemplateId = availableResumeTemplates[0]?.id ?? "classic_ats";
+  const fallbackTemplate = availableResumeTemplates[0] ?? {
+    id: "classic_ats",
+    label: "Classic ATS",
+  };
   const selectedTemplateAvailable = availableResumeTemplates.some(
     (template) => template.id === draft.templateId,
   );
@@ -141,18 +164,16 @@ export function normalizeResumeDraftTemplate(
     return draft;
   }
 
-  const shouldClearApproval =
-    draft.status === "approved" ||
-    Boolean(draft.approvedAt || draft.approvedExportId);
+  const shouldClearApproval = wasResumeDraftApproved(draft);
 
   return ResumeDraftSchema.parse({
     ...draft,
-    templateId: fallbackTemplateId,
+    templateId: fallbackTemplate.id,
     status: shouldClearApproval ? "stale" : draft.status,
     approvedAt: shouldClearApproval ? null : draft.approvedAt,
     approvedExportId: shouldClearApproval ? null : draft.approvedExportId,
     staleReason: shouldClearApproval
-      ? "This resume used a retired layout. Export a fresh Classic ATS PDF before applying."
+      ? `This resume used a retired theme. Export a fresh ${fallbackTemplate.label} PDF before applying.`
       : draft.staleReason,
   });
 }

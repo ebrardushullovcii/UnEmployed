@@ -193,9 +193,9 @@ describe("createJobFinderWorkspaceService", () => {
     let closeSessionCalls = 0;
     const browserRuntime: BrowserSessionRuntime = {
       ...baseAgentRuntime,
-      openSession(source) {
+      openSession(source, options) {
         openSessionCalls += 1;
-        return baseAgentRuntime.openSession(source);
+        return baseAgentRuntime.openSession(source, options);
       },
       closeSession(source) {
         closeSessionCalls += 1;

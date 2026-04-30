@@ -8,8 +8,10 @@ import {
   CandidateProfileSchema,
   DesktopWindowControlsStateSchema,
   JobSearchPreferencesSchema,
+  SourceAccessPromptStateSchema,
   WorkModeListSchema,
   applicationStatusValues,
+  sourceAccessPromptStateValues,
 } from "./index";
 
 describe("contracts base schemas", () => {
@@ -25,6 +27,19 @@ describe("contracts base schemas", () => {
     );
     expect(ApplyJobStateSchema.parse("awaiting_review")).toBe("awaiting_review");
     expect(ApplySubmitApprovalStatusSchema.parse("approved")).toBe("approved");
+    expect(SourceAccessPromptStateSchema.parse("prompt_login_required")).toBe(
+      "prompt_login_required",
+    );
+  });
+
+  test("supports the full source access prompt state list", () => {
+    expect(sourceAccessPromptStateValues).toEqual([
+      "prompt_login_required",
+      "prompt_login_recommended",
+    ]);
+    expect(SourceAccessPromptStateSchema.parse("prompt_login_recommended")).toBe(
+      "prompt_login_recommended",
+    );
   });
 
   test("rejects invalid apply foundation enum values", () => {

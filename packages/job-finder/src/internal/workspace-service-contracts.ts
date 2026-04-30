@@ -6,6 +6,8 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderOpenBrowserSessionInput,
+  JobFinderResumePreview,
   ResumeDocumentBundle,
   ResumeImportFieldCandidate,
   ResumeImportRun,
@@ -21,6 +23,7 @@ import type {
   ResumeDraft,
   ResumeDraftPatch,
   ResumeResearchArtifact,
+  ResumeTemplateId,
   ResumeTemplateDefinition,
   SavedJob,
   SourceDebugProgressEvent,
@@ -42,7 +45,9 @@ export interface JobFinderWorkspaceService {
     resumeImportDocumentBundles: readonly ResumeDocumentBundle[];
     resumeImportFieldCandidates: readonly ResumeImportFieldCandidate[];
   }>;
-  openBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
+  openBrowserSession(
+    input?: JobFinderOpenBrowserSessionInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   checkBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
   resetWorkspace(
     seed: JobFinderRepositorySeed,
@@ -124,6 +129,7 @@ export interface JobFinderWorkspaceService {
   dismissDiscoveryJob(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   generateResume(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace(jobId: string): Promise<JobFinderResumeWorkspace>;
+  previewResumeDraft(draft: ResumeDraft): Promise<JobFinderResumePreview>;
   saveResumeDraft(draft: ResumeDraft): Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeDraft(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeSection(
@@ -191,10 +197,21 @@ export interface RenderedResumeArtifact {
 
 export interface JobFinderDocumentManager {
   listResumeTemplates(): readonly ResumeTemplateDefinition[];
+  renderResumePreview(input: {
+    job: SavedJob;
+    profile: CandidateProfile;
+    renderDocument: ResumeRenderDocument;
+    templateId: ResumeTemplateId;
+    settings: JobFinderSettings;
+  }): Promise<{
+    html: string;
+    warnings?: readonly string[];
+  }>;
   renderResumeArtifact(input: {
     job: SavedJob;
     profile: CandidateProfile;
     renderDocument: ResumeRenderDocument;
+    templateId: ResumeTemplateId;
     settings: JobFinderSettings;
     targetPath?: string | null;
   }): Promise<RenderedResumeArtifact>;

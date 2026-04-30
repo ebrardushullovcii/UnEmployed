@@ -7,10 +7,14 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
+  ResumeQualityBenchmarkReport,
+  ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkRequest,
   JobFinderPerformanceSnapshot,
+  JobFinderResumePreview,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderSettings,
@@ -41,7 +45,9 @@ declare global {
       };
       jobFinder: {
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
-        openBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
+        openBrowserSession: (
+          input?: JobFinderOpenBrowserSessionInput,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         checkBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
         saveProfile: (
           profile: CandidateProfile,
@@ -127,6 +133,7 @@ declare global {
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
+        previewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
         saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
         regenerateResumeDraft: (
           jobId: string,
@@ -175,6 +182,7 @@ declare global {
         test?: {
           getSystemThemeOverride: () => 'dark' | 'light' | null;
           setSystemThemeOverride: (theme: 'dark' | 'light' | null) => Promise<{ ok: true }>;
+          setResumePreviewMode: (mode: 'ok' | 'fail_once') => Promise<{ ok: true }>;
           loadResumeWorkspaceDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           loadApplyQueueDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           resetWorkspaceState: (
@@ -184,6 +192,9 @@ declare global {
           runResumeImportBenchmark: (
             input?: Partial<ResumeImportBenchmarkRequest>,
           ) => Promise<ResumeImportBenchmarkReport>;
+          runResumeQualityBenchmark: (
+            input?: Partial<ResumeQualityBenchmarkRequest>,
+          ) => Promise<ResumeQualityBenchmarkReport>;
           importResumeFromPath: (
             sourcePath: string,
           ) => Promise<JobFinderWorkspaceSnapshot>;

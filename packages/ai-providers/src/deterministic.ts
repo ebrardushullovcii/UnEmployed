@@ -15,6 +15,10 @@ export {
   buildDeterministicTailoredResume,
 } from "./deterministic/tailoring";
 export {
+  buildCandidateSkillBank,
+  filterGroundedVisibleSkills,
+} from "./deterministic/resume-skill-grounding";
+export {
   buildGenericCanonicalUrl,
   buildGenericJobId,
   buildInvalidJobSample,

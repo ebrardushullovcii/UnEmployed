@@ -1,5 +1,6 @@
 import {
   type EditableSourceInstructionArtifact,
+  type SourceAccessPrompt,
   type SourceDebugRunDetails,
   type SourceDebugRunRecord,
   type SourceInstructionArtifact
@@ -15,7 +16,13 @@ import type { ProfileFieldArrayKeyName } from './profile-field-array-types'
 interface ProfilePreferencesTabProps {
   busy: boolean
   customAnswerArray: UseFieldArrayReturn<ProfileEditorValues, 'answerBank.customAnswers', ProfileFieldArrayKeyName>
+  isBrowserSessionPending: (targetId: string) => boolean
+  isSourceDebugPending: (targetId: string) => boolean
+  isSourceInstructionPending: (targetId: string) => boolean
+  isSourceInstructionVerifyPending: (instructionId: string) => boolean
+  isTargetDiscoveryPending: (targetId: string) => boolean
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
+  onOpenBrowserSessionForTarget: (targetId: string) => void
   onRunDiscoveryForTarget?: (targetId: string) => void
   onRunSourceDebug: (targetId: string) => void
   onSaveSourceInstructionArtifact: (targetId: string, artifact: EditableSourceInstructionArtifact) => void
@@ -23,13 +30,20 @@ interface ProfilePreferencesTabProps {
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>
   profileForm: UseFormReturn<ProfileEditorValues>
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
+  sourceAccessPrompts: readonly SourceAccessPrompt[]
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
 }
 
 export function ProfilePreferencesTab({
   busy,
   customAnswerArray,
+  isBrowserSessionPending,
+  isSourceDebugPending,
+  isSourceInstructionPending,
+  isSourceInstructionVerifyPending,
+  isTargetDiscoveryPending,
   onGetSourceDebugRunDetails,
+  onOpenBrowserSessionForTarget,
   onRunDiscoveryForTarget,
   onRunSourceDebug,
   onSaveSourceInstructionArtifact,
@@ -37,6 +51,7 @@ export function ProfilePreferencesTab({
   preferencesForm,
   profileForm,
   recentSourceDebugRuns,
+  sourceAccessPrompts,
   sourceInstructionArtifacts
 }: ProfilePreferencesTabProps) {
   const { setValue: setPreferenceValue, watch: watchPreferences } = preferencesForm
@@ -80,15 +95,21 @@ export function ProfilePreferencesTab({
       <ProfilePreferencesEligibilitySection busy={busy} customAnswerArray={customAnswerArray} profileForm={profileForm} />
       <ProfilePreferencesTargetingSection
         addDiscoveryTarget={addDiscoveryTarget}
-        busy={busy}
         discoveryTargets={discoveryTargets}
+        isBrowserSessionPending={isBrowserSessionPending}
+        isSourceDebugPending={isSourceDebugPending}
+        isSourceInstructionPending={isSourceInstructionPending}
+        isSourceInstructionVerifyPending={isSourceInstructionVerifyPending}
+        isTargetDiscoveryPending={isTargetDiscoveryPending}
         onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+        onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
         {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
         onRunSourceDebug={onRunSourceDebug}
         onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
         onVerifySourceInstructions={onVerifySourceInstructions}
         preferencesForm={preferencesForm}
         recentSourceDebugRuns={recentSourceDebugRuns}
+        sourceAccessPrompts={sourceAccessPrompts}
         sourceInstructionArtifacts={sourceInstructionArtifacts}
         updateDiscoveryTargets={updateDiscoveryTargets}
       />

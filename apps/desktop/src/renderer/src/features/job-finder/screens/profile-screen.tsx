@@ -13,6 +13,7 @@ import type {
   SourceInstructionArtifact
 } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import { buildComparableValueFingerprint } from '../lib/profile-editor-review-candidates'
 import { LockedScreenLayout } from '../components/locked-screen-layout'
 import { ProfileActiveSectionContent } from '../components/profile/profile-active-section-content'
 import { ProfileCopilotRail } from '../components/profile/profile-copilot-rail'
@@ -32,16 +33,33 @@ const unsavedProfileCopilotMessage =
   'Save this page before asking Profile Copilot to edit it so your current profile draft does not get overwritten.'
 const unsavedProfileCopilotActionsMessage =
   'Save this page before applying, rejecting, or undoing copilot changes so your current profile draft stays intact.'
+const unsavedProfileSourceActionMessage =
+  'Save your current profile and source setup before running source checks or searches so those actions use the latest saved configuration.'
+const unsavedProfileSourceSignInMessage =
+  'Save this source before opening a sign-in session so the browser uses the latest saved source entry.'
+
+type ProfileScreenPendingActions = {
+  analyzeProfile: boolean
+  browserSession: (targetId: string) => boolean
+  importResume: boolean
+  profileCopilotBusy: boolean
+  profileMutation: boolean
+  profileSetup: boolean
+  sourceDebug: (targetId: string) => boolean
+  sourceInstruction: (targetId: string) => boolean
+  sourceInstructionVerify: (instructionId: string) => boolean
+  targetDiscovery: (targetId: string) => boolean
+}
 
 export function ProfileScreen(props: {
-  actionState: { busy: boolean; message: string | null }
-  busy: boolean
+  actionState: { message: string | null }
   importResumeGuardMessage: string | null
-  profileCopilotBusy: boolean
+  pendingActions: ProfileScreenPendingActions
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
   onAnalyzeProfileFromResume: () => void
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>
   onImportResume: () => void
+  onOpenBrowserSessionForTarget: (targetId: string) => void
   onProfileSurfaceDirtyChange: (dirty: boolean) => void
   profileCopilotPendingContextKey: string | null
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void
@@ -61,16 +79,17 @@ export function ProfileScreen(props: {
   profileSetupState: ProfileSetupState
   recentSourceDebugRuns: readonly SourceDebugRunRecord[]
   searchPreferences: JobSearchPreferences
+  sourceAccessPrompts: JobFinderWorkspaceSnapshot['sourceAccessPrompts']
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[]
 }) {
   const {
-    busy,
     importResumeGuardMessage,
-    profileCopilotBusy,
+    pendingActions,
     onApplyProfileCopilotPatchGroup,
     onAnalyzeProfileFromResume,
     onGetSourceDebugRunDetails,
     onImportResume,
+    onOpenBrowserSessionForTarget,
     onProfileSurfaceDirtyChange,
     profileCopilotPendingContextKey,
     onRejectProfileCopilotPatchGroup,
@@ -90,12 +109,14 @@ export function ProfileScreen(props: {
     profileSetupState,
     recentSourceDebugRuns,
     searchPreferences,
+    sourceAccessPrompts,
     sourceInstructionArtifacts
   } = props
 
   const [activeSection, setActiveSection] = useState<ProfileSection>('basics')
   const {
     backgroundArrays,
+    draftSearchPreferencesResult,
     experienceArray,
     hasUnsavedChanges,
     hasUserDraftChanges,
@@ -135,6 +156,59 @@ export function ProfileScreen(props: {
     activeSection,
   )
 
+  const savedTargetsById = new Map(
+    searchPreferences.discovery.targets.map((target) => [target.id, target]),
+  )
+  const draftTargets = preferencesForm.watch('discoveryTargets')
+  const hasUnsavedSearchPreferenceChanges =
+    preferencesForm.formState.isDirty ||
+    buildComparableValueFingerprint(searchPreferences) !==
+      buildComparableValueFingerprint(draftSearchPreferencesResult.payload ?? searchPreferences)
+
+  function hasUnsavedSourceRowChanges(targetId: string) {
+    const savedTarget = savedTargetsById.get(targetId)
+    const draftTarget = draftTargets.find((target) => target.id === targetId)
+
+    if (!savedTarget || !draftTarget) {
+      return false
+    }
+
+    return (
+      buildComparableValueFingerprint(savedTarget) !==
+      buildComparableValueFingerprint({ ...draftTarget })
+    )
+  }
+
+  function handleSignInForTarget(targetId: string) {
+    if (hasUnsavedSourceRowChanges(targetId)) {
+      setValidationMessage(unsavedProfileSourceSignInMessage)
+      return
+    }
+
+    setValidationMessage(null)
+    onOpenBrowserSessionForTarget(targetId)
+  }
+
+  function handleRunDiscoveryForTarget(targetId: string) {
+    if (hasUnsavedSearchPreferenceChanges) {
+      setValidationMessage(unsavedProfileSourceActionMessage)
+      return
+    }
+
+    setValidationMessage(null)
+    onRunDiscoveryForTarget?.(targetId)
+  }
+
+  function handleRunSourceDebug(targetId: string) {
+    if (hasUnsavedSearchPreferenceChanges) {
+      setValidationMessage(unsavedProfileSourceActionMessage)
+      return
+    }
+
+    setValidationMessage(null)
+    onRunSourceDebug(targetId)
+  }
+
   function handleSaveAll() {
     const profileResult = buildProfilePayload(profile, profileForm.getValues())
 
@@ -167,8 +241,9 @@ export function ProfileScreen(props: {
             />
 
           <ProfileResumePanel
-            busy={busy}
             importDisabledReason={importResumeGuardMessage}
+            isAnalyzeProfilePending={pendingActions.analyzeProfile}
+            isImportResumePending={pendingActions.importResume}
             latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
             latestResumeImportRun={latestResumeImportRun}
             onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
@@ -187,7 +262,7 @@ export function ProfileScreen(props: {
                 </p>
               </div>
               <Button
-                disabled={busy}
+                pending={pendingActions.profileSetup}
                 onClick={() => onResumeProfileSetup(profileSetupState.currentStep)}
                 type="button"
                 variant="secondary"
@@ -214,16 +289,23 @@ export function ProfileScreen(props: {
                 <ProfileActiveSectionContent
                   activeSection={activeSection}
                   backgroundArrays={backgroundArrays}
-                  busy={busy}
                   experienceArray={experienceArray}
+                  isBrowserSessionPending={pendingActions.browserSession}
+                  isProfileMutationPending={pendingActions.profileMutation}
+                  isSourceDebugPending={pendingActions.sourceDebug}
+                  isSourceInstructionPending={pendingActions.sourceInstruction}
+                  isSourceInstructionVerifyPending={pendingActions.sourceInstructionVerify}
+                  isTargetDiscoveryPending={pendingActions.targetDiscovery}
                   onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-                  {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget } : {})}
-                  onRunSourceDebug={onRunSourceDebug}
+                  onOpenBrowserSessionForTarget={handleSignInForTarget}
+                  {...(onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: handleRunDiscoveryForTarget } : {})}
+                  onRunSourceDebug={handleRunSourceDebug}
                   onSaveSourceInstructionArtifact={onSaveSourceInstructionArtifact}
                   onVerifySourceInstructions={onVerifySourceInstructions}
                   preferencesForm={preferencesForm}
                   profileForm={profileForm}
                   recentSourceDebugRuns={recentSourceDebugRuns}
+                  sourceAccessPrompts={sourceAccessPrompts}
                   sourceInstructionArtifacts={sourceInstructionArtifacts}
                 />
               </div>
@@ -232,7 +314,7 @@ export function ProfileScreen(props: {
             <ProfileSaveFooter
               actionMessage={props.actionState.message}
               hasUnsavedChanges={hasUnsavedChanges}
-              busy={busy}
+              isSavePending={pendingActions.profileMutation}
               onSave={handleSaveAll}
               validationMessage={validationMessage}
             />
@@ -241,7 +323,7 @@ export function ProfileScreen(props: {
 
       </section>
       <ProfileCopilotRail
-        busy={profileCopilotBusy}
+        busy={pendingActions.profileCopilotBusy}
         actionsDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null}
         context={profileCopilotContext}
         emptyStateDescription="Ask for a tighter headline, a stronger summary, or a structured profile edit for this section."

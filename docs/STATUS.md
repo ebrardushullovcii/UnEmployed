@@ -4,12 +4,20 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 
 ## Current Truth
 
-- Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`
+- Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`, `020`, `021`, `022`, `023`, `024`, `025`, `026`, `027`
 - Active work: none
 - Baseline landed: desktop app, typed Electron boundaries, SQLite persistence, guided setup, profile copilot, discovery, resume workspace, safe non-submitting apply
 
 ## What Matters Now
 
+- `027` is completed: the Job Finder resume experience UX reset now ships a materially stronger desktop `Settings` template-selection surface and `Resume Studio` editing surface with denser hierarchy, preview-height-aware page framing, draft identity editing, reliable preview-to-editor targeting, and accepted screenshot evidence under `apps/desktop/test-artifacts/ui/1440x920/settings.png`, `apps/desktop/test-artifacts/ui/resume-workspace/03-preview-recovered.png`, and `apps/desktop/test-artifacts/ui/resume-workspace/10-review-queue-gated.png`; `pnpm validate:package desktop` and repo build are green
+- `026` is completed: Job Finder now ships a family-first resume catalog with enriched template metadata, truthful `apply-safe` and `share-ready` lane semantics, shared preview and export renderer ownership in desktop `src/shared`, materially distinct ATS-safe family layouts, real preview-backed family and variant selection UI in Settings and Resume Studio, deterministic workspace-driven template recommendations plus lane and density filters, and service-layer approval plus auto-apply guards that refuse non-eligible templates
+- `025` is completed: Job Finder now ships a preview-centered `Resume Studio` with truthful live preview, shared preview/export rendering, unsaved-preview messaging, preview failure fallback, preview-to-editor targeting, and widened desktop harness evidence under `apps/desktop/test-artifacts/ui/resume-workspace/` including `studio-preview-results.json`
+- `024` is completed: Job Finder now ships six ATS-safe resume themes with default-theme settings, per-draft theme selection in Resume Workspace, draft-owned export and approval behavior, and expanded renderer plus benchmark coverage; the latest UI harness artifacts live under `apps/desktop/test-artifacts/ui/resume-workspace/` and the latest benchmark report lives under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/`
+- `023` is completed: candidate-backed visible-skill grounding, broader low-level sanitizer and validator coverage, two ATS-safe templates, and the replayable desktop benchmark now protect the resume-generation path; the latest benchmark report and persisted HTML artifacts live under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/`
+- `022` is completed: source sign-in prompts and source-aware browser entry now surface in `Profile` and `Find jobs`, with screenshot-reviewed desktop QA artifacts under `apps/desktop/test-artifacts/ui/source-sign-in-prompts/`
+- `021` is completed: resume-import duplicate records, fresh-start placeholder replacement, optional-proof warning cleanup, and date-derived years-of-experience fallback are now part of the landed import baseline
+- `020` is completed: Job Finder routes now use scoped pending lanes with clearer disabled and in-progress button feedback across desktop flows
 - `017` completed the current-stack browser loop evaluation and did not justify a substrate change yet
 - Future discovery/browser work should start from completed `017` evidence and stay source-generic
 - Preserve evidence, replayability, approvals, consent interrupts, typed boundaries, and source-generic discovery
@@ -20,6 +28,7 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 - Continue reducing real-app `Check source` cost when fresh full-app evidence shows product friction
 - Clean persisted title/company quality when extracted jobs are otherwise useful and a concrete pattern is observed
 - Treat Kosovajob `0` persisted jobs as context-dependent, not automatically a failure, because the board can have few suitable matches for the current resume
+- Add new resume-quality benchmark corpus cases only when fresh real outputs expose a missing regression class
 
 ## Latest 017 Snapshot
 
@@ -40,12 +49,20 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 ## Next Step
 
 - Work from `docs/TRACKS.md`
-- Open a new plan only for a concrete discovery/browser improvement, substrate decision, or ownership cleanup
+- Pull the next explicit active plan from `docs/TRACKS.md`
 
 ## Key References
 
 - `docs/TRACKS.md`
+- `docs/exec-plans/completed/027-job-finder-resume-experience-ux-reset.md`
+- `docs/exec-plans/completed/026-job-finder-resume-template-families-variants-and-catalog-selection.md`
+- `docs/exec-plans/completed/025-job-finder-resume-studio-live-preview-and-editing.md`
+- `docs/exec-plans/completed/024-job-finder-resume-theme-catalog-and-selection.md`
+- `docs/exec-plans/completed/023-job-finder-world-class-resume-generation-quality.md`
+- `docs/exec-plans/completed/022-job-finder-source-sign-in-prompts-and-source-aware-browser-entry.md`
+- `docs/exec-plans/completed/020-job-finder-scoped-button-pending-state-and-feedback.md`
 - `docs/exec-plans/completed/017-browser-substrate-evaluation-and-direction.md`
 - `docs/exec-plans/completed/017-experiment-tracker.md`
 - `docs/exec-plans/completed/019-job-finder-world-class-resume-import.md`
+- `docs/exec-plans/completed/021-job-finder-resume-import-duplicate-record-deduplication.md`
 - `docs/exec-plans/completed/015-job-finder-automatic-job-apply.md`

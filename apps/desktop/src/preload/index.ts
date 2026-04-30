@@ -8,8 +8,12 @@ import type {
   DiscoveryActivityEvent,
   JobFinderApplyConsentActionInput,
   JobFinderApplyQueueActionInput,
+  JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   JobFinderPerformanceSnapshot,
+  JobFinderResumePreview,
+  ResumeQualityBenchmarkReport,
+  ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkRequest,
   JobFinderResumeWorkspace,
@@ -115,9 +119,10 @@ const desktopApi = {
       ipcRenderer.invoke(
         "job-finder:get-workspace",
       ) as Promise<JobFinderWorkspaceSnapshot>,
-    openBrowserSession: () =>
+    openBrowserSession: (input?: JobFinderOpenBrowserSessionInput) =>
       ipcRenderer.invoke(
         "job-finder:open-browser-session",
+        input ?? {},
       ) as Promise<JobFinderWorkspaceSnapshot>,
     checkBrowserSession: () =>
       ipcRenderer.invoke(
@@ -339,6 +344,10 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:get-resume-workspace", {
         jobId,
       }) as Promise<JobFinderResumeWorkspace>,
+    previewResumeDraft: (draft: ResumeDraft) =>
+      ipcRenderer.invoke("job-finder:preview-resume-draft", {
+        draft,
+      }) as Promise<JobFinderResumePreview>,
     saveResumeDraft: (draft: ResumeDraft) =>
       ipcRenderer.invoke("job-finder:save-resume-draft", {
         draft,
@@ -430,6 +439,11 @@ const desktopApi = {
                 applySystemThemeOverride(theme);
                 return { ok: true as const };
               }),
+            setResumePreviewMode: (mode: "ok" | "fail_once") =>
+              ipcRenderer.invoke(
+                "job-finder:test-set-resume-preview-mode",
+                mode,
+              ) as Promise<{ ok: true }>,
             loadResumeWorkspaceDemo: () =>
               ipcRenderer.invoke(
                 "job-finder:test-load-resume-workspace-demo",
@@ -454,6 +468,13 @@ const desktopApi = {
                 "job-finder:test-run-resume-import-benchmark",
                 input ?? {},
               ) as Promise<ResumeImportBenchmarkReport>,
+            runResumeQualityBenchmark: (
+              input?: Partial<ResumeQualityBenchmarkRequest>,
+            ) =>
+              ipcRenderer.invoke(
+                "job-finder:test-run-resume-quality-benchmark",
+                input ?? {},
+              ) as Promise<ResumeQualityBenchmarkReport>,
             importResumeFromPath: (sourcePath: string) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
                 sourcePath,

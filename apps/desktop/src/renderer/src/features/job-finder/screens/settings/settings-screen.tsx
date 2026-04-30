@@ -1,49 +1,57 @@
-import type { BrowserSessionState, JobFinderSettings } from '@unemployed/contracts'
+import type {
+  BrowserSessionState,
+  JobFinderSettings,
+  ResumeTemplateDefinition,
+} from '@unemployed/contracts'
 import { PageHeader } from '../../components/page-header'
 import { SettingsEditableDefaults } from './settings-editable-defaults'
 import { SettingsRuntimeSummary } from './settings-runtime-summary'
 import { SettingsWorkspaceControls } from './settings-workspace-controls'
 
 export function SettingsScreen(props: {
-  actionState: { busy: boolean; message: string | null }
+  actionState: { message: string | null }
+  availableResumeTemplates: readonly ResumeTemplateDefinition[]
   browserSession: BrowserSessionState
-  busy: boolean
+  isSavePending: boolean
+  isWorkspaceResetPending: boolean
   onResetWorkspace: () => void
   onSaveSettings: (settings: JobFinderSettings) => void
   settings: JobFinderSettings
 }) {
   const {
     actionState,
+    availableResumeTemplates,
     browserSession,
-    busy,
+    isSavePending,
+    isWorkspaceResetPending,
     onResetWorkspace,
     onSaveSettings,
     settings
   } = props
 
   return (
-    <section className="grid gap-(--gap-section) pb-8">
+    <section className="grid gap-3 pb-8">
       <PageHeader
+        compact
         eyebrow="Settings"
         title="Settings"
-        description="Set the defaults Job Finder uses before it searches, builds resumes, and starts supported applications."
+        description="Set the defaults Job Finder reuses for search, resume, and apply work."
       />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,24rem)] xl:items-start">
-        <SettingsEditableDefaults
-          actionMessage={actionState.message}
-          busy={busy}
-          onSaveSettings={onSaveSettings}
+      <SettingsEditableDefaults
+        actionMessage={actionState.message}
+        availableResumeTemplates={availableResumeTemplates}
+        isSavePending={isSavePending}
+        onSaveSettings={onSaveSettings}
+        settings={settings}
+      />
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.32fr)_minmax(0,0.92fr)] xl:items-start">
+        <SettingsRuntimeSummary
+          browserSession={browserSession}
           settings={settings}
         />
-
-        <div className="grid gap-4">
-          <SettingsRuntimeSummary
-            browserSession={browserSession}
-            settings={settings}
-          />
-          <SettingsWorkspaceControls busy={busy} onResetWorkspace={onResetWorkspace} />
-        </div>
+        <SettingsWorkspaceControls isWorkspaceResetPending={isWorkspaceResetPending} onResetWorkspace={onResetWorkspace} />
       </div>
     </section>
   )

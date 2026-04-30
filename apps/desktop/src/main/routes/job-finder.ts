@@ -5,6 +5,7 @@ import {
   ApplyRunDetailsSchema,
   CandidateProfileSchema,
   DiscoveryActivityEventSchema,
+  DesktopTestOkResponseSchema,
   JobFinderAgentDiscoveryActionInputSchema,
   JobFinderApplyConsentActionInputSchema,
   JobFinderApplyQueueActionInputSchema,
@@ -12,17 +13,22 @@ import {
   JobFinderApplyRunDetailsQuerySchema,
   JobFinderApplyResumePatchInputSchema,
   JobFinderApproveResumeInputSchema,
+  JobFinderPreviewResumeDraftInputSchema,
   JobFinderProfileCopilotMessageInputSchema,
   JobFinderProfileCopilotPatchGroupActionInputSchema,
   JobFinderProfileSetupReviewActionInputSchema,
+  JobFinderResumePreviewSchema,
+  JobFinderResumePreviewModeSchema,
   JobFinderResumeAssistantMessageInputSchema,
   JobFinderRepositoryStateSchema,
+  ResumeQualityBenchmarkRequestSchema,
   ResumeImportBenchmarkRequestSchema,
   JobFinderResumeWorkspaceQuerySchema,
   JobFinderSaveResumeDraftInputSchema,
   JobFinderResumeWorkspaceSchema,
   JobFinderResumeSectionActionInputSchema,
   JobFinderJobActionInputSchema,
+  JobFinderOpenBrowserSessionInputSchema,
   JobFinderPerformanceSnapshotSchema,
   JobFinderSaveSourceInstructionInputSchema,
   JobFinderSourceDebugActionInputSchema,
@@ -37,6 +43,8 @@ import {
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
   JobFinderUndoProfileRevisionInputSchema,
+  ResumeImportBenchmarkReportSchema,
+  ResumeQualityBenchmarkReportSchema,
 } from "@unemployed/contracts";
 import {
   getDesktopTestDelayMs,
@@ -47,7 +55,9 @@ import {
   loadResumeWorkspaceDemoState,
   parseResumeImportPathPayload,
   resetJobFinderWorkspace,
+  runDesktopResumeQualityBenchmark,
   runDesktopResumeImportBenchmark,
+  setJobFinderWorkspaceServiceTestEnv,
 } from "../services/job-finder";
 
 function parseAgentDiscoveryRequest(payload: unknown) {
@@ -95,9 +105,10 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
   });
 
-  ipcMain.handle("job-finder:open-browser-session", async () => {
+  ipcMain.handle("job-finder:open-browser-session", async (_event, payload: unknown) => {
+    const input = JobFinderOpenBrowserSessionInputSchema.parse(payload ?? {});
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-    const snapshot = await jobFinderWorkspaceService.openBrowserSession();
+    const snapshot = await jobFinderWorkspaceService.openBrowserSession(input);
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
   });
@@ -334,6 +345,21 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
   });
 
+  ipcMain.handle("job-finder:test-set-resume-preview-mode", async (_event, payload: unknown) => {
+    if (!isDesktopTestApiEnabled()) {
+      throw new Error(
+        "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+      );
+    }
+
+    const mode = JobFinderResumePreviewModeSchema.parse(payload);
+    await setJobFinderWorkspaceServiceTestEnv({
+      UNEMPLOYED_TEST_RESUME_PREVIEW: mode,
+    });
+
+    return DesktopTestOkResponseSchema.parse({ ok: true });
+  });
+
   ipcMain.handle("job-finder:test-load-apply-queue-demo", async () => {
     if (!isDesktopTestApiEnabled()) {
       throw new Error(
@@ -399,7 +425,38 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
           : {}),
       };
 
-      return runDesktopResumeImportBenchmark(options);
+      const report = await runDesktopResumeImportBenchmark(options);
+      return ResumeImportBenchmarkReportSchema.parse(report);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:test-run-resume-quality-benchmark",
+    async (_event, payload: unknown) => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      const parsed = ResumeQualityBenchmarkRequestSchema.partial().parse(
+        payload ?? {},
+      );
+      const options = {
+        ...(parsed.benchmarkVersion !== undefined
+          ? { benchmarkVersion: parsed.benchmarkVersion }
+          : {}),
+        ...(parsed.caseIds !== undefined ? { caseIds: parsed.caseIds } : {}),
+        ...(parsed.canaryOnly !== undefined
+          ? { canaryOnly: parsed.canaryOnly }
+          : {}),
+        ...(parsed.persistArtifactsDirectory !== undefined
+          ? { persistArtifactsDirectory: parsed.persistArtifactsDirectory }
+          : {}),
+      };
+
+      const report = await runDesktopResumeQualityBenchmark(options);
+      return ResumeQualityBenchmarkReportSchema.parse(report);
     },
   );
 
@@ -658,6 +715,17 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         await jobFinderWorkspaceService.getResumeWorkspace(jobId);
 
       return JobFinderResumeWorkspaceSchema.parse(workspace);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:preview-resume-draft",
+    async (_event, payload: unknown) => {
+      const { draft } = JobFinderPreviewResumeDraftInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const preview = await jobFinderWorkspaceService.previewResumeDraft(draft);
+
+      return JobFinderResumePreviewSchema.parse(preview);
     },
   );
 

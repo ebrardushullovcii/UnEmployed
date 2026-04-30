@@ -7,6 +7,8 @@ import type {
   EditableSourceInstructionArtifact,
   JobFinderApplyConsentActionInput,
   JobFinderApplyQueueActionInput,
+  JobFinderOpenBrowserSessionInput,
+  JobFinderResumePreview,
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobSearchPreferences,
@@ -32,7 +34,9 @@ export type JobFinderScreen =
 
 export interface JobFinderShellActions {
   analyzeProfileFromResume: () => Promise<JobFinderWorkspaceSnapshot>;
-  openBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
+  openBrowserSession: (
+    input?: JobFinderOpenBrowserSessionInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   checkBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
   refreshWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
   resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
@@ -95,6 +99,7 @@ export interface JobFinderShellActions {
   queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
+  previewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
   saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeDraft: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeSection: (
@@ -257,6 +262,5 @@ export type BadgeTone =
   | "positive";
 
 export interface ActionState {
-  busy: boolean;
   message: string | null;
 }

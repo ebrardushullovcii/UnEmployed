@@ -9,6 +9,12 @@ import type {
 import { useJobFinderWorkspace } from '@renderer/features/job-finder/hooks/use-job-finder-workspace'
 import type { ActionState, JobFinderShellActions } from '@renderer/features/job-finder/lib/job-finder-types'
 import { useLocation, useNavigate } from 'react-router-dom'
+import {
+  hasAnyPendingAction,
+  hasPendingAction,
+  type PendingActionScope,
+  type PendingActionState,
+} from './job-finder-pending-actions'
 import { type JobFinderPageContext } from './job-finder-page-routes'
 import {
   buildJobFinderPageContext,
@@ -24,9 +30,10 @@ export function useJobFinderPageController() {
   const navigate = useNavigate()
   const workspaceState = useJobFinderWorkspace()
   const [actionState, setActionState] = useState<ActionState>({
-    busy: false,
     message: null,
   })
+  const [pendingActionState, setPendingActionState] =
+    useState<PendingActionState>({})
   const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<
     DiscoveryActivityEvent[]
   >([])
@@ -81,6 +88,15 @@ export function useJobFinderPageController() {
     ? resumeWorkspaceDirty
     : false
   const [profileSurfaceDirty, setProfileSurfaceDirty] = useState(false)
+  const isPendingAction = useCallback(
+    (scope: PendingActionScope) => hasPendingAction(pendingActionState, scope),
+    [pendingActionState],
+  )
+  const isAnyPendingAction = useCallback(
+    (scopes: readonly PendingActionScope[]) =>
+      hasAnyPendingAction(pendingActionState, scopes),
+    [pendingActionState],
+  )
 
   const confirmLeaveDirtyResumeWorkspace = useCallback(() => {
     if (!activeResumeWorkspaceJobId || !activeRouteResumeWorkspaceDirty) {
@@ -211,7 +227,6 @@ export function useJobFinderPageController() {
     }
 
     setActionState({
-      busy: false,
       message:
         'This resume is no longer available. Shortlisted is shown instead.',
     })
@@ -247,7 +262,6 @@ export function useJobFinderPageController() {
       .catch((error) => {
         if (!cancelled) {
           setActionState({
-            busy: false,
             message:
               error instanceof Error
                 ? `Resume editor could not be loaded. ${error.message}`
@@ -331,10 +345,12 @@ export function useJobFinderPageController() {
       actions,
       activeRouteResumeAssistantMessages,
       activeRouteResumeAssistantPending,
-     activeRouteResumeWorkspace,
-     canImportResume,
-     confirmLeaveDirtyResumeWorkspace,
+      activeRouteResumeWorkspace,
+      canImportResume,
+      confirmLeaveDirtyResumeWorkspace,
       importResumeGuardMessage,
+      isAnyPendingAction,
+      isPendingAction,
       isCurrentResumeAssistantRequest,
       isCurrentResumeWorkspaceJob,
       liveDiscoveryEvents,
@@ -350,15 +366,16 @@ export function useJobFinderPageController() {
       resumeAssistantRequestTokenRef,
       selectedApplicationAttempt,
       selectedApplicationRecord,
-       selectedDiscoveryJob,
-       selectedReviewItem,
-       selectedReviewJob,
-       selectedTailoredAsset,
-       setActionState,
-       setLiveDiscoveryEvents,
-       setOptimisticProfileCopilotMessages,
-       setProfileCopilotBusy,
-       setProfileCopilotPendingContextKey,
+      selectedDiscoveryJob,
+      selectedReviewItem,
+      selectedReviewJob,
+      selectedTailoredAsset,
+      setActionState,
+      setLiveDiscoveryEvents,
+      setOptimisticProfileCopilotMessages,
+      setPendingActionState,
+      setProfileCopilotBusy,
+      setProfileCopilotPendingContextKey,
       setProfileSurfaceDirty,
       setResumeAssistantMessages,
       setResumeAssistantPending,
@@ -376,20 +393,20 @@ export function useJobFinderPageController() {
     activeRouteResumeAssistantMessages,
     activeRouteResumeAssistantPending,
     activeRouteResumeWorkspace,
-    clearResumeWorkspaceState,
     confirmLeaveDirtyResumeWorkspace,
+    isAnyPendingAction,
+    isPendingAction,
     isCurrentResumeAssistantRequest,
     isCurrentResumeWorkspaceJob,
     liveDiscoveryEvents,
     location.pathname,
-     navigate,
-     optimisticProfileCopilotMessages,
-     canImportResume,
-     profileCopilotBusy,
-     profileSetupState,
-     profileCopilotPendingContextKey,
-     importResumeGuardMessage,
-     refreshResumeWorkspace,
+    navigate,
+    canImportResume,
+    profileCopilotBusy,
+    profileSetupState,
+    profileCopilotPendingContextKey,
+    importResumeGuardMessage,
+    refreshResumeWorkspace,
     selectedApplicationAttempt,
     selectedApplicationRecord,
     selectedDiscoveryJob,

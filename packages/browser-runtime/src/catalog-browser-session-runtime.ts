@@ -680,7 +680,9 @@ export function createCatalogBrowserSessionRuntime(
     getSessionState(source) {
       return Promise.resolve(getSession(source))
     },
-    openSession(source) {
+    openSession(source, options) {
+      void options
+
       const reopenedSession = cloneValue(
         initialSessions.get(source) ??
           BrowserSessionStateSchema.parse({

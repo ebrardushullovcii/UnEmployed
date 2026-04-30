@@ -14,7 +14,7 @@ import type { RenderFooter } from './profile-setup-step-sections'
 
 export function ProfileSetupNarrativeStep(props: {
   backgroundArrays: ProfileBackgroundArrays
-  busy: boolean
+  isProfileSetupPending: boolean
   nextStep: ProfileSetupStep | null
   onSaveAndGoToStep: (step: ProfileSetupStep) => void
   profileForm: UseFormReturn<ProfileEditorValues>
@@ -50,7 +50,7 @@ export function ProfileSetupNarrativeStep(props: {
               <p className="text-sm text-foreground-soft">Save measurable wins and supporting context once.</p>
             </div>
             <Button
-              disabled={props.busy}
+              disabled={props.isProfileSetupPending}
               onClick={() =>
                 props.backgroundArrays.proofBankArray.append({
                   id: `proof_${crypto.randomUUID().slice(0, 8)}`,
@@ -80,7 +80,7 @@ export function ProfileSetupNarrativeStep(props: {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Proof details</p>
-                  <Button disabled={props.busy} onClick={() => props.backgroundArrays.proofBankArray.remove(index)} size="compact" type="button" variant="ghost">Remove</Button>
+                  <Button disabled={props.isProfileSetupPending} onClick={() => props.backgroundArrays.proofBankArray.remove(index)} size="compact" type="button" variant="ghost">Remove</Button>
                 </div>
                 <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
                   <Field><FieldLabel htmlFor={`proof-record-${entry.id}-title`}>Title</FieldLabel><ProfileInput id={`proof-record-${entry.id}-title`} {...props.profileForm.register(`proofBank.${index}.title`)} /></Field>
@@ -104,7 +104,7 @@ export function ProfileSetupNarrativeStep(props: {
 
 export function ProfileSetupAnswersStep(props: {
   backgroundArrays: ProfileBackgroundArrays
-  busy: boolean
+  isProfileSetupPending: boolean
   nextStep: ProfileSetupStep | null
   onSaveAndGoToStep: (step: ProfileSetupStep) => void
   profileForm: UseFormReturn<ProfileEditorValues>
@@ -146,7 +146,7 @@ export function ProfileSetupAnswersStep(props: {
               <p className="text-sm text-foreground-soft">Save recurring screeners with labels and grounded answers.</p>
             </div>
             <Button
-              disabled={props.busy}
+              disabled={props.isProfileSetupPending}
               onClick={() =>
                 props.backgroundArrays.customAnswerArray.append({
                   id: `answer_${crypto.randomUUID().slice(0, 8)}`,
@@ -175,7 +175,7 @@ export function ProfileSetupAnswersStep(props: {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Reusable answer</p>
-                  <Button disabled={props.busy} onClick={() => props.backgroundArrays.customAnswerArray.remove(index)} size="compact" type="button" variant="ghost">Remove</Button>
+                  <Button disabled={props.isProfileSetupPending} onClick={() => props.backgroundArrays.customAnswerArray.remove(index)} size="compact" type="button" variant="ghost">Remove</Button>
                 </div>
                 <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
                   <Field><FieldLabel>Label</FieldLabel><ProfileInput {...props.profileForm.register(`answerBank.customAnswers.${index}.label`)} /></Field>

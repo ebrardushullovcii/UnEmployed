@@ -12,6 +12,7 @@ import {
 } from "@unemployed/contracts";
 
 import { deriveAndPersistProfileSetupState } from "./profile-workspace-state";
+import { hasBlockingResumeImportCandidates } from "./resume-import-candidate-utils";
 import { applyResolvedResumeImportCandidatesToWorkspace, countResumeImportCandidates } from "./resume-import-workflow";
 import { hasResumeAffectingProfileChange } from "./resume-workspace-staleness";
 import { normalizeSearchPreferences } from "./workspace-helpers";
@@ -316,7 +317,7 @@ export function createWorkspaceProfileSetupReviewMethods(input: {
         run: {
           ...currentSetupContext.latestResumeImportRun,
           status:
-            nextCandidates.some((candidate) => candidate.resolution === "needs_review" || candidate.resolution === "abstained")
+            hasBlockingResumeImportCandidates(nextCandidates)
               ? "review_ready"
               : "applied",
           candidateCounts: countResumeImportCandidates(nextCandidates),

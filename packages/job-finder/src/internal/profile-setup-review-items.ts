@@ -2,6 +2,7 @@ import {
   ProfileReviewItemSchema,
   ProfileSetupStateSchema,
   evaluateProfileSetupReadiness,
+  hasProfileSetupPlaceholderValue,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileReviewItem,
@@ -26,6 +27,9 @@ interface BuildProfileSetupReviewItemsInput {
   candidates: readonly ResumeImportFieldCandidate[];
   searchPreferences: JobSearchPreferences;
 }
+
+type TargetDomain = ProfileReviewItem["target"]["domain"];
+type TargetKey = ProfileReviewItem["target"]["key"];
 
 function getPreferredApplicationLinkUrls(profile: CandidateProfile): string[] {
   return uniqueStrings(
@@ -147,10 +151,30 @@ function hasCurrentTargetValue(
   const value = getCurrentTargetValue(profile, searchPreferences, target);
 
   if (typeof value === "string") {
+    if (
+      target.domain === "identity" &&
+      target.key === "headline" &&
+      !hasPlaceholderAwareIdentityValue(value, "headline")
+    ) {
+      return false;
+    }
+
+    if (
+      target.domain === "identity" &&
+      target.key === "currentLocation" &&
+      !hasPlaceholderAwareIdentityValue(value, "currentLocation")
+    ) {
+      return false;
+    }
+
     return hasMeaningfulText(value);
   }
 
   if (typeof value === "number") {
+    if (target.domain === "identity" && target.key === "yearsExperience") {
+      return value > 0;
+    }
+
     return true;
   }
 
@@ -315,14 +339,39 @@ function hasMeaningfulStringList(values: readonly string[] | null | undefined): 
   return values?.some((value) => hasMeaningfulText(value)) ?? false;
 }
 
+function hasPlaceholderAwareIdentityValue(
+  value: string | null | undefined,
+  field: "headline" | "currentLocation",
+): boolean {
+  return Boolean(
+    hasMeaningfulText(value) &&
+      !hasProfileSetupPlaceholderValue(field, value),
+  );
+}
+
+function hasDraftForTarget(
+  candidateDrafts: readonly DerivedReviewDraft[],
+  domain: TargetDomain,
+  key?: TargetKey,
+): boolean {
+  return candidateDrafts.some(
+    (draft) =>
+      draft.target.domain === domain &&
+      (key === undefined || draft.target.key === key),
+  );
+}
+
 function buildMissingFieldDrafts(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
+  candidateDrafts: readonly DerivedReviewDraft[],
 ): DerivedReviewDraft[] {
   const drafts: DerivedReviewDraft[] = [];
-  const readiness = evaluateProfileSetupReadiness(profile, searchPreferences);
 
-  if (!readiness.hasCoreIdentity || !hasMeaningfulText(profile.headline)) {
+  if (
+    !hasPlaceholderAwareIdentityValue(profile.headline, "headline") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "headline")
+  ) {
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "headline", recordId: null },
@@ -335,7 +384,10 @@ function buildMissingFieldDrafts(
     });
   }
 
-  if (!readiness.hasCoreIdentity || !hasMeaningfulText(profile.currentLocation)) {
+  if (
+    !hasPlaceholderAwareIdentityValue(profile.currentLocation, "currentLocation") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "currentLocation")
+  ) {
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "currentLocation", recordId: null },
@@ -348,7 +400,10 @@ function buildMissingFieldDrafts(
     });
   }
 
-  if (!readiness.hasCoreIdentity || profile.yearsExperience <= 0) {
+  if (
+    profile.yearsExperience <= 0 &&
+    !hasDraftForTarget(candidateDrafts, "identity", "yearsExperience")
+  ) {
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "yearsExperience", recordId: null },
@@ -361,7 +416,12 @@ function buildMissingFieldDrafts(
     });
   }
 
-  if (!hasMeaningfulText(profile.email) && !hasMeaningfulText(profile.phone)) {
+  if (
+    !hasMeaningfulText(profile.email) &&
+    !hasMeaningfulText(profile.phone) &&
+    !hasDraftForTarget(candidateDrafts, "identity", "email") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "phone")
+  ) {
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "contactPath", recordId: null },
@@ -374,7 +434,13 @@ function buildMissingFieldDrafts(
     });
   }
 
-  if (!profile.experiences.some((experience) => hasMeaningfulText(experience.companyName) || hasMeaningfulText(experience.title))) {
+  if (
+    !profile.experiences.some(
+      (experience) =>
+        hasMeaningfulText(experience.companyName) || hasMeaningfulText(experience.title),
+    ) &&
+    !hasDraftForTarget(candidateDrafts, "experience", "record")
+  ) {
     drafts.push({
       step: "background",
       target: { domain: "experience", key: "record", recordId: null },
@@ -390,7 +456,9 @@ function buildMissingFieldDrafts(
   if (
     !hasMeaningfulStringList(searchPreferences.targetRoles) &&
     !hasMeaningfulStringList(searchPreferences.jobFamilies) &&
-    !hasMeaningfulStringList(profile.targetRoles)
+    !hasMeaningfulStringList(profile.targetRoles) &&
+    !hasDraftForTarget(candidateDrafts, "search_preferences", "targetRoles") &&
+    !hasDraftForTarget(candidateDrafts, "search_preferences", "jobFamilies")
   ) {
     drafts.push({
       step: "targeting",
@@ -415,7 +483,14 @@ function buildMissingFieldDrafts(
     hasMeaningfulStringList(searchPreferences.locations) ||
     hasMeaningfulStringList(searchPreferences.workModes);
 
-  if (!hasEligibility) {
+  if (
+    !hasEligibility &&
+    !(
+      hasDraftForTarget(candidateDrafts, "work_eligibility") ||
+      hasDraftForTarget(candidateDrafts, "search_preferences", "locations") ||
+      hasDraftForTarget(candidateDrafts, "search_preferences", "workModes")
+    )
+  ) {
     drafts.push({
       step: "targeting",
       target: { domain: "work_eligibility", key: "authorizedWorkCountries", recordId: null },
@@ -551,7 +626,11 @@ export function buildProfileSetupReviewItems(
     .filter((draft): draft is DerivedReviewDraft => draft !== null);
   const missingFieldDrafts =
     readiness.started || unresolvedCandidateDrafts.length > 0
-      ? buildMissingFieldDrafts(input.profile, input.searchPreferences)
+      ? buildMissingFieldDrafts(
+          input.profile,
+          input.searchPreferences,
+          unresolvedCandidateDrafts,
+        )
       : [];
   const nextDrafts = [...unresolvedCandidateDrafts, ...missingFieldDrafts];
   const currentItems = input.currentState?.reviewItems ?? [];

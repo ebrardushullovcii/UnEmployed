@@ -1,4 +1,8 @@
 import {
+  BrowserSessionStatusSchema,
+  type BrowserSessionStatus,
+} from "@unemployed/contracts";
+import {
   isDisabled,
   isEnabled,
   normalizeFlagValue,
@@ -9,6 +13,8 @@ export { isDisabled, isEnabled, normalizeFlagValue };
 export interface ResumeImportPathPayload {
   sourcePath: string;
 }
+
+export type ResumePreviewTestMode = "ok" | "fail_once";
 
 const warnedInvalidEnvValues = new Set<string>();
 
@@ -92,6 +98,75 @@ export function parseResumeImportPathPayload(
   return {
     sourcePath: payload.sourcePath.trim(),
   };
+}
+
+function readTrimmedEnvValue(value: string | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 ? trimmedValue : null;
+}
+
+export function getResumePreviewTestMode(
+  env: NodeJS.ProcessEnv = process.env,
+): ResumePreviewTestMode {
+  const configuredValue = readTrimmedEnvValue(env.UNEMPLOYED_TEST_RESUME_PREVIEW);
+
+  if (configuredValue == null) {
+    return "ok";
+  }
+
+  if (configuredValue === "ok" || configuredValue === "fail_once") {
+    return configuredValue;
+  }
+
+  warnInvalidEnvValue(
+    "UNEMPLOYED_TEST_RESUME_PREVIEW",
+    configuredValue,
+    'the default "ok" behavior',
+  );
+
+  return "ok";
+}
+
+export function getTestBrowserSessionStatus(
+  env: NodeJS.ProcessEnv = process.env,
+): BrowserSessionStatus | null {
+  const configuredValue = readTrimmedEnvValue(
+    env.UNEMPLOYED_TEST_BROWSER_SESSION_STATUS,
+  );
+
+  if (configuredValue == null) {
+    return null;
+  }
+
+  const parsedStatus = BrowserSessionStatusSchema.safeParse(configuredValue);
+
+  if (parsedStatus.success) {
+    return parsedStatus.data;
+  }
+
+  warnInvalidEnvValue(
+    "UNEMPLOYED_TEST_BROWSER_SESSION_STATUS",
+    configuredValue,
+    "the default no-override behavior",
+  );
+
+  return null;
+}
+
+export function getTestBrowserSessionLabel(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  return readTrimmedEnvValue(env.UNEMPLOYED_TEST_BROWSER_SESSION_LABEL);
+}
+
+export function getTestBrowserSessionDetail(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  return readTrimmedEnvValue(env.UNEMPLOYED_TEST_BROWSER_SESSION_DETAIL);
 }
 
 export function getDesktopTestDelayMs(

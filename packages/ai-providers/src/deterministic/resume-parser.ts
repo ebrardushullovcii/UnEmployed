@@ -42,7 +42,161 @@ import {
 
 type BuildDeterministicResumeProfileExtractionOptions = {
   preserveExistingValues?: boolean;
+  now?: Date | (() => Date);
 };
+
+function resolveNow(input?: Date | (() => Date)): Date {
+  if (!input) {
+    return new Date();
+  }
+
+  return input instanceof Date ? input : input();
+}
+
+const experienceDateTokenPattern = /(?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:(\d{1,2})\/)?(\d{4})/i;
+
+function toMonthIndex(month: string | undefined): number {
+  switch ((month ?? "").toLowerCase()) {
+    case "jan":
+      return 0;
+    case "feb":
+      return 1;
+    case "mar":
+      return 2;
+    case "apr":
+      return 3;
+    case "may":
+      return 4;
+    case "jun":
+      return 5;
+    case "jul":
+      return 6;
+    case "aug":
+      return 7;
+    case "sep":
+    case "sept":
+      return 8;
+    case "oct":
+      return 9;
+    case "nov":
+      return 10;
+    case "dec":
+      return 11;
+    default:
+      return 0;
+  }
+}
+
+function parseExperienceDateToken(value: string | null): { year: number; month: number } | null {
+  if (!value) {
+    return null;
+  }
+
+  const cleanedValue = cleanLine(value);
+  const isoMonthMatch = cleanedValue.match(/^(\d{4})-(\d{2})(?:-\d{2})?$/);
+
+  if (isoMonthMatch) {
+    const year = Number.parseInt(isoMonthMatch[1] ?? "", 10);
+    const month = Number.parseInt(isoMonthMatch[2] ?? "", 10);
+
+    if (Number.isFinite(year) && Number.isFinite(month) && month >= 1 && month <= 12) {
+      return { year, month: month - 1 };
+    }
+  }
+
+  const match = cleanedValue.match(experienceDateTokenPattern);
+
+  if (!match) {
+    return null;
+  }
+
+  const monthName = match[1];
+  const numericMonth = Number.parseInt(match[2] ?? "", 10);
+  const year = Number.parseInt(match[3] ?? "", 10);
+
+  if (!Number.isFinite(year)) {
+    return null;
+  }
+
+  if (Number.isFinite(numericMonth) && numericMonth >= 1 && numericMonth <= 12) {
+    return { year, month: numericMonth - 1 };
+  }
+
+  return { year, month: toMonthIndex(monthName) };
+}
+
+function inferYearsExperienceFromEntries(
+  experiences: ReadonlyArray<{
+    startDate: string | null;
+    endDate: string | null;
+    isCurrent: boolean;
+  }>,
+  now: Date,
+): number | null {
+  const datedRanges = experiences
+    .map((experience) => {
+      const start = parseExperienceDateToken(experience.startDate);
+      if (!start) {
+        return null;
+      }
+
+      const end = experience.isCurrent
+        ? { year: now.getUTCFullYear(), month: now.getUTCMonth() }
+        : parseExperienceDateToken(experience.endDate) ?? start;
+
+      const startTotalMonths = start.year * 12 + start.month;
+      const endTotalMonths = end.year * 12 + end.month;
+
+      if (endTotalMonths < startTotalMonths) {
+        return null;
+      }
+
+      return {
+        startTotalMonths,
+        endTotalMonths,
+      };
+    })
+    .filter(
+      (range): range is { startTotalMonths: number; endTotalMonths: number } =>
+        range !== null,
+    )
+    .sort((left, right) => left.startTotalMonths - right.startTotalMonths);
+
+  if (datedRanges.length === 0) {
+    return null;
+  }
+
+  let coveredMonths = 0;
+  let currentRange = datedRanges[0];
+
+  for (const range of datedRanges.slice(1)) {
+    if (!currentRange) {
+      currentRange = range;
+      continue;
+    }
+
+    if (range.startTotalMonths <= currentRange.endTotalMonths + 1) {
+      currentRange = {
+        startTotalMonths: currentRange.startTotalMonths,
+        endTotalMonths: Math.max(currentRange.endTotalMonths, range.endTotalMonths),
+      };
+      continue;
+    }
+
+    coveredMonths += currentRange.endTotalMonths - currentRange.startTotalMonths + 1;
+    currentRange = range;
+  }
+
+  if (currentRange) {
+    coveredMonths += currentRange.endTotalMonths - currentRange.startTotalMonths + 1;
+  }
+
+  if (coveredMonths < 12) {
+    return null;
+  }
+
+  return Math.floor(coveredMonths / 12);
+}
 
 const nonNamePhrasePattern =
   /\b(software|engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|consulting|technical|mentorship|leadership|performance|productivity|quality|security|platform|platforms|systems|cloud|devops|support|experience|summary|profile|skills|project|projects|work|professional|staff|senior|principal|lead|frontend|backend|full-stack|scale)\b/i;
@@ -422,16 +576,42 @@ function inferSummary(lines: readonly string[]): string | null {
     return cleanLine(aboutLines.join(" "));
   }
 
-  return (
-    lines.find(
-      (line) =>
-        line.length >= 48 &&
-        !line.includes("@") &&
-        !/^https?:\/\//i.test(line) &&
-        !/date of birth|nationality|phone|email|website|address/i.test(line) &&
-        !isResumeSectionHeading(line),
-    ) ?? null
+  const firstSectionIndex = lines.findIndex((line) => isResumeSectionHeading(line));
+  const fallbackSearchLines =
+    firstSectionIndex === -1 ? lines : lines.slice(0, firstSectionIndex);
+  const fallbackStartIndex = fallbackSearchLines.findIndex(
+    (line) =>
+      line.length >= 48 &&
+      !line.includes("@") &&
+      !/^https?:\/\//i.test(line) &&
+      !/date of birth|nationality|phone|email|website|address/i.test(line) &&
+      !isResumeSectionHeading(line),
   );
+
+  if (fallbackStartIndex === -1) {
+    return null;
+  }
+
+  const collectedLines = [fallbackSearchLines[fallbackStartIndex]!];
+
+  for (const line of fallbackSearchLines.slice(fallbackStartIndex + 1, fallbackStartIndex + 4)) {
+    if (
+      isResumeSectionHeading(line) ||
+      line.includes("@") ||
+      /^https?:\/\//i.test(line) ||
+      /date of birth|nationality|phone|email|website|address/i.test(line)
+    ) {
+      break;
+    }
+
+    if (line.length < 24) {
+      break;
+    }
+
+    collectedLines.push(line);
+  }
+
+  return cleanLine(collectedLines.join(" "));
 }
 
 
@@ -442,6 +622,7 @@ export function buildDeterministicResumeProfileExtraction(
   options?: BuildDeterministicResumeProfileExtractionOptions,
 ): ResumeProfileExtraction {
   const preserveExistingValues = options?.preserveExistingValues ?? true;
+  const now = resolveNow(options?.now);
   const lines = splitLines(input.resumeText);
   const fullName = inferName(lines);
   const nameParts = parseNameParts(fullName);
@@ -455,6 +636,7 @@ export function buildDeterministicResumeProfileExtraction(
   const skillGroups = inferSkillGroups(input.resumeText, skills);
   const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText);
   const portfolioUrl = inferPortfolioUrl(input.resumeText, personalWebsiteUrl);
+  const experiences = inferExperienceEntries(input.resumeText);
   const education = inferEducationEntries(input.resumeText);
   const notes = buildProfileExtractionNotes({ fullName, headline, summary, currentLocation });
   const parsedYearsExperience = Number.parseInt(
@@ -462,7 +644,7 @@ export function buildDeterministicResumeProfileExtraction(
     10,
   );
   const extractedYearsExperience = Number.isNaN(parsedYearsExperience)
-    ? null
+    ? inferYearsExperienceFromEntries(experiences, now)
     : parsedYearsExperience;
   const extractedEmail = extractRegexMatch(input.resumeText, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
   const extractedPhone = inferPhone(
@@ -515,7 +697,7 @@ export function buildDeterministicResumeProfileExtraction(
     skills,
     targetRoles,
     preferredLocations,
-    experiences: inferExperienceEntries(input.resumeText),
+    experiences,
     education,
     certifications: [],
     links: inferLinks(input.resumeText),

@@ -221,7 +221,7 @@ export function createProfileEditorValues(
     summary: {
       careerThemes: joinListInput(profile.professionalSummary.careerThemes),
       domainFocusSummary: profile.professionalSummary.domainFocusSummary ?? '',
-      fullSummary: profile.professionalSummary.fullSummary ?? profile.summary,
+      fullSummary: profile.professionalSummary.fullSummary ?? '',
       leadershipSummary: profile.professionalSummary.leadershipSummary ?? '',
       shortValueProposition: profile.professionalSummary.shortValueProposition ?? '',
       strengths: joinListInput(profile.professionalSummary.strengths)

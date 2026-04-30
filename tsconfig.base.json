@@ -41,6 +41,9 @@
       "@unemployed/knowledge-base": [
         "packages/knowledge-base/src/index.ts"
       ],
+      "@unemployed/job-finder/resume-record-identity": [
+        "packages/job-finder/src/resume-record-identity.ts"
+      ],
       "@unemployed/job-finder": [
         "packages/job-finder/src/index.ts"
       ],

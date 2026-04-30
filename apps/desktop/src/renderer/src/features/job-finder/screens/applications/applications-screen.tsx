@@ -102,8 +102,10 @@ export function ApplicationsScreen(props: {
   applicationRecords: readonly ApplicationRecord[];
   applyRuns: JobFinderWorkspaceSnapshot["applyRuns"];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
-  busy: boolean;
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
+  isApplyPending: boolean;
+  isApplyRequestPending: (requestId: string) => boolean;
+  isApplyRunPending: (runId: string) => boolean;
   onApproveApplyRun: (runId: string) => void;
   onCancelApplyRun: (runId: string) => void;
   onGetApplyRunDetails: (
@@ -128,8 +130,10 @@ export function ApplicationsScreen(props: {
     applicationRecords,
     applyRuns,
     applyJobResults,
-    busy,
     discoveryJobs,
+    isApplyPending,
+    isApplyRequestPending,
+    isApplyRunPending,
     onApproveApplyRun,
     onCancelApplyRun,
     onGetApplyRunDetails,
@@ -470,12 +474,14 @@ export function ApplicationsScreen(props: {
           applyRunDetailsStatus={applyRunDetailsStatus}
           applicationRecords={applicationRecords}
           applyJobResults={applyJobResults}
-          busy={busy}
           discoveryJobs={discoveryJobs}
           applyRunHistory={applyRunHistory}
           effectiveSelectedApplyResult={effectiveSelectedApplyResult}
           hasAnyApplications={applicationRecords.length > 0}
           hasVisibleApplications={filteredApplicationRecords.length > 0}
+          isApplyPending={isApplyPending}
+          isApplyRequestPending={isApplyRequestPending}
+          isApplyRunPending={isApplyRunPending}
           onApproveApplyRun={onApproveApplyRun}
           onCancelApplyRun={onCancelApplyRun}
           onResolveApplyConsentRequest={onResolveApplyConsentRequest}

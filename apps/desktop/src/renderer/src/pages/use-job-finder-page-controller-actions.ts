@@ -3,6 +3,7 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   JobFinderResumeWorkspace,
+  JobFinderOpenBrowserSessionInput,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   ProfileCopilotMessage,
@@ -18,8 +19,18 @@ import type {
   ActionState,
   JobFinderShellActions,
 } from '@renderer/features/job-finder/lib/job-finder-types'
+import {
+  type PendingActionScope,
+  type PendingActionState,
+  jobFinderPendingActions,
+} from './job-finder-pending-actions'
 import { getProfileCopilotContextKey } from '@renderer/features/job-finder/lib/profile-copilot-context'
 import { buildSourceDebugOutcomeMessage } from './job-finder-page-routes'
+
+type ActionOptions = {
+  clearMessageOnStart?: boolean
+  scope?: PendingActionScope
+}
 
 type BaseActionArgs = {
   actions: JobFinderShellActions
@@ -45,6 +56,7 @@ type BaseActionArgs = {
   setOptimisticProfileCopilotMessages: Dispatch<
     SetStateAction<readonly ProfileCopilotMessage[]>
   >
+  setPendingActionState: Dispatch<SetStateAction<PendingActionState>>
   setProfileCopilotBusy: Dispatch<SetStateAction<boolean>>
   setProfileCopilotPendingContextKey: Dispatch<SetStateAction<string | null>>
   setResumeAssistantMessages: Dispatch<
@@ -58,48 +70,144 @@ type BaseActionArgs = {
   workspace: JobFinderWorkspaceSnapshot
 }
 
+const handledRefreshErrorTag = Symbol('handledRefreshError')
+
+type HandledRefreshError = Error & {
+  [handledRefreshErrorTag]: true
+}
+
+function resolvePendingScope(
+  options: ActionOptions | undefined,
+): PendingActionScope | null {
+  return options?.scope ?? null
+}
+
+function markHandledRefreshError(error: unknown): HandledRefreshError {
+  const handledError =
+    error instanceof Error
+      ? error
+      : new Error('The resume editor could not refresh automatically.')
+
+  ;(handledError as HandledRefreshError)[handledRefreshErrorTag] = true
+  return handledError as HandledRefreshError
+}
+
+function isHandledRefreshError(error: unknown): error is HandledRefreshError {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      handledRefreshErrorTag in (error as Record<PropertyKey, unknown>),
+  )
+}
+
+function incrementPendingScope(
+  current: PendingActionState,
+  scope: PendingActionScope,
+): PendingActionState {
+  return {
+    ...current,
+    [scope]: (current[scope] ?? 0) + 1,
+  }
+}
+
+function decrementPendingScope(
+  current: PendingActionState,
+  scope: PendingActionScope,
+): PendingActionState {
+  const nextCount = (current[scope] ?? 0) - 1
+
+  if (nextCount > 0) {
+    return {
+      ...current,
+      [scope]: nextCount,
+    }
+  }
+
+  if (!(scope in current)) {
+    return current
+  }
+
+  const nextState = { ...current }
+  delete nextState[scope]
+  return nextState
+}
+
 export function createActionRunners(args: {
   setActionState: Dispatch<SetStateAction<ActionState>>
+  setPendingActionState: Dispatch<SetStateAction<PendingActionState>>
 }) {
-  const { setActionState } = args
+  const { setActionState, setPendingActionState } = args
+
+  const withPendingScope = async <TResult,>(
+    scope: PendingActionScope | null,
+    action: () => Promise<TResult>,
+  ) => {
+    if (!scope) {
+      return action()
+    }
+
+    setPendingActionState((current) => incrementPendingScope(current, scope))
+
+    try {
+      return await action()
+    } finally {
+      setPendingActionState((current) => decrementPendingScope(current, scope))
+    }
+  }
 
   const runAction = async <TResult,>(
     action: () => Promise<TResult>,
     onSuccess: (result: TResult) => void | Promise<void>,
     successMessage: string | null | ((result: TResult) => string | null),
+    options?: ActionOptions,
   ) => {
-    try {
-      setActionState({ busy: true, message: null })
-      const result = await action()
-      const resolvedSuccessMessage =
-        typeof successMessage === 'function'
-          ? successMessage(result)
-          : successMessage
+    const pendingScope = resolvePendingScope(options)
 
-      try {
-        await onSuccess(result)
-      } catch (error) {
-        const detail =
-          error instanceof Error
-            ? error.message
-            : 'The workspace view could not refresh automatically.'
+    try {
+      if (options?.clearMessageOnStart !== false) {
+        setActionState((current) =>
+          current.message === null ? current : { ...current, message: null },
+        )
+      }
+
+      await withPendingScope(pendingScope, async () => {
+        const result = await action()
+        const resolvedSuccessMessage =
+          typeof successMessage === 'function'
+            ? successMessage(result)
+            : successMessage
+
+        try {
+          await onSuccess(result)
+        } catch (error) {
+          if (isHandledRefreshError(error)) {
+            throw error
+          }
+
+          const detail =
+            error instanceof Error
+              ? error.message
+              : 'The workspace view could not refresh automatically.'
+          setActionState({
+            message: `Action completed, but the current view could not refresh automatically. ${detail}`,
+          })
+          return
+        }
+
         setActionState({
-          busy: false,
-          message: `Action completed, but the current view could not refresh automatically. ${detail}`,
+          message: resolvedSuccessMessage,
         })
+      })
+    } catch (error) {
+      if (isHandledRefreshError(error)) {
         return
       }
 
-      setActionState({
-        busy: false,
-        message: resolvedSuccessMessage,
-      })
-    } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : 'The requested Job Finder action failed.'
-      setActionState({ busy: false, message })
+      setActionState({ message })
     }
   }
 
@@ -107,36 +215,34 @@ export function createActionRunners(args: {
     action: () => Promise<TResult>,
     onSuccess: (result: TResult) => void | Promise<void>,
     successMessage: string | null,
+    options?: ActionOptions,
   ) => {
-    try {
-      setActionState({ busy: true, message: null })
-      const result = await action()
+    await runAction(
+      action,
+      async (result) => {
+        try {
+          await onSuccess(result)
+        } catch (error) {
+          if (isHandledRefreshError(error)) {
+            throw error
+          }
 
-      try {
-        await onSuccess(result)
-      } catch (error) {
-        const detail =
-          error instanceof Error
-            ? error.message
-            : 'The resume editor could not refresh automatically.'
-        setActionState({
-          message: `Resume action succeeded, but the editor could not refresh automatically. ${detail}`,
-          busy: false,
-        })
-        return
-      }
-
-      setActionState({ busy: false, message: successMessage })
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'The requested resume action failed.'
-      setActionState({ busy: false, message })
-    }
+          const detail =
+            error instanceof Error
+              ? error.message
+              : 'The resume editor could not refresh automatically.'
+          setActionState({
+            message: `Resume action succeeded, but the editor could not refresh automatically. ${detail}`,
+          })
+          throw markHandledRefreshError(error)
+        }
+      },
+      successMessage,
+      options,
+    )
   }
 
-  return { runAction, runResumeWorkspaceAction }
+  return { runAction, runResumeWorkspaceAction, withPendingScope }
 }
 
 export function createPrimaryPageActions(
@@ -145,12 +251,18 @@ export function createPrimaryPageActions(
       action: () => Promise<TResult>,
       onSuccess: (result: TResult) => void | Promise<void>,
       successMessage: string | null | ((result: TResult) => string | null),
+      options?: ActionOptions,
     ) => Promise<void>
     runResumeWorkspaceAction: <TResult>(
       action: () => Promise<TResult>,
       onSuccess: (result: TResult) => void | Promise<void>,
       successMessage: string | null,
+      options?: ActionOptions,
     ) => Promise<void>
+    withPendingScope: <TResult>(
+      scope: PendingActionScope | null,
+      action: () => Promise<TResult>,
+    ) => Promise<TResult>
   },
 ) {
   const {
@@ -169,9 +281,11 @@ export function createPrimaryPageActions(
     resumeAssistantRequestTokenRef,
     runAction,
     runResumeWorkspaceAction,
+    withPendingScope,
     setActionState,
     setLiveDiscoveryEvents,
     setOptimisticProfileCopilotMessages,
+    setPendingActionState,
     setProfileCopilotBusy,
     setProfileCopilotPendingContextKey,
     setResumeAssistantMessages,
@@ -182,6 +296,13 @@ export function createPrimaryPageActions(
     sourceDebugRunIdRef,
     workspace,
   } = args
+
+  function getConfiguredSourceTarget(targetId: string) {
+    return (
+      workspace.searchPreferences.discovery.targets.find((target) => target.id === targetId) ??
+      null
+    )
+  }
 
   const runDiscoveryAction = (targetId?: string) => {
     setLiveDiscoveryEvents([])
@@ -202,12 +323,18 @@ export function createPrimaryPageActions(
       targetId
         ? 'Search finished for this source and results were saved on this device.'
         : 'Search finished and results were saved on this device.',
+      {
+        scope: targetId
+          ? jobFinderPendingActions.discoveryTarget(targetId)
+          : jobFinderPendingActions.discoveryAll(),
+      },
     )
   }
 
   const startAutoFlow = (
     runner: () => Promise<unknown>,
     successMessage: string,
+    scope: PendingActionScope,
   ) => {
     if (!confirmLeaveDirtyResumeWorkspace()) {
       return
@@ -220,23 +347,27 @@ export function createPrimaryPageActions(
         navigate('/job-finder/applications')
       },
       successMessage,
+      { scope },
     )
   }
 
   return {
     onAnalyzeProfileFromResume: () => {
       if (!canImportResume) {
-        setActionState({ busy: false, message: importResumeGuardMessage })
+        setActionState({ message: importResumeGuardMessage })
         return
       }
 
-      void runAction(actions.analyzeProfileFromResume, () => undefined, null)
+      void runAction(actions.analyzeProfileFromResume, () => undefined, null, {
+        scope: jobFinderPendingActions.profileAnalyze(),
+      })
     },
     onApplyProfileCopilotPatchGroup: (patchGroupId: string) =>
       void runAction(
         () => actions.applyProfileCopilotPatchGroup(patchGroupId),
         () => undefined,
         'Profile change applied.',
+        { scope: jobFinderPendingActions.profileMutation() },
       ),
     onApplyProfileSetupReviewAction: (
       reviewItemId: string,
@@ -250,18 +381,21 @@ export function createPrimaryPageActions(
           : action === 'dismiss'
             ? 'Review item dismissed for now.'
             : 'Current value cleared and the review item was resolved.',
+        { scope: jobFinderPendingActions.profileReviewItem(reviewItemId) },
       ),
     onApproveApplyRun: (runId: string) =>
       void runAction(
         () => actions.approveApplyRun(runId),
         () => undefined,
         'Submit approval recorded. This safe build still stops before final submit.',
+        { scope: jobFinderPendingActions.applyRun(runId) },
       ),
     onCancelApplyRun: (runId: string) =>
       void runAction(
         () => actions.cancelApplyRun(runId),
         () => undefined,
         'Automatic apply run cancelled.',
+        { scope: jobFinderPendingActions.applyRun(runId) },
       ),
     onApproveApply: (jobId: string) => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -275,6 +409,7 @@ export function createPrimaryPageActions(
           navigate('/job-finder/applications')
         },
         'Applications updated. Check the latest attempt and next step there.',
+        { scope: jobFinderPendingActions.apply() },
       )
     },
     onRevokeApplyRunApproval: (runId: string) =>
@@ -282,6 +417,7 @@ export function createPrimaryPageActions(
         () => actions.revokeApplyRunApproval(runId),
         () => undefined,
         'Submit approval revoked. The run is back to pending approval.',
+        { scope: jobFinderPendingActions.applyRun(runId) },
       ),
     onResolveApplyConsentRequest: (
       requestId: string,
@@ -293,28 +429,32 @@ export function createPrimaryPageActions(
         action === 'approve'
           ? 'Consent approved. The safe run resumed without final submit.'
           : 'Consent declined. The run skipped that job and stayed non-submitting.',
+        { scope: jobFinderPendingActions.applyRequest(requestId) },
       ),
     onStartAutoApplyQueue: (jobIds: string[]) => {
       if (jobIds.length === 0) {
-        setActionState({ busy: false, message: 'No jobs selected for auto-apply queue.' })
+        setActionState({ message: 'No jobs selected for auto-apply queue.' })
         return
       }
 
       startAutoFlow(
         () => actions.startAutoApplyQueueRun(jobIds),
         'Automatic apply queue staged. Review and approve it in Applications before any later execution step.',
+        jobFinderPendingActions.apply(),
       )
     },
     onStartAutoApply: (jobId: string) => {
       startAutoFlow(
         () => actions.startAutoApplyRun(jobId),
         'Automatic submit run staged. Review and approve it in Applications before any later execution step.',
+        jobFinderPendingActions.apply(),
       )
     },
     onStartApplyCopilot: (jobId: string) => {
       startAutoFlow(
         () => actions.startApplyCopilotRun(jobId),
         'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
+        jobFinderPendingActions.apply(),
       )
     },
     onCheckBrowserSession: () =>
@@ -322,12 +462,14 @@ export function createPrimaryPageActions(
         actions.checkBrowserSession,
         () => undefined,
         'Browser status refreshed.',
+        { scope: jobFinderPendingActions.browserSession() },
       ),
     onDismissJob: (jobId: string) =>
       void runAction(
         () => actions.dismissDiscoveryJob(jobId),
         () => undefined,
         'Job dismissed.',
+        { scope: jobFinderPendingActions.discoveryJob(jobId) },
       ),
     onEditResumeWorkspace: (jobId: string) => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -347,6 +489,7 @@ export function createPrimaryPageActions(
         () => actions.generateResume(jobId),
         () => setSelectedReviewJobId(jobId),
         'Resume created for this job.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onApproveResume: (jobId: string, exportId: string) =>
       void runResumeWorkspaceAction(
@@ -355,26 +498,45 @@ export function createPrimaryPageActions(
           await refreshResumeWorkspace(jobId)
         },
         'Resume approved for this job.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onImportResume: () => {
       if (!canImportResume) {
-        setActionState({ busy: false, message: importResumeGuardMessage })
+        setActionState({ message: importResumeGuardMessage })
         return
       }
 
-      void runAction(
-        actions.importResume,
-        () => undefined,
-        'Resume imported from your device.',
-      )
+      void runAction(actions.importResume, () => undefined, 'Resume imported from your device.', {
+        scope: jobFinderPendingActions.profileImport(),
+      })
     },
-    onOpenBrowserSession: () =>
+    onOpenBrowserSession: (input?: JobFinderOpenBrowserSessionInput) =>
       void runAction(
-        actions.openBrowserSession,
+        () => actions.openBrowserSession(input),
         () => undefined,
-        workspace.browserSession.status === 'ready'
-          ? 'Browser refreshed.'
-          : 'Browser opened and status refreshed.',
+        (result) => {
+          if (input?.targetId) {
+            const target = getConfiguredSourceTarget(input.targetId)
+            if (result.browserSession.driver === 'catalog_seed') {
+              return target
+                ? `Targeted sign-in for ${target.label} is unavailable because the browser agent runtime is disabled.`
+                : 'Targeted sign-in is unavailable because the browser agent runtime is disabled.'
+            }
+
+            return target
+              ? `Opened the browser for ${target.label}. Sign in there, then return to continue.`
+              : 'Browser opened and status refreshed.'
+          }
+
+          return workspace.browserSession.status === 'ready'
+            ? 'Browser refreshed.'
+            : 'Browser opened and status refreshed.'
+        },
+        {
+          scope: input?.targetId
+            ? jobFinderPendingActions.browserSessionTarget(input.targetId)
+            : jobFinderPendingActions.browserSession(),
+        },
       ),
     onOpenProfile: () => {
       if (!confirmLeaveDirtyResumeWorkspace()) {
@@ -396,6 +558,7 @@ export function createPrimaryPageActions(
           navigate('/job-finder/review-queue')
         },
         'Job added to Shortlisted.',
+        { scope: jobFinderPendingActions.discoveryJob(jobId) },
       )
     },
     onRejectProfileCopilotPatchGroup: (patchGroupId: string) =>
@@ -403,6 +566,7 @@ export function createPrimaryPageActions(
         () => actions.rejectProfileCopilotPatchGroup(patchGroupId),
         () => undefined,
         'Profile change proposal dismissed.',
+        { scope: jobFinderPendingActions.profileMutation() },
       ),
     onRefreshResumeWorkspace: (jobId: string) =>
       void runResumeWorkspaceAction(
@@ -417,6 +581,7 @@ export function createPrimaryPageActions(
           setResumeAssistantPending(false)
         },
         'Workspace reloaded.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onRegenerateResumeDraft: (jobId: string) =>
       void runResumeWorkspaceAction(
@@ -425,6 +590,7 @@ export function createPrimaryPageActions(
           await refreshResumeWorkspace(jobId)
         },
         'Draft refreshed.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onRegenerateResumeSection: (jobId: string, sectionId: string) =>
       void runResumeWorkspaceAction(
@@ -433,50 +599,49 @@ export function createPrimaryPageActions(
           await refreshResumeWorkspace(jobId)
         },
         'Section refreshed.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onRunAgentDiscovery: () => runDiscoveryAction(),
     onRunDiscoveryForTarget: (targetId: string) => runDiscoveryAction(targetId),
     onRunSourceDebug: (targetId: string) => {
-      const runId = sourceDebugRunIdRef.current + 1
-      sourceDebugRunIdRef.current = runId
-      setActionState({
-        busy: true,
-        message: 'Starting source debug and attaching the browser profile...',
-      })
-      void actions
-        .runSourceDebug(targetId, (progressEvent) => {
-          if (sourceDebugRunIdRef.current !== runId) {
-            return
-          }
-
-          setActionState({
-            busy: true,
-            message: progressEvent.message,
-          })
+      sourceDebugRunIdRef.current += 1
+      const runId = sourceDebugRunIdRef.current
+      const scope = jobFinderPendingActions.sourceDebug(targetId)
+      void withPendingScope(scope, async () => {
+        setActionState({
+          message: 'Starting source debug and attaching the browser profile...',
         })
-        .then((nextWorkspace) => {
+
+        try {
+          const nextWorkspace = await actions.runSourceDebug(targetId, (progressEvent) => {
+            if (sourceDebugRunIdRef.current !== runId) {
+              return
+            }
+
+            setActionState({
+              message: progressEvent.message,
+            })
+          })
+
           if (sourceDebugRunIdRef.current !== runId) {
             return
           }
 
-          sourceDebugRunIdRef.current = 0
           setActionState({
-            busy: false,
             message: buildSourceDebugOutcomeMessage(nextWorkspace, targetId),
           })
-        })
-        .catch((error) => {
+        } catch (error) {
           if (sourceDebugRunIdRef.current !== runId) {
             return
           }
 
-          sourceDebugRunIdRef.current = 0
           const message =
             error instanceof Error
               ? error.message
               : 'The requested Job Finder action failed.'
-          setActionState({ busy: false, message })
-        })
+          setActionState({ message })
+        }
+      })
     },
     onResumeProfileSetup: (step?: ProfileSetupStep) =>
       void runAction(
@@ -500,6 +665,7 @@ export function createPrimaryPageActions(
           navigate('/job-finder/profile/setup')
         },
         null,
+        { scope: jobFinderPendingActions.profileSetup() },
       ),
     onSaveSetupStep: (
       profile: CandidateProfile,
@@ -557,6 +723,7 @@ export function createPrimaryPageActions(
               : options?.stayOnCurrentStep
                 ? 'Saved this step.'
                 : `Saved and moved to ${nextStep.replaceAll('_', ' ')}.`),
+        { scope: jobFinderPendingActions.profileSetup() },
       ),
     onSaveAll: (
       profile: CandidateProfile,
@@ -566,6 +733,7 @@ export function createPrimaryPageActions(
         () => actions.saveWorkspaceInputs(profile, searchPreferences),
         () => undefined,
         null,
+        { scope: jobFinderPendingActions.profileMutation() },
       ),
     onSaveResumeDraft: (draft: ResumeDraft) =>
       void runResumeWorkspaceAction(
@@ -574,6 +742,7 @@ export function createPrimaryPageActions(
           await refreshResumeWorkspace(draft.jobId)
         },
         'Draft saved.',
+        { scope: jobFinderPendingActions.resumeJob(draft.jobId) },
       ),
     onSaveResumeDraftAndThen: (
       draft: ResumeDraft,
@@ -591,6 +760,7 @@ export function createPrimaryPageActions(
             await refreshResumeWorkspace(jobId)
           },
           successMessage === undefined ? 'Changes saved.' : successMessage,
+          { scope: jobFinderPendingActions.resumeJob(jobId) },
         )
 
         if (saveSucceeded && isCurrentResumeWorkspaceJob(jobId)) {
@@ -600,8 +770,12 @@ export function createPrimaryPageActions(
     onApplyResumePatch: (
       patch: ResumeDraftPatch,
       revisionReason?: string | null,
-    ) =>
-      void runResumeWorkspaceAction(
+    ) => {
+      const scope = activeRouteResumeWorkspace
+        ? jobFinderPendingActions.resumeJob(activeRouteResumeWorkspace.job.id)
+        : null
+
+      return void runResumeWorkspaceAction(
         () => actions.applyResumePatch(patch, revisionReason),
         async () => {
           if (!activeRouteResumeWorkspace) {
@@ -613,9 +787,13 @@ export function createPrimaryPageActions(
           })
         },
         'Resume updated.',
-      ),
+        scope ? { scope } : undefined,
+      )
+    },
     onSaveProfile: (profile: CandidateProfile) =>
-      void runAction(() => actions.saveProfile(profile), () => undefined, null),
+      void runAction(() => actions.saveProfile(profile), () => undefined, null, {
+        scope: jobFinderPendingActions.profileMutation(),
+      }),
     onExportResumePdf: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.exportResumePdf(jobId),
@@ -623,12 +801,14 @@ export function createPrimaryPageActions(
           await refreshResumeWorkspace(jobId)
         },
         'PDF exported for review.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
       void runAction(
         () => actions.saveSearchPreferences(searchPreferences),
         () => undefined,
         null,
+        { scope: jobFinderPendingActions.profileMutation() },
       ),
     onClearResumeApproval: (jobId: string) =>
       void runResumeWorkspaceAction(
@@ -637,9 +817,12 @@ export function createPrimaryPageActions(
           await refreshResumeWorkspace(jobId)
         },
         'Approved PDF removed.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onSaveSettings: (settings: JobFinderSettings) =>
-      void runAction(() => actions.saveSettings(settings), () => undefined, null),
+      void runAction(() => actions.saveSettings(settings), () => undefined, null, {
+        scope: jobFinderPendingActions.settingsSave(),
+      }),
     onSendProfileCopilotMessage: (
       content: string,
       context?: ProfileCopilotContext,
@@ -675,10 +858,9 @@ export function createPrimaryPageActions(
           setOptimisticProfileCopilotMessages([])
           setProfileCopilotBusy(false)
           setProfileCopilotPendingContextKey(null)
-          setActionState((current) => ({
-            ...current,
+          setActionState({
             message: 'Profile Copilot replied.',
-          }))
+          })
         } catch (error) {
           if (requestToken !== profileCopilotRequestTokenRef.current) {
             return
@@ -691,7 +873,7 @@ export function createPrimaryPageActions(
           setOptimisticProfileCopilotMessages([])
           setProfileCopilotBusy(false)
           setProfileCopilotPendingContextKey(null)
-          setActionState((current) => ({ ...current, message }))
+          setActionState({ message })
         }
       })(),
     onUndoProfileRevision: (revisionId: string) =>
@@ -699,6 +881,7 @@ export function createPrimaryPageActions(
         () => actions.undoProfileRevision(revisionId),
         () => undefined,
         'Last assistant change was undone.',
+        { scope: jobFinderPendingActions.profileMutation() },
       ),
     onSendResumeAssistantMessage: (jobId: string, content: string) =>
       void (async () => {
@@ -721,7 +904,9 @@ export function createPrimaryPageActions(
           patches: [],
           createdAt,
         }
+        const scope = jobFinderPendingActions.resumeJob(jobId)
 
+        setPendingActionState((current) => incrementPendingScope(current, scope))
         setResumeAssistantPending(true)
         setResumeAssistantMessages((current) => [
           ...current,
@@ -729,7 +914,6 @@ export function createPrimaryPageActions(
           optimisticAssistantMessage,
         ])
         setActionState({
-          busy: true,
           message: 'Assistant is updating your draft...',
         })
 
@@ -766,7 +950,6 @@ export function createPrimaryPageActions(
 
           if (isCurrentResumeAssistantRequest(requestJobId, requestToken)) {
             setActionState({
-              busy: false,
               message:
                 refreshMessage !== null
                   ? `Assistant finished${appliedCount > 0 ? ` and applied ${appliedCount} change${appliedCount === 1 ? '' : 's'}` : ''}, but the editor could not refresh automatically. ${refreshMessage}`
@@ -789,14 +972,10 @@ export function createPrimaryPageActions(
                   entry.id !== optimisticAssistantMessage.id,
               ),
             )
-            setActionState({ busy: false, message })
+            setActionState({ message })
           }
         } finally {
-          if (resumeAssistantRequestTokenRef.current === requestToken) {
-            setActionState((current) =>
-              current.busy ? { ...current, busy: false } : current,
-            )
-          }
+          setPendingActionState((current) => decrementPendingScope(current, scope))
         }
       })(),
   }

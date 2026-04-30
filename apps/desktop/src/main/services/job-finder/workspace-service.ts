@@ -4,9 +4,20 @@ let jobFinderWorkspaceServicePromise:
   | ReturnType<typeof createJobFinderWorkspaceServiceAsync>
   | undefined
 
+let jobFinderWorkspaceServiceOverrideEnv: Partial<NodeJS.ProcessEnv> | null = null
+
 export function getJobFinderWorkspaceService() {
-  jobFinderWorkspaceServicePromise ??= createJobFinderWorkspaceServiceAsync()
+  jobFinderWorkspaceServicePromise ??= createJobFinderWorkspaceServiceAsync(
+    jobFinderWorkspaceServiceOverrideEnv ?? undefined,
+  )
   return jobFinderWorkspaceServicePromise
+}
+
+export async function setJobFinderWorkspaceServiceTestEnv(
+  envOverrides: Partial<NodeJS.ProcessEnv> | null,
+) {
+  await shutdownJobFinderWorkspaceService()
+  jobFinderWorkspaceServiceOverrideEnv = envOverrides
 }
 
 export async function shutdownJobFinderWorkspaceService() {

@@ -33,8 +33,8 @@ describe('ProfileSaveFooter', () => {
       root?.render(
         <ProfileSaveFooter
           actionMessage="Profile saved."
-          busy={false}
           hasUnsavedChanges={false}
+          isSavePending={false}
           onSave={vi.fn()}
           validationMessage="Search preferences are invalid."
         />,
@@ -54,8 +54,8 @@ describe('ProfileSaveFooter', () => {
       root?.render(
         <ProfileSaveFooter
           actionMessage="Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten."
-          busy={false}
           hasUnsavedChanges={true}
+          isSavePending={false}
           onSave={vi.fn()}
           validationMessage={null}
         />,

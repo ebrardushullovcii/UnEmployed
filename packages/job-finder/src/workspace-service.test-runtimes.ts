@@ -8,7 +8,11 @@ import type {
   AgentDiscoveryOptions,
   BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
-import { JobPostingSchema } from "@unemployed/contracts";
+import {
+  JobPostingSchema,
+  ResumeTemplateDefinitionSchema,
+  type ResumeTemplateId,
+} from "@unemployed/contracts";
 import type {
   AgentDebugFindings,
   AgentDiscoveryProgress,
@@ -25,6 +29,7 @@ import type {
 } from "@unemployed/contracts";
 import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 
+import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
 import { toPhaseId, type SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
 
 function normalizeTestJobPosting(job: Record<string, unknown>): JobPosting {
@@ -547,22 +552,164 @@ export function createExtractionAiClient(
 export function createDocumentManager() {
   return {
     listResumeTemplates() {
-      return [
+      return ResumeTemplateDefinitionSchema.array().parse([
         {
           id: "classic_ats" as const,
-          label: "Classic ATS",
+          label: "Swiss Minimal - Standard",
+          familyId: "swiss_minimal",
+          familyLabel: "Swiss Minimal",
+          variantLabel: "Standard",
+          deliveryLane: "apply_safe",
+          atsConfidence: "high",
+          applyEligible: true,
+          approvalEligible: true,
           description:
-            "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
+            "Quiet single-column resume with restrained typography and balanced spacing for broad ATS-safe use.",
+          bestFor: ["General applications", "Recruiter-heavy funnels"],
+          visualTags: ["Minimal", "Balanced", "Single column"],
+          density: "balanced" as const,
+          sortOrder: 10,
         },
-      ];
+        {
+          id: "compact_exec" as const,
+          label: "Executive Brief - Dense",
+          familyId: "executive_brief",
+          familyLabel: "Executive Brief",
+          variantLabel: "Dense",
+          deliveryLane: "apply_safe",
+          atsConfidence: "high",
+          applyEligible: true,
+          approvalEligible: true,
+          description:
+            "Tighter spacing and a centered hierarchy for experienced candidates who need a denser executive-style read.",
+          bestFor: ["Experienced candidates", "Content-dense resumes"],
+          visualTags: ["Dense", "Centered header", "High signal"],
+          density: "compact" as const,
+          sortOrder: 20,
+        },
+        {
+          id: "modern_split" as const,
+          label: "Swiss Minimal - Accent",
+          familyId: "swiss_minimal",
+          familyLabel: "Swiss Minimal",
+          variantLabel: "Accent",
+          deliveryLane: "apply_safe",
+          atsConfidence: "high",
+          applyEligible: true,
+          approvalEligible: true,
+          description:
+            "Same calm backbone with a stronger header band and summary callout for polished but still ATS-safe exports.",
+          bestFor: ["Product roles", "Design-adjacent teams", "Startup hiring loops"],
+          visualTags: ["Accent header", "Summary callout", "Balanced"],
+          density: "balanced" as const,
+          sortOrder: 30,
+        },
+        {
+          id: "technical_matrix" as const,
+          label: "Engineering Spec - Systems",
+          familyId: "engineering_spec",
+          familyLabel: "Engineering Spec",
+          variantLabel: "Systems",
+          deliveryLane: "apply_safe",
+          atsConfidence: "high",
+          applyEligible: true,
+          approvalEligible: true,
+          description:
+            "Skills-forward single-column layout that highlights technical depth before chronology.",
+          bestFor: ["Engineering roles", "Data roles", "Security roles"],
+          visualTags: ["Skills matrix", "Technical", "Compact"],
+          density: "compact" as const,
+          sortOrder: 40,
+        },
+        {
+          id: "project_showcase" as const,
+          label: "Portfolio Narrative - Proof-led",
+          familyId: "portfolio_narrative",
+          familyLabel: "Portfolio Narrative",
+          variantLabel: "Proof-led",
+          deliveryLane: "apply_safe",
+          atsConfidence: "high",
+          applyEligible: true,
+          approvalEligible: true,
+          description:
+            "Project-forward single-column layout for candidates whose proof lands best through shipped work.",
+          bestFor: ["Portfolio-heavy candidates", "Career changers", "Product builders"],
+          visualTags: ["Projects first", "Proof led", "Comfortable"],
+          density: "comfortable" as const,
+          sortOrder: 50,
+        },
+        {
+          id: "credentials_focus" as const,
+          label: "Executive Brief - Credentials",
+          familyId: "executive_brief",
+          familyLabel: "Executive Brief",
+          variantLabel: "Credentials",
+          deliveryLane: "apply_safe",
+          atsConfidence: "high",
+          applyEligible: true,
+          approvalEligible: true,
+          description:
+            "Credentials-first single-column layout that surfaces certifications and education earlier without leaving ATS-safe structure.",
+          bestFor: ["Regulated industries", "Certification-heavy roles", "Academic backgrounds"],
+          visualTags: ["Credentials first", "Centered header", "Balanced"],
+          density: "balanced" as const,
+          sortOrder: 60,
+        },
+      ]);
     },
-    renderResumeArtifact() {
+    renderResumePreview(input: {
+      templateId: ResumeTemplateId
+      renderDocument: {
+        fullName: string
+        headline: string | null
+        location: string | null
+        contactItems: Array<{ field: string; text: string }>
+        sections: Array<{
+          id: string
+          text: string | null
+          bullets: Array<{ id: string; text: string }>
+          entries: Array<{
+            id: string
+            title: string | null
+            subtitle: string | null
+            location: string | null
+            dateRange: string | null
+            heading: string | null
+            summary: string | null
+            bullets: Array<{ id: string; text: string }>
+          }>
+        }>
+      }
+    }) {
+      const previewBody = input.renderDocument.sections
+        .map((section) => {
+          const lines = [
+            ...(section.text ? [section.text] : []),
+            ...section.bullets.map((bullet) => bullet.text),
+            ...section.entries.flatMap((entry) => [
+              ...(entry.heading ? [entry.heading] : []),
+              ...(entry.summary ? [entry.summary] : []),
+              ...entry.bullets.map((bullet) => bullet.text),
+            ]),
+          ]
+
+          return `<section data-resume-section-id="${section.id}">${lines.join(' ')}</section>`
+        })
+        .join('')
+
       return Promise.resolve({
-        fileName: "generated-resume.pdf",
-        storagePath: "/tmp/generated-resume.pdf",
+        html: `<!doctype html><html><body><article data-template-id="${input.templateId}"><h1>${input.renderDocument.fullName}</h1>${previewBody}</article></body></html>`,
+        warnings: [],
+      })
+    },
+    renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
+      const fileStem = `generated-${input.templateId}`
+      return Promise.resolve({
+        fileName: `${fileStem}.pdf`,
+        storagePath: `/tmp/${fileStem}.pdf`,
         format: "pdf" as const,
-        intermediateFileName: "generated-resume.html",
-        intermediateStoragePath: "/tmp/generated-resume.html",
+        intermediateFileName: `${fileStem}.html`,
+        intermediateStoragePath: `/tmp/${fileStem}.html`,
         pageCount: 2,
         warnings: [],
       });

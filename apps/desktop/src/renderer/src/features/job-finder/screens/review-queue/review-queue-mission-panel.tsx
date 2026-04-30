@@ -4,6 +4,7 @@ import { Button, ProgressBar } from '@renderer/components/ui'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
+import { jobDescriptionToText } from '../../lib/job-description-text'
 import {
   getApplyReadinessStatus,
   hasResumeGenerationFailure,
@@ -16,7 +17,8 @@ import {
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
   browserSession: BrowserSessionState
-  busy: boolean
+  isApplyPending: boolean
+  isJobPending: (jobId: string) => boolean
   onClearQueueSelection: () => void
   onApproveApply: (jobId: string) => void
   onStartAutoApply: (jobId: string) => void
@@ -181,7 +183,8 @@ function getReadinessDescription(input: {
 export function ReviewQueueMissionPanel({
   actionMessage,
   browserSession,
-  busy,
+  isApplyPending,
+  isJobPending,
   onClearQueueSelection,
   onApproveApply,
   onStartAutoApply,
@@ -297,6 +300,10 @@ export function ReviewQueueMissionPanel({
   const selectedQueueBlockedCount = selectedQueueItems.length - selectedQueueReadyItems.length
   const queueReadyCount = queue.filter((item) => isQueueStageReady(item)).length
   const canStageSelectedQueue = selectedQueueReadyItems.length > 0 && selectedQueueBlockedCount === 0
+  const isSelectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
+  const isSelectedQueuePending = selectedQueueReadyItems.some((item) => isJobPending(item.jobId))
+  const isGenerationAction = needsGeneration || hasGenerationFailure
+  const isPrimaryApplyPending = isApplyPending && !isGenerationAction
   const queueSummary = selectedQueueItems.length === 0
     ? queueReadyCount === 0
       ? 'No shortlisted jobs currently meet the approved-PDF requirement for queue staging.'
@@ -362,7 +369,9 @@ export function ReviewQueueMissionPanel({
                 <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">Job summary</span>
                 <strong className="text-(length:--text-body) text-(--text-headline)">{selectedJob.title}</strong>
               </div>
-              <p className="text-(length:--text-body) leading-7 text-foreground-soft">{selectedJob.summary ?? selectedJob.description}</p>
+              <p className="text-(length:--text-body) leading-7 text-foreground-soft">
+                {jobDescriptionToText(selectedJob.summary ?? selectedJob.description)}
+              </p>
               {selectedJob.employerWebsiteUrl ? (
                 <p className="min-w-0 break-words text-(length:--text-small) leading-6 text-foreground-soft">
                   Company site: {selectedJob.employerWebsiteUrl}
@@ -405,11 +414,12 @@ export function ReviewQueueMissionPanel({
             {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words text-(length:--text-small) leading-6 text-primary" role="status">{actionMessage}</p> : null}
             <div className="grid min-w-0 gap-2.5">
               <Button
-                className="h-11 w-full"
+                className="h-11 w-full justify-start px-4 text-sm font-semibold normal-case tracking-normal"
+                pending={isSelectedJobPending || isPrimaryApplyPending}
                 variant="primary"
-                disabled={busy || isGenerating || (needsGeneration || hasGenerationFailure ? false : !canApproveApply)}
+                disabled={isSelectedJobPending || isPrimaryApplyPending || isGenerating || (isGenerationAction ? false : !canApproveApply)}
                 onClick={() => {
-                  if (needsGeneration || hasGenerationFailure) {
+                  if (isGenerationAction) {
                     onGenerateResume(selectedItem.jobId)
                     return
                   }
@@ -420,38 +430,52 @@ export function ReviewQueueMissionPanel({
               >
                 {primaryActionLabel}
               </Button>
+
+              <div className="grid gap-1.5 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/20 p-2.5">
+                <p className="text-(length:--text-label-mono-xs) uppercase tracking-(--tracking-badge) text-muted-foreground">More actions</p>
+                <div className="grid gap-2">
+                  <Button
+                    className="h-10 w-full justify-start px-3.5 text-sm font-medium normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
+                    pending={isSelectedJobPending || isApplyPending}
+                    disabled={isSelectedJobPending || isApplyPending || isGenerating || !canApproveApply}
+                    onClick={() => onStartAutoApply(selectedItem.jobId)}
+                    size="compact"
+                    type="button"
+                    variant="outline"
+                  >
+                    Stage automatic submit run
+                  </Button>
+                  <Button
+                    className="h-10 w-full justify-start px-3.5 text-sm font-medium normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
+                    pending={isApplyPending || isSelectedQueuePending}
+                    disabled={isApplyPending || isSelectedQueuePending || !canStageSelectedQueue}
+                    onClick={() => onStartAutoApplyQueue(selectedQueueReadyItems.map((item) => item.jobId))}
+                    size="compact"
+                    type="button"
+                    variant="outline"
+                  >
+                    {selectedQueueReadyItems.length > 0
+                      ? `Stage queue for ${selectedQueueReadyItems.length} job${selectedQueueReadyItems.length === 1 ? '' : 's'}`
+                      : 'Stage selected queue'}
+                  </Button>
+                  <Button
+                    className="h-10 w-full justify-start px-3.5 text-sm font-medium normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
+                    pending={isSelectedJobPending || isApplyPending}
+                    disabled={isSelectedJobPending || isApplyPending || isGenerating || !canApproveApply}
+                    onClick={() => onApproveApply(selectedItem.jobId)}
+                    size="compact"
+                    type="button"
+                    variant="outline"
+                  >
+                    Run legacy submit path
+                  </Button>
+                </div>
+              </div>
+
               <Button
-                className="h-11 w-full"
-                disabled={busy || isGenerating || !canApproveApply}
-                onClick={() => onStartAutoApply(selectedItem.jobId)}
-                type="button"
-                variant="secondary"
-              >
-                Stage automatic submit run
-              </Button>
-              <Button
-                className="h-11 w-full"
-                disabled={busy || !canStageSelectedQueue}
-                onClick={() => onStartAutoApplyQueue(selectedQueueReadyItems.map((item) => item.jobId))}
-                type="button"
-                variant="secondary"
-              >
-                {selectedQueueReadyItems.length > 0
-                  ? `Stage queue for ${selectedQueueReadyItems.length} job${selectedQueueReadyItems.length === 1 ? '' : 's'}`
-                  : 'Stage selected queue'}
-              </Button>
-              <Button
-                className="h-11 w-full"
-                disabled={busy || isGenerating || !canApproveApply}
-                onClick={() => onApproveApply(selectedItem.jobId)}
-                type="button"
-                variant="ghost"
-              >
-                Run legacy submit path
-              </Button>
-              <Button
-                className="h-11 w-full"
+                className="h-auto w-full justify-start px-0 text-left text-sm font-medium normal-case tracking-normal text-foreground-soft hover:text-foreground"
                 onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                size="sm"
                 type="button"
                 variant="ghost"
               >

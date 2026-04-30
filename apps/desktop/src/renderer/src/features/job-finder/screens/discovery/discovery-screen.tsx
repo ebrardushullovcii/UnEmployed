@@ -5,6 +5,7 @@ import type {
   DiscoveryActivityEvent,
   DiscoveryRunRecord,
   JobSearchPreferences,
+  SourceAccessPrompt,
   SavedJob
 } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
@@ -18,15 +19,20 @@ import { DiscoveryFiltersPanel } from './discovery-filters-panel'
 import { DiscoveryResultsPanel } from './discovery-results-panel'
 
 export function DiscoveryScreen(props: {
-  actionState: { busy: boolean; message: string | null }
+  actionState: { message: string | null }
   activeRun: DiscoveryRunRecord | null
-  busy: boolean
   browserSession: BrowserSessionState
   discoverySessions: readonly DiscoveryAdapterSessionState[]
+  isBrowserSessionPending: boolean
+  isBrowserSessionPendingForTarget: (targetId: string) => boolean
+  isDiscoveryAllPending: boolean
+  isJobPending: (jobId: string) => boolean
+  isTargetPending: (targetId: string) => boolean
   jobs: readonly SavedJob[]
   liveEvents: readonly DiscoveryActivityEvent[]
   onDismissJob: (jobId: string) => void
   onOpenBrowserSession: () => void
+  onOpenBrowserSessionForTarget: (targetId: string) => void
   onQueueJob: (jobId: string) => void
   onRunAgentDiscovery: (() => void) | undefined
   onRunDiscoveryForTarget?: (targetId: string) => void
@@ -34,23 +40,30 @@ export function DiscoveryScreen(props: {
   recentRuns: readonly DiscoveryRunRecord[]
   searchPreferences: JobSearchPreferences
   selectedJob: SavedJob | null
+  sourceAccessPrompts: readonly SourceAccessPrompt[]
 }) {
   const {
     actionState,
     activeRun,
     browserSession,
-    busy,
     discoverySessions,
+    isBrowserSessionPending,
+    isBrowserSessionPendingForTarget,
+    isDiscoveryAllPending,
+    isJobPending,
+    isTargetPending,
     jobs,
     liveEvents,
     onDismissJob,
     onOpenBrowserSession,
+    onOpenBrowserSessionForTarget,
     onQueueJob,
     onRunAgentDiscovery,
     onSelectJob,
     recentRuns,
     searchPreferences,
-    selectedJob
+    selectedJob,
+    sourceAccessPrompts,
   } = props
   const [showHistory, setShowHistory] = useState(false)
 
@@ -75,6 +88,26 @@ export function DiscoveryScreen(props: {
             'Open the browser, sign in or fix the issue, then search again.'
         }
 
+  const filtersPanel = (
+    <DiscoveryFiltersPanel
+      activeRun={activeRun}
+      actionMessage={actionState.message}
+      browserSession={browserSession}
+      discoverySessions={discoverySessions}
+      isBrowserSessionPending={isBrowserSessionPending}
+      isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
+      isDiscoveryAllPending={isDiscoveryAllPending}
+      isTargetPending={isTargetPending}
+      onOpenBrowserSession={onOpenBrowserSession}
+      onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
+      onRunAgentDiscovery={onRunAgentDiscovery}
+      {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
+      onViewProgress={() => setShowHistory(true)}
+      searchPreferences={searchPreferences}
+      sourceAccessPrompts={sourceAccessPrompts}
+    />
+  )
+
   return (
     <>
       <LockedScreenLayout
@@ -90,17 +123,7 @@ export function DiscoveryScreen(props: {
       >
         {showEmptyDiscoveryState ? (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
-            <DiscoveryFiltersPanel
-              activeRun={activeRun}
-              actionMessage={actionState.message}
-              busy={busy}
-              discoverySessions={discoverySessions}
-              onOpenBrowserSession={onOpenBrowserSession}
-              onRunAgentDiscovery={onRunAgentDiscovery}
-              {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
-              onViewProgress={() => setShowHistory(true)}
-              searchPreferences={searchPreferences}
-            />
+            {filtersPanel}
             <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-6 xl:h-full xl:min-h-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Job results</p>
@@ -119,17 +142,7 @@ export function DiscoveryScreen(props: {
           </div>
         ) : (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
-            <DiscoveryFiltersPanel
-              activeRun={activeRun}
-              actionMessage={actionState.message}
-              busy={busy}
-              discoverySessions={discoverySessions}
-              onOpenBrowserSession={onOpenBrowserSession}
-              onRunAgentDiscovery={onRunAgentDiscovery}
-              {...(props.onRunDiscoveryForTarget ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget } : {})}
-              onViewProgress={() => setShowHistory(true)}
-              searchPreferences={searchPreferences}
-            />
+            {filtersPanel}
             <DiscoveryResultsPanel
               browserSession={browserSession}
               jobs={jobs}
@@ -137,8 +150,8 @@ export function DiscoveryScreen(props: {
               selectedJob={selectedJob}
             />
             <DiscoveryDetailPanel
-              busy={busy}
               discoveryTargets={searchPreferences.discovery.targets}
+              isJobPending={isJobPending}
               onDismissJob={onDismissJob}
               onQueueJob={onQueueJob}
               selectedJob={selectedJob}

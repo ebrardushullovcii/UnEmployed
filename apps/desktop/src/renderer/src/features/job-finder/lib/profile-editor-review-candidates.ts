@@ -1,4 +1,10 @@
 import { normalizeWorkModeList, type CandidateProfile, type ResumeImportFieldCandidateSummary } from '@unemployed/contracts'
+import {
+  areEquivalentEducationRecords,
+  areEquivalentExperienceRecords,
+  scoreEducationRecordCompleteness,
+  scoreExperienceRecordCompleteness,
+} from '@unemployed/job-finder/resume-record-identity'
 import type { EducationFormEntry, ExperienceFormEntry } from './job-finder-types'
 import { joinListInput } from './job-finder-utils'
 import type { ProfileEditorValues } from './profile-editor-types'
@@ -153,12 +159,25 @@ function buildEducationIdentity(entry: EducationFormEntry) {
   ].join('|')
 }
 
+function shouldReplaceCandidateEntry(
+  existingScore: number,
+  nextScore: number,
+  existingKey: string,
+  nextKey: string
+) {
+  if (existingScore !== nextScore) {
+    return existingScore < nextScore
+  }
+
+  return nextKey.localeCompare(existingKey) < 0
+}
+
 function mergeExperienceReviewCandidates(
   existing: ExperienceFormEntry[],
   candidates: readonly ResumeImportFieldCandidateSummary[]
 ): ExperienceFormEntry[] {
   const merged = [...existing]
-  const seen = new Set(merged.map(buildExperienceIdentity))
+  const canonicalEntryIds = new Set(existing.filter((entry) => !entry.sourceCandidateId).map((entry) => entry.id))
 
   for (const candidate of candidates) {
     if (candidate.target.section !== 'experience' || candidate.target.key !== 'record' || !isObject(candidate.value)) {
@@ -188,10 +207,28 @@ function mergeExperienceReviewCandidates(
     nextEntry.sourceCandidateId = candidate.id
     nextEntry.sourceCandidateFingerprint = nextFingerprint
 
-    const identity = buildExperienceIdentity(nextEntry)
-    if (!seen.has(identity)) {
+    const matchingIndex = merged.findIndex((entry) =>
+      buildExperienceIdentity(entry) === buildExperienceIdentity(nextEntry) ||
+      areEquivalentExperienceRecords(entry, nextEntry)
+    )
+
+    if (matchingIndex === -1) {
       merged.push(nextEntry)
-      seen.add(identity)
+      continue
+    }
+
+    const existingEntry = merged[matchingIndex]
+    if (existingEntry && canonicalEntryIds.has(existingEntry.id)) {
+      continue
+    }
+
+    const existingScore = existingEntry ? scoreExperienceRecordCompleteness(existingEntry) : 0
+    const nextScore = scoreExperienceRecordCompleteness(nextEntry)
+    const existingKey = existingEntry?.sourceCandidateId ?? existingEntry?.id ?? ''
+    const nextKey = nextEntry.sourceCandidateId ?? nextEntry.id
+
+    if (shouldReplaceCandidateEntry(existingScore, nextScore, existingKey, nextKey)) {
+      merged.splice(matchingIndex, 1, nextEntry)
     }
   }
 
@@ -203,7 +240,7 @@ function mergeEducationReviewCandidates(
   candidates: readonly ResumeImportFieldCandidateSummary[]
 ): EducationFormEntry[] {
   const merged = [...existing]
-  const seen = new Set(merged.map(buildEducationIdentity))
+  const canonicalEntryIds = new Set(existing.filter((entry) => !entry.sourceCandidateId).map((entry) => entry.id))
 
   for (const candidate of candidates) {
     if (candidate.target.section !== 'education' || candidate.target.key !== 'record' || !isObject(candidate.value)) {
@@ -225,10 +262,28 @@ function mergeEducationReviewCandidates(
     nextEntry.sourceCandidateId = candidate.id
     nextEntry.sourceCandidateFingerprint = nextFingerprint
 
-    const identity = buildEducationIdentity(nextEntry)
-    if (!seen.has(identity)) {
+    const matchingIndex = merged.findIndex((entry) =>
+      buildEducationIdentity(entry) === buildEducationIdentity(nextEntry) ||
+      areEquivalentEducationRecords(entry, nextEntry)
+    )
+
+    if (matchingIndex === -1) {
       merged.push(nextEntry)
-      seen.add(identity)
+      continue
+    }
+
+    const existingEntry = merged[matchingIndex]
+    if (existingEntry && canonicalEntryIds.has(existingEntry.id)) {
+      continue
+    }
+
+    const existingScore = existingEntry ? scoreEducationRecordCompleteness(existingEntry) : 0
+    const nextScore = scoreEducationRecordCompleteness(nextEntry)
+    const existingKey = existingEntry?.sourceCandidateId ?? existingEntry?.id ?? ''
+    const nextKey = nextEntry.sourceCandidateId ?? nextEntry.id
+
+    if (shouldReplaceCandidateEntry(existingScore, nextScore, existingKey, nextKey)) {
+      merged.splice(matchingIndex, 1, nextEntry)
     }
   }
 

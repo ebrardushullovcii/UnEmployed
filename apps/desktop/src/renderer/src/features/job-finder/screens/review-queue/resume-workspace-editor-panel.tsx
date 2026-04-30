@@ -1,121 +1,84 @@
-import { FileOutput, RefreshCcw } from 'lucide-react'
-import type { ResumeDraft, ResumeDraftPatch } from '@unemployed/contracts'
-import { Button } from '@renderer/components/ui/button'
-import { ResumeSectionEditor } from './resume-section-editor'
+import type { ResumeDraft, ResumeDraftPatch } from "@unemployed/contracts";
+import { ResumeIdentityEditor } from "./resume-identity-editor";
+import { ResumeSectionEditor } from "./resume-section-editor";
 
-type ResumeDraftSection = ResumeDraft['sections'][number]
+type ResumeDraftSection = ResumeDraft["sections"][number];
 
 interface ResumeWorkspaceEditorPanelProps {
-  actionMessage: string | null
-  approvedExportId: string | null
-  availableExportIdToApprove: string | null
-  busy: boolean
-  draft: ResumeDraft
-  hasUnsavedChanges: boolean
-  jobId: string
-  onApplyPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void
-  onApproveResume: (jobId: string, exportId: string) => void
-  onClearResumeApproval: (jobId: string) => void
-  onExportPdf: (jobId: string) => void
-  onRegenerateDraft: (jobId: string) => void
-  onRegenerateSection: (jobId: string, sectionId: string) => void
-  onSaveDraft: (draft: ResumeDraft) => void
-  onSectionChange: (section: ResumeDraftSection) => void
-  runWithSavedDraft: (next: () => void, successMessage?: string | null) => void
-  runWithSavedDraftAsync: (next: () => Promise<void> | void, successMessage?: string | null) => void
-  withDraftPatch: (patch: ResumeDraftPatch) => ResumeDraftPatch
+  actionMessage: string | null;
+  draft: ResumeDraft;
+  hasUnsavedChanges: boolean;
+  isWorkspacePending: boolean;
+  jobId: string;
+  onApplyPatch: (
+    patch: ResumeDraftPatch,
+    revisionReason?: string | null,
+  ) => void;
+  onDraftChange: (draft: ResumeDraft) => void;
+  onRegenerateSection: (jobId: string, sectionId: string) => void;
+  onSectionChange: (section: ResumeDraftSection) => void;
+  onSelectEntry: (sectionId: string, entryId: string) => void;
+  onSelectSection: (sectionId: string) => void;
+  runWithSavedDraft: (next: () => void, successMessage?: string | null) => void;
+  selectedEntryId: string | null;
+  selectedSectionId: string | null;
+  selectedTargetId: string | null;
+  withDraftPatch: (patch: ResumeDraftPatch) => ResumeDraftPatch;
 }
 
-export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProps) {
-  const exportIdToApprove = props.availableExportIdToApprove
+export function ResumeWorkspaceEditorPanel(
+  props: ResumeWorkspaceEditorPanelProps,
+) {
   const helperMessage = props.hasUnsavedChanges
-    ? 'Unsaved edits will be saved before you export, approve, reload, or send a request to the assistant.'
-    : props.approvedExportId
-      ? 'This draft already has an approved PDF. Clear approval if you want a fresh version used for applications.'
-      : exportIdToApprove
-        ? 'The latest PDF matches this draft and is ready to approve.'
-        : 'Save your draft, then export a PDF to review it before applying.'
+    ? "Live preview already shows these unsaved edits. Save before export or approval."
+    : "Click the live page to jump to the matching structured field.";
 
   return (
     <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
-      <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-(--surface-panel-border) p-4">
-        <Button
-          disabled={props.busy}
-          onClick={() => props.onSaveDraft(props.draft)}
-          type="button"
-          variant="primary"
-        >
-          Save draft
-        </Button>
-        <Button
-          disabled={props.busy}
-          onClick={() =>
-            props.runWithSavedDraft(
-              () => props.onRegenerateDraft(props.jobId),
-              'Saved your draft before refreshing the resume.',
-            )
+      <div
+        className="grid min-h-0 min-w-0 flex-1 content-start gap-2.5 overflow-x-hidden overflow-y-auto p-2.5 pr-2"
+        data-resume-editor-scroll-region
+      >
+        <div className="grid gap-1 border-b border-(--surface-panel-border) pb-2">
+          <div className="grid gap-0.5">
+            <h2 className="font-display text-sm font-semibold text-(--text-headline)">
+              Structured edits
+            </h2>
+            <p className="text-(length:--text-description) leading-5 text-foreground-soft xl:hidden">
+              Change the schema-safe content behind the preview without leaving
+              this draft.
+            </p>
+          </div>
+          <p className="text-(length:--text-small) leading-5 text-foreground-soft xl:hidden">
+            {helperMessage}
+          </p>
+        </div>
+        <ResumeIdentityEditor
+          disabled={props.isWorkspacePending}
+          identity={props.draft.identity}
+          selectedTargetId={props.selectedTargetId}
+          onChange={(identity) =>
+            props.onDraftChange({
+              ...props.draft,
+              identity,
+            })
           }
-          type="button"
-          variant="secondary"
-        >
-          <RefreshCcw className="size-4" />
-          Refresh draft
-        </Button>
-        <Button
-          disabled={props.busy}
-          onClick={() =>
-            props.runWithSavedDraft(
-              () => props.onExportPdf(props.jobId),
-              'Saved your draft before exporting the PDF.',
-            )
-          }
-          type="button"
-          variant="secondary"
-        >
-          <FileOutput className="size-4" />
-          Export PDF
-        </Button>
-        {props.approvedExportId ? (
-          <Button
-            disabled={props.busy}
-            onClick={() =>
-              props.runWithSavedDraftAsync(
-                () => props.onClearResumeApproval(props.jobId),
-                'Saved your draft before clearing approval.',
-              )
-            }
-            type="button"
-            variant="destructive"
-          >
-            Clear approval
-          </Button>
-        ) : null}
-        {!props.approvedExportId && exportIdToApprove ? (
-          <Button
-            disabled={props.busy}
-            onClick={() =>
-              props.runWithSavedDraft(
-                () => props.onApproveResume(props.jobId, exportIdToApprove),
-                'Saved your draft before approving the PDF.',
-              )
-            }
-            type="button"
-            variant="primary"
-          >
-            Approve current PDF
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="border-b border-(--surface-panel-border) px-4 py-3">
-        <p className="text-(length:--text-small) leading-6 text-foreground-soft">{helperMessage}</p>
-      </div>
-
-      <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto p-4 pr-3">
+        />
         {props.draft.sections.map((section) => (
           <ResumeSectionEditor
             key={section.id}
-            disabled={props.busy}
+            disabled={props.isWorkspacePending}
+            isSelected={props.selectedSectionId === section.id}
+            selectedEntryId={
+              props.selectedSectionId === section.id
+                ? props.selectedEntryId
+                : null
+            }
+            selectedTargetId={
+              props.selectedSectionId === section.id
+                ? props.selectedTargetId
+                : null
+            }
             section={section}
             onChange={props.onSectionChange}
             onPatch={(patch, revisionReason) =>
@@ -125,26 +88,30 @@ export function ResumeWorkspaceEditorPanel(props: ResumeWorkspaceEditorPanelProp
                     props.withDraftPatch(patch),
                     revisionReason,
                   ),
-                'Saved your draft before applying this update.',
+                "Saved your draft before applying this update.",
               )
             }
+            onSelectEntry={props.onSelectEntry}
+            onSelectSection={props.onSelectSection}
             onRegenerate={() =>
               props.runWithSavedDraft(
                 () => props.onRegenerateSection(props.jobId, section.id),
-                'Saved your draft before refreshing this section.',
+                "Saved your draft before refreshing this section.",
               )
             }
           />
         ))}
       </div>
 
-      <div className="border-t border-(--surface-panel-border) px-4 py-3">
+      <div className="border-t border-(--surface-panel-border) px-2.5 py-1.5">
         {props.actionMessage ? (
-          <p className="text-(length:--text-small) leading-6 text-primary">
+          <p className="text-(length:--text-small) leading-5 text-primary">
             {props.actionMessage}
           </p>
-        ) : <div className="h-action-message" />}
+        ) : (
+          <div className="h-action-message" />
+        )}
       </div>
     </section>
-  )
+  );
 }

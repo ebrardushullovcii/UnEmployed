@@ -2,16 +2,16 @@ import { Button } from '@renderer/components/ui/button'
 
 interface ProfileSaveFooterProps {
   actionMessage: string | null
-  busy: boolean
   hasUnsavedChanges: boolean
+  isSavePending: boolean
   onSave: () => void
   validationMessage: string | null
 }
 
 export function ProfileSaveFooter({
   actionMessage,
-  busy,
   hasUnsavedChanges,
+  isSavePending,
   onSave,
   validationMessage
 }: ProfileSaveFooterProps) {
@@ -46,7 +46,7 @@ export function ProfileSaveFooter({
           ) : null}
         </div>
 
-        <Button className="w-full sm:w-auto sm:shrink-0" disabled={busy} onClick={onSave} type="button" variant="primary">
+        <Button className="w-full sm:w-auto sm:shrink-0" pending={isSavePending} onClick={onSave} type="button" variant="primary">
           Save changes
         </Button>
       </div>

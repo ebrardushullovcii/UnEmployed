@@ -52,7 +52,6 @@ function getReadinessStatus(input: {
 
 export function ProfileSetupStepEditor(props: {
   backgroundArrays: ProfileBackgroundArrays
-  busy: boolean
   currentStepReviewItems: readonly ProfileSetupReviewItemDisplay[]
   draftProfile: CandidateProfile
   draftSearchPreferences: JobSearchPreferences
@@ -61,6 +60,8 @@ export function ProfileSetupStepEditor(props: {
   focusedReviewRequestKey?: number
   hasUnsavedChanges: boolean
   importDisabledReason?: string | null
+  isImportResumePending: boolean
+  isProfileSetupPending: boolean
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
   onContinueToProfile: () => void
   onImportResume: () => void
@@ -146,7 +147,8 @@ export function ProfileSetupStepEditor(props: {
 
         <div className="flex flex-wrap gap-2 sm:justify-end">
           <Button
-            disabled={props.busy || !props.hasUnsavedChanges}
+            disabled={props.isProfileSetupPending || !props.hasUnsavedChanges}
+            pending={props.isProfileSetupPending}
             onClick={props.onSaveCurrentStep}
             type="button"
             variant="secondary"
@@ -155,7 +157,8 @@ export function ProfileSetupStepEditor(props: {
           </Button>
           {previousStep ? (
             <Button
-              disabled={props.busy}
+              disabled={props.isProfileSetupPending}
+              pending={props.isProfileSetupPending}
               onClick={() => props.onSaveAndGoToStep(previousStep)}
               type="button"
               variant="ghost"
@@ -165,7 +168,8 @@ export function ProfileSetupStepEditor(props: {
           ) : null}
           {options?.onPrimary ? (
             <Button
-              disabled={props.busy || options.primaryDisabled === true}
+              disabled={props.isProfileSetupPending || options.primaryDisabled === true}
+              pending={props.isProfileSetupPending}
               onClick={options.onPrimary}
               type="button"
             >
@@ -181,8 +185,9 @@ export function ProfileSetupStepEditor(props: {
     case 'import':
       return (
         <ProfileSetupImportStep
-          busy={props.busy}
           importDisabledReason={props.importDisabledReason ?? null}
+          isImportResumePending={props.isImportResumePending}
+          isProfileSetupPending={props.isProfileSetupPending}
           latestResumeImportReviewCandidates={props.latestResumeImportReviewCandidates}
           onContinueToProfile={props.onContinueToProfile}
           onImportResume={props.onImportResume}
@@ -213,7 +218,7 @@ export function ProfileSetupStepEditor(props: {
             </CardContent>
           </Card>
           <ProfileExperienceTab
-            busy={props.busy}
+            isProfileSetupPending={props.isProfileSetupPending}
             experienceArray={props.experienceArray}
             focusRecordId={focusExperienceRecordId}
             focusRecordOpenSignal={focusExperienceOpenSignal}
@@ -221,7 +226,7 @@ export function ProfileSetupStepEditor(props: {
           />
           <ProfileBackgroundTab
             backgroundArrays={props.backgroundArrays}
-            busy={props.busy}
+            isProfileSetupPending={props.isProfileSetupPending}
             profileForm={props.profileForm}
           />
           {renderFooter({
@@ -244,7 +249,7 @@ export function ProfileSetupStepEditor(props: {
       return (
         <ProfileSetupNarrativeStep
           backgroundArrays={props.backgroundArrays}
-          busy={props.busy}
+          isProfileSetupPending={props.isProfileSetupPending}
           nextStep={nextStep}
           onSaveAndGoToStep={props.onSaveAndGoToStep}
           profileForm={props.profileForm}
@@ -255,7 +260,7 @@ export function ProfileSetupStepEditor(props: {
       return (
         <ProfileSetupAnswersStep
           backgroundArrays={props.backgroundArrays}
-          busy={props.busy}
+          isProfileSetupPending={props.isProfileSetupPending}
           nextStep={nextStep}
           onSaveAndGoToStep={props.onSaveAndGoToStep}
           profileForm={props.profileForm}

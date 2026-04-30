@@ -16,3 +16,14 @@ export async function selectApplicationRecord(window, title, company) {
   await recordButton.waitFor({ timeout: 10000 })
   await recordButton.click()
 }
+
+export async function selectQueueJobs(window, titles) {
+  for (const title of titles) {
+    const jobCard = window.getByRole('button', {
+      name: new RegExp(`^${escapeRegExp(title)}(?!\\w)`, 'i'),
+    }).first().locator('xpath=ancestor::div[.//label[normalize-space()="Queue"]][1]')
+    const checkbox = jobCard.getByLabel('Queue').first()
+    await checkbox.waitFor({ timeout: 10000 })
+    await checkbox.check()
+  }
+}

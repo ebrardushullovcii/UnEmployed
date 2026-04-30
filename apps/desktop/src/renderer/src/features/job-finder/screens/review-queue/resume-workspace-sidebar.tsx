@@ -1,33 +1,137 @@
-import type { JobFinderResumeWorkspace, ResumeDraft } from '@unemployed/contracts'
-import { StatusBadge } from '../../components/status-badge'
-import { formatNormalizedCompensation } from '../../lib/normalized-compensation'
-import { formatDraftStatusLabel, formatOptionalDate, toDraftStatusTone } from './resume-workspace-utils'
+import type {
+  JobFinderResumeWorkspace,
+  ResumeDraft,
+} from "@unemployed/contracts";
+import { StatusBadge } from "../../components/status-badge";
+import { formatNormalizedCompensation } from "../../lib/normalized-compensation";
+import {
+  formatDraftStatusLabel,
+  formatOptionalDate,
+  toDraftStatusTone,
+} from "./resume-workspace-utils";
 
 interface ResumeWorkspaceSidebarProps {
-  draft: ResumeDraft
-  hasUnsavedChanges: boolean
-  workspace: JobFinderResumeWorkspace
+  draft: ResumeDraft;
+  hasUnsavedChanges: boolean;
+  workspace: JobFinderResumeWorkspace;
 }
 
-export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: ResumeWorkspaceSidebarProps) {
-  const { job, research, sharedProfile, validation } = workspace
-  const researchCount = research.length
-  const validationCount = validation?.issues.length ?? 0
-  const normalizedCompensation = formatNormalizedCompensation(job.normalizedCompensation)
+function truncateText(value: string | null | undefined, maxLength: number) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function formatHostLabel(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value).hostname.replace(/^www\./, "");
+  } catch {
+    return truncateText(value, 42);
+  }
+}
+
+function firstNonEmpty(
+  ...values: Array<string | null | undefined>
+): string | null {
+  for (const value of values) {
+    const normalized = value?.trim();
+
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+export function ResumeWorkspaceSidebar({
+  draft,
+  hasUnsavedChanges,
+  workspace,
+}: ResumeWorkspaceSidebarProps) {
+  const { job, research, sharedProfile, validation } = workspace;
+  const researchCount = research.length;
+  const validationCount = validation?.issues.length ?? 0;
+  const normalizedCompensation = formatNormalizedCompensation(
+    job.normalizedCompensation,
+  );
+  const roleSnapshot = [
+    job.salaryText ? `Compensation: ${job.salaryText}` : null,
+    normalizedCompensation ? `Normalized: ${normalizedCompensation}` : null,
+    job.team ? `Team: ${job.team}` : null,
+    job.department ? `Department: ${job.department}` : null,
+  ].filter(Boolean) as string[];
+  const targetingCues = [
+    ...job.keywordSignals.slice(0, 3).map((signal) => signal.label),
+    ...job.responsibilities.slice(0, 2),
+    ...job.minimumQualifications.slice(0, 2),
+  ];
+  const profileSummary = truncateText(
+    firstNonEmpty(
+      sharedProfile.narrativeSummary,
+      sharedProfile.selfIntroduction,
+      sharedProfile.nextChapterSummary,
+    ),
+    180,
+  );
+  const highlightedProof = sharedProfile.highlightedProofs[0] ?? null;
+  const screeningSummary = truncateText(
+    firstNonEmpty(
+      job.screeningHints.sponsorshipText,
+      job.screeningHints.relocationText,
+      job.screeningHints.travelText,
+      job.screeningHints.remoteGeographies[0]
+        ? `Remote geography: ${job.screeningHints.remoteGeographies[0]}`
+        : null,
+    ),
+    120,
+  );
+  const targetingSummary = truncateText(
+    targetingCues.slice(0, 3).join(" • "),
+    145,
+  );
+  const leadResearch = research[0] ?? null;
+  const employerHost = formatHostLabel(job.employerWebsiteUrl);
+  const applicationHost = formatHostLabel(job.applicationUrl);
+  const titleId = "resume-workspace-job-context-title";
 
   return (
-    <aside className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-5 xl:h-full">
-      <div className="flex items-center justify-between gap-3">
-        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+    <aside
+      aria-labelledby={titleId}
+      className="surface-panel-shell relative grid min-h-0 min-w-0 gap-3 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-(--resume-sidebar-padding)"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p
+          id={titleId}
+          className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary"
+        >
           Job context
         </p>
         <StatusBadge tone={toDraftStatusTone(draft.status)}>
           {formatDraftStatusLabel(draft.status)}
         </StatusBadge>
       </div>
-      <div className="grid gap-2 text-sm text-foreground-soft">
-        <p>{researchCount === 1 ? 'Saved source' : 'Saved sources'}: {researchCount}</p>
-        <p>{validationCount === 1 ? 'Validation check' : 'Validation checks'}: {validationCount}</p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-foreground-soft">
+        <p>
+          {researchCount === 1 ? "Saved source" : "Saved sources"}:{" "}
+          {researchCount}
+        </p>
+        <p>
+          {validationCount === 1 ? "Validation check" : "Validation checks"}:{" "}
+          {validationCount}
+        </p>
         {hasUnsavedChanges ? (
           <p className="text-(--warning-text)">
             Unsaved edits stay local until you save or run another action.
@@ -35,178 +139,105 @@ export function ResumeWorkspaceSidebar({ draft, hasUnsavedChanges, workspace }: 
         ) : null}
       </div>
 
-      <div className="grid min-h-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto pr-1">
+      <div className="grid min-h-0 gap-3 xl:grid-cols-(--resume-sidebar-columns)">
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-            Job details
+            Role snapshot
           </p>
-          <div className="grid gap-2 text-sm text-foreground-soft">
+          <div className="grid gap-1.5 text-sm text-foreground-soft">
             <p>
-              <strong className="text-foreground">Posted:</strong>{' '}
+              <strong className="text-foreground">Work mode:</strong>{" "}
+              {job.workMode.join(", ") || "Not specified"}
+            </p>
+            <p>
+              <strong className="text-foreground">Posted:</strong>{" "}
               {formatOptionalDate(job.postedAt, job.postedAtText)}
             </p>
-            <p>
-              <strong className="text-foreground">Work mode:</strong>{' '}
-              {job.workMode.join(', ') || 'Not specified'}
-            </p>
-            {job.seniority ? (
+            {job.seniority || job.employmentType ? (
               <p>
-                <strong className="text-foreground">Seniority:</strong>{' '}
-                {job.seniority}
+                <strong className="text-foreground">Role:</strong>{" "}
+                {[job.seniority, job.employmentType]
+                  .filter(Boolean)
+                  .join(" • ")}
               </p>
             ) : null}
-            {job.employmentType ? (
-              <p>
-                <strong className="text-foreground">Employment:</strong>{' '}
-                {job.employmentType}
+            {roleSnapshot.map((snapshot) => (
+              <p key={snapshot} className="wrap-break-word">
+                {snapshot}
+              </p>
+            ))}
+            {targetingSummary ? (
+              <p className="wrap-break-word">
+                <strong className="text-foreground">Targeting:</strong>{" "}
+                {targetingSummary}
               </p>
             ) : null}
-            {job.department ? (
-              <p>
-                <strong className="text-foreground">Department:</strong>{' '}
-                {job.department}
-              </p>
-            ) : null}
-            {job.team ? (
-              <p>
-                <strong className="text-foreground">Team:</strong> {job.team}
-              </p>
-            ) : null}
-            {job.salaryText ? (
-              <p>
-                <strong className="text-foreground">Compensation:</strong>{' '}
-                {job.salaryText}
-              </p>
-            ) : null}
-            {normalizedCompensation ? (
-              <p>
-                <strong className="text-foreground">Normalized comp:</strong>{' '}
-                {normalizedCompensation}
-              </p>
-            ) : null}
-            {job.applicationUrl ? (
-              <p className="break-words">
-                <strong className="text-foreground">Apply URL:</strong>{' '}
-                {job.applicationUrl}
-              </p>
-            ) : null}
-            {job.atsProvider ? (
-              <p>
-                <strong className="text-foreground">ATS or provider:</strong>{' '}
-                {job.atsProvider}
-              </p>
-            ) : null}
-            {job.employerWebsiteUrl ? (
-              <p className="break-words">
-                <strong className="text-foreground">Employer site:</strong>{' '}
-                {job.employerWebsiteUrl}
+            {screeningSummary ? (
+              <p className="wrap-break-word">
+                <strong className="text-foreground">Screening:</strong>{" "}
+                {screeningSummary}
               </p>
             ) : null}
           </div>
-          {job.responsibilities.length ? (
-            <div className="grid gap-1 text-sm text-foreground-soft">
-              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                Key responsibilities
-              </p>
-              {job.responsibilities.slice(0, 4).map((item, index) => (
-                <p key={`${job.id}_responsibility_${index}`}>• {item}</p>
-              ))}
-            </div>
-          ) : null}
-          {job.minimumQualifications.length ? (
-            <div className="grid gap-1 text-sm text-foreground-soft">
-              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                Requirements
-              </p>
-              {job.minimumQualifications.slice(0, 4).map((item, index) => (
-                <p key={`${job.id}_minimum_qualification_${index}`}>• {item}</p>
-              ))}
-            </div>
-          ) : null}
-          {job.preferredQualifications.length ? (
-            <div className="grid gap-1 text-sm text-foreground-soft">
-              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                Preferred qualifications
-              </p>
-              {job.preferredQualifications.slice(0, 3).map((item, index) => (
-                <p key={`${job.id}_preferred_qualification_${index}`}>• {item}</p>
-              ))}
-            </div>
-          ) : null}
-          {job.keywordSignals.length ? (
-            <div className="grid gap-1 text-sm text-foreground-soft">
-              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                Targeting cues
-              </p>
-              {job.keywordSignals.slice(0, 6).map((signal) => (
-                <p key={signal.id}>• {signal.label}</p>
-              ))}
-            </div>
-          ) : null}
-          {job.screeningHints.sponsorshipText || job.screeningHints.relocationText || job.screeningHints.travelText || job.screeningHints.remoteGeographies.length ? (
-            <div className="grid gap-1 text-sm text-foreground-soft">
-              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                Screening hints
-              </p>
-              {job.screeningHints.sponsorshipText ? <p>• {job.screeningHints.sponsorshipText}</p> : null}
-              {job.screeningHints.relocationText ? <p>• {job.screeningHints.relocationText}</p> : null}
-              {job.screeningHints.travelText ? <p>• {job.screeningHints.travelText}</p> : null}
-              {job.screeningHints.remoteGeographies.map((value) => <p key={value}>• Remote geography: {value}</p>)}
-            </div>
-          ) : null}
         </div>
 
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             Shared profile inputs
           </p>
-          {sharedProfile.narrativeSummary ? (
-            <p className="text-sm leading-6 text-foreground-soft">{sharedProfile.narrativeSummary}</p>
+          {profileSummary ? (
+            <p className="text-sm leading-6 text-foreground-soft">
+              {profileSummary}
+            </p>
           ) : null}
-          {sharedProfile.nextChapterSummary ? (
-            <p className="text-sm leading-6 text-foreground-soft">Next chapter: {sharedProfile.nextChapterSummary}</p>
-          ) : null}
-          {sharedProfile.selfIntroduction ? (
-            <p className="text-sm leading-6 text-foreground-soft">Intro: {sharedProfile.selfIntroduction}</p>
-          ) : null}
-          {sharedProfile.highlightedProofs.length ? (
-            <div className="grid gap-2 text-sm text-foreground-soft">
-              {sharedProfile.highlightedProofs.map((proof) => (
-                <div key={proof.id} className="grid gap-1">
-                  <strong className="text-foreground">{proof.title}</strong>
-                  <p>{proof.claim}</p>
-                  {proof.heroMetric ? <p>Metric: {proof.heroMetric}</p> : null}
-                </div>
-              ))}
+          {highlightedProof ? (
+            <div className="grid gap-1 text-sm text-foreground-soft">
+              <strong className="text-foreground">
+                {highlightedProof.title}
+              </strong>
+              <p>{truncateText(highlightedProof.claim, 110)}</p>
+              {highlightedProof.heroMetric ? (
+                <p>Metric: {highlightedProof.heroMetric}</p>
+              ) : null}
             </div>
-          ) : (
-            <p className="text-sm text-foreground-soft">No reusable proof has been saved yet.</p>
-          )}
+          ) : null}
+          {!profileSummary && !highlightedProof ? (
+            <p className="text-sm text-foreground-soft">
+              No reusable profile context saved yet.
+            </p>
+          ) : null}
         </div>
 
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             Saved research
           </p>
-          {research.length ? (
-            research.map((artifact) => (
-              <div
-                key={artifact.id}
-                className="grid min-w-0 gap-1 text-sm text-foreground-soft"
-              >
-                <strong className="text-foreground">
-                  {artifact.pageTitle ?? artifact.sourceUrl}
-                </strong>
-                <span className="break-all">{artifact.sourceUrl}</span>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-foreground-soft">
-              No research saved yet.
-            </p>
-          )}
+          <p className="text-sm text-foreground-soft">
+            {research.length > 0
+              ? `${research.length} saved source${research.length === 1 ? "" : "s"}.`
+              : "No research saved yet."}
+          </p>
+          {leadResearch ? (
+            <div className="grid gap-1 text-sm text-foreground-soft">
+              <strong className="text-foreground">
+                {truncateText(
+                  leadResearch.pageTitle ?? leadResearch.sourceUrl,
+                  72,
+                )}
+              </strong>
+              <span>{formatHostLabel(leadResearch.sourceUrl)}</span>
+            </div>
+          ) : null}
+
+          {job.applicationUrl || job.employerWebsiteUrl || job.atsProvider ? (
+            <div className="grid gap-1 border-t border-(--surface-panel-border) pt-2 text-(length:--text-small) leading-5 text-foreground-muted">
+              {job.atsProvider ? <p>Provider: {job.atsProvider}</p> : null}
+              {employerHost ? <p>Employer site: {employerHost}</p> : null}
+              {applicationHost ? <p>Apply route: {applicationHost}</p> : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </aside>
-  )
+  );
 }

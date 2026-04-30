@@ -267,6 +267,7 @@ describe("openai-compatible chat and draft behavior", () => {
           jobId: "job_1",
           status: "draft",
           templateId: "classic_ats",
+          identity: null,
           sections: Array.from({ length: 12 }, (_, sectionIndex) => ({
             id: `section_${sectionIndex + 1}`,
             kind: "experience",

@@ -74,7 +74,7 @@ export function createSection(
     kind: input.kind,
     label: input.label,
     text: normalizeNullableText(input.text),
-    bullets: (input.bullets ?? []).map((bullet, index) =>
+    bullets: dedupeLongResumeLines(input.bullets ?? []).map((bullet, index) =>
       createBullet(
         `${input.id}_bullet_${index + 1}`,
         bullet,
@@ -114,6 +114,44 @@ export function normalizeNullableText(value: string | null | undefined): string 
   return trimmed === "" ? null : trimmed;
 }
 
+function tokenSet(value: string): Set<string> {
+  return new Set(normalizeText(value).split(" ").filter(Boolean));
+}
+
+function tokenOverlap(leftTokens: Set<string>, rightTokens: Set<string>): number {
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+
+  let matched = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      matched += 1;
+    }
+  }
+
+  return matched / Math.min(leftTokens.size, rightTokens.size);
+}
+
+function dedupeLongResumeLines(lines: readonly string[]): string[] {
+  const kept: Array<{ text: string; tokens: Set<string> }> = [];
+
+  for (const line of uniqueStrings(lines)) {
+    const candidateTokens = tokenSet(line);
+    const tokenCount = candidateTokens.size;
+    const duplicatesExisting = tokenCount >= 7 && kept.some((existing) => {
+      const existingTokenCount = existing.tokens.size;
+      return existingTokenCount >= 7 && tokenOverlap(candidateTokens, existing.tokens) >= 0.62;
+    });
+
+    if (!duplicatesExisting) {
+      kept.push({ text: line, tokens: candidateTokens });
+    }
+  }
+
+  return kept.map((entry) => entry.text);
+}
+
 export function createEntry(input: {
   id: string;
   entryType: ResumeDraftEntry["entryType"];
@@ -137,7 +175,7 @@ export function createEntry(input: {
     location: normalizeNullableText(input.location),
     dateRange: normalizeNullableText(input.dateRange),
     summary: normalizeNullableText(input.summary),
-    bullets: (input.bullets ?? []).map((bullet, index) =>
+    bullets: dedupeLongResumeLines(input.bullets ?? []).map((bullet, index) =>
       createBullet(
         `${input.id}_bullet_${index + 1}`,
         bullet,

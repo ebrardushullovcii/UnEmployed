@@ -1,9 +1,16 @@
-import type { JobSource, SourceDebugPhase } from "@unemployed/contracts";
+import {
+  PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+  PROFILE_SETUP_PLACEHOLDER_LOCATION,
+  type JobSource,
+  type SourceDebugPhase,
+} from "@unemployed/contracts";
 
 // Profile placeholder strings - must stay in sync with UI defaults
 // These are set when no resume has been imported yet
-export const PROFILE_PLACEHOLDER_HEADLINE = "Import your resume to begin";
-export const PROFILE_PLACEHOLDER_LOCATION = "Set your preferred location";
+export const PROFILE_PLACEHOLDER_HEADLINE = PROFILE_SETUP_PLACEHOLDER_HEADLINE;
+export const PROFILE_PLACEHOLDER_LOCATION = PROFILE_SETUP_PLACEHOLDER_LOCATION;
+export const PROFILE_PLACEHOLDER_SUMMARY =
+  "Import a resume or paste resume text to build your profile, targeting, and tailored documents.";
 
 // Agent discovery defaults
 export const DEFAULT_ROLE = "software engineer";

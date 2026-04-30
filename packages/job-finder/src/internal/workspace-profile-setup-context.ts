@@ -9,6 +9,7 @@ import {
 } from "@unemployed/contracts";
 
 import { deriveAndPersistProfileSetupState, summarizeReviewCandidates } from "./profile-workspace-state";
+import { hasBlockingResumeImportCandidates } from "./resume-import-candidate-utils";
 import { countResumeImportCandidates } from "./resume-import-workflow";
 import { createUniqueId } from "./shared";
 import { normalizeSearchPreferences } from "./workspace-helpers";
@@ -157,10 +158,7 @@ async function syncLatestResumeImportCandidatesWithSetupState(
 
   const nextRun = {
     ...latestResumeImportRun,
-    status: nextCandidates.some(
-      (candidate) =>
-        candidate.resolution === "needs_review" || candidate.resolution === "abstained",
-    )
+    status: hasBlockingResumeImportCandidates(nextCandidates)
       ? ("review_ready" as const)
       : ("applied" as const),
     candidateCounts: countResumeImportCandidates(nextCandidates),
