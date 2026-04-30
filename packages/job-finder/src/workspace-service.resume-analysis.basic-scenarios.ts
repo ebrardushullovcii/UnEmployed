@@ -184,6 +184,76 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.latestResumeImportReviewCandidates[0]?.label).toBeTruthy();
   });
 
+  test("fresh-start sample imports auto-apply placeholder summary and avoid duplicate derived name review", async () => {
+    const seed = createSeed();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          id: "candidate_fresh_start",
+          firstName: "New",
+          lastName: "Candidate",
+          fullName: "New Candidate",
+          headline: "Import your resume to begin",
+          summary:
+            "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+          currentLocation: "Set your preferred location",
+          timeZone: null,
+          yearsExperience: 0,
+          email: null,
+          phone: null,
+          portfolioUrl: null,
+          linkedinUrl: null,
+          personalWebsiteUrl: null,
+          experiences: [],
+          targetRoles: [],
+          baseResume: {
+            ...seed.profile.baseResume,
+            extractionStatus: "not_started",
+            lastAnalyzedAt: null,
+            textContent: [
+              "Jamie Rivers",
+              "Staff Frontend Engineer",
+              "Berlin, Germany",
+              "jamie@example.com",
+              "+49 555 1234",
+              "https://jamie.example.test",
+              "https://www.linkedin.com/in/jamie-rivers",
+              "",
+              "Summary",
+              "Staff frontend engineer with 12 years of experience building React, TypeScript, and design systems for product teams.",
+              "",
+              "Experience",
+              "Signal Systems",
+              "Staff Frontend Engineer",
+              "Led design system modernization and improved release confidence across shared UI workflows.",
+            ].join("\n"),
+          },
+        },
+        searchPreferences: {
+          ...seed.searchPreferences,
+          targetRoles: [],
+          locations: [],
+          workModes: [],
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.analyzeProfileFromResume();
+
+    expect(snapshot.profile.fullName).toBe("Jamie Rivers");
+    expect(snapshot.profile.firstName).toBe("Jamie");
+    expect(snapshot.profile.lastName).toBe("Rivers");
+    expect(snapshot.profile.summary).toContain(
+      "12 years of experience building React, TypeScript, and design systems",
+    );
+    expect(snapshot.profile.yearsExperience).toBe(12);
+    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).not.toEqual(
+      expect.arrayContaining(["First name", "Last name", "Summary", "Years of experience"]),
+    );
+  });
+
   test("refresh imports keep earlier document bundles instead of overwriting them by id", async () => {
     const seed = createSeed();
     const { repository, workspaceService } = createWorkspaceServiceHarness({

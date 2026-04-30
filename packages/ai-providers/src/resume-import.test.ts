@@ -179,6 +179,44 @@ describe("selectBlocksForResumeImportStage", () => {
     expect(yearsCandidate?.evidenceText).toContain("2021");
   });
 
+  test("falls back to summary evidence for years-of-experience when the experience section has no explicit years phrase", () => {
+    const result = buildDeterministicResumeImportStageExtraction(
+      {
+        stage: "identity_summary",
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle: {
+          ...bundle,
+          blocks: [
+            { id: "b1", pageNumber: 1, readingOrder: 0, text: "Jamie Rivers", kind: "heading", sectionHint: "identity", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.98 },
+            { id: "b2", pageNumber: 1, readingOrder: 1, text: "Staff Frontend Engineer", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.96 },
+            { id: "b3", pageNumber: 1, readingOrder: 2, text: "Summary", kind: "heading", sectionHint: "summary", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.96 },
+            { id: "b4", pageNumber: 1, readingOrder: 3, text: "Staff frontend engineer with 12 years of experience building React, TypeScript, and design system foundations for product teams.", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.94 },
+            { id: "b5", pageNumber: 1, readingOrder: 4, text: "Experience", kind: "heading", sectionHint: "experience", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.94 },
+            { id: "b6", pageNumber: 1, readingOrder: 5, text: "Signal Systems", kind: "paragraph", sectionHint: "experience", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.94 },
+            { id: "b7", pageNumber: 1, readingOrder: 6, text: "Staff Frontend Engineer", kind: "experience_header", sectionHint: "experience", bbox: null, sourceParserKinds: ["plain_text"], sourceConfidence: 0.94 },
+          ],
+          fullText: [
+            "Jamie Rivers",
+            "Staff Frontend Engineer",
+            "Summary",
+            "Staff frontend engineer with 12 years of experience building React, TypeScript, and design system foundations for product teams.",
+            "Experience",
+            "Signal Systems",
+            "Staff Frontend Engineer",
+          ].join("\n"),
+        },
+      },
+      "Test provider",
+    );
+
+    const yearsCandidate = result.candidates.find((candidate) => candidate.target.key === "yearsExperience");
+
+    expect(yearsCandidate?.value).toBe(12);
+    expect(yearsCandidate?.sourceBlockIds).toEqual(["b4"]);
+    expect(yearsCandidate?.evidenceText).toContain("12 years of experience");
+  });
+
   test("extracts focused evidence snippets from relaxed candidates while preserving raw-first order", () => {
     const longSummary = [
       "Senior software engineer with platform modernization experience across distributed systems and cloud migration programs.",

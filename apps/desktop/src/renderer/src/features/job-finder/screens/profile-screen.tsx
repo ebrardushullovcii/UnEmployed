@@ -17,6 +17,7 @@ import { buildComparableValueFingerprint } from '../lib/profile-editor-review-ca
 import { LockedScreenLayout } from '../components/locked-screen-layout'
 import { ProfileActiveSectionContent } from '../components/profile/profile-active-section-content'
 import { ProfileCopilotRail } from '../components/profile/profile-copilot-rail'
+import { COPILOT_CONTENT_SAFE_OFFSET } from '../components/profile/profile-copilot-rail-layout'
 import { buildProfileSectionStarterQuestion } from '../components/profile/profile-copilot-prompts'
 import { ProfileResumePanel } from '../components/profile/profile-resume-panel'
 import { ProfileSaveFooter } from '../components/profile/profile-save-footer'
@@ -325,6 +326,7 @@ export function ProfileScreen(props: {
       <ProfileCopilotRail
         busy={pendingActions.profileCopilotBusy}
         actionsDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null}
+        collapsedMinBottomOffset={20}
         context={profileCopilotContext}
         emptyStateDescription="Ask for a tighter headline, a stronger summary, or a structured profile edit for this section."
         emptyStateTitle="No profile copilot requests yet"
@@ -338,7 +340,7 @@ export function ProfileScreen(props: {
         revisions={profileRevisions}
         sendDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotMessage : null}
         starterQuestion={starterQuestion}
-        minBottomOffset={96}
+        minBottomOffset={COPILOT_CONTENT_SAFE_OFFSET}
       />
     </LockedScreenLayout>
   )

@@ -9,14 +9,29 @@ import type {
   SavedJob
 } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
-import { EmptyState } from '@renderer/features/job-finder/components/empty-state'
 import { LockedScreenLayout } from '@renderer/features/job-finder/components/locked-screen-layout'
 import { PageHeader } from '@renderer/features/job-finder/components/page-header'
+import { JOB_FINDER_ROUTE_HREFS } from '@renderer/features/job-finder/lib/job-finder-route-hrefs'
 import { formatCountLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
 import { DiscoveryHistoryModal } from './discovery-activity-panel'
 import { DiscoveryDetailPanel } from './discovery-detail-panel'
 import { DiscoveryFiltersPanel } from './discovery-filters-panel'
 import { DiscoveryResultsPanel } from './discovery-results-panel'
+
+export function getDiscoveryConfiguredFilters(searchPreferences: JobSearchPreferences) {
+  const enabledSourceCount = searchPreferences.discovery.targets.filter(
+    (target) => target.enabled,
+  ).length
+  const searchTargetCount =
+    searchPreferences.targetRoles.length + searchPreferences.jobFamilies.length
+
+  return [
+    formatCountLabel(searchTargetCount, 'search target'),
+    formatCountLabel(searchPreferences.locations.length, 'location'),
+    formatCountLabel(searchPreferences.workModes.length, 'work mode'),
+    formatCountLabel(enabledSourceCount, 'source'),
+  ]
+}
 
 export function DiscoveryScreen(props: {
   actionState: { message: string | null }
@@ -68,25 +83,64 @@ export function DiscoveryScreen(props: {
   const [showHistory, setShowHistory] = useState(false)
 
   const showEmptyDiscoveryState = jobs.length === 0
-  const configuredFilters = [
-    formatCountLabel(searchPreferences.targetRoles.length, 'role'),
-    formatCountLabel(searchPreferences.locations.length, 'location'),
-    formatCountLabel(searchPreferences.workModes.length, 'work mode'),
-    formatCountLabel(searchPreferences.discovery.targets.length, 'source')
-  ]
-
-  const emptyStateContent =
+  const enabledTargetIds = new Set(
+    searchPreferences.discovery.targets
+      .filter((target) => target.enabled)
+      .map((target) => target.id),
+  )
+  const primarySourceAccessPrompt =
+    sourceAccessPrompts.find((prompt) => enabledTargetIds.has(prompt.targetId)) ??
+    null
+  const primaryRecoveryAction =
     browserSession.status === 'ready'
-      ? {
-          title: 'No matches from this search',
-          description:
-            'Try broader roles, locations, or sources, then search again.'
-        }
-      : {
-          title: 'Search blocked by browser',
-          description:
-            'Open the browser, sign in or fix the issue, then search again.'
-        }
+      ? null
+      : primarySourceAccessPrompt
+        ? {
+            label: primarySourceAccessPrompt.actionLabel,
+            pending: isBrowserSessionPendingForTarget(
+              primarySourceAccessPrompt.targetId,
+            ),
+            nextStep: primarySourceAccessPrompt.rerunLabel
+              ? `Then ${primarySourceAccessPrompt.rerunLabel}.`
+              : 'Then search again.',
+            onAction: () =>
+              onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId),
+          }
+        : {
+            label:
+              browserSession.status === 'blocked'
+                ? 'Open browser to recover'
+                : 'Open browser to sign in',
+            pending: isBrowserSessionPending,
+            nextStep: 'Then search again.',
+            onAction: onOpenBrowserSession,
+          }
+  const configuredFilters = getDiscoveryConfiguredFilters(searchPreferences)
+  const hasSearchRoles =
+    searchPreferences.targetRoles.length > 0 || searchPreferences.jobFamilies.length > 0
+  const hasEnabledSources = enabledTargetIds.size > 0
+  const hasLocations = searchPreferences.locations.length > 0
+  const searchSetupBlocker = showEmptyDiscoveryState && (!hasSearchRoles || !hasEnabledSources)
+    ? {
+        title:
+          !hasSearchRoles && !hasEnabledSources
+            ? 'Set your search before you start the browser'
+            : !hasSearchRoles
+              ? 'Add a target role before searching'
+              : 'Choose at least one source before searching',
+        description:
+          !hasSearchRoles && !hasEnabledSources
+            ? 'Add at least one role and one enabled source in Profile so Find jobs knows what to search for.'
+            : !hasSearchRoles
+              ? 'Add at least one target role in Profile so Find jobs can aim the next search.'
+              : 'Enable at least one source in Profile so Find jobs has somewhere to search.',
+        actionLabel: 'Edit search in Profile',
+        actionHref: JOB_FINDER_ROUTE_HREFS.profile,
+        nextStep: hasLocations
+          ? 'Then search again.'
+          : 'Then add locations if you want tighter matches and search again.',
+      }
+    : null
 
   const filtersPanel = (
     <DiscoveryFiltersPanel
@@ -108,6 +162,15 @@ export function DiscoveryScreen(props: {
     />
   )
 
+  const recoveryActionProps = primaryRecoveryAction
+    ? {
+        onRecoveryAction: primaryRecoveryAction.onAction,
+        recoveryActionLabel: primaryRecoveryAction.label,
+        recoveryActionNextStep: primaryRecoveryAction.nextStep,
+        recoveryActionPending: primaryRecoveryAction.pending
+      }
+    : {}
+
   return (
     <>
       <LockedScreenLayout
@@ -123,39 +186,55 @@ export function DiscoveryScreen(props: {
       >
         {showEmptyDiscoveryState ? (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
-            {filtersPanel}
-            <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-6 xl:h-full xl:min-h-0">
+            <section className="surface-panel-shell order-1 relative flex min-h-124 min-w-0 flex-col gap-5 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-6 xl:order-2 xl:h-full xl:min-h-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Job results</p>
                 <span className="inline-flex items-center rounded-(--radius-small) border border-border bg-secondary px-2 py-0.5 text-[9px] font-bold uppercase tracking-(--tracking-heading) text-muted-foreground">0 jobs</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {configuredFilters.map((item) => (
-                  <Badge key={item} variant="outline">{item}</Badge>
+                  <Badge key={item} variant="outline">
+                    {item}
+                  </Badge>
                 ))}
               </div>
               <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto pr-1">
-                <EmptyState className="min-h-80" description={emptyStateContent.description} title={emptyStateContent.title} />
-                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">Need better matches? Update roles, locations, or sources in Profile, then search again.</p>
+                <DiscoveryResultsPanel
+                  browserSession={browserSession}
+                  emptyClassName="min-h-80"
+                  jobs={jobs}
+                  onSelectJob={onSelectJob}
+                  searchSetupBlocker={searchSetupBlocker}
+                  selectedJob={selectedJob}
+                  {...recoveryActionProps}
+                />
+                <p className="max-w-176 text-(length:--text-description) leading-6 text-foreground-soft">
+                  Need better matches? Update roles, locations, or sources in Profile, then search again.
+                </p>
               </div>
             </section>
+            <div className="order-2 xl:order-1">{filtersPanel}</div>
           </div>
         ) : (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
-            {filtersPanel}
+            <div className="order-2 xl:order-1">{filtersPanel}</div>
             <DiscoveryResultsPanel
               browserSession={browserSession}
               jobs={jobs}
               onSelectJob={onSelectJob}
+              searchSetupBlocker={searchSetupBlocker}
               selectedJob={selectedJob}
+              {...recoveryActionProps}
             />
-            <DiscoveryDetailPanel
-              discoveryTargets={searchPreferences.discovery.targets}
-              isJobPending={isJobPending}
-              onDismissJob={onDismissJob}
-              onQueueJob={onQueueJob}
-              selectedJob={selectedJob}
-            />
+            <div className="order-3 xl:order-3">
+              <DiscoveryDetailPanel
+                discoveryTargets={searchPreferences.discovery.targets}
+                isJobPending={isJobPending}
+                onDismissJob={onDismissJob}
+                onQueueJob={onQueueJob}
+                selectedJob={selectedJob}
+              />
+            </div>
           </div>
         )}
       </LockedScreenLayout>

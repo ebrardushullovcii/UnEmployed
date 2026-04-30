@@ -401,7 +401,7 @@ describe("resume import deduplication", () => {
     expect(merged).toHaveLength(2);
   });
 
-  test("auto-applies grounded placeholder replacements on a fresh-start profile while leaving experience review-first", async () => {
+  test("auto-applies grounded fresh-start placeholder replacements while allowing weaker fields to stay review-first", async () => {
     const seed = createSeed();
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {
@@ -469,10 +469,10 @@ describe("resume import deduplication", () => {
     });
 
     expect(snapshot.profile.fullName).toBe("Ryan Holstien");
-    expect(snapshot.profile.headline).toBe("Import your resume to begin");
-    expect(snapshot.profile.summary).toContain("Import a resume or paste resume text");
+    expect(snapshot.profile.headline).toBe("Senior Software Engineer");
+    expect(snapshot.profile.summary).toContain("10+ years of experience building secure, scalable healthcare and SaaS platforms");
     expect(snapshot.profile.currentLocation).toBe("Cedar Park, TX 78613");
-    expect(snapshot.profile.yearsExperience).toBe(0);
+    expect(snapshot.profile.yearsExperience).toBe(10);
     expect(snapshot.profile.experiences).toEqual([
       expect.objectContaining({
         companyName: "DataHub",
@@ -484,12 +484,15 @@ describe("resume import deduplication", () => {
         (candidate) => candidate.target.section === "experience",
       ),
     ).toBe(false);
-    expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
+    expect(snapshot.latestResumeImportRun?.status).toBe("applied");
     expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
       "Work history",
     );
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).toEqual(
-      expect.arrayContaining(["Headline", "Years of experience"]),
+    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toEqual(
+      expect.arrayContaining(["Years of experience"]),
+    );
+    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toEqual(
+      expect.arrayContaining(["Headline", "Summary"]),
     );
   });
 
@@ -555,9 +558,9 @@ describe("resume import deduplication", () => {
       }),
     });
 
-    expect(snapshot.profile.yearsExperience).toBe(0);
+    expect(snapshot.profile.yearsExperience).toBe(10);
     expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).toContain(
+    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
       "Years of experience",
     );
   });

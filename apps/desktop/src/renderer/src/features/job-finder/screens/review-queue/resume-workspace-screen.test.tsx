@@ -115,6 +115,8 @@ function buildPreview(revisionKey: string, htmlText: string): JobFinderResumePre
 }
 
 function renderScreen(options?: {
+  assistantMessages?: Array<{ id: string; role: 'user' | 'assistant'; content: string; createdAt: string }>
+  assistantPending?: boolean
   onPreviewDraft?: (draft: ResumeDraft) => Promise<JobFinderResumePreview>
 }) {
   const onPreviewDraft = options?.onPreviewDraft ?? (() => Promise.resolve(buildPreview('preview_ready', 'ready-preview')))
@@ -122,8 +124,8 @@ function renderScreen(options?: {
   return render(
     <ResumeWorkspaceScreen
       actionMessage={null}
-      assistantMessages={[]}
-      assistantPending={false}
+      assistantMessages={(options?.assistantMessages as never) ?? []}
+      assistantPending={options?.assistantPending ?? false}
       availableResumeTemplates={availableResumeTemplates}
       isWorkspacePending={false}
       jobId="job_ready"
@@ -284,5 +286,101 @@ describe('ResumeWorkspaceScreen', () => {
     expect(screen.getAllByText('Recommended').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Engineering Spec').length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Open guided edits' }).length).toBeGreaterThan(0)
+  })
+
+  it('keeps preview and editor visible after assistant replies on desktop', async () => {
+    renderScreen({
+      assistantMessages: [
+        {
+          id: 'assistant_1',
+          role: 'assistant',
+          content: 'Tightened the summary and refreshed one bullet.',
+          createdAt: '2026-04-27T00:00:00.000Z',
+        },
+      ],
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    expect(screen.getAllByTitle('Live resume preview').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Structured edits').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Guided edits').length).toBeGreaterThan(0)
+  })
+
+  it('keeps the assistant tab visible when a reply lands after mobile users switch to assistant', async () => {
+    const onPreviewDraft = vi.fn(() => new Promise<JobFinderResumePreview>(() => {}))
+
+    const { rerender } = render(
+      <ResumeWorkspaceScreen
+        actionMessage={null}
+        assistantMessages={[]}
+        assistantPending={false}
+        availableResumeTemplates={availableResumeTemplates}
+        isWorkspacePending={false}
+        jobId="job_ready"
+        onApplyPatch={vi.fn()}
+        onApproveResume={vi.fn()}
+        onBack={vi.fn()}
+        onClearResumeApproval={vi.fn()}
+        onDirtyChange={vi.fn()}
+        onExportPdf={vi.fn()}
+        onPreviewDraft={onPreviewDraft}
+        onRefresh={vi.fn()}
+        onRegenerateDraft={vi.fn()}
+        onRegenerateSection={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSaveDraftAndThen={vi.fn()}
+        onSendAssistantMessage={vi.fn()}
+        workspace={buildWorkspace()}
+      />,
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open guided edits' }))
+    expect(screen.getByRole('tab', { name: 'Assistant' }).getAttribute('data-state')).toBe('active')
+
+    act(() => {
+      rerender(
+        <ResumeWorkspaceScreen
+          actionMessage={null}
+          assistantMessages={[
+            {
+              id: 'assistant_1',
+              jobId: 'job_ready',
+              role: 'assistant',
+              content: 'Here is the update you asked for.',
+              createdAt: '2026-04-27T00:00:00.000Z',
+              patches: [],
+            },
+          ]}
+          assistantPending={false}
+          availableResumeTemplates={availableResumeTemplates}
+          isWorkspacePending={false}
+          jobId="job_ready"
+          onApplyPatch={vi.fn()}
+          onApproveResume={vi.fn()}
+          onBack={vi.fn()}
+          onClearResumeApproval={vi.fn()}
+          onDirtyChange={vi.fn()}
+          onExportPdf={vi.fn()}
+          onPreviewDraft={onPreviewDraft}
+          onRefresh={vi.fn()}
+          onRegenerateDraft={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onSaveDraft={vi.fn()}
+          onSaveDraftAndThen={vi.fn()}
+          onSendAssistantMessage={vi.fn()}
+          workspace={buildWorkspace()}
+        />,
+      )
+    })
+
+    expect(screen.getByRole('tab', { name: 'Assistant' }).getAttribute('data-state')).toBe('active')
+    expect(screen.getAllByText('Here is the update you asked for.').length).toBeGreaterThan(0)
   })
 })

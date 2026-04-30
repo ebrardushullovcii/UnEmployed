@@ -216,4 +216,75 @@ describe('ProfileResumePanel', () => {
 
     expect(container?.textContent).toContain('0 auto-applied, import ready to use.')
   })
+
+  it('replaces placeholder headline copy with an explicit review-needed state after import', () => {
+    const profile = CandidateProfileSchema.parse({
+      id: 'candidate_4',
+      firstName: 'Alex',
+      lastName: 'Vanguard',
+      fullName: 'Alex Vanguard',
+      headline: 'Import your resume to begin',
+      summary:
+        'Import a resume or paste resume text to build your profile, targeting, and tailored documents.',
+      currentLocation: 'London, UK',
+      yearsExperience: 10,
+      email: 'alex@example.com',
+      phone: '+44 7700 900123',
+      baseResume: {
+        id: 'resume_4',
+        fileName: 'alex-vanguard.txt',
+        uploadedAt: '2026-03-20T10:00:00.000Z',
+        textContent: 'Alex Vanguard',
+        extractionStatus: 'ready',
+        analysisWarnings: [],
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: ['Principal Designer'],
+      locations: ['Remote'],
+      skills: ['Figma'],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    })
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanel
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[
+            {
+              id: 'candidate_headline',
+              target: { section: 'identity', key: 'headline', recordId: null },
+              label: 'Headline',
+              value: 'Principal systems designer',
+              valuePreview: 'Principal systems designer',
+              evidenceText: 'Principal systems designer',
+              confidence: 0.88,
+              resolution: 'needs_review',
+              resolutionReason: null,
+              notes: [],
+            },
+          ]}
+          latestResumeImportRun={null}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      )
+    })
+
+    expect(container?.textContent).toContain('still needs review')
+    expect(container?.textContent).toContain('What to confirm next')
+    expect(container?.textContent).not.toContain('Headline not set yet')
+  })
 })

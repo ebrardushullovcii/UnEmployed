@@ -1,111 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  JobFinderResumePreview,
-  JobFinderResumeWorkspace,
-  ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
-  ResumeTemplateDefinition,
 } from "@unemployed/contracts";
 import {
-  getResumePreviewTargetContext,
   getResumeTemplateDeliveryLane,
   isResumeTemplateApprovalEligible,
 } from '@unemployed/contracts'
-import { Badge } from '@renderer/components/ui/badge'
-import { FileOutput, RefreshCcw, Save, ShieldCheck, ShieldOff } from 'lucide-react'
 import { EmptyState } from "../../components/empty-state";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
-import { Button } from '@renderer/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs'
-import { ResumeThemePicker } from '../../components/resume-theme-picker'
 import { ResumeWorkspaceEditorPanel } from "./resume-workspace-editor-panel";
-import type { ResumeThemePickerRecommendationContext } from '../../components/resume-theme-picker'
 import { ResumeWorkspaceHeader } from "./resume-workspace-header";
 import { ResumeWorkspaceSecondaryRail } from "./resume-workspace-secondary-rail";
 import { ResumeWorkspaceSidebar } from "./resume-workspace-sidebar";
 import { ResumeStudioPreviewPane } from './resume-studio-preview-pane'
+import { ResumeWorkspaceStudioShell } from './resume-workspace-studio-shell'
+import { ResumeWorkspaceTemplatePanel } from './resume-workspace-template-panel'
+import { cloneDraft } from "./resume-workspace-utils";
 import {
-  cloneDraft,
-} from "./resume-workspace-utils";
+  buildResumeThemeRecommendationContext,
+  buildWorkspaceStatusCopy,
+  getAvailableExportToApprove,
+  getSelectedTheme,
+} from './resume-workspace-screen-helpers'
+import { useResumeWorkspaceSelection } from './use-resume-workspace-selection'
+import { useResumeWorkspacePreview } from './use-resume-workspace-preview'
+import type { ResumeWorkspaceScreenProps } from './resume-workspace-screen.types'
 
-function getNewestExport(
-  exports: JobFinderResumeWorkspace["exports"],
-  draftId: string,
-) {
-  return exports
-    .filter((entry) => entry.draftId === draftId)
-    .sort(
-      (left, right) =>
-        new Date(right.exportedAt).getTime() - new Date(left.exportedAt).getTime(),
-    )[0] ?? null;
-}
-
-const REMOTE_METHOD_ERROR_RE =
-  /^Error invoking remote method '[^']+': (?:(?:[A-Za-z]*Error): )?(.*)$/s
-
-function getPreviewErrorMessage(error: unknown): string {
-  const fallbackMessage = 'The current draft could not be previewed.'
-
-  if (error instanceof Error) {
-    const remoteMethodMatch = REMOTE_METHOD_ERROR_RE.exec(error.message)
-
-    return remoteMethodMatch?.[1]?.trim() || error.message
-  }
-
-  if (typeof error !== 'object' || error === null) {
-    return fallbackMessage
-  }
-
-  const message = (error as { message?: unknown }).message
-  if (typeof message !== 'string') {
-    return fallbackMessage
-  }
-
-  const remoteMethodMatch = REMOTE_METHOD_ERROR_RE.exec(message)
-
-  return remoteMethodMatch?.[1]?.trim() || message
-}
-
-export function ResumeWorkspaceScreen(props: {
-  actionMessage: string | null;
-  jobId: string;
-  isWorkspacePending: boolean;
-  workspace: JobFinderResumeWorkspace | null;
-  availableResumeTemplates: readonly ResumeTemplateDefinition[];
-  assistantMessages: readonly ResumeAssistantMessage[];
-  assistantPending: boolean;
-  onBack: () => void;
-  onRefresh: () => void;
-  onDirtyChange: (dirty: boolean) => void;
-  onPreviewDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
-  onSaveDraft: (draft: ResumeDraft) => void;
-  onSaveDraftAndThen: (
-    draft: ResumeDraft,
-    next: () => void,
-    successMessage?: string | null,
-  ) => void;
-  onExportPdf: (jobId: string) => void;
-  onApproveResume: (jobId: string, exportId: string) => void;
-  onClearResumeApproval: (jobId: string) => void;
-  onRegenerateDraft: (jobId: string) => void;
-  onRegenerateSection: (jobId: string, sectionId: string) => void;
-  onApplyPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void;
-  onSendAssistantMessage: (jobId: string, content: string) => void;
-}) {
+export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   const [draft, setDraft] = useState<ResumeDraft | null>(
     props.workspace ? cloneDraft(props.workspace.draft) : null,
   );
-  const [preview, setPreview] = useState<JobFinderResumePreview | null>(null)
-  const [previewError, setPreviewError] = useState<string | null>(null)
-  const [previewStatus, setPreviewStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null)
-  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
   const [mobileStudioTab, setMobileStudioTab] = useState<'preview' | 'editor' | 'assistant'>('preview')
   const [assistantRailExpanded, setAssistantRailExpanded] = useState(false)
   const [assistantRailManuallyCollapsed, setAssistantRailManuallyCollapsed] = useState(false)
-  const previewRequestRef = useRef(0)
+
+  const hasAssistantMessages = props.assistantMessages.length > 0
+  const showExpandedAssistantRail =
+    assistantRailExpanded ||
+    props.assistantPending ||
+    (hasAssistantMessages && !assistantRailManuallyCollapsed)
 
   const workspaceDraftRevisionKey = props.workspace
     ? `${props.workspace.draft.id}:${props.workspace.draft.updatedAt}`
@@ -113,11 +47,7 @@ export function ResumeWorkspaceScreen(props: {
 
   useEffect(() => {
     if (!props.workspace) {
-      previewRequestRef.current += 1
       setDraft(null)
-      setPreview(null)
-      setPreviewError(null)
-      setPreviewStatus('idle')
       return;
     }
 
@@ -140,78 +70,23 @@ export function ResumeWorkspaceScreen(props: {
     });
   }, [workspaceDraftRevisionKey, props.workspace?.draft]);
 
-  useEffect(() => {
-    if (!draft) {
-      return
-    }
-
-    setSelectedSectionId((current) => {
-      if (current && draft.sections.some((section) => section.id === current)) {
-        return current
-      }
-
-      if (selectedTargetId) {
-        const targetContext = getResumePreviewTargetContext(selectedTargetId)
-        const targetSectionAvailable =
-          targetContext.sectionId !== null &&
-          draft.sections.some((section) => section.id === targetContext.sectionId)
-
-        return targetSectionAvailable ? targetContext.sectionId : null
-      }
-
-      return draft.sections[0]?.id ?? null
-    })
-  }, [draft, selectedTargetId])
-
-  useEffect(() => {
-    if (!draft) {
-      return
-    }
-
-    if (!selectedSectionId) {
-      setSelectedEntryId(null)
-      return
-    }
-
-    const selectedSection = draft.sections.find((section) => section.id === selectedSectionId) ?? null
-
-    if (!selectedSection) {
-      setSelectedEntryId(null)
-      return
-    }
-
-    setSelectedEntryId((current) => {
-      if (current && selectedSection.entries.some((entry) => entry.id === current)) {
-        return current
-      }
-
-      return null
-    })
-  }, [draft, selectedSectionId])
-
-  useEffect(() => {
-    if (!selectedTargetId) {
-      return
-    }
-
-    const context = getResumePreviewTargetContext(selectedTargetId)
-
-    if (context.sectionId) {
-      setSelectedSectionId(context.sectionId)
-    }
-
-    setSelectedEntryId(context.entryId)
-  }, [selectedTargetId])
+  const {
+    handlePreviewTargetSelect,
+    handleSelectEntry,
+    handleSelectSection,
+    selectedEntryId,
+    selectedSectionId,
+    selectedTargetId,
+  } = useResumeWorkspaceSelection({ draft })
 
   const serializedDraft = useMemo(
     () => (draft ? JSON.stringify(draft) : null),
     [draft],
-  );
+  )
   const serializedWorkspaceDraft = useMemo(
     () => (props.workspace ? JSON.stringify(props.workspace.draft) : null),
     [props.workspace],
-  );
-
+  )
   const hasUnsavedChanges =
     serializedDraft !== null && serializedWorkspaceDraft !== null
       ? serializedDraft !== serializedWorkspaceDraft
@@ -227,26 +102,11 @@ export function ResumeWorkspaceScreen(props: {
     props.onDirtyChange(hasUnsavedChanges);
   }, [hasUnsavedChanges, props.onDirtyChange]);
 
-  const availableExportToApprove = (() => {
-    if (hasUnsavedChanges) {
-      return null;
-    }
-
-    if (!props.workspace) {
-      return null;
-    }
-
-    const newestExport = getNewestExport(props.workspace.exports, props.workspace.draft.id);
-
-    if (!newestExport) {
-      return null;
-    }
-
-    return new Date(newestExport.exportedAt).getTime() >=
-      new Date(props.workspace.draft.updatedAt).getTime()
-      ? newestExport
-      : null;
-  })();
+  const availableExportToApprove = getAvailableExportToApprove({
+    draft,
+    hasUnsavedChanges,
+    workspace: props.workspace,
+  })
 
   const runWithSavedDraft = useCallback((next: () => void, successMessage?: string | null) => {
     if (hasUnsavedChanges) {
@@ -281,129 +141,59 @@ export function ResumeWorkspaceScreen(props: {
     };
   }, [draft]);
 
-  const refreshPreview = useCallback((targetDraft: ResumeDraft) => {
-    const requestId = previewRequestRef.current + 1
-    previewRequestRef.current = requestId
-    setPreview(null)
-    setPreviewStatus('loading')
-    setPreviewError(null)
-
-    void props.onPreviewDraft(cloneDraft(targetDraft))
-      .then((nextPreview) => {
-        if (previewRequestRef.current !== requestId) {
-          return
-        }
-
-        setPreview(nextPreview)
-        setPreviewStatus('ready')
-      })
-      .catch((error) => {
-        if (previewRequestRef.current !== requestId) {
-          return
-        }
-
-        setPreviewStatus('error')
-        setPreviewError(getPreviewErrorMessage(error))
-      })
-  }, [props.onPreviewDraft])
-
-  useEffect(() => {
-    if (!draft) {
-      previewRequestRef.current += 1
-      setPreview(null)
-      return
-    }
-
-    previewRequestRef.current += 1
-    const timeout = window.setTimeout(() => {
-      refreshPreview(draft)
-    }, hasUnsavedChanges ? 250 : 100)
-
-    return () => {
-      window.clearTimeout(timeout)
-    }
-  }, [draft, hasUnsavedChanges, refreshPreview])
+  const {
+    preview,
+    previewError,
+    previewStatus,
+    refreshPreview,
+  } = useResumeWorkspacePreview({
+    draft,
+    hasUnsavedChanges,
+    onPreviewDraft: props.onPreviewDraft,
+  })
 
   useEffect(() => {
     if (props.assistantPending) {
       setAssistantRailManuallyCollapsed(false)
+      setAssistantRailExpanded(true)
     }
   }, [props.assistantPending])
 
-  const handlePreviewTargetSelect = useCallback((selection: {
+  useEffect(() => {
+    if (!props.assistantPending && hasAssistantMessages) {
+      setAssistantRailExpanded(true)
+
+      if (mobileStudioTab === 'preview') {
+        setMobileStudioTab('editor')
+      }
+    }
+  }, [hasAssistantMessages, mobileStudioTab, props.assistantPending])
+
+  const handlePreviewSelection = useCallback((selection: {
     sectionId: string | null
     entryId: string | null
     targetId: string | null
   }) => {
-    setSelectedTargetId(selection.targetId)
-
-    if (selection.sectionId) {
-      setSelectedSectionId(selection.sectionId)
-    } else {
-      setSelectedSectionId(null)
-    }
-
-    setSelectedEntryId(selection.entryId)
+    handlePreviewTargetSelect(selection)
     setMobileStudioTab('editor')
+  }, [handlePreviewTargetSelect])
+
+  const handleOpenGuidedEdits = useCallback(() => {
+    setAssistantRailExpanded(true)
+    setAssistantRailManuallyCollapsed(false)
+    setMobileStudioTab('assistant')
   }, [])
 
-  const handleSelectSection = useCallback((sectionId: string) => {
-    setSelectedSectionId(sectionId)
-    setSelectedEntryId(null)
-    setSelectedTargetId(null)
-  }, [])
-
-  const handleSelectEntry = useCallback((sectionId: string, entryId: string) => {
-    setSelectedSectionId(sectionId)
-    setSelectedEntryId(entryId)
-    setSelectedTargetId(null)
-  }, [])
-
-  const recommendationContext = useMemo<ResumeThemePickerRecommendationContext | null>(() => {
-    if (!props.workspace || !draft) {
-      return null
+  const handleToggleAssistantRail = useCallback(() => {
+    if (showExpandedAssistantRail) {
+      setAssistantRailExpanded(false)
+      setAssistantRailManuallyCollapsed(true)
+      return
     }
 
-    const job = props.workspace.job
-    const includedSections = draft.sections.filter((section) => section.included)
-    const includedExperienceEntries = includedSections
-      .filter((section) => section.kind === 'experience')
-      .flatMap((section) => section.entries.filter((entry) => entry.included))
-    const includedProjects = includedSections
-      .filter((section) => section.kind === 'projects')
-      .flatMap((section) => section.entries.filter((entry) => entry.included))
-    const includedCertifications = includedSections
-      .filter((section) => section.kind === 'certifications')
-      .flatMap((section) => section.entries.filter((entry) => entry.included))
-    const includedEducation = includedSections
-      .filter((section) => section.kind === 'education')
-      .flatMap((section) => section.entries.filter((entry) => entry.included))
-
-    return {
-      jobTitle: job.title,
-      jobKeywords: [
-        ...job.keySkills,
-        ...job.keywordSignals.map((signal) => signal.label),
-      ],
-      hasProjects: includedProjects.length > 0,
-      hasCertifications: includedCertifications.length > 0,
-      hasFormalEducation: includedEducation.length > 0,
-      experienceEntryCount: includedExperienceEntries.length,
-      totalIncludedBulletCount: includedSections.reduce(
-        (sum, section) =>
-          sum +
-          section.bullets.filter((bullet) => bullet.included).length +
-          section.entries.reduce(
-            (entrySum, entry) =>
-              entry.included
-                ? entrySum + entry.bullets.filter((bullet) => bullet.included).length
-                : entrySum,
-            0,
-          ),
-        0,
-      ),
-    }
-  }, [draft, props.workspace])
+    setAssistantRailExpanded(true)
+    setAssistantRailManuallyCollapsed(false)
+  }, [showExpandedAssistantRail])
 
   if (!props.workspace || !draft) {
       return (
@@ -416,22 +206,11 @@ export function ResumeWorkspaceScreen(props: {
       );
   }
 
-  const { job } = props.workspace;
-  const hasAssistantMessages = props.assistantMessages.length > 0
-  const showExpandedAssistantRail =
-    assistantRailExpanded ||
-    props.assistantPending ||
-    (hasAssistantMessages && !assistantRailManuallyCollapsed)
-  const handleToggleAssistantRail = () => {
-    if (showExpandedAssistantRail) {
-      setAssistantRailExpanded(false)
-      setAssistantRailManuallyCollapsed(true)
-      return
-    }
-
-    setAssistantRailExpanded(true)
-    setAssistantRailManuallyCollapsed(false)
-  }
+  const job = props.workspace.job
+  const recommendationContext = buildResumeThemeRecommendationContext({
+    draft,
+    workspace: props.workspace,
+  })
 
   const editorPanel = (
     <ResumeWorkspaceEditorPanel
@@ -480,9 +259,7 @@ export function ResumeWorkspaceScreen(props: {
     />
   )
 
-  const selectedTheme = props.availableResumeTemplates.find(
-    (template) => template.id === draft.templateId,
-  ) ?? null
+  const selectedTheme = getSelectedTheme(props.availableResumeTemplates, draft.templateId)
   const selectedTemplateApprovalEligible = selectedTheme
     ? isResumeTemplateApprovalEligible(selectedTheme)
     : false
@@ -497,7 +274,7 @@ export function ResumeWorkspaceScreen(props: {
       isDirty={hasUnsavedChanges}
       isPending={props.isWorkspacePending}
       onRetry={() => refreshPreview(draft)}
-      onSelectTarget={handlePreviewTargetSelect}
+      onSelectTarget={handlePreviewSelection}
       preview={preview}
       previewError={previewError}
       previewStatus={previewStatus}
@@ -509,58 +286,31 @@ export function ResumeWorkspaceScreen(props: {
   )
 
   const templatePanel = (
-    <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
-      <div className="border-b border-(--surface-panel-border) px-3 py-2">
-        <div className="grid gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
-              Template strategy
-            </p>
-            <Badge variant={selectedTemplateApprovalEligible ? 'default' : 'outline'}>
-              {selectedTemplateApprovalEligible ? 'Approval eligible' : 'Approval blocked'}
-            </Badge>
-          </div>
-          <h2 className="font-display text-(length:--text-description) font-semibold text-(--text-headline)">
-            Choose this draft's layout.
-          </h2>
-          <p className="text-(length:--text-small) leading-4 text-foreground-soft xl:hidden">
-            Template changes reset review state for the next export and approval.
-          </p>
-        </div>
-      </div>
-
-      <div className="p-2 pr-1.5">
-        <ResumeThemePicker
-          disabled={props.isWorkspacePending}
-          mode="compact"
-          onChange={(templateId) =>
-            setDraft((currentDraft) =>
-              currentDraft
-                ? {
-                    ...currentDraft,
-                    templateId,
-                  }
-                : currentDraft,
-            )
-          }
-          recommendationContext={recommendationContext}
-          selectedThemeId={draft.templateId}
-          themes={props.availableResumeTemplates}
-        />
-      </div>
-    </section>
+    <ResumeWorkspaceTemplatePanel
+      disabled={props.isWorkspacePending}
+      recommendationContext={recommendationContext}
+      selectedTemplateApprovalEligible={selectedTemplateApprovalEligible}
+      selectedThemeId={draft.templateId}
+      themes={props.availableResumeTemplates}
+      onChange={(templateId) =>
+        setDraft((currentDraft) =>
+          currentDraft
+            ? {
+                ...currentDraft,
+                templateId,
+              }
+            : currentDraft,
+        )
+      }
+    />
   )
-
-  const studioStatusMessage = hasUnsavedChanges
-    ? 'Save the draft before you export a fresh PDF or approve it.'
-    : !selectedTemplateApprovalEligible
-      ? `This ${selectedTemplateLane === 'share_ready' ? 'share-ready' : 'selected'} template can still be exported, but approval stays disabled until you switch back to an apply-safe template.`
-      : draft.approvedExportId
-        ? 'A PDF from this saved draft is already approved. Any new save or template change clears that approval.'
-          : availableExportToApprove
-            ? 'The newest saved export matches this draft and can be approved now.'
-            : 'Save the draft, then export a fresh PDF before approval.'
-  const approvalStateLabel = selectedTemplateApprovalEligible ? null : 'Approval stays blocked'
+  const { approvalStateLabel, studioStatusMessage } = buildWorkspaceStatusCopy({
+    availableExportToApprove,
+    draft,
+    hasUnsavedChanges,
+    selectedTemplateApprovalEligible,
+    selectedTemplateLane,
+  })
 
   return (
     <LockedScreenLayout
@@ -586,174 +336,59 @@ export function ResumeWorkspaceScreen(props: {
       >
       <section className="grid min-h-124 min-w-0 items-stretch gap-2.5">
         <div className="min-h-0 min-w-0">
-          <div className="surface-panel-shell flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
-            <div className="grid gap-1 border-b border-(--surface-panel-border) px-3 py-1.25">
-              <div className="grid gap-0.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
-                      Resume Studio
-                    </p>
-                    <Badge variant="section">Preview-led review</Badge>
-                    <Badge variant={hasUnsavedChanges ? 'default' : 'section'}>
-                      {hasUnsavedChanges ? 'Unsaved draft' : 'Saved draft'}
-                    </Badge>
-                    <Badge variant={selectedTemplateApprovalEligible ? 'section' : 'outline'}>
-                      {selectedTemplateApprovalEligible ? 'Approval eligible' : 'Approval blocked'}
-                    </Badge>
-                  </div>
-                  <h2 className="text-(length:--text-body) font-semibold text-(--text-headline)">
-                    Tune the live draft before export.
-                  </h2>
-                </div>
-
-              <div className="flex flex-wrap items-center gap-1">
-                <Button
-                  pending={props.isWorkspacePending}
-                  onClick={() => props.onSaveDraft(draft)}
-                  size="compact"
-                  type="button"
-                  variant="primary"
-                >
-                  <Save className="size-4" />
-                  Save draft
-                </Button>
-                <Button
-                  pending={props.isWorkspacePending}
-                  onClick={() =>
-                    runWithSavedDraft(
-                      () => props.onRegenerateDraft(props.jobId),
-                      'Saved your draft before refreshing the resume.',
-                    )
-                  }
-                  size="compact"
-                  type="button"
-                  variant="secondary"
-                >
-                  <RefreshCcw className="size-4" />
-                  Refresh draft
-                </Button>
-                <Button
-                  pending={props.isWorkspacePending}
-                  onClick={() =>
-                    runWithSavedDraft(
-                      () => props.onExportPdf(props.jobId),
-                      'Saved your draft before exporting the PDF.',
-                    )
-                  }
-                  size="compact"
-                  type="button"
-                  variant="secondary"
-                >
-                  <FileOutput className="size-4" />
-                  Export PDF
-                </Button>
-                {draft.approvedExportId ? (
-                  <Button
-                    pending={props.isWorkspacePending}
-                    onClick={() =>
-                      runWithSavedDraftAsync(
-                        () => props.onClearResumeApproval(props.jobId),
-                        'Saved your draft before clearing approval.',
-                      )
-                    }
-                    size="compact"
-                    type="button"
-                    variant="destructive"
-                  >
-                    <ShieldOff className="size-4" />
-                    Clear approval
-                  </Button>
-                ) : availableExportToApprove && selectedTemplateApprovalEligible ? (
-                  <Button
-                    pending={props.isWorkspacePending}
-                    onClick={() =>
-                      runWithSavedDraft(
-                        () => props.onApproveResume(props.jobId, availableExportToApprove.id),
-                        'Saved your draft before approving the PDF.',
-                      )
-                    }
-                    size="compact"
-                    type="button"
-                    variant="primary"
-                  >
-                    <ShieldCheck className="size-4" />
-                    Approve current PDF
-                  </Button>
-                ) : null}
-                <Button
-                  onClick={handleToggleAssistantRail}
-                  size="compact"
-                  type="button"
-                  variant="ghost"
-                >
-                  {showExpandedAssistantRail ? 'Hide guided edits' : 'Open guided edits'}
-                </Button>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-2.5 py-0.75 text-(length:--text-small) leading-4 text-foreground-soft">
-                <span>{studioStatusMessage}</span>
-                {approvalStateLabel ? (
-                  <Badge variant="outline">
-                    {approvalStateLabel}
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 xl:hidden">
-              <Tabs
-                className="min-h-0 h-full"
-                onValueChange={(value) => setMobileStudioTab(value as 'preview' | 'editor' | 'assistant')}
-                value={mobileStudioTab}
-              >
-                <TabsList className="grid w-full grid-cols-3 border-b border-(--surface-panel-border) bg-transparent" variant="line">
-                  <TabsTrigger value="preview">Preview</TabsTrigger>
-                  <TabsTrigger value="editor">Tools</TabsTrigger>
-                  <TabsTrigger value="assistant">Assistant</TabsTrigger>
-                </TabsList>
-                <div className="min-h-0 flex-1 p-4">
-                  <TabsContent className="min-h-0 h-full" value="preview">
-                    {previewPane}
-                  </TabsContent>
-                  <TabsContent className="min-h-0 h-full" value="editor">
-                    <div className="grid min-h-0 h-full gap-4 xl:hidden">
-                      <div className="min-h-(--size-resume-workspace-panel)">{templatePanel}</div>
-                      <div className="min-h-(--size-resume-workspace-panel)">{editorPanel}</div>
-                    </div>
-                  </TabsContent>
-                  <TabsContent className="min-h-0 h-full" value="assistant">
-                    {assistantRail}
-                  </TabsContent>
-                </div>
-              </Tabs>
-            </div>
-
-            <div className="hidden min-h-0 flex-1 gap-2.5 p-2.5 xl:grid xl:grid-rows-[auto_auto_auto]">
-              <div className="min-h-0 min-w-0">
-                <ResumeWorkspaceSidebar
-                  draft={draft}
-                  hasUnsavedChanges={hasUnsavedChanges}
-                  workspace={props.workspace}
-                />
-              </div>
-
-              <div className="min-h-0 min-w-0">{templatePanel}</div>
-
-              <div className="grid min-h-0 min-w-0 gap-2.5 xl:grid-cols-[minmax(0,52rem)_minmax(30rem,1fr)]">
-                <div className="min-h-0 min-w-0">{previewPane}</div>
-                <div
-                  className={showExpandedAssistantRail
-                    ? 'grid h-full min-h-0 min-w-0 gap-2.5 overflow-hidden xl:grid-rows-[minmax(0,1fr)_minmax(15rem,0.72fr)]'
-                    : 'grid h-full min-h-0 min-w-0 overflow-hidden'}
-                >
-                  <div className="min-h-0 min-w-0">{editorPanel}</div>
-                  {showExpandedAssistantRail ? (
-                    <div className="min-h-0 min-w-0">{assistantRail}</div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
+          <div className="hidden min-h-0 min-w-0 xl:block">
+            <ResumeWorkspaceSidebar
+              draft={draft}
+              hasUnsavedChanges={hasUnsavedChanges}
+              workspace={props.workspace}
+            />
           </div>
+          <ResumeWorkspaceStudioShell
+            approvalStateLabel={approvalStateLabel}
+            assistantRail={assistantRail}
+            canApproveCurrentPdf={Boolean(availableExportToApprove && selectedTemplateApprovalEligible)}
+            canClearApproval={Boolean(draft.approvedExportId)}
+            editorPanel={editorPanel}
+            hasUnsavedChanges={hasUnsavedChanges}
+            isWorkspacePending={props.isWorkspacePending}
+            mobileStudioTab={mobileStudioTab}
+            onApproveCurrentPdf={() => {
+              if (!availableExportToApprove) {
+                return
+              }
+
+              runWithSavedDraft(
+                () => props.onApproveResume(props.jobId, availableExportToApprove.id),
+                'Saved your draft before approving the PDF.',
+              )
+            }}
+            onClearApproval={() =>
+              runWithSavedDraftAsync(
+                () => props.onClearResumeApproval(props.jobId),
+                'Saved your draft before clearing approval.',
+              )
+            }
+            onExportPdf={() =>
+              runWithSavedDraft(
+                () => props.onExportPdf(props.jobId),
+                'Saved your draft before exporting the PDF.',
+              )
+            }
+            onRegenerateDraft={() =>
+              runWithSavedDraft(
+                () => props.onRegenerateDraft(props.jobId),
+                'Saved your draft before refreshing the resume.',
+              )
+            }
+            onSaveDraft={() => props.onSaveDraft(draft)}
+            onSetMobileStudioTab={setMobileStudioTab}
+            onToggleGuidedEdits={showExpandedAssistantRail ? handleToggleAssistantRail : handleOpenGuidedEdits}
+            previewPane={previewPane}
+            selectedTemplateApprovalEligible={selectedTemplateApprovalEligible}
+            showExpandedAssistantRail={showExpandedAssistantRail}
+            studioStatusMessage={studioStatusMessage}
+            templatePanel={templatePanel}
+          />
         </div>
       </section>
     </LockedScreenLayout>

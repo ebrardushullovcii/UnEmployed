@@ -343,12 +343,24 @@ function shouldAutoApplyPlaceholderReplacement(
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
 ): boolean {
+  if (!isFreshStartProfile(profile)) {
+    return false;
+  }
+
   const recommendation = recommendationForCandidate(candidate);
-  const hasExplicitRecommendation = Boolean(candidate.confidenceBreakdown?.recommendation);
-  if (
-    recommendation !== "auto_apply" &&
-    (hasExplicitRecommendation || !isFreshStartProfile(profile))
-  ) {
+
+  if (recommendation === "abstain") {
+    return false;
+  }
+
+  const placeholderReviewBypassKey = `${candidate.target.section}.${candidate.target.key}`;
+  const canBypassNeedsReviewForFreshStart =
+    recommendation === "auto_apply" ||
+    placeholderReviewBypassKey === "identity.headline" ||
+    placeholderReviewBypassKey === "identity.summary" ||
+    placeholderReviewBypassKey === "identity.yearsExperience";
+
+  if (!canBypassNeedsReviewForFreshStart) {
     return false;
   }
 
@@ -364,7 +376,7 @@ function shouldAutoApplyPlaceholderReplacement(
 
   const overall = candidateOverallConfidence(candidate);
 
-  switch (`${candidate.target.section}.${candidate.target.key}`) {
+  switch (placeholderReviewBypassKey) {
     case "identity.firstName":
     case "identity.middleName":
     case "identity.lastName":
@@ -393,7 +405,7 @@ function shouldAutoApplyPlaceholderReplacement(
       return (
         typeof candidate.value === "string" &&
         candidate.value.trim().length >= 48 &&
-        overall >= 0.75
+        overall >= 0.74
       );
     case "identity.yearsExperience":
       return typeof candidate.value === "number" && candidate.value > 0 && overall >= 0.75;
@@ -446,6 +458,20 @@ function isLikelyPersonName(value: string): boolean {
     /^[A-Za-z][A-Za-z\s.'-]+$/.test(trimmed) &&
     parts.every((part) => /^[A-Z][A-Za-z.'-]*$/.test(part) || /^[A-Z]{2,}$/.test(part))
   );
+}
+
+function getDerivedNameParts(fullName: string): {
+  firstName: string | null;
+  middleName: string | null;
+  lastName: string | null;
+} {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+
+  return {
+    firstName: parts[0] ?? null,
+    middleName: parts.length > 2 ? parts.slice(1, -1).join(" ") : null,
+    lastName: parts.length > 1 ? (parts[parts.length - 1] ?? null) : null,
+  };
 }
 
 function isLikelyLocationValue(value: string): boolean {
@@ -776,6 +802,65 @@ function applyCandidateResolution(
   });
 }
 
+function resolveRedundantFreshStartNamePartCandidates(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  candidates: readonly ResumeImportFieldCandidate[],
+): ResumeImportFieldCandidate[] {
+  if (!isFreshStartProfile(profile)) {
+    return [...candidates];
+  }
+
+  const autoAppliedFullName = candidates.find(
+    (candidate) =>
+      candidate.target.section === "identity" &&
+      candidate.target.key === "fullName" &&
+      candidate.resolution === "auto_applied" &&
+      typeof candidate.value === "string" &&
+      isLikelyPersonName(candidate.value),
+  );
+
+  if (!autoAppliedFullName || typeof autoAppliedFullName.value !== "string") {
+    return [...candidates];
+  }
+
+  const derivedNameParts = getDerivedNameParts(autoAppliedFullName.value);
+
+  return candidates.map((candidate) => {
+    if (
+      candidate.resolution !== "needs_review" ||
+      candidate.target.section !== "identity" ||
+      typeof candidate.value !== "string"
+    ) {
+      return candidate;
+    }
+
+    const expectedValue = (() => {
+      switch (candidate.target.key) {
+        case "firstName":
+          return derivedNameParts.firstName;
+        case "middleName":
+          return derivedNameParts.middleName;
+        case "lastName":
+          return derivedNameParts.lastName;
+        default:
+          return null;
+      }
+    })();
+
+    if (!expectedValue || normalizeText(candidate.value) !== normalizeText(expectedValue)) {
+      return candidate;
+    }
+
+    return applyCandidateResolution(
+      profile,
+      searchPreferences,
+      candidate,
+      "rejected",
+    );
+  });
+}
+
 export function reconcileCandidates(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
@@ -895,5 +980,9 @@ export function reconcileCandidates(
     });
   }
 
-  return resolved;
+  return resolveRedundantFreshStartNamePartCandidates(
+    profile,
+    searchPreferences,
+    resolved,
+  );
 }

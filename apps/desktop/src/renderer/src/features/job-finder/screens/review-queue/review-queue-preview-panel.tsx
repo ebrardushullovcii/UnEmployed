@@ -2,6 +2,7 @@ import type { ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contr
 import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
+import { JOB_FINDER_ROUTE_HREFS } from '../../lib/job-finder-route-hrefs'
 import { getReviewQueueWorkflowStatus, hasResumeGenerationFailure, isResumeGenerationInProgress, needsResumeGeneration } from './review-queue-status'
 
 interface ReviewQueuePreviewPanelProps {
@@ -36,10 +37,17 @@ export function ReviewQueuePreviewPanel({ isGenerating: isSelectedJobPending = f
       </header>
       {queue.length === 0 ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
-          <EmptyState
-            title="No shortlisted jobs yet"
-            description="Shortlist a job from Find jobs to start building a tailored resume."
-          />
+          <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
+            <EmptyState
+              title="No shortlisted jobs yet"
+              description="Find jobs first, then shortlist the strongest matches to start building tailored resumes."
+            />
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Button asChild type="button" variant="primary">
+                <a href={JOB_FINDER_ROUTE_HREFS.discovery}>Go to Find jobs</a>
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
       {queue.length > 0 && selectedItem && showGenerationState ? (

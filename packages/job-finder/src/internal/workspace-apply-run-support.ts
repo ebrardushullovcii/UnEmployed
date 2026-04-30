@@ -117,8 +117,8 @@ export function buildMissingResumeCopilotArtifacts(input: {
       summary: result.blockerSummary,
     },
     consentSummary: {
-      status: "requested",
-      pendingCount: 1,
+      status: "none",
+      pendingCount: 0,
     },
     replaySummary: {
       lastUrl: canonicalApplyUrl,

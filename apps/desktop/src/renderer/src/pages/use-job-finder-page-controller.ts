@@ -15,7 +15,7 @@ import {
   type PendingActionScope,
   type PendingActionState,
 } from './job-finder-pending-actions'
-import { type JobFinderPageContext } from './job-finder-page-routes'
+import type { JobFinderPageContext } from './job-finder-page-context'
 import {
   buildJobFinderPageContext,
 } from './use-job-finder-page-controller-context'

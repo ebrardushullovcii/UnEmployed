@@ -25,7 +25,7 @@ import {
   jobFinderPendingActions,
 } from './job-finder-pending-actions'
 import { getProfileCopilotContextKey } from '@renderer/features/job-finder/lib/profile-copilot-context'
-import { buildSourceDebugOutcomeMessage } from './job-finder-page-routes'
+import { buildSourceDebugOutcomeMessage } from './job-finder-page-route-utils'
 
 type ActionOptions = {
   clearMessageOnStart?: boolean

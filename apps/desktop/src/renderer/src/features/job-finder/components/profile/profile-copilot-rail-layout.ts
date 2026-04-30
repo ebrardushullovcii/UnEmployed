@@ -2,7 +2,8 @@ const COPILOT_PANEL_MAX_WIDTH = 480
 const COPILOT_PANEL_OFFSET = 16
 const COPILOT_COLLAPSED_WIDTH = 320
 const COPILOT_COLLAPSED_HEIGHT = 80
-const COPILOT_OPEN_TOP_SAFE_INSET = 96
+export const COPILOT_NAV_SAFE_OFFSET = 112
+export const COPILOT_CONTENT_SAFE_OFFSET = Math.max(COPILOT_NAV_SAFE_OFFSET, 160)
 
 export function getCopilotPanelDimensions(minBottomOffset = COPILOT_PANEL_OFFSET) {
   if (typeof window === 'undefined') {
@@ -18,7 +19,7 @@ export function getCopilotPanelDimensions(minBottomOffset = COPILOT_PANEL_OFFSET
     expandedWidth: Math.min(COPILOT_PANEL_MAX_WIDTH, Math.max(320, window.innerWidth - 32)),
     expandedHeight: Math.min(
       672,
-      Math.max(320, window.innerHeight - COPILOT_OPEN_TOP_SAFE_INSET - Math.max(minBottomOffset, COPILOT_PANEL_OFFSET)),
+      Math.max(320, window.innerHeight - COPILOT_NAV_SAFE_OFFSET - Math.max(minBottomOffset, COPILOT_PANEL_OFFSET)),
     ),
     collapsedWidth: Math.min(COPILOT_COLLAPSED_WIDTH, Math.max(220, window.innerWidth - 32)),
     collapsedHeight: COPILOT_COLLAPSED_HEIGHT,
@@ -44,7 +45,7 @@ export function clampCopilotPosition(input: {
   const maxX = Math.max(COPILOT_PANEL_OFFSET, window.innerWidth - width - COPILOT_PANEL_OFFSET)
   const maxY = Math.max(
     input.minBottomOffset,
-    window.innerHeight - height - (input.isOpen ? COPILOT_OPEN_TOP_SAFE_INSET : COPILOT_PANEL_OFFSET),
+    window.innerHeight - height - (input.isOpen ? COPILOT_NAV_SAFE_OFFSET : COPILOT_PANEL_OFFSET),
   )
   const minY = input.minBottomOffset
 

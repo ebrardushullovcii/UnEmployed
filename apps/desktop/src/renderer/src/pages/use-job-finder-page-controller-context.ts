@@ -16,11 +16,11 @@ import type {
   PendingActionState,
 } from './job-finder-pending-actions'
 import { jobFinderPendingActions } from './job-finder-pending-actions'
-import { type JobFinderPageContext } from './job-finder-page-routes'
 import {
   createActionRunners,
   createPrimaryPageActions,
 } from './use-job-finder-page-controller-actions'
+import type { JobFinderPageContext } from './job-finder-page-context'
 
 type BuildJobFinderPageContextArgs = {
   actionState: ActionState

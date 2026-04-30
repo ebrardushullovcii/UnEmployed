@@ -12,6 +12,59 @@ import { getVisibleYearsExperience } from '@renderer/features/job-finder/lib/pro
 import { PreferenceList } from '../preference-list'
 import { StatusBadge } from '../status-badge'
 
+const PROFILE_PLACEHOLDER_HEADLINE = 'Import your resume to begin'
+const PROFILE_PLACEHOLDER_SUMMARY =
+  'Import a resume or paste resume text to build your profile, targeting, and tailored documents.'
+
+function isPlaceholderValue(value: string | null | undefined, placeholder: string) {
+  return value?.trim().toLowerCase() === placeholder.toLowerCase()
+}
+
+function getImportedIdentityStatus(input: {
+  headline: string
+  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  summary: string
+}) {
+  const reviewKeys = new Set(
+    input.latestResumeImportReviewCandidates
+      .filter((candidate) => candidate.target.section === 'identity')
+      .map((candidate) => candidate.target.key),
+  )
+
+  const headlinePending =
+    isPlaceholderValue(input.headline, PROFILE_PLACEHOLDER_HEADLINE) ||
+    reviewKeys.has('headline')
+  const summaryPending =
+    isPlaceholderValue(input.summary, PROFILE_PLACEHOLDER_SUMMARY) ||
+    reviewKeys.has('summary')
+
+  if (headlinePending && summaryPending) {
+    return {
+      headline: 'Imported identity still needs review',
+      description:
+        'Headline and summary still need a quick confirmation before this imported profile reads as complete.',
+    }
+  }
+
+  if (headlinePending) {
+    return {
+      headline: 'Imported headline still needs review',
+      description:
+        'Confirm or edit the imported headline so your profile and tailored resumes describe your target clearly.',
+    }
+  }
+
+  if (summaryPending) {
+    return {
+      headline: 'Imported summary still needs review',
+      description:
+        'Confirm or tighten the imported summary so this profile is ready to reuse across discovery and resumes.',
+    }
+  }
+
+  return null
+}
+
 interface ProfileResumePanelProps {
   importDisabledReason?: string | null
   isAnalyzeProfilePending: boolean
@@ -140,7 +193,16 @@ export function ProfileResumePanel({
     return 'Not imported'
   })()
   const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Name not set yet'
-  const headline = profile.headline.trim() || 'Headline not set yet'
+  const importedIdentityStatus = getImportedIdentityStatus({
+    headline: profile.headline,
+    latestResumeImportReviewCandidates,
+    summary: profile.summary,
+  })
+  const headline =
+    importedIdentityStatus?.headline &&
+    isPlaceholderValue(profile.headline, PROFILE_PLACEHOLDER_HEADLINE)
+      ? importedIdentityStatus.headline
+      : profile.headline.trim() || 'Headline not set yet'
   const location = profile.currentLocation.trim() || 'Location not set yet'
   const visibleYearsExperience = getVisibleYearsExperience({
     profileYearsExperience: profile.yearsExperience,
@@ -236,6 +298,12 @@ export function ProfileResumePanel({
               ) : null}
               {visibleAnalysisWarnings.length > 0 ? (
                 <PreferenceList label="Check these details before saving" values={visibleAnalysisWarnings} />
+              ) : null}
+              {importedIdentityStatus ? (
+                <PreferenceList
+                  label="What to confirm next"
+                  values={[importedIdentityStatus.description]}
+                />
               ) : null}
               {latestResumeImportReviewCandidates.length > 0 ? (
                 <PreferenceList

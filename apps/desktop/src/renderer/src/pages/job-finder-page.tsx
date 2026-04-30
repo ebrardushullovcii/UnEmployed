@@ -13,7 +13,7 @@ export {
   JobFinderReviewQueueRoute,
   JobFinderSettingsRoute,
 } from "./job-finder-page-routes";
-export type { JobFinderPageContext } from "./job-finder-page-routes";
+export type { JobFinderPageContext } from "./job-finder-page-context";
 
 export function JobFinderPage() {
   const {

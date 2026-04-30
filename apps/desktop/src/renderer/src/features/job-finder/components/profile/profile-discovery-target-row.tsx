@@ -6,20 +6,20 @@ import type {
   SourceDebugRunRecord,
   SourceInstructionArtifact
 } from '@unemployed/contracts'
-import { Button } from '@renderer/components/ui/button'
-import { FieldLabel } from '@renderer/components/ui/field'
-import { formatDuration, formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
+import { formatRunStateLabel } from '@renderer/features/job-finder/lib/job-finder-utils'
 import type { SearchPreferencesEditorValues } from '../../lib/profile-editor'
-import { CheckboxField } from '../checkbox-field'
-import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
-import { ProfileLearnedInstructionsPanel } from './profile-learned-instructions-panel'
 import { ProfileSourceDebugReviewModal } from './profile-source-debug-review-modal'
+import {
+  DiscoveryTargetAccessPrompt,
+  DiscoveryTargetActionHeader,
+  DiscoveryTargetFormFields,
+  DiscoveryTargetInstructions,
+} from './profile-discovery-target-row-sections'
 import {
   buildLearnedInstructionIntelligenceSummaries,
   type LearnedInstructionField,
   type LearnedInstructionSection,
   buildLearnedInstructionSections,
-  describeLearnedInstructionUsage,
   hasValidAbsoluteStartingUrl,
   normalizeEditableInstructionInput,
   updateArtifactInstructionSection
@@ -125,6 +125,9 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
     sourceAccessPrompt?.state === 'prompt_login_required'
       ? 'border-(--warning-border) bg-(--warning-surface) text-(--warning-text)'
       : 'border-(--info-border) bg-(--info-surface) text-(--info-text)'
+  const canRunSearchNow =
+    props.target.enabled && hasValidAbsoluteStartingUrl(props.target.startingUrl)
+  const canRunSourceDebug = hasValidAbsoluteStartingUrl(props.target.startingUrl)
 
   useEffect(() => {
     if (!isInstructionSavePending) {
@@ -267,160 +270,53 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
 
   return (
     <article className="surface-card-tint grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-      <header className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-        <div className="grid gap-1">
-          <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">{displayName}</h3>
-          <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Source {props.index + 1}</p>
-        </div>
-        <div className="flex flex-wrap items-start gap-2 lg:justify-end">
-          {sourceAccessPrompt ? (
-            <Button
-              aria-label={`${sourceAccessPrompt.actionLabel} for ${displayName}`}
-              onClick={handleOpenBrowserSessionForTarget}
-              pending={isTargetBrowserSessionPending}
-              type="button"
-              size="sm"
-              variant={sourceAccessPrompt.state === 'prompt_login_required' ? 'primary' : 'secondary'}
-            >
-              {sourceAccessPrompt.actionLabel}
-            </Button>
-          ) : null}
-          {props.onRunDiscoveryForTarget ? (
-            <Button
-              aria-label={`Run search now for ${accessibleLabel}`}
-              disabled={!props.target.enabled || !hasValidAbsoluteStartingUrl(props.target.startingUrl)}
-              pending={isTargetDiscoveryPending}
-              onClick={handleRunDiscoveryForTarget}
-              type="button"
-              size="sm"
-              variant="primary"
-            >
-              Search now
-            </Button>
-          ) : null}
-          <Button
-            aria-label={`Check this source for ${accessibleLabel}`}
-            disabled={!hasValidAbsoluteStartingUrl(props.target.startingUrl)}
-            pending={isTargetSourceDebugPending}
-            onClick={handleRunSourceDebug}
-            type="button"
-            size="sm"
-            variant="secondary"
-          >
-            Check source
-          </Button>
-          <Button
-            aria-label={`Move ${accessibleLabel} up`}
-            disabled={props.index === 0}
-            onClick={handleMoveTargetUp}
-            type="button"
-            size="sm"
-            variant="ghost"
-          >
-            Move up
-          </Button>
-          <Button
-            aria-label={`Move ${accessibleLabel} down`}
-            disabled={props.index === props.discoveryTargets.length - 1}
-            onClick={handleMoveTargetDown}
-            type="button"
-            size="sm"
-            variant="ghost"
-          >
-            Move down
-          </Button>
-          <Button
-            aria-label={`Remove ${accessibleLabel}`}
-            onClick={handleRemoveTarget}
-            type="button"
-            size="sm"
-            variant="ghost"
-          >
-            Remove
-          </Button>
-        </div>
-      </header>
+      <DiscoveryTargetActionHeader
+        accessibleLabel={accessibleLabel}
+        canRunDiscovery={canRunSearchNow}
+        canRunSourceDebug={canRunSourceDebug}
+        displayName={displayName}
+        index={props.index}
+        isBrowserSessionPending={isTargetBrowserSessionPending}
+        isLastTarget={props.index === props.discoveryTargets.length - 1}
+        isSourceDebugPending={isTargetSourceDebugPending}
+        isTargetDiscoveryPending={isTargetDiscoveryPending}
+        onMoveDown={handleMoveTargetDown}
+        onMoveUp={handleMoveTargetUp}
+        onOpenBrowserSession={handleOpenBrowserSessionForTarget}
+        onRemove={handleRemoveTarget}
+        onRunDiscovery={props.onRunDiscoveryForTarget ? handleRunDiscoveryForTarget : undefined}
+        onRunSourceDebug={handleRunSourceDebug}
+        sourceAccessPrompt={sourceAccessPrompt}
+      />
 
       {sourceAccessPrompt ? (
-        <div
-          aria-live="polite"
-          className={`grid gap-2 rounded-(--radius-field) border px-3 py-3 ${signInToneClassName}`}
-          role="status"
-        >
-          <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label)">
-            {sourceAccessPrompt.state === 'prompt_login_required' ? 'Sign-in required' : 'Sign-in recommended'}
-          </p>
-          <p className="text-[0.88rem] leading-6">{sourceAccessPrompt.summary}</p>
-          {sourceAccessPrompt.detail ? (
-            <p className="text-[0.82rem] leading-6 opacity-90">{sourceAccessPrompt.detail}</p>
-          ) : null}
-          {sourceAccessPrompt.rerunLabel ? (
-            <p className="text-[0.78rem] leading-6 opacity-80">
-              {`After sign-in: ${sourceAccessPrompt.rerunLabel}.`}
-            </p>
-          ) : null}
-        </div>
+        <DiscoveryTargetAccessPrompt
+          signInToneClassName={signInToneClassName}
+          sourceAccessPrompt={sourceAccessPrompt}
+        />
       ) : null}
 
       <div className="grid gap-(--gap-content) md:grid-cols-2">
-        <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={labelId}>Source name</FieldLabel>
-          <ProfileInput id={labelId} onChange={handleLabelChange} placeholder="LinkedIn or Stripe Careers" value={props.target.label} />
-        </div>
-        <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={startingUrlId}>Starting page URL</FieldLabel>
-          <ProfileInput
-            id={startingUrlId}
-            onChange={handleStartingUrlChange}
-            placeholder="https://jobs.example.com/search"
-            value={props.target.startingUrl}
-          />
-        </div>
-        <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
-          <FieldLabel htmlFor={instructionsId}>Source notes</FieldLabel>
-          <ProfileTextarea
-            className="min-h-(--textarea-tall)"
-            id={instructionsId}
-            onChange={handleCustomInstructionsChange}
-            placeholder="Optional: add notes like 'skip contract roles' or 'focus on remote jobs'."
-            rows={4}
-            value={props.target.customInstructions}
-          />
-        </div>
-        {latestDebugRun ? (
-          <div className="surface-card-tint grid h-full min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-                Last source check
-              </p>
-              <Button
-                aria-label={`Review the latest source check for ${accessibleLabel}`}
-                pending={isTargetSourceDebugPending}
-                onClick={handleReviewLatestRun}
-                type="button"
-                variant="ghost"
-              >
-                Review check
-              </Button>
-            </div>
-            <div aria-live="polite" className="grid gap-1" role="status">
-              <p className="text-[0.88rem] leading-6 text-foreground">{latestDebugRunLabel}</p>
-              {latestDebugRun.manualPrerequisiteSummary || latestDebugRun.finalSummary ? (
-                <p className="text-[0.82rem] leading-6 text-foreground-soft">
-                  {latestDebugRun.manualPrerequisiteSummary ?? latestDebugRun.finalSummary}
-                </p>
-              ) : null}
-              {latestDebugRun.timing ? (
-                <p className="text-[0.78rem] leading-6 text-foreground-muted">
-                  {`Duration: ${formatDuration(latestDebugRun.timing.totalDurationMs)}`}
-                  {latestDebugRun.timing.longestGapMs > 10000 ? ` · Longest quiet gap: ${formatDuration(latestDebugRun.timing.longestGapMs)}` : ''}
-                  {latestDebugRun.timing.finalReviewMs != null ? ` · AI review: ${formatDuration(latestDebugRun.timing.finalReviewMs)}` : ''}
-                </p>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-        <ProfileLearnedInstructionsPanel
+        <DiscoveryTargetFormFields
+          customInstructions={props.target.customInstructions}
+          instructionStatusSummary={formatInstructionStatusSummary(props.target)}
+          instructionsId={instructionsId}
+          isSourceDebugPending={isTargetSourceDebugPending}
+          labelId={labelId}
+          labelValue={props.target.label}
+          latestDebugRun={latestDebugRun}
+          latestDebugRunLabel={latestDebugRunLabel}
+          onCustomInstructionsChange={handleCustomInstructionsChange}
+          onLabelChange={handleLabelChange}
+          onReviewLatestRun={handleReviewLatestRun}
+          onStartingUrlChange={handleStartingUrlChange}
+          onToggleEnabled={handleToggleEnabled}
+          reviewCheckAriaLabel={`Review the latest source check for ${accessibleLabel}`}
+          startingUrl={props.target.startingUrl}
+          startingUrlId={startingUrlId}
+          targetEnabled={props.target.enabled}
+        />
+        <DiscoveryTargetInstructions
           editingInstruction={editingInstruction}
           editingInstructionValue={editingInstructionValue}
           intelligenceSummaries={learnedInstructionIntelligenceSummaries}
@@ -443,7 +339,7 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
             pendingInstructionAction.normalizedKey === line.normalizedKey
           }
           isInstructionSavePending={isInstructionSavePending}
-          instructionArtifactDescription={describeLearnedInstructionUsage(props.instructionArtifact)}
+          instructionArtifact={props.instructionArtifact}
           onBeginEditingInstruction={beginEditingInstruction}
           onCancelEditingInstruction={cancelEditingInstruction}
           onChangeEditingInstructionValue={setEditingInstructionValue}
@@ -452,16 +348,6 @@ export function ProfileDiscoveryTargetRow(props: ProfileDiscoveryTargetRowProps)
           sections={learnedInstructionSections}
           targetId={props.target.id}
         />
-        <div className="grid gap-2 md:col-span-2">
-          <CheckboxField
-            checked={props.target.enabled}
-            label="Include this source in searches"
-            onCheckedChange={handleToggleEnabled}
-          />
-          <p aria-live="polite" aria-atomic="true" className="text-[0.82rem] leading-6 text-foreground-soft" role="status">
-            <strong>{formatInstructionStatusSummary(props.target)}</strong>
-          </p>
-        </div>
       </div>
       <ProfileSourceDebugReviewModal
         details={reviewDetails}

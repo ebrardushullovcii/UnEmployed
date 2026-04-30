@@ -1,15 +1,119 @@
 import type { BrowserSessionState, SavedJob } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
+import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '@renderer/features/job-finder/components/empty-state'
 import { StatusBadge } from '@renderer/features/job-finder/components/status-badge'
+import { JOB_FINDER_ROUTE_HREFS } from '@renderer/features/job-finder/lib/job-finder-route-hrefs'
 import { cn } from '@renderer/lib/cn'
 import { formatOptionalDateOnly, formatStatusLabel, getApplicationTone } from '@renderer/features/job-finder/lib/job-finder-utils'
 
 interface DiscoveryResultsPanelProps {
   browserSession: BrowserSessionState
+  emptyClassName?: string
   jobs: readonly SavedJob[]
+  onRecoveryAction?: (() => void) | null
   onSelectJob: (jobId: string) => void
+  recoveryActionLabel?: string | null
+  recoveryActionNextStep?: string | null
+  recoveryActionPending?: boolean
+  searchSetupBlocker?: {
+    title: string
+    description: string
+    actionLabel?: string | null
+    actionHref?: string | null
+    nextStep?: string | null
+  } | null
   selectedJob: SavedJob | null
+}
+
+function RecoveryCallout(props: {
+  description: string
+  onRecoveryAction?: (() => void) | null
+  recoveryActionLabel?: string | null
+  recoveryActionNextStep?: string | null
+  recoveryActionPending?: boolean
+}) {
+  const recoveryActionProps = props.onRecoveryAction ? { onClick: props.onRecoveryAction } : {}
+  const recoveryPendingProps = props.recoveryActionPending ? { pending: true } : {}
+
+  return (
+    <div aria-atomic="true" className="rounded-(--radius-panel) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--warning-text)" role="alert">
+      <p>{props.description}</p>
+      {props.recoveryActionLabel ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            type="button"
+            variant="primary"
+            {...recoveryActionProps}
+            {...recoveryPendingProps}
+          >
+            {props.recoveryActionLabel}
+          </Button>
+          <span className="text-(length:--text-small) opacity-80">
+            {props.recoveryActionNextStep ?? 'Then search again.'}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export function ResultsEmptyState(props: {
+  actionHref?: string | null
+  className?: string
+  description: string
+  onRecoveryAction?: (() => void) | null
+  recoveryActionLabel?: string | null
+  recoveryActionNextStep?: string | null
+  recoveryActionPending?: boolean
+  title: string
+}) {
+  const emptyStateProps = props.className ? { className: props.className } : {}
+  const recoveryActionProps = props.onRecoveryAction ? { onClick: props.onRecoveryAction } : {}
+  const recoveryPendingProps = props.recoveryActionPending ? { pending: true } : {}
+  const actionButton = props.recoveryActionLabel
+    ? props.actionHref
+      ? (
+          <Button asChild size="sm" type="button" variant="primary">
+            <a href={props.actionHref}>{props.recoveryActionLabel}</a>
+          </Button>
+        )
+      : (
+          <Button
+            size="sm"
+            type="button"
+            variant="primary"
+            {...recoveryActionProps}
+            {...recoveryPendingProps}
+          >
+            {props.recoveryActionLabel}
+          </Button>
+        )
+    : null
+
+  return (
+    <div className="grid gap-4">
+      <EmptyState
+        description={props.description}
+        title={props.title}
+        {...emptyStateProps}
+      />
+      {props.recoveryActionLabel ? (
+        <div className="surface-card-tint grid gap-3 rounded-(--radius-panel) border border-(--warning-border) bg-(--warning-surface) px-4 py-4 text-left text-(length:--text-description) text-(--warning-text)">
+          <div className="grid gap-1">
+            <p className="font-medium">Next step</p>
+            <p className="leading-6">
+              {props.recoveryActionNextStep ?? 'Open the browser, then search again.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {actionButton}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function getApplyPathLabel(applyPath: SavedJob['applyPath']): string {
@@ -25,8 +129,14 @@ function getApplyPathLabel(applyPath: SavedJob['applyPath']): string {
 
 export function DiscoveryResultsPanel({
   browserSession,
+  emptyClassName,
   jobs,
+  onRecoveryAction,
   onSelectJob,
+  recoveryActionLabel,
+  recoveryActionNextStep,
+  recoveryActionPending = false,
+  searchSetupBlocker = null,
   selectedJob
 }: DiscoveryResultsPanelProps) {
   const jobCount = jobs.length
@@ -42,20 +152,37 @@ export function DiscoveryResultsPanel({
           <Badge variant="section">{jobCount} {jobCount === 1 ? 'job' : 'jobs'}</Badge>
         </header>
 
-      {sessionNeedsAttention && jobs.length === 0 ? (
+      {searchSetupBlocker && jobs.length === 0 ? (
         <div className="px-5 pt-4">
-          <EmptyState
-            className="min-h-72"
-            description="Open the browser, sign in or fix the issue, then search again."
-            title="Search blocked by browser"
+          <ResultsEmptyState
+            actionHref={searchSetupBlocker.actionHref ?? JOB_FINDER_ROUTE_HREFS.profile}
+            className={emptyClassName ?? 'min-h-72'}
+            description={searchSetupBlocker.description}
+            recoveryActionLabel={searchSetupBlocker.actionLabel ?? 'Edit search in Profile'}
+            recoveryActionNextStep={searchSetupBlocker.nextStep ?? 'Then search again.'}
+            title={searchSetupBlocker.title}
           />
         </div>
       ) : null}
 
-      {sessionWaitingOnRuntime && jobs.length === 0 ? (
+      {!searchSetupBlocker && sessionNeedsAttention && jobs.length === 0 ? (
         <div className="px-5 pt-4">
-          <EmptyState
-            className="min-h-72"
+          <ResultsEmptyState
+            className={emptyClassName ?? 'min-h-72'}
+            description="Open the browser, sign in or fix the issue, then search again."
+            title="Search blocked by browser"
+            {...(onRecoveryAction !== undefined ? { onRecoveryAction } : {})}
+            {...(recoveryActionLabel !== undefined ? { recoveryActionLabel } : {})}
+            {...(recoveryActionNextStep !== undefined ? { recoveryActionNextStep } : {})}
+            {...(recoveryActionPending ? { recoveryActionPending: true } : {})}
+          />
+        </div>
+      ) : null}
+
+      {!searchSetupBlocker && sessionWaitingOnRuntime && jobs.length === 0 ? (
+        <div className="px-5 pt-4">
+          <ResultsEmptyState
+            className={emptyClassName ?? 'min-h-72'}
             description="New results will appear here after browser-based sources are ready."
             title="Browser is starting"
           />
@@ -64,9 +191,13 @@ export function DiscoveryResultsPanel({
 
       {sessionNeedsAttention && jobs.length > 0 ? (
         <div className="px-5 pt-4">
-          <div aria-atomic="true" className="rounded-(--radius-panel) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--warning-text)" role="alert">
-            You're viewing results from the last completed search. Open the browser when you're ready to run a new one.
-          </div>
+          <RecoveryCallout
+            description="You're viewing results from the last completed search. Open the browser when you're ready to run a new one."
+            {...(onRecoveryAction !== undefined ? { onRecoveryAction } : {})}
+            {...(recoveryActionLabel !== undefined ? { recoveryActionLabel } : {})}
+            {...(recoveryActionNextStep !== undefined ? { recoveryActionNextStep } : {})}
+            {...(recoveryActionPending ? { recoveryActionPending: true } : {})}
+          />
         </div>
       ) : null}
 
@@ -78,10 +209,10 @@ export function DiscoveryResultsPanel({
         </div>
       ) : null}
 
-      {!sessionNeedsAttention && !sessionWaitingOnRuntime && jobs.length === 0 ? (
+      {!searchSetupBlocker && !sessionNeedsAttention && !sessionWaitingOnRuntime && jobs.length === 0 ? (
         <div className="px-5 pt-4">
-          <EmptyState
-            className="min-h-72"
+          <ResultsEmptyState
+            className={emptyClassName ?? 'min-h-72'}
             description="Try broader roles, locations, or sources, then search again."
             title="No matches from this search"
           />

@@ -220,8 +220,21 @@ async function captureFindJobsTop(page, viewport, report) {
     .getByRole("heading", { level: 1, name: "Find jobs" })
     .waitFor({ timeout: 10000 });
   await scrollAreaToTop(page);
-  await page
-    .getByText(/Then Search again after sign-in\./)
+  const jobResultsSection = page
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "Job results",
+      }),
+    })
+    .first();
+  await jobResultsSection.waitFor({ state: "visible", timeout: 10000 });
+  await jobResultsSection
+    .getByRole("heading", { name: "Search blocked by browser" })
+    .waitFor({ timeout: 10000 });
+  await jobResultsSection
+    .locator('button[type="button"]')
+    .first()
     .waitFor({ timeout: 10000 });
 
   const fileName = `find-jobs-${viewport.slug}.png`;

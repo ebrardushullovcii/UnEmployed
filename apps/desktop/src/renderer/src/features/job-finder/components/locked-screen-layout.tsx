@@ -42,7 +42,7 @@ export function LockedScreenLayout({ children, contentClassName, topClassName, t
     <section className="h-full min-h-0">
       <div className="screen-scroll-area h-full overflow-y-auto overflow-x-hidden pr-1">
         <div
-          className="grid h-full min-h-full min-w-0 grid-rows-[auto_minmax(0,1fr)]"
+          className="grid min-h-full min-w-0 grid-rows-[auto_minmax(0,1fr)]"
           style={topHeight > 0 ? { height: `calc(100% + ${topHeight}px)` } : undefined}
         >
           <div ref={topRef} className={cn('min-w-0', topClassName)}>

@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { clampCopilotPosition } from './profile-copilot-rail-layout'
+import {
+  COPILOT_CONTENT_SAFE_OFFSET,
+  COPILOT_NAV_SAFE_OFFSET,
+  clampCopilotPosition,
+} from './profile-copilot-rail-layout'
 
 describe('profile copilot rail layout', () => {
   afterEach(() => {
@@ -65,5 +69,13 @@ describe('profile copilot rail layout', () => {
     })
 
     expect(position).toEqual({ x: 20, y: 160 })
+  })
+
+  test('uses the shell-safe inset that clears the fixed navigation', () => {
+    expect(COPILOT_NAV_SAFE_OFFSET).toBeGreaterThanOrEqual(112)
+  })
+
+  test('exports a larger content-safe offset for setup-heavy screens', () => {
+    expect(COPILOT_CONTENT_SAFE_OFFSET).toBeGreaterThanOrEqual(160)
   })
 })

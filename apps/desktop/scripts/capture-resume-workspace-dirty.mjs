@@ -78,7 +78,11 @@ function summaryField(window) {
 }
 
 function assistantField(window) {
-  return window.getByLabel("Request a resume edit");
+  return window
+    .locator(
+      'textarea[placeholder*="tighten the summary"]:visible',
+    )
+    .first();
 }
 
 async function waitForProfileOrSetupHeading(window) {
