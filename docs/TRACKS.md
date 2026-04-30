@@ -127,6 +127,7 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
+- `028`: desktop QA follow-up and UX hardening queued in `docs/exec-plans/queued/028-desktop-qa-follow-up-and-ux-hardening.md`; covers `QA-001`, `QA-002`, `QA-011`, `QA-017`, `QA-018`, `QA-021`, `QA-023`, `QA-024`, related UX audit findings, and the remaining live-flow/responsive/accessibility test backlog
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import
