@@ -17,18 +17,18 @@ Turn the latest desktop screenshot QA findings into a concrete follow-up track t
 ## Why This Is Queued
 
 - the last QA pass produced a large, actionable desktop defect and UX backlog
-- the findings are saved under screenshot artifacts today, but they still need a repo-native execution track for work on another machine
+- the findings were first recorded under local screenshot artifacts, but `apps/desktop/test-artifacts/` is ignored and will not travel with the branch
+- this plan must therefore be self-contained enough to drive follow-up work from another machine without relying on ignored artifacts
 - the follow-up spans multiple previously completed baselines: `012`, `015`, `022`, `025`, `026`, and `027`
 
 ## Current Findings To Address
 
-Primary defect log:
+Ignored local evidence sources used during the original pass:
 
 - `apps/desktop/test-artifacts/ui/qa-full-20260430-issues.md`
-
-Second-pass UX and product audit:
-
 - `apps/desktop/test-artifacts/ui/qa-full-20260430-ux-audit.md`
+
+Those files are useful on the original machine, but this queued plan is the branch-visible handoff.
 
 Highest-priority defects from the QA pass:
 
@@ -40,6 +40,56 @@ Highest-priority defects from the QA pass:
 - `QA-021` Resume Studio after assistant edit can render a mostly blank workspace
 - `QA-023` Find jobs blocked results panel lacks a primary source-specific recovery action
 - `QA-024` Applications consent and cancel outcomes show contradictory stage and attempt statuses
+
+## Branch-Visible Issue Summary
+
+Use this section if the ignored artifacts are unavailable on the current machine.
+
+### QA-001 Resume import leaves primary fields in placeholder or unresolved-review state
+
+- both plain-text and PDF import paths successfully extracted identity and experience data
+- the visible profile still left headline and summary in an unresolved or placeholder state instead of giving the user a confident imported result and a clear next required action
+
+### QA-002 Resume Studio preview click does not reliably bring the matching editor field into view
+
+- clicking a selected preview item could visibly leave the editor positioned on a different field or section
+- the failure is about trust in preview-to-editor targeting, not only about test assertions
+
+### QA-011 Applications details panel clips long next-step content
+
+- long next-step and saved-next-step strings were visually cut off in the details column
+- users cannot reliably read the recommended action or verify saved guidance
+
+### QA-017 Narrow Find jobs loses page context
+
+- narrow-width captures could begin mid-content under the fixed header
+- the page title, blocking context, and primary action were not reliably visible together
+
+### QA-018 Profile Copilot drawer opens underneath the top nav
+
+- the drawer header was clipped under global navigation rather than opening as a complete overlay or contained panel
+
+### QA-021 Resume Studio can look mostly blank after assistant interaction
+
+- after a guided edit or assistant action, the workspace could show the request composer while the main preview/editor surface was effectively gone from view
+
+### QA-023 Find jobs blocked state has diagnosis but no primary recovery CTA in the main panel
+
+- the main results pane said search was blocked by browser or sign-in
+- the actual sign-in CTA lived elsewhere in the current-search panel, making recovery unclear or off-screen
+
+### QA-024 Applications consent and cancel outcomes use contradictory statuses
+
+- consent-approved, consent-declined, and cancelled runs could still appear as `READY FOR REVIEW` or `NO APPLY ATTEMPT`
+- latest activity, row stage, and detail-panel interpretation were not semantically aligned
+
+## Branch-Visible UX Summary
+
+- the product still reads too much like an internal automation console in high-stakes moments
+- blocked states need one obvious next action in the visible viewport
+- assistant surfaces need a collision-aware layout system instead of floating over content opportunistically
+- Applications should behave like a next-action CRM rather than a telemetry-first run log
+- responsive layouts need explicit master-detail rules so context and primary actions do not disappear into nested scroll
 
 ## Workstreams
 
@@ -104,6 +154,33 @@ Highest-priority defects from the QA pass:
 - non-macOS parser sidecar and packaging validation
 - installer, signing, and notarization flows when release work resumes
 
+## How To Recreate Evidence On Another Machine
+
+Run these from `apps/desktop` after building or validating desktop as needed.
+
+### Core validation
+
+- `pnpm validate:desktop`
+- `pnpm --filter @unemployed/desktop build`
+
+### Screenshot harnesses
+
+- `UI_CAPTURE_LABEL="qa-followup-source-sign-in" node ./scripts/capture-source-sign-in-prompts.mjs`
+- `UI_CAPTURE_LABEL="qa-followup-resume-workspace" node ./scripts/capture-resume-workspace.mjs`
+- `UI_CAPTURE_LABEL="qa-followup-resume-workspace-dirty" node ./scripts/capture-resume-workspace-dirty.mjs`
+- `UI_CAPTURE_LABEL="qa-followup-resume-import" node ./scripts/capture-resume-import.mjs --resume "./test-fixtures/job-finder/resume-import-sample.txt"`
+- `UI_CAPTURE_LABEL="qa-followup-resume-import-pdf" node ./scripts/capture-resume-import.mjs --resume "../../docs/resume-tests/Ryan Holstien Resume.pdf"`
+
+### Benchmarks used during the original pass
+
+- `pnpm --filter @unemployed/desktop benchmark:resume-import`
+- `pnpm --filter @unemployed/desktop benchmark:resume-quality -- --canary-only`
+
+### Notes
+
+- `capture-profile-baseline.mjs` requires an explicit committed snapshot path
+- screenshot output will again go to ignored `apps/desktop/test-artifacts/`, so summarize any new findings back into tracked docs before switching machines
+
 ## Recommended Execution Order
 
 1. fix `QA-023`, `QA-015`, `QA-016`, and `QA-017` together as one discovery/sign-in clarity pass
@@ -123,9 +200,6 @@ Highest-priority defects from the QA pass:
 
 ## Latest Evidence Pointers
 
-- `apps/desktop/test-artifacts/ui/qa-full-20260430-issues.md`
-- `apps/desktop/test-artifacts/ui/qa-full-20260430-ux-audit.md`
-- `apps/desktop/test-artifacts/ui/qa-full-20260430-source-sign-in/find-jobs-desktop.png`
-- `apps/desktop/test-artifacts/ui/qa-full-20260430-apply-queue-controls/04-applications-queue-consent-approved.png`
-- `apps/desktop/test-artifacts/ui/qa-full-20260430-profile-copilot-preferences/02-preferences-after-copilot.png`
-- `apps/desktop/test-artifacts/ui/qa-full-20260430-resume-workspace/08-after-assistant.png`
+- branch-visible summary: this plan
+- local ignored evidence on the original machine: `apps/desktop/test-artifacts/ui/qa-full-20260430-issues.md`
+- local ignored evidence on the original machine: `apps/desktop/test-artifacts/ui/qa-full-20260430-ux-audit.md`
