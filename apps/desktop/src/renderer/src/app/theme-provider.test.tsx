@@ -1,33 +1,48 @@
 // @vitest-environment jsdom
 
-import { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, test, vi } from 'vitest'
-import { ThemeProvider } from './theme-provider'
-import { SYSTEM_THEME_CHANGE_EVENT } from '@renderer/lib/theme'
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { ThemeProvider } from "./theme-provider";
+import { SYSTEM_THEME_CHANGE_EVENT } from "@renderer/lib/theme";
 
-describe('ThemeProvider', () => {
-  let container: HTMLDivElement | null = null
-  let root: Root | null = null
-  let systemThemeOverride: 'dark' | 'light' | null = null
+describe("ThemeProvider", () => {
+  let container: HTMLDivElement | null = null;
+  let root: Root | null = null;
+  let systemThemeOverride: "dark" | "light" | null = null;
 
-  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+
+  beforeEach(() => {
+    const storage = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: vi.fn(() => storage.clear()),
+        getItem: vi.fn((key: string) => storage.get(key) ?? null),
+        removeItem: vi.fn((key: string) => storage.delete(key)),
+        setItem: vi.fn((key: string, value: string) => storage.set(key, value)),
+      },
+    });
+  });
 
   afterEach(() => {
     if (root) {
       act(() => {
-        root?.unmount()
-      })
+        root?.unmount();
+      });
     }
 
-    root = null
-    container?.remove()
-    container = null
-    window.localStorage.clear()
-    Reflect.deleteProperty(window, 'unemployed')
-    systemThemeOverride = null
-    vi.unstubAllGlobals()
-  })
+    root = null;
+    container?.remove();
+    container = null;
+    window.localStorage.clear();
+    Reflect.deleteProperty(window, "unemployed");
+    systemThemeOverride = null;
+    vi.unstubAllGlobals();
+  });
 
   function installThemeBridge() {
     Object.assign(window, {
@@ -38,65 +53,71 @@ describe('ThemeProvider', () => {
           },
         },
       },
-    })
+    });
   }
 
-  function renderThemeProvider(preference: 'system' | 'light' | 'dark' = 'system') {
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+  function renderThemeProvider(
+    preference: "system" | "light" | "dark" = "system",
+  ) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
 
     return act(() => {
       root?.render(
         <ThemeProvider preference={preference}>
           <div>theme test</div>
         </ThemeProvider>,
-      )
-    })
+      );
+    });
   }
 
-  test('keeps explicit system-theme override after mount even when matchMedia reports light', () => {
+  test("keeps explicit system-theme override after mount even when matchMedia reports light", () => {
     const mediaQuery = {
       matches: false,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-    }
+    };
 
-    Object.defineProperty(window, 'matchMedia', {
+    Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn().mockReturnValue(mediaQuery),
-    })
-    systemThemeOverride = 'dark'
-    installThemeBridge()
+    });
+    systemThemeOverride = "dark";
+    installThemeBridge();
 
-    renderThemeProvider()
+    renderThemeProvider();
 
-    expect(document.documentElement.dataset.theme).toBe('dark')
-    expect(container?.firstElementChild?.getAttribute('data-resolved-theme')).toBe('dark')
-  })
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(
+      container?.firstElementChild?.getAttribute("data-resolved-theme"),
+    ).toBe("dark");
+  });
 
-  test('reacts to runtime override updates from the desktop test bridge', () => {
+  test("reacts to runtime override updates from the desktop test bridge", () => {
     const mediaQuery = {
       matches: false,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-    }
+    };
 
-    Object.defineProperty(window, 'matchMedia', {
+    Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn().mockReturnValue(mediaQuery),
-    })
-    installThemeBridge()
+    });
+    installThemeBridge();
 
-    renderThemeProvider()
-    expect(document.documentElement.dataset.theme).toBe('light')
+    renderThemeProvider();
+    expect(document.documentElement.dataset.theme).toBe("light");
 
     act(() => {
-      systemThemeOverride = 'dark'
-      window.dispatchEvent(new Event(SYSTEM_THEME_CHANGE_EVENT))
-    })
+      systemThemeOverride = "dark";
+      window.dispatchEvent(new Event(SYSTEM_THEME_CHANGE_EVENT));
+    });
 
-    expect(document.documentElement.dataset.theme).toBe('dark')
-    expect(container?.firstElementChild?.getAttribute('data-resolved-theme')).toBe('dark')
-  })
-})
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(
+      container?.firstElementChild?.getAttribute("data-resolved-theme"),
+    ).toBe("dark");
+  });
+});
