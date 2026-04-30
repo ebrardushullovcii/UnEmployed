@@ -160,14 +160,14 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   }, [props.assistantPending])
 
   useEffect(() => {
-    if (!props.assistantPending && hasAssistantMessages) {
+    if (!props.assistantPending && hasAssistantMessages && !assistantRailManuallyCollapsed) {
       setAssistantRailExpanded(true)
 
       if (mobileStudioTab === 'preview') {
         setMobileStudioTab('editor')
       }
     }
-  }, [hasAssistantMessages, mobileStudioTab, props.assistantPending])
+  }, [assistantRailManuallyCollapsed, hasAssistantMessages, mobileStudioTab, props.assistantPending])
 
   const handlePreviewSelection = useCallback((selection: {
     sectionId: string | null

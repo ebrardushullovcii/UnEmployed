@@ -53,7 +53,7 @@ export function useResumeEditorSelectionFocus(input: {
     const targetTop = scrollRegion.scrollTop + (targetRect.top - scrollRegionRect.top)
     const targetBottom = scrollRegion.scrollTop + (targetRect.bottom - scrollRegionRect.top)
 
-    if (!selectedEntryId) {
+    if (!selectedEntryId && !selectedTargetId) {
       const sectionAnchorTop = Math.max(0, targetTop - 72)
       if (sectionAnchorTop !== regionTop) {
         scrollRegion.scrollTop = sectionAnchorTop

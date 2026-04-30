@@ -269,10 +269,31 @@ export function buildMissionPanelState(input: {
     applySupportState,
     browserActionMessage,
   })
-  const selectedQueueItems = queue.filter((item) => queueSelection.includes(item.jobId))
-  const selectedQueueReadyItems = selectedQueueItems.filter((item) => isQueueStageReady(item))
-  const selectedQueueBlockedCount = selectedQueueItems.length - selectedQueueReadyItems.length
-  const queueReadyCount = queue.filter((item) => isQueueStageReady(item)).length
+  const selectionSet = new Set(queueSelection)
+  const selectedQueueItems: ReviewQueueItem[] = []
+  const selectedQueueReadyItems: ReviewQueueItem[] = []
+  let selectedQueueBlockedCount = 0
+  let queueReadyCount = 0
+
+  for (const item of queue) {
+    const queueItemReady = isQueueStageReady(item)
+
+    if (queueItemReady) {
+      queueReadyCount += 1
+    }
+
+    if (!selectionSet.has(item.jobId)) {
+      continue
+    }
+
+    selectedQueueItems.push(item)
+    if (queueItemReady) {
+      selectedQueueReadyItems.push(item)
+    } else {
+      selectedQueueBlockedCount += 1
+    }
+  }
+
   const canStageSelectedQueue = selectedQueueReadyItems.length > 0 && selectedQueueBlockedCount === 0
   const isSelectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
   const isSelectedQueuePending = selectedQueueReadyItems.some((item) => isJobPending(item.jobId))

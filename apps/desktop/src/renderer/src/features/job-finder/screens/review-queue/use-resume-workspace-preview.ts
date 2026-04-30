@@ -13,6 +13,7 @@ export function useResumeWorkspacePreview(input: {
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewStatus, setPreviewStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const previewRequestRef = useRef(0)
+  const previewTimeoutRef = useRef<number | null>(null)
 
   const refreshPreview = useCallback((targetDraft: ResumeDraft) => {
     const requestId = previewRequestRef.current + 1
@@ -42,6 +43,10 @@ export function useResumeWorkspacePreview(input: {
 
   useEffect(() => {
     if (!draft) {
+      if (previewTimeoutRef.current !== null) {
+        window.clearTimeout(previewTimeoutRef.current)
+        previewTimeoutRef.current = null
+      }
       previewRequestRef.current += 1
       setPreview(null)
       setPreviewError(null)
@@ -50,16 +55,23 @@ export function useResumeWorkspacePreview(input: {
     }
 
     previewRequestRef.current += 1
-    const timeout = window.setTimeout(() => {
+    previewTimeoutRef.current = window.setTimeout(() => {
       refreshPreview(draft)
     }, hasUnsavedChanges ? 250 : 100)
 
     return () => {
-      window.clearTimeout(timeout)
+      if (previewTimeoutRef.current !== null) {
+        window.clearTimeout(previewTimeoutRef.current)
+        previewTimeoutRef.current = null
+      }
     }
   }, [draft, hasUnsavedChanges, refreshPreview])
 
   const resetPreview = useCallback(() => {
+    if (previewTimeoutRef.current !== null) {
+      window.clearTimeout(previewTimeoutRef.current)
+      previewTimeoutRef.current = null
+    }
     previewRequestRef.current += 1
     setPreview(null)
     setPreviewError(null)

@@ -491,8 +491,11 @@ describe("resume import deduplication", () => {
     expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toEqual(
       expect.arrayContaining(["Years of experience"]),
     );
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toEqual(
-      expect.arrayContaining(["Headline", "Summary"]),
+    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
+      "Headline",
+    );
+    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
+      "Summary",
     );
   });
 

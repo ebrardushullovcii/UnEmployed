@@ -272,11 +272,25 @@ export function createWorkspaceApplicationMethods(
       nextActionLabel: input.nextActionLabel,
       lastUpdatedAt: input.updatedAt,
       lastAttemptState:
-        input.lastAttemptState ?? existingRecord?.lastAttemptState ?? null,
-      questionSummary: input.questionSummary ?? existingRecord?.questionSummary,
-      latestBlocker: input.latestBlocker ?? existingRecord?.latestBlocker ?? null,
-      consentSummary: input.consentSummary ?? existingRecord?.consentSummary,
-      replaySummary: input.replaySummary ?? existingRecord?.replaySummary,
+        input.lastAttemptState !== undefined
+          ? input.lastAttemptState
+          : existingRecord?.lastAttemptState ?? null,
+      questionSummary:
+        input.questionSummary !== undefined
+          ? input.questionSummary
+          : existingRecord?.questionSummary,
+      latestBlocker:
+        input.latestBlocker !== undefined
+          ? input.latestBlocker
+          : existingRecord?.latestBlocker ?? null,
+      consentSummary:
+        input.consentSummary !== undefined
+          ? input.consentSummary
+          : existingRecord?.consentSummary,
+      replaySummary:
+        input.replaySummary !== undefined
+          ? input.replaySummary
+          : existingRecord?.replaySummary,
       events: mergeEvents(existingRecord?.events ?? [], [
         {
           id: input.eventId,

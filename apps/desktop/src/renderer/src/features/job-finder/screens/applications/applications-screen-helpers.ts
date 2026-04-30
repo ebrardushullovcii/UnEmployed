@@ -5,15 +5,22 @@ export function getLatestApplicationAttemptForRecord(
   record: ApplicationRecord,
   applicationAttempts: readonly ApplicationAttempt[],
 ) {
-  return (
-    [...applicationAttempts]
-      .filter((attempt) => attempt.jobId === record.jobId)
-      .sort(
-        (left, right) =>
-          new Date(right.updatedAt).getTime() -
-          new Date(left.updatedAt).getTime(),
-      )[0] ?? null
-  );
+  let latestAttempt: ApplicationAttempt | null = null;
+  let latestUpdatedAt = Number.NEGATIVE_INFINITY;
+
+  for (const attempt of applicationAttempts) {
+    if (attempt.jobId !== record.jobId) {
+      continue;
+    }
+
+    const attemptUpdatedAt = new Date(attempt.updatedAt).getTime();
+    if (attemptUpdatedAt > latestUpdatedAt) {
+      latestAttempt = attempt;
+      latestUpdatedAt = attemptUpdatedAt;
+    }
+  }
+
+  return latestAttempt;
 }
 
 function isTerminalApplicationStatus(status: ApplicationRecord["status"]) {

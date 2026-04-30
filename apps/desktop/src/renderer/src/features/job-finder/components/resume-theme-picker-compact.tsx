@@ -54,7 +54,7 @@ export function ResumeThemePickerCompact(props: {
             </div>
 
             {selectedFamily || leadingRecommendedFamily ? (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.72rem] leading-4 text-foreground-soft">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-(length:--text-small) leading-5 text-foreground-soft">
                 {selectedFamily ? <span>Current: {selectedFamily.label}</span> : null}
                 {leadingRecommendedFamily ? <Badge variant="section">Recommended</Badge> : null}
                 {leadingRecommendedFamily ? (
@@ -81,7 +81,7 @@ export function ResumeThemePickerCompact(props: {
                     onClick={() => setFocusedFamilyId(family.id)}
                     type="button"
                   >
-                    <span className="text-[0.82rem] font-semibold leading-4 text-foreground">
+                    <span className="text-(length:--text-description) font-semibold leading-5 text-foreground">
                       {family.label}
                     </span>
                   </button>
@@ -147,7 +147,7 @@ function CompactVariantCard(props: {
             </Badge>
             <Badge variant="outline">{getAtsConfidenceLabel(atsConfidence)}</Badge>
           </div>
-          <p className="text-[0.74rem] leading-4.5 text-foreground-soft">
+          <p className="text-(length:--text-small) leading-5 text-foreground-soft">
             {compactReason}
           </p>
         </div>

@@ -3,6 +3,7 @@ import { History, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@renderer/components/ui/button'
 import { Chip } from '@renderer/components/ui/chip'
+import { JOB_FINDER_ROUTE_HREFS } from '../../lib/job-finder-route-hrefs'
 
 type SectionValue =
   | string
@@ -114,7 +115,7 @@ export function DiscoverySessionSummary(props: {
       </p>
       <Link
         className="text-(length:--text-small) font-medium text-primary underline-offset-4 hover:underline"
-        to="/job-finder/profile"
+        to={JOB_FINDER_ROUTE_HREFS.profile}
       >
         Edit search in Profile
       </Link>

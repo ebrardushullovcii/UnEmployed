@@ -1573,6 +1573,12 @@ describe("createJobFinderWorkspaceService", () => {
       pendingConsentRequest!.id,
       "decline",
     );
+    const declinedConsentRequest = (
+      await repository.listApplicationConsentRequests({
+        runId: runId!,
+        jobId: "job_consent_queue",
+      })
+    ).find((request) => request.id === pendingConsentRequest!.id);
 
     expect(snapshot.applyRuns[0]).toMatchObject({
       id: runId,
@@ -1593,6 +1599,10 @@ describe("createJobFinderWorkspaceService", () => {
         status: "declined",
         pendingCount: 0,
       },
+    });
+    expect(declinedConsentRequest).toMatchObject({
+      id: pendingConsentRequest!.id,
+      status: "declined",
     });
   });
 
@@ -1701,6 +1711,12 @@ describe("createJobFinderWorkspaceService", () => {
       pendingConsentRequest!.id,
       "approve",
     );
+    const approvedConsentRequest = (
+      await repository.listApplicationConsentRequests({
+        runId: runId!,
+        jobId: "job_consent_queue",
+      })
+    ).find((request) => request.id === pendingConsentRequest!.id);
 
     expect(
       snapshot.applicationRecords.find((record) => record.jobId === "job_consent_queue"),
@@ -1711,6 +1727,10 @@ describe("createJobFinderWorkspaceService", () => {
         status: "approved",
         pendingCount: 0,
       },
+    });
+    expect(approvedConsentRequest).toMatchObject({
+      id: pendingConsentRequest!.id,
+      status: "approved",
     });
   });
 

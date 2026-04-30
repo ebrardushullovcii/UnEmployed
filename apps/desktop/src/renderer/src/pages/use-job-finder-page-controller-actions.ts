@@ -756,8 +756,8 @@ export function createPrimaryPageActions(
         await runResumeWorkspaceAction(
           () => actions.saveResumeDraft(draft),
           async () => {
-            saveSucceeded = true
-            await refreshResumeWorkspace(jobId)
+            const refreshed = await refreshResumeWorkspace(jobId)
+            saveSucceeded = refreshed
           },
           successMessage === undefined ? 'Changes saved.' : successMessage,
           { scope: jobFinderPendingActions.resumeJob(jobId) },

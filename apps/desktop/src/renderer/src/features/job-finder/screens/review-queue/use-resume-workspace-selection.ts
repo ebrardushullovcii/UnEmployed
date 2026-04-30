@@ -12,6 +12,9 @@ export function useResumeWorkspaceSelection(input: {
 
   useEffect(() => {
     if (!draft) {
+      setSelectedSectionId(null)
+      setSelectedEntryId(null)
+      setSelectedTargetId(null)
       return
     }
 

@@ -160,26 +160,32 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           </p>
           <div className="grid gap-2">
             {selectedQueueOutcomeEntries.map((entry) => (
-              <div
-                key={`queue-outcome-${entry.jobId}`}
-                className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <strong className="text-foreground">{entry.label}</strong>
-                  <StatusBadge tone={getQueueRecoveryTone(entry.runResult?.state ?? null)}>
-                    {formatStatusLabel(entry.runResult?.state ?? "planned")}
-                  </StatusBadge>
-                </div>
-                <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                  {entry.runResult?.summary ??
-                    "This job never started before the queue paused or was cancelled."}
-                </p>
-                {entry.runResult?.blockerSummary ? (
-                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    {entry.runResult.blockerSummary}
-                  </p>
-                ) : null}
-              </div>
+              (() => {
+                const resolvedState = entry.runResult?.state ?? "planned";
+
+                return (
+                  <div
+                    key={`queue-outcome-${entry.jobId}`}
+                    className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <strong className="text-foreground">{entry.label}</strong>
+                      <StatusBadge tone={getQueueRecoveryTone(resolvedState)}>
+                        {formatStatusLabel(resolvedState)}
+                      </StatusBadge>
+                    </div>
+                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                      {entry.runResult?.summary ??
+                        "This job never started before the queue paused or was cancelled."}
+                    </p>
+                    {entry.runResult?.blockerSummary ? (
+                      <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                        {entry.runResult.blockerSummary}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })()
             ))}
           </div>
         </section>
@@ -201,15 +207,21 @@ function QueueEntryList(props: {
       <p className="label-mono-xs">{heading}</p>
       {entries.length ? (
         entries.map((entry) => (
-          <div
-            key={`${heading}-${entry.jobId}`}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/50 px-3 py-2"
-          >
-            <span className="text-foreground">{entry.label}</span>
-            <StatusBadge tone={getQueueRecoveryTone(entry.runResult?.state ?? null)}>
-              {formatStatusLabel(entry.runResult?.state ?? statusFallback)}
-            </StatusBadge>
-          </div>
+          (() => {
+            const resolvedState = entry.runResult?.state ?? statusFallback;
+
+            return (
+              <div
+                key={`${heading}-${entry.jobId}`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/50 px-3 py-2"
+              >
+                <span className="text-foreground">{entry.label}</span>
+                <StatusBadge tone={getQueueRecoveryTone(resolvedState)}>
+                  {formatStatusLabel(resolvedState)}
+                </StatusBadge>
+              </div>
+            );
+          })()
         ))
       ) : (
         <p>{emptyMessage}</p>

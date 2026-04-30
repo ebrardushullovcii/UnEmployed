@@ -60,8 +60,8 @@ export function DiscoveryTargetActionHeader(
   return (
     <header className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
       <div className="grid gap-1">
-        <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">{displayName}</h3>
-        <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Source {index + 1}</p>
+        <h3 className="text-(length:--text-body) font-semibold text-(--text-headline)">{displayName}</h3>
+        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Source {index + 1}</p>
       </div>
       <div className="flex flex-wrap items-start gap-2 lg:justify-end">
         {sourceAccessPrompt ? (
@@ -149,12 +149,12 @@ export function DiscoveryTargetAccessPrompt(props: {
       <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label)">
         {sourceAccessPrompt.state === 'prompt_login_required' ? 'Sign-in required' : 'Sign-in recommended'}
       </p>
-      <p className="text-[0.88rem] leading-6">{sourceAccessPrompt.summary}</p>
+      <p className="text-(length:--text-field) leading-6">{sourceAccessPrompt.summary}</p>
       {sourceAccessPrompt.detail ? (
-        <p className="text-[0.82rem] leading-6 opacity-90">{sourceAccessPrompt.detail}</p>
+        <p className="text-(length:--text-description) leading-6 opacity-90">{sourceAccessPrompt.detail}</p>
       ) : null}
       {sourceAccessPrompt.rerunLabel ? (
-        <p className="text-[0.78rem] leading-6 opacity-80">
+        <p className="text-(length:--text-small) leading-6 opacity-80">
           {`After sign-in: ${sourceAccessPrompt.rerunLabel}.`}
         </p>
       ) : null}
@@ -255,14 +255,14 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
               </Button>
             </div>
             <div aria-live="polite" className="grid gap-1" role="status">
-              <p className="text-[0.88rem] leading-6 text-foreground">{latestDebugRunLabel}</p>
+              <p className="text-(length:--text-field) leading-6 text-foreground">{latestDebugRunLabel}</p>
               {latestDebugRunSummary ? (
-                <p className="text-[0.82rem] leading-6 text-foreground-soft">
+                <p className="text-(length:--text-description) leading-6 text-foreground-soft">
                   {latestDebugRunSummary}
                 </p>
               ) : null}
               {latestDebugRun.timing ? (
-                <p className="text-[0.78rem] leading-6 text-foreground-muted">
+                <p className="text-(length:--text-small) leading-6 text-foreground-muted">
                   {`Duration: ${formatDuration(latestDebugRun.timing.totalDurationMs)}`}
                   {latestDebugRun.timing.longestGapMs > 10000 ? ` · Longest quiet gap: ${formatDuration(latestDebugRun.timing.longestGapMs)}` : ''}
                   {latestDebugRun.timing.finalReviewMs != null ? ` · AI review: ${formatDuration(latestDebugRun.timing.finalReviewMs)}` : ''}
@@ -277,7 +277,7 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             label="Include this source in searches"
             onCheckedChange={onToggleEnabled}
           />
-          <p aria-live="polite" aria-atomic="true" className="text-[0.82rem] leading-6 text-foreground-soft" role="status">
+          <p aria-live="polite" aria-atomic="true" className="text-(length:--text-description) leading-6 text-foreground-soft" role="status">
             <strong>{instructionStatusSummary}</strong>
           </p>
         </div>
