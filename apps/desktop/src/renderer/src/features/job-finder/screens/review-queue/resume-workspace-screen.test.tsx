@@ -330,6 +330,8 @@ describe('ResumeWorkspaceScreen', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Guided edits' }))
 
+    expect(screen.getByRole('dialog', { name: 'Guided edits' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Minimize guided edits' }).getAttribute('aria-expanded')).toBe('true')
     expect(screen.getAllByText('No edit requests yet').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Ask for a tighter summary, stronger bullets, or clearer job-specific wording.').length).toBeGreaterThan(0)
   })

@@ -69,6 +69,7 @@ type BuildJobFinderPageContextArgs = {
   >
   setResumeAssistantPending: Dispatch<SetStateAction<boolean>>
   setResumeWorkspace: Dispatch<SetStateAction<JobFinderResumeWorkspace | null>>
+  clearResumeWorkspaceState: () => void
   setResumeWorkspaceDirty: Dispatch<SetStateAction<boolean>>
   setSelectedApplicationRecordId: (recordId: string) => void
   setSelectedDiscoveryJobId: (jobId: string) => void
@@ -118,6 +119,7 @@ export function buildJobFinderPageContext(
     setResumeAssistantMessages,
     setResumeAssistantPending,
     setResumeWorkspace,
+    clearResumeWorkspaceState,
     setResumeWorkspaceDirty,
     setSelectedApplicationRecordId,
     setSelectedDiscoveryJobId,
@@ -154,10 +156,11 @@ export function buildJobFinderPageContext(
     setOptimisticProfileCopilotMessages,
     setProfileCopilotBusy,
     setProfileCopilotPendingContextKey,
-    setResumeAssistantMessages,
-    setResumeAssistantPending,
-    setResumeWorkspace,
-    setResumeWorkspaceDirty,
+      setResumeAssistantMessages,
+      setResumeAssistantPending,
+      setResumeWorkspace,
+      clearResumeWorkspaceState,
+      setResumeWorkspaceDirty,
     setSelectedReviewJobId,
     sourceDebugRunIdRef,
     workspace,

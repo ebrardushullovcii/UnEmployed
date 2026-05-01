@@ -247,7 +247,7 @@ export function DiscoveryRunOneSourceSection(props: {
                     {isActiveSingleTarget ? 'Running now' : 'Search only this source'}
                   </span>
                 </Button>
-                {targetPrompt && targetPrompt !== primarySourceAccessPrompt ? (
+                {targetPrompt && targetPrompt.targetId !== primarySourceAccessPrompt?.targetId ? (
                   <div
                     className={
                       targetPrompt.state === 'prompt_login_required'

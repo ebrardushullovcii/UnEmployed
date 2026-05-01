@@ -36,7 +36,7 @@ export function ResumeWorkspaceStudioShell(
             <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
               Resume Studio
             </p>
-            <h2 className="text-[1.35rem] font-semibold leading-tight text-(--text-headline)">
+            <h2 className="text-[var(--text-section-title)] font-semibold leading-tight text-(--text-headline)">
               Tune the live draft before export.
             </h2>
           </div>
@@ -159,7 +159,7 @@ export function ResumeWorkspaceStudioShell(
                   <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
                     Resume Studio
                   </p>
-                  <h2 className="text-[1.35rem] font-semibold leading-tight text-(--text-headline)">
+                  <h2 className="text-[var(--text-section-title)] font-semibold leading-tight text-(--text-headline)">
                     Tune the live draft before export.
                   </h2>
                 </div>

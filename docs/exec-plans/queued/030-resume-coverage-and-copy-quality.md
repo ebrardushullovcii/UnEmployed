@@ -28,9 +28,9 @@ This plan uses the domain language in `CONTEXT.md` and records the key product t
   - omitted: clearly unrelated records with no technical evidence and no meaningful gap-coverage value
 - Treat a meaningful work-history gap as 6+ months between included roles.
 - Apply tailoring style defaults:
-  - `conservative`: hide weak-fit records unless needed for a meaningful gap
+  - `light touch`: hide weak-fit records unless needed for a meaningful gap
   - `balanced`: suggest weak-fit records in Resume Studio, hidden from export until accepted
-  - `aggressive`: allow grounded weak-fit or gap-coverage records to be compactly included by default
+  - `strong rewrite`: allow grounded weak-fit or gap-coverage records to be compactly included by default
 
 ### Copy Quality
 

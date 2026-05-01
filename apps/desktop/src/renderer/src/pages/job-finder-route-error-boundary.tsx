@@ -97,16 +97,16 @@ export function JobFinderRouteErrorBoundary({ scope }: JobFinderRouteErrorBounda
         aria-atomic="true"
         aria-live="assertive"
         className={cn(
-          'w-full overflow-hidden border border-destructive/22 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--surface-panel)_86%,transparent),color-mix(in_srgb,var(--surface-fill-subtle)_92%,transparent))] shadow-[0_22px_80px_rgba(0,0,0,0.16)]',
+          'w-full overflow-hidden rounded-(--workspace-state-card-radius) border border-destructive/22 bg-(--workspace-state-card-bg-error) shadow-(--workspace-state-card-shadow)',
           isInline
             ? 'max-w-5xl rounded-(--radius-panel)'
-            : 'max-w-4xl rounded-[2rem]'
+            : 'max-w-(--workspace-state-card-max-width)'
         )}
         role="alert"
       >
         <div className={cn('grid gap-0', isInline ? 'lg:grid-cols-[minmax(0,1fr)_18rem]' : 'lg:grid-cols-[minmax(0,1fr)_19rem]')}>
           <div className="grid gap-6 p-6 sm:p-8 lg:p-10">
-            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-destructive/25 bg-destructive/10 px-3 py-1 text-[0.72rem] font-bold uppercase tracking-(--tracking-caps) text-destructive">
+            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-destructive/25 bg-destructive/10 px-3 py-1 text-(length:--text-count) font-bold uppercase tracking-(--tracking-caps) text-destructive">
               <AlertTriangle className="size-3.5" />
               <span>{copy.kicker}</span>
             </div>
@@ -115,7 +115,7 @@ export function JobFinderRouteErrorBoundary({ scope }: JobFinderRouteErrorBounda
               <h1 className="font-display text-[clamp(1.9rem,3vw,3rem)] font-semibold tracking-[-0.05em] text-(--text-headline)">
                 {copy.title}
               </h1>
-              <p className="max-w-[62ch] text-sm leading-7 text-foreground-soft sm:text-base">
+              <p className="max-w-(--workspace-state-card-max-width) text-sm leading-7 text-foreground-soft sm:text-base">
                 {copy.description}
               </p>
             </div>
@@ -160,9 +160,9 @@ export function JobFinderRouteErrorBoundary({ scope }: JobFinderRouteErrorBounda
             ) : null}
           </div>
 
-          <div className="border-t border-destructive/12 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--surface-fill-subtle)_94%,transparent),color-mix(in_srgb,var(--surface-overlay-subtle)_88%,transparent))] p-6 sm:p-8 lg:border-l lg:border-t-0 lg:p-10">
+          <div className="border-t border-destructive/12 bg-(--workspace-state-card-bg-default) p-6 sm:p-8 lg:border-l lg:border-t-0 lg:p-10">
             <div className="grid gap-4">
-              <p className="font-display text-[0.72rem] font-bold uppercase tracking-(--tracking-caps) text-primary">
+              <p className="font-display text-(length:--text-count) font-bold uppercase tracking-(--tracking-caps) text-primary">
                 Recovery notes
               </p>
               <div className="grid gap-3 text-sm leading-6 text-foreground-soft">

@@ -100,6 +100,23 @@ describe('applications status helpers', () => {
     expect(getApplicationNextStepLabel(record)).toBe('No next step saved')
   })
 
+  it('shows submitted activity and next step ahead of consent-approved copy', () => {
+    const record = createRecord({
+      status: 'approved',
+      lastActionLabel: 'Submitted via apply copilot.',
+      nextActionLabel: 'Wait for a recruiter response.',
+      consentSummary: { status: 'approved', pendingCount: 0 },
+      lastAttemptState: 'submitted',
+    })
+
+    expect(getApplicationStagePresentation(record)).toEqual({
+      label: 'Submitted',
+      tone: 'neutral',
+    })
+    expect(getApplicationLatestActivityLabel(record)).toBe('Submitted via apply copilot.')
+    expect(getApplicationNextStepLabel(record)).toBe('Wait for a recruiter response.')
+  })
+
   it('shortens long manual-submit guidance for tighter card layouts', () => {
     expect(
       getApplicationReadableNextStepLabel(

@@ -251,7 +251,7 @@ export function ProfileSetupReviewQueueCard(props: {
                   ) : null}
                   {item.status === 'pending' ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button aria-label={`Edit ${item.label}`} disabled={props.isReviewItemPending(item.id)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
+                      <Button aria-label={`Edit ${item.label}`} disabled={Boolean(props.actionsDisabledReason)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
                       {canConfirmReviewItem(item) ? (
                         <Button disabled={Boolean(props.actionsDisabledReason)} pending={isReviewActionPending(item.id, 'confirm')} onClick={() => applyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
                       ) : null}

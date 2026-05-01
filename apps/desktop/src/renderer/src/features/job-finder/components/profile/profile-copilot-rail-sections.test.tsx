@@ -172,6 +172,7 @@ describe('ProfileCopilotCollapsedBubble', () => {
   test('supports click and keyboard activation semantics on the floating bubble', () => {
     const onClick = vi.fn()
     const onKeyDown = vi.fn()
+    const onPointerCancel = vi.fn()
 
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -186,7 +187,7 @@ describe('ProfileCopilotCollapsedBubble', () => {
           messageCount={1}
           onClick={onClick}
           onKeyDown={onKeyDown}
-          onPointerCancel={vi.fn()}
+          onPointerCancel={onPointerCancel}
           onPointerDown={vi.fn()}
           onPointerMove={vi.fn()}
           onPointerUp={vi.fn()}
@@ -205,8 +206,13 @@ describe('ProfileCopilotCollapsedBubble', () => {
       button?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
     })
 
+    act(() => {
+      button?.dispatchEvent(new Event('pointercancel', { bubbles: true }))
+    })
+
     expect(onClick).toHaveBeenCalledTimes(1)
     expect(onKeyDown).toHaveBeenCalledTimes(1)
+    expect(onPointerCancel).toHaveBeenCalledTimes(1)
     expect(button?.getAttribute('aria-expanded')).toBe('false')
     expect(button?.getAttribute('aria-haspopup')).toBe('dialog')
   })

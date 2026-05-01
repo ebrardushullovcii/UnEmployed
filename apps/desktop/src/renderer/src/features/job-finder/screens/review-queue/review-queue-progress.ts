@@ -18,7 +18,10 @@ export function getDisplayedResumeProgress(item: ReviewQueueItem | null, isPendi
     return storedProgress
   }
 
-  return Math.max(storedProgress, MIN_PENDING_PROGRESS)
+  return Math.min(
+    MAX_FAKE_PROGRESS,
+    Math.max(storedProgress, MIN_PENDING_PROGRESS),
+  )
 }
 
 export function getNextDisplayedResumeProgress(currentProgress: number): number {

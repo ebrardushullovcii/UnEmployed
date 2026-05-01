@@ -64,6 +64,7 @@ type BaseActionArgs = {
   >
   setResumeAssistantPending: Dispatch<SetStateAction<boolean>>
   setResumeWorkspace: Dispatch<SetStateAction<JobFinderResumeWorkspace | null>>
+  clearResumeWorkspaceState: () => void
   setResumeWorkspaceDirty: Dispatch<SetStateAction<boolean>>
   setSelectedReviewJobId: (jobId: string) => void
   sourceDebugRunIdRef: MutableRefObject<number>
@@ -291,6 +292,7 @@ export function createPrimaryPageActions(
     setResumeAssistantMessages,
     setResumeAssistantPending,
     setResumeWorkspace,
+    clearResumeWorkspaceState,
     setResumeWorkspaceDirty,
     setSelectedReviewJobId,
     sourceDebugRunIdRef,
@@ -499,6 +501,7 @@ export function createPrimaryPageActions(
       void runAction(
         () => actions.removeJobFromReview(jobId),
         () => {
+          clearResumeWorkspaceState()
           setResumeWorkspaceDirty(false)
           setSelectedReviewJobId('')
           navigate('/job-finder/discovery')

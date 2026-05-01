@@ -240,6 +240,7 @@ export function ProfileCopilotRail(props: {
       return
     }
 
+    event.currentTarget.releasePointerCapture(event.pointerId)
     dragStateRef.current = null
     suppressNextBubbleClickRef.current = dragState.moved
   }

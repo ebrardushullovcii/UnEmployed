@@ -9,7 +9,7 @@ export function jobDescriptionToText(value: string | null | undefined): string {
 
   // Some sources persist HTML as escaped text (&lt;div...&gt;). Parse once more
   // when the decoded text still looks like markup so the UI shows readable copy.
-  if (/<[a-z][\s\S]*>/i.test(trimmedFirstPass)) {
+  if (/(?:&lt;[a-z]|&lt;|&gt;)/i.test(value)) {
     const normalizedMarkupPass = trimmedFirstPass.replace(/></g, '> <')
 
     return parser

@@ -19,6 +19,10 @@ export function getApplicationLatestActivityLabel(record: ApplicationRecord): st
     return 'Attempt failed'
   }
 
+  if (record.lastAttemptState === 'submitted') {
+    return record.lastActionLabel || 'Submitted'
+  }
+
   if (
     shouldPresentConsentState(record) &&
     record.lastAttemptState === 'paused'
@@ -104,6 +108,10 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
 }
 
 export function getApplicationNextStepLabel(record: ApplicationRecord): string {
+  if (record.lastAttemptState === 'submitted') {
+    return record.nextActionLabel ?? 'No next step saved'
+  }
+
   if (
     shouldPresentConsentState(record) &&
     record.consentSummary.status === 'requested'

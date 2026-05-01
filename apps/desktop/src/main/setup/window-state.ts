@@ -1,5 +1,13 @@
 import { app, type BrowserWindow, screen, type Display, type Rectangle } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 
 export type MainWindowDisplayMode = 'normal' | 'maximized' | 'fullscreen'
@@ -94,9 +102,21 @@ export function loadMainWindowState() {
 export function saveMainWindowState(state: MainWindowState) {
   try {
     const filePath = getMainWindowStateFilePath()
+    const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}`
+    const payload = JSON.stringify(state)
 
     mkdirSync(path.dirname(filePath), { recursive: true })
-    writeFileSync(filePath, JSON.stringify(state), 'utf8')
+
+    const tempFileHandle = openSync(tempPath, 'w')
+
+    try {
+      writeFileSync(tempFileHandle, payload, 'utf8')
+      fsyncSync(tempFileHandle)
+    } finally {
+      closeSync(tempFileHandle)
+    }
+
+    renameSync(tempPath, filePath)
   } catch (error) {
     console.warn('[Desktop] Failed to persist main window state.', error)
   }

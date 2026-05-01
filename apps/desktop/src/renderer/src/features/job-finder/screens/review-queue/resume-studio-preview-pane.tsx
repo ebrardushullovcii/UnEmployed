@@ -161,6 +161,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
 
   useEffect(() => {
     const frame = frameRef.current;
+    let resizeObserver: { observe: (target: Element) => void; disconnect: () => void } | null = null;
 
     if (!frame || !props.preview) {
       setPreviewFrameHeight(null);
@@ -198,8 +199,30 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
     measureHeight();
     frame.addEventListener("load", measureHeight);
 
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", measureHeight);
+    }
+
+    const frameBody = frame.contentDocument?.body;
+    if (frameBody && "ResizeObserver" in globalThis) {
+      const ResizeObserverConstructor = globalThis.ResizeObserver as {
+        new (callback: ResizeObserverCallback): {
+          observe: (target: Element) => void;
+          disconnect: () => void;
+        };
+      };
+      resizeObserver = new ResizeObserverConstructor(() => {
+        measureHeight();
+      });
+      resizeObserver.observe(frameBody);
+    }
+
     return () => {
       frame.removeEventListener("load", measureHeight);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("resize", measureHeight);
+      }
+      resizeObserver?.disconnect();
     };
   }, [props.preview]);
 

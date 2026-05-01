@@ -380,6 +380,7 @@ export function useJobFinderPageController() {
       setResumeAssistantMessages,
       setResumeAssistantPending,
       setResumeWorkspace,
+      clearResumeWorkspaceState,
       setResumeWorkspaceDirty,
       setSelectedApplicationRecordId,
       setSelectedDiscoveryJobId,

@@ -31,6 +31,8 @@ export function ResumeGuidedEditsPopup(props: {
   const [isOpen, setIsOpen] = useState(false)
   const [position, setPosition] = useState({ x: 20, y: 20 })
   const composerId = useId()
+  const panelId = useId()
+  const titleId = useId()
   const transcriptRef = useRef<HTMLDivElement | null>(null)
   const dragStateRef = useRef<{
     pointerId: number
@@ -173,6 +175,7 @@ export function ResumeGuidedEditsPopup(props: {
       return
     }
 
+    event.currentTarget.releasePointerCapture(event.pointerId)
     dragStateRef.current = null
     suppressNextBubbleClickRef.current = dragState.moved
   }
@@ -203,7 +206,11 @@ export function ResumeGuidedEditsPopup(props: {
     >
       {isOpen ? (
         <aside
+          aria-labelledby={titleId}
+          aria-modal="true"
           className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-border/40 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur"
+          id={panelId}
+          role="dialog"
           style={{
             width: `${panelDimensions.expandedWidth}px`,
             height: `${panelDimensions.expandedHeight}px`,
@@ -217,7 +224,7 @@ export function ResumeGuidedEditsPopup(props: {
                 <MessageSquare className="size-4" />
               </div>
               <div className="min-w-0">
-                <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
+                <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary" id={titleId}>
                   Guided edits
                 </h2>
                 <p className="text-sm text-foreground-soft">
@@ -225,7 +232,7 @@ export function ResumeGuidedEditsPopup(props: {
                 </p>
               </div>
             </div>
-            <Button onClick={toggleOpen} size="icon-xs" type="button" variant="ghost">
+            <Button aria-controls={panelId} aria-expanded={isOpen} aria-label="Minimize guided edits" onClick={toggleOpen} size="icon-xs" type="button" variant="ghost">
               <Minimize2 className="size-3.5" />
             </Button>
           </header>

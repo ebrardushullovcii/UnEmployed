@@ -33,12 +33,14 @@ export function clampCopilotPosition(input: {
   minBottomOffset: number
   containerMinBottomOffset?: number
 }) {
-  const minBottomOffset = input.containerMinBottomOffset ?? input.minBottomOffset
+  const activeMinBottomOffset = input.isOpen
+    ? input.minBottomOffset
+    : input.containerMinBottomOffset ?? input.minBottomOffset
 
   if (typeof window === 'undefined') {
     return {
       x: Math.max(COPILOT_PANEL_OFFSET, input.x),
-      y: Math.max(minBottomOffset, input.y),
+      y: Math.max(activeMinBottomOffset, input.y),
     }
   }
 
@@ -47,10 +49,10 @@ export function clampCopilotPosition(input: {
   const height = input.isOpen ? dimensions.expandedHeight : dimensions.collapsedHeight
   const maxX = Math.max(COPILOT_PANEL_OFFSET, window.innerWidth - width - COPILOT_PANEL_OFFSET)
   const maxY = Math.max(
-    minBottomOffset,
+    activeMinBottomOffset,
     window.innerHeight - height - (input.isOpen ? COPILOT_NAV_SAFE_OFFSET : COPILOT_PANEL_OFFSET),
   )
-  const minY = minBottomOffset
+  const minY = activeMinBottomOffset
 
   return {
     x: Math.max(COPILOT_PANEL_OFFSET, Math.min(input.x, maxX)),

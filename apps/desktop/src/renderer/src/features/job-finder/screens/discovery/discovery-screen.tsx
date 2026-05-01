@@ -88,9 +88,13 @@ export function DiscoveryScreen(props: {
       .filter((target) => target.enabled)
       .map((target) => target.id),
   )
+  const enabledSourceAccessPrompts = sourceAccessPrompts.filter((prompt) =>
+    enabledTargetIds.has(prompt.targetId),
+  )
   const primarySourceAccessPrompt =
-    sourceAccessPrompts.find((prompt) => enabledTargetIds.has(prompt.targetId)) ??
-    null
+    enabledSourceAccessPrompts.find(
+      (prompt) => prompt.state === 'prompt_login_required',
+    ) ?? enabledSourceAccessPrompts[0] ?? null
   const primaryRecoveryAction =
     browserSession.status === 'ready'
       ? null
