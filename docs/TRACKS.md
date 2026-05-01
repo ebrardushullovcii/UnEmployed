@@ -143,6 +143,8 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
+- `030 Resume Coverage And Copy Quality`: queued plan at `docs/exec-plans/queued/030-resume-coverage-and-copy-quality.md`; next resume/application-process prep track covering resume coverage policy, role-specific copy quality, app-only weak-fit/gap guidance, and real-fixture resume-quality coverage
+- `031 Functional Resume Template Variety`: queued plan at `docs/exec-plans/queued/031-functional-resume-template-variety.md`; follows `030` and rebuilds the template catalog around distinct layout purposes using the improved generated draft evidence
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import

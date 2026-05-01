@@ -10,6 +10,8 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 
 ## What Matters Now
 
+- `030` is queued: the final resume coverage and copy-quality plan before application-process testing is ready at `docs/exec-plans/queued/030-resume-coverage-and-copy-quality.md`; it incorporates the new `CONTEXT.md` domain language and ADR `docs/adr/0001-resume-coverage-and-apply-safe-template-catalog.md`
+- `031` is queued: functional resume template variety is split into its own follow-up at `docs/exec-plans/queued/031-functional-resume-template-variety.md` and should use the realistic generated draft evidence from `030`
 - `029` is completed: the full-product hardening pass now lands truthful Settings sample-preview copy, stronger first-run Applications and Shortlisted CTAs, discovery blocker-first zero states, safer guided-setup/profile copilot insets, thin-profile resume fallback improvements, fresher resume-import auto-apply heuristics, refreshed Applications recovery evidence, and a decomposed Applications detail panel whose touched hotspot is now cleared from renderer structure warnings; refreshed evidence is green for `pnpm validate:desktop`, `pnpm validate:job-finder`, `pnpm --filter @unemployed/desktop ui:capture`, `pnpm --filter @unemployed/desktop ui:resume-import`, `pnpm --filter @unemployed/desktop ui:applications-recovery`, `pnpm --filter @unemployed/desktop ui:applications-queue-recovery`, `pnpm --filter @unemployed/desktop benchmark:resume-quality`, `pnpm --filter @unemployed/desktop benchmark:resume-import`, and `pnpm validate:docs-only`; see `docs/exec-plans/completed/029-full-product-critical-qa-and-improvement-plan.md`
 - `027` is completed: the Job Finder resume experience UX reset now ships a materially stronger desktop `Settings` template-selection surface and `Resume Studio` editing surface with denser hierarchy, preview-height-aware page framing, draft identity editing, reliable preview-to-editor targeting, and accepted screenshot evidence under `apps/desktop/test-artifacts/ui/1440x920/settings.png`, `apps/desktop/test-artifacts/ui/resume-workspace/03-preview-recovered.png`, and `apps/desktop/test-artifacts/ui/resume-workspace/10-review-queue-gated.png`; `pnpm validate:package desktop` and repo build are green
 - `028` is completed: desktop QA follow-up and UX hardening now keep blocked `Find jobs` recovery actions visible in the main results pane, preserve narrow-width discovery context, align Applications stage and consent semantics across tracker/detail surfaces, keep Resume Studio visible after assistant replies, harden Profile copilot/nav overlap, and refresh replayable QA harnesses with latest evidence under `apps/desktop/test-artifacts/ui/source-sign-in-prompts/`, `apps/desktop/test-artifacts/ui/resume-workspace/`, `apps/desktop/test-artifacts/ui/applications-recovery/`, and `apps/desktop/test-artifacts/ui/resume-import/`; `pnpm validate:desktop`, `pnpm validate:job-finder`, and desktop build are green
@@ -51,11 +53,15 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 ## Next Step
 
 - Work from `docs/TRACKS.md`
-- Pull the next explicit active plan from `docs/TRACKS.md`
+- Promote queued `030` when ready to implement the final resume coverage and copy-quality pass before application-process testing
+- Promote queued `031` after `030` has produced realistic long-history and mixed-history draft evidence for template redesign
 
 ## Key References
 
 - `docs/TRACKS.md`
+- `docs/exec-plans/queued/030-resume-coverage-and-copy-quality.md`
+- `docs/exec-plans/queued/031-functional-resume-template-variety.md`
+- `docs/adr/0001-resume-coverage-and-apply-safe-template-catalog.md`
 - `docs/exec-plans/completed/029-full-product-critical-qa-and-improvement-plan.md`
 - `docs/exec-plans/completed/027-job-finder-resume-experience-ux-reset.md`
 - `docs/exec-plans/completed/028-desktop-qa-follow-up-and-ux-hardening.md`
