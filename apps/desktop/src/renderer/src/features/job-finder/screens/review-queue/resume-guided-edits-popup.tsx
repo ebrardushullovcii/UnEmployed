@@ -1,4 +1,4 @@
-import { MessageSquare, Minimize2, Sparkles } from 'lucide-react'
+import { MessageSquare, Minimize2, Sparkles } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -7,118 +7,128 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
-} from 'react'
-import type { ResumeAssistantMessage } from '@unemployed/contracts'
-import { Button } from '@renderer/components/ui/button'
-import { FieldLabel } from '@renderer/components/ui/field'
-import { ScrollArea } from '@renderer/components/ui/scroll-area'
-import { Textarea } from '@renderer/components/ui/textarea'
-import { cn } from '@renderer/lib/cn'
+} from "react";
+import type { ResumeAssistantMessage } from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
+import { FieldLabel } from "@renderer/components/ui/field";
+import { ScrollArea } from "@renderer/components/ui/scroll-area";
+import { Textarea } from "@renderer/components/ui/textarea";
+import { cn } from "@renderer/lib/cn";
 import {
   COPILOT_NAV_SAFE_OFFSET,
   clampCopilotPosition,
   getCopilotPanelDimensions,
-} from '../../components/profile/profile-copilot-rail-layout'
-import { ThinkingDots } from '../../components/profile/profile-copilot-rail-sections'
-import { formatTimestamp } from './resume-workspace-utils'
+} from "../../components/profile/profile-copilot-rail-layout";
+import { ThinkingDots } from "../../components/profile/profile-copilot-rail-sections";
+import { formatTimestamp } from "./resume-workspace-utils";
 
 export function ResumeGuidedEditsPopup(props: {
-  assistantMessages: readonly ResumeAssistantMessage[]
-  assistantPending: boolean
-  isWorkspacePending: boolean
-  onSendAssistantMessage: (content: string) => void
+  assistantMessages: readonly ResumeAssistantMessage[];
+  assistantPending: boolean;
+  isWorkspacePending: boolean;
+  onSendAssistantMessage: (content: string) => void;
 }) {
-  const [input, setInput] = useState('')
-  const [isOpen, setIsOpen] = useState(false)
-  const [position, setPosition] = useState({ x: 20, y: 20 })
-  const composerId = useId()
-  const panelId = useId()
-  const titleId = useId()
-  const transcriptRef = useRef<HTMLDivElement | null>(null)
+  const [input, setInput] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const composerId = useId();
+  const panelId = useId();
+  const titleId = useId();
+  const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{
-    pointerId: number
-    originX: number
-    originY: number
-    startX: number
-    startY: number
-    moved: boolean
-  } | null>(null)
-  const suppressNextBubbleClickRef = useRef(false)
-  const panelDimensions = getCopilotPanelDimensions(20)
+    pointerId: number;
+    originX: number;
+    originY: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressNextBubbleClickRef = useRef(false);
+  const panelDimensions = getCopilotPanelDimensions(20);
 
   useEffect(() => {
     if (props.assistantMessages.length > 0 || props.assistantPending) {
-      setIsOpen(true)
+      setIsOpen(true);
     }
-  }, [props.assistantMessages.length, props.assistantPending])
+  }, [props.assistantMessages.length, props.assistantPending]);
 
   useEffect(() => {
-    setPosition((current) => clampCopilotPosition({
-      x: current.x,
-      y: current.y,
-      isOpen,
-      minBottomOffset: 20,
-      containerMinBottomOffset: 20,
-    }))
-  }, [isOpen])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    const handleResize = () => {
-      setPosition((current) => clampCopilotPosition({
+    setPosition((current) =>
+      clampCopilotPosition({
         x: current.x,
         y: current.y,
         isOpen,
         minBottomOffset: 20,
         containerMinBottomOffset: 20,
-      }))
-    }
-
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [isOpen])
+      }),
+    );
+  }, [isOpen]);
 
   useEffect(() => {
-    const transcript = transcriptRef.current
-
-    if (!transcript) {
-      return
+    if (typeof window === "undefined") {
+      return;
     }
 
-    transcript.scrollTop = transcript.scrollHeight
-  }, [props.assistantMessages.length, props.assistantPending])
+    const handleResize = () => {
+      setPosition((current) =>
+        clampCopilotPosition({
+          x: current.x,
+          y: current.y,
+          isOpen,
+          minBottomOffset: 20,
+          containerMinBottomOffset: 20,
+        }),
+      );
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [isOpen]);
+
+  useEffect(() => {
+    const transcriptViewport = transcriptViewportRef.current;
+
+    if (!transcriptViewport) {
+      return;
+    }
+
+    transcriptViewport.scrollTop = transcriptViewport.scrollHeight;
+  }, [props.assistantMessages.length, props.assistantPending]);
 
   function handleSend() {
-    const nextInput = input.trim()
+    const nextInput = input.trim();
 
-    if (props.isWorkspacePending || props.assistantPending || nextInput.length === 0) {
-      return
+    if (
+      props.isWorkspacePending ||
+      props.assistantPending ||
+      nextInput.length === 0
+    ) {
+      return;
     }
 
-    props.onSendAssistantMessage(nextInput)
-    setInput('')
-    setIsOpen(true)
+    props.onSendAssistantMessage(nextInput);
+    setInput("");
+    setIsOpen(true);
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== 'Enter' || event.shiftKey) {
-      return
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
     }
 
-    event.preventDefault()
-    handleSend()
+    event.preventDefault();
+    handleSend();
   }
 
   function toggleOpen() {
-    setIsOpen((current) => !current)
+    setIsOpen((current) => !current);
   }
 
-  function handleBubblePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+  function handleBubblePointerDown(
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
     if (!event.isPrimary || event.button !== 0) {
-      return
+      return;
     }
 
     dragStateRef.current = {
@@ -128,94 +138,103 @@ export function ResumeGuidedEditsPopup(props: {
       startX: position.x,
       startY: position.y,
       moved: false,
-    }
+    };
 
-    event.currentTarget.setPointerCapture(event.pointerId)
+    event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function handleBubblePointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
-    const dragState = dragStateRef.current
+  function handleBubblePointerMove(
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
-      return
+      return;
     }
 
-    const deltaX = dragState.originX - event.clientX
-    const deltaY = dragState.originY - event.clientY
+    const deltaX = dragState.originX - event.clientX;
+    const deltaY = dragState.originY - event.clientY;
 
     if (!dragState.moved && Math.abs(deltaX) + Math.abs(deltaY) < 6) {
-      return
+      return;
     }
 
-    dragState.moved = true
-    setPosition(clampCopilotPosition({
-      x: dragState.startX + deltaX,
-      y: dragState.startY + deltaY,
-      isOpen,
-      minBottomOffset: 20,
-      containerMinBottomOffset: 20,
-    }))
+    dragState.moved = true;
+    setPosition(
+      clampCopilotPosition({
+        x: dragState.startX + deltaX,
+        y: dragState.startY + deltaY,
+        isOpen,
+        minBottomOffset: 20,
+        containerMinBottomOffset: 20,
+      }),
+    );
   }
 
   function handleBubblePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
     if (!event.isPrimary || event.button !== 0) {
-      return
+      return;
     }
 
-    const dragState = dragStateRef.current
+    const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
-      return
+      return;
     }
 
-    event.currentTarget.releasePointerCapture(event.pointerId)
-    dragStateRef.current = null
-    suppressNextBubbleClickRef.current = true
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    dragStateRef.current = null;
+    suppressNextBubbleClickRef.current = true;
 
     if (!dragState.moved) {
-      toggleOpen()
+      toggleOpen();
     }
   }
 
-  function handleBubblePointerCancel(event: ReactPointerEvent<HTMLButtonElement>) {
-    const dragState = dragStateRef.current
+  function handleBubblePointerCancel(
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
+    const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
-      return
+      return;
     }
 
-    event.currentTarget.releasePointerCapture(event.pointerId)
-    dragStateRef.current = null
-    suppressNextBubbleClickRef.current = dragState.moved
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    dragStateRef.current = null;
+    suppressNextBubbleClickRef.current = dragState.moved;
   }
 
   function handleBubbleClick(event: MouseEvent<HTMLButtonElement>) {
     if (event.button !== 0) {
-      return
+      return;
     }
 
     if (suppressNextBubbleClickRef.current) {
-      suppressNextBubbleClickRef.current = false
-      return
+      suppressNextBubbleClickRef.current = false;
+      return;
     }
 
-    toggleOpen()
+    toggleOpen();
   }
 
   function handleBubbleKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-    if (event.key !== 'Enter' && event.key !== ' ') {
-      return
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
     }
 
-    event.preventDefault()
-    suppressNextBubbleClickRef.current = true
-    toggleOpen()
+    event.preventDefault();
+    suppressNextBubbleClickRef.current = true;
+    toggleOpen();
   }
 
   return (
     <div
-      className="pointer-events-none fixed z-[60] hidden max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3 xl:flex"
-      style={{ bottom: `${Math.max(position.y, 20)}px`, right: `${position.x}px` }}
+      className="pointer-events-none fixed z-60 hidden max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3 xl:flex"
+      style={{
+        bottom: `${Math.max(position.y, 20)}px`,
+        right: `${position.x}px`,
+      }}
     >
       {isOpen ? (
         <aside
@@ -226,7 +245,7 @@ export function ResumeGuidedEditsPopup(props: {
           style={{
             width: `${panelDimensions.expandedWidth}px`,
             height: `${panelDimensions.expandedHeight}px`,
-            maxWidth: 'calc(100vw - 2rem)',
+            maxWidth: "calc(100vw - 2rem)",
             maxHeight: `calc(100vh - ${COPILOT_NAV_SAFE_OFFSET}px)`,
           }}
         >
@@ -236,7 +255,10 @@ export function ResumeGuidedEditsPopup(props: {
                 <MessageSquare className="size-4" />
               </div>
               <div className="min-w-0">
-                <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary" id={titleId}>
+                <h2
+                  className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary"
+                  id={titleId}
+                >
                   Guided edits
                 </h2>
                 <p className="text-sm text-foreground-soft">
@@ -244,46 +266,65 @@ export function ResumeGuidedEditsPopup(props: {
                 </p>
               </div>
             </div>
-            <Button aria-controls={panelId} aria-expanded={isOpen} aria-label="Minimize guided edits" onClick={toggleOpen} size="icon-xs" type="button" variant="ghost">
+            <Button
+              aria-controls={panelId}
+              aria-expanded={isOpen}
+              aria-label="Minimize guided edits"
+              onClick={toggleOpen}
+              size="icon-xs"
+              type="button"
+              variant="ghost"
+            >
               <Minimize2 className="size-3.5" />
             </Button>
           </header>
 
           <div className="flex min-h-0 flex-1 flex-col">
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea
+              className="min-h-0 flex-1"
+              viewportRef={transcriptViewportRef}
+            >
               <div
                 aria-live="polite"
                 aria-relevant="additions text"
                 className="grid gap-3 px-4 py-4"
-                ref={transcriptRef}
                 role="log"
               >
                 {props.assistantMessages.length ? (
                   props.assistantMessages.map((message) => {
-                    const isAssistant = message.role === 'assistant'
+                    const isAssistant = message.role === "assistant";
 
                     return (
                       <article
-                        className={cn('grid max-w-full gap-2', isAssistant ? 'justify-items-start' : 'justify-items-end')}
+                        className={cn(
+                          "grid max-w-full gap-2",
+                          isAssistant
+                            ? "justify-items-start"
+                            : "justify-items-end",
+                        )}
                         key={message.id}
                       >
                         <div
                           className={cn(
-                            'max-w-full rounded-(--radius-field) border px-3 py-3 text-sm leading-6 shadow-[inset_0_1px_0_var(--surface-inset-highlight)]',
+                            "max-w-full rounded-(--radius-field) border px-3 py-3 text-sm leading-6 shadow-[inset_0_1px_0_var(--surface-inset-highlight)]",
                             isAssistant
-                              ? 'border-primary/25 bg-primary/10 text-foreground'
-                              : 'surface-card-tint border-(--surface-panel-border) text-foreground-soft',
+                              ? "border-primary/25 bg-primary/10 text-foreground"
+                              : "surface-card-tint border-(--surface-panel-border) text-foreground-soft",
                           )}
                         >
                           <div className="mb-2 flex items-center gap-2 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                            {isAssistant ? <Sparkles className="size-3.5" /> : null}
-                            <span>{isAssistant ? 'Assistant' : 'You'}</span>
+                            {isAssistant ? (
+                              <Sparkles className="size-3.5" />
+                            ) : null}
+                            <span>{isAssistant ? "Assistant" : "You"}</span>
                             <span>{formatTimestamp(message.createdAt)}</span>
                           </div>
-                          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                          <p className="whitespace-pre-wrap wrap-break-word">
+                            {message.content}
+                          </p>
                         </div>
                       </article>
-                    )
+                    );
                   })
                 ) : (
                   <div className="flex min-h-48 items-center justify-center">
@@ -291,9 +332,12 @@ export function ResumeGuidedEditsPopup(props: {
                       <div className="surface-card-tint mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) text-muted-foreground">
                         <MessageSquare className="size-4" />
                       </div>
-                      <p className="font-display text-sm text-foreground">No edit requests yet</p>
+                      <p className="font-display text-sm text-foreground">
+                        No edit requests yet
+                      </p>
                       <p className="text-sm leading-6 text-foreground-soft">
-                        Ask for a tighter summary, stronger bullets, or clearer job-specific wording.
+                        Ask for a tighter summary, stronger bullets, or clearer
+                        job-specific wording.
                       </p>
                     </div>
                   </div>
@@ -302,8 +346,14 @@ export function ResumeGuidedEditsPopup(props: {
                 {props.assistantPending ? (
                   <article className="grid justify-items-start gap-2">
                     <div className="max-w-full rounded-(--radius-field) border border-primary/25 bg-primary/10 px-3 py-3 text-sm leading-6 text-foreground shadow-[inset_0_1px_0_var(--surface-inset-highlight)]">
-                      <ThinkingDots label="Assistant thinking" className="mb-2" />
-                      <p>Working on grounded edits while keeping the resume studio usable.</p>
+                      <ThinkingDots
+                        label="Assistant thinking"
+                        className="mb-2"
+                      />
+                      <p>
+                        Working on grounded edits while keeping the resume
+                        studio usable.
+                      </p>
                     </div>
                   </article>
                 ) : null}
@@ -313,7 +363,9 @@ export function ResumeGuidedEditsPopup(props: {
             <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
               <div className="grid gap-3">
                 <div className="grid min-w-0 gap-2">
-                  <FieldLabel htmlFor={composerId}>Request a resume edit</FieldLabel>
+                  <FieldLabel htmlFor={composerId}>
+                    Request a resume edit
+                  </FieldLabel>
                   <Textarea
                     className="min-w-0"
                     id={composerId}
@@ -327,16 +379,20 @@ export function ResumeGuidedEditsPopup(props: {
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-(length:--text-tiny) text-muted-foreground">
                     {props.assistantPending
-                      ? 'Assistant is thinking. You can keep typing or move this chat while it works.'
-                      : 'Press Enter to send. Shift+Enter adds a new line. Drag the bubble to move it.'}
+                      ? "Assistant is thinking. You can keep typing or move this chat while it works."
+                      : "Press Enter to send. Shift+Enter adds a new line. Drag the bubble to move it."}
                   </p>
                   <Button
                     className="min-w-28 px-4"
-                    disabled={props.isWorkspacePending || props.assistantPending || input.trim().length === 0}
+                    disabled={
+                      props.isWorkspacePending ||
+                      props.assistantPending ||
+                      input.trim().length === 0
+                    }
                     onClick={handleSend}
                     type="button"
                   >
-                    {props.assistantPending ? 'Thinking...' : 'Send request'}
+                    {props.assistantPending ? "Thinking..." : "Send request"}
                   </Button>
                 </div>
               </div>
@@ -357,23 +413,34 @@ export function ResumeGuidedEditsPopup(props: {
         onPointerMove={handleBubblePointerMove}
         onPointerUp={handleBubblePointerUp}
         type="button"
-        variant={props.assistantMessages.length > 0 || props.assistantPending ? 'primary' : 'secondary'}
+        variant={
+          props.assistantMessages.length > 0 || props.assistantPending
+            ? "primary"
+            : "secondary"
+        }
       >
         <span className="flex size-9 items-center justify-center rounded-full border border-current/15 bg-background/15">
           <MessageSquare className="size-4" />
         </span>
         <span className="grid text-left leading-tight">
-          <span className="text-sm font-semibold normal-case tracking-normal">Guided edits</span>
+          <span className="text-sm font-semibold normal-case tracking-normal">
+            Guided edits
+          </span>
           <span className="text-xs font-medium normal-case tracking-normal text-primary-foreground/80">
             {props.assistantPending
-              ? 'Replying now'
+              ? "Replying now"
               : props.assistantMessages.length > 0
-                ? 'Continue this thread'
-                : 'Ask for an edit'}
+                ? "Continue this thread"
+                : "Ask for an edit"}
           </span>
         </span>
-        {props.assistantPending ? <ThinkingDots className="rounded-full border border-current/15 bg-background/10 px-2 py-1 text-primary-foreground/85" label="Thinking" /> : null}
+        {props.assistantPending ? (
+          <ThinkingDots
+            className="rounded-full border border-current/15 bg-background/10 px-2 py-1 text-primary-foreground/85"
+            label="Thinking"
+          />
+        ) : null}
       </Button>
     </div>
-  )
+  );
 }
