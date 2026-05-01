@@ -207,8 +207,7 @@ export function ResumeGuidedEditsPopup(props: {
       {isOpen ? (
         <aside
           aria-labelledby={titleId}
-          aria-modal="true"
-          className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-border/40 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur"
+          className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--guided-edits-panel-border) bg-(--guided-edits-panel-bg) shadow-(--guided-edits-panel-shadow) backdrop-blur"
           id={panelId}
           role="dialog"
           style={{

@@ -196,29 +196,38 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       }
     };
 
-    measureHeight();
-    frame.addEventListener("load", measureHeight);
+    const observeLoadedFrame = (event: Event) => {
+      resizeObserver?.disconnect();
+      resizeObserver = null;
+      measureHeight();
+
+      const loadedFrame = event.target instanceof HTMLIFrameElement
+        ? event.target
+        : frame;
+      const frameBody = loadedFrame.contentDocument?.body;
+
+      if (frameBody && "ResizeObserver" in globalThis) {
+        const ResizeObserverConstructor = globalThis.ResizeObserver as {
+          new (callback: ResizeObserverCallback): {
+            observe: (target: Element) => void;
+            disconnect: () => void;
+          };
+        };
+        resizeObserver = new ResizeObserverConstructor(() => {
+          measureHeight();
+        });
+        resizeObserver.observe(frameBody);
+      }
+    };
+
+    frame.addEventListener("load", observeLoadedFrame);
 
     if (typeof window !== "undefined") {
       window.addEventListener("resize", measureHeight);
     }
 
-    const frameBody = frame.contentDocument?.body;
-    if (frameBody && "ResizeObserver" in globalThis) {
-      const ResizeObserverConstructor = globalThis.ResizeObserver as {
-        new (callback: ResizeObserverCallback): {
-          observe: (target: Element) => void;
-          disconnect: () => void;
-        };
-      };
-      resizeObserver = new ResizeObserverConstructor(() => {
-        measureHeight();
-      });
-      resizeObserver.observe(frameBody);
-    }
-
     return () => {
-      frame.removeEventListener("load", measureHeight);
+      frame.removeEventListener("load", observeLoadedFrame);
       if (typeof window !== "undefined") {
         window.removeEventListener("resize", measureHeight);
       }
@@ -277,7 +286,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
 
       <div
         className={cn(
-          "relative min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(16,22,35,0.02),rgba(16,22,35,0.1))] p-0.5",
+          "relative min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,var(--surface-gradient-start),var(--surface-gradient-end))] p-0.5",
           hasReadyPreview ? "min-h-168 xl:min-h-0" : "min-h-80 xl:min-h-0",
         )}
         data-resume-preview-scroll-region

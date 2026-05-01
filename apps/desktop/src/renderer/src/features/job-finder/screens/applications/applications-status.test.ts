@@ -117,6 +117,42 @@ describe('applications status helpers', () => {
     expect(getApplicationNextStepLabel(record)).toBe('Wait for a recruiter response.')
   })
 
+  it('uses terminal unsupported copy ahead of consent-approved fallback copy', () => {
+    const record = createRecord({
+      consentSummary: { status: 'approved', pendingCount: 0 },
+      lastAttemptState: 'unsupported',
+      nextActionLabel: null,
+    })
+
+    expect(getApplicationStagePresentation(record)).toEqual({
+      label: 'Manual apply only',
+      tone: 'critical',
+    })
+    expect(getApplicationLatestActivityLabel(record)).toBe('Manual apply only')
+    expect(getApplicationNextStepLabel(record)).toBe('Manual apply only')
+    expect(getApplicationReadableNextStepLabel(getApplicationNextStepLabel(record))).toBe(
+      'Manual apply only',
+    )
+  })
+
+  it('uses terminal failed copy ahead of consent-approved fallback copy', () => {
+    const record = createRecord({
+      consentSummary: { status: 'approved', pendingCount: 0 },
+      lastAttemptState: 'failed',
+      nextActionLabel: null,
+    })
+
+    expect(getApplicationStagePresentation(record)).toEqual({
+      label: 'Needs recovery',
+      tone: 'critical',
+    })
+    expect(getApplicationLatestActivityLabel(record)).toBe('Attempt failed')
+    expect(getApplicationNextStepLabel(record)).toBe('Needs recovery')
+    expect(getApplicationReadableNextStepLabel(getApplicationNextStepLabel(record))).toBe(
+      'Needs recovery',
+    )
+  })
+
   it('shortens long manual-submit guidance for tighter card layouts', () => {
     expect(
       getApplicationReadableNextStepLabel(

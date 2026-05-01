@@ -502,7 +502,6 @@ export function createPrimaryPageActions(
         () => actions.removeJobFromReview(jobId),
         () => {
           clearResumeWorkspaceState()
-          setResumeWorkspaceDirty(false)
           setSelectedReviewJobId('')
           navigate('/job-finder/discovery')
         },

@@ -94,17 +94,17 @@ export function JobFinderRouteErrorBoundary({ scope }: JobFinderRouteErrorBounda
       )}
     >
       <section
-        aria-atomic="true"
-        aria-live="assertive"
         className={cn(
           'w-full overflow-hidden rounded-(--workspace-state-card-radius) border border-destructive/22 bg-(--workspace-state-card-bg-error) shadow-(--workspace-state-card-shadow)',
           isInline
             ? 'max-w-5xl rounded-(--radius-panel)'
             : 'max-w-(--workspace-state-card-max-width)'
         )}
-        role="alert"
       >
-        <div className={cn('grid gap-0', isInline ? 'lg:grid-cols-[minmax(0,1fr)_18rem]' : 'lg:grid-cols-[minmax(0,1fr)_19rem]')}>
+        <span aria-atomic="true" aria-live="assertive" className="sr-only">
+          {copy.title}
+        </span>
+        <div className={cn('grid gap-0', isInline ? 'lg:grid-cols-[minmax(0,1fr)_var(--workspace-state-card-aside-width-inline)]' : 'lg:grid-cols-[minmax(0,1fr)_var(--workspace-state-card-aside-width)]')}>
           <div className="grid gap-6 p-6 sm:p-8 lg:p-10">
             <div className="inline-flex w-fit items-center gap-2 rounded-full border border-destructive/25 bg-destructive/10 px-3 py-1 text-(length:--text-count) font-bold uppercase tracking-(--tracking-caps) text-destructive">
               <AlertTriangle className="size-3.5" />
@@ -112,7 +112,7 @@ export function JobFinderRouteErrorBoundary({ scope }: JobFinderRouteErrorBounda
             </div>
 
             <div className="grid max-w-2xl gap-3">
-              <h1 className="font-display text-[clamp(1.9rem,3vw,3rem)] font-semibold tracking-[-0.05em] text-(--text-headline)">
+              <h1 className="font-display text-(length:--workspace-state-title-size) font-semibold tracking-(--workspace-state-title-tracking) text-(--text-headline)">
                 {copy.title}
               </h1>
               <p className="max-w-(--workspace-state-card-max-width) text-sm leading-7 text-foreground-soft sm:text-base">

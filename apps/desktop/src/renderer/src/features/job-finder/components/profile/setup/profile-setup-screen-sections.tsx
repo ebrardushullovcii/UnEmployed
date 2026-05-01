@@ -168,14 +168,17 @@ export function ProfileSetupReviewQueueCard(props: {
     reviewItemId: string
   } | null>(null)
   const pendingCount = props.items.filter((item) => item.status === 'pending').length
+  const isPendingReviewActionStillPending = pendingReviewAction
+    ? props.isReviewItemPending(pendingReviewAction.reviewItemId)
+    : false
 
   useEffect(() => {
-    if (!pendingReviewAction || props.isReviewItemPending(pendingReviewAction.reviewItemId)) {
+    if (!pendingReviewAction || isPendingReviewActionStillPending) {
       return
     }
 
     setPendingReviewAction(null)
-  }, [pendingReviewAction, props.isReviewItemPending])
+  }, [isPendingReviewActionStillPending, pendingReviewAction])
 
   const isReviewActionPending = (
     reviewItemId: string,

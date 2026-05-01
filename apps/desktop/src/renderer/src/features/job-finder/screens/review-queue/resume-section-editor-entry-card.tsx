@@ -223,7 +223,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
         <ResumeBulletListEditor
           bulletRows={entry.bullets}
           controlIdPrefix={controlIdPrefix}
-          disabled={disabled || section.locked || entry.locked}
+          disabled={fieldDisabled}
           entryId={entry.id}
           section={section}
           textareaClassName="min-h-(--textarea-compact)"

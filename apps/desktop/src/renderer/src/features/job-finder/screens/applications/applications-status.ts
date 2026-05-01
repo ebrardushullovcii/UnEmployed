@@ -114,6 +114,20 @@ export function getApplicationNextStepLabel(record: ApplicationRecord): string {
 
   if (
     shouldPresentConsentState(record) &&
+    record.lastAttemptState === 'unsupported'
+  ) {
+    return record.nextActionLabel ?? 'Manual apply only'
+  }
+
+  if (
+    shouldPresentConsentState(record) &&
+    record.lastAttemptState === 'failed'
+  ) {
+    return record.nextActionLabel ?? 'Needs recovery'
+  }
+
+  if (
+    shouldPresentConsentState(record) &&
     record.consentSummary.status === 'requested'
   ) {
     return 'Choose continue or skip in Consent requests below.'

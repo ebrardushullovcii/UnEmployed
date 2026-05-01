@@ -394,6 +394,7 @@ export function useJobFinderPageController() {
     activeRouteResumeAssistantMessages,
     activeRouteResumeAssistantPending,
     activeRouteResumeWorkspace,
+    clearResumeWorkspaceState,
     confirmLeaveDirtyResumeWorkspace,
     isAnyPendingAction,
     isPendingAction,
