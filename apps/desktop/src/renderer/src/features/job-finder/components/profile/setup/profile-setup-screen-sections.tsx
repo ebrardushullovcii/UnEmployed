@@ -182,11 +182,11 @@ export function ProfileSetupReviewQueueCard(props: {
 
   const isReviewActionPending = (
     reviewItemId: string,
-    action: 'confirm' | 'dismiss' | 'clear_value',
+    action?: 'confirm' | 'dismiss' | 'clear_value',
   ) =>
     props.isReviewItemPending(reviewItemId) &&
     pendingReviewAction?.reviewItemId === reviewItemId &&
-    pendingReviewAction.action === action
+    (!action || pendingReviewAction.action === action)
 
   const applyReviewAction = (
     reviewItemId: string,
@@ -213,8 +213,11 @@ export function ProfileSetupReviewQueueCard(props: {
         <ScrollArea className="min-h-0 flex-1">
           <div className="grid gap-3 pr-4">
             {props.items.length > 0 ? (
-              props.items.map((item) => (
-                <div key={item.id} className="rounded-(--radius-field) border border-border/30 bg-background/50 p-4">
+              props.items.map((item) => {
+                const isRowReviewActionPending = isReviewActionPending(item.id)
+
+                return (
+                  <div key={item.id} className="rounded-(--radius-field) border border-border/30 bg-background/50 p-4">
                   {getReviewItemEditHint(item) ? (
                     <div className="mb-3 rounded-(--radius-field) border border-dashed border-border/40 bg-background/70 p-3 text-sm leading-6 text-foreground-soft">
                       {getReviewItemEditHint(item)}
@@ -256,19 +259,20 @@ export function ProfileSetupReviewQueueCard(props: {
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button aria-label={`Edit ${item.label}`} disabled={Boolean(props.actionsDisabledReason)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
                       {canConfirmReviewItem(item) ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={isReviewActionPending(item.id, 'confirm')} onClick={() => applyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
                       ) : null}
                       {canClearReviewItem(item) ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={isReviewActionPending(item.id, 'clear_value')} onClick={() => applyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
                       ) : null}
-                      <Button disabled={Boolean(props.actionsDisabledReason)} pending={isReviewActionPending(item.id, 'dismiss')} onClick={() => applyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
+                      <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
                     </div>
                   ) : null}
                   {item.status === 'pending' && props.actionsDisabledReason ? (
                     <p className="mt-2 text-(length:--text-tiny) text-muted-foreground">{props.actionsDisabledReason}</p>
                   ) : null}
-                </div>
-              ))
+                  </div>
+                )
+              })
             ) : (
               <div className="rounded-(--radius-field) border border-dashed border-border/40 bg-background/50 p-4 text-sm leading-6 text-foreground-soft">
                 No review items for this step right now. Save any edits and continue when ready.

@@ -161,6 +161,10 @@ export function getApplicationReadableNextStepLabel(label: string | null | undef
     return 'Submit the prepared application manually'
   }
 
+  if (/review the prepared application before any later execution step/i.test(trimmed)) {
+    return 'Submit the prepared application manually'
+  }
+
   if (/review the pending submit approval in applications/i.test(trimmed)) {
     return 'Review the pending submit approval'
   }

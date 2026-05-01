@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import type { ResumeAssistantMessage } from '@unemployed/contracts'
@@ -116,6 +117,10 @@ export function ResumeGuidedEditsPopup(props: {
   }
 
   function handleBubblePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!event.isPrimary || event.button !== 0) {
+      return
+    }
+
     dragStateRef.current = {
       pointerId: event.pointerId,
       originX: event.clientX,
@@ -153,6 +158,10 @@ export function ResumeGuidedEditsPopup(props: {
   }
 
   function handleBubblePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!event.isPrimary || event.button !== 0) {
+      return
+    }
+
     const dragState = dragStateRef.current
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
@@ -180,7 +189,11 @@ export function ResumeGuidedEditsPopup(props: {
     suppressNextBubbleClickRef.current = dragState.moved
   }
 
-  function handleBubbleClick() {
+  function handleBubbleClick(event: MouseEvent<HTMLButtonElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
     if (suppressNextBubbleClickRef.current) {
       suppressNextBubbleClickRef.current = false
       return
@@ -336,7 +349,7 @@ export function ResumeGuidedEditsPopup(props: {
         aria-label="Guided edits"
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        className="pointer-events-auto h-auto min-h-14 rounded-full px-4 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)]"
+        className="pointer-events-auto h-auto min-h-14 rounded-full px-4 py-3 shadow-[var(--guided-edits-bubble-shadow)]"
         onClick={handleBubbleClick}
         onKeyDown={handleBubbleKeyDown}
         onPointerCancel={handleBubblePointerCancel}

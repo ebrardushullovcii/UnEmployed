@@ -72,7 +72,8 @@ export function ResumeIdentityEditor(props: ResumeIdentityEditorProps) {
 
     const scrollRegion =
       container.closest<HTMLElement>('[data-resume-workspace-scroll-region]') ??
-      container.closest<HTMLElement>('[data-resume-editor-scroll-region]')
+      container.closest<HTMLElement>('[data-resume-editor-scroll-region]') ??
+      container.closest<HTMLElement>('[data-resume-preview-scroll-region]')
     if (!scrollRegion) {
       return
     }

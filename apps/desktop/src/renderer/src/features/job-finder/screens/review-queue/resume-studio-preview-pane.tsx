@@ -60,6 +60,7 @@ function parseSelectionTarget(node: EventTarget | null) {
 
 export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const scrollRegionRef = useRef<HTMLDivElement | null>(null);
   const [previewFrameHeight, setPreviewFrameHeight] = useState<number | null>(
     null,
   );
@@ -109,7 +110,11 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         props.onSelectTarget(selection);
       };
 
-      allTargets.forEach((target) => {
+      let selectedFieldTarget: HTMLElement | null = null;
+      let selectedEntryTarget: HTMLElement | null = null;
+      let selectedSectionTarget: HTMLElement | null = null;
+
+      for (const target of allTargets) {
         const isSelectedEntry =
           Boolean(props.selectedEntryId) &&
           target.dataset.resumeEntryId === props.selectedEntryId;
@@ -126,7 +131,39 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         } else {
           target.removeAttribute("data-resume-selected");
         }
-      });
+
+        if (isSelectedField && !selectedFieldTarget) {
+          selectedFieldTarget = target;
+        } else if (isSelectedEntry && !selectedEntryTarget) {
+          selectedEntryTarget = target;
+        } else if (isSelectedSection && !selectedSectionTarget) {
+          selectedSectionTarget = target;
+        }
+      }
+
+      const selectedPreviewTarget =
+        selectedFieldTarget ?? selectedEntryTarget ?? selectedSectionTarget;
+
+      if (selectedPreviewTarget) {
+        const scrollRegion = scrollRegionRef.current;
+
+        if (scrollRegion) {
+          const scrollRegionRect = scrollRegion.getBoundingClientRect();
+          const frameRect = frame.getBoundingClientRect();
+          const targetRect = selectedPreviewTarget.getBoundingClientRect();
+          const frameOffsetTop = frameRect.top - scrollRegionRect.top;
+          const regionTop = scrollRegion.scrollTop;
+          const regionBottom = regionTop + scrollRegion.clientHeight;
+          const targetTop = regionTop + frameOffsetTop + targetRect.top;
+          const targetBottom = regionTop + frameOffsetTop + targetRect.bottom;
+
+          if (targetTop < regionTop) {
+            scrollRegion.scrollTop = Math.max(0, targetTop - 24);
+          } else if (targetBottom > regionBottom) {
+            scrollRegion.scrollTop = targetBottom - scrollRegion.clientHeight + 24;
+          }
+        }
+      }
 
       document.addEventListener("click", handleClick);
       document.addEventListener("keydown", handleKeyDown);
@@ -290,8 +327,9 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
           hasReadyPreview ? "min-h-168 xl:min-h-0" : "min-h-80 xl:min-h-0",
         )}
         data-resume-preview-scroll-region
+        ref={scrollRegionRef}
       >
-        <div className="grid min-h-full justify-items-center">
+        <div className="grid h-full justify-items-center">
         {props.previewStatus === "error" ? (
           <div className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-critical/35 bg-critical/10 p-6 text-center">
             <div className="grid max-w-md gap-3">

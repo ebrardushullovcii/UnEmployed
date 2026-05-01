@@ -48,7 +48,8 @@ export function useResumeEditorSelectionFocus(input: {
 
     const scrollRegion =
       target.closest<HTMLElement>('[data-resume-workspace-scroll-region]') ??
-      target.closest<HTMLElement>('[data-resume-editor-scroll-region]')
+      target.closest<HTMLElement>('[data-resume-editor-scroll-region]') ??
+      target.closest<HTMLElement>('[data-resume-preview-scroll-region]')
     if (!scrollRegion) {
       return
     }

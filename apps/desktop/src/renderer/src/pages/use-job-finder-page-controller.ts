@@ -157,6 +157,7 @@ export function useJobFinderPageController() {
   getResumeWorkspaceRef.current = actions?.getResumeWorkspace ?? null
 
   const clearResumeWorkspaceState = useCallback(() => {
+    resumeAssistantRequestTokenRef.current += 1
     setResumeWorkspace(null)
     setResumeAssistantMessages([])
     setResumeAssistantPending(false)

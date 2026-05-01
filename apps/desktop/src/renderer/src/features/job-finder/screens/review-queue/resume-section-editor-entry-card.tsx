@@ -64,7 +64,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
         </StatusBadge>
         <Button
           className="h-8"
-          disabled={disabled || section.locked || entry.locked}
+          disabled={fieldDisabled}
           onClick={() => {
             if (entry.locked) {
               return
