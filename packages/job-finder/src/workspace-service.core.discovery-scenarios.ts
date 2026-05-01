@@ -3,6 +3,7 @@ import type {
 } from "@unemployed/browser-runtime";
 import {
   JobPostingSchema,
+  SavedJobSchema,
   type DiscoveryActivityEvent,
 } from "@unemployed/contracts";
 import { describe, expect, test, vi } from "vitest";
@@ -180,6 +181,70 @@ describe("createJobFinderWorkspaceService", () => {
     expect(secondSnapshot.discoveryJobs[0]?.provenance).toHaveLength(1);
     expect(secondSnapshot.reviewQueue).toHaveLength(0);
     await expect(repository.listSavedJobs()).resolves.toHaveLength(0);
+  });
+
+  test("removeJobFromReview moves a shortlisted review job back to Find jobs", async () => {
+    const seed = createSeed();
+    seed.savedJobs.push(SavedJobSchema.parse({
+      source: "target_site",
+      sourceJobId: "review_return_job",
+      discoveryMethod: "catalog_seed",
+      collectionMethod: "fallback_search",
+      canonicalUrl: "https://example.com/jobs/review-return-job",
+      applicationUrl: null,
+      id: "job_review_return",
+      title: "Staff Product Designer",
+      company: "Signal Systems",
+      location: "Remote",
+      workMode: ["remote"],
+      applyPath: "easy_apply",
+      easyApplyEligible: true,
+      postedAt: "2026-03-20T09:30:00.000Z",
+      postedAtText: null,
+      discoveredAt: "2026-03-20T10:04:00.000Z",
+      firstSeenAt: null,
+      lastSeenAt: null,
+      lastVerifiedActiveAt: null,
+      salaryText: "$185k - $210k",
+      normalizedCompensation: {},
+      summary: "Lead systems design work.",
+      description: "Lead systems design work.",
+      keySkills: ["Figma", "Systems Design"],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+      seniority: "Staff",
+      employmentType: "Full-time",
+      department: null,
+      team: null,
+      employerWebsiteUrl: null,
+      employerDomain: null,
+      atsProvider: null,
+      providerKey: null,
+      providerBoardToken: null,
+      providerIdentifier: null,
+      titleTriageOutcome: "pass",
+      sourceIntelligence: null,
+      screeningHints: {},
+      keywordSignals: [],
+      benefits: [],
+      status: "ready_for_review",
+      matchAssessment: {
+        score: 91,
+        reasons: ["Strong systems match"],
+        gaps: [],
+      },
+      provenance: [],
+    }));
+
+    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+
+    const snapshot = await workspaceService.removeJobFromReview("job_review_return");
+    const savedJobs = await repository.listSavedJobs();
+
+    expect(snapshot.reviewQueue.some((item) => item.jobId === "job_review_return")).toBe(false);
+    expect(snapshot.discoveryJobs.some((job) => job.id === "job_review_return")).toBe(true);
+    expect(savedJobs.find((job) => job.id === "job_review_return")?.status).toBe("shortlisted");
   });
 
   test("agent discovery streams activity and keeps discovery-only jobs pending", async () => {

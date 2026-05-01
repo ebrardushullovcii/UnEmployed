@@ -107,6 +107,7 @@ export function ProfileCopilotRail(props: {
         y: current.y,
         isOpen,
         minBottomOffset: currentMinBottomOffset,
+        containerMinBottomOffset: collapsedMinBottomOffset,
       }))
     }
 
@@ -121,6 +122,7 @@ export function ProfileCopilotRail(props: {
       y: current.y,
       isOpen,
       minBottomOffset: currentMinBottomOffset,
+      containerMinBottomOffset: collapsedMinBottomOffset,
     }))
   }, [collapsedMinBottomOffset, isOpen, minBottomOffset])
 
@@ -210,6 +212,7 @@ export function ProfileCopilotRail(props: {
       y: dragState.startY + deltaY,
       isOpen,
       minBottomOffset: currentMinBottomOffset,
+      containerMinBottomOffset: collapsedMinBottomOffset,
     }))
   }
 
@@ -223,10 +226,22 @@ export function ProfileCopilotRail(props: {
     event.currentTarget.releasePointerCapture(event.pointerId)
     dragStateRef.current = null
 
+    suppressNextBubbleClickRef.current = true
+
     if (!dragState.moved) {
-      suppressNextBubbleClickRef.current = true
       toggleOpenFromBubble()
     }
+  }
+
+  function handleBubblePointerCancel(event: ReactPointerEvent<HTMLButtonElement>) {
+    const dragState = dragStateRef.current
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    dragStateRef.current = null
+    suppressNextBubbleClickRef.current = dragState.moved
   }
 
   function handleBubbleClick() {
@@ -251,7 +266,7 @@ export function ProfileCopilotRail(props: {
   return (
     <div
       className="pointer-events-none fixed z-[60] flex max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3"
-      style={{ bottom: `${Math.max(position.y, isOpen ? minBottomOffset : collapsedMinBottomOffset)}px`, right: `${position.x}px` }}
+      style={{ bottom: `${Math.max(position.y, collapsedMinBottomOffset)}px`, right: `${position.x}px` }}
     >
       {isOpen ? (
         <aside className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-border/40 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur" style={{ width: `${panelDimensions.expandedWidth}px`, height: `${panelDimensions.expandedHeight}px`, maxWidth: 'calc(100vw - 2rem)', maxHeight: `calc(100vh - ${COPILOT_NAV_SAFE_OFFSET}px)` }}>
@@ -329,6 +344,7 @@ export function ProfileCopilotRail(props: {
         onKeyDown={handleBubbleKeyDown}
         onPointerDown={handleBubblePointerDown}
         onPointerMove={handleBubblePointerMove}
+        onPointerCancel={handleBubblePointerCancel}
         onPointerUp={handleBubblePointerUp}
         title={props.title}
       />

@@ -13,6 +13,7 @@ describe('ReviewQueuePreviewPanel', () => {
   it('routes first-run users back to Find jobs from the empty shortlist state', () => {
     render(
       <ReviewQueuePreviewPanel
+        displayedProgress={0}
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={vi.fn()}
         previewState={null}

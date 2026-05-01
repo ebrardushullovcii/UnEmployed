@@ -491,6 +491,22 @@ export function createPrimaryPageActions(
         'Resume created for this job.',
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
+    onRemoveReviewJob: (jobId: string) => {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
+        return
+      }
+
+      void runAction(
+        () => actions.removeJobFromReview(jobId),
+        () => {
+          setResumeWorkspaceDirty(false)
+          setSelectedReviewJobId('')
+          navigate('/job-finder/discovery')
+        },
+        'Job moved back to Find jobs.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
+      )
+    },
     onApproveResume: (jobId: string, exportId: string) =>
       void runResumeWorkspaceAction(
         () => actions.approveResume(jobId, exportId),

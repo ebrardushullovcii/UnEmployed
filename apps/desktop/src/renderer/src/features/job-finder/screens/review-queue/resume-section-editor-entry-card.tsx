@@ -1,3 +1,4 @@
+import type { FocusEvent } from 'react'
 import { Lock, LockOpen } from 'lucide-react'
 import type { ResumeDraftEntry, ResumeDraftSection } from '@unemployed/contracts'
 import { getResumeEntryFieldTargetId } from '@unemployed/contracts'
@@ -39,6 +40,14 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
     registerEntryRef,
   } = props
   const fieldDisabled = disabled || section.locked || entry.locked
+  const handleEntryFocusCapture = (event: FocusEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null
+    if (target?.dataset.resumeEditorTarget) {
+      return
+    }
+
+    onSelectEntry(section.id, entry.id)
+  }
 
   return (
     <article
@@ -46,7 +55,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
         'surface-card grid gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) p-2.5 transition-colors',
         isSelected && 'border-primary/35 bg-primary/5',
       )}
-      onFocusCapture={() => onSelectEntry(section.id, entry.id)}
+      onFocusCapture={handleEntryFocusCapture}
       onMouseDownCapture={() => onSelectEntry(section.id, entry.id)}
       ref={(node) => {
         registerEntryRef(entry.id, node)

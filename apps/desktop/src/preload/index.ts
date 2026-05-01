@@ -336,6 +336,10 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:queue-job-for-review", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
+    removeJobFromReview: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:remove-job-from-review", {
+        jobId,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
     dismissDiscoveryJob: (jobId: string) =>
       ipcRenderer.invoke("job-finder:dismiss-discovery-job", {
         jobId,

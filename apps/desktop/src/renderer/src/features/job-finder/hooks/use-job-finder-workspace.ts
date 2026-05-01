@@ -74,6 +74,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.dismissDiscoveryJob(jobId),
         ),
+      removeJobFromReview: (jobId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.removeJobFromReview(jobId),
+        ),
       getResumeWorkspace: (jobId: string) =>
         window.unemployed.jobFinder.getResumeWorkspace(jobId),
       previewResumeDraft: (draft: ResumeDraft) =>

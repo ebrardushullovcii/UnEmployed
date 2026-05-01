@@ -19,7 +19,10 @@ export function getApplicationLatestActivityLabel(record: ApplicationRecord): st
     return 'Attempt failed'
   }
 
-  if (record.lastAttemptState === 'paused') {
+  if (
+    shouldPresentConsentState(record) &&
+    record.lastAttemptState === 'paused'
+  ) {
     return record.nextActionLabel ?? 'Needs follow-up'
   }
 

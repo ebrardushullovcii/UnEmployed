@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type FocusEvent } from "react";
 import type {
   ResumeDraftPatch,
   ResumeDraftSection,
@@ -18,6 +18,7 @@ export function ResumeSectionEditor(props: {
   section: ResumeDraftSection;
   disabled: boolean;
   isSelected: boolean;
+  selectionScrollKey?: number;
   selectedEntryId: string | null;
   selectedTargetId: string | null;
   onChange: (nextSection: ResumeDraftSection) => void;
@@ -29,11 +30,28 @@ export function ResumeSectionEditor(props: {
   const textId = useId();
   const controlIdPrefix = useId();
   const hasEntries = props.section.entries.length > 0;
-  const { entryRefs, sectionRef } = useResumeEditorSelectionFocus({
-    isSelected: props.isSelected,
-    selectedEntryId: props.selectedEntryId,
-    selectedTargetId: props.selectedTargetId,
-  });
+  const { entryRefs, sectionRef } = useResumeEditorSelectionFocus(
+    props.selectionScrollKey === undefined
+      ? {
+          isSelected: props.isSelected,
+          selectedEntryId: props.selectedEntryId,
+          selectedTargetId: props.selectedTargetId,
+        }
+      : {
+          isSelected: props.isSelected,
+          selectionScrollKey: props.selectionScrollKey,
+          selectedEntryId: props.selectedEntryId,
+          selectedTargetId: props.selectedTargetId,
+        },
+  );
+  const handleSectionFocusCapture = (event: FocusEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null
+    if (target?.dataset.resumeEditorTarget === props.selectedTargetId) {
+      return
+    }
+
+    props.onSelectSection(props.section.id)
+  }
 
   return (
     <article
@@ -41,7 +59,7 @@ export function ResumeSectionEditor(props: {
         "surface-card-tint grid min-w-0 gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) p-2.5 transition-colors",
         props.isSelected && "border-primary/35 bg-primary/5",
       )}
-      onFocusCapture={() => props.onSelectSection(props.section.id)}
+      onFocusCapture={handleSectionFocusCapture}
       onMouseDownCapture={() => props.onSelectSection(props.section.id)}
       ref={sectionRef}
     >

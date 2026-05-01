@@ -20,6 +20,7 @@ interface ResumeWorkspaceEditorPanelProps {
   onSelectEntry: (sectionId: string, entryId: string) => void;
   onSelectSection: (sectionId: string) => void;
   runWithSavedDraft: (next: () => void, successMessage?: string | null) => void;
+  selectionScrollKey?: number;
   selectedEntryId: string | null;
   selectedSectionId: string | null;
   selectedTargetId: string | null;
@@ -34,9 +35,9 @@ export function ResumeWorkspaceEditorPanel(
     : "Click the live page to jump to the matching structured field.";
 
   return (
-    <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
+    <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:overflow-visible">
       <div
-        className="grid min-h-0 min-w-0 flex-1 content-start gap-2.5 overflow-x-hidden overflow-y-auto p-2.5 pr-2"
+        className="grid min-h-0 min-w-0 flex-1 content-start gap-2.5 overflow-x-hidden overflow-y-auto p-2.5 pr-2 xl:overflow-visible"
         data-resume-editor-scroll-region
       >
         <div className="grid gap-1 border-b border-(--surface-panel-border) pb-2">
@@ -99,6 +100,9 @@ export function ResumeWorkspaceEditorPanel(
                 "Saved your draft before refreshing this section.",
               )
             }
+            {...(props.selectionScrollKey === undefined
+              ? {}
+              : { selectionScrollKey: props.selectionScrollKey })}
           />
         ))}
       </div>

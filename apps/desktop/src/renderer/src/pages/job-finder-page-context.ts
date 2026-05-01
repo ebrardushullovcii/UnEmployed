@@ -50,6 +50,7 @@ export interface JobFinderPageContext {
   onDismissJob: (jobId: string) => void
   onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
+  onRemoveReviewJob: (jobId: string) => void
   onApproveResume: (jobId: string, exportId: string) => void
   onClearResumeApproval: (jobId: string) => void
   onExportResumePdf: (jobId: string) => void

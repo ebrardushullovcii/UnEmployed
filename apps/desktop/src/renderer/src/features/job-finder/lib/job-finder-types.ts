@@ -97,6 +97,7 @@ export interface JobFinderShellActions {
     revisionId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  removeJobFromReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
   previewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;

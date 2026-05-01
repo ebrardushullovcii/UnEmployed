@@ -16,6 +16,7 @@ import {
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
   browserSession: BrowserSessionState
+  displayedProgress: number
   isApplyPending: boolean
   isJobPending: (jobId: string) => boolean
   onClearQueueSelection: () => void
@@ -25,6 +26,7 @@ interface ReviewQueueMissionPanelProps {
   onStartApplyCopilot: (jobId: string) => void
   onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
+  onRemoveReviewJob: (jobId: string) => void
   queue: readonly ReviewQueueItem[]
   queueSelection: readonly string[]
   selectedAsset: TailoredAsset | null
@@ -35,6 +37,7 @@ interface ReviewQueueMissionPanelProps {
 export function ReviewQueueMissionPanel({
   actionMessage,
   browserSession,
+  displayedProgress,
   isApplyPending,
   isJobPending,
   onClearQueueSelection,
@@ -44,6 +47,7 @@ export function ReviewQueueMissionPanel({
   onStartApplyCopilot,
   onEditResumeWorkspace,
   onGenerateResume,
+  onRemoveReviewJob,
   queue,
   queueSelection,
   selectedAsset,
@@ -93,7 +97,7 @@ export function ReviewQueueMissionPanel({
             <p className="text-(length:--text-small) leading-6 text-foreground-soft">
               {readinessDescription}
             </p>
-            {selectedItem && isGenerating ? <ProgressBar ariaLabel="Resume progress" percent={selectedItem?.progressPercent ?? 0} /> : null}
+            {selectedItem && isGenerating ? <ProgressBar ariaLabel="Resume progress" percent={displayedProgress} /> : null}
           </div>
         ) : null}
         {selectedItem && selectedJob ? (
@@ -202,7 +206,7 @@ export function ReviewQueueMissionPanel({
                 <div className="grid gap-2">
                   <Button
                     className="h-10 w-full justify-start px-3.5 text-sm font-medium normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
-                    pending={isSelectedJobPending || isApplyPending}
+                    pending={isApplyPending}
                     disabled={isSelectedJobPending || isApplyPending || isGenerating || !canApproveApply}
                     onClick={() => onStartAutoApply(selectedItem.jobId)}
                     size="compact"
@@ -213,7 +217,7 @@ export function ReviewQueueMissionPanel({
                   </Button>
                   <Button
                     className="h-10 w-full justify-start px-3.5 text-sm font-medium normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
-                    pending={isApplyPending || isSelectedQueuePending}
+                    pending={isApplyPending}
                     disabled={isApplyPending || isSelectedQueuePending || !canStageSelectedQueue}
                     onClick={() => onStartAutoApplyQueue(selectedQueueReadyItems.map((item) => item.jobId))}
                     size="compact"
@@ -226,7 +230,17 @@ export function ReviewQueueMissionPanel({
                   </Button>
                   <Button
                     className="h-10 w-full justify-start px-3.5 text-sm font-medium normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
-                    pending={isSelectedJobPending || isApplyPending}
+                    disabled={isSelectedJobPending}
+                    onClick={() => onRemoveReviewJob(selectedItem.jobId)}
+                    size="compact"
+                    type="button"
+                    variant="outline"
+                  >
+                    Remove from shortlisted
+                  </Button>
+                  <Button
+                    className="h-10 w-full justify-start px-3.5 text-sm font-medium normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
+                    pending={isApplyPending}
                     disabled={isSelectedJobPending || isApplyPending || isGenerating || !canApproveApply}
                     onClick={() => onApproveApply(selectedItem.jobId)}
                     size="compact"

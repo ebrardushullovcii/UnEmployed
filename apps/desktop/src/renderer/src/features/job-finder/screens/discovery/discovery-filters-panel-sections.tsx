@@ -13,6 +13,7 @@ type SectionValue =
     }
 
 export function DiscoverySessionSummary(props: {
+  hasRecommendedSourceAccessPrompt: boolean
   isBlocked: boolean
   isBrowserSessionVisible: boolean
   isReady: boolean
@@ -23,6 +24,7 @@ export function DiscoverySessionSummary(props: {
   isBrowserSessionPendingForTarget: (targetId: string) => boolean
 }) {
   const {
+    hasRecommendedSourceAccessPrompt,
     isBlocked,
     isBrowserSessionVisible,
     isBrowserSessionPendingForTarget,
@@ -88,7 +90,7 @@ export function DiscoverySessionSummary(props: {
               role="status"
               className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--warning-text)"
             >
-              Some sources need you to sign in before the next search can finish.
+              Some sources may need sign-in before the next search can finish.
             </div>
           ) : null}
           {isReady ? (
@@ -99,23 +101,25 @@ export function DiscoverySessionSummary(props: {
               You're signed in on sources that need the browser.
             </div>
           ) : null}
-          {!needsLogin && !isBlocked && !isReady ? (
+          {hasRecommendedSourceAccessPrompt && !primarySourceAccessPrompt && !needsLogin && !isBlocked ? (
             <div
               role="status"
               className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
             >
-              The browser is starting. You can review past results while it gets ready.
+              Some sources work without sign-in, but the browser can improve coverage.
             </div>
+          ) : null}
+          {!needsLogin && !isBlocked && !isReady ? (
+            <p className="text-(length:--text-description) leading-6 text-foreground-soft">
+              The browser will reopen automatically on the next run.
+            </p>
           ) : null}
         </div>
       ) : null}
 
-      <p className="text-(length:--text-description) leading-6 text-foreground-soft">
-        Review the search this run will use. Edit it in Profile when needed.
-      </p>
       <Link
         className="text-(length:--text-small) font-medium text-primary underline-offset-4 hover:underline"
-        to={JOB_FINDER_ROUTE_HREFS.profile}
+        to={JOB_FINDER_ROUTE_HREFS.profile.slice(1)}
       >
         Edit search in Profile
       </Link>

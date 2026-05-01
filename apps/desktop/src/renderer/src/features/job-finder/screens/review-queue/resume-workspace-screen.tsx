@@ -13,6 +13,7 @@ import { ResumeWorkspaceEditorPanel } from "./resume-workspace-editor-panel";
 import { ResumeWorkspaceHeader } from "./resume-workspace-header";
 import { ResumeWorkspaceSecondaryRail } from "./resume-workspace-secondary-rail";
 import { ResumeWorkspaceSidebar } from "./resume-workspace-sidebar";
+import { ResumeGuidedEditsPopup } from './resume-guided-edits-popup'
 import { ResumeStudioPreviewPane } from './resume-studio-preview-pane'
 import { ResumeWorkspaceStudioShell } from './resume-workspace-studio-shell'
 import { ResumeWorkspaceTemplatePanel } from './resume-workspace-template-panel'
@@ -32,14 +33,9 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
     props.workspace ? cloneDraft(props.workspace.draft) : null,
   );
   const [mobileStudioTab, setMobileStudioTab] = useState<'preview' | 'editor' | 'assistant'>('preview')
-  const [assistantRailExpanded, setAssistantRailExpanded] = useState(false)
-  const [assistantRailManuallyCollapsed, setAssistantRailManuallyCollapsed] = useState(false)
 
   const hasAssistantMessages = props.assistantMessages.length > 0
-  const showExpandedAssistantRail =
-    assistantRailExpanded ||
-    props.assistantPending ||
-    (hasAssistantMessages && !assistantRailManuallyCollapsed)
+  const showCompactAssistantRail = !props.assistantPending && !hasAssistantMessages
 
   const workspaceDraftRevisionKey = props.workspace
     ? `${props.workspace.draft.id}:${props.workspace.draft.updatedAt}`
@@ -74,6 +70,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
     handlePreviewTargetSelect,
     handleSelectEntry,
     handleSelectSection,
+    selectionScrollKey,
     selectedEntryId,
     selectedSectionId,
     selectedTargetId,
@@ -152,23 +149,6 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
     onPreviewDraft: props.onPreviewDraft,
   })
 
-  useEffect(() => {
-    if (props.assistantPending) {
-      setAssistantRailManuallyCollapsed(false)
-      setAssistantRailExpanded(true)
-    }
-  }, [props.assistantPending])
-
-  useEffect(() => {
-    if (!props.assistantPending && hasAssistantMessages && !assistantRailManuallyCollapsed) {
-      setAssistantRailExpanded(true)
-
-      if (mobileStudioTab === 'preview') {
-        setMobileStudioTab('editor')
-      }
-    }
-  }, [assistantRailManuallyCollapsed, hasAssistantMessages, mobileStudioTab, props.assistantPending])
-
   const handlePreviewSelection = useCallback((selection: {
     sectionId: string | null
     entryId: string | null
@@ -177,23 +157,6 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
     handlePreviewTargetSelect(selection)
     setMobileStudioTab('editor')
   }, [handlePreviewTargetSelect])
-
-  const handleOpenGuidedEdits = useCallback(() => {
-    setAssistantRailExpanded(true)
-    setAssistantRailManuallyCollapsed(false)
-    setMobileStudioTab('assistant')
-  }, [])
-
-  const handleToggleAssistantRail = useCallback(() => {
-    if (showExpandedAssistantRail) {
-      setAssistantRailExpanded(false)
-      setAssistantRailManuallyCollapsed(true)
-      return
-    }
-
-    setAssistantRailExpanded(true)
-    setAssistantRailManuallyCollapsed(false)
-  }, [showExpandedAssistantRail])
 
   if (!props.workspace || !draft) {
       return (
@@ -237,6 +200,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       onSelectEntry={handleSelectEntry}
       onSelectSection={handleSelectSection}
       runWithSavedDraft={runWithSavedDraft}
+      selectionScrollKey={selectionScrollKey}
       selectedEntryId={selectedEntryId}
       selectedSectionId={selectedSectionId}
       selectedTargetId={selectedTargetId}
@@ -248,7 +212,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
     <ResumeWorkspaceSecondaryRail
       assistantMessages={props.assistantMessages}
       assistantPending={props.assistantPending}
-      compactWhenIdle={!showExpandedAssistantRail}
+      compactWhenIdle={showCompactAssistantRail}
       isWorkspacePending={props.isWorkspacePending}
       onSendAssistantMessage={(content) =>
         runWithSavedDraftAsync(
@@ -314,83 +278,90 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
 
   return (
     <LockedScreenLayout
-      contentClassName=""
-      topClassName="pb-1.5 pt-2"
+      contentClassName="xl:overflow-hidden"
+      topClassName="grid gap-2.5 pb-1.5 pt-2"
       topContent={(
-        <ResumeWorkspaceHeader
-          draft={draft}
-          hasUnsavedChanges={hasUnsavedChanges}
-          jobCompany={job.company}
-          jobLocation={job.location}
-          jobTitle={job.title}
-          onBack={props.onBack}
-          onRefresh={() =>
-            runWithSavedDraftAsync(
-              () => props.onRefresh(),
-              'Saved your changes before reloading the latest version.',
-            )
-          }
-          selectedThemeLabel={selectedTheme?.label ?? fallbackThemeLabel}
-        />
+        <>
+          <ResumeWorkspaceHeader
+            draft={draft}
+            hasUnsavedChanges={hasUnsavedChanges}
+            jobCompany={job.company}
+            jobLocation={job.location}
+            jobTitle={job.title}
+            onBack={props.onBack}
+            onRefresh={() =>
+              runWithSavedDraftAsync(
+                () => props.onRefresh(),
+                'Saved your changes before reloading the latest version.',
+              )
+            }
+            selectedThemeLabel={selectedTheme?.label ?? fallbackThemeLabel}
+          />
+          <ResumeWorkspaceSidebar
+            draft={draft}
+            hasUnsavedChanges={hasUnsavedChanges}
+            workspace={props.workspace}
+          />
+        </>
       )}
       >
-      <section className="grid min-h-124 min-w-0 items-stretch gap-2.5">
-        <div className="min-h-0 min-w-0">
-          <div className="hidden min-h-0 min-w-0 xl:block">
-            <ResumeWorkspaceSidebar
-              draft={draft}
-              hasUnsavedChanges={hasUnsavedChanges}
-              workspace={props.workspace}
-            />
-          </div>
-          <ResumeWorkspaceStudioShell
-            approvalStateLabel={approvalStateLabel}
-            assistantRail={assistantRail}
-            canApproveCurrentPdf={Boolean(availableExportToApprove && selectedTemplateApprovalEligible)}
-            canClearApproval={Boolean(draft.approvedExportId)}
-            editorPanel={editorPanel}
-            hasUnsavedChanges={hasUnsavedChanges}
-            isWorkspacePending={props.isWorkspacePending}
-            mobileStudioTab={mobileStudioTab}
-            onApproveCurrentPdf={() => {
-              if (!availableExportToApprove) {
-                return
-              }
+      <section className="grid min-h-124 min-w-0 items-stretch xl:h-full xl:min-h-0">
+        <ResumeWorkspaceStudioShell
+          approvalStateLabel={approvalStateLabel}
+          assistantRail={assistantRail}
+          canApproveCurrentPdf={Boolean(availableExportToApprove && selectedTemplateApprovalEligible)}
+          canClearApproval={Boolean(draft.approvedExportId)}
+          editorPanel={editorPanel}
+          hasUnsavedChanges={hasUnsavedChanges}
+          isWorkspacePending={props.isWorkspacePending}
+          mobileStudioTab={mobileStudioTab}
+          onApproveCurrentPdf={() => {
+            if (!availableExportToApprove) {
+              return
+            }
 
-              runWithSavedDraft(
-                () => props.onApproveResume(props.jobId, availableExportToApprove.id),
-                'Saved your draft before approving the PDF.',
-              )
-            }}
-            onClearApproval={() =>
-              runWithSavedDraftAsync(
-                () => props.onClearResumeApproval(props.jobId),
-                'Saved your draft before clearing approval.',
-              )
-            }
-            onExportPdf={() =>
-              runWithSavedDraft(
-                () => props.onExportPdf(props.jobId),
-                'Saved your draft before exporting the PDF.',
-              )
-            }
-            onRegenerateDraft={() =>
-              runWithSavedDraft(
-                () => props.onRegenerateDraft(props.jobId),
-                'Saved your draft before refreshing the resume.',
-              )
-            }
-            onSaveDraft={() => props.onSaveDraft(draft)}
-            onSetMobileStudioTab={setMobileStudioTab}
-            onToggleGuidedEdits={showExpandedAssistantRail ? handleToggleAssistantRail : handleOpenGuidedEdits}
-            previewPane={previewPane}
-            selectedTemplateApprovalEligible={selectedTemplateApprovalEligible}
-            showExpandedAssistantRail={showExpandedAssistantRail}
-            studioStatusMessage={studioStatusMessage}
-            templatePanel={templatePanel}
-          />
-        </div>
+            runWithSavedDraft(
+              () => props.onApproveResume(props.jobId, availableExportToApprove.id),
+              'Saved your draft before approving the PDF.',
+            )
+          }}
+          onClearApproval={() =>
+            runWithSavedDraftAsync(
+              () => props.onClearResumeApproval(props.jobId),
+              'Saved your draft before clearing approval.',
+            )
+          }
+          onExportPdf={() =>
+            runWithSavedDraft(
+              () => props.onExportPdf(props.jobId),
+              'Saved your draft before exporting the PDF.',
+            )
+          }
+          onRegenerateDraft={() =>
+            runWithSavedDraft(
+              () => props.onRegenerateDraft(props.jobId),
+              'Saved your draft before refreshing the resume.',
+            )
+          }
+          onSaveDraft={() => props.onSaveDraft(draft)}
+          onSetMobileStudioTab={setMobileStudioTab}
+          previewPane={previewPane}
+          selectedTemplateApprovalEligible={selectedTemplateApprovalEligible}
+          studioStatusMessage={studioStatusMessage}
+          templatePanel={templatePanel}
+        />
       </section>
+      <ResumeGuidedEditsPopup
+        assistantMessages={props.assistantMessages}
+        assistantPending={props.assistantPending}
+        isWorkspacePending={props.isWorkspacePending}
+        onSendAssistantMessage={(content) =>
+          runWithSavedDraftAsync(
+            () => props.onSendAssistantMessage(props.jobId, content),
+            'Saved your draft before sending this request.',
+          )
+        }
+      />
     </LockedScreenLayout>
   );
 }

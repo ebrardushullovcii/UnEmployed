@@ -9,6 +9,7 @@ export {
   JobFinderDiscoveryRoute,
   JobFinderProfileRoute,
   JobFinderProfileSetupRoute,
+  JobFinderRouteErrorBoundary,
   JobFinderResumeWorkspaceRoute,
   JobFinderReviewQueueRoute,
   JobFinderSettingsRoute,

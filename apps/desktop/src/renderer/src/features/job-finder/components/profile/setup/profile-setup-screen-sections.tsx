@@ -1,4 +1,5 @@
 import { AlertCircle, CheckCircle2, Circle, Compass, FileSearch, Sparkles, Target, UserRound } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { ProfileSetupState, ProfileSetupStep } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
@@ -162,7 +163,35 @@ export function ProfileSetupReviewQueueCard(props: {
   onApplyReviewAction: (reviewItemId: string, action: 'confirm' | 'dismiss' | 'clear_value') => void
   onEditReviewItem: (item: ProfileSetupReviewItemDisplay) => void
 }) {
+  const [pendingReviewAction, setPendingReviewAction] = useState<{
+    action: 'confirm' | 'dismiss' | 'clear_value'
+    reviewItemId: string
+  } | null>(null)
   const pendingCount = props.items.filter((item) => item.status === 'pending').length
+
+  useEffect(() => {
+    if (!pendingReviewAction || props.isReviewItemPending(pendingReviewAction.reviewItemId)) {
+      return
+    }
+
+    setPendingReviewAction(null)
+  }, [pendingReviewAction, props.isReviewItemPending])
+
+  const isReviewActionPending = (
+    reviewItemId: string,
+    action: 'confirm' | 'dismiss' | 'clear_value',
+  ) =>
+    props.isReviewItemPending(reviewItemId) &&
+    pendingReviewAction?.reviewItemId === reviewItemId &&
+    pendingReviewAction.action === action
+
+  const applyReviewAction = (
+    reviewItemId: string,
+    action: 'confirm' | 'dismiss' | 'clear_value',
+  ) => {
+    setPendingReviewAction({ action, reviewItemId })
+    props.onApplyReviewAction(reviewItemId, action)
+  }
 
   return (
     <Card className="min-h-0 flex-1 overflow-hidden rounded-(--radius-panel) border-border/40">
@@ -222,14 +251,14 @@ export function ProfileSetupReviewQueueCard(props: {
                   ) : null}
                   {item.status === 'pending' ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button aria-label={`Edit ${item.label}`} pending={props.isReviewItemPending(item.id)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
+                      <Button aria-label={`Edit ${item.label}`} disabled={props.isReviewItemPending(item.id)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
                       {canConfirmReviewItem(item) ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={isReviewActionPending(item.id, 'confirm')} onClick={() => applyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
                       ) : null}
                       {canClearReviewItem(item) ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={isReviewActionPending(item.id, 'clear_value')} onClick={() => applyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
                       ) : null}
-                      <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
+                      <Button disabled={Boolean(props.actionsDisabledReason)} pending={isReviewActionPending(item.id, 'dismiss')} onClick={() => applyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
                     </div>
                   ) : null}
                   {item.status === 'pending' && props.actionsDisabledReason ? (

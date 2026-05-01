@@ -680,6 +680,17 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle(
+    "job-finder:remove-job-from-review",
+    async (_event, payload: unknown) => {
+      const { jobId } = JobFinderJobActionInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot = await jobFinderWorkspaceService.removeJobFromReview(jobId);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:dismiss-discovery-job",
     async (_event, payload: unknown) => {
       const { jobId } = JobFinderJobActionInputSchema.parse(payload);

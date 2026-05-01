@@ -5,6 +5,7 @@ import {
   JobFinderPage,
   JobFinderProfileRoute,
   JobFinderProfileSetupRoute,
+  JobFinderRouteErrorBoundary,
   JobFinderResumeWorkspaceRoute,
   JobFinderReviewQueueRoute,
   JobFinderSettingsRoute
@@ -17,6 +18,7 @@ export const appRouter = createHashRouter([
   },
   {
     path: '/job-finder',
+    errorElement: <JobFinderRouteErrorBoundary scope="app" />,
     element: <JobFinderPage />,
     children: [
       {
@@ -25,30 +27,37 @@ export const appRouter = createHashRouter([
       },
       {
         path: 'profile',
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
         element: <JobFinderProfileRoute />
       },
       {
         path: 'profile/setup',
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
         element: <JobFinderProfileSetupRoute />
       },
       {
         path: 'discovery',
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
         element: <JobFinderDiscoveryRoute />
       },
       {
         path: 'review-queue',
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
         element: <JobFinderReviewQueueRoute />
       },
       {
         path: 'review-queue/:jobId/resume',
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
         element: <JobFinderResumeWorkspaceRoute />
       },
       {
         path: 'applications',
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
         element: <JobFinderApplicationsRoute />
       },
       {
         path: 'settings',
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
         element: <JobFinderSettingsRoute />
       }
     ]

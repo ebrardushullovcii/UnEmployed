@@ -5,7 +5,7 @@ import {
   LoaderCircle,
   RefreshCcw,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { JobFinderResumePreview } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -63,23 +63,9 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   const [previewFrameHeight, setPreviewFrameHeight] = useState<number | null>(
     null,
   );
-  const hasWarnings = (props.preview?.warnings.length ?? 0) > 0;
   const hasReadyPreview =
     props.previewStatus === "ready" && Boolean(props.preview);
-  const showPreviewStateMessage = props.isDirty || hasWarnings;
-  const previewStateMessage = props.isDirty
-    ? "Live preview already includes unsaved edits. Save before you export or approve."
-    : "Saved preview already matches the draft that export and approval use.";
-
-  const warningSummary = useMemo(() => {
-    const warningCount = props.preview?.warnings.length ?? 0;
-
-    if (warningCount === 0) {
-      return "No preview warnings right now.";
-    }
-
-    return `${warningCount} preview ${warningCount === 1 ? "warning" : "warnings"} surfaced before export.`;
-  }, [props.preview?.warnings.length]);
+  const warningCount = props.preview?.warnings.length ?? 0;
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -188,13 +174,17 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         return;
       }
 
-      const body = frameDocument.body;
-      const documentElement = frameDocument.documentElement;
+      const previewContent =
+        frameDocument.querySelector<HTMLElement>(".preview-shell") ??
+        frameDocument.querySelector<HTMLElement>(".page") ??
+        frameDocument.body;
+      const contentHeight = previewContent
+        ? previewContent.getBoundingClientRect().height
+        : 0;
       const nextHeight = Math.ceil(
         Math.max(
-          body?.scrollHeight ?? 0,
-          documentElement?.scrollHeight ?? 0,
-          documentElement?.getBoundingClientRect().height ?? 0,
+          contentHeight,
+          previewContent?.scrollHeight ?? 0,
         ) + 8,
       );
 
@@ -214,9 +204,9 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   }, [props.preview]);
 
   return (
-    <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
-      <header className="grid gap-2 border-b border-(--surface-panel-border) px-3.5 py-2">
-        <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+    <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
+      <header className="border-b border-(--surface-panel-border) px-3.5 py-2">
+        <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
           <div className="grid gap-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
@@ -239,14 +229,13 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
               {props.templateLabel ? (
                 <Badge variant="section">{props.templateLabel}</Badge>
               ) : null}
+              {warningCount > 0 ? (
+                <Badge variant="outline">
+                  <FileWarning className="size-3.5" />
+                  {warningCount} warning{warningCount === 1 ? "" : "s"}
+                </Badge>
+              ) : null}
             </div>
-            <h2 className="text-(length:--text-body) font-semibold text-(--text-headline)">
-              Keep the export-faithful page in view while you edit.
-            </h2>
-            <p className="text-(length:--text-small) leading-4 text-foreground-soft xl:hidden">
-              Export uses this same renderer. Click the page to jump straight to
-              the matching structured control.
-            </p>
           </div>
           <Button
             className="self-start"
@@ -261,56 +250,16 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
           </Button>
         </div>
 
-        <div className="flex flex-wrap items-start gap-2.5">
-          {showPreviewStateMessage ? (
-            <div
-              className={cn(
-                "rounded-(--radius-field) border px-2.5 py-0.75 text-(length:--text-small) leading-4 text-foreground-soft",
-                props.isDirty
-                  ? "border-primary/20 bg-primary/8"
-                  : "border-(--surface-panel-border) bg-background/45",
-              )}
-            >
-              {previewStateMessage}
-            </div>
-          ) : null}
-          {hasWarnings ? (
-            <div className="flex flex-wrap gap-2 text-sm text-foreground-soft">
-              <Badge variant="outline">
-                <FileWarning className="size-3.5" />
-                {warningSummary}
-              </Badge>
-            </div>
-          ) : null}
-        </div>
-
-        {hasWarnings ? (
-          <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-2.5 py-2">
-            {props.preview?.warnings.slice(0, 2).map((warning) => (
-              <p
-                className={cn(
-                  "rounded-(--radius-field) border px-2.5 py-1.5 text-sm leading-5",
-                  warning.severity === "error"
-                    ? "border-critical/30 bg-critical/10 text-critical"
-                    : warning.severity === "warning"
-                      ? "border-(--warning-border) bg-(--warning-surface) text-(--warning-text)"
-                      : "border-(--surface-panel-border) bg-background/60 text-foreground-soft",
-                )}
-                key={warning.id}
-              >
-                {warning.message}
-              </p>
-            ))}
-          </div>
-        ) : null}
       </header>
 
       <div
         className={cn(
-          "relative grid justify-items-center bg-[linear-gradient(180deg,rgba(16,22,35,0.02),rgba(16,22,35,0.1))] p-0.5",
-          hasReadyPreview ? "min-h-168" : "min-h-80",
+          "relative min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(16,22,35,0.02),rgba(16,22,35,0.1))] p-0.5",
+          hasReadyPreview ? "min-h-168 xl:min-h-0" : "min-h-80 xl:min-h-0",
         )}
+        data-resume-preview-scroll-region
       >
+        <div className="grid min-h-full justify-items-center">
         {props.previewStatus === "error" ? (
           <div className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-critical/35 bg-critical/10 p-6 text-center">
             <div className="grid max-w-md gap-3">
@@ -355,6 +304,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
             </div>
           </div>
         )}
+        </div>
       </div>
     </section>
   );

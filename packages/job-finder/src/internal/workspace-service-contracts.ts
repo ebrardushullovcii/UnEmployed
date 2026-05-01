@@ -126,6 +126,7 @@ export interface JobFinderWorkspaceService {
     onProgress?: (event: SourceDebugProgressEvent) => void,
   ): Promise<JobFinderWorkspaceSnapshot>;
   queueJobForReview(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  removeJobFromReview(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   dismissDiscoveryJob(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   generateResume(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace(jobId: string): Promise<JobFinderResumeWorkspace>;

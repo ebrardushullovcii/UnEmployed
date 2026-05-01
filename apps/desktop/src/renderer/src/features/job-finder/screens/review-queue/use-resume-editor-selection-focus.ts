@@ -2,10 +2,11 @@ import { useEffect, useRef } from 'react'
 
 export function useResumeEditorSelectionFocus(input: {
   isSelected: boolean
+  selectionScrollKey?: number
   selectedEntryId: string | null
   selectedTargetId: string | null
 }) {
-  const { isSelected, selectedEntryId, selectedTargetId } = input
+  const { isSelected, selectedEntryId, selectedTargetId, selectionScrollKey = 0 } = input
   const sectionRef = useRef<HTMLElement | null>(null)
   const entryRefs = useRef<Record<string, HTMLElement | null>>({})
 
@@ -18,6 +19,10 @@ export function useResumeEditorSelectionFocus(input: {
         : null
 
     if (!target) {
+      return
+    }
+
+    if (selectionScrollKey === 0) {
       return
     }
 
@@ -41,13 +46,16 @@ export function useResumeEditorSelectionFocus(input: {
       firstControl?.focus({ preventScroll: true })
     }
 
-    const scrollRegion = target.closest<HTMLElement>('[data-resume-editor-scroll-region]')
+    const scrollRegion =
+      target.closest<HTMLElement>('[data-resume-workspace-scroll-region]') ??
+      target.closest<HTMLElement>('[data-resume-editor-scroll-region]')
     if (!scrollRegion) {
       return
     }
 
     const scrollRegionRect = scrollRegion.getBoundingClientRect()
-    const targetRect = target.getBoundingClientRect()
+    const scrollTarget = targetedControl ?? target
+    const targetRect = scrollTarget.getBoundingClientRect()
     const regionTop = scrollRegion.scrollTop
     const regionBottom = regionTop + scrollRegion.clientHeight
     const targetTop = scrollRegion.scrollTop + (targetRect.top - scrollRegionRect.top)
@@ -62,14 +70,14 @@ export function useResumeEditorSelectionFocus(input: {
     }
 
     if (targetTop < regionTop) {
-      scrollRegion.scrollTop = targetTop
+      scrollRegion.scrollTop = Math.max(0, targetTop - 24)
       return
     }
 
     if (targetBottom > regionBottom) {
-      scrollRegion.scrollTop = targetBottom - scrollRegion.clientHeight
+      scrollRegion.scrollTop = targetBottom - scrollRegion.clientHeight + 24
     }
-  }, [isSelected, selectedEntryId, selectedTargetId])
+  }, [isSelected, selectedEntryId, selectedTargetId, selectionScrollKey])
 
   return {
     entryRefs,

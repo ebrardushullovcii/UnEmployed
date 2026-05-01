@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { LockedScreenLayout } from '../../components/locked-screen-layout'
 import { PageHeader } from '../../components/page-header'
+import { getDisplayedResumeProgress, getNextDisplayedResumeProgress } from './review-queue-progress'
 import { ReviewQueueListPanel } from './review-queue-list-panel'
 import { ReviewQueueMissionPanel } from './review-queue-mission-panel'
 import { ReviewQueuePreviewPanel } from './review-queue-preview-panel'
@@ -17,6 +18,7 @@ export function ReviewQueueScreen(props: {
   onStartApplyCopilot: (jobId: string) => void
   onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
+  onRemoveReviewJob: (jobId: string) => void
   onSelectItem: (jobId: string) => void
   queue: readonly ReviewQueueItem[]
   selectedAsset: TailoredAsset | null
@@ -34,6 +36,7 @@ export function ReviewQueueScreen(props: {
     onStartApplyCopilot,
     onEditResumeWorkspace,
     onGenerateResume,
+    onRemoveReviewJob,
     onSelectItem,
     queue,
     selectedAsset,
@@ -42,7 +45,25 @@ export function ReviewQueueScreen(props: {
   } = props
   const previewState = selectedItem && !selectedAsset && selectedItem.assetStatus === 'ready' ? 'missing' : null
   const [queueSelection, setQueueSelection] = useState<readonly string[]>([])
+  const selectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
+  const [displayedProgress, setDisplayedProgress] = useState(() => getDisplayedResumeProgress(selectedItem, selectedJobPending))
   const queueJobIds = useMemo(() => queue.map((item) => item.jobId), [queue])
+
+  useEffect(() => {
+    setDisplayedProgress(getDisplayedResumeProgress(selectedItem, selectedJobPending))
+  }, [selectedItem, selectedJobPending])
+
+  useEffect(() => {
+    if (!selectedJobPending) {
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      setDisplayedProgress((current) => getNextDisplayedResumeProgress(current))
+    }, 650)
+
+    return () => window.clearInterval(timer)
+  }, [selectedJobPending])
 
   useEffect(() => {
     setQueueSelection((current) => {
@@ -80,6 +101,7 @@ export function ReviewQueueScreen(props: {
     >
       <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem] xl:overflow-hidden">
         <ReviewQueueListPanel
+          isJobPending={isJobPending}
           onSelectItem={onSelectItem}
           onToggleQueueSelection={handleToggleQueueSelection}
           queue={queue}
@@ -87,7 +109,8 @@ export function ReviewQueueScreen(props: {
           selectedItem={selectedItem}
         />
         <ReviewQueuePreviewPanel
-          isGenerating={selectedItem ? isJobPending(selectedItem.jobId) : false}
+          displayedProgress={displayedProgress}
+          isGenerating={selectedJobPending}
           onEditResumeWorkspace={onEditResumeWorkspace}
           onGenerateResume={onGenerateResume}
           previewState={previewState}
@@ -99,6 +122,7 @@ export function ReviewQueueScreen(props: {
         <ReviewQueueMissionPanel
           actionMessage={actionState.message}
           browserSession={browserSession}
+          displayedProgress={displayedProgress}
           isApplyPending={isApplyPending}
           isJobPending={isJobPending}
           onClearQueueSelection={handleClearQueueSelection}
@@ -108,6 +132,7 @@ export function ReviewQueueScreen(props: {
           onStartApplyCopilot={onStartApplyCopilot}
           onEditResumeWorkspace={onEditResumeWorkspace}
           onGenerateResume={onGenerateResume}
+          onRemoveReviewJob={onRemoveReviewJob}
           queue={queue}
           queueSelection={queueSelection}
           selectedAsset={selectedAsset}

@@ -208,8 +208,8 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
 
   return (
     <>
-      <div className="grid gap-(--gap-content) md:grid-cols-2">
-        <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
+      <div className="grid gap-(--gap-content) md:col-span-2 lg:grid-cols-2 lg:items-start">
+        <div className="grid h-full min-w-0 content-start gap-(--gap-field)">
           <FieldLabel htmlFor={labelId}>Source name</FieldLabel>
           <ProfileInput
             id={labelId}
@@ -218,7 +218,7 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             value={labelValue}
           />
         </div>
-        <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
+        <div className="grid h-full min-w-0 content-start gap-(--gap-field) lg:col-start-1">
           <FieldLabel htmlFor={startingUrlId}>Starting page URL</FieldLabel>
           <ProfileInput
             id={startingUrlId}
@@ -227,7 +227,7 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             value={startingUrl}
           />
         </div>
-        <div className="grid h-full min-w-0 content-start gap-(--gap-field) md:col-span-2">
+        <div className="grid h-full min-w-0 content-start gap-(--gap-field) lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <FieldLabel htmlFor={instructionsId}>Source notes</FieldLabel>
           <ProfileTextarea
             className="min-h-(--textarea-tall)"
@@ -237,6 +237,16 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             rows={4}
             value={customInstructions}
           />
+        </div>
+        <div className="grid gap-2 lg:col-start-2">
+          <CheckboxField
+            checked={targetEnabled}
+            label="Include this source in searches"
+            onCheckedChange={onToggleEnabled}
+          />
+          <p aria-live="polite" aria-atomic="true" className="text-(length:--text-description) leading-6 text-foreground-soft" role="status">
+            <strong>{instructionStatusSummary}</strong>
+          </p>
         </div>
         {latestDebugRun ? (
           <div className="surface-card-tint grid h-full min-w-0 content-start gap-1 rounded-(--radius-field) border border-(--surface-panel-border) p-3 md:col-span-2">
@@ -255,7 +265,9 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
               </Button>
             </div>
             <div aria-live="polite" className="grid gap-1" role="status">
-              <p className="text-(length:--text-field) leading-6 text-foreground">{latestDebugRunLabel}</p>
+              {latestDebugRunLabel ? (
+                <p className="text-(length:--text-field) leading-6 text-foreground">{latestDebugRunLabel}</p>
+              ) : null}
               {latestDebugRunSummary ? (
                 <p className="text-(length:--text-description) leading-6 text-foreground-soft">
                   {latestDebugRunSummary}
@@ -271,16 +283,6 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             </div>
           </div>
         ) : null}
-        <div className="grid gap-2 md:col-span-2">
-          <CheckboxField
-            checked={targetEnabled}
-            label="Include this source in searches"
-            onCheckedChange={onToggleEnabled}
-          />
-          <p aria-live="polite" aria-atomic="true" className="text-(length:--text-description) leading-6 text-foreground-soft" role="status">
-            <strong>{instructionStatusSummary}</strong>
-          </p>
-        </div>
       </div>
     </>
   )

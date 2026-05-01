@@ -158,7 +158,13 @@ export function DiscoveryFiltersPanel({
     activeRun?.state === "running" && activeRun.scope === "single_target"
       ? activeRun.targetIds[0] ?? null
       : null;
-  const primarySourceAccessPrompt = enabledSourceAccessPrompts[0] ?? null;
+  const primarySourceAccessPrompt =
+    enabledSourceAccessPrompts.find(
+      (prompt) => prompt.state === "prompt_login_required",
+    ) ?? null;
+  const hasRecommendedSourceAccessPrompt = enabledSourceAccessPrompts.some(
+    (prompt) => prompt.state === "prompt_login_recommended",
+  );
 
   return (
     <section
@@ -183,6 +189,7 @@ export function DiscoveryFiltersPanel({
                 </span>
               </div>
           <DiscoverySessionSummary
+            hasRecommendedSourceAccessPrompt={hasRecommendedSourceAccessPrompt}
             isBlocked={isBlocked}
             isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
             isBrowserSessionVisible={isBrowserSessionVisible}

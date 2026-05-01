@@ -246,6 +246,99 @@ describe('DiscoveryFiltersPanel', () => {
     expect(onOpenBrowserSession).not.toHaveBeenCalled()
   })
 
+  it('keeps the main browser CTA generic when sign-in is only recommended', () => {
+    const onOpenBrowserSession = vi.fn()
+    const onOpenBrowserSessionForTarget = vi.fn()
+    const searchPreferences: JobSearchPreferences = {
+      targetRoles: ['Principal Designer'],
+      jobFamilies: [],
+      locations: ['Remote'],
+      excludedLocations: [],
+      workModes: ['remote'],
+      seniorityLevels: [],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: 'USD',
+      approvalMode: 'review_before_submit',
+      tailoringMode: 'balanced',
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: 'target_greenhouse',
+            label: 'GreenHouse',
+            startingUrl: 'https://boards.greenhouse.io/remotecoin/jobs',
+            enabled: true,
+            adapterKind: 'auto',
+            customInstructions: null,
+            instructionStatus: 'draft',
+            validatedInstructionId: null,
+            draftInstructionId: null,
+            lastDebugRunId: null,
+            lastVerifiedAt: null,
+            staleReason: null,
+          },
+        ],
+      },
+    }
+    const sourceAccessPrompts: SourceAccessPrompt[] = [
+      {
+        targetId: 'target_greenhouse',
+        targetLabel: 'GreenHouse',
+        targetUrl: 'https://boards.greenhouse.io/remotecoin/jobs',
+        state: 'prompt_login_recommended',
+        summary: 'Open the browser for GreenHouse if you want better search coverage on the next run.',
+        detail: 'Jobs are visible without login, but the browser can improve coverage.',
+        actionLabel: 'Open browser for GreenHouse',
+        rerunLabel: 'Search again for fuller results',
+        updatedAt: '2026-03-20T10:01:00.000Z',
+      },
+    ]
+
+    const { getByRole, queryByRole, getByText } = render(
+      <MemoryRouter>
+        <DiscoveryFiltersPanel
+          activeRun={null}
+          actionMessage={null}
+          browserSession={{
+            source: 'target_site',
+            status: 'unknown',
+            driver: 'chrome_profile_agent',
+            label: 'Browser starting',
+            detail: 'The dedicated browser profile is closed. It will reopen automatically when the next run starts.',
+            lastCheckedAt: '2026-03-20T10:00:00.000Z',
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isTargetPending={() => false}
+          onOpenBrowserSession={onOpenBrowserSession}
+          onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
+          onRunAgentDiscovery={vi.fn()}
+          onRunDiscoveryForTarget={vi.fn()}
+          onViewProgress={vi.fn()}
+          searchPreferences={searchPreferences}
+          sourceAccessPrompts={sourceAccessPrompts}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(getByText('Some sources work without sign-in, but the browser can improve coverage.')).toBeTruthy()
+    expect(getByText('The browser will reopen automatically on the next run.')).toBeTruthy()
+    expect(queryByRole('button', { name: 'Sign in to GreenHouse' })).toBeNull()
+
+    fireEvent.click(getByRole('button', { name: 'Open browser' }))
+
+    expect(onOpenBrowserSession).toHaveBeenCalledTimes(1)
+    expect(onOpenBrowserSessionForTarget).not.toHaveBeenCalled()
+  })
+
   it('shows a primary recovery action inside blocked results', () => {
     const onRecoveryAction = vi.fn()
     const { container, getByText } = render(

@@ -9,6 +9,7 @@ import type {
   ResumeAssistantMessage,
   ResumeTemplateDefinition,
 } from '@unemployed/contracts'
+import { getResumeIdentityTargetId } from '@unemployed/contracts'
 import { JobFinderResumeWorkspaceSchema } from '@unemployed/contracts'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApplyQueueDemoState } from '../../../../../../main/adapters/job-finder-demo-state'
@@ -299,7 +300,7 @@ describe('ResumeWorkspaceScreen', () => {
     expect(screen.getAllByText('Template strategy').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Recommended').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Engineering Spec').length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: 'Open guided edits' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Guided edits' }).length).toBeGreaterThan(0)
   })
 
   it('keeps preview and editor visible after assistant replies on desktop', async () => {
@@ -317,7 +318,20 @@ describe('ResumeWorkspaceScreen', () => {
 
     expect(screen.getAllByTitle('Live resume preview').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Structured edits').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Guided edits').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Guided edits' }).length).toBeGreaterThan(0)
+  })
+
+  it('opens the guided edits popup from the always-available bubble', async () => {
+    renderScreen()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guided edits' }))
+
+    expect(screen.getAllByText('No edit requests yet').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Ask for a tighter summary, stronger bullets, or clearer job-specific wording.').length).toBeGreaterThan(0)
   })
 
   it('keeps the assistant tab visible when a reply lands after mobile users switch to assistant', async () => {
@@ -352,7 +366,8 @@ describe('ResumeWorkspaceScreen', () => {
       await vi.advanceTimersByTimeAsync(100)
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open guided edits' }))
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Assistant' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Assistant' }))
     expect(screen.getByRole('tab', { name: 'Assistant' }).getAttribute('data-state')).toBe('active')
 
     act(() => {
@@ -388,5 +403,26 @@ describe('ResumeWorkspaceScreen', () => {
 
     expect(screen.getByRole('tab', { name: 'Assistant' }).getAttribute('data-state')).toBe('active')
     expect(screen.getAllByText('Here is the update you asked for.').length).toBeGreaterThan(0)
+  })
+
+  it('keeps preview-selected identity fields focused instead of jumping to summary', async () => {
+    renderScreen()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    const linkedinInput = screen.getAllByLabelText('LinkedIn URL')[0] as HTMLInputElement
+    linkedinInput.focus()
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(document.activeElement).toBe(linkedinInput)
+    expect(linkedinInput.dataset.resumeEditorTarget).toBe(
+      getResumeIdentityTargetId('linkedinUrl'),
+    )
+    expect(screen.getAllByLabelText('Section text')[0]).not.toBe(document.activeElement)
   })
 })

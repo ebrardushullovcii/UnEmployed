@@ -22,7 +22,7 @@ function createRecord(overrides: Partial<ReturnType<typeof ApplicationRecordSche
 }
 
 describe('applications status helpers', () => {
-  it('derives a consent-declined stage even when the stored status stayed ready for review', () => {
+  it('keeps the consent-declined stage while showing the paused next action as latest activity', () => {
     const record = createRecord({
       consentSummary: { status: 'declined', pendingCount: 0 },
       lastAttemptState: 'paused',
@@ -32,11 +32,11 @@ describe('applications status helpers', () => {
       label: 'Consent declined',
       tone: 'critical',
     })
-    expect(getApplicationLatestActivityLabel(record)).toBe('Consent declined')
+    expect(getApplicationLatestActivityLabel(record)).toBe('Review the prepared application.')
     expect(getApplicationNextStepLabel(record)).toBe('Review the prepared application.')
   })
 
-  it('derives a ready-after-consent stage for paused review-safe outcomes', () => {
+  it('keeps the ready-after-consent stage while showing the paused next action as latest activity', () => {
     const record = createRecord({
       consentSummary: { status: 'approved', pendingCount: 0 },
       lastAttemptState: 'paused',
@@ -46,10 +46,10 @@ describe('applications status helpers', () => {
       label: 'Ready after consent',
       tone: 'active',
     })
-    expect(getApplicationLatestActivityLabel(record)).toBe('Consent approved')
+    expect(getApplicationLatestActivityLabel(record)).toBe('Review the prepared application.')
   })
 
-  it('derives waiting-on-consent stage and next step from pending consent state', () => {
+  it('keeps waiting-on-consent stage while paused activity falls back to a follow-up label', () => {
     const record = createRecord({
       consentSummary: { status: 'requested', pendingCount: 2 },
       nextActionLabel: null,
@@ -60,7 +60,7 @@ describe('applications status helpers', () => {
       label: 'Waiting on consent',
       tone: 'active',
     })
-    expect(getApplicationLatestActivityLabel(record)).toBe('2 consent decisions waiting')
+    expect(getApplicationLatestActivityLabel(record)).toBe('Needs follow-up')
     expect(getApplicationNextStepLabel(record)).toBe('Choose continue or skip in Consent requests below.')
   })
 

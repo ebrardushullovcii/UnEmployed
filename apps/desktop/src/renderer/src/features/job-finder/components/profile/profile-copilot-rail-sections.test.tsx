@@ -186,6 +186,7 @@ describe('ProfileCopilotCollapsedBubble', () => {
           messageCount={1}
           onClick={onClick}
           onKeyDown={onKeyDown}
+          onPointerCancel={vi.fn()}
           onPointerDown={vi.fn()}
           onPointerMove={vi.fn()}
           onPointerUp={vi.fn()}

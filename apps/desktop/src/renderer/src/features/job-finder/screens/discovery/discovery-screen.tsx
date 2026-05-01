@@ -213,20 +213,22 @@ export function DiscoveryScreen(props: {
                 </p>
               </div>
             </section>
-            <div className="order-2 xl:order-1">{filtersPanel}</div>
+            <div className="order-2 min-h-0 min-w-0 xl:order-1">{filtersPanel}</div>
           </div>
         ) : (
           <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
-            <div className="order-2 xl:order-1">{filtersPanel}</div>
-            <DiscoveryResultsPanel
-              browserSession={browserSession}
-              jobs={jobs}
-              onSelectJob={onSelectJob}
-              searchSetupBlocker={searchSetupBlocker}
-              selectedJob={selectedJob}
-              {...recoveryActionProps}
-            />
-            <div className="order-3 xl:order-3">
+            <div className="order-2 min-h-0 min-w-0 xl:order-1">{filtersPanel}</div>
+            <div className="order-1 min-h-0 min-w-0 xl:order-2">
+              <DiscoveryResultsPanel
+                browserSession={browserSession}
+                jobs={jobs}
+                onSelectJob={onSelectJob}
+                searchSetupBlocker={searchSetupBlocker}
+                selectedJob={selectedJob}
+                {...recoveryActionProps}
+              />
+            </div>
+            <div className="order-3 min-h-0 min-w-0 xl:order-3">
               <DiscoveryDetailPanel
                 discoveryTargets={searchPreferences.discovery.targets}
                 isJobPending={isJobPending}

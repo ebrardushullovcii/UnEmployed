@@ -95,8 +95,8 @@ function summarizePrompt(input: {
   }
 
   return {
-    summary: `Sign in to ${targetLabel} for better search coverage on the next run.`,
-    actionLabel: `Sign in to ${targetLabel}`,
+    summary: `Open the browser for ${targetLabel} if you want better search coverage on the next run.`,
+    actionLabel: `Open browser for ${targetLabel}`,
     rerunLabel: "Search again for fuller results",
   };
 }

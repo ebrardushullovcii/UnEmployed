@@ -1,6 +1,16 @@
 import { BrowserWindow } from 'electron'
 import path from 'node:path'
 import { DesktopWindowControlsStateSchema } from '@unemployed/contracts'
+import {
+  bindMainWindowStatePersistence,
+  loadMainWindowState,
+  restoreMainWindowBounds,
+} from './window-state'
+
+const defaultMainWindowBounds = {
+  width: 1440,
+  height: 920,
+} as const
 
 export function getWindowControlsState(window: BrowserWindow) {
   return DesktopWindowControlsStateSchema.parse({
@@ -31,9 +41,9 @@ export function createMainWindow(currentDir: string) {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL
   const isMac = process.platform === 'darwin'
   const isWindows = process.platform === 'win32'
+  const savedState = loadMainWindowState()
   const mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 920,
+    ...restoreMainWindowBounds(defaultMainWindowBounds, savedState),
     minWidth: 1024,
     minHeight: 720,
     show: false,
@@ -51,8 +61,15 @@ export function createMainWindow(currentDir: string) {
   })
 
   bindWindowControlsState(mainWindow)
+  bindMainWindowStatePersistence(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
+    if (savedState?.displayMode === 'fullscreen') {
+      mainWindow.setFullScreen(true)
+    } else if (savedState?.displayMode === 'maximized') {
+      mainWindow.maximize()
+    }
+
     mainWindow.show()
     sendWindowControlsState(mainWindow)
   })

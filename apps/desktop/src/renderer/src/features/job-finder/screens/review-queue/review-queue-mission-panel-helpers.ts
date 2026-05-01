@@ -75,6 +75,39 @@ export function getChecklistStateLabel(state: ApplyChecklistItem['state']) {
   return assertChecklistStateUnreachable(state)
 }
 
+function getPrimaryActionLabel(
+  isGenerating: boolean,
+  hasGenerationFailure: boolean,
+  needsGeneration: boolean,
+) {
+  if (isGenerating) {
+    return 'Preparing resume...'
+  }
+
+  if (hasGenerationFailure) {
+    return 'Try again'
+  }
+
+  if (needsGeneration) {
+    return 'Create tailored resume'
+  }
+
+  return 'Start apply copilot'
+}
+
+function getBrowserActionMessage(browserSession: BrowserSessionState) {
+  switch (browserSession.status) {
+    case 'ready':
+      return null
+    case 'login_required':
+      return 'Sign in to the browser before you start apply copilot.'
+    case 'blocked':
+      return 'Resolve the browser issue before you start apply copilot.'
+    default:
+      return 'Wait for the browser to finish starting before you start apply copilot.'
+  }
+}
+
 export function getNextChecklistItem(checklist: readonly ApplyChecklistItem[]) {
   return checklist.find((item) => item.state !== 'complete') ?? null
 }
@@ -123,12 +156,12 @@ export function getReadinessDescription(input: {
     return 'The last tailored resume run failed. Try again or open the resume workspace before you continue.'
   }
 
-  if (needsGeneration) {
-    return 'Create a tailored resume first.'
-  }
-
   if (isGenerating) {
     return 'Job Finder is still preparing the latest resume for this job.'
+  }
+
+  if (needsGeneration) {
+    return 'Create a tailored resume first.'
   }
 
   if (!hasReadyApprovedAsset) {
@@ -174,7 +207,8 @@ export function buildMissionPanelState(input: {
   } = input
   const needsGeneration = needsResumeGeneration(selectedItem)
   const hasGenerationFailure = hasResumeGenerationFailure(selectedItem)
-  const isGenerating = isResumeGenerationInProgress(selectedItem)
+  const isSelectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
+  const isGenerating = isResumeGenerationInProgress(selectedItem) || isSelectedJobPending
   const applySupportState = getApplySupportState(selectedJob)
   const resumeReviewStatus = selectedItem?.resumeReview.status ?? 'not_started'
   const approvedResumeReview = selectedItem?.resumeReview.status === 'approved'
@@ -192,21 +226,12 @@ export function buildMissionPanelState(input: {
     hasApprovedResumeExport &&
     hasReadyApprovedAsset &&
     applySupportState !== 'incomplete'
-  const primaryActionLabel = isGenerating
-    ? 'Preparing resume...'
-    : hasGenerationFailure
-      ? 'Try again'
-      : needsGeneration
-        ? 'Create tailored resume'
-        : 'Start apply copilot'
-  const browserActionMessage =
-    browserSession.status === 'ready'
-      ? null
-      : browserSession.status === 'login_required'
-        ? 'Sign in to the browser before you start apply copilot.'
-        : browserSession.status === 'blocked'
-          ? 'Resolve the browser issue before you start apply copilot.'
-          : 'Wait for the browser to finish starting before you start apply copilot.'
+  const primaryActionLabel = getPrimaryActionLabel(
+    isGenerating,
+    hasGenerationFailure,
+    needsGeneration,
+  )
+  const browserActionMessage = getBrowserActionMessage(browserSession)
   const applyReadinessStatus = getApplyReadinessStatus({
     applySupportState,
     browserSession,
@@ -295,7 +320,6 @@ export function buildMissionPanelState(input: {
   }
 
   const canStageSelectedQueue = selectedQueueReadyItems.length > 0 && selectedQueueBlockedCount === 0
-  const isSelectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
   const isSelectedQueuePending = selectedQueueReadyItems.some((item) => isJobPending(item.jobId))
   const isGenerationAction = needsGeneration || hasGenerationFailure
   const isPrimaryApplyPending = isApplyPending && !isGenerationAction

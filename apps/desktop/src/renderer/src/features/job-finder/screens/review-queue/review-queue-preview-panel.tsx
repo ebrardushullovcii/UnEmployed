@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import type { ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
@@ -6,6 +7,7 @@ import { JOB_FINDER_ROUTE_HREFS } from '../../lib/job-finder-route-hrefs'
 import { getReviewQueueWorkflowStatus, hasResumeGenerationFailure, isResumeGenerationInProgress, needsResumeGeneration } from './review-queue-status'
 
 interface ReviewQueuePreviewPanelProps {
+  displayedProgress: number
   isGenerating?: boolean
   onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
@@ -18,7 +20,7 @@ interface ReviewQueuePreviewPanelProps {
 
 type PreviewState = 'missing' | null
 
-export function ReviewQueuePreviewPanel({ isGenerating: isSelectedJobPending = false, onEditResumeWorkspace, onGenerateResume, previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
+export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSelectedJobPending = false, onEditResumeWorkspace, onGenerateResume, previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
   const needsGeneration = needsResumeGeneration(selectedItem)
   const hasGenerationFailure = hasResumeGenerationFailure(selectedItem)
   const isGenerating = isResumeGenerationInProgress(selectedItem) || isSelectedJobPending
@@ -26,6 +28,9 @@ export function ReviewQueuePreviewPanel({ isGenerating: isSelectedJobPending = f
   const workflowStatus = getReviewQueueWorkflowStatus(selectedItem)
   const previewTone = previewState === 'missing' ? 'critical' : workflowStatus.tone
   const previewLabel = previewState === 'missing' ? 'Resume issue' : workflowStatus.label
+  const progressRingStyle = {
+    background: `conic-gradient(var(--primary) ${displayedProgress * 3.6}deg, color-mix(in srgb, var(--border) 32%, transparent) 0deg)`,
+  } satisfies CSSProperties
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
@@ -54,14 +59,18 @@ export function ReviewQueuePreviewPanel({ isGenerating: isSelectedJobPending = f
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
             <div className="grid w-full min-h-full place-items-center content-center gap-4 rounded-(--radius-field) bg-(--surface-panel-tint) p-8 text-center">
               {isGenerating ? (
-                <div className="grid aspect-square w-40 place-items-center rounded-full border-[3px] border-border/30 border-t-primary text-[1.1rem] font-semibold text-(--text-headline)">
-                  <span>{selectedItem.progressPercent ?? 0}%</span>
+                <div className="grid aspect-square w-40 place-items-center rounded-full p-[3px]" style={progressRingStyle}>
+                  <div className="grid size-full place-items-center rounded-full bg-(--surface-panel-tint) text-[1.1rem] font-semibold text-(--text-headline)">
+                    <span>{displayedProgress}%</span>
+                  </div>
                 </div>
               ) : null}
-              <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{hasGenerationFailure ? 'Resume issue' : needsGeneration ? 'No tailored resume yet' : 'Preparing resume'}</h2>
+              <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{hasGenerationFailure ? 'Resume issue' : isGenerating ? 'Preparing resume' : needsGeneration ? 'No tailored resume yet' : 'Preparing resume'}</h2>
               <p className="max-w-136 text-(length:--text-body) leading-7 text-foreground-soft">
                 {hasGenerationFailure
                   ? `The last tailored resume attempt for ${selectedItem.title} did not finish. Try again to create a fresh draft.`
+                  : isGenerating
+                  ? `Job Finder is preparing the resume for ${selectedItem.title}. This progress indicator is an estimate while the draft and PDF are being built.`
                   : needsGeneration
                   ? `Create a tailored resume for ${selectedItem.title} to continue.`
                   : `Job Finder is still preparing the resume for ${selectedItem.title}. You can continue once it is ready.`}

@@ -159,34 +159,32 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             )}
           </p>
           <div className="grid gap-2">
-            {selectedQueueOutcomeEntries.map((entry) => (
-              (() => {
-                const resolvedState = entry.runResult?.state ?? "planned";
+            {selectedQueueOutcomeEntries.map((entry) => {
+              const resolvedState = entry.runResult?.state ?? "planned";
 
-                return (
-                  <div
-                    key={`queue-outcome-${entry.jobId}`}
-                    className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <strong className="text-foreground">{entry.label}</strong>
-                      <StatusBadge tone={getQueueRecoveryTone(resolvedState)}>
-                        {formatStatusLabel(resolvedState)}
-                      </StatusBadge>
-                    </div>
-                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                      {entry.runResult?.summary ??
-                        "This job never started before the queue paused or was cancelled."}
-                    </p>
-                    {entry.runResult?.blockerSummary ? (
-                      <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                        {entry.runResult.blockerSummary}
-                      </p>
-                    ) : null}
+              return (
+                <div
+                  key={`queue-outcome-${entry.jobId}`}
+                  className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong className="text-foreground">{entry.label}</strong>
+                    <StatusBadge tone={getQueueRecoveryTone(resolvedState)}>
+                      {formatStatusLabel(resolvedState)}
+                    </StatusBadge>
                   </div>
-                );
-              })()
-            ))}
+                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                    {entry.runResult?.summary ??
+                      "This job never started before the queue paused or was cancelled."}
+                  </p>
+                  {entry.runResult?.blockerSummary ? (
+                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                      {entry.runResult.blockerSummary}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         </section>
       ) : null}

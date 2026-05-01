@@ -129,6 +129,9 @@ declare global {
         queueJobForReview: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
+        removeJobFromReview: (
+          jobId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         dismissDiscoveryJob: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;

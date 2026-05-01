@@ -1,4 +1,5 @@
 import { jobFinderPendingActions } from './job-finder-pending-actions'
+import { JobFinderRouteErrorBoundary } from './job-finder-route-error-boundary'
 import { ProfileSetupScreen } from '@renderer/features/job-finder/components/profile/setup/profile-setup-screen'
 import { ProfileScreen } from '@renderer/features/job-finder/screens/profile-screen'
 import { ApplicationsScreen } from '@renderer/features/job-finder/screens/applications-screen'
@@ -41,6 +42,8 @@ export function WorkspaceStateScreen(props: {
     </main>
   )
 }
+
+export { JobFinderRouteErrorBoundary }
 
 export function JobFinderProfileRoute() {
   const context = useJobFinderPageContext()
@@ -205,6 +208,7 @@ export function JobFinderReviewQueueRoute() {
       onStartApplyCopilot={context.onStartApplyCopilot}
       onEditResumeWorkspace={context.onEditResumeWorkspace}
       onGenerateResume={context.onGenerateResume}
+      onRemoveReviewJob={context.onRemoveReviewJob}
       isJobPending={(jobId) => context.isPending(jobFinderPendingActions.resumeJob(jobId))}
       onSelectItem={context.onSelectReviewItem}
       queue={context.workspace.reviewQueue}

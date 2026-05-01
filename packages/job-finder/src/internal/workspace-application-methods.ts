@@ -115,6 +115,7 @@ export function createWorkspaceApplicationMethods(
 ): Pick<
   JobFinderWorkspaceService,
   | "queueJobForReview"
+  | "removeJobFromReview"
   | "dismissDiscoveryJob"
   | "generateResume"
   | "getResumeWorkspace"
@@ -873,6 +874,16 @@ export function createWorkspaceApplicationMethods(
           status: asset?.status === "ready" ? "ready_for_review" : "drafting",
         }));
       }
+
+      return ctx.getWorkspaceSnapshot();
+    },
+    async removeJobFromReview(jobId) {
+      await ctx.updateJob(jobId, (job) =>
+        SavedJobSchema.parse({
+          ...job,
+          status: "shortlisted",
+        }),
+      );
 
       return ctx.getWorkspaceSnapshot();
     },
@@ -2448,7 +2459,7 @@ export function createWorkspaceApplicationMethods(
           await ctx.repository.upsertApplicationRecord(
             ApplicationRecordSchema.parse({
               ...existingRecord,
-              status: remainingJobs.length > 0 ? existingRecord.status : "approved",
+              status: existingRecord.status,
               lastAttemptState: "paused",
               latestBlocker: {
                 code: "missing_consent",
