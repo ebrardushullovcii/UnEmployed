@@ -120,6 +120,7 @@ describe('SettingsEditableDefaults', () => {
     expect(container?.textContent).toContain('Apply-safe')
     expect(container?.textContent).toContain('Default template picker')
     expect(container?.textContent).toContain('Applies to new drafts')
+    expect(container?.textContent).toContain('The preview uses sample resume content rendered through the same template engine used for exports.')
   })
 
   it('disables form controls and marks save as pending while saving', () => {

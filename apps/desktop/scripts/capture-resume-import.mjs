@@ -17,7 +17,12 @@ function readCliOption(flag) {
   return process.argv[index + 1] ?? null
 }
 
-const defaultResumePath = path.resolve(desktopDir, '..', '..', 'Resume.pdf')
+const defaultResumePath = path.resolve(
+  desktopDir,
+  'test-fixtures',
+  'job-finder',
+  'resume-import-sample.txt'
+)
 const resumePath = readCliOption('--resume') ?? process.env.UI_TEST_RESUME_PATH ?? defaultResumePath
 const expectedName = readCliOption('--expected-name') ?? process.env.UI_TEST_EXPECTED_NAME ?? null
 const expectedHeadline = readCliOption('--expected-headline') ?? process.env.UI_TEST_EXPECTED_HEADLINE ?? null

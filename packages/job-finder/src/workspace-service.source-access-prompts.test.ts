@@ -264,6 +264,9 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
         targetId: "target_linkedin_default",
         targetUrl: "https://www.linkedin.com/jobs/collections/recommended/",
         state: "prompt_login_recommended",
+        summary:
+          "Open the browser for LinkedIn if you want better search coverage on the next run.",
+        actionLabel: "Open browser for LinkedIn",
       }),
     ]);
   });

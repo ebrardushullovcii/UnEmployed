@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ApplicationAttempt,
   ApplicationRecord,
@@ -12,90 +12,13 @@ import {
   APPLICATION_FILTERS,
   type ApplicationsViewFilter,
 } from "./applications-filters";
+import {
+  getLatestApplicationAttemptForRecord,
+  matchesApplicationsFilter,
+  pickLatestIsoTimestamp,
+} from "./applications-screen-helpers";
+import { useApplicationsApplyRunDetails } from "./use-applications-apply-run-details";
 import { ApplicationsRecordsPanel } from "./applications-records-panel";
-
-function getLatestApplicationAttemptForRecord(
-  record: ApplicationRecord,
-  applicationAttempts: readonly ApplicationAttempt[],
-) {
-  return (
-    [...applicationAttempts]
-      .filter((attempt) => attempt.jobId === record.jobId)
-      .sort(
-        (left, right) =>
-          new Date(right.updatedAt).getTime() -
-          new Date(left.updatedAt).getTime(),
-      )[0] ?? null
-  );
-}
-
-function isTerminalApplicationStatus(status: ApplicationRecord["status"]) {
-  return (
-    status === "submitted" ||
-    status === "rejected" ||
-    status === "offer" ||
-    status === "withdrawn" ||
-    status === "archived"
-  );
-}
-
-function matchesApplicationsFilter(
-  record: ApplicationRecord,
-  filter: ApplicationsViewFilter,
-) {
-  const needsAction =
-    record.lastAttemptState === "paused" ||
-    record.lastAttemptState === "failed" ||
-    record.lastAttemptState === "unsupported" ||
-    (Boolean(record.nextActionLabel) &&
-      !isTerminalApplicationStatus(record.status) &&
-      record.lastAttemptState !== "in_progress");
-  const submitted = record.status === "submitted";
-  const manualOnly = record.lastAttemptState === "unsupported";
-  const inProgress =
-    record.lastAttemptState === "in_progress" ||
-    (!needsAction &&
-      !submitted &&
-      (record.status === "drafting" ||
-        record.status === "ready_for_review" ||
-        record.status === "approved" ||
-        record.status === "assessment" ||
-        record.status === "interview"));
-
-  switch (filter) {
-    case "needs_action":
-      return needsAction;
-    case "in_progress":
-      return inProgress;
-    case "submitted":
-      return submitted;
-    case "manual_only":
-      return manualOnly;
-    default:
-      return true;
-  }
-}
-
-function pickLatestIsoTimestamp(...values: Array<string | null | undefined>) {
-  let latestValue: string | null = null;
-  let latestTimestamp = Number.NEGATIVE_INFINITY;
-
-  for (const value of values) {
-    if (!value) {
-      continue;
-    }
-
-    const parsedTimestamp = Date.parse(value);
-    if (Number.isNaN(parsedTimestamp) || parsedTimestamp <= latestTimestamp) {
-      continue;
-    }
-
-    latestTimestamp = parsedTimestamp;
-    latestValue = value;
-  }
-
-  return latestValue;
-}
 
 export function ApplicationsScreen(props: {
   applicationAttempts: readonly ApplicationAttempt[];
@@ -152,23 +75,6 @@ export function ApplicationsScreen(props: {
   const [selectedApplyRunIdByJobId, setSelectedApplyRunIdByJobId] = useState<
     Record<string, string>
   >({});
-  const [applyRunDetails, setApplyRunDetails] =
-    useState<ApplyRunDetails | null>(null);
-  const [applyRunDetailsTarget, setApplyRunDetailsTarget] = useState<{
-    jobId: string;
-    runId: string;
-  } | null>(null);
-  const [applyRunDetailsStatus, setApplyRunDetailsStatus] = useState<
-    "idle" | "loading" | "ready" | "error"
-  >("idle");
-  const [applyRunDetailsError, setApplyRunDetailsError] = useState<
-    string | null
-  >(null);
-  const lastFetchedApplyRunRef = useRef<{
-    jobId: string;
-    runId: string;
-    updatedAt: string | null;
-  } | null>(null);
   const filterCounts = useMemo(
     () =>
       Object.fromEntries(
@@ -281,6 +187,17 @@ export function ApplicationsScreen(props: {
     selectedApplyRun?.updatedAt,
     effectiveSelectedApplyResult?.updatedAt,
   );
+  const {
+    applyRunDetails,
+    applyRunDetailsError,
+    applyRunDetailsStatus,
+    applyRunDetailsTarget,
+  } = useApplicationsApplyRunDetails({
+    jobId: effectiveSelectedJobId,
+    onGetApplyRunDetails,
+    runId: effectiveSelectedRunId,
+    runUpdatedAt: effectiveSelectedRunUpdatedAt,
+  });
   const showLatestAttemptDetails =
     !effectiveSelectedApplyRunId ||
     !latestApplyRunIdForSelectedRecord ||
@@ -340,110 +257,6 @@ export function ApplicationsScreen(props: {
     onSelectRecord(effectiveSelectedRecord.id);
   }, [effectiveSelectedRecord, onSelectRecord, selectedRecord?.id]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!effectiveSelectedJobId || !effectiveSelectedRunId) {
-      lastFetchedApplyRunRef.current = null;
-      setApplyRunDetails(null);
-      setApplyRunDetailsTarget(null);
-      setApplyRunDetailsStatus("idle");
-      setApplyRunDetailsError(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const lastFetchedUpdatedAt = lastFetchedApplyRunRef.current?.updatedAt;
-    const selectedRunUpdatedAtMs =
-      effectiveSelectedRunUpdatedAt == null
-        ? Number.NaN
-        : Date.parse(effectiveSelectedRunUpdatedAt);
-    const lastFetchedUpdatedAtMs =
-      lastFetchedUpdatedAt == null
-        ? Number.NaN
-        : Date.parse(lastFetchedUpdatedAt);
-    const hasValidParsedUpdatedAt =
-      !Number.isNaN(selectedRunUpdatedAtMs) &&
-      !Number.isNaN(lastFetchedUpdatedAtMs);
-
-    if (
-      lastFetchedApplyRunRef.current?.jobId === effectiveSelectedJobId &&
-      lastFetchedApplyRunRef.current?.runId === effectiveSelectedRunId &&
-      applyRunDetailsTarget?.jobId === effectiveSelectedJobId &&
-      applyRunDetailsTarget?.runId === effectiveSelectedRunId &&
-      (effectiveSelectedRunUpdatedAt == null ||
-        (lastFetchedUpdatedAt != null &&
-          hasValidParsedUpdatedAt &&
-          selectedRunUpdatedAtMs <= lastFetchedUpdatedAtMs))
-    ) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    if (
-      applyRunDetailsStatus === "loading" &&
-      applyRunDetailsTarget?.jobId === effectiveSelectedJobId &&
-      applyRunDetailsTarget?.runId === effectiveSelectedRunId
-    ) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setApplyRunDetails(null);
-    setApplyRunDetailsTarget({
-      jobId: effectiveSelectedJobId,
-      runId: effectiveSelectedRunId,
-    });
-    setApplyRunDetailsStatus("loading");
-    setApplyRunDetailsError(null);
-
-    void onGetApplyRunDetails(effectiveSelectedRunId, effectiveSelectedJobId)
-      .then((details) => {
-        if (cancelled) {
-          return;
-        }
-
-        lastFetchedApplyRunRef.current = {
-          jobId: effectiveSelectedJobId,
-          runId: effectiveSelectedRunId,
-          updatedAt: pickLatestIsoTimestamp(
-            details.run.updatedAt,
-            details.result?.updatedAt,
-            effectiveSelectedRunUpdatedAt,
-          ),
-        };
-        setApplyRunDetails(details);
-        setApplyRunDetailsStatus("ready");
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-
-        lastFetchedApplyRunRef.current = null;
-        setApplyRunDetails(null);
-        setApplyRunDetailsTarget(null);
-        setApplyRunDetailsStatus("error");
-        setApplyRunDetailsError(
-          error instanceof Error
-            ? error.message
-            : "Apply run details could not be loaded.",
-        );
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    effectiveSelectedJobId,
-    effectiveSelectedRunId,
-    effectiveSelectedRunUpdatedAt,
-    onGetApplyRunDetails,
-  ]);
-
   return (
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
@@ -456,7 +269,7 @@ export function ApplicationsScreen(props: {
         />
       }
     >
-      <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(30rem,1.55fr)_minmax(20rem,1fr)] xl:overflow-hidden">
+      <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(30rem,1.45fr)] xl:overflow-hidden">
         <ApplicationsRecordsPanel
           activeFilter={activeFilter}
           applicationRecords={filteredApplicationRecords}

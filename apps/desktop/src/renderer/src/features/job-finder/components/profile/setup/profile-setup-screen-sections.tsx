@@ -1,4 +1,5 @@
 import { AlertCircle, CheckCircle2, Circle, Compass, FileSearch, Sparkles, Target, UserRound } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import type { ProfileSetupState, ProfileSetupStep } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
@@ -162,7 +163,38 @@ export function ProfileSetupReviewQueueCard(props: {
   onApplyReviewAction: (reviewItemId: string, action: 'confirm' | 'dismiss' | 'clear_value') => void
   onEditReviewItem: (item: ProfileSetupReviewItemDisplay) => void
 }) {
+  const [pendingReviewAction, setPendingReviewAction] = useState<{
+    action: 'confirm' | 'dismiss' | 'clear_value'
+    reviewItemId: string
+  } | null>(null)
   const pendingCount = props.items.filter((item) => item.status === 'pending').length
+  const isPendingReviewActionStillPending = pendingReviewAction
+    ? props.isReviewItemPending(pendingReviewAction.reviewItemId)
+    : false
+
+  useEffect(() => {
+    if (!pendingReviewAction || isPendingReviewActionStillPending) {
+      return
+    }
+
+    setPendingReviewAction(null)
+  }, [isPendingReviewActionStillPending, pendingReviewAction])
+
+  const isReviewActionPending = (
+    reviewItemId: string,
+    action?: 'confirm' | 'dismiss' | 'clear_value',
+  ) =>
+    props.isReviewItemPending(reviewItemId) &&
+    pendingReviewAction?.reviewItemId === reviewItemId &&
+    (!action || pendingReviewAction.action === action)
+
+  const applyReviewAction = (
+    reviewItemId: string,
+    action: 'confirm' | 'dismiss' | 'clear_value',
+  ) => {
+    setPendingReviewAction({ action, reviewItemId })
+    props.onApplyReviewAction(reviewItemId, action)
+  }
 
   return (
     <Card className="min-h-0 flex-1 overflow-hidden rounded-(--radius-panel) border-border/40">
@@ -181,8 +213,11 @@ export function ProfileSetupReviewQueueCard(props: {
         <ScrollArea className="min-h-0 flex-1">
           <div className="grid gap-3 pr-4">
             {props.items.length > 0 ? (
-              props.items.map((item) => (
-                <div key={item.id} className="rounded-(--radius-field) border border-border/30 bg-background/50 p-4">
+              props.items.map((item) => {
+                const isRowReviewActionPending = isReviewActionPending(item.id)
+
+                return (
+                  <div key={item.id} className="rounded-(--radius-field) border border-border/30 bg-background/50 p-4">
                   {getReviewItemEditHint(item) ? (
                     <div className="mb-3 rounded-(--radius-field) border border-dashed border-border/40 bg-background/70 p-3 text-sm leading-6 text-foreground-soft">
                       {getReviewItemEditHint(item)}
@@ -222,21 +257,22 @@ export function ProfileSetupReviewQueueCard(props: {
                   ) : null}
                   {item.status === 'pending' ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button aria-label={`Edit ${item.label}`} pending={props.isReviewItemPending(item.id)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
+                      <Button aria-label={`Edit ${item.label}`} disabled={Boolean(props.actionsDisabledReason)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
                       {canConfirmReviewItem(item) ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
                       ) : null}
                       {canClearReviewItem(item) ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
                       ) : null}
-                      <Button disabled={Boolean(props.actionsDisabledReason)} pending={props.isReviewItemPending(item.id)} onClick={() => props.onApplyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
+                      <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
                     </div>
                   ) : null}
                   {item.status === 'pending' && props.actionsDisabledReason ? (
                     <p className="mt-2 text-(length:--text-tiny) text-muted-foreground">{props.actionsDisabledReason}</p>
                   ) : null}
-                </div>
-              ))
+                  </div>
+                )
+              })
             ) : (
               <div className="rounded-(--radius-field) border border-dashed border-border/40 bg-background/50 p-4 text-sm leading-6 text-foreground-soft">
                 No review items for this step right now. Save any edits and continue when ready.

@@ -11,6 +11,7 @@ import type {
 import { LockedScreenLayout } from '../../locked-screen-layout'
 import { PageHeader } from '../../page-header'
 import { ProfileCopilotRail } from '../profile-copilot-rail'
+import { COPILOT_CONTENT_SAFE_OFFSET } from '../profile-copilot-rail-layout'
 import { buildCopilotStarterQuestion } from '../profile-copilot-prompts'
 import { ProfileSetupStepEditor } from './profile-setup-step-editor'
 import {
@@ -32,6 +33,7 @@ const unsavedSetupCopilotActionsMessage =
   'Save this step before applying, rejecting, or undoing copilot changes so your current setup draft stays intact.'
 const unsavedSetupReviewActionsMessage =
   'Save this step before confirming, dismissing, or clearing review items so your current setup draft stays intact.'
+const setupCopilotMinBottomOffset = COPILOT_CONTENT_SAFE_OFFSET
 
 export function ProfileSetupScreen(props: {
   actionState: { message: string | null }
@@ -240,7 +242,7 @@ export function ProfileSetupScreen(props: {
             />
         </div>
 
-        <div className="flex h-full min-h-0 flex-col gap-6">
+        <div className="flex h-full min-h-0 flex-col gap-6 pb-24 xl:pb-28">
           <ProfileSetupReviewQueueCard
             actionsDisabledReason={hasUserDraftChanges ? unsavedSetupReviewActionsMessage : null}
             isReviewItemPending={isReviewItemPending}
@@ -252,6 +254,7 @@ export function ProfileSetupScreen(props: {
           <ProfileCopilotRail
             busy={profileCopilotBusy}
             actionsDisabledReason={hasUserDraftChanges ? unsavedSetupCopilotActionsMessage : null}
+            collapsedMinBottomOffset={20}
             context={setupCopilotContext}
             emptyStateDescription="Ask why a field matters, request a tighter headline or summary, or propose a structured edit for this setup step."
             emptyStateTitle="No setup copilot requests yet"
@@ -272,6 +275,7 @@ export function ProfileSetupScreen(props: {
             sendDisabledReason={hasUserDraftChanges ? unsavedSetupCopilotMessage : null}
             starterQuestion={starterQuestion}
             title="Profile Copilot"
+            minBottomOffset={setupCopilotMinBottomOffset}
           />
         </div>
       </div>

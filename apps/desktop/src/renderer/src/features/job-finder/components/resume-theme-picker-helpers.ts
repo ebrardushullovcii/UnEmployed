@@ -1,0 +1,278 @@
+import type {
+  ResumeTemplateDefinition,
+  ResumeTemplateId,
+} from "@unemployed/contracts";
+import {
+  getResumeTemplateAtsConfidence,
+  getResumeTemplateDeliveryLane,
+  getResumeTemplateFamilyId,
+  getResumeTemplateFamilyLabel,
+} from "@unemployed/contracts";
+
+export interface ResumeThemePickerRecommendationContext {
+  jobTitle: string | null;
+  jobKeywords: readonly string[];
+  hasProjects: boolean;
+  hasCertifications: boolean;
+  hasFormalEducation: boolean;
+  experienceEntryCount: number;
+  totalIncludedBulletCount: number;
+}
+
+export interface ResumeThemePickerRecommendation {
+  templateId: ResumeTemplateId;
+  reason: string;
+}
+
+export interface ResumeTemplateFamilyViewModel {
+  id: string;
+  label: string;
+  description: string;
+  deliveryLane: "apply_safe" | "share_ready" | null;
+  atsConfidence: "high" | "medium" | "low" | null;
+  fitSummary: string | null;
+  familySortOrder: number;
+  templates: readonly ResumeTemplateDefinition[];
+}
+
+export function getLaneLabel(lane: "apply_safe" | "share_ready") {
+  return lane === "apply_safe" ? "Apply-safe" : "Share-ready";
+}
+
+export function getAtsConfidenceLabel(confidence: "high" | "medium" | "low") {
+  switch (confidence) {
+    case "high":
+      return "ATS high confidence";
+    case "medium":
+      return "ATS medium confidence";
+    case "low":
+      return "ATS lower confidence";
+    default:
+      return "ATS confidence unknown";
+  }
+}
+
+export function getLaneBadgeVariant(lane: "apply_safe" | "share_ready") {
+  return lane === "apply_safe" ? "default" : "outline";
+}
+
+function normalizeRecommendationSignal(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function hasAnySignal(
+  haystack: readonly string[],
+  needles: readonly string[],
+): boolean {
+  const signalTokenSets = haystack.map(
+    (signal) =>
+      new Set(normalizeRecommendationSignal(signal).split(" ").filter(Boolean)),
+  );
+
+  return needles.some((needle) => {
+    const needleTokens = normalizeRecommendationSignal(needle)
+      .split(" ")
+      .filter(Boolean);
+    if (needleTokens.length === 0) {
+      return false;
+    }
+
+    return signalTokenSets.some((signalTokens) =>
+      needleTokens.every((token) => signalTokens.has(token)),
+    );
+  });
+}
+
+export function buildResumeThemePickerRecommendations(input: {
+  recommendationContext?: ResumeThemePickerRecommendationContext | null;
+  themes: readonly ResumeTemplateDefinition[];
+}): readonly ResumeThemePickerRecommendation[] {
+  const context = input.recommendationContext;
+
+  if (!context) {
+    return [];
+  }
+
+  const jobSignals = [context.jobTitle ?? "", ...context.jobKeywords]
+    .map(normalizeRecommendationSignal)
+    .filter(Boolean);
+  const hasDenseSignal =
+    context.experienceEntryCount >= 3 || context.totalIncludedBulletCount >= 10;
+  const isTechnicalRole = hasAnySignal(jobSignals, [
+    "engineer",
+    "engineering",
+    "developer",
+    "frontend",
+    "backend",
+    "software",
+    "platform",
+    "data",
+    "analytics",
+    "analyst",
+    "security",
+    "infrastructure",
+    "sql",
+  ]);
+  const isProductOrDesignRole = hasAnySignal(jobSignals, [
+    "product",
+    "design",
+    "designer",
+    "ux",
+    "ui",
+    "brand",
+    "creative",
+    "marketing",
+  ]);
+  const isCredentialSensitiveRole = hasAnySignal(jobSignals, [
+    "compliance",
+    "regulated",
+    "certification",
+    "credential",
+    "audit",
+    "security",
+    "healthcare",
+    "finance",
+    "education",
+  ]);
+  const scoredRecommendations: Array<
+    ResumeThemePickerRecommendation & { score: number; sortOrder: number }
+  > = [];
+
+  for (const theme of input.themes) {
+    let score = 0;
+    let reason: string | null = null;
+
+    switch (theme.id) {
+      case "technical_matrix":
+        if (isTechnicalRole) {
+          score = 4;
+          reason =
+            "This role reads technical, so the skills-first systems variant should land faster without leaving the apply-safe lane.";
+        }
+        break;
+      case "project_showcase":
+        if (context.hasProjects) {
+          score = 4;
+          reason =
+            "You already have project proof in this draft, so the proof-led layout can earn more attention early.";
+        }
+        break;
+      case "credentials_focus":
+        if (
+          context.hasCertifications &&
+          (context.hasFormalEducation || isCredentialSensitiveRole)
+        ) {
+          score = 4;
+          reason =
+            "Credential signal matters here, so moving certifications and education higher can improve trust quickly.";
+        }
+        break;
+      case "compact_exec":
+        if (hasDenseSignal) {
+          score = 3;
+          reason =
+            "This draft is dense, and the tighter executive variant keeps more signal visible before page pressure becomes a problem.";
+        }
+        break;
+      case "modern_split":
+        if (isProductOrDesignRole && !isTechnicalRole) {
+          score = 2;
+          reason =
+            "The role leans product or design, so the sharper summary-led variant may read as more intentional.";
+        }
+        break;
+      default:
+        break;
+    }
+
+    if (score > 0 && reason) {
+      scoredRecommendations.push({
+        templateId: theme.id,
+        reason,
+        score,
+        sortOrder: theme.sortOrder ?? Number.MAX_SAFE_INTEGER,
+      });
+    }
+  }
+
+  if (scoredRecommendations.length === 0) {
+    const fallbackTheme =
+      input.themes.find((theme) => theme.id === "classic_ats") ??
+      input.themes[0];
+
+    return fallbackTheme
+      ? [
+          {
+            templateId: fallbackTheme.id,
+            reason:
+              "No stronger layout-specific signal stands out, so this remains the safest general ATS choice.",
+          },
+        ]
+      : [];
+  }
+
+  return scoredRecommendations
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.sortOrder - right.sortOrder,
+    )
+    .slice(0, 3)
+    .map(({ templateId, reason }) => ({ templateId, reason }));
+}
+
+export function buildFamilyViewModels(
+  themes: readonly ResumeTemplateDefinition[],
+): readonly ResumeTemplateFamilyViewModel[] {
+  const families = new Map<string, ResumeTemplateDefinition[]>();
+
+  for (const theme of themes) {
+    const familyId = getResumeTemplateFamilyId(theme);
+    const entries = families.get(familyId) ?? [];
+    entries.push(theme);
+    families.set(familyId, entries);
+  }
+
+  return [...families.values()]
+    .map((templates) => {
+      const sortedTemplates = [...templates].sort(
+        (left, right) =>
+          (left.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+          (right.sortOrder ?? Number.MAX_SAFE_INTEGER),
+      );
+      const firstTemplate = sortedTemplates[0]!;
+      const familySortOrder = firstTemplate.sortOrder ?? Number.MAX_SAFE_INTEGER;
+      const firstDeliveryLane = getResumeTemplateDeliveryLane(firstTemplate);
+      const firstAtsConfidence = getResumeTemplateAtsConfidence(firstTemplate);
+      const deliveryLane = sortedTemplates.every(
+        (template) => getResumeTemplateDeliveryLane(template) === firstDeliveryLane,
+      )
+        ? firstDeliveryLane
+        : null;
+      const atsConfidence = sortedTemplates.every(
+        (template) => getResumeTemplateAtsConfidence(template) === firstAtsConfidence,
+      )
+        ? firstAtsConfidence
+        : null;
+
+      return {
+        id: getResumeTemplateFamilyId(firstTemplate),
+        label: getResumeTemplateFamilyLabel(firstTemplate),
+        description:
+          firstTemplate.familyDescription ??
+          firstTemplate.description ??
+          "Resume family",
+        deliveryLane,
+        atsConfidence,
+        fitSummary: firstTemplate.fitSummary ?? null,
+        familySortOrder,
+        templates: sortedTemplates,
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.familySortOrder - right.familySortOrder || left.id.localeCompare(right.id),
+    );
+}

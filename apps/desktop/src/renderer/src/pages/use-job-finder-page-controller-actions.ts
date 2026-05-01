@@ -25,7 +25,7 @@ import {
   jobFinderPendingActions,
 } from './job-finder-pending-actions'
 import { getProfileCopilotContextKey } from '@renderer/features/job-finder/lib/profile-copilot-context'
-import { buildSourceDebugOutcomeMessage } from './job-finder-page-routes'
+import { buildSourceDebugOutcomeMessage } from './job-finder-page-route-utils'
 
 type ActionOptions = {
   clearMessageOnStart?: boolean
@@ -64,6 +64,7 @@ type BaseActionArgs = {
   >
   setResumeAssistantPending: Dispatch<SetStateAction<boolean>>
   setResumeWorkspace: Dispatch<SetStateAction<JobFinderResumeWorkspace | null>>
+  clearResumeWorkspaceState: () => void
   setResumeWorkspaceDirty: Dispatch<SetStateAction<boolean>>
   setSelectedReviewJobId: (jobId: string) => void
   sourceDebugRunIdRef: MutableRefObject<number>
@@ -291,6 +292,7 @@ export function createPrimaryPageActions(
     setResumeAssistantMessages,
     setResumeAssistantPending,
     setResumeWorkspace,
+    clearResumeWorkspaceState,
     setResumeWorkspaceDirty,
     setSelectedReviewJobId,
     sourceDebugRunIdRef,
@@ -491,6 +493,22 @@ export function createPrimaryPageActions(
         'Resume created for this job.',
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
+    onRemoveReviewJob: (jobId: string) => {
+      if (!confirmLeaveDirtyResumeWorkspace()) {
+        return
+      }
+
+      void runAction(
+        () => actions.removeJobFromReview(jobId),
+        () => {
+          clearResumeWorkspaceState()
+          setSelectedReviewJobId('')
+          navigate('/job-finder/discovery')
+        },
+        'Job moved back to Find jobs.',
+        { scope: jobFinderPendingActions.resumeJob(jobId) },
+      )
+    },
     onApproveResume: (jobId: string, exportId: string) =>
       void runResumeWorkspaceAction(
         () => actions.approveResume(jobId, exportId),
@@ -756,8 +774,8 @@ export function createPrimaryPageActions(
         await runResumeWorkspaceAction(
           () => actions.saveResumeDraft(draft),
           async () => {
-            saveSucceeded = true
-            await refreshResumeWorkspace(jobId)
+            const refreshed = await refreshResumeWorkspace(jobId)
+            saveSucceeded = refreshed
           },
           successMessage === undefined ? 'Changes saved.' : successMessage,
           { scope: jobFinderPendingActions.resumeJob(jobId) },

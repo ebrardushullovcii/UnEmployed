@@ -19,7 +19,7 @@ import {
   getPatchGroupOperationSummary,
   getProfileCopilotContextLabel,
 } from './profile-copilot-rail.shared'
-import { clampCopilotPosition, getCopilotPanelDimensions } from './profile-copilot-rail-layout'
+import { COPILOT_NAV_SAFE_OFFSET, clampCopilotPosition, getCopilotPanelDimensions } from './profile-copilot-rail-layout'
 import {
   ProfileCopilotCollapsedBubble,
   ProfileCopilotComposer,
@@ -44,6 +44,7 @@ export function ProfileCopilotRail(props: {
   sendDisabledReason?: string | null
   starterQuestion?: string | null
   minBottomOffset?: number
+  collapsedMinBottomOffset?: number
   title?: string
 }) {
   const [input, setInput] = useState('')
@@ -64,6 +65,7 @@ export function ProfileCopilotRail(props: {
   const contextKey = getProfileCopilotContextKey(props.context)
   const isPendingHere = props.pendingContextKey === contextKey
   const minBottomOffset = props.minBottomOffset ?? 20
+  const collapsedMinBottomOffset = props.collapsedMinBottomOffset ?? 20
   const panelDimensions = getCopilotPanelDimensions(minBottomOffset)
   const collapsedPreviewTitle = isPendingHere
     ? 'Working on your last request'
@@ -99,26 +101,30 @@ export function ProfileCopilotRail(props: {
     }
 
     const handleResize = () => {
+      const currentMinBottomOffset = isOpen ? minBottomOffset : collapsedMinBottomOffset
       setPosition((current) => clampCopilotPosition({
         x: current.x,
         y: current.y,
         isOpen,
-        minBottomOffset,
+        minBottomOffset: currentMinBottomOffset,
+        containerMinBottomOffset: collapsedMinBottomOffset,
       }))
     }
 
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [isOpen, minBottomOffset])
+  }, [collapsedMinBottomOffset, isOpen, minBottomOffset])
 
   useEffect(() => {
+    const currentMinBottomOffset = isOpen ? minBottomOffset : collapsedMinBottomOffset
     setPosition((current) => clampCopilotPosition({
       x: current.x,
       y: current.y,
       isOpen,
-      minBottomOffset,
+      minBottomOffset: currentMinBottomOffset,
+      containerMinBottomOffset: collapsedMinBottomOffset,
     }))
-  }, [isOpen, minBottomOffset])
+  }, [collapsedMinBottomOffset, isOpen, minBottomOffset])
 
   useEffect(() => {
     const transcript = transcriptRef.current
@@ -200,11 +206,13 @@ export function ProfileCopilotRail(props: {
     }
 
     dragState.moved = true
+    const currentMinBottomOffset = isOpen ? minBottomOffset : collapsedMinBottomOffset
     setPosition(clampCopilotPosition({
       x: dragState.startX + deltaX,
       y: dragState.startY + deltaY,
       isOpen,
-      minBottomOffset,
+      minBottomOffset: currentMinBottomOffset,
+      containerMinBottomOffset: collapsedMinBottomOffset,
     }))
   }
 
@@ -218,10 +226,23 @@ export function ProfileCopilotRail(props: {
     event.currentTarget.releasePointerCapture(event.pointerId)
     dragStateRef.current = null
 
+    suppressNextBubbleClickRef.current = true
+
     if (!dragState.moved) {
-      suppressNextBubbleClickRef.current = true
       toggleOpenFromBubble()
     }
+  }
+
+  function handleBubblePointerCancel(event: ReactPointerEvent<HTMLButtonElement>) {
+    const dragState = dragStateRef.current
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    dragStateRef.current = null
+    suppressNextBubbleClickRef.current = dragState.moved
   }
 
   function handleBubbleClick() {
@@ -245,11 +266,11 @@ export function ProfileCopilotRail(props: {
 
   return (
     <div
-      className="pointer-events-none fixed z-40 flex max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3"
-      style={{ bottom: `${Math.max(position.y, minBottomOffset)}px`, right: `${position.x}px` }}
+      className="pointer-events-none fixed z-[60] flex max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3"
+      style={{ bottom: `${Math.max(position.y, collapsedMinBottomOffset)}px`, right: `${position.x}px` }}
     >
       {isOpen ? (
-        <aside className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-border/40 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur" style={{ width: `${panelDimensions.expandedWidth}px`, height: `${panelDimensions.expandedHeight}px`, maxWidth: 'calc(100vw - 2rem)', maxHeight: 'calc(100vh - 2rem)' }}>
+        <aside className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-border/40 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur" style={{ width: `${panelDimensions.expandedWidth}px`, height: `${panelDimensions.expandedHeight}px`, maxWidth: 'calc(100vw - 2rem)', maxHeight: `calc(100vh - ${COPILOT_NAV_SAFE_OFFSET}px)` }}>
           <header className="flex items-center justify-between gap-3 border-b border-border/30 px-5 py-4">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex size-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
@@ -324,6 +345,7 @@ export function ProfileCopilotRail(props: {
         onKeyDown={handleBubbleKeyDown}
         onPointerDown={handleBubblePointerDown}
         onPointerMove={handleBubblePointerMove}
+        onPointerCancel={handleBubblePointerCancel}
         onPointerUp={handleBubblePointerUp}
         title={props.title}
       />

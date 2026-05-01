@@ -1118,7 +1118,6 @@ export function renderResumeTemplateHtml(input: {
     }
     .preview-shell {
       width: fit-content;
-      min-height: calc(11in * var(--preview-scale) + 0.75rem);
       margin: 0 auto;
       padding: 0.375rem;
       display: grid;
@@ -1127,6 +1126,7 @@ export function renderResumeTemplateHtml(input: {
       zoom: var(--preview-scale);
     }
     .preview-body .page {
+      min-height: auto;
       box-shadow: 0 20px 60px var(--resume-shadow-color);
       margin: 0;
     }

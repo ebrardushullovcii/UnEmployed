@@ -264,7 +264,9 @@ function editorFieldByTarget(window, targetId) {
 }
 
 function assistantField(window) {
-  return window.getByLabel("Request a resume edit");
+  return window
+    .locator('[data-testid="resume-assistant-input"]:visible')
+    .first();
 }
 
 async function loadResumeWorkspaceDemo(window, previewMode = "ok") {

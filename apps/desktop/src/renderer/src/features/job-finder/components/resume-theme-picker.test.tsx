@@ -194,6 +194,7 @@ describe('ResumeThemePicker', () => {
     expect(container?.textContent).toContain('Choose a family')
     expect(container?.textContent).toContain('Engineering Spec')
     expect(container?.textContent).toContain('Recommended')
+    expect(container?.textContent).toContain('Sample renderer preview')
     expect(container?.querySelectorAll('[role="radio"]')).toHaveLength(0)
   })
 })

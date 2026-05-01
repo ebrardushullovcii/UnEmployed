@@ -60,14 +60,16 @@ function getExperienceSectionText(resumeText: string): string {
 function buildYearsExperienceEvidenceCandidates(
   yearsExperience: number,
   resumeText: string,
-): string[] {
+): {
+  evidenceCandidates: string[];
+  evidenceBundleScope: "experience" | "full_resume";
+} {
   const dateTokenPattern = String.raw`(?:current|present|\d{4}-\d{2}(?:-\d{2})?|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})`;
   const dateRangePattern = new RegExp(
     String.raw`\b${dateTokenPattern}\s*[–—-]\s*${dateTokenPattern}\b`,
     "i",
   );
-  const experienceText = getExperienceSectionText(resumeText) || resumeText;
-  const normalizedExperienceText = normalizeText(experienceText);
+  const experienceText = getExperienceSectionText(resumeText);
   const yearForms =
     yearsExperience === 1
       ? ["1 year", "1+ year", "1 yr", "1+ yr", "1 yrs", "1+ yrs"]
@@ -79,26 +81,54 @@ function buildYearsExperienceEvidenceCandidates(
           `${yearsExperience} yrs`,
           `${yearsExperience}+ yrs`,
         ];
-  const explicitCandidates = yearForms.filter((candidate) =>
-    normalizedExperienceText.length > 0 &&
-    containsWholePhrase(normalizedExperienceText, normalizeText(candidate)),
-  );
+  const collectExplicitCandidates = (text: string): string[] => {
+    const normalizedText = normalizeText(text);
 
-  if (explicitCandidates.length > 0) {
-    return explicitCandidates;
+    return yearForms.filter(
+      (candidate) =>
+        normalizedText.length > 0 &&
+        containsWholePhrase(normalizedText, normalizeText(candidate)),
+    );
+  };
+
+  const explicitExperienceCandidates = experienceText
+    ? collectExplicitCandidates(experienceText)
+    : [];
+
+  if (explicitExperienceCandidates.length > 0) {
+    return {
+      evidenceCandidates: explicitExperienceCandidates,
+      evidenceBundleScope: "experience",
+    };
   }
 
-  if (!experienceText) {
-    return [];
+  const explicitResumeCandidates = collectExplicitCandidates(resumeText);
+  if (explicitResumeCandidates.length > 0) {
+    return {
+      evidenceCandidates: explicitResumeCandidates,
+      evidenceBundleScope: "full_resume",
+    };
   }
 
-  const lines = experienceText
+  const evidenceText = experienceText || resumeText;
+
+  if (!evidenceText) {
+    return {
+      evidenceCandidates: [],
+      evidenceBundleScope: "full_resume",
+    };
+  }
+
+  const lines = evidenceText
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const datedExperienceLines = lines.filter((line) => dateRangePattern.test(line));
 
-  return datedExperienceLines.slice(0, 6);
+  return {
+    evidenceCandidates: datedExperienceLines.slice(0, 6),
+    evidenceBundleScope: experienceText ? "experience" : "full_resume",
+  };
 }
 
 function buildRelaxedEvidenceCandidates(value: string): string[] {
@@ -365,7 +395,6 @@ export function buildDeterministicResumeImportStageExtraction(
   if (input.stage === "identity_summary") {
     const yearsExperience = extraction.yearsExperience;
     const experienceEvidenceBundle = toExperienceOnlyBundle(input.documentBundle);
-    const experienceEvidenceText = toResumeText(experienceEvidenceBundle);
 
     add({ section: "identity", key: "fullName", recordId: null }, "Full name", extraction.fullName, 0.96, [extraction.fullName ?? ""]);
     add({ section: "identity", key: "firstName", recordId: null }, "First name", extraction.firstName, 0.92, [extraction.firstName ?? "", extraction.fullName ?? ""]);
@@ -390,18 +419,21 @@ export function buildDeterministicResumeImportStageExtraction(
       yearsExperience !== undefined &&
       existingYearsExperience !== yearsExperience
     ) {
-      const yearsExperienceEvidenceCandidates = buildYearsExperienceEvidenceCandidates(
+      const yearsExperienceEvidence = buildYearsExperienceEvidenceCandidates(
         yearsExperience,
-        experienceEvidenceText,
+        toResumeText(input.documentBundle),
       );
       add(
         { section: "identity", key: "yearsExperience", recordId: null },
         "Years of experience",
         yearsExperience,
-        yearsExperienceEvidenceCandidates.length > 0 ? 0.82 : 0.7,
-        yearsExperienceEvidenceCandidates,
+        yearsExperienceEvidence.evidenceCandidates.length > 0 ? 0.82 : 0.7,
+        yearsExperienceEvidence.evidenceCandidates,
         {
-          evidenceBundle: experienceEvidenceBundle,
+          evidenceBundle:
+            yearsExperienceEvidence.evidenceBundleScope === "experience"
+              ? experienceEvidenceBundle
+              : input.documentBundle,
         },
       );
     }

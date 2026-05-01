@@ -115,6 +115,7 @@ export function createWorkspaceApplicationMethods(
 ): Pick<
   JobFinderWorkspaceService,
   | "queueJobForReview"
+  | "removeJobFromReview"
   | "dismissDiscoveryJob"
   | "generateResume"
   | "getResumeWorkspace"
@@ -227,13 +228,26 @@ export function createWorkspaceApplicationMethods(
   }
 
   async function syncRunApplicationRecord(input: {
+    consentSummary?: ReturnType<typeof ApplicationRecordSchema.shape.consentSummary.parse>;
     eventDetail: string;
     eventEmphasis: "neutral" | "positive" | "warning" | "critical";
     eventId: string;
     eventTitle: string;
     jobId: string;
     lastActionLabel: string;
+    lastAttemptState?: ReturnType<
+      typeof ApplicationRecordSchema.shape.lastAttemptState.parse
+    >;
+    latestBlocker?: ReturnType<
+      typeof ApplicationRecordSchema.shape.latestBlocker.parse
+    >;
     nextActionLabel: string | null;
+    questionSummary?: ReturnType<
+      typeof ApplicationRecordSchema.shape.questionSummary.parse
+    >;
+    replaySummary?: ReturnType<
+      typeof ApplicationRecordSchema.shape.replaySummary.parse
+    >;
     updatedAt: string;
   }) {
     const [applicationRecords, savedJobs] = await Promise.all([
@@ -258,11 +272,26 @@ export function createWorkspaceApplicationMethods(
       lastActionLabel: input.lastActionLabel,
       nextActionLabel: input.nextActionLabel,
       lastUpdatedAt: input.updatedAt,
-      lastAttemptState: existingRecord?.lastAttemptState ?? null,
-      questionSummary: existingRecord?.questionSummary,
-      latestBlocker: existingRecord?.latestBlocker ?? null,
-      consentSummary: existingRecord?.consentSummary,
-      replaySummary: existingRecord?.replaySummary,
+      lastAttemptState:
+        input.lastAttemptState !== undefined
+          ? input.lastAttemptState
+          : existingRecord?.lastAttemptState ?? null,
+      questionSummary:
+        input.questionSummary !== undefined
+          ? input.questionSummary
+          : existingRecord?.questionSummary,
+      latestBlocker:
+        input.latestBlocker !== undefined
+          ? input.latestBlocker
+          : existingRecord?.latestBlocker ?? null,
+      consentSummary:
+        input.consentSummary !== undefined
+          ? input.consentSummary
+          : existingRecord?.consentSummary,
+      replaySummary:
+        input.replaySummary !== undefined
+          ? input.replaySummary
+          : existingRecord?.replaySummary,
       events: mergeEvents(existingRecord?.events ?? [], [
         {
           id: input.eventId,
@@ -693,6 +722,7 @@ export function createWorkspaceApplicationMethods(
         }
 
         await syncRunApplicationRecord({
+          consentSummary: buildConsentSummary(attempt.consentDecisions),
           eventDetail:
             jobState === "blocked" && runArtifacts.consentRequests.length > 0
               ? "The queue paused on a consent-gated step for this job. Resolve or decline the consent request to continue."
@@ -712,10 +742,14 @@ export function createWorkspaceApplicationMethods(
               : normalizedExecutionResult.summary,
           jobId,
           lastActionLabel: normalizedExecutionResult.summary,
+          lastAttemptState: normalizedExecutionResult.state,
+          latestBlocker: buildLatestBlockerSummary(attempt.blocker),
           nextActionLabel:
             jobState === "blocked" && runArtifacts.consentRequests.length > 0
               ? "Resolve the consent request in Applications to continue the queue."
               : normalizedExecutionResult.nextActionLabel,
+          questionSummary: buildQuestionSummary(attempt.questions),
+          replaySummary: buildReplaySummary(attempt.replay),
           updatedAt: detectedAt,
         });
 
@@ -840,6 +874,16 @@ export function createWorkspaceApplicationMethods(
           status: asset?.status === "ready" ? "ready_for_review" : "drafting",
         }));
       }
+
+      return ctx.getWorkspaceSnapshot();
+    },
+    async removeJobFromReview(jobId) {
+      await ctx.updateJob(jobId, (job) =>
+        SavedJobSchema.parse({
+          ...job,
+          status: "shortlisted",
+        }),
+      );
 
       return ctx.getWorkspaceSnapshot();
     },
@@ -1871,7 +1915,7 @@ export function createWorkspaceApplicationMethods(
           ctx.repository.upsertApplicationRecord(
             mergeMissingResumeApplicationRecord({
               applicationRecord: artifacts.applicationRecord,
-              existingRecord,
+                existingRecord,
             }),
           ),
         ]);
@@ -2415,6 +2459,16 @@ export function createWorkspaceApplicationMethods(
           await ctx.repository.upsertApplicationRecord(
             ApplicationRecordSchema.parse({
               ...existingRecord,
+              status: existingRecord.status,
+              lastAttemptState: "paused",
+              latestBlocker: {
+                code: "missing_consent",
+                summary: "Consent was declined for this job.",
+              },
+              consentSummary: {
+                status: "declined",
+                pendingCount: 0,
+              },
               lastActionLabel: updatedRun.summary,
               nextActionLabel:
                 remainingJobs.length > 0
@@ -2502,13 +2556,20 @@ export function createWorkspaceApplicationMethods(
         (record) => record.jobId === request.jobId,
       );
 
-      if (existingRecord) {
-        await ctx.repository.upsertApplicationRecord(
-          ApplicationRecordSchema.parse({
-            ...existingRecord,
-            lastActionLabel:
-              run.mode === "queue_auto" && remainingJobs.length > 0
-                ? "Consent approved. The queue resumed in safe review mode."
+        if (existingRecord) {
+          await ctx.repository.upsertApplicationRecord(
+            ApplicationRecordSchema.parse({
+              ...existingRecord,
+              status: "ready_for_review",
+              lastAttemptState: "paused",
+              latestBlocker: null,
+              consentSummary: {
+                status: "approved",
+                pendingCount: 0,
+              },
+              lastActionLabel:
+                run.mode === "queue_auto" && remainingJobs.length > 0
+                  ? "Consent approved. The queue resumed in safe review mode."
                 : "Consent approved. The job stayed prepared for review.",
             nextActionLabel:
               run.mode === "queue_auto" && remainingJobs.length > 0

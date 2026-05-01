@@ -16,11 +16,11 @@ import type {
   PendingActionState,
 } from './job-finder-pending-actions'
 import { jobFinderPendingActions } from './job-finder-pending-actions'
-import { type JobFinderPageContext } from './job-finder-page-routes'
 import {
   createActionRunners,
   createPrimaryPageActions,
 } from './use-job-finder-page-controller-actions'
+import type { JobFinderPageContext } from './job-finder-page-context'
 
 type BuildJobFinderPageContextArgs = {
   actionState: ActionState
@@ -69,6 +69,7 @@ type BuildJobFinderPageContextArgs = {
   >
   setResumeAssistantPending: Dispatch<SetStateAction<boolean>>
   setResumeWorkspace: Dispatch<SetStateAction<JobFinderResumeWorkspace | null>>
+  clearResumeWorkspaceState: () => void
   setResumeWorkspaceDirty: Dispatch<SetStateAction<boolean>>
   setSelectedApplicationRecordId: (recordId: string) => void
   setSelectedDiscoveryJobId: (jobId: string) => void
@@ -118,6 +119,7 @@ export function buildJobFinderPageContext(
     setResumeAssistantMessages,
     setResumeAssistantPending,
     setResumeWorkspace,
+    clearResumeWorkspaceState,
     setResumeWorkspaceDirty,
     setSelectedApplicationRecordId,
     setSelectedDiscoveryJobId,
@@ -157,6 +159,7 @@ export function buildJobFinderPageContext(
     setResumeAssistantMessages,
     setResumeAssistantPending,
     setResumeWorkspace,
+    clearResumeWorkspaceState,
     setResumeWorkspaceDirty,
     setSelectedReviewJobId,
     sourceDebugRunIdRef,

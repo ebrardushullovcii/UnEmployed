@@ -6,8 +6,10 @@ import type {
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
   ResumeDraft,
+  ResumeAssistantMessage,
   ResumeTemplateDefinition,
 } from '@unemployed/contracts'
+import { getResumeIdentityTargetId } from '@unemployed/contracts'
 import { JobFinderResumeWorkspaceSchema } from '@unemployed/contracts'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApplyQueueDemoState } from '../../../../../../main/adapters/job-finder-demo-state'
@@ -114,7 +116,22 @@ function buildPreview(revisionKey: string, htmlText: string): JobFinderResumePre
   }
 }
 
+function buildAssistantMessage(
+  overrides?: Partial<ResumeAssistantMessage>,
+): ResumeAssistantMessage {
+  return {
+    id: overrides?.id ?? 'assistant_1',
+    jobId: overrides?.jobId ?? 'job_ready',
+    role: overrides?.role ?? 'assistant',
+    content: overrides?.content ?? 'Draft update ready.',
+    patches: overrides?.patches ?? [],
+    createdAt: overrides?.createdAt ?? '2026-04-27T00:00:00.000Z',
+  }
+}
+
 function renderScreen(options?: {
+  assistantMessages?: ResumeAssistantMessage[]
+  assistantPending?: boolean
   onPreviewDraft?: (draft: ResumeDraft) => Promise<JobFinderResumePreview>
 }) {
   const onPreviewDraft = options?.onPreviewDraft ?? (() => Promise.resolve(buildPreview('preview_ready', 'ready-preview')))
@@ -122,8 +139,8 @@ function renderScreen(options?: {
   return render(
     <ResumeWorkspaceScreen
       actionMessage={null}
-      assistantMessages={[]}
-      assistantPending={false}
+      assistantMessages={options?.assistantMessages ?? []}
+      assistantPending={options?.assistantPending ?? false}
       availableResumeTemplates={availableResumeTemplates}
       isWorkspacePending={false}
       jobId="job_ready"
@@ -283,6 +300,131 @@ describe('ResumeWorkspaceScreen', () => {
     expect(screen.getAllByText('Template strategy').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Recommended').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Engineering Spec').length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: 'Open guided edits' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Guided edits' }).length).toBeGreaterThan(0)
+  })
+
+  it('keeps preview and editor visible after assistant replies on desktop', async () => {
+    renderScreen({
+      assistantMessages: [
+        buildAssistantMessage({
+          content: 'Tightened the summary and refreshed one bullet.',
+        }),
+      ],
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    expect(screen.getAllByTitle('Live resume preview').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Structured edits').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Guided edits' }).length).toBeGreaterThan(0)
+  })
+
+  it('opens the guided edits popup from the always-available bubble', async () => {
+    renderScreen()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guided edits' }))
+
+    expect(screen.getByRole('dialog', { name: 'Guided edits' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Minimize guided edits' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByText('No edit requests yet').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Ask for a tighter summary, stronger bullets, or clearer job-specific wording.').length).toBeGreaterThan(0)
+  })
+
+  it('keeps the assistant tab visible when a reply lands after mobile users switch to assistant', async () => {
+    const onPreviewDraft = vi.fn(() => new Promise<JobFinderResumePreview>(() => {}))
+
+    const { rerender } = render(
+      <ResumeWorkspaceScreen
+        actionMessage={null}
+        assistantMessages={[]}
+        assistantPending={false}
+        availableResumeTemplates={availableResumeTemplates}
+        isWorkspacePending={false}
+        jobId="job_ready"
+        onApplyPatch={vi.fn()}
+        onApproveResume={vi.fn()}
+        onBack={vi.fn()}
+        onClearResumeApproval={vi.fn()}
+        onDirtyChange={vi.fn()}
+        onExportPdf={vi.fn()}
+        onPreviewDraft={onPreviewDraft}
+        onRefresh={vi.fn()}
+        onRegenerateDraft={vi.fn()}
+        onRegenerateSection={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSaveDraftAndThen={vi.fn()}
+        onSendAssistantMessage={vi.fn()}
+        workspace={buildWorkspace()}
+      />,
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Assistant' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Assistant' }))
+    expect(screen.getByRole('tab', { name: 'Assistant' }).getAttribute('data-state')).toBe('active')
+
+    act(() => {
+      rerender(
+        <ResumeWorkspaceScreen
+          actionMessage={null}
+          assistantMessages={[
+            buildAssistantMessage({
+              content: 'Here is the update you asked for.',
+            }),
+          ]}
+          assistantPending={false}
+          availableResumeTemplates={availableResumeTemplates}
+          isWorkspacePending={false}
+          jobId="job_ready"
+          onApplyPatch={vi.fn()}
+          onApproveResume={vi.fn()}
+          onBack={vi.fn()}
+          onClearResumeApproval={vi.fn()}
+          onDirtyChange={vi.fn()}
+          onExportPdf={vi.fn()}
+          onPreviewDraft={onPreviewDraft}
+          onRefresh={vi.fn()}
+          onRegenerateDraft={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onSaveDraft={vi.fn()}
+          onSaveDraftAndThen={vi.fn()}
+          onSendAssistantMessage={vi.fn()}
+          workspace={buildWorkspace()}
+        />,
+      )
+    })
+
+    expect(screen.getByRole('tab', { name: 'Assistant' }).getAttribute('data-state')).toBe('active')
+    expect(screen.getAllByText('Here is the update you asked for.').length).toBeGreaterThan(0)
+  })
+
+  it('keeps preview-selected identity fields focused instead of jumping to summary', async () => {
+    renderScreen()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100)
+    })
+
+    const linkedinInput = screen.getAllByLabelText('LinkedIn URL')[0] as HTMLInputElement
+    linkedinInput.focus()
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(document.activeElement).toBe(linkedinInput)
+    expect(linkedinInput.dataset.resumeEditorTarget).toBe(
+      getResumeIdentityTargetId('linkedinUrl'),
+    )
+    expect(screen.getAllByLabelText('Section text')[0]).not.toBe(document.activeElement)
   })
 })

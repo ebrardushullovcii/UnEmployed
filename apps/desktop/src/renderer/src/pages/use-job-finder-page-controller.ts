@@ -15,7 +15,7 @@ import {
   type PendingActionScope,
   type PendingActionState,
 } from './job-finder-pending-actions'
-import { type JobFinderPageContext } from './job-finder-page-routes'
+import type { JobFinderPageContext } from './job-finder-page-context'
 import {
   buildJobFinderPageContext,
 } from './use-job-finder-page-controller-context'
@@ -157,6 +157,7 @@ export function useJobFinderPageController() {
   getResumeWorkspaceRef.current = actions?.getResumeWorkspace ?? null
 
   const clearResumeWorkspaceState = useCallback(() => {
+    resumeAssistantRequestTokenRef.current += 1
     setResumeWorkspace(null)
     setResumeAssistantMessages([])
     setResumeAssistantPending(false)
@@ -380,6 +381,7 @@ export function useJobFinderPageController() {
       setResumeAssistantMessages,
       setResumeAssistantPending,
       setResumeWorkspace,
+      clearResumeWorkspaceState,
       setResumeWorkspaceDirty,
       setSelectedApplicationRecordId,
       setSelectedDiscoveryJobId,
@@ -393,6 +395,7 @@ export function useJobFinderPageController() {
     activeRouteResumeAssistantMessages,
     activeRouteResumeAssistantPending,
     activeRouteResumeWorkspace,
+    clearResumeWorkspaceState,
     confirmLeaveDirtyResumeWorkspace,
     isAnyPendingAction,
     isPendingAction,

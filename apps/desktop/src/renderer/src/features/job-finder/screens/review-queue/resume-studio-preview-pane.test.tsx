@@ -36,7 +36,7 @@ describe('ResumeStudioPreviewPane', () => {
     vi.clearAllMocks()
   })
 
-  it('surfaces preview warnings and unsaved live-preview status', () => {
+  it('surfaces compact preview warnings and unsaved live-preview status', () => {
     render(
       <ResumeStudioPreviewPane
         isDirty
@@ -54,10 +54,9 @@ describe('ResumeStudioPreviewPane', () => {
     )
 
     expect(screen.getByText('Unsaved edits rendered')).toBeTruthy()
-    expect(screen.getByText(/1 preview warning surfaced before export/i)).toBeTruthy()
-    expect(screen.getByText(/Add one more role-specific keyword to the summary/i)).toBeTruthy()
+    expect(screen.getByText(/1 warning/i)).toBeTruthy()
+    expect(screen.queryByText(/Add one more role-specific keyword to the summary/i)).toBeNull()
     expect(screen.getByText('Swiss Minimal - Standard')).toBeTruthy()
-    expect(screen.getByText(/Keep the export-faithful page in view while you edit/i)).toBeTruthy()
     expect(screen.getByTitle('Live resume preview')).toBeTruthy()
   })
 

@@ -84,7 +84,7 @@ describe('desktop resume quality benchmark', () => {
     }
   })
 
-  test('reports thin profile cases as not issue-free while keeping ATS rendering valid', async () => {
+  test('keeps thin profile cases ATS-safe while clearing the thin-output failure class', async () => {
     const report = await runDesktopResumeQualityBenchmark({
       benchmarkVersion: '023-test-benchmark-v1',
       caseIds: ['thin_profile'],
@@ -92,9 +92,9 @@ describe('desktop resume quality benchmark', () => {
 
     expect(report.cases).toHaveLength(6)
     for (const result of report.cases) {
-      expect(result.passed).toBe(false)
-      expect(result.issueCategories).toContain('thin_output')
-      expect(result.metrics.thinOutputFreeRate).toBe(0)
+      expect(result.passed).toBe(true)
+      expect(result.issueCategories).not.toContain('thin_output')
+      expect(result.metrics.thinOutputFreeRate).toBe(1)
       expect(result.metrics.atsRenderPassRate).toBe(1)
     }
   })

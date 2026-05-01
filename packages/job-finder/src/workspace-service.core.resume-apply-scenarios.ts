@@ -114,8 +114,8 @@ describe("createJobFinderWorkspaceService", () => {
         code: "missing_resume",
       },
       consentSummary: {
-        status: "requested",
-        pendingCount: 1,
+        status: "none",
+        pendingCount: 0,
       },
     });
   });
@@ -1573,6 +1573,12 @@ describe("createJobFinderWorkspaceService", () => {
       pendingConsentRequest!.id,
       "decline",
     );
+    const declinedConsentRequest = (
+      await repository.listApplicationConsentRequests({
+        runId: runId!,
+        jobId: "job_consent_queue",
+      })
+    ).find((request) => request.id === pendingConsentRequest!.id);
 
     expect(snapshot.applyRuns[0]).toMatchObject({
       id: runId,
@@ -1584,6 +1590,148 @@ describe("createJobFinderWorkspaceService", () => {
         expect.objectContaining({ jobId: "job_ready", state: "awaiting_review" }),
       ]),
     );
+    expect(
+      snapshot.applicationRecords.find((record) => record.jobId === "job_consent_queue"),
+    ).toMatchObject({
+      status: "ready_for_review",
+      lastAttemptState: "paused",
+      consentSummary: {
+        status: "declined",
+        pendingCount: 0,
+      },
+    });
+    expect(declinedConsentRequest).toMatchObject({
+      id: pendingConsentRequest!.id,
+      status: "declined",
+    });
+  });
+
+  test("approving queue consent aligns the application record with review-ready state", async () => {
+    const seed = createSeed();
+    seed.savedJobs = [
+      {
+        ...seed.savedJobs[0]!,
+        id: "job_consent_queue",
+        sourceJobId: "linkedin_consent_queue",
+        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
+        applicationUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
+        title: "Staff Product Designer",
+        company: "Consent Labs",
+        description:
+          "Design the workflow system. This application asks whether you already have an account before continuing.",
+        status: "ready_for_review",
+      },
+      seed.savedJobs[0]!,
+    ];
+    seed.tailoredAssets = [
+      {
+        ...seed.tailoredAssets[0]!,
+        id: "asset_consent_queue",
+        jobId: "job_consent_queue",
+        storagePath: "/tmp/job-consent-queue-resume.pdf",
+      },
+      seed.tailoredAssets[0]!,
+    ];
+    seed.resumeDrafts = [
+      {
+        id: "resume_draft_consent_queue",
+        jobId: "job_consent_queue",
+        status: "approved",
+        templateId: "classic_ats",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        approvedAt: "2026-03-20T10:04:00.000Z",
+        approvedExportId: "resume_export_consent_queue",
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+      },
+      {
+        id: "resume_draft_job_ready",
+        jobId: "job_ready",
+        status: "approved",
+        templateId: "classic_ats",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        approvedAt: "2026-03-20T10:04:00.000Z",
+        approvedExportId: "resume_export_job_ready",
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+      },
+    ];
+    seed.resumeExportArtifacts = [
+      {
+        id: "resume_export_consent_queue",
+        draftId: "resume_draft_consent_queue",
+        jobId: "job_consent_queue",
+        format: "pdf",
+        filePath: "/tmp/job-consent-queue-resume.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:04:00.000Z",
+        isApproved: true,
+      },
+      {
+        id: "resume_export_job_ready",
+        draftId: "resume_draft_job_ready",
+        jobId: "job_ready",
+        format: "pdf",
+        filePath: "/tmp/job-ready-resume.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:04:00.000Z",
+        isApproved: true,
+      },
+    ];
+
+    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+
+    const startedSnapshot = await workspaceService.startAutoApplyQueueRun([
+      "job_consent_queue",
+      "job_ready",
+    ]);
+    const runId = startedSnapshot.applyRuns[0]?.id;
+    expect(runId).toBeTruthy();
+    await workspaceService.approveApplyRun(runId!);
+
+    const pendingConsentRequest = (
+      await repository.listApplicationConsentRequests({
+        runId: runId!,
+        jobId: "job_consent_queue",
+      })
+    )[0];
+
+    const snapshot = await workspaceService.resolveApplyConsentRequest(
+      pendingConsentRequest!.id,
+      "approve",
+    );
+    const approvedConsentRequest = (
+      await repository.listApplicationConsentRequests({
+        runId: runId!,
+        jobId: "job_consent_queue",
+      })
+    ).find((request) => request.id === pendingConsentRequest!.id);
+
+    expect(
+      snapshot.applicationRecords.find((record) => record.jobId === "job_consent_queue"),
+    ).toMatchObject({
+      status: "ready_for_review",
+      lastAttemptState: "paused",
+      consentSummary: {
+        status: "approved",
+        pendingCount: 0,
+      },
+    });
+    expect(approvedConsentRequest).toMatchObject({
+      id: pendingConsentRequest!.id,
+      status: "approved",
+    });
   });
 
   test("can cancel a staged queue run", async () => {

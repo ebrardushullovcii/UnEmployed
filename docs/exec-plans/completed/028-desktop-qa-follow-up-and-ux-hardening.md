@@ -1,6 +1,6 @@
 # 028 Desktop QA Follow-Up And UX Hardening
 
-Status: queued
+Status: completed
 
 ## Goal
 
@@ -14,7 +14,7 @@ Turn the latest desktop screenshot QA findings into a concrete follow-up track t
 - treat screenshot artifacts as evidence, not as the product truth when live-flow verification contradicts them
 - prefer fixes that make blocked states, approval states, and assistant states more truthful instead of adding more status copy around weak behavior
 
-## Why This Is Queued
+## Why This Was Queued
 
 - the last QA pass produced a large, actionable desktop defect and UX backlog
 - the findings were first recorded under local screenshot artifacts, but `apps/desktop/test-artifacts/` is ignored and will not travel with the branch
@@ -28,7 +28,7 @@ Ignored local evidence sources used during the original pass:
 - `apps/desktop/test-artifacts/ui/qa-full-20260430-issues.md`
 - `apps/desktop/test-artifacts/ui/qa-full-20260430-ux-audit.md`
 
-Those files are useful on the original machine, but this queued plan is the branch-visible handoff.
+Those files are useful on the original machine, but this completed plan preserves the branch-visible background and acceptance context.
 
 Highest-priority defects from the QA pass:
 
@@ -201,5 +201,22 @@ Run these from `apps/desktop` after building or validating desktop as needed.
 ## Latest Evidence Pointers
 
 - branch-visible summary: this plan
-- local ignored evidence on the original machine: `apps/desktop/test-artifacts/ui/qa-full-20260430-issues.md`
-- local ignored evidence on the original machine: `apps/desktop/test-artifacts/ui/qa-full-20260430-ux-audit.md`
+- validation: `pnpm validate:desktop`, `pnpm validate:job-finder`, `pnpm --filter @unemployed/desktop build`
+- latest desktop QA reruns: `apps/desktop/test-artifacts/ui/source-sign-in-prompts/capture-report.json`, `apps/desktop/test-artifacts/ui/resume-workspace/studio-preview-results.json`, `apps/desktop/test-artifacts/ui/applications-recovery/run-history-summary.json`, `apps/desktop/test-artifacts/ui/resume-import/resume-import-report.json`
+
+## Completion Summary
+
+- `QA-023` is resolved: blocked `Find jobs` states now keep a primary recovery CTA in the main results pane for both empty and stale-results states, and the narrow-width captures under `apps/desktop/test-artifacts/ui/source-sign-in-prompts/` show the blocked context and visible action together.
+- `QA-024` is resolved to the current contract model: Applications now derives truthful user-facing stage, latest-activity, and next-step labels from consent and attempt semantics across the records table and detail surfaces instead of relying only on raw persisted status labels.
+- `QA-017` is resolved: narrow discovery layout now preserves page context by showing results/context before filters.
+- `QA-018` is resolved: Profile Copilot now respects a shared navigation-safe inset and no longer opens under the top navigation.
+- `QA-021` is resolved: Resume Studio keeps preview/editor visible after assistant replies, and `studio-preview-results.json` records preserved preview recovery, click-to-focus, and assistant-follow-up evidence.
+- `QA-011` is resolved: long Applications next-step copy now wraps in both tracker and detail panels.
+- `QA-001` is partially improved and now truthful: imported placeholder identity states are called out as review-needed in Profile, and `resume-import-report.json` confirms the sample import still leaves headline/summary in review-needed placeholder state rather than falsely presenting them as final.
+- `QA-002` is improved and verified for the current desktop path: `studio-preview-results.json` records successful preview click-to-focus on the matching editor field.
+
+## Remaining Follow-Ups
+
+- Run `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty` on the next pass so the updated assistant-field selector path is covered by the dirty-state harness too.
+- Add a dedicated desktop UI harness or seeded scenario for consent-requested and consent-declined Applications states so the rendered stage semantics are covered beyond unit tests and recovery history evidence.
+- Resume import remains intentionally truthful rather than auto-resolving headline/summary placeholders; if product wants stronger automatic identity completion, track that as a separate scoped follow-up instead of weakening review semantics.

@@ -13,8 +13,10 @@ import {
 import { cn } from '@renderer/lib/utils'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
-import { formatStatusLabel, getApplicationTone, getAttemptLabel, getAttemptTone } from '../../lib/job-finder-utils'
+import { JOB_FINDER_ROUTE_HREFS } from '../../lib/job-finder-route-hrefs'
+import { getAttemptLabel, getAttemptTone } from '../../lib/job-finder-utils'
 import { APPLICATION_FILTER_LABELS, APPLICATION_FILTERS, type ApplicationsViewFilter } from './applications-filters'
+import { getApplicationLatestActivityLabel, getApplicationStagePresentation } from './applications-status'
 
 interface ApplicationsRecordsPanelProps {
   activeFilter: ApplicationsViewFilter
@@ -67,11 +69,28 @@ export function ApplicationsRecordsPanel({
         </div>
       </div>
       {applicationRecords.length === 0 ? (
-        <div className="flex min-h-0 flex-1 items-center p-8">
-          <EmptyState
-            title={hasAnyApplications ? 'No applications in this view' : 'No applications yet'}
-            description={hasAnyApplications ? 'Try another filter to review the rest of your application history.' : 'Applications appear here after you start one from Shortlisted.'}
-          />
+        <div className="flex min-h-0 flex-1 items-start p-8 pt-12">
+          {hasAnyApplications ? (
+            <EmptyState
+              title="No applications in this view"
+              description="Try another filter to review the rest of your application history."
+            />
+          ) : (
+            <div className="grid w-full gap-4">
+              <EmptyState
+                title="Start your first application"
+                description="Applications appear here after you move a shortlisted job into Apply Copilot."
+              />
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Button asChild size="sm" type="button" variant="primary">
+                  <a href={JOB_FINDER_ROUTE_HREFS.reviewQueue}>Go to Shortlisted</a>
+                </Button>
+                <Button asChild size="sm" type="button" variant="ghost">
+                  <a href={JOB_FINDER_ROUTE_HREFS.discovery}>Find jobs</a>
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
@@ -85,30 +104,34 @@ export function ApplicationsRecordsPanel({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {applicationRecords.map((record) => (
-                <TableRow
-                  key={record.id}
-                  className={cn(
-                    'border-(--surface-panel-border) text-[0.85rem] tracking-normal hover:bg-(--surface-panel-raised)',
-                    selectedRecord?.id === record.id ? 'border-l-2 border-l-primary bg-(--surface-panel-raised)' : ''
-                  )}
-                >
-                  <TableCell className="px-4 py-4 align-top">
-                    <button
-                      aria-current={selectedRecord?.id === record.id ? 'true' : undefined}
-                      className="grid w-full gap-1 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
-                      onClick={() => onSelectRecord(record.id)}
-                      type="button"
-                    >
-                      <strong className="font-display text-[1rem] font-semibold tracking-[-0.015em] text-foreground">{record.title}</strong>
-                      <span className="text-[0.8rem] text-muted-foreground">{record.company}</span>
-                    </button>
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-[0.8rem] text-foreground-soft">{record.lastActionLabel}</TableCell>
-                  <TableCell className="px-4 py-4"><StatusBadge tone={getApplicationTone(record.status)}>{formatStatusLabel(record.status)}</StatusBadge></TableCell>
-                  <TableCell className="px-4 py-4"><StatusBadge tone={getAttemptTone(record.lastAttemptState)}>{getAttemptLabel(record.lastAttemptState)}</StatusBadge></TableCell>
-                </TableRow>
-              ))}
+              {applicationRecords.map((record) => {
+                const stage = getApplicationStagePresentation(record)
+
+                return (
+                  <TableRow
+                    key={record.id}
+                    className={cn(
+                      'border-(--surface-panel-border) text-[0.85rem] tracking-normal hover:bg-(--surface-panel-raised)',
+                      selectedRecord?.id === record.id ? 'border-l-2 border-l-primary bg-(--surface-panel-raised)' : ''
+                    )}
+                  >
+                    <TableCell className="px-4 py-4 align-top">
+                      <button
+                        aria-current={selectedRecord?.id === record.id ? 'true' : undefined}
+                        className="grid w-full gap-1 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
+                        onClick={() => onSelectRecord(record.id)}
+                        type="button"
+                      >
+                        <strong className="font-display text-[1rem] font-semibold tracking-[-0.015em] text-foreground">{record.title}</strong>
+                        <span className="text-[0.8rem] text-muted-foreground">{record.company}</span>
+                      </button>
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-[0.8rem] text-foreground-soft break-words whitespace-normal">{getApplicationLatestActivityLabel(record)}</TableCell>
+                    <TableCell className="px-4 py-4"><StatusBadge tone={stage.tone}>{stage.label}</StatusBadge></TableCell>
+                    <TableCell className="px-4 py-4"><StatusBadge tone={getAttemptTone(record.lastAttemptState)}>{getAttemptLabel(record.lastAttemptState)}</StatusBadge></TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </div>

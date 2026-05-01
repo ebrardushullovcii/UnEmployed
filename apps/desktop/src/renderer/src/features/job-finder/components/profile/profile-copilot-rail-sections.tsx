@@ -280,6 +280,7 @@ export function ProfileCopilotCollapsedBubble(props: {
   isOpen: boolean
   isPendingHere: boolean
   messageCount: number
+  onPointerCancel: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => void
@@ -294,6 +295,7 @@ export function ProfileCopilotCollapsedBubble(props: {
       onKeyDown={props.onKeyDown}
       onPointerDown={props.onPointerDown}
       onPointerMove={props.onPointerMove}
+      onPointerCancel={props.onPointerCancel}
       onPointerUp={props.onPointerUp}
       type="button"
       variant={props.messageCount > 0 || props.isPendingHere ? 'primary' : 'secondary'}

@@ -6,6 +6,7 @@ import { useId } from "react";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
 import { formatCountLabel } from "../../lib/job-finder-utils";
+import { getDisplayedResumeProgress } from "./review-queue-progress";
 import {
   getReviewQueueWorkflowStatus,
   isQueueStageReady,
@@ -13,6 +14,7 @@ import {
 } from "./review-queue-status";
 
 interface ReviewQueueListPanelProps {
+  isJobPending: (jobId: string) => boolean;
   onSelectItem: (jobId: string) => void;
   onToggleQueueSelection: (jobId: string, checked: boolean) => void;
   queue: readonly ReviewQueueItem[];
@@ -21,6 +23,7 @@ interface ReviewQueueListPanelProps {
 }
 
 export function ReviewQueueListPanel({
+  isJobPending,
   onSelectItem,
   onToggleQueueSelection,
   queue,
@@ -47,12 +50,10 @@ export function ReviewQueueListPanel({
       ) : (
         <div className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4">
           {queue.map((item) => {
-            const progressPercent = Number.isFinite(item.progressPercent)
-              ? (item.progressPercent ?? 0)
-              : 0;
-            const clampedProgress = Math.max(0, Math.min(100, progressPercent));
+            const isPending = isJobPending(item.jobId);
+            const displayedProgress = getDisplayedResumeProgress(item, isPending);
             const workflowStatus = getReviewQueueWorkflowStatus(item);
-            const showProgress = isResumeGenerationInProgress(item);
+            const showProgress = isResumeGenerationInProgress(item) || isPending;
             const queueReady = isQueueStageReady(item);
             const selectedForQueue = queueSelection.includes(item.jobId);
             const queueCheckboxId = `${queueCheckboxIdPrefix}-${item.jobId}`;
@@ -116,7 +117,7 @@ export function ReviewQueueListPanel({
                     <div className="grid min-w-0 w-full gap-1.5">
                       <ProgressBar
                         className="h-1.5 w-full rounded-full bg-(--surface-progress-track)"
-                        percent={clampedProgress}
+                        percent={displayedProgress}
                       />
                     </div>
                   ) : null}

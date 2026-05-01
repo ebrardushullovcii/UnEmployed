@@ -36,7 +36,7 @@ const defaultBenchmarkCases = [
         fullName: "Jamie Rivers",
         currentLocation: "Berlin, Germany",
         email: "jamie@example.com",
-        phone: "+49 555 1234",
+        phone: "+49 555 0000000",
       },
       summaryContains: ["12 years of experience"],
       experienceRecords: [

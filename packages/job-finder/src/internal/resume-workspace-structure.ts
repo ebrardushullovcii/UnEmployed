@@ -234,6 +234,41 @@ function buildCoreAndAdditionalSkills(
   };
 }
 
+function buildThinDraftSupportBullets(input: {
+  draft: TailoredResumeDraft;
+  profile: CandidateProfile | undefined;
+}): string[] {
+  const profile = input.profile;
+
+  if (!profile) {
+    return [];
+  }
+
+  const hasStructuredSupport =
+    input.draft.experienceEntries.length > 0 ||
+    input.draft.projectEntries.length > 0 ||
+    input.draft.educationEntries.length > 0 ||
+    input.draft.certificationEntries.length > 0 ||
+    input.draft.languages.length > 0 ||
+    input.draft.additionalSkills.length > 0;
+  const hasDenseSignal =
+    input.draft.experienceHighlights.length > 1 || input.draft.coreSkills.length > 2;
+
+  if (hasStructuredSupport || hasDenseSignal) {
+    return [];
+  }
+
+  return uniqueStrings(
+    [
+      profile.targetRoles[0] ? `Target role: ${profile.targetRoles[0]}.` : null,
+      profile.locations[0] ? `Preferred location: ${profile.locations[0]}.` : null,
+      input.draft.coreSkills.length > 0
+        ? `Core tool${input.draft.coreSkills.length === 1 ? "" : "s"}: ${input.draft.coreSkills.slice(0, 3).join(", ")}.`
+        : null,
+    ].filter((value): value is string => Boolean(value && value.trim())),
+  ).slice(0, 3);
+}
+
 function buildDraftSectionsFromStructuredTailoredDraft(input: {
   createdAt: string;
   draft: TailoredResumeDraft;
@@ -251,6 +286,7 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
       kind: "summary",
       label: "Summary",
       text: draft.summary,
+      bullets: buildThinDraftSupportBullets({ draft, profile }),
       updatedAt: createdAt,
       origin,
       sortOrder: 0,

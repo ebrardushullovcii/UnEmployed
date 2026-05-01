@@ -18,9 +18,17 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Active
 
-- none right now
+- no active plan right now
 
 ## Reopenable Baselines
+
+### `029 Full Product Critical QA And Improvement Plan`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/029-full-product-critical-qa-and-improvement-plan.md`
+- truthful Settings sample-preview copy, discovery blocker-first zero states, first-run Applications/Shortlisted CTAs, thin-profile/import improvements, and Applications detail-panel decomposition are landed and revalidated
+- latest evidence lives under `apps/desktop/test-artifacts/ui/1440x920/`, `apps/desktop/test-artifacts/ui/applications-recovery/`, `apps/desktop/test-artifacts/ui/applications-queue-recovery/`, `apps/desktop/test-artifacts/ui/applications-consent-states/`, `apps/desktop/test-artifacts/ui/resume-import/`, and `apps/desktop/test-artifacts/ui/resume-import-benchmark/`
+- reopen only for a fresh screenshot-backed contradiction, benchmark regression, or new hotspot work in another touched surface
 
 ### `027 Job Finder Resume Experience UX Reset`
 
@@ -30,11 +38,19 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - accepted evidence remains `apps/desktop/test-artifacts/ui/1440x920/settings.png`, `apps/desktop/test-artifacts/ui/resume-workspace/03-preview-recovered.png`, and `apps/desktop/test-artifacts/ui/resume-workspace/10-review-queue-gated.png`
 - reopen only for a concrete desktop resume UX regression, a preview-targeting or focus regression, or a truthful preview/export mismatch backed by fresh evidence
 
+### `028 Desktop QA Follow-Up And UX Hardening`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/028-desktop-qa-follow-up-and-ux-hardening.md`
+- blocked `Find jobs` states now keep an in-panel recovery action, narrow discovery preserves visible context, Applications stage semantics are derived truthfully from consent/attempt state, and Resume Studio plus Profile Copilot no longer lose key workspace/header visibility in the validated desktop flows
+- latest evidence lives under `apps/desktop/test-artifacts/ui/source-sign-in-prompts/`, `apps/desktop/test-artifacts/ui/resume-workspace/`, `apps/desktop/test-artifacts/ui/applications-recovery/`, and `apps/desktop/test-artifacts/ui/resume-import/`
+- reopen only for a concrete desktop QA regression in these hardened flows, a new screenshot-backed contradiction in Applications/discovery states, or a fresh Resume Studio visibility/targeting issue
+
 ### `026 Job Finder Resume Template Families Variants And Catalog Selection`
 
 - status: `done`
 - linked plan: `docs/exec-plans/completed/026-job-finder-resume-template-families-variants-and-catalog-selection.md`
-- family-first template selection now ships truthful family, variant, lane, ATS confidence, and eligibility metadata with real preview-backed family cards, compare flow, deterministic recommendations, and lane plus density filters
+- family-first template selection now ships truthful family, variant, lane, ATS confidence, and eligibility metadata with sample-content family cards in Settings, draft-backed preview flows in Resume Studio, compare flow, deterministic recommendations, and lane plus density filters
 - the shared renderer now uses family-oriented ATS-safe builders that make `Swiss Minimal`, `Executive Brief`, `Engineering Spec`, and `Portfolio Narrative` materially distinct by hierarchy and content emphasis while preserving benchmark coverage
 - reopen only for a concrete family-rendering or selection regression, a benchmark-backed ATS or approval-safety issue, or a deliberate decision to ship real `share-ready` templates
 
@@ -127,7 +143,8 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
-- `028`: desktop QA follow-up and UX hardening queued in `docs/exec-plans/queued/028-desktop-qa-follow-up-and-ux-hardening.md`; covers `QA-001`, `QA-002`, `QA-011`, `QA-017`, `QA-018`, `QA-021`, `QA-023`, `QA-024`, related UX audit findings, and the remaining live-flow/responsive/accessibility test backlog
+- `030 Resume Coverage And Copy Quality`: queued plan at `docs/exec-plans/queued/030-resume-coverage-and-copy-quality.md`; next resume/application-process prep track covering resume coverage policy, role-specific copy quality, app-only weak-fit/gap guidance, and real-fixture resume-quality coverage
+- `031 Functional Resume Template Variety`: queued plan at `docs/exec-plans/queued/031-functional-resume-template-variety.md`; follows `030` and rebuilds the template catalog around distinct layout purposes using the improved generated draft evidence
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import
