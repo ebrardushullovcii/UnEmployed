@@ -349,7 +349,7 @@ export function ResumeGuidedEditsPopup(props: {
         aria-label="Guided edits"
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        className="pointer-events-auto h-auto min-h-14 rounded-full px-4 py-3 shadow-[var(--guided-edits-bubble-shadow)]"
+        className="pointer-events-auto h-auto min-h-14 rounded-full px-4 py-3 shadow-(--guided-edits-bubble-shadow)"
         onClick={handleBubbleClick}
         onKeyDown={handleBubbleKeyDown}
         onPointerCancel={handleBubblePointerCancel}

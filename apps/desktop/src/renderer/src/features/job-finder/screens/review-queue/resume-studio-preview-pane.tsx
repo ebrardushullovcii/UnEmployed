@@ -263,6 +263,10 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       window.addEventListener("resize", measureHeight);
     }
 
+    if (frame.contentDocument) {
+      observeLoadedFrame(new Event("load"));
+    }
+
     return () => {
       frame.removeEventListener("load", observeLoadedFrame);
       if (typeof window !== "undefined") {
