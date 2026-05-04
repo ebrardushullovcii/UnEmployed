@@ -14,11 +14,11 @@ import {
 const themes: readonly ResumeTemplateDefinition[] = [
   {
     id: 'classic_ats',
-    label: 'Swiss Minimal - Standard',
-    familyId: 'swiss_minimal',
-    familyLabel: 'Swiss Minimal',
+    label: 'Chronology Classic',
+    familyId: 'chronology_classic',
+    familyLabel: 'Chronology Classic',
     familyDescription: 'Calm ATS-safe layouts.',
-    variantLabel: 'Standard',
+    variantLabel: 'Recruiter Standard',
     description: 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
     fitSummary: 'A clean all-rounder.',
     avoidSummary: 'Less distinctive for project-led portfolios.',
@@ -34,11 +34,11 @@ const themes: readonly ResumeTemplateDefinition[] = [
   },
   {
     id: 'compact_exec',
-    label: 'Executive Brief - Dense',
-    familyId: 'executive_brief',
-    familyLabel: 'Executive Brief',
+    label: 'Senior Brief',
+    familyId: 'senior_brief',
+    familyLabel: 'Senior Brief',
     familyDescription: 'Leadership-oriented ATS-safe layouts.',
-    variantLabel: 'Dense',
+    variantLabel: 'Dense Timeline',
     description: 'Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.',
     fitSummary: 'Good for dense senior resumes.',
     avoidSummary: 'Can feel tight for early-career profiles.',
@@ -54,11 +54,11 @@ const themes: readonly ResumeTemplateDefinition[] = [
   },
   {
     id: 'technical_matrix',
-    label: 'Engineering Spec - Systems',
+    label: 'Engineering Spec',
     familyId: 'engineering_spec',
     familyLabel: 'Engineering Spec',
     familyDescription: 'Spec-like ATS-safe layouts.',
-    variantLabel: 'Systems',
+    variantLabel: 'Skills First',
     description: 'Skills-forward single-column layout that highlights technical depth before chronology.',
     fitSummary: 'Best when systems depth should land early.',
     avoidSummary: 'Can feel too technical for generalist roles.',
@@ -74,11 +74,11 @@ const themes: readonly ResumeTemplateDefinition[] = [
   },
   {
     id: 'project_showcase',
-    label: 'Portfolio Narrative - Proof-led',
-    familyId: 'portfolio_narrative',
-    familyLabel: 'Portfolio Narrative',
+    label: 'Proof Portfolio',
+    familyId: 'proof_portfolio',
+    familyLabel: 'Proof Portfolio',
     familyDescription: 'Proof-led ATS-safe layouts.',
-    variantLabel: 'Proof-led',
+    variantLabel: 'Projects First',
     description: 'Project-forward single-column layout for candidates whose proof lands best through shipped work.',
     fitSummary: 'Useful when shipped work is your strongest evidence.',
     avoidSummary: 'Less ideal for conservative chronology-first screens.',
@@ -94,11 +94,11 @@ const themes: readonly ResumeTemplateDefinition[] = [
   },
   {
     id: 'credentials_focus',
-    label: 'Executive Brief - Credentials',
-    familyId: 'executive_brief',
-    familyLabel: 'Executive Brief',
+    label: 'Credential Ledger',
+    familyId: 'credential_ledger',
+    familyLabel: 'Credential Ledger',
     familyDescription: 'Leadership-oriented ATS-safe layouts.',
-    variantLabel: 'Credentials',
+    variantLabel: 'Credentials First',
     description: 'Credentials-first single-column layout that surfaces certifications and education earlier without leaving ATS-safe structure.',
     fitSummary: 'Stronger when credentials materially change recruiter trust.',
     avoidSummary: 'Less effective if your strongest evidence is shipped work.',
@@ -190,9 +190,9 @@ describe('ResumeThemePicker', () => {
     })
 
     expect(container?.textContent).toContain('Current selection')
-    expect(container?.textContent).toContain('Swiss Minimal - Standard')
-    expect(container?.textContent).toContain('Choose a family')
-    expect(container?.textContent).toContain('Engineering Spec')
+    expect(container?.textContent).toContain('Chronology Classic')
+    expect(container?.textContent).toContain('Choose a template')
+    expect(container?.textContent).toContain('Engineering Spec · Skills First')
     expect(container?.textContent).toContain('Recommended')
     expect(container?.textContent).toContain('Sample renderer preview')
     expect(container?.querySelectorAll('[role="radio"]')).toHaveLength(0)

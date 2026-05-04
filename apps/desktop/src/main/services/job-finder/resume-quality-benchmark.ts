@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -27,15 +28,20 @@ import {
   type SavedJob,
 } from '@unemployed/contracts'
 import { createInMemoryJobFinderRepository } from '@unemployed/db'
-import { createJobFinderWorkspaceService } from '@unemployed/job-finder'
+import {
+  buildBenchmarkAiClient as buildResumeImportBenchmarkAiClient,
+  createJobFinderWorkspaceService,
+} from '@unemployed/job-finder'
 
 import { createLocalJobFinderDocumentManager } from '../../adapters/job-finder-document-manager'
 import { createEmptyJobFinderRepositoryState } from '../../adapters/job-finder-initial-state'
 import { listLocalResumeTemplates } from '../../adapters/job-finder-resume-renderer'
+import { extractResumeDocument } from '../../adapters/resume-document'
+import { defaultBenchmarkCases as defaultResumeImportBenchmarkCases } from './resume-import-benchmark'
 
 type ResumeQualityBenchmarkFixture = {
   definition: ResumeQualityBenchmarkCase
-  buildState: (templateId: ResumeTemplateId) => JobFinderRepositoryState
+  buildState: (templateId: ResumeTemplateId) => JobFinderRepositoryState | Promise<JobFinderRepositoryState>
   overrideDraft?: (input: {
     baseDraft: TailoredResumeDraft
     job: JobPosting
@@ -897,6 +903,262 @@ function buildAnalyticsJob(): SavedJob {
   })
 }
 
+function findRepoRoot(startDir: string): string | null {
+  let currentDir = path.resolve(startDir)
+
+  while (true) {
+    if (existsSync(path.join(currentDir, 'pnpm-workspace.yaml'))) {
+      return currentDir
+    }
+
+    const parentDir = path.dirname(currentDir)
+    if (parentDir === currentDir) {
+      return null
+    }
+
+    currentDir = parentDir
+  }
+}
+
+function resolveRepoRoot(): string {
+  const repoRoot = findRepoRoot(process.cwd()) ?? findRepoRoot(import.meta.dirname)
+  if (!repoRoot) {
+    throw new Error(`Could not locate repo root from ${process.cwd()} or ${import.meta.dirname}.`)
+  }
+
+  return repoRoot
+}
+
+function buildRealFixtureJob(input: {
+  id: string
+  title: string
+  company: string
+  keySkills: readonly string[]
+  summary: string
+  seniority?: string | null
+}): SavedJob {
+  return SavedJobSchema.parse({
+    ...buildGroundedBaselineJob(),
+    id: `job_quality_${input.id}`,
+    sourceJobId: `quality_${input.id}`,
+    canonicalUrl: `https://www.linkedin.com/jobs/view/quality_${input.id}`,
+    applicationUrl: `https://www.linkedin.com/jobs/view/quality_${input.id}/apply`,
+    title: input.title,
+    company: input.company,
+    location: 'Remote',
+    workMode: ['remote'],
+    summary: input.summary,
+    description: `${input.summary} ${input.keySkills.join(', ')} experience is important for this role.`,
+    keySkills: [...input.keySkills],
+    responsibilities: [
+      `Deliver ${input.title.toLowerCase()} outcomes across product and platform teams.`,
+      `Improve reliability, delivery quality, and maintainability using ${input.keySkills.slice(0, 3).join(', ')}.`,
+    ],
+    minimumQualifications: [
+      `Professional experience with ${input.keySkills.slice(0, 3).join(', ')}.`,
+      'Experience shipping production software with cross-functional teams.',
+    ],
+    preferredQualifications: ['Evidence of measurable product or platform impact.'],
+    seniority: input.seniority ?? 'Senior',
+    department: 'Engineering',
+    team: 'Product Engineering',
+    atsProvider: 'Greenhouse',
+    keywordSignals: input.keySkills.slice(0, 5).map((skill, index) => ({
+      id: `job_quality_${input.id}_skill_${index + 1}`,
+      label: skill,
+      kind: 'skill' as const,
+      weight: 5 - Math.min(index, 3),
+    })),
+    matchAssessment: {
+      score: 88,
+      reasons: ['Representative real imported resume fixture for resume quality coverage.'],
+      gaps: [],
+    },
+  })
+}
+
+const realFixtureQualityTargets: Record<string, {
+  title: string
+  company: string
+  keySkills: readonly string[]
+  summary: string
+  seniority?: string | null
+}> = {
+  aaron_murphy_pdf: {
+    title: 'Staff Software Engineer',
+    company: 'Northstar Platform',
+    keySkills: ['Software Engineering', 'Platform', 'React', 'Node.js', 'AWS'],
+    summary: 'Lead product-platform engineering for a growing SaaS organization.',
+    seniority: 'Staff',
+  },
+  ebrar_pdf: {
+    title: 'Senior Full-Stack Engineer',
+    company: 'Automated Systems Group',
+    keySkills: ['.NET', 'React', 'TypeScript', 'SQL', 'Azure'],
+    summary: 'Build and modernize full-stack web applications for business automation teams.',
+  },
+  ebrar_new_pdf: {
+    title: 'Senior Full-Stack Engineer',
+    company: 'Workflow Automation Labs',
+    keySkills: ['.NET', 'React', 'TypeScript', 'SQL', 'Docker'],
+    summary: 'Own full-stack automation products from API design through user-facing delivery.',
+  },
+  paul_asselin_pdf: {
+    title: 'Senior Software Engineer',
+    company: 'Mercury Product Cloud',
+    keySkills: ['Ruby', 'React', 'API Design', 'PostgreSQL', 'AWS'],
+    summary: 'Ship reliable financial-product software with strong backend and frontend ownership.',
+  },
+  ryan_holstien_pdf: {
+    title: 'Senior Platform Engineer',
+    company: 'DataHub Cloud',
+    keySkills: ['Java', 'Distributed Systems', 'AWS', 'Microservices', 'Kubernetes'],
+    summary: 'Design scalable platform services for high-volume data and marketplace products.',
+  },
+}
+
+async function importRealFixtureProfile(input: {
+  fixtureId: string
+  resumePath: string
+  label: string
+}) {
+  const repoRoot = resolveRepoRoot()
+  const state = createEmptyJobFinderRepositoryState()
+  const absoluteResumePath = path.resolve(repoRoot, input.resumePath)
+  const extracted = await extractResumeDocument(absoluteResumePath, {
+    bundleId: `quality_bundle_${input.fixtureId}`,
+    runId: `quality_import_run_${input.fixtureId}`,
+    sourceResumeId: `quality_resume_${input.fixtureId}`,
+  })
+  const profile = CandidateProfileSchema.parse({
+    ...state.profile,
+    baseResume: {
+      ...state.profile.baseResume,
+      id: `quality_resume_${input.fixtureId}`,
+      fileName: path.basename(input.resumePath),
+      uploadedAt: '2026-04-26T12:00:00.000Z',
+      storagePath: absoluteResumePath,
+      textContent: extracted.bundle.fullText,
+      textUpdatedAt: extracted.bundle.fullText ? '2026-04-26T12:00:00.000Z' : null,
+      extractionStatus: extracted.bundle.fullText ? 'ready' : 'needs_text',
+      lastAnalyzedAt: '2026-04-26T12:00:00.000Z',
+      analysisProviderKind: 'deterministic',
+      analysisProviderLabel: `Resume quality fixture import: ${input.label}`,
+      analysisWarnings: extracted.bundle.warnings,
+    },
+  })
+  const repository = createInMemoryJobFinderRepository({
+    ...state,
+    profile,
+  })
+  const browserRuntime = createCatalogBrowserSessionRuntime({
+    sessions: [],
+    catalog: [],
+  })
+  const documentManager = createLocalJobFinderDocumentManager({
+    outputDirectory: path.join(os.tmpdir(), `unemployed-quality-import-${input.fixtureId}`),
+  })
+  const workspaceService = createJobFinderWorkspaceService({
+    aiClient: buildResumeImportBenchmarkAiClient(false),
+    browserRuntime,
+    documentManager,
+    repository,
+  })
+
+  try {
+    await workspaceService.runResumeImport({
+      baseResume: profile.baseResume,
+      documentBundle: extracted.bundle,
+      importWarnings: extracted.bundle.warnings,
+    })
+
+    return repository.getProfile()
+  } finally {
+    await Promise.allSettled([
+      workspaceService.shutdown(),
+      repository.close(),
+    ])
+  }
+}
+
+function buildRealFixtureQualityCases(): ResumeQualityBenchmarkFixture[] {
+  return defaultResumeImportBenchmarkCases
+    .filter((benchmarkCase) => benchmarkCase.id !== 'resume_import_sample_txt')
+    .map((benchmarkCase) => {
+      const target = realFixtureQualityTargets[benchmarkCase.id]
+      if (!target) {
+        throw new Error(`Missing resume-quality target for real fixture '${benchmarkCase.id}'.`)
+      }
+
+      return {
+        definition: {
+          id: `real_${benchmarkCase.id.replace(/_pdf$/, '')}`,
+          label: `Real fixture: ${benchmarkCase.label}`,
+          canary: false,
+          tags: ['real-fixture', ...benchmarkCase.tags],
+        },
+        async buildState(templateId) {
+          const importedProfile = await importRealFixtureProfile({
+            fixtureId: benchmarkCase.id,
+            resumePath: benchmarkCase.resumePath,
+            label: benchmarkCase.label,
+          })
+          const profile = CandidateProfileSchema.parse({
+            ...importedProfile,
+            targetRoles: [target.title],
+            skills: [...new Set([...importedProfile.skills, ...target.keySkills])],
+            skillGroups: {
+              ...importedProfile.skillGroups,
+              coreSkills: [...new Set([...importedProfile.skillGroups.coreSkills, ...target.keySkills.slice(0, 4)])],
+            },
+          })
+          return buildStateForCase({
+            templateId,
+            profile,
+            job: buildRealFixtureJob({
+              id: benchmarkCase.id,
+              ...target,
+            }),
+          })
+        },
+      } satisfies ResumeQualityBenchmarkFixture
+    })
+}
+
+function parseMonthForSort(value: string | null | undefined): number | null {
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) {
+    return null
+  }
+
+  if (/^(present|current)$/i.test(trimmed)) {
+    return Number.MAX_SAFE_INTEGER
+  }
+
+  const yearMonthMatch = /^(\d{4})-(\d{2})/.exec(trimmed)
+  if (yearMonthMatch) {
+    return Number(yearMonthMatch[1]) * 12 + Number(yearMonthMatch[2])
+  }
+
+  const yearMatch = /^(\d{4})$/.exec(trimmed)
+  if (yearMatch) {
+    return Number(yearMatch[1]) * 12 + 1
+  }
+
+  return null
+}
+
+function sortProfileForResumeCoverage(profile: JobFinderRepositoryState['profile']) {
+  return CandidateProfileSchema.parse({
+    ...profile,
+    experiences: [...profile.experiences].sort((left, right) => {
+      const leftMonth = (left.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(left.endDate)) ?? parseMonthForSort(left.startDate) ?? Number.MIN_SAFE_INTEGER
+      const rightMonth = (right.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(right.endDate)) ?? parseMonthForSort(right.startDate) ?? Number.MIN_SAFE_INTEGER
+      return rightMonth - leftMonth
+    }),
+  })
+}
+
 function buildStateForCase(input: {
   templateId: ResumeTemplateId
   profile: JobFinderRepositoryState['profile']
@@ -906,7 +1168,7 @@ function buildStateForCase(input: {
 
   return {
     ...state,
-    profile: input.profile,
+    profile: sortProfileForResumeCoverage(input.profile),
     searchPreferences: {
       ...state.searchPreferences,
       targetRoles: [input.job.title],
@@ -1046,6 +1308,7 @@ const defaultResumeQualityBenchmarkCases: ResumeQualityBenchmarkFixture[] = [
       })
     },
   },
+  ...buildRealFixtureQualityCases(),
 ]
 
 function resolveBenchmarkFixtures(
@@ -1096,6 +1359,13 @@ function buildBenchmarkAiClient(
       })
     },
   }
+}
+
+async function resolveFixtureState(
+  fixture: ResumeQualityBenchmarkFixture,
+  templateId: ResumeTemplateId,
+): Promise<JobFinderRepositoryState> {
+  return fixture.buildState(templateId)
 }
 
 function includesKeywordCoverage(content: string, job: SavedJob): boolean {
@@ -1207,7 +1477,11 @@ export async function runDesktopResumeQualityBenchmark(
   const request = ResumeQualityBenchmarkRequestSchema.parse(input)
   const fixtures = resolveBenchmarkFixtures(request)
   const availableTemplates = listLocalResumeTemplates()
-  const templates = selectBenchmarkTemplateIds(availableTemplates)
+  const benchmarkTemplateIds = selectBenchmarkTemplateIds(availableTemplates)
+  const requestedTemplateIds = request.templateIds.length > 0
+    ? request.templateIds.filter((templateId) => benchmarkTemplateIds.includes(templateId))
+    : benchmarkTemplateIds
+  const templates = [...new Set(requestedTemplateIds)]
   const results: ResumeQualityBenchmarkCaseResult[] = []
 
   if (templates.length === 0) {
@@ -1218,7 +1492,7 @@ export async function runDesktopResumeQualityBenchmark(
 
   try {
     for (const fixture of fixtures) {
-      const baseState = fixture.buildState(templates[0]!)
+      const baseState = await resolveFixtureState(fixture, templates[0]!)
       const repository = createInMemoryJobFinderRepository(baseState)
       const browserRuntime = createCatalogBrowserSessionRuntime({
         sessions: [
@@ -1236,7 +1510,7 @@ export async function runDesktopResumeQualityBenchmark(
 
       try {
         for (const templateId of templates) {
-          const state = fixture.buildState(templateId)
+          const state = await resolveFixtureState(fixture, templateId)
           await repository.reset(state)
           const aiClient = buildBenchmarkAiClient(fixture)
           const documentManager = createLocalJobFinderDocumentManager({

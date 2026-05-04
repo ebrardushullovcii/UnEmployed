@@ -598,7 +598,7 @@ function renderSwissAccentHeader(renderDocument: ResumeRenderDocument, mode: Ren
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-swiss-accent">
-      <p class="eyebrow">Swiss Minimal</p>
+      <p class="eyebrow">Modern Editorial</p>
       <div class="identity-block">
         ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
         ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left', text: renderDocument.headline }) : ''}
@@ -615,7 +615,7 @@ function renderExecutiveHeader(
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-executive${variant === 'credentials' ? ' header-executive-credentials' : ''}">
-      <p class="eyebrow">Executive Brief</p>
+      <p class="eyebrow">${variant === 'credentials' ? 'Credential Ledger' : 'Senior Brief'}</p>
       <div class="identity-block identity-block-tight">
         ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
         ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-executive', text: renderDocument.headline }) : ''}
@@ -643,13 +643,87 @@ function renderPortfolioHeader(renderDocument: ResumeRenderDocument, mode: Rende
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-portfolio">
-      <p class="eyebrow">Portfolio Narrative</p>
+      <p class="eyebrow">Proof Portfolio</p>
       <div class="identity-block">
         ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
         ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-portfolio', text: renderDocument.headline }) : ''}
       </div>
       ${renderIdentityMeta(contactValues, 'meta-pill-list meta-pill-list-left meta-pill-list-warm', mode, 'ul')}
     </header>`
+}
+
+function renderLongformHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
+  const contactValues = buildHeaderIdentityValues(renderDocument)
+
+  return `<header class="header header-longform">
+      <div class="header-longform-topline">
+        <p class="eyebrow">Longform Timeline</p>
+        ${renderIdentityMeta(contactValues, 'meta meta-longform', mode)}
+      </div>
+      <div class="identity-block">
+        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left name-longform', text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-longform', text: renderDocument.headline }) : ''}
+      </div>
+    </header>`
+}
+
+function renderCareerPivotHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
+  const contactValues = buildHeaderIdentityValues(renderDocument)
+
+  return `<header class="header header-pivot">
+      <p class="eyebrow">Career Pivot Bridge</p>
+      <div class="identity-block identity-block-pivot">
+        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left name-pivot', text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-pivot', text: renderDocument.headline }) : ''}
+      </div>
+      ${renderIdentityMeta(contactValues, 'meta-pill-list meta-pill-list-left meta-pill-list-pivot', mode, 'ul')}
+    </header>`
+}
+
+function countSectionEntries(section: RenderSection | null): number {
+  return section?.entries.length ?? 0
+}
+
+function countSectionBullets(section: RenderSection | null): number {
+  return section?.bullets.length ?? 0
+}
+
+function renderCareerSnapshotSection(context: TemplateRenderContext): string {
+  const snapshotValues = [
+    {
+      label: 'Roles',
+      value: countSectionEntries(context.catalog.experienceSection),
+    },
+    {
+      label: 'Projects',
+      value: countSectionEntries(context.catalog.projectSection),
+    },
+    {
+      label: 'Skill signals',
+      value:
+        countSectionBullets(context.catalog.coreSkillsSection) +
+        countSectionBullets(context.catalog.additionalSkillsSection),
+    },
+    {
+      label: 'Credentials',
+      value:
+        countSectionEntries(context.catalog.certificationSection) +
+        countSectionEntries(context.catalog.educationSection),
+    },
+  ].filter((item) => item.value > 0)
+
+  if (snapshotValues.length === 0) {
+    return ''
+  }
+
+  return `
+    <section class="section-block career-snapshot">
+      <h3>Career Snapshot</h3>
+      <ul class="snapshot-list">
+        ${snapshotValues.map((item) => `<li><strong>${escapeHtml(String(item.value))}</strong><span>${escapeHtml(item.label)}</span></li>`).join('')}
+      </ul>
+    </section>
+  `
 }
 
 function renderTechnicalSkillsInlineSection(
@@ -897,6 +971,69 @@ function buildPortfolioNarrativeLayout(context: TemplateRenderContext): Template
   }
 }
 
+function buildLongformTimelineLayout(context: TemplateRenderContext): TemplateLayout {
+  return {
+    templateClassName: 'theme-timeline_longform',
+    pageClassName: 'page page-longform',
+    bodyClassName: 'body-grid body-grid-longform',
+    headerMarkup: renderLongformHeader(context.renderDocument, context.mode),
+    bodyContent: joinRenderedSections([
+      renderSectionCluster('section-cluster section-longform-orientation', [
+        renderCareerSnapshotSection(context),
+        renderSummaryCallout(
+          context.catalog.summarySection,
+          'section-summary-tight section-longform-summary',
+          context.mode,
+        ),
+        renderTechnicalSkillsInlineSection(context, 'section-longform-skills'),
+      ]),
+      renderSection(
+        context.catalog.experienceSection,
+        'section-timeline section-longform-chronology',
+        context.mode,
+      ),
+      renderSectionCluster('section-cluster section-longform-proof', [
+        renderSection(context.catalog.projectSection, 'section-proof-led section-proof-compact', context.mode),
+        renderSection(context.catalog.certificationSection, 'section-subtle-card section-subtle-card-tight', context.mode),
+        renderSection(context.catalog.educationSection, 'section-subtle-card section-subtle-card-tight', context.mode),
+        ...context.remainingSectionContent,
+        renderLanguagesSection(context.catalog.languageSection, context.mode),
+      ]),
+    ]),
+  }
+}
+
+function buildCareerPivotLayout(context: TemplateRenderContext): TemplateLayout {
+  return {
+    templateClassName: 'theme-career_pivot',
+    pageClassName: 'page page-pivot',
+    bodyClassName: 'body-grid body-grid-pivot',
+    headerMarkup: renderCareerPivotHeader(context.renderDocument, context.mode),
+    bodyContent: joinRenderedSections([
+      renderSectionCluster('section-cluster section-pivot-bridge', [
+        renderSummaryCallout(context.catalog.summarySection, 'section-pivot-summary', context.mode),
+        renderTechnicalSkillsMatrixSection(context, 'section-surface-block section-pivot-skills'),
+      ]),
+      renderSection(
+        context.catalog.projectSection,
+        'section-project-accent section-proof-led section-pivot-proof',
+        context.mode,
+      ),
+      renderSection(
+        context.catalog.experienceSection,
+        'section-timeline section-pivot-chronology',
+        context.mode,
+      ),
+      renderSectionCluster('section-cluster section-pivot-supporting', [
+        renderSection(context.catalog.certificationSection, 'section-subtle-card', context.mode),
+        renderSection(context.catalog.educationSection, 'section-subtle-card', context.mode),
+        ...context.remainingSectionContent,
+        renderLanguagesSection(context.catalog.languageSection, context.mode),
+      ]),
+    ]),
+  }
+}
+
 function buildTemplateLayout(input: {
   renderDocument: ResumeRenderDocument
   templateId: ResumeTemplateId
@@ -918,6 +1055,10 @@ function buildTemplateLayout(input: {
       return buildPortfolioNarrativeLayout(context)
     case 'credentials_focus':
       return buildExecutiveBriefCredentialsLayout(context)
+    case 'timeline_longform':
+      return buildLongformTimelineLayout(context)
+    case 'career_pivot':
+      return buildCareerPivotLayout(context)
     case 'classic_ats':
     default:
       return buildSwissMinimalStandardLayout(context)
@@ -962,30 +1103,40 @@ export function renderResumeTemplateHtml(input: {
       --resume-page-padding-technical: 0.48in 0.54in;
       --resume-page-padding-projects: 0.56in 0.6in;
       --resume-page-padding-credentials: 0.52in 0.58in;
+      --resume-page-padding-longform: 0.42in 0.48in;
+      --resume-page-padding-pivot: 0.52in 0.58in;
       --resume-catalog-page-padding-classic: 0.42in 0.48in;
       --resume-catalog-page-padding-compact: 0.38in 0.42in;
       --resume-catalog-page-padding-modern: 0.42in 0.48in;
       --resume-catalog-page-padding-technical: 0.4in 0.44in;
       --resume-catalog-page-padding-projects: 0.44in 0.5in;
       --resume-catalog-page-padding-credentials: 0.42in 0.48in;
-      --resume-classic-accent: var(--primary, #1f3a5f);
+      --resume-catalog-page-padding-longform: 0.34in 0.4in;
+      --resume-catalog-page-padding-pivot: 0.42in 0.48in;
+      --resume-classic-accent: var(--foreground, #202124);
       --resume-classic-line: var(--border, #cfd6df);
-      --resume-classic-surface: var(--surface-muted, #f6f8fb);
-      --resume-compact-accent: var(--primary, #18344f);
-      --resume-compact-line: var(--border, #c9d2dc);
-      --resume-compact-surface: var(--surface-muted, #f5f7fa);
-      --resume-modern-accent: var(--primary, #27507d);
-      --resume-modern-line: var(--border, #cad6e5);
-      --resume-modern-surface: var(--surface-muted, #eef4fb);
-      --resume-technical-accent: var(--primary, #13515a);
-      --resume-technical-line: var(--border, #c5d7d8);
-      --resume-technical-surface: var(--surface-muted, #eef7f8);
-      --resume-projects-accent: var(--primary, #6c4028);
-      --resume-projects-line: var(--border, #dccdc5);
-      --resume-projects-surface: var(--surface-muted, #faf3ef);
-      --resume-credentials-accent: var(--primary, #5d4373);
-      --resume-credentials-line: var(--border, #d6cce0);
-      --resume-credentials-surface: var(--surface-muted, #f5f0f9);
+      --resume-classic-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
+      --resume-compact-accent: var(--foreground, #202124);
+      --resume-compact-line: var(--border, #cfd6df);
+      --resume-compact-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
+      --resume-modern-accent: var(--foreground, #202124);
+      --resume-modern-line: var(--border, #cfd6df);
+      --resume-modern-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
+      --resume-technical-accent: var(--foreground, #202124);
+      --resume-technical-line: var(--border, #cfd6df);
+      --resume-technical-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
+      --resume-projects-accent: var(--foreground, #202124);
+      --resume-projects-line: var(--border, #cfd6df);
+      --resume-projects-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
+      --resume-credentials-accent: var(--foreground, #202124);
+      --resume-credentials-line: var(--border, #cfd6df);
+      --resume-credentials-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
+      --resume-longform-accent: var(--foreground, #202124);
+      --resume-longform-line: var(--border, #cfd6df);
+      --resume-longform-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
+      --resume-pivot-accent: var(--foreground, #202124);
+      --resume-pivot-line: var(--border, #cfd6df);
+      --resume-pivot-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
       --ink: var(--foreground, #202124);
       --muted: var(--muted-foreground, #4f5661);
       --line: var(--resume-classic-line);
@@ -1002,6 +1153,8 @@ export function renderResumeTemplateHtml(input: {
     .page-technical { padding: var(--resume-page-padding-technical); }
     .page-projects { padding: var(--resume-page-padding-projects); }
     .page-credentials { padding: var(--resume-page-padding-credentials); }
+    .page-longform { padding: var(--resume-page-padding-longform); }
+    .page-pivot { padding: var(--resume-page-padding-pivot); }
     h1, h2, h3, h4, p, ul { margin: 0; }
     .name { font-size: 1.55rem; line-height: 1.1; letter-spacing: -0.015em; text-align: center; }
     .name-left { text-align: left; }
@@ -1022,14 +1175,19 @@ export function renderResumeTemplateHtml(input: {
     .header-spec { border-bottom: 2px solid var(--accent); padding-bottom: 0.34rem; }
     .header-spec-shell { display: grid; gap: 0.18rem; border: 1px solid var(--line); background: var(--surface); border-radius: 0.16in; padding: 0.14in 0.16in; }
     .header-portfolio { justify-items: start; text-align: left; border-bottom: 2px solid var(--accent); gap: 0.22rem; }
+    .header-longform { gap: 0.16rem; border-bottom: 3px double var(--line); padding-bottom: 0.28rem; }
+    .header-longform-topline { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.12rem 0.45rem; }
+    .header-pivot { justify-items: start; text-align: left; gap: 0.18rem; border: 1px solid var(--line); border-left: 0.14in solid var(--accent); border-radius: 0.16in; background: linear-gradient(135deg, color-mix(in srgb, var(--surface) 92%, var(--resume-paper)), var(--resume-paper)); padding: 0.16in 0.18in; }
     .meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.18rem 0.55rem; color: var(--muted); font-size: 0.82rem; }
     .meta-left { justify-content: flex-start; }
     .meta span + span::before { content: '|'; color: var(--line); margin-right: 0.55rem; }
+    .meta-longform { justify-content: flex-end; font-size: 0.75rem; gap: 0.12rem 0.4rem; }
     .meta-stack { display: grid; gap: 0.08rem; color: var(--muted); font-size: 0.8rem; }
     .meta-pill-list { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.14rem; color: var(--muted); }
     .meta-pill-list li { border: 1px solid var(--line); border-radius: 999px; padding: 0.08rem 0.34rem; font-size: 0.76rem; line-height: 1.15; background: var(--resume-paper); }
     .meta-pill-list-left { justify-content: flex-start; }
     .meta-pill-list-warm li { background: color-mix(in srgb, var(--surface) 80%, var(--resume-paper)); }
+    .meta-pill-list-pivot li { background: color-mix(in srgb, var(--surface) 82%, var(--resume-paper)); }
     .section-block { display: grid; gap: 0.24rem; }
     .section-cluster { display: grid; gap: 0.42rem; }
     .section-cluster-classic-intro,
@@ -1037,12 +1195,16 @@ export function renderResumeTemplateHtml(input: {
     .section-executive-intro,
     .section-spec-lead,
     .section-portfolio-hero,
-    .section-credential-spotlight { padding-bottom: 0.08rem; border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, var(--resume-paper)); }
+    .section-credential-spotlight,
+    .section-longform-orientation,
+    .section-pivot-bridge { padding-bottom: 0.08rem; border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, var(--resume-paper)); }
     .section-cluster-classic-support,
     .section-cluster-supporting,
     .section-cluster-compact-support,
     .section-spec-supporting,
-    .section-portfolio-supporting { gap: 0.34rem; }
+    .section-portfolio-supporting,
+    .section-longform-proof,
+    .section-pivot-supporting { gap: 0.34rem; }
     .section-summary-callout { border: 1px solid var(--line); background: var(--surface); padding: 0.18in 0.18in 0.16in; border-radius: 0.14in; }
     .section-summary-tight { padding: 0.14in 0.16in; }
     .section-summary-accent { border-left: 0.12in solid color-mix(in srgb, var(--accent) 24%, var(--resume-paper)); }
@@ -1063,6 +1225,19 @@ export function renderResumeTemplateHtml(input: {
     .section-portfolio-highlight { background: color-mix(in srgb, var(--surface) 84%, var(--resume-paper)); }
     .section-portfolio-narrative { border-style: dashed; }
     .section-spec-shell { background: color-mix(in srgb, var(--surface) 82%, var(--resume-paper)); }
+    .section-longform-summary { border-left: 0.08in solid color-mix(in srgb, var(--accent) 28%, var(--resume-paper)); }
+    .section-longform-skills .inline-lines { gap: 0.06rem; }
+    .section-longform-skills .inline-lines p { font-size: 0.79rem; line-height: 1.24; }
+    .section-longform-chronology .entry-block { border-left: 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, var(--resume-paper)); padding-top: 0.13rem; padding-left: 0; margin-top: 0.16rem; }
+    .section-pivot-summary { border-style: solid; border-left: 0.12in solid color-mix(in srgb, var(--accent) 30%, var(--resume-paper)); }
+    .section-pivot-proof { border: 1px solid color-mix(in srgb, var(--line) 76%, var(--resume-paper)); border-radius: 0.16in; background: color-mix(in srgb, var(--surface) 80%, var(--resume-paper)); padding: 0.16in 0.18in; }
+    .section-pivot-proof .entry-block:first-of-type { margin-top: 0; }
+    .section-pivot-chronology .entry-block { border-left-style: dashed; }
+    .career-snapshot { border: 1px solid var(--line); border-radius: 0.14in; background: color-mix(in srgb, var(--surface) 82%, var(--resume-paper)); padding: 0.12in 0.14in; }
+    .snapshot-list { list-style: none; padding-left: 0; display: grid; grid-template-columns: 1fr; gap: 0.08rem; }
+    .snapshot-list li { display: grid; gap: 0.02rem; border-left: 1px solid color-mix(in srgb, var(--accent) 28%, var(--resume-paper)); padding-left: 0.1rem; font-size: 0.72rem; line-height: 1.14; }
+    .snapshot-list strong { color: var(--accent); font-size: 0.95rem; line-height: 1; }
+    .snapshot-list span { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .entry-block { display: grid; gap: 0.18rem; margin-top: 0.24rem; break-inside: avoid; page-break-inside: avoid; }
     .entry-primary { min-width: 0; }
     .entry-meta { color: var(--muted); font-size: 0.84rem; font-weight: 500; }
@@ -1082,17 +1257,23 @@ export function renderResumeTemplateHtml(input: {
     .body-grid-technical { gap: 0.54rem; margin-top: 0.62rem; }
     .body-grid-projects { gap: 0.64rem; margin-top: 0.68rem; }
     .body-grid-credentials { gap: 0.58rem; margin-top: 0.64rem; }
+    .body-grid-longform { gap: 0.42rem; margin-top: 0.48rem; }
+    .body-grid-pivot { gap: 0.58rem; margin-top: 0.64rem; }
     .theme-classic_ats { --accent: var(--resume-classic-accent); --line: var(--resume-classic-line); --surface: var(--resume-classic-surface); }
     .theme-compact_exec { --accent: var(--resume-compact-accent); --line: var(--resume-compact-line); --surface: var(--resume-compact-surface); }
     .theme-modern_split { --accent: var(--resume-modern-accent); --line: var(--resume-modern-line); --surface: var(--resume-modern-surface); }
     .theme-technical_matrix { --accent: var(--resume-technical-accent); --line: var(--resume-technical-line); --surface: var(--resume-technical-surface); }
     .theme-project_showcase { --accent: var(--resume-projects-accent); --line: var(--resume-projects-line); --surface: var(--resume-projects-surface); }
     .theme-credentials_focus { --accent: var(--resume-credentials-accent); --line: var(--resume-credentials-line); --surface: var(--resume-credentials-surface); }
+    .theme-timeline_longform { --accent: var(--resume-longform-accent); --line: var(--resume-longform-line); --surface: var(--resume-longform-surface); }
+    .theme-career_pivot { --accent: var(--resume-pivot-accent); --line: var(--resume-pivot-line); --surface: var(--resume-pivot-surface); }
     .theme-modern_split .name,
     .theme-project_showcase .name { letter-spacing: -0.02em; }
     .theme-modern_split .eyebrow,
     .theme-project_showcase .eyebrow { letter-spacing: 0.18em; }
     .theme-technical_matrix .eyebrow { letter-spacing: 0.14em; }
+    .theme-timeline_longform .eyebrow { letter-spacing: 0.12em; }
+    .theme-career_pivot .eyebrow { letter-spacing: 0.15em; }
     .theme-technical_matrix .skill-pill-list li { font-size: 0.79rem; }
     .theme-technical_matrix .skill-group { border-top: 1px solid color-mix(in srgb, var(--line) 72%, var(--resume-paper)); padding-top: 0.12rem; }
     .theme-project_showcase .section-project-spotlight .entry-block:first-of-type { margin-top: 0; }
@@ -1103,6 +1284,14 @@ export function renderResumeTemplateHtml(input: {
     .page-compact .header { gap: 0.14rem; padding-bottom: 0.34rem; }
     .page-technical p, .page-technical li { font-size: 0.86rem; }
     .page-projects .section-project-accent .entry-block { padding-left: 0.2rem; }
+    .page-longform .name { font-size: 1.38rem; }
+    .page-longform .headline { font-size: 0.86rem; }
+    .page-longform h3 { font-size: 0.74rem; margin-bottom: 0.18rem; }
+    .page-longform h4 { font-size: 0.84rem; line-height: 1.24; }
+    .page-longform p, .page-longform li { font-size: 0.8rem; line-height: 1.25; }
+    .page-longform .entry-block { gap: 0.11rem; }
+    .page-pivot .name { font-size: 1.5rem; }
+    .page-pivot .section-project-accent .entry-block { padding-left: 0.18rem; }
     ${mode === 'preview'
       ? `
     html, body.preview-body {
@@ -1173,13 +1362,17 @@ export function renderResumeTemplateHtml(input: {
     .catalog-body-panel .page-technical { padding: var(--resume-catalog-page-padding-technical); }
     .catalog-body-panel .page-projects { padding: var(--resume-catalog-page-padding-projects); }
     .catalog-body-panel .page-credentials { padding: var(--resume-catalog-page-padding-credentials); }
+    .catalog-body-panel .page-longform { padding: var(--resume-catalog-page-padding-longform); }
+    .catalog-body-panel .page-pivot { padding: var(--resume-catalog-page-padding-pivot); }
     .catalog-body-panel .header { gap: 0.12rem; padding-bottom: 0.3rem; }
     .catalog-body-panel .body-grid-classic,
     .catalog-body-panel .body-grid-compact,
     .catalog-body-panel .body-grid-modern,
     .catalog-body-panel .body-grid-technical,
     .catalog-body-panel .body-grid-projects,
-    .catalog-body-panel .body-grid-credentials { gap: 0.44rem; margin-top: 0.48rem; }
+    .catalog-body-panel .body-grid-credentials,
+    .catalog-body-panel .body-grid-longform,
+    .catalog-body-panel .body-grid-pivot { gap: 0.44rem; margin-top: 0.48rem; }
     .catalog-body-panel .section-cluster { gap: 0.28rem; }
     .catalog-body-panel .section-summary-callout,
     .catalog-body-panel .section-subtle-card,

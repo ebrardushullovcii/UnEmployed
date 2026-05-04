@@ -1,20 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import type {
   ResumeTemplateDefinition,
   ResumeTemplateId,
 } from "@unemployed/contracts";
-import {
-  getResumeTemplateAtsConfidence,
-  getResumeTemplateDeliveryLane,
-  getResumeTemplateFamilyId,
-  getResumeTemplateVisualTags,
-} from "@unemployed/contracts";
 import { ResumeThemePickerCompact } from "./resume-theme-picker-compact";
 import { ResumeThemePickerFull } from "./resume-theme-picker-full";
 import {
-  buildFamilyViewModels,
   buildResumeThemePickerRecommendations,
-  type ResumeTemplateFamilyViewModel,
+  sortResumeThemeOptions,
   type ResumeThemePickerRecommendationContext,
 } from "./resume-theme-picker-helpers";
 
@@ -59,55 +52,14 @@ export function ResumeThemePicker({
     () => new Set(recommendations.map((recommendation) => recommendation.templateId)),
     [recommendations],
   );
-  const families = useMemo(() => buildFamilyViewModels(themes), [themes]);
+  const sortedThemes = useMemo(() => sortResumeThemeOptions(themes), [themes]);
   const selectedTemplate =
-    themes.find((theme) => theme.id === selectedThemeId) ?? themes[0] ?? null;
-  const selectedFamilyId = selectedTemplate
-    ? getResumeTemplateFamilyId(selectedTemplate)
-    : (families[0]?.id ?? null);
-  const selectedFamily =
-    families.find((family) => family.id === selectedFamilyId) ?? null;
-  const [focusedFamilyId, setFocusedFamilyId] = useState<string | null>(
-    selectedFamilyId ?? families[0]?.id ?? null,
-  );
-  const familySectionRefs = useRef<Record<string, HTMLElement | null>>({});
-
-  useEffect(() => {
-    if (selectedFamilyId) {
-      setFocusedFamilyId(selectedFamilyId);
-    }
-  }, [selectedFamilyId]);
-
-  useEffect(() => {
-    if (!selectedFamilyId) {
-      return;
-    }
-
-    const selectedFamilySection = familySectionRefs.current[selectedFamilyId];
-    selectedFamilySection?.scrollIntoView?.({ block: "nearest" });
-  }, [selectedFamilyId, selectedThemeId]);
-
-  const focusedFamily =
-    families.find((family) => family.id === focusedFamilyId) ?? families[0] ?? null;
-  const focusedFamilyRecommended =
-    focusedFamily?.templates.find((template) => recommendedThemeIds.has(template.id)) ??
-    null;
-  const leadingRecommendedFamily = recommendations[0]
-    ? (families.find((family) =>
-        family.templates.some(
-          (template) => template.id === recommendations[0]?.templateId,
-        ),
-      ) ?? null)
-    : null;
-  const heroTemplate = selectedTemplate ?? focusedFamily?.templates[0] ?? null;
+    sortedThemes.find((theme) => theme.id === selectedThemeId) ?? sortedThemes[0] ?? null;
+  const heroTemplate = selectedTemplate;
   const heroReason = heroTemplate
     ? (recommendationReasons.get(heroTemplate.id) ?? null)
     : null;
-  const heroVisualTags = heroTemplate
-    ? getResumeTemplateVisualTags(heroTemplate).slice(0, 2)
-    : [];
-
-  if (!heroTemplate || !focusedFamily) {
+  if (!heroTemplate) {
     return (
       <div className="rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/55 px-4 py-5 text-sm leading-6 text-foreground-soft">
         No templates are available right now.
@@ -115,51 +67,25 @@ export function ResumeThemePicker({
     );
   }
 
-  const sharedProps = {
-    disabled,
-    families,
-    focusedFamily,
-    leadingRecommendedFamily,
-    onChange,
-    recommendationReasons,
-    selectedFamily,
-    selectedThemeId,
-    setFocusedFamilyId,
-  } satisfies {
-    disabled: boolean;
-    families: readonly ResumeTemplateFamilyViewModel[];
-    focusedFamily: ResumeTemplateFamilyViewModel;
-    leadingRecommendedFamily: ResumeTemplateFamilyViewModel | null;
-    onChange: (themeId: ResumeTemplateId) => void;
-    recommendationReasons: ReadonlyMap<ResumeTemplateId, string>;
-    selectedFamily: ResumeTemplateFamilyViewModel | null;
-    selectedThemeId: ResumeTemplateId;
-    setFocusedFamilyId: (familyId: string) => void;
-  };
-
   return mode === "compact" ? (
-    <ResumeThemePickerCompact {...sharedProps} id={id} />
+    <ResumeThemePickerCompact
+      disabled={disabled}
+      id={id}
+      onChange={onChange}
+      recommendationReasons={recommendationReasons}
+      selectedThemeId={selectedThemeId}
+      themes={sortedThemes}
+    />
   ) : (
     <ResumeThemePickerFull
       disabled={disabled}
-      families={families}
-      familySectionRefs={familySectionRefs}
-      heroAtsConfidence={getResumeTemplateAtsConfidence(heroTemplate)}
-      heroDeliveryLane={getResumeTemplateDeliveryLane(heroTemplate)}
-      focusedFamily={focusedFamily}
-      focusedFamilyId={focusedFamilyId}
-      focusedFamilyRecommendedId={focusedFamilyRecommended?.id ?? null}
       heroReason={heroReason}
-      heroTemplateDescription={heroTemplate.description}
-      heroTemplateId={heroTemplate.id}
-      heroTemplateLabel={heroTemplate.label}
-      heroVisualTags={heroVisualTags}
+      heroTemplate={heroTemplate}
       id={id}
       onChange={onChange}
       recommendedThemeIds={recommendedThemeIds}
-      selectedFamily={selectedFamily}
       selectedThemeId={selectedThemeId}
-      setFocusedFamilyId={setFocusedFamilyId}
+      themes={sortedThemes}
     />
   );
 }

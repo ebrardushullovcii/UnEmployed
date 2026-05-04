@@ -1,7 +1,8 @@
-import { useEffect, useRef, type MutableRefObject } from "react";
-import type { ResumeTemplateId } from "@unemployed/contracts";
+import { useEffect, useRef } from "react";
+import type { ResumeTemplateDefinition, ResumeTemplateId } from "@unemployed/contracts";
 import {
-  getResumeTemplateVariantLabel,
+  getResumeTemplateAtsConfidence,
+  getResumeTemplateDeliveryLane,
   getResumeTemplateVisualTags,
 } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
@@ -11,52 +12,31 @@ import { renderResumeTemplateCatalogPreviewHtml } from "../../../../../shared/jo
 import {
   getAtsConfidenceLabel,
   getLaneLabel,
-  type ResumeTemplateFamilyViewModel,
+  getTemplateOptionLabel,
 } from "./resume-theme-picker-helpers";
 
 export function ResumeThemePickerFull(props: {
   disabled: boolean;
-  families: readonly ResumeTemplateFamilyViewModel[];
-  heroAtsConfidence: "high" | "medium" | "low";
-  focusedFamily: ResumeTemplateFamilyViewModel;
-  focusedFamilyRecommendedId: ResumeTemplateId | null;
-  focusedFamilyId: string | null;
-  heroDeliveryLane: "apply_safe" | "share_ready";
   heroReason: string | null;
-  heroTemplateId: ResumeTemplateId;
-  heroTemplateLabel: string;
-  heroTemplateDescription: string;
-  heroVisualTags: readonly string[];
+  heroTemplate: ResumeTemplateDefinition;
   id?: string | undefined;
   onChange: (themeId: ResumeTemplateId) => void;
   recommendedThemeIds: ReadonlySet<ResumeTemplateId>;
-  selectedFamily: ResumeTemplateFamilyViewModel | null;
   selectedThemeId: ResumeTemplateId;
-  setFocusedFamilyId: (familyId: string) => void;
-  familySectionRefs: MutableRefObject<Record<string, HTMLElement | null>>;
+  themes: readonly ResumeTemplateDefinition[];
 }) {
   const {
     disabled,
-    families,
-    heroAtsConfidence,
-    focusedFamily,
-    focusedFamilyId,
-    focusedFamilyRecommendedId,
-    heroDeliveryLane,
     heroReason,
-    heroTemplateDescription,
-    heroTemplateId,
-    heroTemplateLabel,
-    heroVisualTags,
+    heroTemplate,
     id,
     onChange,
     recommendedThemeIds,
-    selectedFamily,
     selectedThemeId,
-    setFocusedFamilyId,
-    familySectionRefs,
+    themes,
   } = props;
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const heroVisualTags = getResumeTemplateVisualTags(heroTemplate).slice(0, 2);
 
   useEffect(() => {
     const iframe = previewFrameRef.current;
@@ -94,7 +74,7 @@ export function ResumeThemePickerFull(props: {
       iframe.removeEventListener("load", handleLoad);
       window.removeEventListener("resize", handleLoad);
     };
-  }, [heroTemplateId]);
+  }, [heroTemplate.id]);
 
   return (
     <div className="grid gap-4" aria-labelledby={id}>
@@ -105,7 +85,7 @@ export function ResumeThemePickerFull(props: {
               <p className="label-mono-xs">Current selection</p>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-display text-[clamp(1.18rem,1.45vw,1.5rem)] font-semibold tracking-[-0.04em] text-(--text-headline)">
-                  {heroTemplateLabel}
+                  {heroTemplate.label}
                 </h3>
                 {heroVisualTags.map((tag) => (
                   <Badge key={tag} variant="section">
@@ -114,7 +94,7 @@ export function ResumeThemePickerFull(props: {
                 ))}
               </div>
               <p className="max-w-[64ch] text-[0.82rem] leading-4.5 text-foreground-soft">
-                {heroTemplateDescription}
+                {heroTemplate.description}
               </p>
               {heroReason ? (
                 <p className="text-[0.72rem] leading-4.5 text-primary/85">
@@ -125,8 +105,12 @@ export function ResumeThemePickerFull(props: {
 
             <div className="flex flex-wrap gap-2">
               <Badge variant="default">Sample renderer preview</Badge>
-              <Badge variant="section">{getLaneLabel(heroDeliveryLane)}</Badge>
-              <Badge variant="section">{getAtsConfidenceLabel(heroAtsConfidence)}</Badge>
+              <Badge variant="section">
+                {getLaneLabel(getResumeTemplateDeliveryLane(heroTemplate))}
+              </Badge>
+              <Badge variant="section">
+                {getAtsConfidenceLabel(getResumeTemplateAtsConfidence(heroTemplate))}
+              </Badge>
             </div>
           </div>
 
@@ -137,11 +121,11 @@ export function ResumeThemePickerFull(props: {
                 className="block w-full rounded-2xl border-0 bg-transparent"
                 ref={previewFrameRef}
                 sandbox="allow-same-origin"
-                srcDoc={renderResumeTemplateCatalogPreviewHtml(heroTemplateId, {
+                srcDoc={renderResumeTemplateCatalogPreviewHtml(heroTemplate.id, {
                   layout: "panel",
                 })}
                 style={{ height: "34rem" }}
-                title={`${heroTemplateLabel} preview`}
+                title={`${heroTemplate.label} preview`}
               />
             </div>
 
@@ -152,39 +136,21 @@ export function ResumeThemePickerFull(props: {
 
             <div className="min-w-0 grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="label-mono-xs">Choose a family</p>
-                <Badge variant="section">{families.length} families</Badge>
+                <p className="label-mono-xs">Choose a template</p>
+                <Badge variant="section">{themes.length} options</Badge>
               </div>
 
               <div className="grid gap-1.5">
-                {families.map((family) => (
-                  <FamilySelectorCard
+                {themes.map((theme) => (
+                  <TemplateOptionCard
                     disabled={disabled}
-                    family={family}
-                    familySectionRefs={familySectionRefs}
-                    focusedFamilyId={focusedFamilyId}
-                    focusedFamilyRecommendedId={focusedFamilyRecommendedId}
-                    key={family.id}
+                    key={theme.id}
                     onChange={onChange}
-                    recommendedThemeIds={recommendedThemeIds}
-                    selectedFamily={selectedFamily}
-                    selectedThemeId={selectedThemeId}
-                    setFocusedFamilyId={setFocusedFamilyId}
+                    recommended={recommendedThemeIds.has(theme.id)}
+                    selected={theme.id === selectedThemeId}
+                    theme={theme}
                   />
                 ))}
-              </div>
-
-              <div className="rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/35 px-2.5 py-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="label-mono-xs">Focused family</p>
-                  <Badge variant="section">{focusedFamily.label}</Badge>
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[0.72rem] leading-4 text-foreground-soft">
-                  {selectedFamily ? (
-                    <span>Current default: {selectedFamily.label}</span>
-                  ) : null}
-                  <span>Variants open directly under the active family.</span>
-                </div>
               </div>
             </div>
           </div>
@@ -194,108 +160,19 @@ export function ResumeThemePickerFull(props: {
   );
 }
 
-function FamilySelectorCard(props: {
-  disabled: boolean;
-  family: ResumeTemplateFamilyViewModel;
-  familySectionRefs: MutableRefObject<Record<string, HTMLElement | null>>;
-  focusedFamilyId: string | null;
-  focusedFamilyRecommendedId: ResumeTemplateId | null;
-  onChange: (themeId: ResumeTemplateId) => void;
-  recommendedThemeIds: ReadonlySet<ResumeTemplateId>;
-  selectedFamily: ResumeTemplateFamilyViewModel | null;
-  selectedThemeId: ResumeTemplateId;
-  setFocusedFamilyId: (familyId: string) => void;
-}) {
-  const {
-    disabled,
-    family,
-    familySectionRefs,
-    focusedFamilyId,
-    focusedFamilyRecommendedId,
-    onChange,
-    recommendedThemeIds,
-    selectedFamily,
-    selectedThemeId,
-    setFocusedFamilyId,
-  } = props;
-  const isActive = family.id === focusedFamilyId;
-  const isSelectedFamily = family.id === selectedFamily?.id;
-  const familyRecommendationCount = family.templates.filter((template) =>
-    recommendedThemeIds.has(template.id),
-  ).length;
-  const triggerId = `resume-theme-family-trigger-${family.id}`;
-  const panelId = `resume-theme-family-panel-${family.id}`;
-
-  return (
-    <div
-      ref={(element) => {
-        familySectionRefs.current[family.id] = element;
-      }}
-      className={cn(
-        "min-w-0 grid gap-1 rounded-(--radius-field) border px-2.5 py-2 transition-[border-color,background-color,box-shadow]",
-        isActive
-          ? "border-primary/35 bg-primary/7 shadow-[inset_0_1px_0_var(--focus-inset-highlight)]"
-          : "border-(--surface-panel-border) bg-background/45",
-      )}
-    >
-      <button
-        aria-controls={panelId}
-        aria-expanded={isActive}
-        className="flex min-h-9 min-w-0 items-center justify-between gap-2 text-left"
-        disabled={disabled}
-        id={triggerId}
-        onClick={() => setFocusedFamilyId(family.id)}
-        type="button"
-      >
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className="text-[0.82rem] font-semibold leading-4 text-foreground">
-            {family.label}
-          </span>
-          {isSelectedFamily ? <Badge variant="default">Selected</Badge> : null}
-          {familyRecommendationCount > 0 ? (
-            <Badge variant="section">Recommended</Badge>
-          ) : null}
-        </div>
-        <span className="text-[0.68rem] leading-4 text-foreground-soft">
-          {family.templates.length} variant{family.templates.length === 1 ? "" : "s"}
-        </span>
-      </button>
-
-      {isActive ? (
-        <div
-          aria-labelledby={triggerId}
-          className="grid gap-1 border-t border-border/10 pt-1.5"
-          id={panelId}
-          role="region"
-        >
-          {family.templates.map((theme) => (
-            <FamilyVariantCard
-              disabled={disabled}
-              key={theme.id}
-              onChange={onChange}
-              recommended={theme.id === focusedFamilyRecommendedId}
-              selected={theme.id === selectedThemeId}
-              theme={theme}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function FamilyVariantCard(props: {
+function TemplateOptionCard(props: {
   disabled: boolean;
   onChange: (themeId: ResumeTemplateId) => void;
   recommended: boolean;
   selected: boolean;
-  theme: ResumeTemplateFamilyViewModel["templates"][number];
+  theme: ResumeTemplateDefinition;
 }) {
   const { disabled, onChange, recommended, selected, theme } = props;
   const visualTags = getResumeTemplateVisualTags(theme).slice(0, 2);
 
   return (
     <div
+      data-resume-template-option={theme.id}
       className={cn(
         "min-w-0 grid gap-1 rounded-(--radius-field) border px-2.5 py-2 transition-[border-color,background-color,box-shadow]",
         selected
@@ -307,10 +184,10 @@ function FamilyVariantCard(props: {
         <div className="grid min-w-0 gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="text-[0.8rem] font-semibold leading-4 text-foreground">
-              {getResumeTemplateVariantLabel(theme)}
+              {getTemplateOptionLabel(theme)}
             </span>
             {selected ? <Badge variant="default">Selected</Badge> : null}
-            {recommended ? <Badge variant="section">Best match</Badge> : null}
+            {recommended ? <Badge variant="section">Recommended</Badge> : null}
           </div>
           {visualTags.length > 0 ? (
             <p className="text-[0.68rem] leading-4 text-foreground-soft">
@@ -321,6 +198,7 @@ function FamilyVariantCard(props: {
 
         <Button
           className="w-full"
+          data-resume-template-select={theme.id}
           disabled={disabled}
           onClick={() => {
             if (disabled) {
@@ -333,7 +211,7 @@ function FamilyVariantCard(props: {
           type="button"
           variant={selected ? "primary" : "secondary"}
         >
-          {selected ? "Selected variant" : "Use this variant"}
+          {selected ? "Selected template" : "Use this template"}
         </Button>
       </div>
     </div>

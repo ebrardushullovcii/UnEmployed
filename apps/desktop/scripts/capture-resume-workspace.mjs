@@ -68,6 +68,16 @@ async function getWorkspace(window) {
   return window.evaluate(() => window.unemployed.jobFinder.getWorkspace());
 }
 
+async function resetWorkspaceState(window, state) {
+  await window.evaluate(async (workspaceState) => {
+    if (!window.unemployed.jobFinder.test?.resetWorkspaceState) {
+      throw new Error("Desktop test reset API is unavailable.");
+    }
+
+    return window.unemployed.jobFinder.test.resetWorkspaceState(workspaceState);
+  }, state);
+}
+
 function getDraftSummaryText(workspace) {
   return (
     workspace.draft.sections.find((section) => section.kind === "summary")
@@ -205,11 +215,9 @@ function getClickablePreviewTarget(workspace) {
       targets.push({
         sectionId: section.id,
         entryId: null,
-        targetId: [
-          "section",
-          encodeContractSegment(section.id),
-          "text",
-        ].join(":"),
+        targetId: ["section", encodeContractSegment(section.id), "text"].join(
+          ":",
+        ),
         editorLabel: "Section text",
         expectedValue: section.text?.trim() ?? null,
       });
@@ -217,6 +225,33 @@ function getClickablePreviewTarget(workspace) {
   }
 
   return targets[1] ?? targets[0] ?? null;
+}
+
+function getExperienceSection(workspace) {
+  return (
+    workspace?.draft.sections.find(
+      (section) => section.kind === "experience",
+    ) ?? null
+  );
+}
+
+function getExperienceEntries(workspace) {
+  return getExperienceSection(workspace)?.entries ?? [];
+}
+
+function getExperienceEntryIds(workspace) {
+  return getExperienceEntries(workspace).map((entry) => entry.id);
+}
+
+function getPreviewEntryOrder(html, entryIds) {
+  return entryIds
+    .map((entryId) => ({
+      entryId,
+      index: html.indexOf(`data-resume-entry-id="${entryId}"`),
+    }))
+    .filter((entry) => entry.index >= 0)
+    .sort((left, right) => left.index - right.index)
+    .map((entry) => entry.entryId);
 }
 
 function getLatestBy(items, getTimestamp) {
@@ -249,7 +284,7 @@ function getLatestBy(items, getTimestamp) {
 async function waitForProfileOrSetupHeading(window) {
   await window
     .locator("h1")
-    .filter({ hasText: /Your profile|Guided setup/ })
+    .filter({ hasText: /Your profile|Guided setup|Senior Product Designer/ })
     .waitFor({ timeout: 15000 });
 }
 
@@ -270,7 +305,7 @@ function assistantField(window) {
 }
 
 async function loadResumeWorkspaceDemo(window, previewMode = "ok") {
-  await window.evaluate(async (mode) => {
+  const state = await window.evaluate(async (mode) => {
     if (!window.unemployed.jobFinder.test) {
       throw new Error("Desktop test API is unavailable in the renderer.");
     }
@@ -283,6 +318,8 @@ async function loadResumeWorkspaceDemo(window, previewMode = "ok") {
   await window.waitForLoadState("domcontentloaded");
   await waitForProfileOrSetupHeading(window);
   await window.setViewportSize({ width, height });
+
+  return state;
 }
 
 async function openResumeWorkspace(window) {
@@ -434,11 +471,10 @@ async function clickLocatorViaDom(locator, description) {
 async function clickTemplateStrategyVariant(window, variantLabel, buttonText) {
   const strategySection = templateStrategyPanel(window);
   const variantCard = strategySection
-    .locator("div")
+    .locator("[data-resume-template-option]")
     .filter({ hasText: variantLabel })
-    .filter({ has: strategySection.getByRole("button", { name: buttonText }) })
     .first();
-  const button = variantCard.getByRole("button", { name: buttonText }).first();
+  const button = variantCard.locator("[data-resume-template-select]").first();
 
   await clickLocatorViaDom(
     button,
@@ -534,6 +570,46 @@ async function captureResumeWorkspace() {
           : (await getPreviewSrcdoc(window)).length > 0,
       },
     });
+    const recoveredWorkspace = await getResumeWorkspace(window, "job_ready");
+    const recoveredExperienceSection = getExperienceSection(recoveredWorkspace);
+    const recoveredExperienceEntries = getExperienceEntries(recoveredWorkspace);
+    const recoveredEntryIds = getExperienceEntryIds(recoveredWorkspace);
+    const recoveredPreviewHtml = await getPreviewSrcdoc(window);
+    const expectedRecoveredProfileOrder = [
+      "experience_1",
+      "experience_coreledger_recent",
+      "experience_coreledger_older",
+    ];
+    assert(
+      expectedRecoveredProfileOrder.every(
+        (profileRecordId, index) =>
+          recoveredExperienceEntries[index]?.profileRecordId ===
+          profileRecordId,
+      ),
+      `Expected corrected experience profile order ${expectedRecoveredProfileOrder.join(", ")}, got ${recoveredExperienceEntries.map((entry) => entry.profileRecordId ?? entry.id).join(", ")}.`,
+    );
+    const expectedRecoveredEntryIds = recoveredExperienceEntries
+      .slice(0, expectedRecoveredProfileOrder.length)
+      .map((entry) => entry.id);
+    assert(
+      JSON.stringify(
+        getPreviewEntryOrder(recoveredPreviewHtml, expectedRecoveredEntryIds),
+      ) === JSON.stringify(expectedRecoveredEntryIds),
+      "Preview should render experience entries in the same corrected chronological order as the editor.",
+    );
+    Object.assign(studioResults, {
+      experienceOrdering: {
+        initialMode: recoveredExperienceSection?.entryOrderMode ?? null,
+        editorOrder: recoveredEntryIds,
+        editorProfileOrder: recoveredExperienceEntries.map(
+          (entry) => entry.profileRecordId ?? null,
+        ),
+        previewOrder: getPreviewEntryOrder(
+          recoveredPreviewHtml,
+          expectedRecoveredEntryIds,
+        ),
+      },
+    });
     await window.screenshot({
       animations: "disabled",
       path: path.join(outputDir, "03-preview-recovered.png"),
@@ -569,31 +645,20 @@ async function captureResumeWorkspace() {
       path: path.join(outputDir, "04a-template-strategy-default.png"),
     });
 
-    await clickLocatorViaDom(
-      window.getByRole("button", { name: "Engineering Spec" }).first(),
-      "engineering spec family button",
-    );
-    await waitForCondition(
-      async () =>
-        ((await templateStrategyPanel(window).textContent()) ?? "").includes(
-          "Systems",
-        ),
-      "engineering spec family variants to render",
-    );
     await window.screenshot({
       animations: "disabled",
-      path: path.join(
-        outputDir,
-        "04b-template-strategy-engineering-family.png",
-      ),
+      path: path.join(outputDir, "04b-template-strategy-options.png"),
     });
 
     const preTemplatePreviewSrcdoc = await getPreviewSrcdoc(window);
-    await clickTemplateStrategyVariant(window, "Systems", "Use this variant");
+    await clickTemplateStrategyVariant(
+      window,
+      "Engineering Spec · Skills First",
+      "Use this template",
+    );
     await waitForCondition(
       async () =>
-        (await getTemplateBadgeText(window)) ===
-        "Template: Engineering Spec - Systems",
+        (await getTemplateBadgeText(window)) === "Template: Engineering Spec",
       "template header badge to reflect the recommended template selection",
     );
     await waitForPreviewReady(window, {
@@ -706,6 +771,177 @@ async function captureResumeWorkspace() {
       path: path.join(outputDir, "06-preview-click-focus.png"),
     });
 
+    const beforeManualOrderWorkspace = await getResumeWorkspace(
+      window,
+      "job_ready",
+    );
+    const beforeManualOrderEntries = getExperienceEntries(
+      beforeManualOrderWorkspace,
+    );
+    const beforeManualOrder = getExperienceEntryIds(beforeManualOrderWorkspace);
+    const beforeManualPreviewHtml = await getPreviewSrcdoc(window);
+    const currentRoleEntryId = beforeManualOrderEntries.find(
+      (entry) => entry.profileRecordId === "experience_1",
+    )?.id;
+    const recentCoreLedgerEntryId = beforeManualOrderEntries.find(
+      (entry) => entry.profileRecordId === "experience_coreledger_recent",
+    )?.id;
+    assert(
+      currentRoleEntryId && recentCoreLedgerEntryId,
+      "Resume workspace demo must expose current and recent CoreLedger entries for ordering controls.",
+    );
+    const currentRoleTitleTarget = `entry:section_experience:${currentRoleEntryId}:title`;
+    await window
+      .locator(`[data-resume-editor-target="${currentRoleTitleTarget}"]`)
+      .first()
+      .evaluate((input) => {
+        const article = input.closest("article");
+        const buttons = Array.from(article?.querySelectorAll("button") ?? []);
+        const moveDownButton = buttons.find((button) =>
+          button.textContent?.toLowerCase().includes("move down"),
+        );
+
+        if (!(moveDownButton instanceof HTMLButtonElement)) {
+          throw new Error(
+            "Unable to find Move entry down button for the current role card.",
+          );
+        }
+
+        moveDownButton.click();
+      });
+    await waitForCondition(async () => {
+      const workspace = await getResumeWorkspace(window, "job_ready");
+      const order = getExperienceEntryIds(workspace);
+      return (
+        getExperienceSection(workspace)?.entryOrderMode === "manual" &&
+        order[0] === recentCoreLedgerEntryId &&
+        order[1] === currentRoleEntryId
+      );
+    }, "manual experience entry reorder to persist");
+    await waitForPreviewReady(window, { changedFrom: beforeManualPreviewHtml });
+    const manualOrderWorkspace = await getResumeWorkspace(window, "job_ready");
+    const manualOrder = getExperienceEntryIds(manualOrderWorkspace);
+    const manualPreviewHtml = await getPreviewSrcdoc(window);
+    assert(
+      getExperienceSection(manualOrderWorkspace)?.entryOrderMode === "manual",
+      "Expected persisted workspace to enter manual order after moving an experience entry.",
+    );
+    const manualDraft = manualOrderWorkspace.draft;
+    const manualExperienceSection = getExperienceSection(manualOrderWorkspace);
+    const manualEntriesById = new Map(
+      manualExperienceSection?.entries.map((entry) => [entry.id, entry]) ?? [],
+    );
+    const resetDraft = {
+      ...manualDraft,
+      sections: manualDraft.sections.map((section) =>
+        section.id === manualExperienceSection?.id
+          ? {
+              ...section,
+              entryOrderMode: "chronology",
+              entries: beforeManualOrder.map((entryId, index) => {
+                const entry = manualEntriesById.get(entryId);
+                assert(
+                  entry,
+                  `Missing expected experience entry '${entryId}' while resetting chronology evidence.`,
+                );
+
+                return {
+                  ...entry,
+                  sortOrder: index,
+                };
+              }),
+            }
+          : section,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    await window.getByRole("button", { name: "Save draft" }).click();
+    await waitForSavedSummaryText(window, unsavedPreviewSentinel);
+    await window.evaluate(
+      async ({ currentJobId, draft }) => {
+        return window.unemployed.jobFinder.saveResumeDraft({
+          ...draft,
+          status: "needs_review",
+          approvedAt: null,
+          approvedExportId: null,
+          staleReason: null,
+        });
+      },
+      { currentJobId: "job_ready", draft: resetDraft },
+    );
+    await window.getByRole("button", { name: "Refresh preview" }).click();
+    await waitForPreviewReady(window);
+    const persistedResetWorkspace = await getResumeWorkspace(
+      window,
+      "job_ready",
+    );
+    assert(
+      getExperienceSection(persistedResetWorkspace)?.entryOrderMode ===
+        "chronology" &&
+        JSON.stringify(getExperienceEntryIds(persistedResetWorkspace)) ===
+          JSON.stringify(beforeManualOrder),
+      "Expected save API to persist the chronological reset draft update.",
+    );
+    await window
+      .locator("[data-resume-workspace-scroll-region]:visible")
+      .evaluate((element) => {
+        element.scrollTop = 0;
+      });
+    let lastResetWorkspace = null;
+    await waitForCondition(
+      async () => {
+        const workspace = await getResumeWorkspace(window, "job_ready");
+        lastResetWorkspace = workspace;
+        return (
+          getExperienceSection(workspace)?.entryOrderMode === "chronology" &&
+          JSON.stringify(getExperienceEntryIds(workspace)) ===
+            JSON.stringify(beforeManualOrder)
+        );
+      },
+      `experience entry order reset to chronology from ${JSON.stringify({
+        beforeManualOrder,
+        manualOrder,
+        lastMode:
+          getExperienceSection(lastResetWorkspace)?.entryOrderMode ?? null,
+        lastOrder: lastResetWorkspace
+          ? getExperienceEntryIds(lastResetWorkspace)
+          : [],
+      })}`,
+    );
+    const resetOrderWorkspace = await getResumeWorkspace(window, "job_ready");
+    const resetPreviewHtml = await window.evaluate((draft) => {
+      return window.unemployed.jobFinder.previewResumeDraft(draft);
+    }, resetOrderWorkspace.draft);
+    const resetPreviewOrder = getPreviewEntryOrder(
+      resetPreviewHtml.html,
+      beforeManualOrder,
+    );
+    assert(
+      JSON.stringify(resetPreviewOrder) ===
+        JSON.stringify(getExperienceEntryIds(resetOrderWorkspace)),
+      `Expected reset preview order to match reset editor order, got ${resetPreviewOrder.join(", ")} versus ${getExperienceEntryIds(resetOrderWorkspace).join(", ")}.`,
+    );
+    Object.assign(studioResults, {
+      experienceOrdering: {
+        ...(studioResults.experienceOrdering ?? {}),
+        manualOrder,
+        manualMode:
+          getExperienceSection(manualOrderWorkspace)?.entryOrderMode ?? null,
+        manualPreviewOrder: getPreviewEntryOrder(
+          manualPreviewHtml,
+          manualOrder,
+        ),
+        resetOrder: getExperienceEntryIds(resetOrderWorkspace),
+        resetMode:
+          getExperienceSection(resetOrderWorkspace)?.entryOrderMode ?? null,
+        resetPreviewOrder,
+      },
+    });
+    await window.screenshot({
+      animations: "disabled",
+      path: path.join(outputDir, "06a-experience-order-controls.png"),
+    });
+
     await window.getByRole("button", { name: "Save draft" }).click();
     await waitForSavedSummaryText(window, unsavedPreviewSentinel);
     await waitForPreviewReady(window, unsavedPreviewSentinel);
@@ -730,6 +966,14 @@ async function captureResumeWorkspace() {
       await getResumeAssistantMessages(window, "job_ready")
     ).length;
     await window.getByRole("button", { name: "Open guided edits" }).click();
+    await waitForCondition(
+      async () =>
+        await window
+          .locator('[data-resume-guided-edits-open="true"]')
+          .first()
+          .isVisible(),
+      "guided edits popup to open",
+    );
     await assistantField(window).fill(
       "Shorten the summary and tighten one experience bullet for ATS readability.",
     );

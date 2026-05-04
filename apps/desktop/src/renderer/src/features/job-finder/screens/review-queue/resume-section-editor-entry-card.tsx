@@ -1,5 +1,9 @@
-import { Lock, LockOpen } from 'lucide-react'
-import type { ResumeDraftEntry, ResumeDraftSection } from '@unemployed/contracts'
+import { Lock, LockOpen, MoveDown, MoveUp } from 'lucide-react'
+import type {
+  ResumeDraftEntry,
+  ResumeDraftSection,
+  WorkHistoryReviewSuggestion,
+} from '@unemployed/contracts'
 import { getResumeEntryFieldTargetId } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
@@ -18,8 +22,10 @@ interface ResumeEntryEditorCardProps {
   controlIdPrefix: string
   disabled: boolean
   entry: ResumeDraftEntry
+  entryIndex: number
   isSelected: boolean
   section: ResumeDraftSection
+  workHistoryReviewSuggestions: readonly WorkHistoryReviewSuggestion[]
   onChange: (nextSection: ResumeDraftSection) => void
   onPatch: (patch: ReturnType<typeof createResumeDraftPatch>, revisionReason?: string | null) => void
   onSelectEntry: (sectionId: string, entryId: string) => void
@@ -31,14 +37,19 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
     controlIdPrefix,
     disabled,
     entry,
+    entryIndex,
     isSelected,
     section,
+    workHistoryReviewSuggestions,
     onChange,
     onPatch,
     onSelectEntry,
     registerEntryRef,
   } = props
   const fieldDisabled = disabled || section.locked || entry.locked
+  const rowLocked = disabled || section.locked
+  const moveUpDisabled = rowLocked || entryIndex <= 0
+  const moveDownDisabled = rowLocked || entryIndex >= section.entries.length - 1
   const handleEntryFocusCapture = () => {
     onSelectEntry(section.id, entry.id)
   }
@@ -64,12 +75,8 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
         </StatusBadge>
         <Button
           className="h-8"
-          disabled={fieldDisabled}
+          disabled={disabled || section.locked}
           onClick={() => {
-            if (entry.locked) {
-              return
-            }
-
             onPatch(
               createResumeDraftPatch({
                 entryId: entry.id,
@@ -109,7 +116,75 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
           {entry.locked ? <LockOpen className="size-4" /> : <Lock className="size-4" />}
           {entry.locked ? 'Unlock' : 'Lock'}
         </Button>
+        <Button
+          aria-label="Move entry up"
+          className="h-8"
+          disabled={moveUpDisabled}
+          onClick={() => {
+            const anchor = entryIndex > 0 ? section.entries[entryIndex - 1] : null
+            if (!anchor) {
+              return
+            }
+
+            onPatch(
+              createResumeDraftPatch({
+                anchorEntryId: anchor.id,
+                entryId: entry.id,
+                idPrefix: `resume_patch_entry_up_${entry.id}`,
+                operation: 'move_entry',
+                position: 'before',
+                sectionId: section.id,
+              }),
+              'Moved entry up',
+            )
+          }}
+          type="button"
+          variant="secondary"
+        >
+          <MoveUp className="size-4" />
+          Move up
+        </Button>
+        <Button
+          aria-label="Move entry down"
+          className="h-8"
+          disabled={moveDownDisabled}
+          onClick={() => {
+            const anchor = section.entries[entryIndex + 1] ?? null
+            if (!anchor) {
+              return
+            }
+
+            onPatch(
+              createResumeDraftPatch({
+                anchorEntryId: anchor.id,
+                entryId: entry.id,
+                idPrefix: `resume_patch_entry_down_${entry.id}`,
+                operation: 'move_entry',
+                position: 'after',
+                sectionId: section.id,
+              }),
+              'Moved entry down',
+            )
+          }}
+          type="button"
+          variant="secondary"
+        >
+          <MoveDown className="size-4" />
+          Move down
+        </Button>
       </div>
+
+      {workHistoryReviewSuggestions.length > 0 ? (
+        <div className="grid gap-1 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)">
+          <p className="font-medium text-foreground">Work-history review</p>
+          {workHistoryReviewSuggestions.map((suggestion) => (
+            <p key={suggestion.id}>
+              {suggestion.kind === 'date_quality' ? 'Date quality: ' : null}
+              {suggestion.message}
+            </p>
+          ))}
+        </div>
+      ) : null}
 
       <Field>
         <FieldLabel htmlFor={`${controlIdPrefix}_entry_title_${entry.id}`}>Title</FieldLabel>

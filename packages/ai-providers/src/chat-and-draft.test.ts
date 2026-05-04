@@ -239,6 +239,240 @@ describe("openai-compatible chat and draft behavior", () => {
     }
   });
 
+  test("keeps fallback coverage entries when a model returns a partial experience list", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: "Senior Frontend Engineer",
+                  employer: "Atlas Product",
+                  summary: "Model kept only the newest role.",
+                  bullets: ["Model bullet for newest role."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          skills: ["React", "TypeScript", ".NET"],
+          experiences: [
+            {
+              id: "experience_frontend",
+              companyName: "Atlas Product",
+              companyUrl: null,
+              title: "Senior Frontend Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Builds React workflow products.",
+              achievements: ["Built React workflow products for hiring teams."],
+              skills: ["React", "TypeScript"],
+              domainTags: ["frontend platform"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_dotnet",
+              companyName: "CoreLedger",
+              companyUrl: null,
+              title: ".NET Developer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Built .NET APIs and web applications.",
+              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              skills: [".NET", "C#"],
+              domainTags: ["web applications"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Full-Stack Engineer",
+          keySkills: ["React", ".NET"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", ".NET"],
+          keywords: ["React", ".NET"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_frontend",
+        "experience_dotnet",
+      ]);
+      expect(result.experienceEntries[0]).toMatchObject({
+        profileRecordId: "experience_frontend",
+        summary: "Model kept only the newest role.",
+      });
+      expect(result.experienceEntries[1]).toMatchObject({
+        profileRecordId: "experience_dotnet",
+        employer: "CoreLedger",
+      });
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("rejects unknown model profileRecordId values and restores reverse chronological fallback order", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: ".NET Developer",
+                  employer: "CoreLedger",
+                  profileRecordId: "fake_id",
+                  bullets: ["Model reordered older role first."],
+                },
+                {
+                  title: "Senior Frontend Engineer",
+                  employer: "Atlas Product",
+                  bullets: ["Model omitted id for newest role."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          skills: ["React", "TypeScript", ".NET"],
+          experiences: [
+            {
+              id: "experience_frontend",
+              companyName: "Atlas Product",
+              companyUrl: null,
+              title: "Senior Frontend Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Builds React workflow products.",
+              achievements: ["Built React workflow products for hiring teams."],
+              skills: ["React", "TypeScript"],
+              domainTags: ["frontend platform"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_dotnet",
+              companyName: "CoreLedger",
+              companyUrl: null,
+              title: ".NET Developer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Built .NET APIs and web applications.",
+              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              skills: [".NET", "C#"],
+              domainTags: ["web applications"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Full-Stack Engineer",
+          keySkills: ["React", ".NET"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", ".NET"],
+          keywords: ["React", ".NET"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_frontend",
+        "experience_dotnet",
+      ]);
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).not.toContain("fake_id");
+      expect(result.experienceEntries[0]?.bullets).toEqual([
+        "Model omitted id for newest role.",
+      ]);
+      expect(result.experienceEntries[1]?.bullets).toEqual([
+        "Model reordered older role first.",
+      ]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("compacts oversized resume assistant payloads before sending them to the model", async () => {
     const fetchMock = mockCapturingJsonFetch({
       choices: [
@@ -311,6 +545,7 @@ describe("openai-compatible chat and draft behavior", () => {
             locked: false,
             included: true,
             sortOrder: sectionIndex,
+            entryOrderMode: "chronology",
             profileRecordId: null,
             sourceRefs: [],
             updatedAt: "2026-03-20T10:00:00.000Z",

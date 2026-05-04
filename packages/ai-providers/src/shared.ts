@@ -150,6 +150,41 @@ export type ResumeProfileExtraction = z.infer<
   typeof ResumeProfileExtractionSchema
 >;
 
+export const resumeCoverageClassificationValues = [
+  "detailed",
+  "compact",
+  "suggested_hidden",
+  "omitted",
+] as const;
+
+export const ResumeCoverageClassificationSchema = z.enum(
+  resumeCoverageClassificationValues,
+);
+export type ResumeCoverageClassification = z.infer<
+  typeof ResumeCoverageClassificationSchema
+>;
+
+export const resumeCareerFamilyFitValues = [
+  "strong",
+  "weak",
+  "unrelated",
+] as const;
+
+export const ResumeCareerFamilyFitSchema = z.enum(resumeCareerFamilyFitValues);
+export type ResumeCareerFamilyFit = z.infer<typeof ResumeCareerFamilyFitSchema>;
+
+export const TailoredResumeCoverageMetadataSchema = z.object({
+  profileRecordId: NonEmptyStringSchema,
+  classification: ResumeCoverageClassificationSchema,
+  careerFamilyFit: ResumeCareerFamilyFitSchema,
+  reasons: z.array(NonEmptyStringSchema).default([]),
+  reviewGuidance: z.array(NonEmptyStringSchema).default([]),
+  coversMeaningfulGap: z.boolean().default(false),
+});
+export type TailoredResumeCoverageMetadata = z.infer<
+  typeof TailoredResumeCoverageMetadataSchema
+>;
+
 export const TailoredResumeDraftSchema = z.object({
   label: NullableStringSchema,
   summary: NonEmptyStringSchema,
@@ -188,6 +223,7 @@ export const TailoredResumeDraftSchema = z.object({
     dateRange: NullableStringSchema,
     profileRecordId: NullableStringSchema,
   })).default([]),
+  coverageMetadata: z.array(TailoredResumeCoverageMetadataSchema).default([]),
   additionalSkills: z.array(NonEmptyStringSchema).default([]),
   languages: z.array(NonEmptyStringSchema).default([]),
   fullText: NonEmptyStringSchema,

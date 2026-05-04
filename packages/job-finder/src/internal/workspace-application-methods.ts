@@ -8,6 +8,7 @@ import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   ResumeAssistantMessageSchema,
+  ResumeValidationResultSchema,
   isResumeTemplateApplyEligible,
   isResumeTemplateApprovalEligible,
   type ResumeDraft,
@@ -17,6 +18,8 @@ import {
   TailoredAssetSchema,
   type ApplyExecutionResult,
   type JobSource,
+  type ResumeValidationIssue,
+  type ResumeValidationResult,
   type ResumeTemplateDefinition,
 } from "@unemployed/contracts";
 import {
@@ -57,6 +60,7 @@ import {
   buildResumeRenderDocument,
   buildTailoredResumeTextFromResumeDraft,
   buildTailoredAssetBridge,
+  buildWorkHistoryReviewSuggestions,
   collectResearchContext,
   collectResumeWorkspaceEvidence,
   resolveResumeTemplateLabel,
@@ -162,6 +166,30 @@ export function createWorkspaceApplicationMethods(
         `The selected resume template for '${input.jobTitle}' is not eligible for automatic apply. Choose an apply-safe template, export a fresh PDF, and approve it again.`,
       );
     }
+  }
+
+  function preserveWorkHistoryReviewGuidance(input: {
+    validation: ResumeValidationResult;
+    previousValidation: ResumeValidationResult | null;
+    draft: ResumeDraft;
+  }): ResumeValidationResult {
+    const existingIssueIds = new Set(input.validation.issues.map((issue) => issue.id));
+    const entryIds = new Set(
+      input.draft.sections.flatMap((section) => section.entries.map((entry) => entry.id)),
+    );
+    const preservedIssues: ResumeValidationIssue[] = (input.previousValidation?.issues ?? [])
+      .filter((issue) => issue.category === "work_history_review")
+      .filter((issue) => !issue.entryId || entryIds.has(issue.entryId))
+      .filter((issue) => !existingIssueIds.has(issue.id));
+
+    if (preservedIssues.length === 0) {
+      return input.validation;
+    }
+
+    return ResumeValidationResultSchema.parse({
+      ...input.validation,
+      issues: [...input.validation.issues, ...preservedIssues],
+    });
   }
 
   async function resolveJobApplyPrerequisites(jobId: string) {
@@ -1042,6 +1070,25 @@ export function createWorkspaceApplicationMethods(
         pageCount: renderedArtifact.pageCount ?? null,
         validatedAt: now,
       });
+      const workHistoryReviewSuggestions = buildWorkHistoryReviewSuggestions({
+        draft: sanitizedResumeDraft,
+        tailoredDraft: draft,
+      });
+      const validationWithReviewGuidance = ResumeValidationResultSchema.parse({
+        ...validation,
+        issues: [
+          ...validation.issues,
+          ...workHistoryReviewSuggestions.map((suggestion) => ({
+            id: `issue_${suggestion.id}`,
+            severity: suggestion.severity,
+            category: "work_history_review" as const,
+            sectionId: suggestion.sectionId,
+            entryId: suggestion.entryId,
+            bulletId: null,
+            message: suggestion.message,
+          })),
+        ],
+      });
       const nextAsset = TailoredAssetSchema.parse({
         id: existingAsset?.id ?? `resume_${jobId}`,
         jobId,
@@ -1053,7 +1100,7 @@ export function createWorkspaceApplicationMethods(
           resolveResumeTemplateLabel({
             templateId: sanitizedResumeDraft.templateId,
             templates,
-            fallbackLabel: existingAsset?.templateName ?? "Classic ATS",
+            fallbackLabel: existingAsset?.templateName ?? "Chronology Classic",
           }),
         compatibilityScore:
           draft.compatibilityScore ??
@@ -1095,7 +1142,7 @@ export function createWorkspaceApplicationMethods(
 
       await ctx.repository.saveResumeDraftWithValidation({
         draft: sanitizedResumeDraft,
-        validation,
+        validation: validationWithReviewGuidance,
         tailoredAsset: nextAsset,
       });
       await ctx.updateJob(jobId, (currentJob) => ({
@@ -1145,6 +1192,14 @@ export function createWorkspaceApplicationMethods(
         profile,
         validatedAt: now,
       });
+      const previousValidation = (
+        await ctx.repository.listResumeValidationResults(sanitizedDraft.id)
+      )[0] ?? null;
+      const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
+        validation,
+        previousValidation,
+        draft: sanitizedDraft,
+      });
       const nextAsset = buildTailoredAssetBridge({
         draft: sanitizedDraft,
         job,
@@ -1156,7 +1211,7 @@ export function createWorkspaceApplicationMethods(
 
       await ctx.repository.saveResumeDraftWithValidation({
         draft: sanitizedDraft,
-        validation,
+        validation: validationWithReviewGuidance,
         tailoredAsset: nextAsset,
       });
 
@@ -1231,6 +1286,7 @@ export function createWorkspaceApplicationMethods(
               : "replace_section_bullets",
             targetSectionId: sectionId,
             targetEntryId: null,
+            anchorEntryId: null,
             targetBulletId: null,
             anchorBulletId: null,
             position: null,
@@ -1280,6 +1336,14 @@ export function createWorkspaceApplicationMethods(
         pageCount: renderedArtifact.pageCount ?? null,
         validatedAt: exportedAt,
       });
+      const previousValidation = (
+        await ctx.repository.listResumeValidationResults(draft.id)
+      )[0] ?? null;
+      const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
+        validation,
+        previousValidation,
+        draft,
+      });
       const nextAsset = buildTailoredAssetBridge({
         draft,
         job,
@@ -1304,7 +1368,7 @@ export function createWorkspaceApplicationMethods(
       await ctx.repository.upsertResumeExportArtifact(exportArtifact);
       await ctx.repository.saveResumeDraftWithValidation({
         draft,
-        validation,
+        validation: validationWithReviewGuidance,
         tailoredAsset: nextAsset,
       });
 
@@ -1457,6 +1521,14 @@ export function createWorkspaceApplicationMethods(
         profile: state.profile,
         validatedAt: updatedAt,
       });
+      const previousValidation = (
+        await ctx.repository.listResumeValidationResults(currentDraft.id)
+      )[0] ?? null;
+      const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
+        validation,
+        previousValidation,
+        draft: sanitizedDraft,
+      });
       const nextAsset = buildTailoredAssetBridge({
         draft: sanitizedDraft,
         job: state.job,
@@ -1469,7 +1541,7 @@ export function createWorkspaceApplicationMethods(
       await ctx.repository.applyResumePatchWithRevision({
         draft: sanitizedDraft,
         revision,
-        validation,
+        validation: validationWithReviewGuidance,
         tailoredAsset: nextAsset,
       });
 
@@ -1568,6 +1640,12 @@ export function createWorkspaceApplicationMethods(
           profile: workspaceState.profile,
           validatedAt: finalUpdatedAt,
         });
+        const previousValidation = validations[0] ?? null;
+        const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
+          validation,
+          previousValidation,
+          draft: sanitizedDraft,
+        });
         const nextAsset = buildTailoredAssetBridge({
           draft: sanitizedDraft,
           job: workspaceState.job,
@@ -1580,7 +1658,7 @@ export function createWorkspaceApplicationMethods(
         await ctx.repository.applyResumePatchWithRevision({
           draft: sanitizedDraft,
           revision,
-          validation,
+          validation: validationWithReviewGuidance,
           tailoredAsset: nextAsset,
         });
       }

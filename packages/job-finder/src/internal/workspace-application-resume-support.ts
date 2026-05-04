@@ -123,6 +123,68 @@ function buildResumeWorkspaceSharedProfile(profile: CandidateProfile) {
   };
 }
 
+function buildWorkHistoryReviewSuggestionsFromValidation(input: {
+  draft: ResumeDraft;
+  validation: Awaited<ReturnType<typeof validateResumeDraft>> | null;
+}) {
+  const structuredEntries = input.draft.sections
+    .flatMap((section) =>
+      section.entries.map((entry) => ({
+        sectionId: section.id,
+        entry,
+      })),
+    );
+
+  return (input.validation?.issues ?? [])
+    .filter((issue) => issue.category === "work_history_review" || issue.category === "date_quality")
+    .flatMap((issue) => {
+      const matchedEntry = structuredEntries.find(
+        ({ entry }) => entry.id === issue.entryId,
+      ) ?? null;
+      const profileRecordId = matchedEntry?.entry.profileRecordId;
+
+      if (!matchedEntry) {
+        return [];
+      }
+
+      if (issue.category === "date_quality") {
+        return [{
+          id: issue.id.replace(/^issue_/, ""),
+          profileRecordId: profileRecordId ?? matchedEntry.entry.id,
+          sectionId: issue.sectionId ?? matchedEntry.sectionId,
+          entryId: issue.entryId,
+          kind: "date_quality" as const,
+          action: "fix_dates" as const,
+          severity: issue.severity,
+          message: issue.message,
+        }];
+      }
+
+      if (!profileRecordId) {
+        return [];
+      }
+
+      const normalizedMessage = issue.message.toLowerCase();
+      const kind = normalizedMessage.includes("gap")
+        ? "gap_coverage"
+        : normalizedMessage.includes("compact")
+          ? "compact_recommended"
+          : "weak_fit";
+      const action = matchedEntry.entry.included ? "keep_compact" : "consider_showing";
+
+      return [{
+        id: issue.id.replace(/^issue_/, ""),
+        profileRecordId,
+        sectionId: issue.sectionId ?? matchedEntry.sectionId,
+        entryId: issue.entryId,
+        kind,
+        action,
+        severity: issue.severity,
+        message: issue.message,
+      }];
+    });
+}
+
 export interface LoadedResumeWorkspaceState {
   profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
   settings: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>>;
@@ -379,5 +441,9 @@ export async function buildResumeWorkspace(
     assistantMessages,
     tailoredAsset,
     sharedProfile: buildResumeWorkspaceSharedProfile(profile),
+    workHistoryReviewSuggestions: buildWorkHistoryReviewSuggestionsFromValidation({
+      draft,
+      validation: validations[0] ?? null,
+    }),
   });
 }

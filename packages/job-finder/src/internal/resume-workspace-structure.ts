@@ -19,6 +19,11 @@ import {
   createSourceRef,
   safeSnippet,
 } from "./resume-workspace-primitives";
+import {
+  normalizeResumeDraftSectionEntryOrdering,
+  normalizeResumeDraftEntryOrdering,
+  orderEntriesNewestFirst,
+} from "./resume-entry-ordering";
 import { buildJobContextText } from "./resume-workspace-primitives";
 import { normalizeText, uniqueStrings } from "./shared";
 
@@ -139,12 +144,13 @@ function formatDateRange(start: string | null | undefined, end: string | null | 
 
 function toSectionPreviewLines(section: ResumeDraftSection): string[] {
   const lines: string[] = [];
+  const orderedSection = normalizeResumeDraftSectionEntryOrdering(section);
 
-  if (section.text?.trim()) {
-    lines.push(section.text.trim());
+  if (orderedSection.text?.trim()) {
+    lines.push(orderedSection.text.trim());
   }
 
-  for (const entry of section.entries
+  for (const entry of orderedSection.entries
     .filter((item) => item.included)
     .sort((left, right) => left.sortOrder - right.sortOrder)) {
     const heading = joinCompact(
@@ -172,7 +178,7 @@ function toSectionPreviewLines(section: ResumeDraftSection): string[] {
   }
 
   lines.push(
-    ...section.bullets
+    ...orderedSection.bullets
       .filter((bullet) => bullet.included)
       .map((bullet) => bullet.text.trim())
       .filter(Boolean),
@@ -269,6 +275,12 @@ function buildThinDraftSupportBullets(input: {
   ).slice(0, 3);
 }
 
+function resolveCoverageMetadataByRecordId(draft: TailoredResumeDraft) {
+  return new Map(
+    draft.coverageMetadata.map((metadata) => [metadata.profileRecordId, metadata]),
+  );
+}
+
 function buildDraftSectionsFromStructuredTailoredDraft(input: {
   createdAt: string;
   draft: TailoredResumeDraft;
@@ -278,6 +290,7 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
 }): ResumeDraftSection[] {
   const { createdAt, draft, origin, profile, sharedRefs } = input;
   const draftSkills = buildCoreAndAdditionalSkills(profile, draft.coreSkills);
+  const coverageMetadataByRecordId = resolveCoverageMetadataByRecordId(draft);
   const sections: ResumeDraftSection[] = [];
 
   sections.push(
@@ -294,8 +307,8 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
     }),
   );
 
-  const experienceEntries = draft.experienceEntries.map((entry, index) =>
-    createEntry({
+  const visibleExperienceEntries = draft.experienceEntries.map((entry, index) => {
+    const createdEntry = createEntry({
       id: entry.profileRecordId ? `experience_${entry.profileRecordId}` : `experience_entry_${index + 1}`,
       entryType: "experience",
       title: entry.title,
@@ -309,8 +322,61 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
       sortOrder: index,
       profileRecordId: entry.profileRecordId,
       sourceRefs: sharedRefs,
-    }),
+    });
+    const coverage = entry.profileRecordId
+      ? coverageMetadataByRecordId.get(entry.profileRecordId)
+      : null;
+
+    return coverage?.classification === "suggested_hidden"
+      ? { ...createdEntry, included: false }
+      : createdEntry;
+  });
+  const visibleExperienceRecordIds = new Set(
+    visibleExperienceEntries
+      .map((entry) => entry.profileRecordId)
+      .filter((value): value is string => Boolean(value)),
   );
+  const suggestedHiddenEntries = draft.coverageMetadata
+    .filter(
+      (metadata) =>
+        metadata.classification === "suggested_hidden" &&
+        !visibleExperienceRecordIds.has(metadata.profileRecordId),
+    )
+    .flatMap((metadata, index) => {
+      const profileExperience = profile?.experiences.find(
+        (experience) => experience.id === metadata.profileRecordId,
+      );
+      if (!profileExperience) {
+        return [];
+      }
+
+      return [{
+        ...createEntry({
+          id: `experience_${metadata.profileRecordId}`,
+          entryType: "experience",
+          title: profileExperience.title,
+          subtitle: profileExperience.companyName,
+          location: profileExperience.location,
+          dateRange: formatDateRange(
+            profileExperience.startDate,
+            profileExperience.endDate,
+            profileExperience.isCurrent,
+          ),
+          summary: profileExperience.summary,
+          bullets: profileExperience.achievements.slice(0, 1),
+          updatedAt: createdAt,
+          origin,
+          sortOrder: visibleExperienceEntries.length + index,
+          profileRecordId: profileExperience.id,
+          sourceRefs: sharedRefs,
+        }),
+        included: false,
+      }];
+    });
+  const experienceEntries = orderEntriesNewestFirst([
+    ...visibleExperienceEntries,
+    ...suggestedHiddenEntries,
+  ]);
 
   if (experienceEntries.length > 0 || draft.experienceHighlights.length > 0) {
     sections.push(
@@ -343,7 +409,7 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
     );
   }
 
-  const projectEntries = draft.projectEntries.map((entry, index) => {
+  const projectEntries = orderEntriesNewestFirst(draft.projectEntries.map((entry, index) => {
     const profileProject = profile?.projects.find((project) => project.id === entry.profileRecordId);
 
     return createEntry({
@@ -364,7 +430,7 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
       profileRecordId: entry.profileRecordId,
       sourceRefs: sharedRefs,
     });
-  });
+  }));
 
   if (projectEntries.length > 0) {
     sections.push(
@@ -381,7 +447,7 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
     );
   }
 
-  const educationEntries = draft.educationEntries.map((entry, index) =>
+  const educationEntries = orderEntriesNewestFirst(draft.educationEntries.map((entry, index) =>
     createEntry({
       id: entry.profileRecordId ? `education_${entry.profileRecordId}` : `education_entry_${index + 1}`,
       entryType: "education",
@@ -396,7 +462,7 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
       profileRecordId: entry.profileRecordId,
       sourceRefs: sharedRefs,
     }),
-  );
+  ));
 
   if (educationEntries.length > 0) {
     sections.push(
@@ -413,7 +479,7 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
     );
   }
 
-  const certificationEntries = draft.certificationEntries.map((entry, index) =>
+  const certificationEntries = orderEntriesNewestFirst(draft.certificationEntries.map((entry, index) =>
     createEntry({
       id: entry.profileRecordId ? `certification_${entry.profileRecordId}` : `certification_entry_${index + 1}`,
       entryType: "certification",
@@ -426,7 +492,7 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
       profileRecordId: entry.profileRecordId,
       sourceRefs: sharedRefs,
     }),
-  );
+  ));
 
   if (certificationEntries.length > 0) {
     sections.push(
@@ -498,7 +564,9 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
 }
 
 export function buildPreviewSectionsFromResumeDraft(draft: ResumeDraft): Array<{ heading: string; lines: string[] }> {
-  return [...draft.sections]
+  const orderedDraft = normalizeResumeDraftEntryOrdering(draft);
+
+  return [...orderedDraft.sections]
     .filter((section) => section.included)
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .map((section) => ({
@@ -542,7 +610,8 @@ export function buildResumeRenderDocument(
   draft: ResumeDraft,
   options?: ResumeRenderOptions,
 ): ResumeRenderDocument {
-  const identity = draft.identity ?? buildResumeDraftIdentity(profile);
+  const orderedDraft = normalizeResumeDraftEntryOrdering(draft);
+  const identity = orderedDraft.identity ?? buildResumeDraftIdentity(profile);
   const includePreviewAnchors = options?.includePreviewAnchors ?? false;
 
   return {
@@ -551,7 +620,7 @@ export function buildResumeRenderDocument(
     location: identity.location ?? profile.currentLocation ?? null,
     contactItems: buildResumeContactItems(identity),
     ...(includePreviewAnchors ? { includePreviewAnchors } : {}),
-    sections: [...draft.sections]
+    sections: [...orderedDraft.sections]
       .filter((section) => section.included)
       .sort((left, right) => left.sortOrder - right.sortOrder)
       .map((section) => ({
@@ -628,7 +697,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   );
   const origin = generationMethod === "ai" ? "ai_generated" : "deterministic_fallback";
 
-  return ResumeDraftSchema.parse({
+  return ResumeDraftSchema.parse(normalizeResumeDraftEntryOrdering({
     id: existingDraftId ?? `resume_draft_${job.id}`,
     jobId: job.id,
     status: "needs_review",
@@ -648,7 +717,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
     staleReason: null,
     createdAt,
     updatedAt: createdAt,
-  });
+  }));
 }
 
 export function seedResumeDraft(input: {
@@ -689,7 +758,7 @@ export function seedResumeDraft(input: {
       .filter((section) => section.text || section.bullets.length > 0);
 
     if (seededSections.length > 0) {
-      return ResumeDraftSchema.parse({
+      return ResumeDraftSchema.parse(normalizeResumeDraftEntryOrdering({
         id: `resume_draft_${input.job.id}`,
         jobId: input.job.id,
         status: "draft",
@@ -704,7 +773,7 @@ export function seedResumeDraft(input: {
         staleReason: null,
         createdAt: now,
         updatedAt: now,
-      });
+      }));
     }
   }
 
@@ -717,7 +786,7 @@ export function seedResumeDraft(input: {
     ...input.profile.skillGroups.languagesAndFrameworks,
     ...input.profile.skillGroups.highlightedSkills,
   ]).filter((skill) => !coreSkills.some((coreSkill) => normalizeText(coreSkill) === normalizeText(skill)));
-  const experienceEntries = input.profile.experiences.map((experience, index) =>
+  const experienceEntries = orderEntriesNewestFirst(input.profile.experiences.map((experience, index) =>
     createEntry({
       id: `experience_${experience.id}`,
       entryType: "experience",
@@ -732,8 +801,8 @@ export function seedResumeDraft(input: {
       sortOrder: index,
       profileRecordId: experience.id,
     }),
-  );
-  const projectEntries = input.profile.projects.map((project, index) =>
+  ));
+  const projectEntries = orderEntriesNewestFirst(input.profile.projects.map((project, index) =>
     createEntry({
       id: `project_${project.id}`,
       entryType: "project",
@@ -751,8 +820,8 @@ export function seedResumeDraft(input: {
       sortOrder: index,
       profileRecordId: project.id,
     }),
-  );
-  const educationEntries = input.profile.education.map((education, index) =>
+  ));
+  const educationEntries = orderEntriesNewestFirst(input.profile.education.map((education, index) =>
     createEntry({
       id: `education_${education.id}`,
       entryType: "education",
@@ -766,8 +835,8 @@ export function seedResumeDraft(input: {
       sortOrder: index,
       profileRecordId: education.id,
     }),
-  );
-  const certificationEntries = input.profile.certifications.map((certification, index) =>
+  ));
+  const certificationEntries = orderEntriesNewestFirst(input.profile.certifications.map((certification, index) =>
     createEntry({
       id: `certification_${index + 1}`,
       entryType: "certification",
@@ -778,13 +847,13 @@ export function seedResumeDraft(input: {
       origin: "imported",
       sortOrder: index,
     }),
-  );
+  ));
   const summaryText =
     input.profile.professionalSummary.fullSummary ??
     input.profile.summary ??
     `${input.profile.headline} targeting ${input.job.title} opportunities.`;
 
-  return ResumeDraftSchema.parse({
+  return ResumeDraftSchema.parse(normalizeResumeDraftEntryOrdering({
     id: `resume_draft_${input.job.id}`,
     jobId: input.job.id,
     status: "draft",
@@ -897,5 +966,5 @@ export function seedResumeDraft(input: {
     staleReason: null,
     createdAt: now,
     updatedAt: now,
-  });
+  }));
 }

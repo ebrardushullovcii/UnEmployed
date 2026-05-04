@@ -65,6 +65,7 @@ describe('ResumeWorkspaceEditorPanel', () => {
           selectedSectionId={null}
           selectedTargetId={null}
           withDraftPatch={(patch) => patch}
+          workHistoryReviewSuggestions={[]}
         />,
       )
     })
@@ -128,5 +129,103 @@ describe('ResumeWorkspaceEditorPanel', () => {
     for (const control of editableControls) {
       expect(control.hasAttribute('disabled')).toBe(true)
     }
+  })
+
+  it('keeps entry movement enabled for locked entries because locks protect content edits only', () => {
+    const lockedEntryDraft: ResumeDraft = {
+      ...draft,
+      sections: [
+        {
+          id: 'section_experience',
+          kind: 'experience',
+          label: 'Experience',
+          text: null,
+          bullets: [],
+          entries: [
+            {
+              id: 'experience_locked',
+              entryType: 'experience',
+              title: 'Locked role',
+              subtitle: 'Signal Systems',
+              location: null,
+              dateRange: '2023 – Present',
+              summary: 'Locked content.',
+              bullets: [],
+              origin: 'user_edited',
+              locked: true,
+              included: true,
+              sortOrder: 0,
+              profileRecordId: 'experience_locked',
+              sourceRefs: [],
+              updatedAt: draft.updatedAt,
+            },
+            {
+              id: 'experience_editable',
+              entryType: 'experience',
+              title: 'Editable role',
+              subtitle: 'Northwind Labs',
+              location: null,
+              dateRange: '2021 – 2022',
+              summary: 'Editable content.',
+              bullets: [],
+              origin: 'user_edited',
+              locked: false,
+              included: true,
+              sortOrder: 1,
+              profileRecordId: 'experience_editable',
+              sourceRefs: [],
+              updatedAt: draft.updatedAt,
+            },
+          ],
+          origin: 'user_edited',
+          locked: false,
+          included: true,
+          sortOrder: 1,
+          entryOrderMode: 'chronology',
+          profileRecordId: null,
+          sourceRefs: [],
+          updatedAt: draft.updatedAt,
+        },
+      ],
+    }
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          draft={lockedEntryDraft}
+          hasUnsavedChanges={false}
+          isWorkspacePending={false}
+          jobId="job_1"
+          onApplyPatch={vi.fn()}
+          onDraftChange={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => next()}
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          withDraftPatch={(patch) => patch}
+          workHistoryReviewSuggestions={[]}
+        />,
+      )
+    })
+
+    const lockedTitleInput = Array.from(container.querySelectorAll('input')).find(
+      (input) => input.id.includes('entry_title_experience_locked'),
+    )
+    const moveDownButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.getAttribute('aria-label') === 'Move entry down',
+    )
+
+    expect(lockedTitleInput?.value).toBe('Locked role')
+    expect(lockedTitleInput?.disabled).toBe(true)
+    expect(moveDownButton?.disabled).toBe(false)
   })
 })

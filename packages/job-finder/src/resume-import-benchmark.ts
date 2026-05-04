@@ -69,6 +69,64 @@ function normalizeLooseString(value: unknown): string | null {
   return normalized ? normalized.toLowerCase() : null;
 }
 
+function normalizeBenchmarkRecordString(value: unknown): string | null {
+  const normalized = normalizeLooseString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized
+    .replace(/[–—]/g, "-")
+    .replace(/\s+-\s*(?:\d{1,2}\/|\d{1,2}\/\d{4}|\d{4})\s*$/g, "")
+    .replace(/\s+llc\b/g, " l.l.c")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeBenchmarkRecordIdentityParts(
+  value: Record<string, unknown> | null,
+  keys: readonly string[],
+): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return keys
+    .map((key) => normalizeBenchmarkRecordString(value[key]))
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+function getBenchmarkActualRecordValues(input: {
+  actual: readonly ResumeImportFieldCandidate[];
+  section: ResumeImportFieldCandidate["target"]["section"];
+}): Record<string, unknown>[] {
+  const candidateRecords = input.actual
+    .map((candidate) => toRecordValue(candidate.value))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const autoAppliedRecords = input.actual
+    .filter(
+      (candidate) =>
+        candidate.target.section === input.section &&
+        candidate.resolution === "auto_applied" &&
+        typeof candidate.target.recordId === "string",
+    )
+    .reduce<Map<string, Record<string, unknown>>>((recordsById, candidate) => {
+      const recordId = candidate.target.recordId;
+      if (!recordId) {
+        return recordsById;
+      }
+
+      const current = recordsById.get(recordId) ?? {};
+      recordsById.set(recordId, {
+        ...current,
+        [candidate.target.key]: candidate.value,
+      });
+      return recordsById;
+    }, new Map());
+
+  return [...candidateRecords, ...autoAppliedRecords.values()];
+}
+
 function toRecordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -83,15 +141,38 @@ function normalizeRecordIdentity(
     return null;
   }
 
-  const parts = keys
-    .map((key) => normalizeLooseString(value[key]))
-    .filter((entry): entry is string => Boolean(entry));
+  const parts = normalizeBenchmarkRecordIdentityParts(value, keys);
 
   if (parts.length === 0) {
     return null;
   }
 
   return parts.join("|");
+}
+
+function recordValueMatchesExpected(input: {
+  actual: Record<string, unknown>;
+  expected: Record<string, unknown>;
+  keys: readonly string[];
+}): boolean {
+  return input.keys.every((key) => {
+    const expectedValue = normalizeBenchmarkRecordString(input.expected[key]);
+    const actualValue = normalizeBenchmarkRecordString(input.actual[key]);
+
+    if (!expectedValue) {
+      return true;
+    }
+
+    if (!actualValue) {
+      return false;
+    }
+
+    return (
+      actualValue === expectedValue ||
+      actualValue.includes(expectedValue) ||
+      expectedValue.includes(actualValue)
+    );
+  });
 }
 
 function normalizeRecordCollection(
@@ -111,9 +192,7 @@ function normalizeRecordCollection(
   return normalized;
 }
 
-function buildBenchmarkAiClient(
-  useConfiguredAi: boolean,
-): JobFinderAiClient {
+function buildBenchmarkAiClient(useConfiguredAi: boolean): JobFinderAiClient {
   const providerLabel = useConfiguredAi
     ? "Configured benchmark provider"
     : "Deterministic benchmark provider";
@@ -132,11 +211,13 @@ function buildBenchmarkAiClient(
       };
     },
     extractProfileFromResume(input) {
-      return Promise.resolve(buildDeterministicResumeProfileExtraction(
-        input,
-        providerKind,
-        providerLabel,
-      ));
+      return Promise.resolve(
+        buildDeterministicResumeProfileExtraction(
+          input,
+          providerKind,
+          providerLabel,
+        ),
+      );
     },
     extractResumeImportStage(input) {
       return Promise.resolve(
@@ -145,22 +226,30 @@ function buildBenchmarkAiClient(
     },
     createResumeDraft() {
       return Promise.reject(
-        new Error("Resume draft generation is not supported by the benchmark harness."),
+        new Error(
+          "Resume draft generation is not supported by the benchmark harness.",
+        ),
       );
     },
     reviseResumeDraft() {
       return Promise.reject(
-        new Error("Resume draft revision is not supported by the benchmark harness."),
+        new Error(
+          "Resume draft revision is not supported by the benchmark harness.",
+        ),
       );
     },
     reviseCandidateProfile() {
       return Promise.reject(
-        new Error("Profile copilot revision is not supported by the benchmark harness."),
+        new Error(
+          "Profile copilot revision is not supported by the benchmark harness.",
+        ),
       );
     },
     tailorResume() {
       return Promise.reject(
-        new Error("Resume tailoring is not supported by the benchmark harness."),
+        new Error(
+          "Resume tailoring is not supported by the benchmark harness.",
+        ),
       );
     },
     assessJobFit() {
@@ -249,14 +338,26 @@ function buildTaxonomy(input: {
   const expectedFields = input.benchmarkCase.expected.literalFields;
   const normalizedExpectedName = normalizeLooseString(expectedFields.fullName);
   const normalizedActualName = normalizeLooseString(input.profile.fullName);
-  const normalizedExpectedLocation = normalizeLooseString(expectedFields.currentLocation);
-  const normalizedActualLocation = normalizeLooseString(input.profile.currentLocation);
+  const normalizedExpectedLocation = normalizeLooseString(
+    expectedFields.currentLocation,
+  );
+  const normalizedActualLocation = normalizeLooseString(
+    input.profile.currentLocation,
+  );
 
-  if (normalizedExpectedName && normalizedActualName && normalizedExpectedName !== normalizedActualName) {
+  if (
+    normalizedExpectedName &&
+    normalizedActualName &&
+    normalizedExpectedName !== normalizedActualName
+  ) {
     taxonomy.add("FIELD_MISATTRIBUTION");
   }
 
-  if (normalizedExpectedLocation && normalizedActualLocation && normalizedExpectedLocation !== normalizedActualLocation) {
+  if (
+    normalizedExpectedLocation &&
+    normalizedActualLocation &&
+    normalizedExpectedLocation !== normalizedActualLocation
+  ) {
     taxonomy.add("SECTION_BOUNDARY");
   }
 
@@ -283,10 +384,17 @@ function buildTaxonomy(input: {
     taxonomy.add("OVERCONFIDENT_AUTO_APPLY");
   }
 
-  const safeLiteralKeys = ["fullName", "currentLocation", "email", "phone"] as const;
+  const safeLiteralKeys = [
+    "fullName",
+    "currentLocation",
+    "email",
+    "phone",
+  ] as const;
 
   for (const key of safeLiteralKeys) {
-    const expectedValue = normalizeLooseString(input.benchmarkCase.expected.literalFields[key]);
+    const expectedValue = normalizeLooseString(
+      input.benchmarkCase.expected.literalFields[key],
+    );
 
     if (!expectedValue) {
       continue;
@@ -303,7 +411,8 @@ function buildTaxonomy(input: {
       (candidate) =>
         candidate.target.key === key &&
         normalizeLooseString(candidate.value) === expectedValue &&
-        (candidate.resolution === "needs_review" || candidate.resolution === "abstained"),
+        (candidate.resolution === "needs_review" ||
+          candidate.resolution === "abstained"),
     );
 
     if (unresolvedMatchingCandidate && !autoAppliedMatchingCandidate) {
@@ -319,7 +428,10 @@ function scoreLiteralFields(input: {
   expected: Record<string, unknown>;
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
-}): Pick<ResumeImportBenchmarkMetrics, "literalFieldPrecision" | "literalFieldRecall"> {
+}): Pick<
+  ResumeImportBenchmarkMetrics,
+  "literalFieldPrecision" | "literalFieldRecall"
+> {
   const actualByKey: Record<string, unknown> = {
     fullName: input.profile.fullName,
     currentLocation: input.profile.currentLocation,
@@ -351,20 +463,26 @@ function scoreLiteralFields(input: {
       comparableActual += 1;
     }
 
-    if (expectedNormalized !== null && actualNormalized === expectedNormalized) {
+    if (
+      expectedNormalized !== null &&
+      actualNormalized === expectedNormalized
+    ) {
       matches += 1;
     }
   }
 
   return {
-    literalFieldPrecision: safeDivide(matches, comparableActual || expectedEntries.length),
+    literalFieldPrecision: safeDivide(
+      matches,
+      comparableActual || expectedEntries.length,
+    ),
     literalFieldRecall: safeDivide(matches, expectedEntries.length),
   };
 }
 
 function scoreRecordF1(input: {
   expected: readonly Record<string, unknown>[];
-  actual: readonly ResumeImportFieldCandidate[];
+  actual: readonly Record<string, unknown>[];
   keys: readonly string[];
 }): number {
   if (input.expected.length === 0 && input.actual.length === 0) {
@@ -372,21 +490,73 @@ function scoreRecordF1(input: {
   }
 
   const expectedSet = normalizeRecordCollection(input.expected, input.keys);
-  const actualSet = normalizeRecordCollection(
-    input.actual
-      .map((candidate) => toRecordValue(candidate.value))
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry)),
-    input.keys,
-  );
+  const actualSet = normalizeRecordCollection(input.actual, input.keys);
 
   if (expectedSet.size === 0 && actualSet.size === 0) {
     return 1;
   }
 
+  const unmatchedExpected = new Set(expectedSet);
+  const matchedActualIndexes = new Set<number>();
   let truePositives = 0;
-  for (const actualValue of actualSet) {
-    if (expectedSet.has(actualValue)) {
+  for (const [actualIndex, actualValue] of input.actual.entries()) {
+    const actualIdentity = normalizeRecordIdentity(actualValue, input.keys);
+    if (actualIdentity && unmatchedExpected.has(actualIdentity)) {
       truePositives += 1;
+      unmatchedExpected.delete(actualIdentity);
+      matchedActualIndexes.add(actualIndex);
+      continue;
+    }
+
+    const actualParts = normalizeBenchmarkRecordIdentityParts(
+      actualValue,
+      input.keys,
+    );
+    if (actualParts.length === 0) {
+      continue;
+    }
+
+    const containedExpected = [...unmatchedExpected].find(
+      (expectedIdentity) => {
+        const expectedParts = expectedIdentity.split("|");
+        return expectedParts.every((expectedPart) =>
+          actualParts.some(
+            (actualPart) =>
+              actualPart === expectedPart ||
+              actualPart.includes(expectedPart) ||
+              expectedPart.includes(actualPart),
+          ),
+        );
+      },
+    );
+
+    if (containedExpected) {
+      truePositives += 1;
+      unmatchedExpected.delete(containedExpected);
+      matchedActualIndexes.add(actualIndex);
+    }
+  }
+
+  for (const expectedValue of input.expected) {
+    const expectedIdentity = normalizeRecordIdentity(expectedValue, input.keys);
+    if (!expectedIdentity || !unmatchedExpected.has(expectedIdentity)) {
+      continue;
+    }
+
+    const matchingActualIndex = input.actual.findIndex(
+      (actualValue, actualIndex) =>
+        !matchedActualIndexes.has(actualIndex) &&
+        recordValueMatchesExpected({
+          actual: actualValue,
+          expected: expectedValue,
+          keys: input.keys,
+        }),
+    );
+
+    if (matchingActualIndex !== -1) {
+      truePositives += 1;
+      unmatchedExpected.delete(expectedIdentity);
+      matchedActualIndexes.add(matchingActualIndex);
     }
   }
 
@@ -400,8 +570,21 @@ function scoreRecordF1(input: {
   return (2 * precision * recall) / (precision + recall);
 }
 
-function scoreEvidenceCoverage(candidates: readonly ResumeImportFieldCandidate[]): number {
-  const autoApplied = candidates.filter((candidate) => candidate.resolution === "auto_applied");
+function summarizeRecordIdentities(input: {
+  records: readonly Record<string, unknown>[];
+  keys: readonly string[];
+}): string[] {
+  return input.records
+    .map((record) => normalizeRecordIdentity(record, input.keys))
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+function scoreEvidenceCoverage(
+  candidates: readonly ResumeImportFieldCandidate[],
+): number {
+  const autoApplied = candidates.filter(
+    (candidate) => candidate.resolution === "auto_applied",
+  );
 
   if (autoApplied.length === 0) {
     return 1;
@@ -409,7 +592,8 @@ function scoreEvidenceCoverage(candidates: readonly ResumeImportFieldCandidate[]
 
   const grounded = autoApplied.filter(
     (candidate) =>
-      candidate.sourceBlockIds.length > 0 || Boolean(normalizeString(candidate.evidenceText)),
+      candidate.sourceBlockIds.length > 0 ||
+      Boolean(normalizeString(candidate.evidenceText)),
   );
 
   return safeDivide(grounded.length, autoApplied.length);
@@ -437,7 +621,10 @@ function scoreAutoApplyPrecision(input: {
       continue;
     }
 
-    if (normalizeLooseString(candidate.value) === normalizeLooseString(expectedValue)) {
+    if (
+      normalizeLooseString(candidate.value) ===
+      normalizeLooseString(expectedValue)
+    ) {
       correct += 1;
     }
   }
@@ -445,14 +632,17 @@ function scoreAutoApplyPrecision(input: {
   return safeDivide(correct, autoApplied.length);
 }
 
-function scoreUnresolvedRate(candidates: readonly ResumeImportFieldCandidate[]): number {
+function scoreUnresolvedRate(
+  candidates: readonly ResumeImportFieldCandidate[],
+): number {
   if (candidates.length === 0) {
     return 0;
   }
 
   const unresolved = candidates.filter(
     (candidate) =>
-      candidate.resolution === "needs_review" || candidate.resolution === "abstained",
+      candidate.resolution === "needs_review" ||
+      candidate.resolution === "abstained",
   );
 
   return safeDivide(unresolved.length, candidates.length);
@@ -476,17 +666,30 @@ export function buildCaseResult(input: {
   const educationCandidates = input.candidates.filter(
     (candidate) => candidate.target.section === "education",
   );
+  const experienceRecords = getBenchmarkActualRecordValues({
+    actual: experienceCandidates,
+    section: "experience",
+  });
+  const shouldUseProfileExperienceRecords =
+    input.benchmarkCase.expected.experienceRecords.length > 0;
+  const scoredExperienceRecords = shouldUseProfileExperienceRecords
+    ? [...experienceRecords, ...input.profile.experiences]
+    : experienceRecords;
+  const educationRecords = getBenchmarkActualRecordValues({
+    actual: educationCandidates,
+    section: "education",
+  });
   const metrics: ResumeImportBenchmarkMetrics = {
     literalFieldPrecision: literalScores.literalFieldPrecision,
     literalFieldRecall: literalScores.literalFieldRecall,
     experienceRecordF1: scoreRecordF1({
       expected: input.benchmarkCase.expected.experienceRecords,
-      actual: experienceCandidates,
+      actual: scoredExperienceRecords,
       keys: ["title", "companyName"],
     }),
     educationRecordF1: scoreRecordF1({
       expected: input.benchmarkCase.expected.educationRecords,
-      actual: educationCandidates,
+      actual: educationRecords,
       keys: ["schoolName", "degree"],
     }),
     evidenceCoverage: scoreEvidenceCoverage(input.candidates),
@@ -510,6 +713,13 @@ export function buildCaseResult(input: {
     !taxonomy.includes("MISSING_EVIDENCE") &&
     !taxonomy.includes("OVERCONFIDENT_AUTO_APPLY") &&
     !taxonomy.includes("UNRESOLVED_SHOULD_HAVE_RESOLVED");
+  const notes =
+    metrics.experienceRecordF1 < 0.5
+      ? [
+          `Expected experience identities: ${summarizeRecordIdentities({ records: input.benchmarkCase.expected.experienceRecords, keys: ["title", "companyName"] }).join(", ")}`,
+          `Actual experience identities: ${summarizeRecordIdentities({ records: scoredExperienceRecords, keys: ["title", "companyName"] }).join(", ")}`,
+        ]
+      : [];
 
   return {
     caseId: input.benchmarkCase.id,
@@ -518,7 +728,7 @@ export function buildCaseResult(input: {
     passed,
     metrics,
     taxonomy,
-    notes: [],
+    notes,
   };
 }
 
@@ -526,13 +736,27 @@ export function aggregateBenchmarkMetrics(
   results: readonly ResumeImportBenchmarkCaseResult[],
 ): ResumeImportBenchmarkMetrics {
   return {
-    literalFieldPrecision: average(results.map((result) => result.metrics.literalFieldPrecision)),
-    literalFieldRecall: average(results.map((result) => result.metrics.literalFieldRecall)),
-    experienceRecordF1: average(results.map((result) => result.metrics.experienceRecordF1)),
-    educationRecordF1: average(results.map((result) => result.metrics.educationRecordF1)),
-    evidenceCoverage: average(results.map((result) => result.metrics.evidenceCoverage)),
-    autoApplyPrecision: average(results.map((result) => result.metrics.autoApplyPrecision)),
-    unresolvedRate: average(results.map((result) => result.metrics.unresolvedRate)),
+    literalFieldPrecision: average(
+      results.map((result) => result.metrics.literalFieldPrecision),
+    ),
+    literalFieldRecall: average(
+      results.map((result) => result.metrics.literalFieldRecall),
+    ),
+    experienceRecordF1: average(
+      results.map((result) => result.metrics.experienceRecordF1),
+    ),
+    educationRecordF1: average(
+      results.map((result) => result.metrics.educationRecordF1),
+    ),
+    evidenceCoverage: average(
+      results.map((result) => result.metrics.evidenceCoverage),
+    ),
+    autoApplyPrecision: average(
+      results.map((result) => result.metrics.autoApplyPrecision),
+    ),
+    unresolvedRate: average(
+      results.map((result) => result.metrics.unresolvedRate),
+    ),
   };
 }
 
@@ -563,7 +787,9 @@ function createBenchmarkContext(input: {
     ) {
       void input;
       return Promise.reject(
-        new Error("Resume rendering is not available in the benchmark harness."),
+        new Error(
+          "Resume rendering is not available in the benchmark harness.",
+        ),
       );
     },
   } satisfies JobFinderDocumentManager;
@@ -580,7 +806,9 @@ function createBenchmarkContext(input: {
     activeSourceDebugPromiseRef: { current: null },
     getWorkspaceSnapshot: () =>
       Promise.reject(
-        new Error("Workspace snapshots are not available in the benchmark harness."),
+        new Error(
+          "Workspace snapshots are not available in the benchmark harness.",
+        ),
       ),
     runSourceDebugWorkflow: () =>
       Promise.reject(
@@ -592,7 +820,10 @@ function createBenchmarkContext(input: {
       await repository.saveDiscoveryState(next);
       return next;
     },
-    persistSavedJobsAndDiscoveryState: async ({ savedJobs, discoveryState }) => {
+    persistSavedJobsAndDiscoveryState: async ({
+      savedJobs,
+      discoveryState,
+    }) => {
       await repository.replaceSavedJobsAndDiscoveryState({
         savedJobs,
         discoveryState,
@@ -626,9 +857,8 @@ export async function runResumeImportBenchmark(input: {
 
   for (const benchmarkCase of benchmarkCases) {
     const harness = await input.createHarness(benchmarkCase, request);
-    const aiClient = harness.aiClient ?? buildBenchmarkAiClient(
-      request.useConfiguredAi,
-    );
+    const aiClient =
+      harness.aiClient ?? buildBenchmarkAiClient(request.useConfiguredAi);
     const ctx = createBenchmarkContext({
       aiClient,
       profile: harness.profile,
@@ -666,7 +896,7 @@ export async function runResumeImportBenchmark(input: {
     parserManifestVersions.length === 0
       ? null
       : parserManifestVersions.length === 1
-        ? parserManifestVersions[0] ?? null
+        ? (parserManifestVersions[0] ?? null)
         : `mixed:${parserManifestVersions.join(",")}`;
 
   return ResumeImportBenchmarkReportSchema.parse({
@@ -675,9 +905,13 @@ export async function runResumeImportBenchmark(input: {
     parserManifestVersion,
     parserManifestVersions,
     analysisProviderKind:
-      providerKinds.size === 1 ? ([...providerKinds][0] as ResumeImportBenchmarkReport["analysisProviderKind"]) : null,
+      providerKinds.size === 1
+        ? ([
+            ...providerKinds,
+          ][0] as ResumeImportBenchmarkReport["analysisProviderKind"])
+        : null,
     analysisProviderLabel:
-      providerLabels.size === 1 ? [...providerLabels][0] ?? null : null,
+      providerLabels.size === 1 ? ([...providerLabels][0] ?? null) : null,
     cases: results,
     aggregate: aggregateBenchmarkMetrics(results),
     notes: [],

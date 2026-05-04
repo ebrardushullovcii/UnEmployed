@@ -12,6 +12,8 @@ import type {
 import { ResumeAssistantReplySchema, TailoredResumeDraftSchema } from "../shared";
 import { clampScore, uniqueStrings } from "./utils";
 import { filterGroundedVisibleSkills } from "./resume-skill-grounding";
+import { deriveResumeCoveragePlan } from "./resume-coverage";
+import type { ResumeCoverageClassification } from "../shared";
 
 function tokenizeForQuality(value: string | null | undefined): string[] {
   return (value ?? "")
@@ -182,6 +184,8 @@ function isDistinctQualityLine(value: string, existing: readonly string[]): bool
 function buildExperienceBullets(input: {
   experience: CandidateProfile["experiences"][number];
   proofBank: CandidateProfile["proofBank"];
+  maxBullets?: number;
+  usedBulletSignatures?: Set<string>;
 }): string[] {
   const baseBullets = uniqueStrings(input.experience.achievements);
   const matchedProofs: Array<CandidateProfile["proofBank"][number]> = [];
@@ -231,7 +235,84 @@ function buildExperienceBullets(input: {
     supportingContextBullets.push(candidate);
   }
 
-  return uniqueStrings([...enrichedBullets, ...supportingContextBullets]).slice(0, 3);
+  const maxBullets = input.maxBullets ?? 3;
+  const selectedBullets: string[] = [];
+
+  for (const bullet of uniqueStrings([...enrichedBullets, ...supportingContextBullets])) {
+    const signature = tokenizeForQuality(bullet).join(" ");
+    if (signature && input.usedBulletSignatures?.has(signature)) {
+      continue;
+    }
+
+    selectedBullets.push(bullet);
+    if (signature) {
+      input.usedBulletSignatures?.add(signature);
+    }
+
+    if (selectedBullets.length >= maxBullets) {
+      break;
+    }
+  }
+
+  return selectedBullets;
+}
+
+function shouldExportCoverageClassification(
+  classification: ResumeCoverageClassification,
+): boolean {
+  return classification === "detailed" || classification === "compact";
+}
+
+function compactExperienceSummary(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.length <= 150) {
+    return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  }
+
+  const candidate = trimmed.slice(0, 150);
+  const clipped = candidate.replace(/\s+\S*$/, "").trim();
+  return clipped ? `${clipped}.` : null;
+}
+
+function parseChronologyMonth(value: string | null | undefined): number | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^(present|current|now)$/i.test(trimmed)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const yearMonthMatch = /^(\d{4})-(\d{2})/.exec(trimmed);
+  if (yearMonthMatch) {
+    return Number(yearMonthMatch[1]) * 12 + Number(yearMonthMatch[2]);
+  }
+
+  const yearMatch = /^(\d{4})$/.exec(trimmed);
+  if (yearMatch) {
+    return Number(yearMatch[1]) * 12 + 1;
+  }
+
+  return null;
+}
+
+function compareExperienceReverseChronology(
+  left: CandidateProfile["experiences"][number],
+  right: CandidateProfile["experiences"][number],
+): number {
+  const leftMonth = (left.isCurrent
+    ? Number.MAX_SAFE_INTEGER
+    : parseChronologyMonth(left.endDate)) ?? parseChronologyMonth(left.startDate) ?? Number.MIN_SAFE_INTEGER;
+  const rightMonth = (right.isCurrent
+    ? Number.MAX_SAFE_INTEGER
+    : parseChronologyMonth(right.endDate)) ?? parseChronologyMonth(right.startDate) ?? Number.MIN_SAFE_INTEGER;
+
+  return rightMonth - leftMonth;
 }
 
 function createPatchId(prefix: string): string {
@@ -401,27 +482,48 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     ? (preferredStoredSummary ?? synthesizedSummary)
     : synthesizedSummary;
   const experienceHighlights: string[] = [];
-  const experienceEntries = input.profile.experiences.slice(0, 3).map((experience) => {
-    const bullets = buildExperienceBullets({
-      experience,
-      proofBank: input.profile.proofBank,
-    });
-
-    return {
-      title: experience.title,
-      employer: experience.companyName,
-      location: experience.location,
-      dateRange: formatDateRange(experience.startDate, experience.isCurrent ? "Present" : experience.endDate),
-      summary: shouldKeepExperienceSummary({
-        summary: experience.summary,
-        bullets,
-      })
-        ? experience.summary
-        : null,
-      bullets,
-      profileRecordId: experience.id,
-    };
+  const coverageMetadata = deriveResumeCoveragePlan({
+    profile: input.profile,
+    searchPreferences: input.searchPreferences,
+    job: input.job,
   });
+  const coverageByRecordId = new Map(
+    coverageMetadata.map((decision) => [decision.profileRecordId, decision]),
+  );
+  const usedBulletSignatures = new Set<string>();
+  const experienceEntries = [...input.profile.experiences]
+    .sort(compareExperienceReverseChronology)
+    .flatMap((experience) => {
+      const coverage = coverageByRecordId.get(experience.id);
+      if (!coverage || !shouldExportCoverageClassification(coverage.classification)) {
+        return [];
+      }
+
+      const isCompact = coverage.classification === "compact";
+      const bullets = buildExperienceBullets({
+        experience,
+        proofBank: input.profile.proofBank,
+        maxBullets: isCompact ? 1 : 3,
+        usedBulletSignatures,
+      });
+
+      return [{
+        title: experience.title,
+        employer: experience.companyName,
+        location: experience.location,
+        dateRange: formatDateRange(experience.startDate, experience.isCurrent ? "Present" : experience.endDate),
+        summary: isCompact
+          ? compactExperienceSummary(experience.summary)
+          : shouldKeepExperienceSummary({
+              summary: experience.summary,
+              bullets,
+            })
+            ? experience.summary
+            : null,
+        bullets,
+        profileRecordId: experience.id,
+      }];
+    });
   const projectEntries = input.profile.projects.slice(0, 2).map((project) => ({
     name: project.name,
     role: project.role,
@@ -470,6 +572,7 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     projectEntries,
     educationEntries,
     certificationEntries,
+    coverageMetadata,
     additionalSkills,
     languages,
     fullText,
@@ -649,6 +752,7 @@ export function buildDeterministicResumeAssistantReply(
         operation: "replace_section_text",
         targetSectionId: summarySection.id,
         targetEntryId: null,
+        anchorEntryId: null,
         targetBulletId: null,
         anchorBulletId: null,
         position: null,
@@ -705,6 +809,7 @@ export function buildDeterministicResumeAssistantReply(
         operation: "update_bullet",
         targetSectionId: experienceSection.id,
         targetEntryId: targetBullet.entryId,
+        anchorEntryId: null,
         targetBulletId: targetBullet.bullet.id,
         anchorBulletId: null,
         position: null,

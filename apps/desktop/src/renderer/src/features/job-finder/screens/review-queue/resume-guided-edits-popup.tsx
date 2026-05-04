@@ -184,10 +184,10 @@ export function ResumeGuidedEditsPopup(props: {
 
     event.currentTarget.releasePointerCapture(event.pointerId);
     dragStateRef.current = null;
-    suppressNextBubbleClickRef.current = true;
+    suppressNextBubbleClickRef.current = dragState.moved;
 
     if (!dragState.moved) {
-      toggleOpen();
+      event.preventDefault();
     }
   }
 
@@ -231,6 +231,7 @@ export function ResumeGuidedEditsPopup(props: {
   return (
     <div
       className="pointer-events-none fixed z-60 hidden max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3 xl:flex"
+      data-resume-guided-edits-open={isOpen ? "true" : "false"}
       style={{
         bottom: `${Math.max(position.y, 20)}px`,
         right: `${position.x}px`,
@@ -368,6 +369,7 @@ export function ResumeGuidedEditsPopup(props: {
                   </FieldLabel>
                   <Textarea
                     className="min-w-0"
+                    data-testid="resume-assistant-input"
                     id={composerId}
                     onChange={(event) => setInput(event.currentTarget.value)}
                     onKeyDown={handleComposerKeyDown}
@@ -402,7 +404,7 @@ export function ResumeGuidedEditsPopup(props: {
       ) : null}
 
       <Button
-        aria-label="Guided edits"
+        aria-label="Open guided edits"
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         className="pointer-events-auto h-auto min-h-14 rounded-full px-4 py-3 shadow-(--guided-edits-bubble-shadow)"

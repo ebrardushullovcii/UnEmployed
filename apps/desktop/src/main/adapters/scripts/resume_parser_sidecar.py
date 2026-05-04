@@ -104,8 +104,8 @@ MONTH_PATTERN = (
 )
 
 DATE_RANGE_PATTERN = re.compile(
-    rf"((?:\d{{2}}/\d{{4}})|(?:\d{{4}})|(?:{MONTH_PATTERN}\s+\d{{4}}))\s*[–—-]\s*"
-    rf"(Current|Present|(?:\d{{2}}/\d{{4}})|(?:\d{{4}})|(?:{MONTH_PATTERN}\s+\d{{4}}))",
+    rf"((?:\d{{1,2}}/\d{{1,2}}/\d{{4}})|(?:\d{{1,2}}/\d{{4}})|(?:\d{{4}})|(?:{MONTH_PATTERN}\s+\d{{4}}))\s*[–—-]\s*"
+    rf"(Current|Present|(?:\d{{1,2}}/\d{{1,2}}/\d{{4}})|(?:\d{{1,2}}/\d{{4}})|(?:\d{{4}})|(?:{MONTH_PATTERN}\s+\d{{4}}))",
     re.IGNORECASE,
 )
 

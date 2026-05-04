@@ -31,11 +31,11 @@ describe("contracts workspace snapshot schema", () => {
       availableResumeTemplates: [
         {
           id: "classic_ats",
-          label: "Swiss Minimal - Standard",
-          familyId: "swiss_minimal",
-          familyLabel: "Swiss Minimal",
+          label: "Chronology Classic",
+          familyId: "chronology_classic",
+          familyLabel: "Chronology Classic",
           familyDescription: "Calm ATS-safe layouts.",
-          variantLabel: "Standard",
+          variantLabel: "Recruiter Standard",
           description:
             "Single-column, conservative, and recruiter-friendly for high parsing reliability.",
           fitSummary: "A clean all-rounder.",
@@ -296,7 +296,7 @@ describe("contracts workspace snapshot schema", () => {
           status: "ready",
           label: "Tailored Resume",
           version: "v1",
-          templateName: "Classic ATS",
+          templateName: "Chronology Classic",
           compatibilityScore: 98,
           progressPercent: 100,
           updatedAt: "2026-03-20T10:03:00.000Z",

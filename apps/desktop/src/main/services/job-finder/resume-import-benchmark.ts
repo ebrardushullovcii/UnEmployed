@@ -101,6 +101,46 @@ const defaultBenchmarkCases = [
     },
   },
   {
+    id: "ebrar_new_pdf",
+    label: "Ebrar New PDF",
+    resumePath: "docs/resume-tests/Ebrar new.pdf",
+    canary: false,
+    tags: ["pdf", "alternate-format", "baseline"],
+    expected: {
+      literalFields: {
+        fullName: "Ebrar Dushullovci",
+        currentLocation: "Prishtina, Kosovo",
+        email: "ebrar.dushullovci@gmail.com",
+        phone: "(+383) 44283970",
+      },
+      summaryContains: ["full-stack"],
+      experienceRecords: [
+        {
+          title: "Senior Full-Stack Software Engineer",
+          companyName: "AUTOMATEDPROS",
+        },
+        {
+          title: "Chief Experience Officer",
+          companyName: "AUTOMATEDPROS",
+        },
+        {
+          title: "Senior Full-Stack Software Engineer (Part-Time Consultant)",
+          companyName: "INFOTECH L.L.C",
+        },
+        {
+          title: "Full-Stack Software Engineer",
+          companyName: "CREA-KO",
+        },
+      ],
+      educationRecords: [
+        {
+          schoolName: "Kolegji Riinvest (Riinvest College)",
+          degree: "BACHELOR'S DEGREE",
+        },
+      ],
+    },
+  },
+  {
     id: "aaron_murphy_pdf",
     label: "Aaron Murphy PDF",
     resumePath: "docs/resume-tests/Aaron Murphy Resume.pdf",

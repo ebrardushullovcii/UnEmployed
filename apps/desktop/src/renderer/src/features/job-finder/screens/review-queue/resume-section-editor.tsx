@@ -2,6 +2,7 @@ import { useId, type FocusEvent } from "react";
 import type {
   ResumeDraftPatch,
   ResumeDraftSection,
+  WorkHistoryReviewSuggestion,
 } from "@unemployed/contracts";
 import { getResumeSectionTextTargetId } from "@unemployed/contracts";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
@@ -26,6 +27,7 @@ export function ResumeSectionEditor(props: {
   onSelectSection: (sectionId: string) => void;
   onRegenerate: () => void;
   onPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void;
+  workHistoryReviewSuggestions: readonly WorkHistoryReviewSuggestion[];
 }) {
   const textId = useId();
   const controlIdPrefix = useId();
@@ -101,14 +103,18 @@ export function ResumeSectionEditor(props: {
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             Structured entries
           </p>
-          {props.section.entries.map((entry) => (
+          {props.section.entries.map((entry, entryIndex) => (
             <ResumeEntryEditorCard
               key={entry.id}
               controlIdPrefix={controlIdPrefix}
               disabled={props.disabled}
               entry={entry}
+              entryIndex={entryIndex}
               isSelected={props.selectedEntryId === entry.id}
               section={props.section}
+              workHistoryReviewSuggestions={props.workHistoryReviewSuggestions.filter(
+                (suggestion) => suggestion.entryId === entry.id,
+              )}
               onChange={props.onChange}
               onPatch={props.onPatch}
               onSelectEntry={props.onSelectEntry}

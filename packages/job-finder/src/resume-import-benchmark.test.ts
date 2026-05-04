@@ -454,6 +454,136 @@ describe("resume import benchmark", () => {
     expect(result.taxonomy).toContain("MISSING_EVIDENCE");
   });
 
+  test("penalizes extra experience identities even when all expected records are present", () => {
+    const seed = createSeed();
+    const result = buildCaseResult({
+      benchmarkCase: {
+        id: "experience_extra_records",
+        label: "Experience extra records",
+        resumePath: "fixture.txt",
+        canary: true,
+        tags: ["test"],
+        expected: {
+          literalFields: {},
+          summaryContains: [],
+          experienceRecords: [
+            {
+              title: "Senior Full-Stack Software Engineer",
+              companyName: "AUTOMATEDPROS",
+            },
+          ],
+          educationRecords: [],
+        },
+      },
+      parserStrategy: "fixture+plain_text",
+      profile: {
+        ...seed.profile,
+        experiences: [
+          {
+            id: "experience_1",
+            companyName: "AUTOMATEDPROS",
+            companyUrl: null,
+            title: "Senior Full-Stack Software Engineer",
+            employmentType: null,
+            location: null,
+            workMode: [],
+            startDate: "07/2023",
+            endDate: null,
+            isCurrent: true,
+            isDraft: false,
+            summary: null,
+            achievements: [],
+            skills: [],
+            domainTags: [],
+            peopleManagementScope: null,
+            ownershipScope: null,
+          },
+          {
+            id: "experience_2",
+            companyName: "INFOTECH L.L.C",
+            companyUrl: null,
+            title: "Unexpected Extra Role",
+            employmentType: null,
+            location: null,
+            workMode: [],
+            startDate: "01/2022",
+            endDate: null,
+            isCurrent: true,
+            isDraft: false,
+            summary: null,
+            achievements: [],
+            skills: [],
+            domainTags: [],
+            peopleManagementScope: null,
+            ownershipScope: null,
+          },
+        ],
+      },
+      searchPreferences: seed.searchPreferences,
+      candidates: [],
+    });
+
+    expect(result.metrics.experienceRecordF1).toBeLessThan(1);
+    expect(result.metrics.experienceRecordF1).toBeCloseTo(2 / 3);
+  });
+
+  test("does not let one fuzzy actual record satisfy multiple expected identities", () => {
+    const seed = createSeed();
+    const result = buildCaseResult({
+      benchmarkCase: {
+        id: "experience_single_actual_reuse",
+        label: "Experience single actual reuse",
+        resumePath: "fixture.txt",
+        canary: true,
+        tags: ["test"],
+        expected: {
+          literalFields: {},
+          summaryContains: [],
+          experienceRecords: [
+            {
+              title: "Senior Full-Stack Software Engineer",
+              companyName: "AUTOMATEDPROS",
+            },
+            {
+              title: "Chief Experience Officer",
+              companyName: "AUTOMATEDPROS",
+            },
+          ],
+          educationRecords: [],
+        },
+      },
+      parserStrategy: "fixture+plain_text",
+      profile: {
+        ...seed.profile,
+        experiences: [
+          {
+            id: "experience_1",
+            companyName: "AUTOMATEDPROS",
+            companyUrl: null,
+            title: "Senior Full-Stack Software Engineer / Chief Experience Officer",
+            employmentType: null,
+            location: null,
+            workMode: [],
+            startDate: "07/2023",
+            endDate: null,
+            isCurrent: true,
+            isDraft: false,
+            summary: null,
+            achievements: [],
+            skills: [],
+            domainTags: [],
+            peopleManagementScope: null,
+            ownershipScope: null,
+          },
+        ],
+      },
+      searchPreferences: seed.searchPreferences,
+      candidates: [],
+    });
+
+    expect(result.metrics.experienceRecordF1).toBeLessThan(1);
+  });
+
   test("does not flag unresolved safe literal when matching value was auto-applied", () => {
     const seed = createSeed();
     const result = buildCaseResult({
